@@ -648,6 +648,7 @@ const ContentArea: Component<{
           <Show when={activeTab()?.id} keyed>
             {(id) => (
               <FilesView
+                id={id}
                 path={tabs().find((t) => t.id === id)?.url ?? ""}
                 onPathChange={(p) => {
                   updateTabUrl(id, p);

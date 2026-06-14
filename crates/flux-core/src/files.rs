@@ -7,10 +7,13 @@
 //! and the hidden flag) so even a 10k-file listing is a small JSON payload;
 //! the frontend virtualizes rendering and sorts client-side.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
+use parking_lot::Mutex;
 use serde::Serialize;
+use tauri::{AppHandle, Emitter, State};
 
 /// One directory entry. Compact on purpose — see module docs.
 #[derive(Serialize)]
@@ -47,6 +50,123 @@ pub fn home_dir() -> String {
     std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".into())
+}
+
+// ─── Live directory watch (#85) ───────────────────────────────────────────────
+//
+// One `notify` watcher per Files tab (keyed by tab id). The watcher emits
+// `flux://fs-changed` with the watched directory; the UI debounces and re-lists
+// if the change is for the directory it's showing. Stored behind a Mutex (a
+// `RecommendedWatcher` is `Send` but not `Sync`).
+
+#[derive(Default)]
+pub struct FsWatchers(pub Mutex<HashMap<u64, notify::RecommendedWatcher>>);
+
+// ─── Undo stack (#89) ─────────────────────────────────────────────────────────
+//
+// Reversible ops only — undo never deletes user data, it only puts files back:
+// rename → rename back, move → move back, trash → restore. Backend-owned so the
+// platform-specific trash-restore handle (`TrashItem`) never crosses IPC.
+
+/// Trash-restore is platform-gated: Windows + freedesktop (Linux/BSD) only.
+#[cfg(any(target_os = "windows", all(unix, not(target_os = "macos"))))]
+mod restore {
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    pub type Items = Vec<trash::TrashItem>;
+
+    /// Capture the just-trashed items so they can be restored later: match the
+    /// trash listing against the original paths, newest-first, de-duped.
+    pub fn capture(paths: &[String]) -> Items {
+        let want: HashSet<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        let mut items = trash::os_limited::list().unwrap_or_default();
+        items.sort_by(|a, b| b.time_deleted.cmp(&a.time_deleted));
+        let mut seen = HashSet::new();
+        items
+            .into_iter()
+            .filter(|it| {
+                let full = it.original_parent.join(&it.name);
+                want.contains(&full) && seen.insert(full)
+            })
+            .collect()
+    }
+
+    pub fn restore(items: Items) -> Result<(), String> {
+        trash::os_limited::restore_all(items).map_err(|e| e.to_string())
+    }
+}
+#[cfg(not(any(target_os = "windows", all(unix, not(target_os = "macos")))))]
+mod restore {
+    pub type Items = Vec<String>;
+    pub fn capture(_paths: &[String]) -> Items {
+        Vec::new()
+    }
+    pub fn restore(_items: Items) -> Result<(), String> {
+        Err("Restoring from Trash isn't supported on this platform".into())
+    }
+}
+
+/// One reversible operation. Reverting only ever moves files back.
+enum UndoOp {
+    Rename { from: String, to: String },
+    /// (original source, where it was moved to) pairs.
+    Move { pairs: Vec<(String, String)> },
+    Trash { items: restore::Items },
+}
+
+impl UndoOp {
+    /// Apply the inverse; returns a short human description for a toast.
+    fn revert(self) -> Result<String, String> {
+        match self {
+            UndoOp::Rename { from, to } => {
+                if Path::new(&from).exists() {
+                    return Err(format!("{} already exists", base_name(&from)));
+                }
+                std::fs::rename(&to, &from).map_err(|e| e.to_string())?;
+                Ok(format!("Reverted rename of {}", base_name(&from)))
+            }
+            UndoOp::Move { pairs } => {
+                for (src, dst) in pairs.iter().rev() {
+                    if std::fs::rename(dst, src).is_err() {
+                        copy_recursive(Path::new(dst), Path::new(src)).map_err(|e| e.to_string())?;
+                        remove_path(Path::new(dst)).map_err(|e| e.to_string())?;
+                    }
+                }
+                Ok(format!("Moved {} item{} back", pairs.len(), if pairs.len() == 1 { "" } else { "s" }))
+            }
+            UndoOp::Trash { items } => {
+                let n = items.len();
+                restore::restore(items)?;
+                Ok(format!("Restored {} item{} from Trash", n, if n == 1 { "" } else { "s" }))
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct UndoStack(Mutex<Vec<UndoOp>>);
+
+impl UndoStack {
+    fn push(&self, op: UndoOp) {
+        let mut s = self.0.lock();
+        s.push(op);
+        let cap = 50;
+        if s.len() > cap {
+            let excess = s.len() - cap;
+            s.drain(0..excess);
+        }
+    }
+    fn pop(&self) -> Option<UndoOp> {
+        self.0.lock().pop()
+    }
+}
+
+fn base_name(p: &str) -> String {
+    Path::new(p)
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| p.to_string())
 }
 
 /// Strip Windows' `\\?\` extended-length prefix that `canonicalize` adds, so
@@ -240,42 +360,54 @@ pub async fn fs_create_file(path: String) -> Result<(), String> {
 
 /// Rename (in place) from `from` to `to` — both full paths. Refuses to clobber.
 #[tauri::command]
-pub async fn fs_rename(from: String, to: String) -> Result<(), String> {
-    blocking(move || {
-        let (from, to) = (Path::new(&from), Path::new(&to));
-        if to.exists() {
-            return Err(format!("{} already exists", clean(to)));
+pub async fn fs_rename(undo: State<'_, UndoStack>, from: String, to: String) -> Result<(), String> {
+    let (f, t) = (from.clone(), to.clone());
+    tauri::async_runtime::spawn_blocking(move || {
+        let (fp, tp) = (Path::new(&f), Path::new(&t));
+        if tp.exists() {
+            return Err(format!("{} already exists", clean(tp)));
         }
-        std::fs::rename(from, to).map_err(|e| e.to_string())
+        std::fs::rename(fp, tp).map_err(|e| e.to_string())
     })
     .await
+    .map_err(|e| e.to_string())??;
+    undo.push(UndoOp::Rename { from, to });
+    Ok(())
 }
 
 /// Move each of `paths` into directory `dest`. Tries `rename`, falling back to
 /// copy+delete across filesystems. Refuses to overwrite an existing target.
 #[tauri::command]
-pub async fn fs_move(paths: Vec<String>, dest: String) -> Result<(), String> {
-    blocking(move || {
-        let dest = Path::new(&dest);
-        for src in &paths {
-            let src = Path::new(src);
-            let name = src.file_name().ok_or_else(|| format!("bad path: {}", clean(src)))?;
+pub async fn fs_move(undo: State<'_, UndoStack>, paths: Vec<String>, dest: String) -> Result<(), String> {
+    let (paths2, dest2) = (paths.clone(), dest.clone());
+    let pairs = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<(String, String)>, String> {
+        let dest = Path::new(&dest2);
+        let mut pairs = Vec::new();
+        for src in &paths2 {
+            let src_p = Path::new(src);
+            let name = src_p.file_name().ok_or_else(|| format!("bad path: {}", clean(src_p)))?;
             let target = dest.join(name);
-            if target == src {
+            if target == src_p {
                 continue; // moving onto itself — no-op
             }
             if target.exists() {
                 return Err(format!("{} already exists", clean(&target)));
             }
-            if std::fs::rename(src, &target).is_err() {
+            if std::fs::rename(src_p, &target).is_err() {
                 // Cross-device (or rename refused): copy then remove the source.
-                copy_recursive(src, &target).map_err(|e| e.to_string())?;
-                remove_path(src).map_err(|e| e.to_string())?;
+                copy_recursive(src_p, &target).map_err(|e| e.to_string())?;
+                remove_path(src_p).map_err(|e| e.to_string())?;
             }
+            pairs.push((src.clone(), clean(&target)));
         }
-        Ok(())
+        Ok(pairs)
     })
     .await
+    .map_err(|e| e.to_string())??;
+    if !pairs.is_empty() {
+        undo.push(UndoOp::Move { pairs });
+    }
+    Ok(())
 }
 
 /// Copy each of `paths` into directory `dest`; auto-uniquifies on collision so
@@ -295,10 +427,19 @@ pub async fn fs_copy(paths: Vec<String>, dest: String) -> Result<(), String> {
     .await
 }
 
-/// Send each of `paths` to the OS trash / recycle bin (recoverable).
+/// Send each of `paths` to the OS trash / recycle bin (recoverable + undoable).
 #[tauri::command]
-pub async fn fs_trash(paths: Vec<String>) -> Result<(), String> {
-    blocking(move || trash::delete_all(&paths).map_err(|e| e.to_string())).await
+pub async fn fs_trash(undo: State<'_, UndoStack>, paths: Vec<String>) -> Result<(), String> {
+    let items = tauri::async_runtime::spawn_blocking(move || -> Result<restore::Items, String> {
+        trash::delete_all(&paths).map_err(|e| e.to_string())?;
+        Ok(restore::capture(&paths))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if !items.is_empty() {
+        undo.push(UndoOp::Trash { items });
+    }
+    Ok(())
 }
 
 /// Permanently delete each of `paths` (recursive) — no trash, no undo.
@@ -311,4 +452,45 @@ pub async fn fs_delete(paths: Vec<String>) -> Result<(), String> {
         Ok(())
     })
     .await
+}
+
+/// Undo the last reversible op (rename / move / trash). Returns a description
+/// for a toast, or `None` if nothing is left to undo.
+#[tauri::command]
+pub async fn fs_undo(undo: State<'_, UndoStack>) -> Result<Option<String>, String> {
+    let Some(op) = undo.pop() else {
+        return Ok(None);
+    };
+    let desc = tauri::async_runtime::spawn_blocking(move || op.revert())
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(Some(desc))
+}
+
+/// Start (or replace) a live watch on `path` for the Files tab `id`. Emits
+/// `flux://fs-changed` with the watched directory when its contents change.
+#[tauri::command]
+pub fn fs_watch(app: AppHandle, watchers: State<'_, FsWatchers>, id: u64, path: String) -> Result<(), String> {
+    use notify::Watcher;
+    let emit_path = path.clone();
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        // Scope to the shell window — tab webviews never need (or, per ACL, can
+        // receive) this, and it keeps the event off remote pages entirely.
+        if res.is_ok() {
+            let _ = app.emit_to("main", "flux://fs-changed", emit_path.clone());
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    watcher
+        .watch(Path::new(&path), notify::RecursiveMode::NonRecursive)
+        .map_err(|e| e.to_string())?;
+    // Replacing drops the previous watcher, which stops the old watch.
+    watchers.0.lock().insert(id, watcher);
+    Ok(())
+}
+
+/// Stop watching for the Files tab `id` (on tab close / unmount).
+#[tauri::command]
+pub fn fs_unwatch(watchers: State<'_, FsWatchers>, id: u64) {
+    watchers.0.lock().remove(&id);
 }

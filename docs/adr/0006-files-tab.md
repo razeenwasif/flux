@@ -72,5 +72,21 @@ copy/cut/paste, drag-to-move, and delete. Design choices worth recording:
   create/rename, drag targets, confirm dialog); the backend stays mechanical
   and path-based, with name validation on the UI side.
 
-Still deferred: live directory watch (#85), undo (#89), marquee select / native
-drag-out (#90).
+Still deferred: marquee select / native drag-out (#90).
+
+## Update (2026-06-14) — live watch + undo
+
+- **Live directory watch (#85):** one `notify` watcher per Files tab (keyed by
+  tab id, stored behind a `Mutex` — `RecommendedWatcher` is `Send` but not
+  `Sync`), emitting `flux://fs-changed` *scoped to the shell window* (`emit_to`,
+  so it never reaches remote tab pages). The UI debounces (~180ms) and does a
+  **soft re-list** that preserves scroll and selection, so external changes —
+  and the app's own ops — appear without a flicker or a manual refresh.
+- **Undo (#89):** a **backend-owned** stack of *reversible* ops only — undo
+  never deletes user data, it only puts files back: rename→rename, move→move,
+  trash→restore (the `trash` crate's `os_limited` restore, gated to
+  Windows/freedesktop; a no-op stub elsewhere). Keeping the stack in Rust means
+  the platform-specific `TrashItem` restore handle never has to cross IPC.
+  ⌘/Ctrl-Z (or the context menu) triggers `fs_undo`, which returns a description
+  for a toast. Create/copy/permanent-delete are deliberately **not** undoable —
+  reversing them would mean deleting, which `undo` must never do.

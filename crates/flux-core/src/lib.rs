@@ -31,6 +31,9 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(terminal::TerminalManager::new());
             // Pluggable search config (persisted to the app config dir).
             app.manage(search::SearchState::load(app.handle()));
+            // Files tab: live directory watchers + the file-op undo stack.
+            app.manage(files::FsWatchers::default());
+            app.manage(files::UndoStack::default());
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -93,6 +96,9 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_copy,
             files::fs_trash,
             files::fs_delete,
+            files::fs_undo,
+            files::fs_watch,
+            files::fs_unwatch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Flux");

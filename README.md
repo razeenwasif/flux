@@ -162,8 +162,10 @@ compact entries, so even huge directories never block the UI.
 paste (⌘/Ctrl-C/X/V), drag-to-move (onto folders, the rail, or breadcrumbs),
 and delete — to the **OS trash** by default (recoverable) or permanent with
 ⇧. Multi-select (click / ⌘-click / ⇧-click / ⌘A), a right-click context menu,
-and a confirm dialog on every destructive op. Next: live directory watch and
-undo — see `BACKLOG.md` #85/#89.
+and a confirm dialog on every destructive op. The listing **watches the
+directory** and updates itself on external changes (no manual refresh), and
+reversible ops are **undoable** with ⌘/Ctrl-Z (rename/move/trash → restore).
+Next: marquee selection + native drag-out — see `BACKLOG.md` #90.
 
 ## Roadmap
 

@@ -208,6 +208,14 @@ export const fsCopy = (paths: string[], dest: string) => invoke<void>("fs_copy",
 export const fsTrash = (paths: string[]) => invoke<void>("fs_trash", { paths });
 /** Permanent delete (no undo). */
 export const fsDelete = (paths: string[]) => invoke<void>("fs_delete", { paths });
+/** Undo the last reversible op (rename/move/trash); returns a description or null. */
+export const fsUndo = () => invoke<string | null>("fs_undo");
+/** Live directory watch for a Files tab (#85): one watcher per tab id. */
+export const fsWatch = (id: number, path: string) => invoke<void>("fs_watch", { id, path });
+export const fsUnwatch = (id: number) => invoke<void>("fs_unwatch", { id });
+/** Fires (with the watched directory) when a watched dir's contents change. */
+export const onFsChanged = (cb: (path: string) => void): Promise<UnlistenFn> =>
+  listen<string>("flux://fs-changed", (e) => cb(e.payload));
 
 // ─── Terminal (PTY) ────────────────────────────────────────────────────────
 

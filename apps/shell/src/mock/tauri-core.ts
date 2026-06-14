@@ -153,6 +153,11 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       mockEntries = mockEntries.filter((e) => !names.has(e.name));
       return Promise.resolve(undefined as T);
     }
+    case "fs_undo":
+      return Promise.resolve(null as T); // no op history in the preview mock
+    case "fs_watch":
+    case "fs_unwatch":
+      return Promise.resolve(undefined as T); // no live watch in the preview
     case "search_default":
       return Promise.resolve("ddg" as T);
     case "search_engines":

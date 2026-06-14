@@ -147,15 +147,13 @@ beyond "another Chromium skin."
 ## Epic: Files explorer
 
 The Files tab shipped (ADR 0006): virtualized list, quick-access rail,
-breadcrumb nav, sort/filter, open-with-default, and **file operations** —
-new/rename/copy/cut/paste/drag-move/delete-to-trash with multi-select, a
-context menu, and confirm-on-destructive (BACKLOG #83/#84, done). These take it
-further:
+breadcrumb nav, sort/filter, open-with-default, **file operations**
+(new/rename/copy/cut/paste/drag-move/delete-to-trash, multi-select, context
+menu, confirm-on-destructive), **live directory watch**, and **undo** for
+reversible ops (BACKLOG #83/#84/#85/#89, done). These take it further:
 
 | # | P | Item |
 |---|---|---|
-| 85 | P2 | **Live directory watch** (`notify` crate) — reflect external create/delete/rename without a manual refresh |
-| 89 | P2 | **Undo** for file ops (at least the last move/rename/trash) — paired with the confirm-on-destructive already shipped |
 | 90 | P2 | **Marquee (rubber-band) selection** + drag-out to other apps (OS-native file drag) |
 | 86 | P2 | **Stream/paginate pathological dirs** (100k+ entries): chunked `fs_list` instead of one JSON payload (the v1 acceptable-tradeoff noted in ADR 0006) |
 | 87 | P2 | **Flux cross-links**: "Open terminal here" (new Terminal tab at cwd), "Open in browser", agent file actions (summarize/rename-by-content); preview pane (text/image/pdf) |

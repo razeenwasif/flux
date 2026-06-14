@@ -42,8 +42,12 @@ portable-pty = "0.8"
 # Linux quirks correctly).
 open = "5"
 # Files tab — delete sends to the OS trash / recycle bin (recoverable), rather
-# than an irreversible unlink. Cross-platform (freedesktop / Shell API).
+# than an irreversible unlink. Cross-platform (freedesktop / Shell API). Its
+# `os_limited` API also powers undo-of-trash (restore) on Windows/Linux.
 trash = "5"
+# Files tab — live directory watch (inotify / ReadDirectoryChangesW), so the
+# listing reflects external changes without a manual refresh.
+notify = "6"
 
 # Windows-only: DWM rounded corners (the window is opaque, so CSS can't round
 # it). Cross-verified against the x86_64-pc-windows-msvc target.

@@ -33,6 +33,10 @@ import {
   fsQuickLocations,
   fsRename,
   fsTrash,
+  fsUndo,
+  fsUnwatch,
+  fsWatch,
+  onFsChanged,
   type DirListing,
   type FileEntry,
   type QuickLocation,
@@ -46,7 +50,7 @@ type Menu = { x: number; y: number; entry: FileEntry | null } | null;
 type Creating = { kind: "dir" | "file"; value: string } | null;
 type Confirm = { title: string; body: string; danger: boolean; onYes: () => void } | null;
 
-const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> = (props) => {
+const FilesView: Component<{ id: number; path: string; onPathChange: (p: string) => void }> = (props) => {
   const [cwd, setCwd] = createSignal(props.path);
   const [listing, setListing] = createSignal<DirListing | null>(null);
   const [loading, setLoading] = createSignal(true);
@@ -71,6 +75,8 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
   const [dropTarget, setDropTarget] = createSignal<string | null>(null);
   let dragPaths: string[] = [];
   let noticeTimer: number | undefined;
+  let unlistenFs: (() => void) | undefined;
+  let watchTimer: number | undefined;
 
   // Navigation history (per Files tab).
   let back: string[] = [];
@@ -96,6 +102,7 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
       setListing(l);
       setCwd(l.path);
       props.onPathChange(l.path);
+      void fsWatch(props.id, l.path).catch(() => {}); // live watch (#85)
       setSelected(selectName ? new Set([selectName]) : new Set<string>());
       setCursor(-1);
       anchor = -1;
@@ -108,6 +115,26 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
   };
   /** Reload the current directory, optionally selecting a freshly-made entry. */
   const refresh = (selectName?: string) => load(cwd(), selectName);
+  /** Re-list in place (external change / undo): keep scroll + selection. */
+  const softRefresh = async () => {
+    try {
+      const l = await fsList(cwd());
+      setListing(l);
+      const names = new Set(l.entries.map((e) => e.name));
+      setSelected((prev) => new Set([...prev].filter((n) => names.has(n))));
+    } catch {
+      // Directory may have been removed out from under us — leave it as-is.
+    }
+  };
+  const undo = async () => {
+    try {
+      const desc = await fsUndo();
+      if (desc) { await softRefresh(); toast(desc); }
+      else toast("Nothing to undo");
+    } catch (e) {
+      toast(String(e), "err");
+    }
+  };
 
   const navigate = (path: string) => {
     if (path === cwd()) return;
@@ -132,6 +159,17 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
   onMount(async () => {
     await load(props.path);
     setPlaces(await fsQuickLocations().catch(() => []));
+    // Live watch: re-list (debounced) when the shown directory changes on disk.
+    unlistenFs = await onFsChanged((p) => {
+      if (p !== cwd()) return;
+      clearTimeout(watchTimer);
+      watchTimer = window.setTimeout(() => void softRefresh(), 180);
+    }).catch(() => undefined);
+  });
+  onCleanup(() => {
+    unlistenFs?.();
+    clearTimeout(watchTimer);
+    void fsUnwatch(props.id).catch(() => {});
   });
 
   // Filter (hidden + search) then sort (folders first, then the chosen key).
@@ -327,6 +365,7 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
     if (menu()) { if (e.key === "Escape") setMenu(null); return; }
 
     const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); void undo(); return; }
     if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); selectAll(); return; }
     if (mod && e.key.toLowerCase() === "c") { copySel(); return; }
     if (mod && e.key.toLowerCase() === "x") { cutSel(); return; }
@@ -410,8 +449,12 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
       { label: "New File", run: () => startCreate("file") },
     ];
     if (hasClip) items.push({ label: "Paste", key: mod("V"), run: () => void paste() });
-    items.push("sep", { label: "Select All", key: mod("A"), run: () => { setMenu(null); selectAll(); } });
-    items.push({ label: "Refresh", run: () => { setMenu(null); void refresh(); } });
+    items.push(
+      "sep",
+      { label: "Undo", key: mod("Z"), run: () => { setMenu(null); void undo(); } },
+      { label: "Select All", key: mod("A"), run: () => { setMenu(null); selectAll(); } },
+      { label: "Refresh", run: () => { setMenu(null); void refresh(); } },
+    );
     return items;
   };
 

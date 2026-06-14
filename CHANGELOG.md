@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Files tab — live directory watch + undo** (BACKLOG #85/#89, ADR 0006).
+  The listing now **updates itself** when the shown directory changes on disk
+  (the `notify` crate — inotify/ReadDirectoryChangesW — one watcher per Files
+  tab, emitting `flux://fs-changed`; the UI re-lists, debounced, preserving
+  scroll + selection). And file ops are now **undoable** (⌘/Ctrl-Z, or the
+  context menu): rename, move, and trash reverse cleanly — undo only ever puts
+  files *back* (rename→rename, move→move, trash→restore via the `trash` crate's
+  `os_limited` API on Windows/Linux), never deletes. The undo stack is
+  backend-owned (so the platform-specific restore handle never crosses IPC).
 - **Files tab — file operations** (BACKLOG #83/#84, ADR 0006). The explorer is
   now read-*write*: **new folder/file** (inline-named), **rename** (inline,
   F2), **copy/cut/paste** (⌘/Ctrl-C/X/V — paste duplicates as "name copy" on
