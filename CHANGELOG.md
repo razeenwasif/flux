@@ -70,10 +70,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   so the keyed Show remounted FilesView → reload → onPathChange → an infinite
   remount loop (UI pinned, listing never settled). Keyed on the stable tab *id*
   instead.
-- **Files list wouldn't scroll** with more entries than fit the viewport: the
-  `.files-body` grid's implicit `auto` row grew to the listing's full height
-  (clipped by `overflow:hidden`) instead of bounding the scroll container.
-  Constrained the row with `minmax(0, 1fr)`.
+- **Files list wouldn't scroll** with more entries than fit the viewport. The
+  whole content-card height chain was unbounded: `.content` lacked
+  `min-height: 0` (so the shell's `1fr` content row grew to the list's full
+  height) and `.card` (a `place-items: center` grid) sized its cell to content,
+  so a child's `height: 100%` resolved to content height — nothing to scroll.
+  Bounded `.content` (`min-height: 0`) and `.card`
+  (`grid-template: minmax(0,1fr) / minmax(0,1fr)`), plus the `.files-body` row
+  (`minmax(0, 1fr)`); the list's `overflow-y:auto` now actually has a bounded
+  height. (Fixes the card for the terminal/start tabs too.)
 - **DOM capture on non-default ports** (e.g. a local search engine at
   `http://localhost:8080`). The `tab.json` capability used `http://*` /
   `https://*`, whose URLPattern port is unspecified and so only matches the

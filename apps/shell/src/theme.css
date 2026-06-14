@@ -378,7 +378,10 @@ body.resizing .shell { transition: none !important; }
 }
 
 /* ── Floating content card ── */
-.content { grid-area: content; min-width: 0; padding: var(--flux-frame-pad); padding-left: 0; }
+/* `min-height: 0` so the `1fr` content row stays bounded — without it the row's
+   automatic minimum is the card's content height (a long file list), the row
+   overflows the fixed-height shell, and nothing inside can scroll. */
+.content { grid-area: content; min-width: 0; min-height: 0; padding: var(--flux-frame-pad); padding-left: 0; }
 .card {
   width: 100%; height: 100%;
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
@@ -386,6 +389,11 @@ body.resizing .shell { transition: none !important; }
   border-radius: var(--flux-radius-card);
   overflow: hidden;
   display: grid;
+  /* Bound the single cell to the card box (not its content), so a child with
+     height:100% (Files/terminal tab) is itself bounded and can scroll. The
+     `minmax(0, …)` lets it shrink below content; place-items still centers the
+     smaller start page / loading state. */
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   color: var(--flux-text-dim);
   box-shadow: var(--glass-shadow), var(--glass-inset);
