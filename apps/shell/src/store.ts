@@ -28,7 +28,19 @@ export const unpinnedTabs = () => tabs().filter((t) => !t.pinned);
 
 export async function refreshTabs(): Promise<void> {
   const list = await tabList();
-  setTabs(list);
+  // The backend only knows each tab's *creation* url/title — it does NOT track
+  // in-webview navigation (that's frontend state, via updateTabUrl/onTabLoaded).
+  // So preserve the live url/title for tabs we already hold, and take only
+  // structural fields (kind/pinned/cluster) + additions/removals from the
+  // backend. Without this merge, opening or closing a tab would reset every
+  // other browser tab back to its start page.
+  setTabs((prev) => {
+    const live = new Map(prev.map((t) => [t.id, t]));
+    return list.map((bt) => {
+      const ft = live.get(bt.id);
+      return ft ? { ...bt, url: ft.url, title: ft.title } : bt;
+    });
+  });
   // Seed selection on first load so a tab is always active (address bar +
   // highlight reflect it). Backend already tracks its own active tab.
   if (activeId() === null && list.length > 0) {

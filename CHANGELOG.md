@@ -58,6 +58,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (in-process, feature-gated). No FFI/GGUF — pure Rust, unit-tested.
 
 ### Fixed
+- **Opening/closing a tab reset other tabs to the home page.** The backend only
+  stores each tab's *creation* url (in-webview navigation is frontend state), so
+  `refreshTabs()`'s `setTabs(await tabList())` clobbered every open tab's live
+  url back to its start page — the affected tab then rendered the dashboard
+  instead of its page on next focus. `refreshTabs` now *merges*: it preserves
+  the live url/title of tabs it already holds and takes only structural fields
+  (kind/pinned/cluster) + add/remove from the backend.
 - **Files tab froze the app.** ContentArea keyed the Files `<Show>` on the tab
   *object*; `onPathChange` rebuilds that object (`{ ...t, url }`) on every load,
   so the keyed Show remounted FilesView → reload → onPathChange → an infinite
