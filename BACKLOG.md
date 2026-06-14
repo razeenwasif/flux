@@ -53,7 +53,6 @@ grid/damage/renderer spine; these make it competitive with kitty/ghostty:
 | 6 | P1 | Glassmorphic command palette (⌘K): fuzzy tab/action/bookmark search |
 | 18 | P0 | Keyboard shortcuts: ⌘T (browser tab), ⌘⇧T (terminal tab), ⌃\` (toggle terminal column), ⌃A (toggle agent), ⌘S (toggle sidebar), ⌘K (palette) |
 | 28 | P1 | Responsive breakpoints: auto-collapse the terminal then agent then sidebar as window width shrinks (ADR 0002 mitigation) |
-| 80 | P2 | Native **Win11 rounded corners** via DWM (`DWMWA_WINDOW_CORNER_PREFERENCE`) — the window is opaque now (transparency broke WebView2 child webviews), so CSS corner-clipping no longer works. Windows-only unsafe call; per-platform (macOS can keep transparent+CSS rounding via `tauri.macos.conf.json`) |
 | 79 | P0 | **Performance pass** (user priority): profile + cut latency in window resize, pane resize, and general browsing. Candidates — debounce/RAF the webview reposition (partly done), avoid full-window webview churn, reduce backdrop-filter cost (the glass blur is GPU-heavy on weak GPUs; consider toggling blur off while resizing), trim re-renders, measure against the ADR 0001 budgets. Resolve the webview-placement bug here too. |
 | 29 | P2 | Address bar does in-place navigation of the active tab (depends on #2); ⌘L focuses it |
 | 30 | P2 | Tab drag-and-drop: reorder in the list, drag into/out of the pinned grid |

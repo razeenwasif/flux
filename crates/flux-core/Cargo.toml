@@ -38,6 +38,11 @@ flux-search.workspace = true
 # remains the future native-render path; the PTY here feeds either renderer.
 portable-pty = "0.8"
 
+# Windows-only: DWM rounded corners (the window is opaque, so CSS can't round
+# it). Cross-verified against the x86_64-pc-windows-msvc target.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }
+
 [features]
 default = []
 # Compile real llama.cpp inference. Off by default so `cargo check` stays

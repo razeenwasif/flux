@@ -8,10 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **Browsing on Windows — webview commands are now `async`.** `webview_open`
+  (and friends) call `Window::add_child`, which blocks on the main thread; as
+  *sync* commands they ran on the main thread on Windows → **deadlock**, so the
+  command never returned, the page never rendered, and the UI froze. Async runs
+  them off-main. (This was the real "stuck on loading" + freeze cause; the
+  transparency fix below was also necessary.)
 - **Browsing on Windows**: turned the window **opaque** (`transparent: false`).
   WebView2 can't composite per-tab child webviews on a transparent host, so
-  pages were positioned correctly but invisible ("stuck on loading"). The
-  window is now square velvet; native Win11 rounded corners are BACKLOG #80.
+  pages were positioned correctly but invisible. **Native Win11 rounded corners**
+  restored via the DWM `DWMWA_WINDOW_CORNER_PREFERENCE` API (windows-sys,
+  cross-verified against the Windows target) — no transparency needed.
 - **Close button** now force-closes via `destroy()` (the red light's `close()`
   only emitted `closeRequested`, which wasn't closing the borderless window).
 - **Terminal on Windows**: default to **WSL** (`wsl.exe` — the user's dev env),

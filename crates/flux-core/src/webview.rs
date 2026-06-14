@@ -169,3 +169,28 @@ fn eval(app: &AppHandle, tab_id: TabId, js: &str) -> Result<(), String> {
     let wv = app.get_webview(&label(tab_id)).ok_or("no such tab webview")?;
     wv.eval(js).map_err(|e| e.to_string())
 }
+
+/// Round the window's corners on Windows 11 (DWM). The window is opaque
+/// (transparency breaks WebView2 child webviews), so CSS can't round it.
+/// No-op on non-Windows and pre-Win11 (the DWM call just errors, ignored).
+#[cfg(windows)]
+pub fn round_window_corners(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    };
+    if let Ok(hwnd) = window.hwnd() {
+        let pref = DWMWCP_ROUND;
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                hwnd.0 as isize as HWND,
+                DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+                &pref as *const _ as *const core::ffi::c_void,
+                core::mem::size_of_val(&pref) as u32,
+            );
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
