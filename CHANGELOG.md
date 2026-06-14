@@ -70,6 +70,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (in-process, feature-gated). No FFI/GGUF — pure Rust, unit-tested.
 
 ### Fixed
+- **Files tab drag-and-drop did nothing** (both in-app drag-to-move and
+  Alt+drag-out). The main window left `dragDropEnabled` at its default `true`,
+  so Tauri's native OS drop handler claimed drag events and **suppressed the
+  webview's HTML5 drag-and-drop**. Set `dragDropEnabled: false` on the window so
+  the in-app DnD works (and the native drag-out source isn't fighting the
+  window's drop-target registration).
 - **Opening/closing a tab reset other tabs to the home page.** The backend only
   stores each tab's *creation* url (in-webview navigation is frontend state), so
   `refreshTabs()`'s `setTabs(await tabList())` clobbered every open tab's live
