@@ -640,13 +640,18 @@ const ContentArea: Component<{
           <Show when={activeTab()} keyed>{(tab) => <TerminalView session={tab.id} />}</Show>
         </Match>
         <Match when={activeTab()?.kind === "files"}>
-          <Show when={activeTab()} keyed>
-            {(tab) => (
+          {/* Key on the tab *id* (stable), NOT the tab object: onPathChange
+              patches the tab (new object ref), and keying on the object would
+              remount FilesView on every navigation → an infinite reload loop.
+              The id only changes when you switch tabs, which is when we *do*
+              want a fresh mount. */}
+          <Show when={activeTab()?.id} keyed>
+            {(id) => (
               <FilesView
-                path={tab.url}
+                path={tabs().find((t) => t.id === id)?.url ?? ""}
                 onPathChange={(p) => {
-                  updateTabUrl(tab.id, p);
-                  updateTabTitle(tab.id, basename(p));
+                  updateTabUrl(id, p);
+                  updateTabTitle(id, basename(p));
                 }}
               />
             )}
