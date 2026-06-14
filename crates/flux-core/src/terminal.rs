@@ -46,11 +46,20 @@ impl TerminalManager {
     }
 }
 
-/// Pick the user's shell. Honors `$SHELL` / `$ComSpec`; falls back sanely.
+/// Pick the user's shell. `$FLUX_SHELL` overrides everything (so a user can
+/// pick pwsh/cmd/bash without a rebuild); otherwise PowerShell on Windows,
+/// `$SHELL` on Unix.
 fn default_shell() -> String {
+    if let Ok(s) = std::env::var("FLUX_SHELL") {
+        if !s.trim().is_empty() {
+            return s;
+        }
+    }
     #[cfg(windows)]
     {
-        std::env::var("ComSpec").unwrap_or_else(|_| "powershell.exe".into())
+        // PowerShell is a far better default than cmd.exe and ships on every
+        // Windows; resolved via PATH at spawn.
+        "powershell.exe".to_string()
     }
     #[cfg(not(windows))]
     {
@@ -81,7 +90,8 @@ pub fn terminal_spawn(
     // Build the shell command with the Flux context environment — this is what
     // makes `cd $FLUX_TAB_DIR` / `flux extract-json` work the moment the shell
     // opens (the env bridge from `commands::terminal_env`, reused here).
-    let mut cmd = CommandBuilder::new(default_shell());
+    let shell = default_shell();
+    let mut cmd = CommandBuilder::new(&shell);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("FLUX_SESSION", session.to_string());
@@ -101,9 +111,18 @@ pub fn terminal_spawn(
             }
         }
     }
-    cmd.cwd(cwd.unwrap_or_else(home_dir));
+    // Only set a cwd that actually exists — an invalid cwd makes spawn fail
+    // (e.g. a Unix-style path on Windows).
+    let cwd = cwd.unwrap_or_else(home_dir);
+    if std::path::Path::new(&cwd).is_dir() {
+        cmd.cwd(&cwd);
+    }
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;
+    tracing::info!(target: "flux::term", session, %shell, %cwd, cols, rows, "spawning shell");
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("spawn {shell:?} (cwd {cwd:?}): {e}"))?;
     // Close our handle to the slave so the PTY reports EOF when the child exits.
     drop(pair.slave);
 

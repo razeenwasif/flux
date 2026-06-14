@@ -124,6 +124,7 @@ const App: Component = () => {
     // tab's bounds once it finishes loading (defensive: ensures the page sits
     // in the content card even if the initial position didn't stick).
     const unLoaded = await onTabLoaded((tabId, url, phase) => {
+      console.log("[flux webview] load", phase, tabId, url); // diagnostic
       updateTabUrl(tabId, url);
       if (phase === "finished" && tabId === activeId()) {
         const r = readRect();

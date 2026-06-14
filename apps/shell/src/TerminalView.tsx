@@ -11,7 +11,7 @@
  */
 import { onCleanup, onMount, type Component } from "solid-js";
 import type { Terminal as XTerm } from "@xterm/xterm";
-import { Channel, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
+import { Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
 
 /** Velvet-matched 16-color palette + teal cursor (theme.css alignment). */
 const THEME = {
@@ -79,10 +79,24 @@ const TerminalView: Component<{ session: number }> = (props) => {
     term.open(host);
     fit.fit();
 
+    // Surface shell exit / spawn failure in the terminal itself, so a broken
+    // shell shows a message instead of a silent blank pane.
+    const unExit = await onTermExit((session) => {
+      if (session === props.session) term.write("\r\n\x1b[90m[process exited]\x1b[0m\r\n");
+    });
+
     // Output: Rust PTY → channel (raw bytes) → xterm.
     const channel = new Channel<number[]>();
     channel.onmessage = (bytes) => term.write(new Uint8Array(bytes));
-    await terminalSpawn(props.session, term.cols, term.rows, channel);
+    try {
+      await terminalSpawn(props.session, term.cols, term.rows, channel);
+    } catch (e) {
+      term.write(
+        `\r\n\x1b[38;2;236;75;224m⚠ Flux: couldn't start the shell\x1b[0m\r\n` +
+          `\x1b[90m${String(e)}\x1b[0m\r\n` +
+          `\x1b[90mTip: set FLUX_SHELL to pick a shell (e.g. pwsh.exe, cmd.exe).\x1b[0m\r\n`,
+      );
+    }
 
     // Input: typed/pasted text → bytes → PTY stdin.
     const enc = new TextEncoder();
@@ -99,6 +113,7 @@ const TerminalView: Component<{ session: number }> = (props) => {
     onCleanup(() => {
       ro.disconnect();
       inputSub.dispose();
+      unExit();
       void terminalKill(props.session);
       term.dispose();
     });

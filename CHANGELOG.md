@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **Terminal on Windows**: default to **PowerShell** (was cmd.exe via `ComSpec`),
+  overridable with `$FLUX_SHELL`; only set an existing cwd (an invalid cwd made
+  spawn fail silently); and **surface spawn failures + process exit in the
+  terminal** instead of a blank pane, with the shell + cwd in the error.
+- **CSP**: allow the chrome to `connect-src`/`img-src` over `https:` so the
+  home-page weather (and future suggestion/favicon fetches) aren't blocked.
+- **Webview**: explicitly `show()` + focus a tab's page after `add_child`, and
+  log page-load events — diagnostics for the "search stuck on loading" report.
 - **Window dragging**: added a full-width draggable **title bar** (own grid row,
   traffic lights + centered tab title) using `data-tauri-drag-region="deep"`.
   The old sidebar-only drag sliver was too small and everywhere else along the

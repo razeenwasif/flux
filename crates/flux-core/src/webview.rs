@@ -71,10 +71,12 @@ pub fn webview_open(
             LogicalSize::new(width.max(0.0), height.max(0.0)),
         )
         .map_err(|e| e.to_string())?;
-    // Belt-and-suspenders: re-apply position/size explicitly — some platforms
-    // ignore the add_child geometry, leaving the page in the wrong spot.
+    // Belt-and-suspenders: re-apply geometry + visibility explicitly — some
+    // platforms ignore the add_child args, leaving the page wrong/hidden.
     let _ = child.set_position(LogicalPosition::new(x, y));
     let _ = child.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)));
+    let _ = child.show();
+    let _ = child.set_focus();
     tracing::info!(target: "flux::webview", tab_id, %url, x, y, width, height, scale, "opened tab webview");
     Ok(())
 }
