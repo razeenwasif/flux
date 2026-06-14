@@ -33,12 +33,15 @@
         return;
       }
       const s = snapshot();
-      // Zero-copy raw body: `outerHTML \0 visibleText` as bytes, tab id + url in
-      // headers. `dom_publish` is the one command this remote page may call
+      // Plain JSON args (NOT a raw body): real pages' CSPs block Tauri's
+      // fetch IPC, forcing the postMessage path, which doesn't carry raw
+      // bodies. `dom_publish` is the one command this remote page may call
       // (fluxtab plugin, granted by capabilities/tab.json).
-      const body = new TextEncoder().encode(`${s.html}\0${s.text}`);
-      invoke("plugin:fluxtab|dom_publish", body, {
-        headers: { "x-flux-tab": String(TAB_ID), "x-flux-url": s.url },
+      invoke("plugin:fluxtab|dom_publish", {
+        tabId: TAB_ID,
+        url: s.url,
+        html: s.html,
+        text: s.text,
       }).then(
         () => console.log("[flux capture] published " + s.text.length + " chars (tab " + TAB_ID + ")"),
         (e) => console.error("[flux capture] dom_publish rejected:", e),
@@ -46,14 +49,24 @@
     }, 400); // debounce: SPA mutation storms → at most ~2 snapshots/s
   };
 
-  // Capture on load, on history navigation, and on meaningful DOM mutation.
+  // Capture on load + history navigation. The MutationObserver needs a DOM
+  // root, which doesn't exist yet at injection time (document_start).
   addEventListener("load", publish);
   addEventListener("popstate", publish);
-  new MutationObserver(publish).observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    characterData: true,
-  });
+  const startObserver = () => {
+    if (document.documentElement) {
+      new MutationObserver(publish).observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    }
+  };
+  if (document.readyState === "loading") {
+    addEventListener("DOMContentLoaded", startObserver, { once: true });
+  } else {
+    startObserver();
+  }
 
   // Feedback channel for compiled agent actions (see flux-agent/src/compile.rs).
   window.__FLUX__ = Object.freeze({

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tauri::ipc::{InvokeBody, Request, Response};
+use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::cli::LaunchIntent;
@@ -93,50 +93,35 @@ pub fn tab_list(state: State<'_, FluxState>) -> Vec<TabMeta> {
     state.tabs.iter().map(|e| e.value().clone()).collect()
 }
 
-// ─── DOM snapshot ingestion (frontend → Rust, zero-copy) ────────────────────
+// ─── DOM snapshot ingestion (tab webview → Rust) ────────────────────────────
 //
-// The capture script (injected into every tab) posts `outerHTML \0 visibleText`
-// as a single ArrayBuffer. Taking `Request` instead of `String` params means
-// Tauri hands us the raw body — no JSON parse of a 5 MB document.
+// Plain JSON args, NOT a raw ArrayBuffer body. Real pages set restrictive CSPs
+// (e.g. DuckDuckGo's `connect-src`), which block Tauri's fetch-based IPC and
+// force the `postMessage` fallback — and that path does not carry a raw body.
+// JSON args survive both paths. (The zero-copy raw-body idea from ADR 0001
+// only worked from the local chrome origin; it can't work from arbitrary
+// remote pages.)
 
 #[tauri::command]
 pub fn dom_publish(
     app: AppHandle,
     state: State<'_, FluxState>,
-    request: Request<'_>,
+    tab_id: TabId,
+    url: String,
+    html: String,
+    text: String,
 ) -> Result<(), String> {
-    // Tab id and URL ride in headers; the body is purely document bytes.
-    let header = |k: &str| -> Result<String, String> {
-        request
-            .headers()
-            .get(k)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned)
-            .ok_or_else(|| format!("missing header {k}"))
-    };
-    let tab: TabId = header("x-flux-tab")?.parse().map_err(|e| format!("bad tab id: {e}"))?;
-    let url = header("x-flux-url")?;
-
-    let InvokeBody::Raw(bytes) = request.body() else {
-        return Err("dom_publish requires a raw ArrayBuffer body".into());
-    };
-
-    // Single UTF-8 validation pass, then split html/text on the NUL sentinel.
-    let payload = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
-    let (html, text) = payload.split_once('\0').unwrap_or((payload, ""));
-
     let snapshot = Arc::new(DomSnapshot {
-        tab,
+        tab: tab_id,
         url,
         html: Arc::from(html),
         text: Arc::from(text),
         captured_at_ms: now_ms(),
     });
-    state.dom_cache.insert(tab, snapshot);
+    state.dom_cache.insert(tab_id, snapshot);
 
-    // Nudge interested panes (terminal env bar, agent sidebar) — payload is
-    // just the tab id; consumers pull the Arc themselves if they care.
-    app.emit("flux://dom-updated", tab).map_err(|e| e.to_string())
+    // Nudge interested panes (terminal env bar, agent sidebar).
+    app.emit("flux://dom-updated", tab_id).map_err(|e| e.to_string())
 }
 
 /// Hand the active tab's DOM to the frontend (e.g. terminal running

@@ -101,15 +101,12 @@ export const agentExecute = (prompt: string) => invoke<AgentAction>("agent_execu
 export const tabsRecluster = () => invoke<void>("tabs_recluster");
 
 /**
- * Publish a DOM snapshot to Rust as a single ArrayBuffer.
- * Body layout: `outerHTML \0 visibleText` — tab id/url ride in headers so the
- * multi-MB body is never JSON-encoded (zero-copy path, ADR 0001).
+ * Publish a DOM snapshot to Rust (plain JSON args — real pages' CSPs block the
+ * raw-body IPC path). In practice the tab webview's injected capture.js does
+ * this directly via `plugin:fluxtab|dom_publish`; this helper is for the chrome.
  */
 export function domPublish(tabId: number, url: string, html: string, text: string) {
-  const body = new TextEncoder().encode(`${html}\0${text}`);
-  return invoke<void>("dom_publish", body, {
-    headers: { "x-flux-tab": String(tabId), "x-flux-url": url },
-  });
+  return invoke<void>("plugin:fluxtab|dom_publish", { tabId, url, html, text });
 }
 
 // ─── Events (Rust → UI) ──────────────────────────────────────────────────

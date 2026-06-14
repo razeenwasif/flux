@@ -18,6 +18,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (in-process, feature-gated). No FFI/GGUF — pure Rust, unit-tested.
 
 ### Fixed
+- **DOM capture now works on real pages** (the agent's "no page content" error).
+  Real sites set restrictive CSPs (e.g. DuckDuckGo's `connect-src`) that block
+  Tauri's fetch-based IPC, forcing the `postMessage` path — which **doesn't
+  carry a raw request body**, so the zero-copy `dom_publish` rejected every
+  capture. Switched `dom_publish` + `capture.js` to **plain JSON args** (survive
+  both IPC paths). Also fixed a `MutationObserver` crash (`documentElement` null
+  at injection time) by deferring it to `DOMContentLoaded`.
 - **Browsing on Windows — webview commands are now `async`.** `webview_open`
   (and friends) call `Window::add_child`, which blocks on the main thread; as
   *sync* commands they ran on the main thread on Windows → **deadlock**, so the
