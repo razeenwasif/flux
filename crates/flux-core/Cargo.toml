@@ -1,0 +1,45 @@
+[package]
+name = "flux-core"
+description = "Flux daemon: window management, shared state, zero-copy IPC"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# The binary is the app; the lib exists so integration tests / benches can
+# exercise commands without spawning a window.
+[lib]
+name = "flux_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "flux"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["unstable"] }  # `unstable` → multi-webview (one child webview per tab)
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+parking_lot.workspace = true
+dashmap.workspace = true
+
+flux-agent.workspace = true
+flux-embed.workspace = true
+flux-import.workspace = true
+flux-search.workspace = true
+
+# Embedded terminal: real PTY (the wezterm crate). flux-term (WGPU renderer)
+# remains the future native-render path; the PTY here feeds either renderer.
+portable-pty = "0.8"
+
+[features]
+default = []
+# Compile real llama.cpp inference. Off by default so `cargo check` stays
+# fast and CI doesn't need CUDA/Metal toolchains; the MockBackend serves dev.
+llama = ["flux-agent/llama"]

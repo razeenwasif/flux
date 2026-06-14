@@ -1,0 +1,19 @@
+{
+  "name": "flux-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Flux — AI-native, terminal-embedded, hyper-optimized desktop browser",
+  "workspaces": [
+    "apps/shell"
+  ],
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "shell:dev": "npm run dev --workspace apps/shell",
+    "shell:build": "npm run build --workspace apps/shell",
+    "check": "cargo check --workspace && npm run typecheck --workspace apps/shell"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0"
+  }
+}

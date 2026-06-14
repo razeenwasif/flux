@@ -1,0 +1,24 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node
+node_modules
+dist
+dist-preview
+.vite
+
+# UI preview / screenshot scratch
+.playwright-mcp
+
+# Tauri
+crates/flux-core/gen
+
+# Local AI models — never commit weights (multi-GB GGUF files)
+/models
+*.gguf
+
+# OS / editor noise
+.DS_Store
+*.log
+flux-shell-default.png

@@ -1,0 +1,20 @@
+[package]
+name = "flux-term"
+description = "WGPU-accelerated terminal emulator embedded in the Flux window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+vte = "0.13"                      # battle-tested ANSI/VT parser (Alacritty's)
+
+wgpu = { version = "24", optional = true }
+bytemuck = { version = "1", features = ["derive"], optional = true }
+
+[features]
+# Grid + parser are pure logic and build everywhere (CI checks them headless);
+# the GPU renderer is opt-in so `cargo check -p flux-term` stays seconds.
+default = []
+gpu = ["dep:wgpu", "dep:bytemuck"]

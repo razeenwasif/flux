@@ -1,0 +1,9 @@
+[package]
+name = "flux-search"
+description = "Pluggable search-provider engine: engine templates + search-or-URL resolution"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true

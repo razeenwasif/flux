@@ -1,0 +1,155 @@
+# Flux Backlog
+
+Single source of truth for unimplemented work. Numbers are stable — code
+comments reference them as `BACKLOG #n`. When an item ships: move its entry to
+`CHANGELOG.md` (Unreleased → Added) and delete it here, same commit
+(docs-before-commit policy).
+
+Priorities: **P0** = blocks the core demo loop · **P1** = v0.1 release · **P2** = post-release.
+
+## Epic: Core / IPC
+
+| # | P | Item |
+|---|---|---|
+| 10 | P1 | CI perf-budget gates per ADR 0001: binary size, idle RSS, `criterion` IPC benches (`ipc_roundtrip`, `dom_snapshot`), chrome JS ≤ 50 KB gzip |
+| 12 | P1 | Generate TS types from Rust structs via `specta` (kill the manual `ipc.ts` mirror — it has already drifted once this week) |
+| 19 | P1 | Session restore: persist tabs (incl. `pinned`, `kind`) to disk on change, restore on boot |
+| 20 | P1 | Single-instance forwarding: second `flux <url>` invocation opens a tab in the running window (`tauri-plugin-single-instance`) instead of a second process |
+| 26 | P2 | Packaging: `.desktop` entry + icon on Linux, PATH shim on Windows/macOS, auto-update channel |
+
+## Epic: Terminal (kitty/ghostty-class)
+
+The bar is a *modern* terminal, not a VT100 museum piece. flux-term has the
+grid/damage/renderer spine; these make it competitive with kitty/ghostty:
+
+| # | P | Item |
+|---|---|---|
+| 3 | P0 | PTY spawn + I/O loop in flux-core (`portable-pty`), env from `terminal_env`; one session per Terminal *tab* and one for the split *pane*; route bytes to `Terminal::advance` |
+| 7 | P0 | Glyph atlas: `swash` rasterization, subpixel positioning, theme color resolve, uniform-driven cell metrics (replaces shader constants) |
+| 9 | P1 | Scrollback ring buffer + reflow-preserving resize |
+| 13 | P1 | Font shaping: ligatures + programming-font features via `swash`/`rustybuzz` (kitty parity) |
+| 14 | P2 | Kitty graphics protocol — inline images in the terminal (the agent can render charts into the shell) |
+| 15 | P1 | Splits and tabs *within* the terminal pane (ghostty-style), keyboard-driven |
+| 16 | P1 | Shell integration: OSC 133 prompt marks → jump-between-prompts, per-command exit-status coloring, "copy last output" |
+| 17 | P1 | OSC 8 hyperlinks + URL detection; clicking a URL in the terminal opens a Flux browser tab (the loop closes both ways) |
+| 4 | P0 | `flux` CLI *inside* the terminal: `flux extract-json`, `flux dom`, `cd $FLUX_TAB_DIR` — backed by `dom_active_bytes` |
+| 73 | P1 | Persist terminal **tab** sessions across tab switches (hidden keep-alive mounts) — today only the vertical column session persists (ADR 0003) |
+| 76 | P1 | Bundle a Nerd Font (icon glyphs) as a webfont for guaranteed terminal/prompt icon coverage — `customGlyphs` + the fallback chain cover box-drawing/powerline but not Private-Use-Area icons |
+| 74 | P2 | Terminal throughput: raw-byte channel transport (avoid `number[]` JSON) and/or route the PTY stream into the `flux-term` WGPU renderer when compositing is solved |
+| 75 | P2 | Terminal splits/tabs *within* the column, OSC 133 shell integration, OSC 8 link → open Flux browser tab (supersedes earlier #15–17 once xterm is the renderer) |
+
+## Epic: Flux Agent
+
+| # | P | Item |
+|---|---|---|
+| 1 | P0 | Wire `llama-cpp-2`: GGUF load, GBNF sampler chain, KV-cache prefix reuse for < 350 ms first token |
+| 8 | P1 | Multi-step plans: action sequences with per-step user confirmation UI (magenta preview → approve → execute) |
+| 11 | P2 | Replace hashing embedder with EmbeddingGemma int8 behind `flux-embed/model` |
+
+## Epic: Tabs & Chrome import
+
+| # | P | Item |
+|---|---|---|
+| 6 | P1 | Glassmorphic command palette (⌘K): fuzzy tab/action/bookmark search |
+| 18 | P0 | Keyboard shortcuts: ⌘T (browser tab), ⌘⇧T (terminal tab), ⌃\` (toggle terminal column), ⌃A (toggle agent), ⌘S (toggle sidebar), ⌘K (palette) |
+| 28 | P1 | Responsive breakpoints: auto-collapse the terminal then agent then sidebar as window width shrinks (ADR 0002 mitigation) |
+| 79 | P0 | **Performance pass** (user priority): profile + cut latency in window resize, pane resize, and general browsing. Candidates — debounce/RAF the webview reposition (partly done), avoid full-window webview churn, reduce backdrop-filter cost (the glass blur is GPU-heavy on weak GPUs; consider toggling blur off while resizing), trim re-renders, measure against the ADR 0001 budgets. Resolve the webview-placement bug here too. |
+| 29 | P2 | Address bar does in-place navigation of the active tab (depends on #2); ⌘L focuses it |
+| 30 | P2 | Tab drag-and-drop: reorder in the list, drag into/out of the pinned grid |
+| 21 | P1 | Favicons: fetch + cache per host; replaces the letter-glyph placeholders in the pinned rail and tab strip |
+| 22 | P1 | Flux bookmark store (persisted, folder tree) + import UI consuming `chrome_import_bookmarks`; surface in ⌘K palette |
+| 23 | P1 | Chrome **saved tab groups** import: parse the `Saved Tab Groups` SQLite db (needs `rusqlite`; schema is sync-internals, version-fragile — pin per Chrome milestone) |
+| 24 | P2 | Extension import UX: resolve `__MSG_` locale names from `_locales/`, map common extensions to Flux built-ins (uBlock → native content blocking, dark-reader → theme override). Chrome extensions **cannot run** in native webviews — this is inventory + equivalents, never execution |
+| 25 | P2 | Import from Chromium variants: Chromium, Brave, Edge (same formats, different user-data roots) |
+
+---
+
+# Feature roadmap — competitive parity & differentiation
+
+Surveyed against Chrome, Edge, Safari, Firefox, Arc, Zen, Vivaldi, Brave, and
+Opera (2025–26). Split into three buckets: **table stakes** (a browser is not
+credible without these), **best-in-class** (the features that make power users
+switch), and **under-served** (highly requested, poorly served by the
+incumbents — Flux's wedge). Numbers continue the stable sequence.
+
+## Epic: Browser core — table stakes
+
+Flux currently has tab *chrome* but no actual web engine wired (BACKLOG #2).
+These are the non-negotiables before Flux is a usable daily browser.
+
+| # | P | Item | Who has it |
+|---|---|---|---|
+| 31 | P0 | Navigation polish (basics shipped via #2: load/reload/back/forward/navigate): add **stop**, **loading + security/TLS state** in the address bar, and a loading progress affordance | all |
+| 32 | P0 | Omnibox **live suggestions** UI: dropdown of typeahead results (fetch each engine's `suggest_template`, BACKLOG #68 backend) + history/bookmark autocomplete. (Search-or-URL resolution + `!bang`/keyword routing already ship via `flux-search`.) | all |
+| 33 | P0 | Find-in-page (⌘F) with match highlighting and count | all |
+| 34 | P1 | Download manager: progress, pause/resume, open/reveal, history, integrity (hash) | all |
+| 35 | P1 | Built-in PDF viewer (+ annotation, fill forms) | all |
+| 36 | P1 | Per-site zoom (persisted) and full-page zoom | all |
+| 37 | P1 | Picture-in-picture for video, auto-PiP on tab switch | Chrome/Arc/Safari |
+| 38 | P1 | Permissions UI: camera/mic/location/notifications prompts + per-site manager | all |
+| 39 | P1 | History: full-text searchable, calendar view, clear-browsing-data | all |
+| 40 | P2 | Translate page (local model candidate — ties into the Gemma work) | Chrome/Edge/Safari |
+| 41 | P2 | Reader mode: declutter + typography + TTS | Safari/FF/Edge |
+| 42 | P2 | PWA / "install site as app" with its own window + dock icon | Chrome/Edge |
+
+## Epic: Best-in-class power features
+
+The features that make Arc/Vivaldi/Zen users evangelical.
+
+| # | P | Item | Inspiration |
+|---|---|---|---|
+| 43 | P1 | **Split view**: 2–4 tabs tiled in the content area, adjustable, saved with the session | Arc, Edge, Vivaldi, Zen |
+| 44 | P1 | **Spaces / workspaces**: named tab sets with their own pinned tabs + theme; switch instantly (semantic clustering #14 feeds auto-assignment) | Arc, Opera, Zen, Edge |
+| 45 | P1 | **Tab hibernation / sleeping tabs**: unload background tabs, preserve scroll/form state, wake on focus; per-tab + global memory cap | Edge, Vivaldi, Brave |
+| 46 | P1 | **Auto-archive** stale tabs after N days (with an easy "archived tabs" view) | Arc |
+| 47 | P1 | **Session management**: named, auto-saved, restorable sessions; "reopen everything from yesterday" | Vivaldi, Opera |
+| 48 | P1 | **Web panels**: pin a site (chat, docs, music) to a slim side panel beside any tab | Vivaldi, Opera, Edge |
+| 49 | P2 | **Boosts / userstyles + userscripts**: per-site CSS/JS injection, no extension needed (the agent can author these) | Arc, Vivaldi, Stylus |
+| 50 | P2 | **Peek / glance / little-window**: open a link in a transient overlay without committing to a tab | Arc, Zen |
+| 51 | P2 | **Mouse gestures** + rocker gestures, fully rebindable | Vivaldi, Opera |
+| 52 | P2 | **Vim-style keyboard navigation** (link hints, scroll, tab nav) built in, not an extension | Vimium users |
+| 53 | P2 | **Notes / easels / annotations** tied to pages, local-first | Arc, Vivaldi |
+| 54 | P2 | **Web capture**: region + full-scrolling-page screenshot with annotation | Edge, Firefox |
+| 55 | P2 | **Compact / focus mode**: hide all chrome, content-only | Zen, Arc |
+| 56 | P2 | **Tab stacking** (groups within the vertical list, collapsible) | Vivaldi, Chrome groups |
+
+## Epic: Privacy, security & data
+
+| # | P | Item | Inspiration |
+|---|---|---|---|
+| 57 | P1 | **Built-in content blocker**: ads + trackers (EasyList/uBO rules) with per-site shields UI — no extension | Brave, Vivaldi, Opera |
+| 58 | P1 | **HTTPS-only mode**, granular cookie controls, per-site clear-on-close | Brave, Firefox |
+| 59 | P1 | **Multi-account containers / profiles**: isolated cookie jars, one-click ephemeral/private container | Firefox, Safari profiles |
+| 60 | P2 | **Fingerprint randomization** + tracker-script blocking | Brave |
+| 61 | P1 | **Password manager + autofill + passkeys (WebAuthn)**; import from Chrome/1Password/Bitwarden | all |
+| 62 | P1 | **E2E-encrypted sync** of tabs/bookmarks/history/sessions across devices — account-optional, local-first (the gap Arc/Chrome leave open) | under-served |
+| 63 | P2 | Built-in proxy / VPN / Tor window hook (bring-your-own provider) | Brave, Opera |
+
+## Epic: Under-served — Flux's wedge
+
+Highly requested, poorly served by incumbents. This is where Flux differentiates
+beyond "another Chromium skin."
+
+| # | P | Item | The gap |
+|---|---|---|---|
+| 64 | P0 | **Local-AI agentic browsing** (the Flux Agent): on-device page understanding + structured DOM actions. Most "AI browsers" (Arc Max, Edge Copilot, Dia) are **cloud** — privacy + offline + no token cost is the wedge | core |
+| 65 | P0 | **DOM-aware integrated terminal**: a real dev terminal that can read the active page (`flux extract-json`, `cd $FLUX_TAB_DIR`) and that the agent can drive. Nobody ships this | core |
+| 66 | P1 | **Semantic everything-search**: one box over open tabs + history + bookmarks + page contents, ranked by local embeddings (#11) — not just title substring | weak everywhere |
+| 67 | P1 | **Scriptable automation / macros**: record-and-replay browsing flows, schedulable, agent-authored. Power users beg for this; only flaky extensions exist | under-served |
+| 69 | P2 | **True offline archiving / read-later**: save the *rendered* page (MHTML/SingleFile), full-text indexed, available offline | weak everywhere |
+| 70 | P2 | **Per-tab resource governor**: live CPU/RAM/network per tab + hard caps + "what's draining my battery" attribution | requested, absent |
+| 71 | P2 | **Start page** — shipped: search hero, clock + real weather, recent, **editable** speed dial (persisted), quick actions, flowing wave. Remaining: drag-reorder widgets, add/remove widgets, agent summaries, custom backgrounds | locked-down elsewhere |
+| 77 | P2 | Richer home-page motion: interactive/audio-reactive wave, parallax, per-time-of-day palette — beyond the current subtle SMIL wave |
+| 78 | P2 | Real bookmarks UI (#22) + settings panel (appearance, engines, privacy) + extensions/equivalents view behind the new footer icons (currently a search-engine picker + roadmap notes) |
+| 72 | P2 | **Native RSS / feed reader** in a web panel | Vivaldi only |
+
+## Decisions wanted (not yet scheduled)
+
+- ✅ **Search backend** (#68, done): `flux-search` ships a template-based engine
+  config + resolution; the user's own engine drops in via `search_add_engine` +
+  `search_set_default`. Remaining: live suggestions UI (#32).
+- Terminal multiplexer protocol compat (tmux control mode)? Revisit after #15.
+- Extension story: confirmed we **cannot** run Chrome extensions in native
+  webviews. Decide how far to go on built-in equivalents (#57, #49) vs. a
+  curated mini-extension API. Big strategic call before #24.
+- CLI: replace the hand-rolled parser with `clap` once flags exceed ~6 (`cli.rs`).

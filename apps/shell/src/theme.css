@@ -1,0 +1,610 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Flux theme — Royal Velvet × Liquid Glass (ADR 0002)
+   Deep Space Blue brand, enriched with royal-violet velvet depth and Apple-
+   style frosted "liquid glass" panels. Neon teal/magenta stay as the
+   interaction + AI accents.
+
+   Material model:
+     · BODY      = velvet — layered deep gradients + faint grain, the surface
+                   everything floats on.
+     · GLASS     = liquid glass — translucent, heavy backdrop blur, a specular
+                   top rim + inner highlights, soft depth shadow. Used for the
+                   sidebar, agent, popovers (anything over the velvet).
+     · CARD      = the content/terminal surface — near-solid (it hosts opaque
+                   web/terminal content) but framed with a glass-grade border
+                   and lift shadow.
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Velvet base (deep → near-black, royal-purple undertone) ── */
+  --velvet-900: #07050f;   /* deepest, window corners */
+  --velvet-800: #0b0a1d;   /* base navy-plum */
+  --velvet-700: #12102e;   /* raised */
+  --velvet-600: #1a1640;   /* panels */
+  --velvet-500: #241d57;   /* hover / royal */
+
+  /* Brand identity (carried from ADR 0001) */
+  --flux-bg:        var(--velvet-800);
+  --flux-bg-raise:  var(--velvet-700);
+  --flux-surface:   rgba(120, 130, 200, 0.08);
+  --flux-surface-2: rgba(140, 150, 220, 0.16);
+  --flux-border:    rgba(150, 160, 220, 0.14);
+  --flux-text:      #eef0fb;
+  --flux-text-dim:  #9aa0c4;
+  --flux-text-mute: #6a6f96;
+
+  /* ── Interaction (Tactile neon) ── */
+  --flux-teal:      #2ff3ff;
+  --flux-teal-dim:  rgba(47, 243, 255, 0.14);
+
+  /* ── AI (Liquid) ── */
+  --flux-magenta:   #ec4be0;
+  --flux-violet:    #9d8df1;
+  --flux-royal:     #7b61ff;   /* royal amethyst, the velvet's signature */
+  --flux-ai-gradient: linear-gradient(
+    115deg,
+    var(--flux-royal) 0%,
+    var(--flux-magenta) 38%,
+    var(--flux-teal) 78%,
+    var(--flux-violet) 100%
+  );
+
+  /* ── Liquid glass tokens ── */
+  --glass-fill:      rgba(26, 22, 64, 0.55);
+  --glass-fill-soft: rgba(26, 22, 64, 0.38);
+  --glass-blur:      saturate(180%) blur(40px);
+  --glass-rim:       rgba(180, 190, 255, 0.22);   /* specular edge */
+  --glass-rim-soft:  rgba(180, 190, 255, 0.10);
+  --glass-shadow:    0 16px 50px -12px rgba(0, 0, 0, 0.65);
+  --glass-inset:     inset 0 1px 0 0 rgba(255, 255, 255, 0.10),
+                     inset 0 -1px 0 0 rgba(0, 0, 0, 0.25);
+
+  /* ── Shell metrics ── */
+  --flux-titlebar-h:    34px;
+  --flux-radius:        10px;
+  --flux-radius-card:   18px;
+  --flux-frame-pad:     12px;
+  --flux-sidebar-w:     252px;
+  --flux-sidebar-w-min: 72px;
+  --flux-terminal-w:    440px;
+  --flux-agent-w:       372px;
+
+  /* ── Motion (premium easing) ── */
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-glide: cubic-bezier(0.4, 0, 0.2, 1);
+
+  font-family: "Inter", "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; overflow: hidden; }
+
+body {
+  /* Transparent so the window's rounded corners (clipped on .shell) show the
+     desktop behind them. */
+  background: transparent;
+  color: var(--flux-text);
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+#root { height: 100%; }
+
+/* ── Focus ── */
+:focus-visible { outline: 1.5px solid var(--flux-teal); outline-offset: 1px; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--flux-radius);
+  cursor: pointer;
+  transition: background .22s var(--ease-soft), border-color .22s var(--ease-soft),
+              color .18s var(--ease-soft), transform .14s var(--ease-soft),
+              box-shadow .22s var(--ease-soft);
+}
+button:hover { background: var(--flux-surface); }
+button:active { transform: scale(0.97); }
+
+input {
+  font: inherit;
+  color: var(--flux-text);
+  background: rgba(8, 6, 20, 0.45);
+  border: 1px solid var(--flux-border);
+  border-radius: var(--flux-radius);
+  transition: border-color .22s var(--ease-soft), box-shadow .22s var(--ease-soft),
+              background .22s var(--ease-soft);
+}
+input:focus {
+  border-color: rgba(47, 243, 255, 0.55);
+  background: rgba(8, 6, 20, 0.6);
+  box-shadow: 0 0 0 3px rgba(47, 243, 255, 0.12), var(--glass-inset);
+  outline: none;
+}
+input::placeholder { color: var(--flux-text-mute); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Liquid glass — the core material
+   ════════════════════════════════════════════════════════════════════════ */
+.glass {
+  position: relative;
+  background: var(--glass-fill);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-rim-soft);
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+  border-radius: var(--flux-radius-card);
+}
+/* Specular sheen — a bright rim along the top edge that fades down, the tell
+   of Apple's liquid glass. Pointer-transparent so it never eats clicks. */
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(180deg, var(--glass-rim), transparent 40%);
+  /* mask trick: show only the 1px padded border ring */
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Shell layout
+   ════════════════════════════════════════════════════════════════════════ */
+.shell {
+  position: relative;
+  display: grid;
+  height: 100vh;
+  transition: grid-template-columns .34s var(--ease-soft);
+  will-change: grid-template-columns;
+
+  /* Rounded window: the velvet surface lives here (not body) so the corners
+     clip to transparent. The two accent glows give the surface its sheen. */
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(180, 190, 255, 0.08);
+  background-color: var(--velvet-800);
+  background-image:
+    radial-gradient(115% 85% at -5% -10%, rgba(47, 243, 255, 0.12), transparent 50%),
+    radial-gradient(120% 90% at 105% 110%, rgba(123, 97, 255, 0.20), transparent 55%),
+    radial-gradient(90% 70% at 50% 120%, rgba(236, 75, 224, 0.10), transparent 60%),
+    linear-gradient(160deg, var(--velvet-700), var(--velvet-900));
+}
+
+/* While dragging a splitter: no easing (track the pointer 1:1) + lock the
+   cursor and text selection across the whole window. */
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .shell { transition: none !important; }
+
+/* Title bar — a generous, always-draggable strip across the top. It sits in
+   its own grid row so a tab's webview starts BELOW it and can never cover it;
+   the 6px resize edge sits above it (z-index), leaving the rest to drag. */
+.titlebar {
+  grid-area: title;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--flux-titlebar-h);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--glass-rim-soft);
+}
+.titlebar-title {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: var(--flux-text-mute);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+
+/* Drag-to-resize splitter sitting on a pane boundary. Thin hit area, centered
+   on the seam; the velvet frame gap means it overlays no content. */
+.pane-splitter {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 9px;
+  transform: translateX(-50%);
+  z-index: 50;
+  cursor: col-resize;
+}
+.pane-splitter::after {
+  content: "";
+  position: absolute;
+  inset: 0 4px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background .15s var(--ease-soft);
+}
+.pane-splitter:hover::after { background: rgba(47, 243, 255, 0.35); }
+
+/* ── Sidebar (liquid glass over velvet) ── */
+.sidebar {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 10px 10px 12px;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  background: var(--glass-fill-soft);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--glass-rim-soft);
+  box-shadow: inset -1px 0 0 0 rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-controls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+}
+/* Collapsed rail: stack the traffic lights above the expand toggle. */
+.sidebar-controls.collapsed { flex-direction: column; height: auto; gap: 9px; }
+
+/* ── macOS-style traffic lights ── */
+.traffic { display: flex; align-items: center; gap: 8px; padding-right: 2px; }
+.tl {
+  width: 13px; height: 13px;
+  flex: none;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: transparent;            /* glyph hidden until the group is hovered */
+  transition: filter .15s var(--ease-soft), transform .12s var(--ease-soft);
+}
+.tl:hover { transform: none; }   /* override the global button hover-lift */
+.tl-close { background: #ff5f57; }
+.tl-min   { background: #febc2e; }
+.tl-max   { background: #28c840; }
+.traffic:hover .tl-close { color: #7a0a00; }
+.traffic:hover .tl-min   { color: #8a5a00; }
+.traffic:hover .tl-max   { color: #006400; }
+.tl:active { filter: brightness(0.8); }
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--flux-radius);
+  color: var(--flux-text-dim);
+  font-size: 14px;
+  flex: none;
+}
+.icon-btn:hover { color: var(--flux-text); background: var(--flux-surface); transform: translateY(-1px); }
+.icon-btn.active {
+  color: var(--flux-teal);
+  background: var(--flux-teal-dim);
+  box-shadow: inset 0 0 0 1px rgba(47, 243, 255, 0.3), 0 0 16px -4px rgba(47, 243, 255, 0.5);
+}
+
+.address {
+  width: 100%;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  border-radius: 999px;
+}
+
+/* ── Pinned grid (glass tiles) ── */
+.pin-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.pin-tile {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--flux-text);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-rim-soft);
+  border-radius: var(--flux-radius);
+  box-shadow: var(--glass-inset);
+}
+.pin-tile:hover {
+  border-color: rgba(47, 243, 255, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.6), var(--glass-inset);
+}
+.pin-tile.active {
+  border-color: var(--flux-teal);
+  box-shadow: 0 0 18px -4px rgba(47, 243, 255, 0.5), var(--glass-inset);
+}
+
+/* ── Vertical tab list ── */
+.tab-list { display: flex; flex-direction: column; gap: 3px; flex: 1; overflow-y: auto; min-height: 0; }
+.tab-list::-webkit-scrollbar { width: 8px; }
+.tab-list::-webkit-scrollbar-thumb { background: rgba(150, 160, 220, 0.18); border-radius: 4px; }
+.tab-list::-webkit-scrollbar-thumb:hover { background: rgba(150, 160, 220, 0.3); }
+
+.tab-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--flux-radius);
+  color: var(--flux-text-dim);
+  border-left: 2px solid transparent;
+  position: relative;
+}
+.tab-row:hover { background: var(--flux-surface); color: var(--flux-text); }
+.tab-row.active {
+  background: var(--flux-surface-2);
+  color: var(--flux-text);
+  box-shadow: var(--glass-inset);
+}
+.tab-row .title { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; }
+.tab-row .close { opacity: 0; flex: none; width: 19px; height: 19px; border-radius: 6px; display: grid; place-items: center; font-size: 12px; transition: opacity .18s var(--ease-soft), background .18s var(--ease-soft); }
+.tab-row:hover .close { opacity: 1; }
+.tab-row .close:hover { background: var(--flux-surface-2); color: var(--flux-text); }
+
+.tab-favicon {
+  flex: none;
+  width: 17px; height: 17px;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 650;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--flux-text-dim);
+}
+
+.sidebar-section { font-size: 10.5px; color: var(--flux-text-mute); padding: 2px 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; }
+
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-top: 9px;
+  border-top: 1px solid var(--glass-rim-soft);
+}
+.sidebar-footer.collapsed { justify-content: center; }
+.sidebar-footer code {
+  font-size: 11px; background: var(--flux-surface);
+  padding: 0 4px; border-radius: 4px; color: var(--flux-text-dim);
+}
+
+/* ── Floating content card ── */
+.content { grid-area: content; min-width: 0; padding: var(--flux-frame-pad); padding-left: 0; }
+.card {
+  width: 100%; height: 100%;
+  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+  border: 1px solid var(--glass-rim-soft);
+  border-radius: var(--flux-radius-card);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  color: var(--flux-text-dim);
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+}
+
+/* ── Vertical terminal column ── */
+.terminal-col { grid-area: term; min-width: 0; padding: var(--flux-frame-pad); padding-left: 0; }
+.terminal-surface {
+  width: 100%; height: 100%;
+  position: relative;
+  background: linear-gradient(160deg, rgba(10, 8, 24, 0.96), rgba(7, 5, 15, 0.98));
+  border: 1px solid rgba(47, 243, 255, 0.18);
+  border-radius: var(--flux-radius-card);
+  overflow: hidden;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 0 rgba(47, 243, 255, 0.12);
+}
+
+/* ── Agent panel (liquid glass) ── */
+.agent { grid-area: agent; display: flex; flex-direction: column; min-width: 0; padding: var(--flux-frame-pad); padding-left: 0; }
+.agent-inner {
+  display: flex; flex-direction: column; gap: 11px;
+  height: 100%;
+  padding: 14px;
+  border-radius: var(--flux-radius-card);
+  background: var(--glass-fill);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-rim-soft);
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+}
+.agent-feed { flex: 1; overflow-y: auto; min-height: 0; font-size: 12px; line-height: 1.75; }
+.agent-feed::-webkit-scrollbar { width: 8px; }
+.agent-feed::-webkit-scrollbar-thumb { background: rgba(150, 160, 220, 0.18); border-radius: 4px; }
+
+/* ── Popover (new-tab picker) — liquid glass ── */
+.popover {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 226px;
+  padding: 7px;
+}
+.popover button { padding: 11px 13px; text-align: left; border-radius: 9px; }
+.popover button:hover { background: var(--flux-surface-2); }
+.popover kbd { float: right; color: var(--flux-text-mute); font-size: 11px; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Start page (new-tab dashboard)
+   ════════════════════════════════════════════════════════════════════════ */
+.start {
+  position: relative;
+  width: 100%; height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 7vh 24px 40px;
+  gap: 32px;
+  background:
+    radial-gradient(80% 50% at 50% -8%, rgba(123, 97, 255, 0.22), transparent 60%),
+    radial-gradient(70% 50% at 90% 110%, rgba(47, 243, 255, 0.10), transparent 60%);
+}
+
+/* Flowing wave: pinned to the bottom of the card, behind the widgets. */
+.start-wave {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  width: 100%; height: 180px;
+  z-index: 0;
+  pointer-events: none;
+}
+.start-wave-1 { fill: rgba(123, 97, 255, 0.10); }
+.start-wave-2 { fill: rgba(47, 243, 255, 0.07); }
+@media (prefers-reduced-motion: reduce) {
+  .start-wave g animateTransform { display: none; }
+}
+
+.start-hero { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; }
+.start-brand {
+  font-size: 26px; font-weight: 750; letter-spacing: -0.01em;
+  background: var(--flux-ai-gradient);
+  background-size: 200% 200%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.start-spark { font-size: 20px; }
+.start-greeting { font-size: 15px; color: var(--flux-text-dim); margin-top: -4px; }
+
+.start-search {
+  display: flex; align-items: center; gap: 12px;
+  width: min(640px, 92%);
+  padding: 15px 20px;
+  border-radius: 999px;
+  margin-top: 6px;
+}
+.start-search:focus-within { border-color: rgba(47, 243, 255, 0.5); box-shadow: 0 0 0 3px rgba(47, 243, 255, 0.12), var(--glass-shadow); }
+.start-search-icon { font-size: 18px; color: var(--flux-text-dim); }
+.start-search input {
+  flex: 1; background: transparent; border: none; outline: none;
+  font-size: 15px; color: var(--flux-text); padding: 0;
+}
+/* The pill (.start-search) owns the focus styling; suppress the global
+   input:focus ring so no second border appears inside while typing. */
+.start-search input:focus { box-shadow: none; border: none; background: transparent; }
+.start-engine {
+  flex: none; font-size: 11px; font-weight: 600;
+  color: var(--flux-teal);
+  background: var(--flux-teal-dim);
+  padding: 4px 10px; border-radius: 999px;
+}
+.start-hint { font-size: 11.5px; color: var(--flux-text-mute); }
+.start-hint kbd {
+  font: inherit; font-size: 10.5px;
+  background: var(--flux-surface); border: 1px solid var(--flux-border);
+  border-radius: 5px; padding: 1px 5px; color: var(--flux-text-dim);
+}
+
+.start-cards {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 16px;
+  width: min(1040px, 96%);
+}
+.start-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 168px; }
+.start-card-title {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--flux-text-mute); font-weight: 600;
+}
+
+.start-clock { justify-content: center; align-items: flex-start; gap: 4px;
+  background: linear-gradient(150deg, rgba(123,97,255,0.20), var(--glass-fill)); }
+.start-clock-time {
+  font-size: 44px; font-weight: 700; line-height: 1; letter-spacing: -0.02em;
+  background: linear-gradient(120deg, var(--flux-teal), var(--flux-violet));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.start-clock-date { font-size: 12.5px; color: var(--flux-text-dim); }
+.start-weather {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--glass-rim-soft);
+  font-size: 12.5px; color: var(--flux-text); display: flex; flex-direction: column; gap: 2px;
+}
+.start-weather-city { font-size: 11px; color: var(--flux-text-mute); }
+
+.start-list { display: flex; flex-direction: column; gap: 2px; }
+.start-row { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 8px; text-align: left; width: 100%; }
+.start-row:hover { background: var(--flux-surface); }
+.start-row-label { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; color: var(--flux-text); }
+.start-fav { flex: none; width: 20px; height: 20px; display: grid; place-items: center; font-size: 11px; font-weight: 650; border-radius: 6px; background: rgba(255,255,255,0.06); color: var(--flux-text-dim); }
+.start-empty { font-size: 12px; color: var(--flux-text-mute); line-height: 1.6; }
+
+.start-dial { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.start-tile-wrap { position: relative; }
+.start-tile {
+  width: 100%; aspect-ratio: 1; display: grid; place-items: center;
+  font-size: 16px; font-weight: 700; color: var(--flux-text);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--tint, #7b61ff) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tint, #7b61ff) 36%, transparent);
+}
+.start-tile:hover { transform: translateY(-2px); box-shadow: 0 8px 20px -8px var(--tint, #7b61ff); border-color: var(--tint, #7b61ff); }
+.start-tile-x {
+  position: absolute; top: -6px; right: -6px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 12px; line-height: 1;
+  background: var(--velvet-600); border: 1px solid var(--flux-border); color: var(--flux-text-dim);
+  opacity: 0; transition: opacity .15s var(--ease-soft);
+}
+.start-tile-wrap:hover .start-tile-x { opacity: 1; }
+.start-tile-x:hover { background: var(--flux-magenta); color: #fff; }
+.start-tile-add { border-style: dashed; color: var(--flux-text-dim); background: transparent; border-color: var(--flux-border); }
+.start-tile-add:hover { color: var(--flux-teal); border-color: var(--flux-teal); }
+.start-add { display: flex; gap: 6px; margin-top: 2px; }
+.start-add input { flex: 1; padding: 7px 10px; font-size: 12px; }
+.start-add button { padding: 7px 12px; font-size: 12px; border: 1px solid var(--flux-border); color: var(--flux-teal); }
+.start-add button:hover { background: var(--flux-teal-dim); }
+
+.start-actions { display: flex; flex-direction: column; gap: 8px; }
+.start-action { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--flux-border); font-size: 13px; color: var(--flux-text); }
+.start-action:hover { background: var(--flux-surface); border-color: rgba(47,243,255,0.3); }
+.start-action-icon { font-size: 15px; color: var(--flux-teal); }
+
+/* ── Borderless-window resize grips ──
+   Thin invisible strips on the window edges/corners; corners sit above edges.
+   The window has frame padding, so these overlay velvet, not UI. */
+.resize-h { position: fixed; z-index: 9999; }
+.rh-n { top: 0; left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
+.rh-s { bottom: 0; left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
+.rh-w { left: 0; top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
+.rh-e { right: 0; top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
+.rh-nw { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.rh-ne { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.rh-sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.rh-se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Liquid AI states
+   ════════════════════════════════════════════════════════════════════════ */
+@keyframes flux-kinetic {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.ai-thinking {
+  background: var(--flux-ai-gradient);
+  background-size: 300% 300%;
+  animation: flux-kinetic 2.6s ease-in-out infinite;
+  box-shadow: 0 0 16px -2px rgba(157, 141, 241, 0.6);
+}
+.ai-thinking-border {
+  position: relative;
+  padding: 1.5px;
+  border-radius: var(--flux-radius);
+  background: var(--flux-ai-gradient);
+  background-size: 300% 300%;
+  animation: flux-kinetic 2.6s ease-in-out infinite;
+}
+.ai-thinking-border > * { background: var(--velvet-700); border-radius: calc(var(--flux-radius) - 1px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-thinking, .ai-thinking-border { animation: none; background: var(--flux-royal); }
+  .shell, button, input, .icon-btn, .pin-tile { transition: none; }
+}

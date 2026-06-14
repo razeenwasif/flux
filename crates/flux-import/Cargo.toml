@@ -1,0 +1,12 @@
+[package]
+name = "flux-import"
+description = "Importers for other browsers' data (Chrome bookmarks, tab groups, extension inventory)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

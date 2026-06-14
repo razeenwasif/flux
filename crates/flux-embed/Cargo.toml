@@ -1,0 +1,17 @@
+[package]
+name = "flux-embed"
+description = "Lightweight local embeddings + greedy clustering for semantic tab groups"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+tracing.workspace = true
+
+# Real embedding model (EmbeddingGemma-class, ~300M params, int8) lands
+# behind this feature; default build uses the hashing embedder so the
+# clustering pipeline is testable everywhere.
+[features]
+default = []
+model = []

@@ -1,0 +1,63 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Flux — workspace root
+#
+# Layout:
+#   crates/flux-core   → Tauri v2 daemon: window mgmt, state, zero-copy IPC
+#   crates/flux-term   → WGPU-accelerated terminal emulator (Alacritty-style)
+#   crates/flux-agent  → Local LLM bridge (llama.cpp / Gemma) + agentic DOM ops
+#   crates/flux-embed  → Lightweight embeddings for semantic tab clustering
+#   apps/shell         → SolidJS frontend (npm workspace, not a cargo member)
+# ──────────────────────────────────────────────────────────────────────────────
+[workspace]
+resolver = "2"
+members = [
+    "crates/flux-core",
+    "crates/flux-term",
+    "crates/flux-agent",
+    "crates/flux-embed",
+    "crates/flux-import",
+    "crates/flux-search",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/flux-browser/flux"
+
+[workspace.dependencies]
+# Shared, version-pinned once so every crate agrees.
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+parking_lot = "0.12"   # ~5x faster than std::sync::Mutex under contention, no poisoning
+dashmap = "6"          # sharded concurrent map — lock-free reads on the tab table
+
+# Internal crates, path-referenced.
+flux-term = { path = "crates/flux-term" }
+flux-agent = { path = "crates/flux-agent" }
+flux-embed = { path = "crates/flux-embed" }
+flux-import = { path = "crates/flux-import" }
+flux-search = { path = "crates/flux-search" }
+
+# ── Performance profiles ─────────────────────────────────────────────────────
+# Release: maximum throughput, minimum binary size. LTO + 1 codegen unit costs
+# build time but buys ~10-20% runtime and smaller .text — this is a browser,
+# we ship it cold-started thousands of times a day.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"        # no unwinding tables → smaller binary, faster calls
+strip = true
+
+# Dev: keep *our* code fast to compile, but optimize dependencies (wgpu, vte,
+# llama bindings) so the dev-loop terminal still hits 120fps.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
