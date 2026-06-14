@@ -25,6 +25,7 @@ import {
   launchIntent,
   onAgentStatus,
   onClustersUpdated,
+  onDomUpdated,
   onTabLoaded,
   searchDefault,
   searchEngines,
@@ -120,6 +121,10 @@ const App: Component = () => {
     // Always land on something: a fresh session opens the start page.
     if (tabs().length === 0) await openTab("browser");
     const unClusters = await onClustersUpdated(refreshTabs);
+    // Diagnostic: fires when a tab's DOM reaches the cache (capture.js works).
+    const unDom = await onDomUpdated((tabId) =>
+      console.log("[flux] DOM captured for tab", tabId),
+    );
     // Keep the address bar fresh as pages navigate, and re-apply the active
     // tab's bounds once it finishes loading (defensive: ensures the page sits
     // in the content card even if the initial position didn't stick).
@@ -133,6 +138,7 @@ const App: Component = () => {
     });
     onCleanup(() => {
       unClusters();
+      unDom();
       unLoaded();
     });
 

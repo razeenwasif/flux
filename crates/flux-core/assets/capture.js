@@ -19,20 +19,30 @@
     title: document.title,
   });
 
+  const invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+  console.log(
+    "[flux capture] init tab=" + TAB_ID + " ipc=" + (invoke ? "yes" : "MISSING"),
+  );
+
   let timer = 0;
   const publish = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
+      if (!invoke) {
+        console.warn("[flux capture] no __TAURI_INTERNALS__.invoke in this webview");
+        return;
+      }
       const s = snapshot();
-      // Zero-copy raw body: `outerHTML \0 visibleText` as an ArrayBuffer, tab
-      // id + url in headers (matches the dom_publish command signature).
-      // `dom_publish` is exposed via the inlined `fluxtab` plugin so this
-      // remote page is allowed to call it (capabilities/tab.json grants
-      // fluxtab:default to tab-* webviews); no other command is reachable.
+      // Zero-copy raw body: `outerHTML \0 visibleText` as bytes, tab id + url in
+      // headers. `dom_publish` is the one command this remote page may call
+      // (fluxtab plugin, granted by capabilities/tab.json).
       const body = new TextEncoder().encode(`${s.html}\0${s.text}`);
-      window.__TAURI_INTERNALS__?.invoke?.("plugin:fluxtab|dom_publish", body, {
+      invoke("plugin:fluxtab|dom_publish", body, {
         headers: { "x-flux-tab": String(TAB_ID), "x-flux-url": s.url },
-      });
+      }).then(
+        () => console.log("[flux capture] published " + s.text.length + " chars (tab " + TAB_ID + ")"),
+        (e) => console.error("[flux capture] dom_publish rejected:", e),
+      );
     }, 400); // debounce: SPA mutation storms → at most ~2 snapshots/s
   };
 
