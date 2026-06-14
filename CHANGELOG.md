@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Files tab — marquee (rubber-band) selection** (part of BACKLOG #90).
+  Click-drag on empty space to sweep a selection rectangle over rows; ⇧/⌘/Ctrl
+  while dragging adds to the existing selection. Works with the virtualized list
+  (coordinates are in scroll-independent content space) and **auto-scrolls** when
+  the pointer nears the top/bottom edge.
 - **Files tab — WSL distros in the rail.** On Windows the quick-access rail now
   lists installed **WSL distributions** under a "Linux" section (e.g.
   `Ubuntu-24.04`), enumerated via `wsl.exe -l -q` and opened at

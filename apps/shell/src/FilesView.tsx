@@ -344,6 +344,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
 
   // ── Virtualization ──
   let scroller!: HTMLDivElement;
+  let filesRoot!: HTMLDivElement;
   const [scrollTop, setScrollTop] = createSignal(0);
   const [vh, setVh] = createSignal(480);
   const start = () => Math.max(0, Math.floor(scrollTop() / ROW_H) - 6);
@@ -356,6 +357,63 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     setVh(scroller.clientHeight);
     onCleanup(() => { ro.disconnect(); clearTimeout(noticeTimer); });
   });
+
+  // ── Marquee (rubber-band) selection (#90) ──
+  // Drag on empty space to draw a rectangle; rows whose band it covers select.
+  // Coordinates are in *content* space (scroll-independent) so it stays aligned
+  // while the list auto-scrolls at the edges.
+  const [marquee, setMarquee] = createSignal<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  let marqueeBase = new Set<string>(); // selection to union with (additive drags)
+  let marqueeRaf = 0;
+  let marqueePtr: { x: number; y: number } | null = null;
+
+  const marqueeTick = () => {
+    if (!marqueePtr || !scroller) return;
+    const r = scroller.getBoundingClientRect();
+    const edge = 26; // auto-scroll when the pointer nears an edge
+    if (marqueePtr.y < r.top + edge) scroller.scrollTop -= 14;
+    else if (marqueePtr.y > r.bottom - edge) scroller.scrollTop += 14;
+    const x2 = marqueePtr.x - r.left;
+    const y2 = marqueePtr.y - r.top + scroller.scrollTop;
+    const m = setMarquee((p) => (p ? { ...p, x2, y2 } : p));
+    if (!m) return;
+    const lo = Math.max(0, Math.floor(Math.min(m.y1, m.y2) / ROW_H));
+    const hi = Math.min(view().length - 1, Math.floor(Math.max(m.y1, m.y2) / ROW_H));
+    const next = new Set(marqueeBase);
+    for (let i = lo; i <= hi; i++) { const name = nameAt(i); if (name) next.add(name); }
+    setSelected(next);
+    if (hi >= lo) setCursor(hi);
+    marqueeRaf = requestAnimationFrame(marqueeTick);
+  };
+
+  const onListMouseDown = (e: MouseEvent) => {
+    if (e.button !== 0 || creating() || renaming()) return;
+    const tgt = e.target as HTMLElement;
+    if (tgt !== scroller && !tgt.classList.contains("files-spacer")) return; // empty area only
+    const r = scroller.getBoundingClientRect();
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    marqueeBase = additive ? new Set(selected()) : new Set<string>();
+    if (!additive) clearSel();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top + scroller.scrollTop;
+    setMarquee({ x1: x, y1: y, x2: x, y2: y });
+    marqueePtr = { x: e.clientX, y: e.clientY };
+    filesRoot?.focus(); // keep keyboard nav after the drag
+    const onMove = (ev: MouseEvent) => { marqueePtr = { x: ev.clientX, y: ev.clientY }; };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      cancelAnimationFrame(marqueeRaf);
+      marqueeRaf = 0;
+      marqueePtr = null;
+      setMarquee(null);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    marqueeRaf = requestAnimationFrame(marqueeTick);
+    e.preventDefault();
+  };
+  onCleanup(() => cancelAnimationFrame(marqueeRaf));
 
   // Keyboard: nav + the operation shortcuts. Inputs and open dialogs opt out.
   const onKey = (e: KeyboardEvent) => {
@@ -462,7 +520,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     clipboard()?.mode === "cut" && clipboard()!.paths.includes(joinPath(cwd(), name));
 
   return (
-    <div class="files" tabindex={0} onKeyDown={onKey}>
+    <div class="files" tabindex={0} ref={filesRoot} onKeyDown={onKey}>
       {/* Toolbar: nav + breadcrumb + actions + search */}
       <div class="files-toolbar">
         <button class="files-nav" disabled={!canBack()} title="Back" onClick={goBack}>‹</button>
@@ -561,6 +619,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
             class="files-list"
             ref={scroller}
             onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+            onMouseDown={onListMouseDown}
             onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains("files-spacer")) clearSel(); }}
             onContextMenu={(e) => { if (e.target === scroller || (e.target as HTMLElement).classList.contains("files-spacer")) openMenu(e, null); }}
             onDragOver={(e) => { if (dragPaths.length) { e.preventDefault(); setDropTarget(cwd()); } }}
@@ -644,6 +703,19 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                         );
                       }}
                     </For>
+                    <Show when={marquee()}>
+                      {(m) => (
+                        <div
+                          class="files-marquee"
+                          style={{
+                            left: `${Math.min(m().x1, m().x2)}px`,
+                            top: `${Math.min(m().y1, m().y2)}px`,
+                            width: `${Math.abs(m().x2 - m().x1)}px`,
+                            height: `${Math.abs(m().y2 - m().y1)}px`,
+                          }}
+                        />
+                      )}
+                    </Show>
                   </div>
                 </Show>
               </Show>

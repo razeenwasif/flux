@@ -689,6 +689,12 @@ body.resizing .shell { transition: none !important; }
 .files-list::-webkit-scrollbar-thumb { background: rgba(150,160,220,0.18); border-radius: 5px; }
 .files-list::-webkit-scrollbar-thumb:hover { background: rgba(150,160,220,0.3); }
 .files-spacer { position: relative; }
+.files-marquee {
+  position: absolute; z-index: 5; pointer-events: none;
+  background: var(--flux-teal-dim);
+  border: 1px solid var(--flux-teal);
+  border-radius: 3px;
+}
 
 .files-row {
   position: absolute; left: 0; right: 0; height: 30px;

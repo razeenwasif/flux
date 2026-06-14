@@ -154,7 +154,7 @@ reversible ops (BACKLOG #83/#84/#85/#89, done). These take it further:
 
 | # | P | Item |
 |---|---|---|
-| 90 | P2 | **Marquee (rubber-band) selection** + drag-out to other apps (OS-native file drag) |
+| 90 | P2 | **OS-native drag-out**: drag files from the Files tab into other apps (Explorer, mail, editors) as a real file drag. Needs native drag (`tauri-plugin-drag`/`drag` crate) — conflicts with the current HTML5 in-app drag-to-move, so it's a deliberate design call (see ADR 0006). Marquee selection shipped. |
 | 86 | P2 | **Stream/paginate pathological dirs** (100k+ entries): chunked `fs_list` instead of one JSON payload (the v1 acceptable-tradeoff noted in ADR 0006) |
 | 87 | P2 | **Flux cross-links**: "Open terminal here" (new Terminal tab at cwd), "Open in browser", agent file actions (summarize/rename-by-content); preview pane (text/image/pdf) |
 | 88 | P2 | **Search within tree** (recursive, ranked by `flux-embed` #11) + fuzzy filename jump |
