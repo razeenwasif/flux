@@ -17,7 +17,7 @@
  * Sidebar collapses to a 60px icon rail; terminal and agent columns each
  * collapse to 0. Defaults: sidebar open, agent open, terminal closed.
  */
-import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Match, Show, Switch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
   PANE_SESSION,
   agentChat,
@@ -51,6 +51,7 @@ import {
 } from "./ipc";
 import TerminalView from "./TerminalView";
 import StartPage from "./StartPage";
+import FilesView from "./FilesView";
 import {
   activeId,
   activeTab,
@@ -62,6 +63,7 @@ import {
   tabs,
   togglePin,
   unpinnedTabs,
+  updateTabTitle,
   updateTabUrl,
 } from "./store";
 
@@ -424,7 +426,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     if (tab?.kind === "browser") void fn(tab.id);
   };
 
-  const create = async (kind: "browser" | "terminal") => {
+  const create = async (kind: "browser" | "terminal" | "files") => {
     setPicker(false);
     await openTab(kind);
     if (kind === "terminal" && !props.terminalOpen) props.onToggleTerminal();
@@ -504,6 +506,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </button>
               <button onClick={() => create("terminal")}>
                 ⌨ Terminal tab <kbd>⌘⇧T</kbd>
+              </button>
+              <button onClick={() => create("files")}>
+                📁 Files tab
               </button>
             </div>
           </Show>
@@ -620,33 +625,41 @@ const ContentArea: Component<{
 }> = (props) => (
   <main class="content">
     <div class="card" id="flux-web-area">
-      <Show
-        when={activeTab()?.kind === "terminal"}
+      <Switch
         fallback={
-          <Show
-            when={activeTab() && isStartUrl(activeTab()!.url)}
-            fallback={
-              <span style={{ "text-align": "center", "line-height": 1.8 }}>
-                <strong style={{ color: "var(--flux-text)" }}>{activeTab()?.title || "Flux"}</strong>
-                <br />
-                loading…
-              </span>
-            }
-          >
-            <StartPage
-              onNavigate={props.onNavigate}
-              onNewTerminal={props.onNewTerminal}
-              onToggleAgent={props.onToggleAgent}
-            />
-          </Show>
+          /* Browser tab with a real page — the native webview overlays this. */
+          <span style={{ "text-align": "center", "line-height": 1.8 }}>
+            <strong style={{ color: "var(--flux-text)" }}>{activeTab()?.title || "Flux"}</strong>
+            <br />
+            loading…
+          </span>
         }
       >
-        {/* Terminal tab: a PTY keyed by the tab id. `keyed` so switching tabs
-            tears down and remounts a fresh session per tab. */}
-        <Show when={activeTab()} keyed>
-          {(tab) => <TerminalView session={tab.id} />}
-        </Show>
-      </Show>
+        {/* `keyed` so switching tabs remounts fresh per-tab state. */}
+        <Match when={activeTab()?.kind === "terminal"}>
+          <Show when={activeTab()} keyed>{(tab) => <TerminalView session={tab.id} />}</Show>
+        </Match>
+        <Match when={activeTab()?.kind === "files"}>
+          <Show when={activeTab()} keyed>
+            {(tab) => (
+              <FilesView
+                path={tab.url}
+                onPathChange={(p) => {
+                  updateTabUrl(tab.id, p);
+                  updateTabTitle(tab.id, basename(p));
+                }}
+              />
+            )}
+          </Show>
+        </Match>
+        <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
+          <StartPage
+            onNavigate={props.onNavigate}
+            onNewTerminal={props.onNewTerminal}
+            onToggleAgent={props.onToggleAgent}
+          />
+        </Match>
+      </Switch>
     </div>
   </main>
 );
@@ -768,11 +781,18 @@ const AgentPanel: Component = () => {
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-/** Favicon stand-in (BACKLOG #21): terminal tabs → ⌨, browser tabs → host initial. */
+/** Favicon stand-in (BACKLOG #21): terminal → ⌨, files → 📁, browser → host initial. */
 function favicon(tab: TabMeta): string {
   if (tab.kind === "terminal") return "⌨";
+  if (tab.kind === "files") return "📁";
   const host = tab.url.split("/")[2] ?? tab.url;
   return (host.replace(/^www\./, "")[0] ?? "?").toUpperCase();
+}
+
+/** Last path segment of a filesystem path (Windows or Unix), for the tab title. */
+function basename(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || path;
 }
 
 function clusterColor(tab: TabMeta): string {

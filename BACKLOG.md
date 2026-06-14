@@ -144,6 +144,21 @@ beyond "another Chromium skin."
 | 78 | P2 | Real bookmarks UI (#22) + settings panel (appearance, engines, privacy) + extensions/equivalents view behind the new footer icons (currently a search-engine picker + roadmap notes) |
 | 72 | P2 | **Native RSS / feed reader** in a web panel | Vivaldi only |
 
+## Epic: Files explorer
+
+The read-only Files tab shipped (ADR 0006): virtualized list, quick-access rail,
+breadcrumb nav, sort/filter, open-with-default. These build it into a real file
+manager.
+
+| # | P | Item |
+|---|---|---|
+| 83 | P1 | **File operations**: new folder/file, rename, delete (→ OS trash), copy/cut/paste, drag-move. Context menu + keyboard. Confirm-on-destructive; undo where cheap |
+| 84 | P1 | **Multi-select** (shift/ctrl-range) + bulk ops; select-all; marquee selection |
+| 85 | P2 | **Live directory watch** (`notify` crate) — reflect external create/delete/rename without a manual refresh |
+| 86 | P2 | **Stream/paginate pathological dirs** (100k+ entries): chunked `fs_list` instead of one JSON payload (the v1 acceptable-tradeoff noted in ADR 0006) |
+| 87 | P2 | **Flux cross-links**: "Open terminal here" (new Terminal tab at cwd), "Open in browser", agent file actions (summarize/rename-by-content); preview pane (text/image/pdf) |
+| 88 | P2 | **Search within tree** (recursive, ranked by `flux-embed` #11) + fuzzy filename jump |
+
 ## Decisions wanted (not yet scheduled)
 
 - ✅ **Search backend** (#68, done): `flux-search` ships a template-based engine

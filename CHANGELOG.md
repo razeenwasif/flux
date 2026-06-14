@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Files tab — a native filesystem explorer** (ADR 0006). Open a 📁 **Files
+  tab** like the terminal: a read-only explorer rendered in the content card (no
+  webview), backed by `std::fs`. Toolbar with back/forward/up + breadcrumb +
+  live filter, a quick-access rail (home, Desktop/Documents/Downloads, drive
+  roots), and a **virtualized** columned list — only the visible rows are in the
+  DOM, so a 10k-entry directory scrolls smoothly. Sortable (name/size/modified,
+  folders-first), hidden-file toggle, full keyboard nav (↑↓ select, Enter open,
+  Backspace up); files open with the OS default app. The listing call
+  (`fs_list`) runs off the main thread (`spawn_blocking`) and returns **compact**
+  entries, so even huge directories never freeze the UI. Read-only for now —
+  file operations are the next increment (BACKLOG #83).
 - **Agent chat mode.** The agent sidebar is now a **chat-first** interface — talk
   to your local Gemma with no page required (`agent_chat`); if a page is open its
   text is passed as context so you can ask *about* it. Page actions still work via

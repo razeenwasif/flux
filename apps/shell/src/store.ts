@@ -68,3 +68,7 @@ export async function closeTab(id: number): Promise<void> {
 export function updateTabUrl(id: number, url: string): void {
   setTabs((list) => list.map((t) => (t.id === id ? { ...t, url } : t)));
 }
+
+export function updateTabTitle(id: number, title: string): void {
+  setTabs((list) => list.map((t) => (t.id === id ? { ...t, title } : t)));
+}

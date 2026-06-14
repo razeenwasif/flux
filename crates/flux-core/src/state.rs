@@ -29,6 +29,8 @@ pub type TabId = u64;
 pub enum TabKind {
     Browser,
     Terminal,
+    /// Read-only filesystem explorer (ADR 0006). Its `url` holds the cwd.
+    Files,
 }
 
 /// Metadata for one open tab. Small (~100 B) and `Clone` — cheap to hand to

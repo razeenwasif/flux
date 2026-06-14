@@ -38,7 +38,7 @@ export const isStartUrl = (url: string) => url === START_URL || url.startsWith("
 
 export interface ClusterTag { id: number; color: number }
 
-export type TabKind = "browser" | "terminal";
+export type TabKind = "browser" | "terminal" | "files";
 
 export interface TabMeta {
   id: number;
@@ -172,6 +172,31 @@ export const onTabLoaded = (
   listen<[number, string, "started" | "finished"]>("flux://tab-loaded", (e) =>
     cb(e.payload[0], e.payload[1], e.payload[2]),
   );
+
+// ─── Filesystem explorer (Files tab) ────────────────────────────────────────
+
+export interface FileEntry {
+  name: string;
+  is_dir: boolean;
+  symlink: boolean;
+  size: number;
+  modified: number | null;
+}
+export interface DirListing {
+  path: string;
+  parent: string | null;
+  entries: FileEntry[];
+}
+export interface QuickLocation {
+  name: string;
+  path: string;
+  kind: "home" | "folder" | "drive";
+}
+
+export const fsList = (path: string) => invoke<DirListing>("fs_list", { path });
+export const fsHome = () => invoke<string>("fs_home");
+export const fsQuickLocations = () => invoke<QuickLocation[]>("fs_quick_locations");
+export const fsOpen = (path: string) => invoke<void>("fs_open", { path });
 
 // ─── Terminal (PTY) ────────────────────────────────────────────────────────
 

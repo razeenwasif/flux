@@ -34,6 +34,15 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
         TabKind::Browser => (url.unwrap_or_else(|| "flux://start".into()), String::new()),
         // Terminal tabs carry their cwd in `url`; title mirrors the shell.
         TabKind::Terminal => (dirs_download(), format!("term #{id}")),
+        // Files tabs carry their cwd in `url`; start at home.
+        TabKind::Files => {
+            let start = url.unwrap_or_else(crate::files::home_dir);
+            let title = std::path::Path::new(&start)
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Files".into());
+            (start, title)
+        }
     };
     let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None };
     state.tabs.insert(id, meta.clone());

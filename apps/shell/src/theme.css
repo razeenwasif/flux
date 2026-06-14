@@ -594,6 +594,109 @@ body.resizing .shell { transition: none !important; }
 .rh-se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
 
 /* ════════════════════════════════════════════════════════════════════════
+   Files tab — filesystem explorer (premium minimal)
+   ════════════════════════════════════════════════════════════════════════ */
+.files {
+  width: 100%; height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  outline: none;
+  --files-col: 1fr 104px 180px;
+}
+
+.files-toolbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--glass-rim-soft);
+}
+.files-nav {
+  width: 28px; height: 28px; flex: none;
+  display: grid; place-items: center;
+  border-radius: var(--flux-radius);
+  color: var(--flux-text-dim); font-size: 15px;
+}
+.files-nav:hover:not(:disabled) { color: var(--flux-text); background: var(--flux-surface); }
+.files-nav:disabled { opacity: 0.3; cursor: default; }
+
+.files-crumbs { flex: 1; display: flex; align-items: center; gap: 1px; overflow: hidden; min-width: 0; }
+.files-crumb {
+  padding: 4px 7px; border-radius: 6px;
+  color: var(--flux-text-dim); font-size: 12.5px;
+  white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+}
+.files-crumb:hover { color: var(--flux-text); background: var(--flux-surface); }
+.files-crumbs .files-crumb:last-child { color: var(--flux-text); font-weight: 550; }
+.files-crumb-sep { color: var(--flux-text-mute); font-size: 11px; flex: none; }
+
+.files-search { width: 150px; flex: none; padding: 7px 12px; font-size: 12px; border-radius: 999px; }
+
+.files-body { display: grid; grid-template-columns: 188px 1fr; min-height: 0; overflow: hidden; }
+
+.files-rail {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 10px 8px; overflow-y: auto; min-height: 0;
+  border-right: 1px solid var(--glass-rim-soft);
+}
+.files-rail::-webkit-scrollbar { width: 8px; }
+.files-rail::-webkit-scrollbar-thumb { background: rgba(150,160,220,0.18); border-radius: 4px; }
+.files-rail-section { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--flux-text-mute); padding: 10px 9px 4px; font-weight: 600; }
+.files-loc {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 9px; border-radius: var(--flux-radius);
+  color: var(--flux-text-dim); font-size: 12.5px; text-align: left; width: 100%;
+}
+.files-loc:hover { background: var(--flux-surface); color: var(--flux-text); }
+.files-loc.active { background: var(--flux-surface-2); color: var(--flux-text); }
+.files-loc-icon { display: flex; color: var(--flux-text-mute); }
+.files-loc.active .files-loc-icon { color: var(--flux-teal); }
+
+.files-main { display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+.files-head {
+  display: grid; grid-template-columns: var(--files-col);
+  align-items: center; height: 30px; padding: 0 14px;
+  border-bottom: 1px solid var(--glass-rim-soft);
+}
+.files-col {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600;
+  color: var(--flux-text-mute); text-align: left; padding: 0; height: 100%;
+}
+.files-col:hover { color: var(--flux-text-dim); background: transparent; }
+.files-col.size, .files-col.modified { text-align: right; }
+.files-col.sorted { color: var(--flux-teal); }
+
+.files-list { position: relative; overflow-y: auto; min-height: 0; }
+.files-list::-webkit-scrollbar { width: 10px; }
+.files-list::-webkit-scrollbar-thumb { background: rgba(150,160,220,0.18); border-radius: 5px; }
+.files-list::-webkit-scrollbar-thumb:hover { background: rgba(150,160,220,0.3); }
+.files-spacer { position: relative; }
+
+.files-row {
+  position: absolute; left: 0; right: 0; height: 30px;
+  display: grid; grid-template-columns: var(--files-col);
+  align-items: center; padding: 0 14px;
+  cursor: default; user-select: none;
+}
+.files-row:hover { background: var(--flux-surface); }
+.files-row.selected { background: var(--flux-teal-dim); box-shadow: inset 2px 0 0 0 var(--flux-teal); }
+.files-cell { font-size: 12.5px; overflow: hidden; }
+.files-cell.name { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--flux-text); }
+.file-icon { display: flex; flex: none; }
+.files-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files-link { color: var(--flux-text-mute); flex: none; }
+.files-cell.size, .files-cell.modified { text-align: right; color: var(--flux-text-dim); font-variant-numeric: tabular-nums; font-size: 12px; }
+
+.files-empty { padding: 28px 16px; color: var(--flux-text-mute); font-size: 13px; text-align: center; }
+.files-err { color: #ff9b9b; }
+
+.files-statusbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 7px 14px; border-top: 1px solid var(--glass-rim-soft);
+  font-size: 11px; color: var(--flux-text-mute);
+}
+.files-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.files-toggle input { width: 13px; height: 13px; accent-color: var(--flux-teal); }
+
+/* ════════════════════════════════════════════════════════════════════════
    Liquid AI states
    ════════════════════════════════════════════════════════════════════════ */
 @keyframes flux-kinetic {

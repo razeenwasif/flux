@@ -9,7 +9,23 @@ export class Channel<T = unknown> {
   onmessage: (msg: T) => void = () => {};
 }
 
-let nextId = 8;
+let nextId = 9;
+
+const DAY = 86_400_000;
+const T0 = 1_749_900_000_000; // fixed base so preview dates are stable
+const mockEntries = [
+  ["Flux", true, 0, 1], ["Omni", true, 0, 2], ["projects", true, 0, 9],
+  ["dotfiles", true, 0, 40], [".config", true, 0, 3], [".cache", true, 0, 1],
+  ["README.md", false, 2150, 0.2], ["notes.txt", false, 840, 1], ["TODO.md", false, 410, 0.5],
+  ["main.rs", false, 4096, 2], ["Cargo.toml", false, 612, 2], ["index.ts", false, 8800, 1.2],
+  ["theme.css", false, 14_300, 0.3], ["avatar.png", false, 230_400, 30],
+  ["diagram.svg", false, 18_200, 12], ["archive.zip", false, 10_485_760, 60],
+  ["dataset.tar.gz", false, 1_073_741_824, 90], ["demo.mp4", false, 52_428_800, 7],
+  ["talk.mp3", false, 6_291_456, 14], ["paper.pdf", false, 1_310_720, 5],
+  ["sheet.xlsx", false, 44_800, 21], ["slides.pptx", false, 2_900_000, 3],
+  ["query.sql", false, 1_200, 4], ["server.go", false, 9_400, 6], ["build.sh", false, 720, 8],
+  ["config.yaml", false, 1_900, 2], ["data.json", false, 320_000, 1], ["LICENSE", false, 1_069, 120],
+];
 const tabs: TabMeta[] = [
   { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null },
   { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null },
@@ -17,6 +33,7 @@ const tabs: TabMeta[] = [
   { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null },
   { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb } },
   { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null },
+  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null },
 ];
 
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -75,6 +92,32 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           : `https://${input}`
         : `https://duckduckgo.com/?q=${encodeURIComponent(input)}`;
       return Promise.resolve({ kind: isUrl ? "navigate" : "search", engine: "ddg", url } as T);
+    }
+    case "fs_home":
+      return Promise.resolve("/home/amaterasu" as T);
+    case "fs_quick_locations":
+      return Promise.resolve([
+        { name: "Home", path: "/home/amaterasu", kind: "home" },
+        { name: "Desktop", path: "/home/amaterasu/Desktop", kind: "folder" },
+        { name: "Documents", path: "/home/amaterasu/Documents", kind: "folder" },
+        { name: "Downloads", path: "/home/amaterasu/Downloads", kind: "folder" },
+        { name: "/", path: "/", kind: "drive" },
+      ] as T);
+    case "fs_open":
+      return Promise.resolve(undefined as T);
+    case "fs_list": {
+      const path = String(args?.path ?? "/home/amaterasu");
+      return Promise.resolve({
+        path,
+        parent: "/home",
+        entries: mockEntries.map(([name, is_dir, size, days]) => ({
+          name,
+          is_dir,
+          symlink: false,
+          size,
+          modified: T0 - (days as number) * DAY,
+        })),
+      } as T);
     }
     case "search_default":
       return Promise.resolve("ddg" as T);
