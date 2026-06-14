@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Files tab — OS-native drag-out** (completes BACKLOG #90). **Alt+drag** a
+  file (or a multi-selection) out of Flux into another app — Explorer/Finder,
+  mail, an editor — as a real OS file drag (copy), via `tauri-plugin-drag`.
+  Plain drag still does the in-app move (onto folders/rail/breadcrumbs); the Alt
+  modifier is what lets the two coexist (ADR 0006). The drag preview icon is
+  materialized to a temp path (`fs_drag_icon`); the plugin's `drag:default`
+  permission is granted only to the main chrome window, never tab webviews.
 - **Files tab — marquee (rubber-band) selection** (part of BACKLOG #90).
   Click-drag on empty space to sweep a selection rectangle over rows; ⇧/⌘/Ctrl
   while dragging adds to the existing selection. Works with the virtualized list

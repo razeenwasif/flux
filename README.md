@@ -163,11 +163,13 @@ rail also lists installed **WSL distributions** (a "Linux" section, opened at
 **File operations:** new folder/file (inline-named), rename (F2), copy/cut/
 paste (⌘/Ctrl-C/X/V), drag-to-move (onto folders, the rail, or breadcrumbs),
 and delete — to the **OS trash** by default (recoverable) or permanent with
-⇧. Multi-select (click / ⌘-click / ⇧-click / ⌘A), a right-click context menu,
-and a confirm dialog on every destructive op. The listing **watches the
-directory** and updates itself on external changes (no manual refresh), and
-reversible ops are **undoable** with ⌘/Ctrl-Z (rename/move/trash → restore).
-Next: marquee selection + native drag-out — see `BACKLOG.md` #90.
+⇧. Multi-select (click / ⌘-click / ⇧-click / ⌘A, or **marquee** drag on empty
+space), a right-click context menu, and a confirm dialog on every destructive
+op. The listing **watches the directory** and updates itself on external
+changes (no manual refresh), and reversible ops are **undoable** with ⌘/Ctrl-Z
+(rename/move/trash → restore). **Alt+drag** a file out of Flux into another app
+(Explorer, mail, an editor) as a real OS file drag; plain drag still moves
+within Flux.
 
 ## Roadmap
 

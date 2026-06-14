@@ -159,6 +159,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "fs_watch":
     case "fs_unwatch":
       return Promise.resolve(undefined as T); // no live watch in the preview
+    case "fs_drag_icon":
+      return Promise.resolve("/tmp/flux-drag-icon.png" as T); // no native drag in preview
     case "search_default":
       return Promise.resolve("ddg" as T);
     case "search_engines":

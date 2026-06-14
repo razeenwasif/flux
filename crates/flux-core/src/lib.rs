@@ -50,6 +50,8 @@ pub fn run(intent: cli::LaunchIntent) {
                 .invoke_handler(tauri::generate_handler![commands::dom_publish])
                 .build(),
         )
+        // OS-native drag-out for the Files tab (Alt+drag a file to another app).
+        .plugin(tauri_plugin_drag::init())
         .invoke_handler(tauri::generate_handler![
             commands::tab_create,
             commands::tab_focus,
@@ -99,6 +101,7 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_undo,
             files::fs_watch,
             files::fs_unwatch,
+            files::fs_drag_icon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Flux");

@@ -549,3 +549,21 @@ pub fn fs_watch(app: AppHandle, watchers: State<'_, FsWatchers>, id: u64, path: 
 pub fn fs_unwatch(watchers: State<'_, FsWatchers>, id: u64) {
     watchers.0.lock().remove(&id);
 }
+
+/// Materialize the drag-out preview icon to a real path on disk and return it.
+/// `tauri-plugin-drag` needs the drag image as a filesystem path; we embed the
+/// app's 32px icon and drop it in the temp dir (idempotent). The frontend caches
+/// the result, so this runs at most once per session.
+#[tauri::command]
+pub async fn fs_drag_icon() -> Result<String, String> {
+    blocking(|| {
+        const ICON: &[u8] = include_bytes!("../icons/32x32.png");
+        let path = std::env::temp_dir().join("flux-drag-icon.png");
+        if !path.exists() {
+            std::fs::write(&path, ICON).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })
+    .await?;
+    Ok(std::env::temp_dir().join("flux-drag-icon.png").to_string_lossy().into_owned())
+}

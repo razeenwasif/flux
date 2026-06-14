@@ -27,6 +27,8 @@ import {
   fsCreateDir,
   fsCreateFile,
   fsDelete,
+  fsDragIcon,
+  fsDragOut,
   fsList,
   fsMove,
   fsOpen,
@@ -74,6 +76,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const [notice, setNotice] = createSignal<{ kind: "ok" | "err"; text: string } | null>(null);
   const [dropTarget, setDropTarget] = createSignal<string | null>(null);
   let dragPaths: string[] = [];
+  let dragIcon = "";
   let noticeTimer: number | undefined;
   let unlistenFs: (() => void) | undefined;
   let watchTimer: number | undefined;
@@ -159,6 +162,9 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   onMount(async () => {
     await load(props.path);
     setPlaces(await fsQuickLocations().catch(() => []));
+    // Pre-fetch the drag-out preview icon path so Alt+drag can fire it without
+    // an async hop mid-gesture (#90).
+    dragIcon = await fsDragIcon().catch(() => "");
     // Live watch: re-list (debounced) when the shown directory changes on disk.
     unlistenFs = await onFsChanged((p) => {
       if (p !== cwd()) return;
@@ -650,9 +656,17 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                             }}
                             onDragStart={(e) => {
                               if (!selected().has(entry.name)) selectOnly(idx());
-                              dragPaths = selectedPaths();
+                              const paths = selectedPaths();
+                              if (e.altKey) {
+                                // Alt+drag → OS-native drag-out to other apps
+                                // (not an in-app move). #90
+                                e.preventDefault();
+                                fsDragOut(paths, dragIcon);
+                                return;
+                              }
+                              dragPaths = paths;
                               e.dataTransfer!.effectAllowed = "move";
-                              e.dataTransfer!.setData("text/plain", dragPaths.join("\n"));
+                              e.dataTransfer!.setData("text/plain", paths.join("\n"));
                             }}
                             onDragEnd={() => { dragPaths = []; setDropTarget(null); }}
                             onDragOver={(e) => {

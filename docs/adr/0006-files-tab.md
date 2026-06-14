@@ -72,7 +72,23 @@ copy/cut/paste, drag-to-move, and delete. Design choices worth recording:
   create/rename, drag targets, confirm dialog); the backend stays mechanical
   and path-based, with name validation on the UI side.
 
-Still deferred: marquee select / native drag-out (#90).
+## Update (2026-06-15) — marquee selection + OS-native drag-out (#90)
+
+- **Marquee (rubber-band) selection:** drag on empty space to sweep rows.
+  Coordinates are kept in *content* space (scroll-independent), so it stays
+  aligned with the virtualized rows and survives the edge auto-scroll (a rAF
+  loop while the pointer sits near a viewport edge). It only starts on the empty
+  background, so it never competes with a row's own drag.
+- **OS-native drag-out:** HTML5 drag-and-drop can't hand files to *other* apps,
+  so dragging a file into Explorer/mail/an editor needs a native drag
+  (`tauri-plugin-drag`, which also handles the main-thread dispatch + raw window
+  handle). That conflicts with the in-app drag-to-move (both want the drag
+  gesture), so the resolution is a **modifier**: plain drag = in-app move
+  (unchanged), **Alt+drag** = native drag-out (copy). The drag preview image
+  must be a real path, so `fs_drag_icon` writes the app's 32px icon to the temp
+  dir and the frontend caches it. Security: the plugin's `drag:default`
+  permission is granted only to the `main` chrome window — never to tab
+  webviews, consistent with the rest of the ACL.
 
 ## Update (2026-06-14) — live watch + undo
 

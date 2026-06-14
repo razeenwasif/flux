@@ -6,6 +6,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
 
 export { Channel };
 
@@ -216,6 +217,15 @@ export const fsUnwatch = (id: number) => invoke<void>("fs_unwatch", { id });
 /** Fires (with the watched directory) when a watched dir's contents change. */
 export const onFsChanged = (cb: (path: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://fs-changed", (e) => cb(e.payload));
+
+// OS-native drag-out (Alt+drag in the Files tab → drop into Explorer/mail/etc.).
+/** Materialize the drag preview icon to a real path (cache the result). */
+export const fsDragIcon = () => invoke<string>("fs_drag_icon");
+/** Start a native drag of `paths` out to other apps. No-op outside Tauri. */
+export function fsDragOut(paths: string[], icon: string): void {
+  if (!inTauri() || !paths.length) return;
+  void startDrag({ item: paths, icon, mode: "copy" });
+}
 
 // ─── Terminal (PTY) ────────────────────────────────────────────────────────
 
