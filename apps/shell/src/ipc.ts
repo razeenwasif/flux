@@ -229,12 +229,17 @@ export const fsDragIcon = () => invoke<string>("fs_drag_icon");
  */
 export function fsDragOut(paths: string[], icon: string): void {
   if (!inTauri() || !paths.length) return;
+  console.log("[flux drag-out] start_drag", { paths, icon });
+  const onEvent = new Channel<{ result: string }>();
+  onEvent.onmessage = (m) => console.log("[flux drag-out] event", m);
   void invoke("plugin:drag|start_drag", {
     item: paths,
     image: icon,
     options: { mode: "copy" },
-    onEvent: new Channel(),
-  });
+    onEvent,
+  })
+    .then(() => console.log("[flux drag-out] invoke resolved"))
+    .catch((e) => console.error("[flux drag-out] invoke FAILED:", e));
 }
 
 // ─── Terminal (PTY) ────────────────────────────────────────────────────────
