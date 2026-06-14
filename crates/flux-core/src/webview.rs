@@ -34,7 +34,7 @@ fn parse_url(url: &str) -> Result<Url, String> {
 /// relative to the chrome window's top-left). Idempotent — a second call for
 /// an existing tab is a no-op (use `webview_navigate` to change the page).
 #[tauri::command]
-pub fn webview_open(
+pub async fn webview_open(
     app: AppHandle,
     tab_id: TabId,
     url: String,
@@ -84,7 +84,7 @@ pub fn webview_open(
 /// Diagnostic: report the window scale + size and the tab webview's actual
 /// (physical) position/size, so a mispositioned page can be debugged.
 #[tauri::command]
-pub fn webview_debug(app: AppHandle, tab_id: TabId) -> Result<String, String> {
+pub async fn webview_debug(app: AppHandle, tab_id: TabId) -> Result<String, String> {
     let window = app.get_window(CHROME_WINDOW).ok_or("no chrome window")?;
     let scale = window.scale_factor().unwrap_or(1.0);
     let wsize = window.inner_size().map_err(|e| e.to_string())?;
@@ -102,7 +102,7 @@ pub fn webview_debug(app: AppHandle, tab_id: TabId) -> Result<String, String> {
 /// Reposition/resize a tab's webview to match the content rect (called on
 /// layout changes: resize, sidebar collapse, panel toggles, focus).
 #[tauri::command]
-pub fn webview_set_bounds(
+pub async fn webview_set_bounds(
     app: AppHandle,
     tab_id: TabId,
     x: f64,
@@ -118,7 +118,7 @@ pub fn webview_set_bounds(
 }
 
 #[tauri::command]
-pub fn webview_show(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+pub async fn webview_show(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&label(tab_id)) {
         wv.show().map_err(|e| e.to_string())?;
         let _ = wv.set_focus();
@@ -127,7 +127,7 @@ pub fn webview_show(app: AppHandle, tab_id: TabId) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn webview_hide(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+pub async fn webview_hide(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&label(tab_id)) {
         wv.hide().map_err(|e| e.to_string())?;
     }
@@ -135,7 +135,7 @@ pub fn webview_hide(app: AppHandle, tab_id: TabId) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn webview_navigate(app: AppHandle, tab_id: TabId, url: String) -> Result<(), String> {
+pub async fn webview_navigate(app: AppHandle, tab_id: TabId, url: String) -> Result<(), String> {
     let wv = app.get_webview(&label(tab_id)).ok_or("no such tab webview")?;
     wv.navigate(parse_url(&url)?).map_err(|e| e.to_string())
 }
@@ -143,22 +143,22 @@ pub fn webview_navigate(app: AppHandle, tab_id: TabId, url: String) -> Result<()
 /// Back / forward / reload. Tauri has no direct history API on `Webview`, so
 /// these drive the page's own history (works across engines).
 #[tauri::command]
-pub fn webview_back(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+pub async fn webview_back(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     eval(&app, tab_id, "history.back()")
 }
 
 #[tauri::command]
-pub fn webview_forward(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+pub async fn webview_forward(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     eval(&app, tab_id, "history.forward()")
 }
 
 #[tauri::command]
-pub fn webview_reload(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+pub async fn webview_reload(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     eval(&app, tab_id, "location.reload()")
 }
 
 #[tauri::command]
-pub fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&label(tab_id)) {
         wv.close().map_err(|e| e.to_string())?;
     }
