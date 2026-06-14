@@ -171,21 +171,22 @@ const App: Component = () => {
           wv(webviewShow(tab.id));
         } else {
           openedWebviews.add(tab.id);
-          // Diagnostic for the "page opens in the wrong place" bug: logs the
-          // rect we send vs. what Tauri actually applied. Share these lines.
-          console.log("[flux webview] open", {
-            id: tab.id,
-            url: tab.url,
-            rect,
-            dpr: window.devicePixelRatio,
-            win: { w: window.innerWidth, h: window.innerHeight },
-          });
-          wv(webviewOpen(tab.id, tab.url, rect));
-          scheduleBounds(tab.id); // reposition after the layout settles
           const id = tab.id;
-          webviewDebug(id)
+          const r = rect;
+          // Diagnostic for the "page stuck on loading" bug: rect we send,
+          // then what Tauri actually applied (after the webview exists).
+          console.log(
+            `[flux webview] open id=${id} url=${tab.url} ` +
+              `rect=${JSON.stringify(r)} dpr=${window.devicePixelRatio} ` +
+              `win=${window.innerWidth}x${window.innerHeight}`,
+          );
+          webviewOpen(id, tab.url, r)
+            .then(() => {
+              scheduleBounds(id);
+              return webviewDebug(id);
+            })
             .then((info) => console.log("[flux webview] tauri sees:", info))
-            .catch(() => {});
+            .catch((e) => console.error("[flux webview] open failed:", e));
         }
       }
     }
