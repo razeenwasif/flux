@@ -24,8 +24,11 @@ pub struct OllamaBackend {
 impl OllamaBackend {
     pub fn new() -> Self {
         Self {
-            // Inference can take many seconds — generous read timeout.
             agent: ureq::AgentBuilder::new()
+                // Fail fast if no server is listening (e.g. Ollama not running
+                // / wrong host) instead of hanging…
+                .timeout_connect(Duration::from_secs(5))
+                // …but allow many seconds for the model to actually generate.
                 .timeout_read(Duration::from_secs(180))
                 .build(),
             endpoint: std::env::var("FLUX_OLLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.into()),
