@@ -229,9 +229,9 @@ export const fsDragIcon = () => invoke<string>("fs_drag_icon");
  */
 export function fsDragOut(paths: string[], icon: string): void {
   if (!inTauri() || !paths.length) return;
-  console.log("[flux drag-out] start_drag", { paths, icon });
-  const onEvent = new Channel<{ result: string }>();
-  onEvent.onmessage = (m) => console.log("[flux drag-out] event", m);
+  console.log("[flux drag-out] start_drag item=", JSON.stringify(paths), "icon=", icon);
+  const onEvent = new Channel<{ result: string; cursorPos: { x: number; y: number } }>();
+  onEvent.onmessage = (m) => console.log("[flux drag-out] event", JSON.stringify(m));
   void invoke("plugin:drag|start_drag", {
     item: paths,
     image: icon,
