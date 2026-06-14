@@ -6,7 +6,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { startDrag } from "@crabnebula/tauri-plugin-drag";
 
 export { Channel };
 
@@ -221,10 +220,21 @@ export const onFsChanged = (cb: (path: string) => void): Promise<UnlistenFn> =>
 // OS-native drag-out (Alt+drag in the Files tab → drop into Explorer/mail/etc.).
 /** Materialize the drag preview icon to a real path (cache the result). */
 export const fsDragIcon = () => invoke<string>("fs_drag_icon");
-/** Start a native drag of `paths` out to other apps. No-op outside Tauri. */
+/**
+ * Start a native drag of `paths` out to other apps (copy). No-op outside Tauri.
+ *
+ * Calls the `tauri-plugin-drag` command directly (matching its JS binding) so we
+ * don't carry an npm dependency just for one invoke. `onEvent` is a required
+ * channel even when we ignore drag events.
+ */
 export function fsDragOut(paths: string[], icon: string): void {
   if (!inTauri() || !paths.length) return;
-  void startDrag({ item: paths, icon, mode: "copy" });
+  void invoke("plugin:drag|start_drag", {
+    item: paths,
+    image: icon,
+    options: { mode: "copy" },
+    onEvent: new Channel(),
+  });
 }
 
 // ─── Terminal (PTY) ────────────────────────────────────────────────────────
