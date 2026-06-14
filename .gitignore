@@ -22,3 +22,6 @@ crates/flux-core/gen
 .DS_Store
 *.log
 flux-shell-default.png
+
+# Windows Mark-of-the-Web alternate-data-stream metadata (illegal paths on NTFS)
+*:Zone.Identifier
