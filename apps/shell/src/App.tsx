@@ -20,6 +20,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
   PANE_SESSION,
+  agentChat,
   agentExecute,
   isStartUrl,
   launchIntent,
@@ -667,64 +668,97 @@ const TerminalColumn: Component = () => (
 
 /** The "Liquid AI" surface. Status drives the visual state machine: idle →
  *  violet dot, thinking → kinetic gradient border, acting → magenta line. */
+type FeedItem = { role: "user" | "assistant" | "action" | "error"; text: string };
+
 const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
   const [prompt, setPrompt] = createSignal("");
-  const [feed, setFeed] = createSignal<string[]>([]);
+  const [feed, setFeed] = createSignal<FeedItem[]>([]);
+  const [busy, setBusy] = createSignal(false);
+  let feedEl: HTMLDivElement | undefined;
 
   onMount(async () => {
     const unlisten = await onAgentStatus(setStatus);
     onCleanup(unlisten);
   });
 
+  // Auto-scroll the feed to the latest message.
+  createEffect(() => {
+    feed();
+    if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+  });
+
+  const working = () => busy() || status().state === "thinking";
+
   const run = async (e: SubmitEvent) => {
     e.preventDefault();
     const p = prompt().trim();
-    if (!p) return;
+    if (!p || working()) return;
     setPrompt("");
+    setFeed((f) => [...f, { role: "user", text: p }]);
+    setBusy(true);
     try {
-      const action = await agentExecute(p);
-      setFeed((f) => [...f, `▸ ${p}`, `  ${describeAction(action)}`]);
+      // "/act <…>" (or /do) drives a page action; everything else is chat.
+      const act = p.match(/^\/(?:act|do)\s+([\s\S]+)/i);
+      if (act?.[1]) {
+        const action = await agentExecute(act[1].trim());
+        setFeed((f) => [...f, { role: "action", text: describeAction(action) }]);
+      } else {
+        const reply = await agentChat(p);
+        setFeed((f) => [...f, { role: "assistant", text: reply.trim() }]);
+      }
     } catch (err) {
-      setFeed((f) => [...f, `▸ ${p}`, `  ✗ ${String(err)}`]);
+      setFeed((f) => [...f, { role: "error", text: String(err) }]);
+    } finally {
+      setBusy(false);
     }
   };
-
-  const thinking = () => status().state === "thinking";
 
   return (
     <aside class="agent">
       <div class="agent-inner">
         <header style={{ display: "flex", "align-items": "center", gap: "8px" }}>
           <span
-            classList={{ "ai-thinking": thinking() }}
+            classList={{ "ai-thinking": working() }}
             style={{
               width: "10px",
               height: "10px",
               "border-radius": "50%",
-              background: thinking() ? undefined : "var(--flux-violet)",
+              background: working() ? undefined : "var(--flux-violet)",
             }}
           />
           <strong>Flux Agent</strong>
-          <span style={{ "font-size": "11px", color: "var(--flux-text-dim)" }}>gemma-4-12b · local</span>
+          <span style={{ "font-size": "11px", color: "var(--flux-text-dim)" }}>gemma · local</span>
         </header>
 
-        <div class="agent-feed">
-          <For each={feed()}>{(line) => <div>{line}</div>}</For>
+        <div class="agent-feed" ref={feedEl}>
+          <Show
+            when={feed().length > 0}
+            fallback={
+              <div class="agent-empty">
+                Chat with your local Gemma — ask anything. Use <kbd>/act</kbd> to control
+                the page (e.g. <em>/act click the login button</em>).
+              </div>
+            }
+          >
+            <For each={feed()}>
+              {(item) => <div classList={{ "agent-msg": true, [`agent-${item.role}`]: true }}>{item.text}</div>}
+            </For>
+          </Show>
           <Show when={status().state === "acting"}>
-            <div style={{ color: "var(--flux-magenta)" }}>
+            <div class="agent-msg agent-action">
               ✦ {(status() as Extract<AgentStatus, { state: "acting" }>).description}
             </div>
           </Show>
         </div>
 
-        <form onSubmit={run} classList={{ "ai-thinking-border": thinking() }}>
+        <form onSubmit={run} classList={{ "ai-thinking-border": working() }}>
           <input
             value={prompt()}
             onInput={(e) => setPrompt(e.currentTarget.value)}
-            placeholder='Try: "find the unsubscribe link and click it"'
-            disabled={thinking()}
-            style={{ width: "100%", padding: "10px 12px", border: thinking() ? "none" : undefined }}
+            placeholder={working() ? "thinking…" : "Ask anything · /act to control the page"}
+            disabled={working()}
+            style={{ width: "100%", padding: "10px 12px", border: working() ? "none" : undefined }}
           />
         </form>
       </div>

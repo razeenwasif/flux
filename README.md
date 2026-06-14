@@ -129,8 +129,10 @@ ollama pull gemma4:12b-it-qat   # or e4b-it-qat (faster) / e2b-it-qat (fastest)
 ollama serve                    # http://localhost:11434
 ```
 
-Then open a page, type a request in the agent sidebar (e.g. *"find the
-unsubscribe link and click it"*). The agent reads the page DOM, the model
+The sidebar is **chat-first**: talk to Gemma about anything, with no page
+required (if a page is open, its text is added as context so you can ask about
+it). To make it **act on the page**, prefix with **`/act`** — e.g. *"/act find
+the unsubscribe link and click it"*: the agent reads the page DOM, the model
 returns a structured action, and Flux compiles it to injection-safe JS run in
 the tab. Config via env: `FLUX_MODEL` (default `gemma4:12b-it-qat`),
 `FLUX_OLLAMA_URL` (default `http://localhost:11434`), or

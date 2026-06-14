@@ -47,35 +47,53 @@ impl Default for OllamaBackend {
     }
 }
 
-/// Build the `/api/generate` request body. Split out so it's unit-testable
-/// without a live server. Low temperature + JSON format for stable structure.
-fn generate_body(model: &str, prompt: &str) -> serde_json::Value {
-    serde_json::json!({
+/// Build a `/api/generate` body. `json` forces structured JSON output (DOM
+/// actions); plain text + a warmer temperature is used for chat. Split out so
+/// it's unit-testable without a live server.
+fn generate_body(model: &str, prompt: &str, json: bool) -> serde_json::Value {
+    let mut body = serde_json::json!({
         "model": model,
         "prompt": prompt,
         "stream": false,
-        "format": "json",
-        "options": { "temperature": 0.1, "num_predict": 512 }
-    })
+        "options": {
+            "temperature": if json { 0.1 } else { 0.6 },
+            "num_predict": if json { 512 } else { 1024 }
+        }
+    });
+    if json {
+        body["format"] = serde_json::Value::String("json".into());
+    }
+    body
 }
 
-impl Inference for OllamaBackend {
-    fn complete(&self, prompt: &str, _grammar: Option<&str>) -> Result<String, AgentError> {
+impl OllamaBackend {
+    fn generate(&self, prompt: &str, json: bool) -> Result<String, AgentError> {
         let url = format!("{}/api/generate", self.endpoint);
         let resp = self
             .agent
             .post(&url)
-            .send_json(generate_body(&self.model, prompt))
+            .send_json(generate_body(&self.model, prompt, json))
             .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
 
-        let json: serde_json::Value = resp
+        let value: serde_json::Value = resp
             .into_json()
             .map_err(|e| AgentError::Inference(format!("ollama response decode: {e}")))?;
 
-        json.get("response")
+        value
+            .get("response")
             .and_then(|v| v.as_str())
             .map(str::to_owned)
-            .ok_or_else(|| AgentError::Inference(format!("ollama: no `response` field in {json}")))
+            .ok_or_else(|| AgentError::Inference(format!("ollama: no `response` field in {value}")))
+    }
+}
+
+impl Inference for OllamaBackend {
+    fn complete(&self, prompt: &str, _grammar: Option<&str>) -> Result<String, AgentError> {
+        self.generate(prompt, true)
+    }
+
+    fn chat(&self, prompt: &str) -> Result<String, AgentError> {
+        self.generate(prompt, false)
     }
 }
 
@@ -84,13 +102,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn request_body_is_well_formed() {
-        let b = generate_body("gemma4:12b-it-qat", "find the link");
+    fn action_body_is_json_constrained() {
+        let b = generate_body("gemma4:12b-it-qat", "find the link", true);
         assert_eq!(b["model"], "gemma4:12b-it-qat");
         assert_eq!(b["prompt"], "find the link");
         assert_eq!(b["stream"], false);
         assert_eq!(b["format"], "json");
         assert_eq!(b["options"]["temperature"], 0.1);
+    }
+
+    #[test]
+    fn chat_body_is_plain_text() {
+        let b = generate_body("gemma4:12b-it-qat", "hello", false);
+        assert!(b.get("format").is_none()); // no JSON constraint for chat
+        assert_eq!(b["options"]["temperature"], 0.6);
     }
 
     #[test]

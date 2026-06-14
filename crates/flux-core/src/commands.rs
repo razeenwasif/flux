@@ -172,6 +172,21 @@ pub fn agent_status(state: State<'_, FluxState>) -> AgentStatus {
     state.agent.read().clone()
 }
 
+/// Free-form chat with the local model — no page required. If a page is open,
+/// its visible text is passed as context so you can ask *about* the page.
+/// Returns the model's text reply.
+#[tauri::command]
+pub async fn agent_chat(state: State<'_, FluxState>, prompt: String) -> Result<String, String> {
+    // Clone the page text out (if any) so the blocking task owns it.
+    let page = state.active_snapshot().map(|s| Arc::clone(&s.text));
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().chat(&prompt, page.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
 /// Natural language → planned DOM action → JS injected into the active tab's
 /// webview. Async so a 12B model's planning latency never blocks the IPC pool.
 #[tauri::command]

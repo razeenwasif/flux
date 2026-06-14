@@ -82,11 +82,14 @@ impl AgentAction {
     }
 }
 
-/// Backend abstraction: llama.cpp today, LiteRT-LM tomorrow, mock in CI.
-/// `grammar` is a GBNF string constraining decoding to valid action JSON —
-/// with it, parse failures are structurally impossible, not just unlikely.
+/// Backend abstraction: Ollama today, llama.cpp behind a feature, mock in CI.
 pub trait Inference: Send + Sync {
+    /// Structured completion for DOM actions (`grammar` is GBNF for the llama
+    /// path; Ollama uses JSON-format constraints instead).
     fn complete(&self, prompt: &str, grammar: Option<&str>) -> Result<String, AgentError>;
+
+    /// Plain conversational completion — no structured-output constraint.
+    fn chat(&self, prompt: &str) -> Result<String, AgentError>;
 }
 
 /// GBNF grammar pinning generation to the AgentAction schema.
@@ -144,6 +147,27 @@ impl AgentPlanner {
         tracing::info!(target: "flux::agent", action = %action.describe(), "planned");
         Ok(action)
     }
+
+    /// Free-form chat. If `page_text` is given, it's included as context so the
+    /// user can ask *about* the current page (summaries, questions) without the
+    /// agent trying to act on it.
+    pub fn chat(&self, user_prompt: &str, page_text: Option<&str>) -> Result<String, AgentError> {
+        const PAGE_BUDGET: usize = 6 * 1024;
+        let prompt = match page_text {
+            Some(p) if !p.trim().is_empty() => format!(
+                "You are Flux, a helpful AI assistant built into a web browser. The \
+                 user is viewing a page; its visible text is provided for context. \
+                 Answer their message conversationally.\n\n\
+                 PAGE:\n{}\n\nUSER: {user_prompt}",
+                truncate_utf8(p, PAGE_BUDGET)
+            ),
+            _ => format!(
+                "You are Flux, a helpful AI assistant built into a web browser. \
+                 Answer the user's message conversationally.\n\nUSER: {user_prompt}"
+            ),
+        };
+        self.backend.chat(&prompt)
+    }
 }
 
 /// Last-line policy gate, applied AFTER parsing — defense in depth even
@@ -191,6 +215,11 @@ impl Inference for MockBackend {
             r#"{"action":"refuse","reason":"mock backend only handles demo intents"}"#
         };
         Ok(json.to_owned())
+    }
+
+    fn chat(&self, prompt: &str) -> Result<String, AgentError> {
+        let last = prompt.lines().last().unwrap_or(prompt);
+        Ok(format!("(mock agent — no model running) You said: {}", last.trim_start_matches("USER: ")))
     }
 }
 

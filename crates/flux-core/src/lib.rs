@@ -59,6 +59,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::terminal_env,
             commands::agent_status,
             commands::agent_execute,
+            commands::agent_chat,
             commands::tabs_recluster,
             terminal::terminal_spawn,
             terminal::terminal_write,

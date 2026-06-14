@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Agent chat mode.** The agent sidebar is now a **chat-first** interface — talk
+  to your local Gemma with no page required (`agent_chat`); if a page is open its
+  text is passed as context so you can ask *about* it. Page actions still work via
+  an explicit **`/act …`** prefix (e.g. `/act click the login button`). New typed
+  chat feed (user / assistant / action / error bubbles) with auto-scroll.
 - **Flux Agent is live — local Gemma via Ollama** (BACKLOG #1/#64, ADR 0005).
   `flux_agent::OllamaBackend` POSTs to a local Ollama server (`/api/generate`,
   `format:"json"`, temp 0.1) and the planner parses the reply into an

@@ -83,6 +83,10 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         { id: "ddg", name: "DuckDuckGo", keyword: "ddg", search_template: "", suggest_template: null },
         { id: "google", name: "Google", keyword: "g", search_template: "", suggest_template: null },
       ] as T);
+    case "agent_chat":
+      return Promise.resolve(
+        "I'm Flux, your local assistant. Ask me anything — or use /act to control the page." as T,
+      );
     case "agent_execute":
       return Promise.resolve({
         action: "click",

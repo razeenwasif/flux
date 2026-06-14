@@ -36,4 +36,8 @@ impl Inference for LlamaBackend {
         // until <end_of_turn>.
         Err(AgentError::Inference("not yet wired".into()))
     }
+
+    fn chat(&self, _prompt: &str) -> Result<String, AgentError> {
+        Err(AgentError::Inference("not yet wired".into()))
+    }
 }
