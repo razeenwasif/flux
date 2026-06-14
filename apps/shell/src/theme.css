@@ -404,10 +404,11 @@ body.resizing .shell { transition: none !important; }
 }
 
 /* ── Agent panel (liquid glass) ── */
-.agent { grid-area: agent; display: flex; flex-direction: column; min-width: 0; padding: var(--flux-frame-pad); padding-left: 0; }
+.agent { grid-area: agent; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--flux-frame-pad); padding-left: 0; }
 .agent-inner {
   display: flex; flex-direction: column; gap: 11px;
   height: 100%;
+  min-height: 0; /* let the feed scroll instead of growing the panel */
   padding: 14px;
   border-radius: var(--flux-radius-card);
   background: var(--glass-fill);
@@ -416,7 +417,7 @@ body.resizing .shell { transition: none !important; }
   border: 1px solid var(--glass-rim-soft);
   box-shadow: var(--glass-shadow), var(--glass-inset);
 }
-.agent-feed { flex: 1; overflow-y: auto; min-height: 0; font-size: 12.5px; line-height: 1.6; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+.agent-feed { flex: 1; overflow-y: auto; min-height: 0; font-size: 12.5px; line-height: 1.6; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; user-select: text; -webkit-user-select: text; cursor: text; }
 .agent-feed::-webkit-scrollbar { width: 8px; }
 .agent-feed::-webkit-scrollbar-thumb { background: rgba(150, 160, 220, 0.18); border-radius: 4px; }
 .agent-empty { color: var(--flux-text-mute); line-height: 1.7; }
