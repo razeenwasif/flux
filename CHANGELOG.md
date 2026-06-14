@@ -22,8 +22,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - **Close button** now force-closes via `destroy()` (the red light's `close()`
   only emitted `closeRequested`, which wasn't closing the borderless window).
 - **Terminal on Windows**: default to **WSL** (`wsl.exe` — the user's dev env),
-  forwarding Flux context vars into the distro via `WSLENV`; overridable with
-  `$FLUX_SHELL` (powershell.exe / cmd.exe / pwsh.exe). Earlier: only set an
+  starting in the **Linux home** (`--cd ~`) rather than the translated Windows
+  cwd (`/mnt/c/Users/...`), forwarding Flux context vars into the distro via
+  `WSLENV`; overridable with `$FLUX_SHELL` (powershell.exe / cmd.exe / pwsh.exe). Earlier: only set an
   existing cwd (an invalid cwd made spawn fail silently), and **surface spawn
   failures + process exit in the terminal** with the shell + cwd in the error.
 - **CSP**: allow the chrome to `connect-src`/`img-src` over `https:` so the

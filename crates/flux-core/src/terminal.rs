@@ -93,6 +93,13 @@ pub fn terminal_spawn(
     // opens (the env bridge from `commands::terminal_env`, reused here).
     let shell = default_shell();
     let mut cmd = CommandBuilder::new(&shell);
+    // WSL: start in the Linux home (~), not the translated Windows cwd
+    // (/mnt/c/Users/...). `--cd` overrides the inherited working directory.
+    #[cfg(windows)]
+    if shell.to_ascii_lowercase().contains("wsl") {
+        cmd.arg("--cd");
+        cmd.arg("~");
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("FLUX_SESSION", session.to_string());
