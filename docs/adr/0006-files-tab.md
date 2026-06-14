@@ -54,3 +54,23 @@ minimal premium UI) before the surface area of mutations. File operations
   JSON payload; acceptable for v1 (virtualized rendering keeps the UI smooth),
   paginate/stream later if needed.
 - **Neutral:** read-only for now; write operations are a deliberate next step.
+
+## Update (2026-06-14) — file operations shipped
+
+The planned write increment landed (BACKLOG #83/#84): new folder/file, rename,
+copy/cut/paste, drag-to-move, and delete. Design choices worth recording:
+
+- **Delete defaults to the OS trash** (the `trash` crate), not `unlink` —
+  recoverable by default; permanent delete is behind an explicit ⇧ gesture.
+  Both confirm first.
+- **Every mutation runs on the blocking pool**, same as `fs_list` — a slow op
+  on a network drive must never wedge the UI.
+- **`fs_move` tries `rename`, then falls back to copy+delete** across
+  filesystems; **`fs_copy` recurses** directories and **auto-uniquifies**
+  ("name copy") so a paste into the source folder duplicates rather than fails.
+- **The frontend owns interaction** (multi-select, context menu, inline
+  create/rename, drag targets, confirm dialog); the backend stays mechanical
+  and path-based, with name validation on the UI side.
+
+Still deferred: live directory watch (#85), undo (#89), marquee select / native
+drag-out (#90).

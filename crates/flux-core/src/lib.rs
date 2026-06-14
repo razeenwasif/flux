@@ -86,6 +86,13 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_home,
             files::fs_quick_locations,
             files::fs_open,
+            files::fs_create_dir,
+            files::fs_create_file,
+            files::fs_rename,
+            files::fs_move,
+            files::fs_copy,
+            files::fs_trash,
+            files::fs_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Flux");

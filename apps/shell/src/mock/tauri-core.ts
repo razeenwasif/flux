@@ -13,19 +13,26 @@ let nextId = 9;
 
 const DAY = 86_400_000;
 const T0 = 1_749_900_000_000; // fixed base so preview dates are stable
-const mockEntries = [
-  ["Flux", true, 0, 1], ["Omni", true, 0, 2], ["projects", true, 0, 9],
-  ["dotfiles", true, 0, 40], [".config", true, 0, 3], [".cache", true, 0, 1],
-  ["README.md", false, 2150, 0.2], ["notes.txt", false, 840, 1], ["TODO.md", false, 410, 0.5],
-  ["main.rs", false, 4096, 2], ["Cargo.toml", false, 612, 2], ["index.ts", false, 8800, 1.2],
-  ["theme.css", false, 14_300, 0.3], ["avatar.png", false, 230_400, 30],
-  ["diagram.svg", false, 18_200, 12], ["archive.zip", false, 10_485_760, 60],
-  ["dataset.tar.gz", false, 1_073_741_824, 90], ["demo.mp4", false, 52_428_800, 7],
-  ["talk.mp3", false, 6_291_456, 14], ["paper.pdf", false, 1_310_720, 5],
-  ["sheet.xlsx", false, 44_800, 21], ["slides.pptx", false, 2_900_000, 3],
-  ["query.sql", false, 1_200, 4], ["server.go", false, 9_400, 6], ["build.sh", false, 720, 8],
-  ["config.yaml", false, 1_900, 2], ["data.json", false, 320_000, 1], ["LICENSE", false, 1_069, 120],
-];
+interface MockEntry { name: string; is_dir: boolean; symlink: boolean; size: number; modified: number }
+// Mutable so the preview reflects file operations (create/rename/delete/copy).
+let mockEntries: MockEntry[] = (
+  [
+    ["Flux", true, 0, 1], ["Omni", true, 0, 2], ["projects", true, 0, 9],
+    ["dotfiles", true, 0, 40], [".config", true, 0, 3], [".cache", true, 0, 1],
+    ["README.md", false, 2150, 0.2], ["notes.txt", false, 840, 1], ["TODO.md", false, 410, 0.5],
+    ["main.rs", false, 4096, 2], ["Cargo.toml", false, 612, 2], ["index.ts", false, 8800, 1.2],
+    ["theme.css", false, 14_300, 0.3], ["avatar.png", false, 230_400, 30],
+    ["diagram.svg", false, 18_200, 12], ["archive.zip", false, 10_485_760, 60],
+    ["dataset.tar.gz", false, 1_073_741_824, 90], ["demo.mp4", false, 52_428_800, 7],
+    ["talk.mp3", false, 6_291_456, 14], ["paper.pdf", false, 1_310_720, 5],
+    ["sheet.xlsx", false, 44_800, 21], ["slides.pptx", false, 2_900_000, 3],
+    ["query.sql", false, 1_200, 4], ["server.go", false, 9_400, 6], ["build.sh", false, 720, 8],
+    ["config.yaml", false, 1_900, 2], ["data.json", false, 320_000, 1], ["LICENSE", false, 1_069, 120],
+  ] as [string, boolean, number, number][]
+).map(([name, is_dir, size, days]) => ({ name, is_dir, symlink: false, size, modified: T0 - days * DAY }));
+
+const mockBase = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+const mockNow = () => T0 + DAY; // "just now" relative to the fixed dates above
 const tabs: TabMeta[] = [
   { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null },
   { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null },
@@ -110,14 +117,41 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve({
         path,
         parent: "/home",
-        entries: mockEntries.map(([name, is_dir, size, days]) => ({
-          name,
-          is_dir,
-          symlink: false,
-          size,
-          modified: T0 - (days as number) * DAY,
-        })),
+        entries: mockEntries.map((e) => ({ ...e })),
       } as T);
+    }
+    case "fs_create_dir":
+    case "fs_create_file": {
+      const name = mockBase(String(args?.path ?? ""));
+      if (name && !mockEntries.some((e) => e.name === name))
+        mockEntries.push({ name, is_dir: cmd === "fs_create_dir", symlink: false, size: 0, modified: mockNow() });
+      return Promise.resolve(undefined as T);
+    }
+    case "fs_rename": {
+      const from = mockBase(String(args?.from ?? "")), to = mockBase(String(args?.to ?? ""));
+      const e = mockEntries.find((e) => e.name === from);
+      if (e && to) e.name = to;
+      return Promise.resolve(undefined as T);
+    }
+    case "fs_copy": {
+      const names = (args?.paths as string[] ?? []).map(mockBase);
+      for (const n of names) {
+        const src = mockEntries.find((e) => e.name === n);
+        if (src) {
+          const dot = n.lastIndexOf(".");
+          const copy = dot > 0 ? `${n.slice(0, dot)} copy${n.slice(dot)}` : `${n} copy`;
+          mockEntries.push({ ...src, name: copy, modified: mockNow() });
+        }
+      }
+      return Promise.resolve(undefined as T);
+    }
+    case "fs_move":
+      return Promise.resolve(undefined as T); // single-dir mock: move is a no-op
+    case "fs_trash":
+    case "fs_delete": {
+      const names = new Set((args?.paths as string[] ?? []).map(mockBase));
+      mockEntries = mockEntries.filter((e) => !names.has(e.name));
+      return Promise.resolve(undefined as T);
     }
     case "search_default":
       return Promise.resolve("ddg" as T);

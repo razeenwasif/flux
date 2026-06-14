@@ -41,6 +41,9 @@ portable-pty = "0.8"
 # Files tab: open a file with the OS default app (handles the Windows/macOS/
 # Linux quirks correctly).
 open = "5"
+# Files tab — delete sends to the OS trash / recycle bin (recoverable), rather
+# than an irreversible unlink. Cross-platform (freedesktop / Shell API).
+trash = "5"
 
 # Windows-only: DWM rounded corners (the window is opaque, so CSS can't round
 # it). Cross-verified against the x86_64-pc-windows-msvc target.

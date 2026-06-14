@@ -1,10 +1,15 @@
 /**
- * Files tab — a fast, minimal, read-only filesystem explorer (ADR 0006).
+ * Files tab — a fast, minimal filesystem explorer (ADR 0006).
  *
  * Rows are virtualized (only the visible slice is in the DOM) so a directory
  * with tens of thousands of entries scrolls at 120fps; listing/sorting/filter
  * are client-side over a compact payload from `fs_list`. The cwd lives in the
  * tab's `url` (via `onPathChange`) so it survives tab switches.
+ *
+ * File operations (BACKLOG #83): new folder/file, rename (inline), copy/cut/
+ * paste, drag-move, and delete (→ OS trash, or permanent). Multi-select with
+ * click / ⌘-click / shift-click / ⌘A, a right-click context menu, and keyboard
+ * shortcuts (F2, ⌫, ⌘C/X/V/A). Destructive ops confirm first.
  */
 import {
   For,
@@ -15,12 +20,31 @@ import {
   onCleanup,
   onMount,
   type Component,
+  type JSX,
 } from "solid-js";
-import { fsList, fsOpen, fsQuickLocations, type DirListing, type FileEntry, type QuickLocation } from "./ipc";
+import {
+  fsCopy,
+  fsCreateDir,
+  fsCreateFile,
+  fsDelete,
+  fsList,
+  fsMove,
+  fsOpen,
+  fsQuickLocations,
+  fsRename,
+  fsTrash,
+  type DirListing,
+  type FileEntry,
+  type QuickLocation,
+} from "./ipc";
 
 const ROW_H = 30;
 
 type SortKey = "name" | "size" | "modified";
+type Clipboard = { mode: "copy" | "cut"; paths: string[] } | null;
+type Menu = { x: number; y: number; entry: FileEntry | null } | null;
+type Creating = { kind: "dir" | "file"; value: string } | null;
+type Confirm = { title: string; body: string; danger: boolean; onYes: () => void } | null;
 
 const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> = (props) => {
   const [cwd, setCwd] = createSignal(props.path);
@@ -31,7 +55,22 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
   const [sort, setSort] = createSignal<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   const [filter, setFilter] = createSignal("");
   const [showHidden, setShowHidden] = createSignal(false);
-  const [sel, setSel] = createSignal(-1);
+
+  // Selection: a set of entry names (stable across sort/filter) plus a cursor +
+  // anchor (indices into the current view) for keyboard nav and shift-range.
+  const [selected, setSelected] = createSignal<Set<string>>(new Set());
+  const [cursor, setCursor] = createSignal(-1);
+  let anchor = -1;
+
+  const [clipboard, setClipboard] = createSignal<Clipboard>(null);
+  const [menu, setMenu] = createSignal<Menu>(null);
+  const [creating, setCreating] = createSignal<Creating>(null);
+  const [renaming, setRenaming] = createSignal<string | null>(null);
+  const [confirm, setConfirm] = createSignal<Confirm>(null);
+  const [notice, setNotice] = createSignal<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [dropTarget, setDropTarget] = createSignal<string | null>(null);
+  let dragPaths: string[] = [];
+  let noticeTimer: number | undefined;
 
   // Navigation history (per Files tab).
   let back: string[] = [];
@@ -43,15 +82,23 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
     setCanFwd(fwd.length > 0);
   };
 
-  const load = async (path: string) => {
+  const toast = (text: string, kind: "ok" | "err" = "ok") => {
+    setNotice({ kind, text });
+    clearTimeout(noticeTimer);
+    noticeTimer = window.setTimeout(() => setNotice(null), 3600);
+  };
+
+  const load = async (path: string, selectName?: string) => {
     setLoading(true);
     setError(null);
-    setSel(-1);
     try {
       const l = await fsList(path);
       setListing(l);
       setCwd(l.path);
       props.onPathChange(l.path);
+      setSelected(selectName ? new Set([selectName]) : new Set<string>());
+      setCursor(-1);
+      anchor = -1;
       if (scroller) scroller.scrollTop = 0;
     } catch (e) {
       setError(String(e));
@@ -59,6 +106,8 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
       setLoading(false);
     }
   };
+  /** Reload the current directory, optionally selecting a freshly-made entry. */
+  const refresh = (selectName?: string) => load(cwd(), selectName);
 
   const navigate = (path: string) => {
     if (path === cwd()) return;
@@ -110,7 +159,149 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
   const openEntry = (e: FileEntry) => {
     const p = joinPath(cwd(), e.name);
     if (e.is_dir) navigate(p);
-    else void fsOpen(p).catch((err) => setError(String(err)));
+    else void fsOpen(p).catch((err) => toast(String(err), "err"));
+  };
+
+  // ── Selection ──
+  const nameAt = (i: number) => view()[i]?.name;
+  const selectOnly = (i: number) => {
+    const n = nameAt(i);
+    anchor = i;
+    setCursor(i);
+    setSelected(n ? new Set([n]) : new Set<string>());
+  };
+  const selectRange = (i: number) => {
+    if (anchor < 0) return selectOnly(i);
+    const [lo, hi] = anchor < i ? [anchor, i] : [i, anchor];
+    const next = new Set<string>();
+    for (let k = lo; k <= hi; k++) { const n = nameAt(k); if (n) next.add(n); }
+    setCursor(i);
+    setSelected(next);
+  };
+  const toggleAt = (i: number) => {
+    const n = nameAt(i);
+    if (!n) return;
+    const next = new Set(selected());
+    next.has(n) ? next.delete(n) : next.add(n);
+    anchor = i;
+    setCursor(i);
+    setSelected(next);
+  };
+  const selectAll = () => {
+    setSelected(new Set(view().map((e) => e.name)));
+    setCursor(view().length - 1);
+    anchor = 0;
+  };
+  const clearSel = () => { setSelected(new Set<string>()); setCursor(-1); anchor = -1; };
+
+  const onRowClick = (i: number, e: MouseEvent) => {
+    if (e.shiftKey) selectRange(i);
+    else if (e.ctrlKey || e.metaKey) toggleAt(i);
+    else selectOnly(i);
+  };
+
+  /** Full paths of the current selection, in view order. */
+  const selectedPaths = () =>
+    view().filter((e) => selected().has(e.name)).map((e) => joinPath(cwd(), e.name));
+
+  // ── File operations ──
+  const startCreate = (kind: "dir" | "file") => {
+    setMenu(null);
+    if (scroller) scroller.scrollTop = 0;
+    setCreating({ kind, value: "" });
+  };
+  const commitCreate = async () => {
+    const c = creating();
+    if (!c) return;
+    const name = c.value.trim();
+    setCreating(null);
+    if (!name) return;
+    if (invalidName(name)) return toast("Invalid name", "err");
+    const p = joinPath(cwd(), name);
+    try {
+      await (c.kind === "dir" ? fsCreateDir(p) : fsCreateFile(p));
+      await refresh(name);
+    } catch (e) {
+      toast(String(e), "err");
+    }
+  };
+
+  const startRename = () => {
+    setMenu(null);
+    const n = nameAt(cursor());
+    if (n) setRenaming(n);
+  };
+  const commitRename = async (oldName: string, value: string) => {
+    setRenaming(null);
+    const name = value.trim();
+    if (!name || name === oldName) return;
+    if (invalidName(name)) return toast("Invalid name", "err");
+    try {
+      await fsRename(joinPath(cwd(), oldName), joinPath(cwd(), name));
+      await refresh(name);
+    } catch (e) {
+      toast(String(e), "err");
+    }
+  };
+
+  const copySel = () => {
+    const paths = selectedPaths();
+    if (paths.length) { setClipboard({ mode: "copy", paths }); toast(`Copied ${paths.length} item${plural(paths.length)}`); }
+    setMenu(null);
+  };
+  const cutSel = () => {
+    const paths = selectedPaths();
+    if (paths.length) { setClipboard({ mode: "cut", paths }); toast(`Cut ${paths.length} item${plural(paths.length)}`); }
+    setMenu(null);
+  };
+  const paste = async () => {
+    const cb = clipboard();
+    setMenu(null);
+    if (!cb) return;
+    try {
+      if (cb.mode === "copy") await fsCopy(cb.paths, cwd());
+      else { await fsMove(cb.paths, cwd()); setClipboard(null); }
+      await refresh();
+    } catch (e) {
+      toast(String(e), "err");
+    }
+  };
+
+  const doMove = async (paths: string[], dest: string) => {
+    // Skip no-op / self-into-descendant moves; let the backend reject the rest.
+    const real = paths.filter((p) => dest !== parentOf(p) && dest !== p && !dest.startsWith(p + sepOf(p)));
+    if (!real.length) return;
+    try {
+      await fsMove(real, dest);
+      await refresh();
+    } catch (e) {
+      toast(String(e), "err");
+    }
+  };
+
+  const askDelete = (permanent: boolean) => {
+    setMenu(null);
+    const paths = selectedPaths();
+    if (!paths.length) return;
+    const n = paths.length;
+    const what = n === 1 ? `“${baseName(paths[0]!)}”` : `${n} items`;
+    setConfirm({
+      title: permanent ? "Delete permanently?" : "Move to Trash?",
+      body: permanent
+        ? `Permanently delete ${what}. This cannot be undone.`
+        : `Move ${what} to the Trash.`,
+      danger: permanent,
+      onYes: async () => {
+        setConfirm(null);
+        try {
+          await (permanent ? fsDelete(paths) : fsTrash(paths));
+          await refresh();
+          toast(permanent ? `Deleted ${n} item${plural(n)}` : `Moved ${n} item${plural(n)} to Trash`);
+        } catch (e) {
+          toast(String(e), "err");
+        }
+      },
+    });
   };
 
   // ── Virtualization ──
@@ -125,29 +316,50 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
     const ro = new ResizeObserver(() => setVh(scroller.clientHeight));
     ro.observe(scroller);
     setVh(scroller.clientHeight);
-    onCleanup(() => ro.disconnect());
+    onCleanup(() => { ro.disconnect(); clearTimeout(noticeTimer); });
   });
 
-  // Keyboard nav: ↑/↓ move selection, Enter opens, Backspace goes up.
+  // Keyboard: nav + the operation shortcuts. Inputs and open dialogs opt out.
   const onKey = (e: KeyboardEvent) => {
+    if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+    if (creating() || renaming()) return;
+    if (confirm()) { if (e.key === "Escape") setConfirm(null); return; }
+    if (menu()) { if (e.key === "Escape") setMenu(null); return; }
+
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); selectAll(); return; }
+    if (mod && e.key.toLowerCase() === "c") { copySel(); return; }
+    if (mod && e.key.toLowerCase() === "x") { cutSel(); return; }
+    if (mod && e.key.toLowerCase() === "v") { void paste(); return; }
+
     const n = view().length;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSel((i) => Math.min(n - 1, i + 1));
+      const i = Math.min(n - 1, cursor() + 1);
+      e.shiftKey ? selectRange(i) : selectOnly(i);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSel((i) => Math.max(0, i < 0 ? 0 : i - 1));
+      const i = Math.max(0, cursor() < 0 ? 0 : cursor() - 1);
+      e.shiftKey ? selectRange(i) : selectOnly(i);
     } else if (e.key === "Enter") {
-      const item = view()[sel()];
+      const item = view()[cursor()];
       if (item) openEntry(item);
+    } else if (e.key === "F2") {
+      e.preventDefault();
+      startRename();
+    } else if (e.key === "Delete" || (e.key === "Backspace" && (e.metaKey || e.ctrlKey))) {
+      e.preventDefault();
+      askDelete(e.shiftKey);
     } else if (e.key === "Backspace") {
       e.preventDefault();
       goUp();
+    } else if (e.key === "Escape") {
+      clearSel();
     }
   };
-  // Keep the keyboard-selected row in view.
+  // Keep the keyboard cursor row in view.
   createEffect(() => {
-    const i = sel();
+    const i = cursor();
     if (i < 0 || !scroller) return;
     const top = i * ROW_H;
     if (top < scroller.scrollTop) scroller.scrollTop = top;
@@ -161,9 +373,54 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
     return { total: es.length, dirs, files: es.length - dirs };
   };
 
+  // Context menu, built from what's under the cursor + current state.
+  const openMenu = (e: MouseEvent, entry: FileEntry | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, entry });
+  };
+  const menuItems = (): (MenuItem | "sep")[] => {
+    const m = menu();
+    if (!m) return [];
+    const selCount = selected().size;
+    const hasClip = !!clipboard();
+    if (m.entry) {
+      const items: (MenuItem | "sep")[] = [
+        { label: "Open", run: () => { setMenu(null); openEntry(m.entry!); } },
+      ];
+      if (!m.entry.is_dir)
+        items.push({ label: "Open in default app", run: () => { setMenu(null); void fsOpen(joinPath(cwd(), m.entry!.name)).catch((e) => toast(String(e), "err")); } });
+      items.push("sep");
+      if (selCount <= 1) items.push({ label: "Rename", key: "F2", run: startRename });
+      items.push(
+        { label: "Copy", key: mod("C"), run: copySel },
+        { label: "Cut", key: mod("X"), run: cutSel },
+      );
+      if (hasClip) items.push({ label: "Paste", key: mod("V"), run: () => void paste() });
+      items.push(
+        "sep",
+        { label: "Move to Trash", key: "⌫", run: () => askDelete(false) },
+        { label: "Delete permanently", danger: true, run: () => askDelete(true) },
+      );
+      return items;
+    }
+    // Empty-area menu.
+    const items: (MenuItem | "sep")[] = [
+      { label: "New Folder", run: () => startCreate("dir") },
+      { label: "New File", run: () => startCreate("file") },
+    ];
+    if (hasClip) items.push({ label: "Paste", key: mod("V"), run: () => void paste() });
+    items.push("sep", { label: "Select All", key: mod("A"), run: () => { setMenu(null); selectAll(); } });
+    items.push({ label: "Refresh", run: () => { setMenu(null); void refresh(); } });
+    return items;
+  };
+
+  const isCut = (name: string) =>
+    clipboard()?.mode === "cut" && clipboard()!.paths.includes(joinPath(cwd(), name));
+
   return (
     <div class="files" tabindex={0} onKeyDown={onKey}>
-      {/* Toolbar: nav + breadcrumb + search */}
+      {/* Toolbar: nav + breadcrumb + actions + search */}
       <div class="files-toolbar">
         <button class="files-nav" disabled={!canBack()} title="Back" onClick={goBack}>‹</button>
         <button class="files-nav" disabled={!canFwd()} title="Forward" onClick={goFwd}>›</button>
@@ -173,11 +430,19 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
             {(c, i) => (
               <>
                 <Show when={i() > 0}><span class="files-crumb-sep">›</span></Show>
-                <button class="files-crumb" onClick={() => navigate(c.path)}>{c.name}</button>
+                <button
+                  classList={{ "files-crumb": true, drop: dropTarget() === c.path }}
+                  onClick={() => navigate(c.path)}
+                  onDragOver={(e) => { if (dragPaths.length) { e.preventDefault(); setDropTarget(c.path); } }}
+                  onDragLeave={() => setDropTarget((d) => (d === c.path ? null : d))}
+                  onDrop={(e) => { e.preventDefault(); setDropTarget(null); void doMove(dragPaths, c.path); }}
+                >{c.name}</button>
               </>
             )}
           </For>
         </div>
+        <button class="files-act" title="New folder" onClick={() => startCreate("dir")}><NewFolderIcon /></button>
+        <button class="files-act" title="Refresh" onClick={() => void refresh()}><RefreshIcon /></button>
         <input
           class="files-search"
           value={filter()}
@@ -188,26 +453,18 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
       </div>
 
       <div class="files-body">
-        {/* Quick-access rail */}
+        {/* Quick-access rail (also drop targets for move) */}
         <nav class="files-rail">
           <div class="files-rail-section">Quick access</div>
           <For each={places().filter((p) => p.kind !== "drive")}>
-            {(p) => (
-              <button classList={{ "files-loc": true, active: cwd() === p.path }} onClick={() => navigate(p.path)}>
-                <span class="files-loc-icon">{p.kind === "home" ? <HomeIcon /> : <FolderIcon />}</span>
-                {p.name}
-              </button>
-            )}
+            {(p) => <RailItem p={p} cwd={cwd()} dropTarget={dropTarget()} dragging={() => dragPaths.length > 0}
+              onNav={navigate} onOver={setDropTarget} onDrop={(dest) => void doMove(dragPaths, dest)} />}
           </For>
           <Show when={places().some((p) => p.kind === "drive")}>
             <div class="files-rail-section">Drives</div>
             <For each={places().filter((p) => p.kind === "drive")}>
-              {(p) => (
-                <button classList={{ "files-loc": true, active: cwd() === p.path }} onClick={() => navigate(p.path)}>
-                  <span class="files-loc-icon"><DriveIcon /></span>
-                  {p.name}
-                </button>
-              )}
+              {(p) => <RailItem p={p} cwd={cwd()} dropTarget={dropTarget()} dragging={() => dragPaths.length > 0}
+                onNav={navigate} onOver={setDropTarget} onDrop={(dest) => void doMove(dragPaths, dest)} />}
             </For>
           </Show>
         </nav>
@@ -226,7 +483,39 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
             </button>
           </div>
 
-          <div class="files-list" ref={scroller} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+          {/* Inline create row */}
+          <Show when={creating()}>
+            {(c) => (
+              <div class="files-create">
+                <span class="file-icon" style={{ color: c().kind === "dir" ? "var(--flux-violet)" : "var(--flux-teal)" }}>
+                  {c().kind === "dir" ? <FolderIcon /> : <FileIcon />}
+                </span>
+                <input
+                  class="files-rename-input"
+                  autofocus
+                  placeholder={c().kind === "dir" ? "New folder name" : "New file name"}
+                  value={c().value}
+                  onInput={(e) => setCreating({ kind: c().kind, value: e.currentTarget.value })}
+                  onBlur={() => void commitCreate()}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") void commitCreate();
+                    else if (e.key === "Escape") setCreating(null);
+                  }}
+                />
+              </div>
+            )}
+          </Show>
+
+          <div
+            class="files-list"
+            ref={scroller}
+            onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+            onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains("files-spacer")) clearSel(); }}
+            onContextMenu={(e) => { if (e.target === scroller || (e.target as HTMLElement).classList.contains("files-spacer")) openMenu(e, null); }}
+            onDragOver={(e) => { if (dragPaths.length) { e.preventDefault(); setDropTarget(cwd()); } }}
+            onDrop={(e) => { if (dragPaths.length) { e.preventDefault(); setDropTarget(null); void doMove(dragPaths, cwd()); } }}
+          >
             <Show when={!loading()} fallback={<div class="files-empty">Loading…</div>}>
               <Show when={!error()} fallback={<div class="files-empty files-err">{error()}</div>}>
                 <Show when={view().length > 0} fallback={<div class="files-empty">This folder is empty.</div>}>
@@ -236,17 +525,67 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
                         const idx = () => start() + i();
                         return (
                           <div
-                            classList={{ "files-row": true, selected: sel() === idx() }}
+                            classList={{
+                              "files-row": true,
+                              selected: selected().has(entry.name),
+                              cut: isCut(entry.name),
+                              drop: entry.is_dir && dropTarget() === joinPath(cwd(), entry.name),
+                            }}
                             style={{ top: `${idx() * ROW_H}px` }}
-                            onClick={() => setSel(idx())}
+                            draggable={!renaming()}
+                            onClick={(e) => onRowClick(idx(), e)}
                             onDblClick={() => openEntry(entry)}
+                            onContextMenu={(e) => {
+                              if (!selected().has(entry.name)) selectOnly(idx());
+                              openMenu(e, entry);
+                            }}
+                            onDragStart={(e) => {
+                              if (!selected().has(entry.name)) selectOnly(idx());
+                              dragPaths = selectedPaths();
+                              e.dataTransfer!.effectAllowed = "move";
+                              e.dataTransfer!.setData("text/plain", dragPaths.join("\n"));
+                            }}
+                            onDragEnd={() => { dragPaths = []; setDropTarget(null); }}
+                            onDragOver={(e) => {
+                              if (entry.is_dir && dragPaths.length) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setDropTarget(joinPath(cwd(), entry.name));
+                              }
+                            }}
+                            onDrop={(e) => {
+                              if (entry.is_dir && dragPaths.length) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const dest = joinPath(cwd(), entry.name);
+                                setDropTarget(null);
+                                void doMove(dragPaths, dest);
+                              }
+                            }}
                             title={entry.name}
                           >
                             <span class="files-cell name">
                               <span class="file-icon" style={{ color: entry.is_dir ? "var(--flux-violet)" : iconColor(entry.name) }}>
                                 {entry.is_dir ? <FolderIcon /> : <FileIcon />}
                               </span>
-                              <span class="files-name">{entry.name}</span>
+                              <Show
+                                when={renaming() === entry.name}
+                                fallback={<span class="files-name">{entry.name}</span>}
+                              >
+                                <input
+                                  class="files-rename-input"
+                                  autofocus
+                                  value={entry.name}
+                                  ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onBlur={(e) => void commitRename(entry.name, e.currentTarget.value)}
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === "Enter") void commitRename(entry.name, e.currentTarget.value);
+                                    else if (e.key === "Escape") setRenaming(null);
+                                  }}
+                                />
+                              </Show>
                               <Show when={entry.symlink}><span class="files-link">↗</span></Show>
                             </span>
                             <span class="files-cell size">{fmtSize(entry.size, entry.is_dir)}</span>
@@ -265,22 +604,129 @@ const FilesView: Component<{ path: string; onPathChange: (p: string) => void }> 
 
       {/* Status bar */}
       <div class="files-statusbar">
-        <span>{counts().total} items · {counts().dirs} folders · {counts().files} files</span>
+        <Show when={selected().size > 0} fallback={
+          <span>{counts().total} items · {counts().dirs} folders · {counts().files} files</span>
+        }>
+          <span>{selected().size} selected</span>
+        </Show>
         <span style={{ flex: 1 }} />
+        <Show when={clipboard()}>
+          {(cb) => <span class="files-clip">{cb().mode === "cut" ? "Cut" : "Copied"} {cb().paths.length}</span>}
+        </Show>
         <label class="files-toggle">
           <input type="checkbox" checked={showHidden()} onChange={(e) => setShowHidden(e.currentTarget.checked)} />
           Hidden
         </label>
       </div>
+
+      {/* Context menu */}
+      <Show when={menu()}>
+        {(m) => (
+          <>
+            <div class="files-menu-backdrop" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+            <div class="files-menu" style={menuStyle(m())}>
+              <For each={menuItems()}>
+                {(it) =>
+                  it === "sep" ? (
+                    <div class="files-menu-sep" />
+                  ) : (
+                    <button classList={{ "files-menu-item": true, danger: !!it.danger }} onClick={it.run}>
+                      <span>{it.label}</span>
+                      <Show when={it.key}><span class="files-menu-key">{it.key}</span></Show>
+                    </button>
+                  )
+                }
+              </For>
+            </div>
+          </>
+        )}
+      </Show>
+
+      {/* Confirm dialog (destructive ops) */}
+      <Show when={confirm()}>
+        {(c) => (
+          <div class="files-confirm-backdrop" onClick={() => setConfirm(null)}>
+            <div class="files-confirm" onClick={(e) => e.stopPropagation()}>
+              <div class="files-confirm-title">{c().title}</div>
+              <div class="files-confirm-body">{c().body}</div>
+              <div class="files-confirm-actions">
+                <button class="files-btn" onClick={() => setConfirm(null)}>Cancel</button>
+                <button classList={{ "files-btn": true, primary: !c().danger, danger: c().danger }} onClick={c().onYes}>
+                  {c().danger ? "Delete" : "Move to Trash"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Show>
+
+      {/* Transient toast */}
+      <Show when={notice()}>
+        {(n) => <div classList={{ "files-toast": true, err: n().kind === "err" }}>{n().text}</div>}
+      </Show>
     </div>
   );
 };
 
+// ─── subcomponents ────────────────────────────────────────────────────────────
+
+type MenuItem = { label: string; key?: string; danger?: boolean; run: (e: MouseEvent) => void };
+
+const RailItem: Component<{
+  p: QuickLocation;
+  cwd: string;
+  dropTarget: string | null;
+  dragging: () => boolean;
+  onNav: (p: string) => void;
+  onOver: (p: string | null) => void;
+  onDrop: (p: string) => void;
+}> = (props) => (
+  <button
+    classList={{ "files-loc": true, active: props.cwd === props.p.path, drop: props.dropTarget === props.p.path }}
+    onClick={() => props.onNav(props.p.path)}
+    onDragOver={(e) => { if (props.dragging()) { e.preventDefault(); props.onOver(props.p.path); } }}
+    onDragLeave={() => props.onOver(null)}
+    onDrop={(e) => { e.preventDefault(); props.onOver(null); props.onDrop(props.p.path); }}
+  >
+    <span class="files-loc-icon">{props.p.kind === "home" ? <HomeIcon /> : props.p.kind === "drive" ? <DriveIcon /> : <FolderIcon />}</span>
+    {props.p.name}
+  </button>
+);
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
+const mod = (k: string): string => (navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+") + k;
+
+function plural(n: number): string { return n === 1 ? "" : "s"; }
+
+function sepOf(p: string): string { return p.includes("\\") ? "\\" : "/"; }
+
 function joinPath(dir: string, name: string): string {
-  const sep = dir.includes("\\") ? "\\" : "/";
+  const sep = sepOf(dir);
   return dir.endsWith(sep) ? dir + name : dir + sep + name;
+}
+
+function baseName(p: string): string {
+  const parts = p.split(/[\\/]/);
+  return parts[parts.length - 1] || p;
+}
+
+function parentOf(p: string): string {
+  const sep = sepOf(p);
+  const i = p.replace(/[\\/]+$/, "").lastIndexOf(sep);
+  return i <= 0 ? p.slice(0, i + 1) || sep : p.slice(0, i);
+}
+
+/** Reject names that would escape the current directory or are degenerate. */
+function invalidName(n: string): boolean {
+  return !n.trim() || /[\\/]/.test(n) || n === "." || n === "..";
+}
+
+function menuStyle(m: { x: number; y: number }): JSX.CSSProperties {
+  const W = 210, H = 320;
+  const x = typeof window !== "undefined" ? Math.min(m.x, window.innerWidth - W - 8) : m.x;
+  const y = typeof window !== "undefined" ? Math.min(m.y, window.innerHeight - H - 8) : m.y;
+  return { left: `${Math.max(8, x)}px`, top: `${Math.max(8, y)}px` };
 }
 
 /** Breadcrumb segments with their absolute paths (Windows `C:\…` + Unix `/…`). */
@@ -355,6 +801,17 @@ const HomeIcon = () => (
 const DriveIcon = () => (
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
     <rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="16.5" cy="12" r="1.3" fill="currentColor" stroke="none" />
+  </svg>
+);
+const NewFolderIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-7" />
+    <path d="M18 3v6M15 6h6" />
+  </svg>
+);
+const RefreshIcon = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" />
   </svg>
 );
 

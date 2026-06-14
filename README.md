@@ -149,16 +149,21 @@ down the browser chrome.
 ## Files
 
 A native filesystem explorer, opened as a 📁 **Files tab** from the new-tab
-picker (ADR 0006). Read-only for now and rendered in the content card (no
-webview), backed by `std::fs` in `flux-core::files`. It's built for speed and
-the velvet/glass feel: a **virtualized** columned list (only visible rows hit
-the DOM — a 10k-entry directory scrolls smoothly), a quick-access rail
-(home, Desktop/Documents/Downloads, drive roots), breadcrumb + back/forward/up
-nav, live filter, sort (name/size/modified, folders-first), a hidden-file
-toggle, and full keyboard nav (↑↓ select, Enter open, Backspace up). The
-listing call runs off the main thread and returns compact entries, so even
-huge directories never block the UI. File operations (new/rename/delete/move)
-are the next increment — see `BACKLOG.md` #83.
+picker (ADR 0006). Rendered in the content card (no webview), backed by
+`std::fs` in `flux-core::files`. It's built for speed and the velvet/glass
+feel: a **virtualized** columned list (only visible rows hit the DOM — a
+10k-entry directory scrolls smoothly), a quick-access rail (home,
+Desktop/Documents/Downloads, drive roots), breadcrumb + back/forward/up nav,
+live filter, sort (name/size/modified, folders-first), a hidden-file toggle,
+and full keyboard nav. The listing call runs off the main thread and returns
+compact entries, so even huge directories never block the UI.
+
+**File operations:** new folder/file (inline-named), rename (F2), copy/cut/
+paste (⌘/Ctrl-C/X/V), drag-to-move (onto folders, the rail, or breadcrumbs),
+and delete — to the **OS trash** by default (recoverable) or permanent with
+⇧. Multi-select (click / ⌘-click / ⇧-click / ⌘A), a right-click context menu,
+and a confirm dialog on every destructive op. Next: live directory watch and
+undo — see `BACKLOG.md` #85/#89.
 
 ## Roadmap
 

@@ -8,8 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Files tab — file operations** (BACKLOG #83/#84, ADR 0006). The explorer is
+  now read-*write*: **new folder/file** (inline-named), **rename** (inline,
+  F2), **copy/cut/paste** (⌘/Ctrl-C/X/V — paste duplicates as "name copy" on
+  collision), **drag-to-move** (onto folder rows, the quick-access rail, or
+  breadcrumbs), and **delete** — to the **OS trash** by default (recoverable;
+  the new `trash` dep) or permanent with ⇧. **Multi-select** via click /
+  ⌘-click (toggle) / ⇧-click (range) / ⌘A, a right-click **context menu**, and
+  a glass **confirm dialog** on every destructive op. Backend commands
+  (`fs_create_dir/_file`, `fs_rename`, `fs_move`, `fs_copy`, `fs_trash`,
+  `fs_delete`) all run off the main thread; `fs_move` falls back to copy+delete
+  across filesystems, `fs_copy` recurses directories.
 - **Files tab — a native filesystem explorer** (ADR 0006). Open a 📁 **Files
-  tab** like the terminal: a read-only explorer rendered in the content card (no
+  tab** like the terminal: an explorer rendered in the content card (no
   webview), backed by `std::fs`. Toolbar with back/forward/up + breadcrumb +
   live filter, a quick-access rail (home, Desktop/Documents/Downloads, drive
   roots), and a **virtualized** columned list — only the visible rows are in the
@@ -17,8 +28,7 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   folders-first), hidden-file toggle, full keyboard nav (↑↓ select, Enter open,
   Backspace up); files open with the OS default app. The listing call
   (`fs_list`) runs off the main thread (`spawn_blocking`) and returns **compact**
-  entries, so even huge directories never freeze the UI. Read-only for now —
-  file operations are the next increment (BACKLOG #83).
+  entries, so even huge directories never freeze the UI.
 - **Agent chat mode.** The agent sidebar is now a **chat-first** interface — talk
   to your local Gemma with no page required (`agent_chat`); if a page is open its
   text is passed as context so you can ask *about* it. Page actions still work via

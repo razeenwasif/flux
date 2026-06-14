@@ -198,6 +198,17 @@ export const fsHome = () => invoke<string>("fs_home");
 export const fsQuickLocations = () => invoke<QuickLocation[]>("fs_quick_locations");
 export const fsOpen = (path: string) => invoke<void>("fs_open", { path });
 
+// File operations (BACKLOG #83). Paths are full; `dest` is a directory.
+export const fsCreateDir = (path: string) => invoke<void>("fs_create_dir", { path });
+export const fsCreateFile = (path: string) => invoke<void>("fs_create_file", { path });
+export const fsRename = (from: string, to: string) => invoke<void>("fs_rename", { from, to });
+export const fsMove = (paths: string[], dest: string) => invoke<void>("fs_move", { paths, dest });
+export const fsCopy = (paths: string[], dest: string) => invoke<void>("fs_copy", { paths, dest });
+/** Move to OS trash (recoverable). */
+export const fsTrash = (paths: string[]) => invoke<void>("fs_trash", { paths });
+/** Permanent delete (no undo). */
+export const fsDelete = (paths: string[]) => invoke<void>("fs_delete", { paths });
+
 // ─── Terminal (PTY) ────────────────────────────────────────────────────────
 
 /** Spawn a PTY for `session`; `onData` streams raw output bytes (number[]). */
