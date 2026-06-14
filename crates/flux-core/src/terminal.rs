@@ -57,9 +57,10 @@ fn default_shell() -> String {
     }
     #[cfg(windows)]
     {
-        // PowerShell is a far better default than cmd.exe and ships on every
-        // Windows; resolved via PATH at spawn.
-        "powershell.exe".to_string()
+        // Default to WSL (the user's dev environment lives there). Override
+        // with FLUX_SHELL=powershell.exe / cmd.exe / pwsh.exe if WSL isn't set
+        // up; the spawn error surfaces in the terminal either way.
+        "wsl.exe".to_string()
     }
     #[cfg(not(windows))]
     {
@@ -111,6 +112,15 @@ pub fn terminal_spawn(
             }
         }
     }
+    // When the shell is WSL, forward the Flux context vars into the distro
+    // (Windows env doesn't cross into WSL unless listed in WSLENV). Harmless
+    // for non-WSL shells.
+    #[cfg(windows)]
+    cmd.env(
+        "WSLENV",
+        "FLUX_SESSION:FLUX_TAB_ID:FLUX_TAB_URL:FLUX_TAB_TITLE:FLUX_TAB_DIR",
+    );
+
     // Only set a cwd that actually exists — an invalid cwd makes spawn fail
     // (e.g. a Unix-style path on Windows).
     let cwd = cwd.unwrap_or_else(home_dir);

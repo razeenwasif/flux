@@ -22,7 +22,9 @@ const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in 
 export const win = {
   minimize: () => inTauri() && void getCurrentWindow().minimize(),
   toggleMaximize: () => inTauri() && void getCurrentWindow().toggleMaximize(),
-  close: () => inTauri() && void getCurrentWindow().close(),
+  // destroy() force-closes; close() only emits closeRequested (which wasn't
+  // closing the borderless multi-webview window).
+  close: () => inTauri() && void getCurrentWindow().destroy(),
   startDragging: () => inTauri() && void getCurrentWindow().startDragging(),
   startResize: (dir: ResizeDir) => inTauri() && void getCurrentWindow().startResizeDragging(dir),
 };

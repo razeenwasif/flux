@@ -8,10 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
-- **Terminal on Windows**: default to **PowerShell** (was cmd.exe via `ComSpec`),
-  overridable with `$FLUX_SHELL`; only set an existing cwd (an invalid cwd made
-  spawn fail silently); and **surface spawn failures + process exit in the
-  terminal** instead of a blank pane, with the shell + cwd in the error.
+- **Browsing on Windows**: turned the window **opaque** (`transparent: false`).
+  WebView2 can't composite per-tab child webviews on a transparent host, so
+  pages were positioned correctly but invisible ("stuck on loading"). The
+  window is now square velvet; native Win11 rounded corners are BACKLOG #80.
+- **Close button** now force-closes via `destroy()` (the red light's `close()`
+  only emitted `closeRequested`, which wasn't closing the borderless window).
+- **Terminal on Windows**: default to **WSL** (`wsl.exe` — the user's dev env),
+  forwarding Flux context vars into the distro via `WSLENV`; overridable with
+  `$FLUX_SHELL` (powershell.exe / cmd.exe / pwsh.exe). Earlier: only set an
+  existing cwd (an invalid cwd made spawn fail silently), and **surface spawn
+  failures + process exit in the terminal** with the shell + cwd in the error.
 - **CSP**: allow the chrome to `connect-src`/`img-src` over `https:` so the
   home-page weather (and future suggestion/favicon fetches) aren't blocked.
 - **Webview**: explicitly `show()` + focus a tab's page after `add_child`, and

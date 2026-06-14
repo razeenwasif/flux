@@ -82,9 +82,14 @@
 html, body, #root { height: 100%; overflow: hidden; }
 
 body {
-  /* Transparent so the window's rounded corners (clipped on .shell) show the
-     desktop behind them. */
-  background: transparent;
+  /* Opaque velvet fill. The window is NOT transparent on Windows — WebView2
+     can't composite per-tab child webviews on a transparent host (pages went
+     invisible). Native Win11 rounded corners are BACKLOG #80. */
+  background-color: var(--velvet-800);
+  background-image:
+    radial-gradient(115% 85% at -5% -10%, rgba(47, 243, 255, 0.10), transparent 50%),
+    radial-gradient(120% 90% at 105% 110%, rgba(123, 97, 255, 0.18), transparent 55%),
+    linear-gradient(160deg, var(--velvet-700), var(--velvet-900));
   color: var(--flux-text);
   user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -164,11 +169,9 @@ input::placeholder { color: var(--flux-text-mute); }
   transition: grid-template-columns .34s var(--ease-soft);
   will-change: grid-template-columns;
 
-  /* Rounded window: the velvet surface lives here (not body) so the corners
-     clip to transparent. The two accent glows give the surface its sheen. */
-  border-radius: 12px;
+  /* Opaque square window (Win11 native rounding is BACKLOG #80). The velvet
+     also lives on body, so there are no bare corners. */
   overflow: hidden;
-  border: 1px solid rgba(180, 190, 255, 0.08);
   background-color: var(--velvet-800);
   background-image:
     radial-gradient(115% 85% at -5% -10%, rgba(47, 243, 255, 0.12), transparent 50%),
