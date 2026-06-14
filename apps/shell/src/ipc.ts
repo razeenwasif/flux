@@ -190,7 +190,7 @@ export interface DirListing {
 export interface QuickLocation {
   name: string;
   path: string;
-  kind: "home" | "folder" | "drive";
+  kind: "home" | "folder" | "drive" | "linux";
 }
 
 export const fsList = (path: string) => invoke<DirListing>("fs_list", { path });

@@ -170,9 +170,14 @@ fn base_name(p: &str) -> String {
 }
 
 /// Strip Windows' `\\?\` extended-length prefix that `canonicalize` adds, so
-/// paths display (and round-trip) cleanly.
+/// paths display (and round-trip) cleanly. UNC paths (e.g. WSL's
+/// `\\wsl.localhost\Ubuntu-24.04`) come back as `\\?\UNC\server\share\…`, which
+/// must fold back to `\\server\share\…` to stay navigable.
 fn clean(p: &Path) -> String {
     let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
 }
 
@@ -227,7 +232,8 @@ pub fn fs_home() -> String {
     home_dir()
 }
 
-/// Quick-access locations: home + its common subfolders, plus drive roots.
+/// Quick-access locations: home + its common subfolders, drive roots, and (on
+/// Windows) installed WSL distributions.
 #[tauri::command]
 pub fn fs_quick_locations() -> Vec<QuickLocation> {
     let mut out = Vec::new();
@@ -240,17 +246,66 @@ pub fn fs_quick_locations() -> Vec<QuickLocation> {
         }
     }
     #[cfg(windows)]
-    for letter in b'A'..=b'Z' {
-        let p = format!("{}:\\", letter as char);
-        if Path::new(&p).is_dir() {
-            out.push(QuickLocation { name: format!("{}:", letter as char), path: p, kind: "drive" });
+    {
+        for letter in b'A'..=b'Z' {
+            let p = format!("{}:\\", letter as char);
+            if Path::new(&p).is_dir() {
+                out.push(QuickLocation { name: format!("{}:", letter as char), path: p, kind: "drive" });
+            }
         }
+        out.extend(wsl_distros());
     }
     #[cfg(not(windows))]
     if Path::new("/").is_dir() {
         out.push(QuickLocation { name: "/".into(), path: "/".into(), kind: "drive" });
     }
     out
+}
+
+/// Installed WSL distributions, reachable from Windows at
+/// `\\wsl.localhost\<distro>`. Listed via `wsl.exe -l -q` (metadata only — does
+/// not start a distro); resilient to the UTF-16LE/UTF-8 output quirk and any
+/// BOM/NUL noise. Best-effort: any failure yields an empty list.
+#[cfg(windows)]
+fn wsl_distros() -> Vec<QuickLocation> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000; // no flash of a console window
+
+    let output = match std::process::Command::new("wsl.exe")
+        .args(["-l", "-q"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        Ok(o) if o.status.success() => o.stdout,
+        _ => return Vec::new(),
+    };
+
+    // wsl.exe historically emits UTF-16LE; newer builds emit UTF-8. Detect by
+    // the density of NUL bytes (every other byte is 0 in UTF-16LE ASCII).
+    let text = {
+        let nul = output.iter().filter(|&&b| b == 0).count();
+        if nul > output.len() / 4 {
+            let u16s: Vec<u16> = output
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            String::from_utf16_lossy(&u16s)
+        } else {
+            String::from_utf8_lossy(&output).into_owned()
+        }
+    };
+
+    text.replace('\0', "")
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| QuickLocation {
+            name: name.to_string(),
+            path: format!(r"\\wsl.localhost\{name}"),
+            kind: "linux",
+        })
+        .collect()
 }
 
 /// Open a file with the OS default application (read-only — launches, never

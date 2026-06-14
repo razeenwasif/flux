@@ -108,7 +108,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         { name: "Desktop", path: "/home/amaterasu/Desktop", kind: "folder" },
         { name: "Documents", path: "/home/amaterasu/Documents", kind: "folder" },
         { name: "Downloads", path: "/home/amaterasu/Downloads", kind: "folder" },
-        { name: "/", path: "/", kind: "drive" },
+        { name: "Ubuntu-24.04", path: "\\\\wsl.localhost\\Ubuntu-24.04", kind: "linux" },
+        { name: "C:", path: "C:\\", kind: "drive" },
       ] as T);
     case "fs_open":
       return Promise.resolve(undefined as T);

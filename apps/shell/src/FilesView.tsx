@@ -499,10 +499,17 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
         {/* Quick-access rail (also drop targets for move) */}
         <nav class="files-rail">
           <div class="files-rail-section">Quick access</div>
-          <For each={places().filter((p) => p.kind !== "drive")}>
+          <For each={places().filter((p) => p.kind === "home" || p.kind === "folder")}>
             {(p) => <RailItem p={p} cwd={cwd()} dropTarget={dropTarget()} dragging={() => dragPaths.length > 0}
               onNav={navigate} onOver={setDropTarget} onDrop={(dest) => void doMove(dragPaths, dest)} />}
           </For>
+          <Show when={places().some((p) => p.kind === "linux")}>
+            <div class="files-rail-section">Linux</div>
+            <For each={places().filter((p) => p.kind === "linux")}>
+              {(p) => <RailItem p={p} cwd={cwd()} dropTarget={dropTarget()} dragging={() => dragPaths.length > 0}
+                onNav={navigate} onOver={setDropTarget} onDrop={(dest) => void doMove(dragPaths, dest)} />}
+            </For>
+          </Show>
           <Show when={places().some((p) => p.kind === "drive")}>
             <div class="files-rail-section">Drives</div>
             <For each={places().filter((p) => p.kind === "drive")}>
@@ -731,7 +738,12 @@ const RailItem: Component<{
     onDragLeave={() => props.onOver(null)}
     onDrop={(e) => { e.preventDefault(); props.onOver(null); props.onDrop(props.p.path); }}
   >
-    <span class="files-loc-icon">{props.p.kind === "home" ? <HomeIcon /> : props.p.kind === "drive" ? <DriveIcon /> : <FolderIcon />}</span>
+    <span class="files-loc-icon">
+      {props.p.kind === "home" ? <HomeIcon />
+        : props.p.kind === "drive" ? <DriveIcon />
+        : props.p.kind === "linux" ? <LinuxIcon />
+        : <FolderIcon />}
+    </span>
     {props.p.name}
   </button>
 );
@@ -844,6 +856,12 @@ const HomeIcon = () => (
 const DriveIcon = () => (
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
     <rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="16.5" cy="12" r="1.3" fill="currentColor" stroke="none" />
+  </svg>
+);
+// WSL distro — a terminal-in-a-box mark (>_), signalling a Linux shell/distro.
+const LinuxIcon = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 9l3 3-3 3M13 15h4" />
   </svg>
 );
 const NewFolderIcon = () => (

@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Files tab — WSL distros in the rail.** On Windows the quick-access rail now
+  lists installed **WSL distributions** under a "Linux" section (e.g.
+  `Ubuntu-24.04`), enumerated via `wsl.exe -l -q` and opened at
+  `\\wsl.localhost\<distro>`. `clean()` now folds the `\\?\UNC\…` form
+  `canonicalize` returns back to a navigable `\\server\share\…` path.
 - **Files tab — live directory watch + undo** (BACKLOG #85/#89, ADR 0006).
   The listing now **updates itself** when the shown directory changes on disk
   (the `notify` crate — inotify/ReadDirectoryChangesW — one watcher per Files
@@ -53,6 +58,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (in-process, feature-gated). No FFI/GGUF — pure Rust, unit-tested.
 
 ### Fixed
+- **Files tab froze the app.** ContentArea keyed the Files `<Show>` on the tab
+  *object*; `onPathChange` rebuilds that object (`{ ...t, url }`) on every load,
+  so the keyed Show remounted FilesView → reload → onPathChange → an infinite
+  remount loop (UI pinned, listing never settled). Keyed on the stable tab *id*
+  instead.
+- **Files list wouldn't scroll** with more entries than fit the viewport: the
+  `.files-body` grid's implicit `auto` row grew to the listing's full height
+  (clipped by `overflow:hidden`) instead of bounding the scroll container.
+  Constrained the row with `minmax(0, 1fr)`.
 - **DOM capture on non-default ports** (e.g. a local search engine at
   `http://localhost:8080`). The `tab.json` capability used `http://*` /
   `https://*`, whose URLPattern port is unspecified and so only matches the

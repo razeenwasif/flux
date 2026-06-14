@@ -639,7 +639,9 @@ body.resizing .shell { transition: none !important; }
 
 .files-search { width: 150px; flex: none; padding: 7px 12px; font-size: 12px; border-radius: 999px; }
 
-.files-body { display: grid; grid-template-columns: 188px 1fr; min-height: 0; overflow: hidden; }
+/* `minmax(0, 1fr)` on the row: without it the implicit `auto` row grows to the
+   listing's full height (clipped by overflow:hidden) and the list never scrolls. */
+.files-body { display: grid; grid-template-columns: 188px 1fr; grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
 
 .files-rail {
   display: flex; flex-direction: column; gap: 1px;

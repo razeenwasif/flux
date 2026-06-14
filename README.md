@@ -156,7 +156,9 @@ feel: a **virtualized** columned list (only visible rows hit the DOM — a
 Desktop/Documents/Downloads, drive roots), breadcrumb + back/forward/up nav,
 live filter, sort (name/size/modified, folders-first), a hidden-file toggle,
 and full keyboard nav. The listing call runs off the main thread and returns
-compact entries, so even huge directories never block the UI.
+compact entries, so even huge directories never block the UI. On Windows the
+rail also lists installed **WSL distributions** (a "Linux" section, opened at
+`\\wsl.localhost\<distro>`).
 
 **File operations:** new folder/file (inline-named), rename (F2), copy/cut/
 paste (⌘/Ctrl-C/X/V), drag-to-move (onto folders, the rail, or breadcrumbs),
