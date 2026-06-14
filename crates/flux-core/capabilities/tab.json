@@ -3,6 +3,6 @@
   "identifier": "flux-tab",
   "description": "Tab webviews host REMOTE page content. They are granted NO core/window/webview APIs — only `fluxtab:dom_publish`, so a page can publish its own DOM back to Flux and nothing else.",
   "webviews": ["tab-*"],
-  "remote": { "urls": ["http://*", "https://*"] },
+  "remote": { "urls": ["http://*:*", "https://*:*"] },
   "permissions": ["fluxtab:default"]
 }

@@ -23,6 +23,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (in-process, feature-gated). No FFI/GGUF — pure Rust, unit-tested.
 
 ### Fixed
+- **DOM capture on non-default ports** (e.g. a local search engine at
+  `http://localhost:8080`). The `tab.json` capability used `http://*` /
+  `https://*`, whose URLPattern port is unspecified and so only matches the
+  scheme's *default* port (80/443) — capture was ACL-rejected on `:8080`.
+  Changed to `http://*:*` / `https://*:*` (any port), verified against the
+  `urlpattern` matcher.
 - **DOM capture now works on real pages** (the agent's "no page content" error).
   Real sites set restrictive CSPs (e.g. DuckDuckGo's `connect-src`) that block
   Tauri's fetch-based IPC, forcing the `postMessage` path — which **doesn't
