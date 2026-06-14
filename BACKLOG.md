@@ -42,7 +42,9 @@ grid/damage/renderer spine; these make it competitive with kitty/ghostty:
 
 | # | P | Item |
 |---|---|---|
-| 1 | P0 | Wire `llama-cpp-2`: GGUF load, GBNF sampler chain, KV-cache prefix reuse for < 350 ms first token |
+| 1 | P2 | (Optional) in-process `llama-cpp-2` path for a single self-contained binary — the agent ships via Ollama now (ADR 0005), so this is no longer P0; GGUF load + GBNF sampler behind the `llama` feature |
+| 81 | P1 | Agent model picker in Settings (currently `FLUX_MODEL` env); persist choice + show which model is active in the agent sidebar |
+| 82 | P2 | Agent: schema-constrained output via Ollama `format` = JSON schema (vs current `format:"json"` + prompt) and multi-step plans (#8); stream tokens to the sidebar |
 | 8 | P1 | Multi-step plans: action sequences with per-step user confirmation UI (magenta preview → approve → execute) |
 | 11 | P2 | Replace hashing embedder with EmbeddingGemma int8 behind `flux-embed/model` |
 
@@ -132,7 +134,6 @@ beyond "another Chromium skin."
 
 | # | P | Item | The gap |
 |---|---|---|---|
-| 64 | P0 | **Local-AI agentic browsing** (the Flux Agent): on-device page understanding + structured DOM actions. Most "AI browsers" (Arc Max, Edge Copilot, Dia) are **cloud** — privacy + offline + no token cost is the wedge | core |
 | 65 | P0 | **DOM-aware integrated terminal**: a real dev terminal that can read the active page (`flux extract-json`, `cd $FLUX_TAB_DIR`) and that the agent can drive. Nobody ships this | core |
 | 66 | P1 | **Semantic everything-search**: one box over open tabs + history + bookmarks + page contents, ranked by local embeddings (#11) — not just title substring | weak everywhere |
 | 67 | P1 | **Scriptable automation / macros**: record-and-replay browsing flows, schedulable, agent-authored. Power users beg for this; only flaky extensions exist | under-served |

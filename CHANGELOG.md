@@ -7,6 +7,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Flux Agent is live — local Gemma via Ollama** (BACKLOG #1/#64, ADR 0005).
+  `flux_agent::OllamaBackend` POSTs to a local Ollama server (`/api/generate`,
+  `format:"json"`, temp 0.1) and the planner parses the reply into an
+  `AgentAction`, which the (injection-safe) compiler turns into JS injected
+  into the active tab. Default model `gemma4:12b-it-qat` (`FLUX_MODEL` to
+  switch to `e4b`/`e2b` for speed); endpoint via `FLUX_OLLAMA_URL`. Backend is
+  selectable: Ollama (default), `FLUX_AGENT_BACKEND=mock` (dev), or `llama`
+  (in-process, feature-gated). No FFI/GGUF — pure Rust, unit-tested.
+
 ### Fixed
 - **Browsing on Windows — webview commands are now `async`.** `webview_open`
   (and friends) call `Window::add_child`, which blocks on the main thread; as

@@ -11,7 +11,11 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-# Real inference, off by default (see flux-core/Cargo.toml rationale).
+# Primary backend: HTTP to a local Ollama server. Blocking client (the planner
+# runs on a blocking thread); http+json only — no TLS, Ollama is localhost.
+ureq = { version = "2", default-features = false, features = ["json"] }
+
+# Alternative in-process backend (off by default): llama.cpp via FFI.
 llama-cpp-2 = { version = "0.1", optional = true }
 
 [features]

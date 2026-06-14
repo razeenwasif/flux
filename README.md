@@ -119,6 +119,23 @@ The config persists to `search.json` in the app config dir, so you can also edit
 it there directly. Live typeahead suggestions (using `suggest_template`) are the
 omnibox-suggestions work in BACKLOG #32.
 
+## Flux Agent (local AI)
+
+The agent runs a local **Gemma** model via **Ollama** (ADR 0005) — no cloud, no
+token cost. Pull a model and start Ollama:
+
+```sh
+ollama pull gemma4:12b-it-qat   # or e4b-it-qat (faster) / e2b-it-qat (fastest)
+ollama serve                    # http://localhost:11434
+```
+
+Then open a page, type a request in the agent sidebar (e.g. *"find the
+unsubscribe link and click it"*). The agent reads the page DOM, the model
+returns a structured action, and Flux compiles it to injection-safe JS run in
+the tab. Config via env: `FLUX_MODEL` (default `gemma4:12b-it-qat`),
+`FLUX_OLLAMA_URL` (default `http://localhost:11434`), or
+`FLUX_AGENT_BACKEND=mock` to run the pipeline without a model.
+
 ## Terminal
 
 A real, usable dev terminal (ADR 0003): a Rust PTY (`portable-pty`) running your

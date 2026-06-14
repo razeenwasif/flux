@@ -10,8 +10,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod compile;
+pub mod ollama;
 #[cfg(feature = "llama")]
 pub mod llama;
+
+pub use ollama::OllamaBackend;
 
 #[derive(Debug, Error)]
 pub enum AgentError {
@@ -118,16 +121,21 @@ impl AgentPlanner {
         const PAGE_BUDGET: usize = 6 * 1024;
         let page = truncate_utf8(page_text, PAGE_BUDGET);
 
+        // Plain prompt — Ollama applies the model's chat template. The exact
+        // JSON shapes are spelled out since `format:"json"` only guarantees
+        // valid JSON, not the right fields.
         let prompt = format!(
-            "<start_of_turn>system\n\
-             You are the Flux browser agent. Given the visible text of the \
-             current page and a user request, respond with EXACTLY ONE action \
-             as JSON matching the provided schema. Prefer stable selectors \
-             (ids, aria labels, data attributes) over positional ones. If the \
-             request cannot be satisfied on this page, use \"refuse\".\
-             <end_of_turn>\n\
-             <start_of_turn>user\nPAGE:\n{page}\n\nREQUEST: {user_prompt}\
-             <end_of_turn>\n<start_of_turn>model\n"
+            "You are the Flux browser agent. Given the visible text of the current \
+             page and a user request, respond with EXACTLY ONE JSON object and \
+             nothing else, one of these shapes:\n\
+             {{\"action\":\"click\",\"selector\":\"<css>\",\"reason\":\"<why>\"}}\n\
+             {{\"action\":\"extract_table\",\"selector\":\"<css>\",\"format\":\"csv\"}}\n\
+             {{\"action\":\"type\",\"selector\":\"<css>\",\"text\":\"<text>\"}}\n\
+             {{\"action\":\"reveal\",\"selector\":\"<css>\"}}\n\
+             {{\"action\":\"refuse\",\"reason\":\"<why>\"}}\n\
+             Prefer stable selectors (ids, aria-labels, data attributes). If the \
+             request cannot be satisfied on this page, use \"refuse\".\n\n\
+             PAGE:\n{page}\n\nREQUEST: {user_prompt}"
         );
 
         let raw = self.backend.complete(&prompt, Some(ACTION_GRAMMAR))?;
