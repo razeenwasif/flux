@@ -237,11 +237,21 @@ pub fn vault_remove(state: State<'_, VaultState>, id: String) -> Result<(), Stri
     state.persist()
 }
 
-/// Import a Proton Pass JSON export from a file path. Returns the count imported.
+/// Import a Proton Pass export from a file path — CSV, ZIP, PGP-encrypted (with
+/// `passphrase`), or JSON; the format is detected from the bytes + filename.
+/// Returns the count imported.
 #[tauri::command]
-pub fn vault_import_proton(state: State<'_, VaultState>, path: String) -> Result<usize, String> {
-    let json = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
-    let n = state.inner.write().import_proton(&json).map_err(|e| e.to_string())?;
+pub fn vault_import_proton(
+    state: State<'_, VaultState>,
+    path: String,
+    passphrase: Option<String>,
+) -> Result<usize, String> {
+    let data = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let n = state
+        .inner
+        .write()
+        .import(&data, &path, passphrase.as_deref())
+        .map_err(|e| e.to_string())?;
     state.persist()?;
     Ok(n)
 }

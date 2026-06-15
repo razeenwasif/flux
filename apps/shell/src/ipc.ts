@@ -295,8 +295,10 @@ export const vaultReveal = (id: string) => invoke<string | null>("vault_reveal",
 export const vaultAdd = (name: string, url: string, username: string, password: string) =>
   invoke<void>("vault_add", { name, url, username, password });
 export const vaultRemove = (id: string) => invoke<void>("vault_remove", { id });
-/** Import a Proton Pass JSON export from a file path; returns the count imported. */
-export const vaultImportProton = (path: string) => invoke<number>("vault_import_proton", { path });
+/** Import a Proton Pass export (CSV / ZIP / PGP / JSON) from a file path.
+ *  `passphrase` is only needed for a PGP-encrypted export. Returns the count. */
+export const vaultImportProton = (path: string, passphrase?: string) =>
+  invoke<number>("vault_import_proton", { path, passphrase: passphrase ?? null });
 /** Autofill credential `id` into the active tab's login form (same-origin enforced). */
 export const vaultFill = (tabId: number, id: string) => invoke<void>("vault_fill", { tabId, id });
 

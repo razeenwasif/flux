@@ -55,10 +55,13 @@ default (E2E sync is a separate item, #62).
   reimplement WebAuthn. The vault stores passwords/TOTP, not passkeys.
 
 ### Import
-- **Proton Pass JSON export** first (pure parser, unit-tested; tolerates the
-  `username` vs `itemUsername`/`itemEmail` schema split and skips trashed +
-  non-login items). Flux **never stores the raw export**; the user deletes it
-  after import. Chrome/Bitwarden/1Password CSV importers slot in behind the same
+- **Proton Pass — every format it exports:** CSV, ZIP (JSON/CSV inside),
+  PGP-encrypted (decrypted with the user's passphrase via the pure-rust `pgp`
+  crate), and raw JSON. Format is auto-detected from magic bytes + filename. The
+  JSON/CSV parsers tolerate Proton's schema quirks (the `username` vs
+  `itemUsername`/`itemEmail` split, header-name column mapping) and skip trashed
+  + non-login items. Flux **never stores the raw export**; the user deletes it
+  after import. Chrome/Bitwarden/1Password importers slot in behind the same
   `Credential` model.
 
 ## Consequences

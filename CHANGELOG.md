@@ -14,9 +14,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   and autofills via injection.
   - New `flux-vault` crate: credential model, **AES-256-GCM** seal/open (random
     nonce per write, decrypted plaintext in `Zeroizing` buffers), conservative
-    host matching, and a **Proton Pass JSON importer** (handles the `username`
-    vs `itemUsername`/`itemEmail` schema split, skips trashed + non-login items,
-    dedupes). Unit-tested.
+    host matching, and a **Proton Pass importer** for every format Proton
+    actually exports — **CSV**, **ZIP** (JSON/CSV inside), **PGP-encrypted**
+    (decrypted with a passphrase via the pure-rust `pgp` crate), and raw JSON;
+    format auto-detected from magic bytes + filename. The JSON/CSV parsers
+    tolerate Proton's schema quirks (the `username` vs `itemUsername`/`itemEmail`
+    split, header-name column mapping), skip trashed + non-login items, and
+    dedupe. Unit-tested (incl. a real gpg-made PGP fixture).
   - **OS-keychain data key** (`keyring`: Windows Credential Manager, macOS
     Keychain, Linux Secret Service) with a file-backed fallback when no store is
     available; the encrypted vault lives at `app_data/vault/vault.bin`.
@@ -25,7 +29,8 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
     password never passes through the chrome's JS.
   - **Vault UI**: a footer 🔑 popover — lists logins (matches for the current
     site float to the top with a **Fill** button), copy/reveal/delete, **Import
-    from Proton Pass** (point it at the exported JSON), and add a login.
+    from Proton Pass** (point it at the `.csv`/`.zip`/`.pgp`/`.json` export — a
+    passphrase field appears for `.pgp`), and add a login.
   - ADR 0009 sets the security model (threat model, local-first/no auto-sync,
     same-origin user-initiated autofill, passkeys left to the native webview,
     future master-password option). _Follow-ups:_ save-password prompt on login,

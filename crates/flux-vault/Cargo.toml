@@ -17,6 +17,11 @@ aes-gcm = "0.10"
 rand = "0.8"
 # Wipe decrypted plaintext + secrets from memory on drop.
 zeroize = "1"
+# Proton Pass export formats: CSV, and ZIP (JSON/CSV inside). PGP-encrypted
+# exports are decrypted with `pgp` (pure-rust) given the passphrase.
+csv = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+pgp = "0.14"
 # NOTE: the OS-keychain data-key source (keyring crate: Windows Credential
 # Manager / macOS Keychain / Linux Secret Service) is wired in the flux-core
 # integration layer, where it's runtime-tested per platform. This crate stays

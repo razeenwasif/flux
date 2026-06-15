@@ -33,6 +33,7 @@ const Passwords: Component = () => {
   const [list, setList] = createSignal<CredentialMeta[]>([]);
   const [revealed, setRevealed] = createSignal<Record<string, string>>({});
   const [path, setPath] = createSignal("");
+  const [pgpPass, setPgpPass] = createSignal("");
   const [msg, setMsg] = createSignal<string | null>(null);
   const [adding, setAdding] = createSignal(false);
   const [form, setForm] = createSignal({ name: "", url: "", username: "", password: "" });
@@ -83,13 +84,15 @@ const Passwords: Component = () => {
   };
   const remove = (e: CredentialMeta) => void vaultRemove(e.id).then(refresh).catch((err) => setMsg(String(err)));
 
+  const isPgp = () => /\.(pgp|gpg)$/i.test(path().trim());
   const importProton = async () => {
     const p = path().trim();
     if (!p) return;
     setMsg(null);
     try {
-      const n = await vaultImportProton(p);
+      const n = await vaultImportProton(p, isPgp() ? pgpPass() : undefined);
       setPath("");
+      setPgpPass("");
       setMsg(`Imported ${n} login${n === 1 ? "" : "s"}`);
       refresh();
     } catch (e) {
@@ -161,9 +164,12 @@ const Passwords: Component = () => {
 
           <div class="shields-sep" />
           <div class="ext-install">
-            <input class="ext-path" placeholder="/path/to/Proton Pass export.json" value={path()} onInput={(e) => setPath(e.currentTarget.value)} onKeyDown={(e) => e.key === "Enter" && void importProton()} />
+            <input class="ext-path" placeholder="Proton Pass export (.csv / .zip / .pgp / .json)" value={path()} onInput={(e) => setPath(e.currentTarget.value)} onKeyDown={(e) => e.key === "Enter" && !isPgp() && void importProton()} />
             <button class="shields-update" disabled={!path().trim()} onClick={() => void importProton()}>Import</button>
           </div>
+          <Show when={isPgp()}>
+            <input class="ext-path" type="password" style={{ margin: "5px 8px 0" }} placeholder="PGP passphrase" value={pgpPass()} onInput={(e) => setPgpPass(e.currentTarget.value)} onKeyDown={(e) => e.key === "Enter" && void importProton()} />
+          </Show>
 
           <Show
             when={adding()}
