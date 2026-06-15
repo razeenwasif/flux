@@ -220,6 +220,13 @@ export const httpsSetEnabled = (on: boolean) => invoke<void>("https_set_enabled"
 export const httpsAllowSite = (host: string, allow: boolean) =>
   invoke<void>("https_allow_site", { host, allow });
 
+// ─── Cookie controls (BACKLOG #58) ──────────────────────────────────────────
+
+/** Clear cookies for one host (all schemes). */
+export const cookiesClearSite = (host: string) => invoke<void>("cookies_clear_site", { host });
+/** Clear every cookie in the store. */
+export const cookiesClearAll = () => invoke<void>("cookies_clear_all");
+
 // ─── Per-tab web content (webviews) ─────────────────────────────────────────
 
 export interface Rect { x: number; y: number; width: number; height: number }

@@ -5,6 +5,8 @@
  */
 import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
+  cookiesClearAll,
+  cookiesClearSite,
   httpsAllowSite,
   httpsSetEnabled,
   httpsStatus,
@@ -116,6 +118,13 @@ const Shields: Component = () => {
           </Show>
           <div class="shields-stat">{status()?.blocked ?? 0} blocked this session</div>
           <button class="shields-update" onClick={() => void shieldsRefresh()}>Update filter lists</button>
+          <div class="shields-sep" />
+          <Show when={host()}>
+            <button class="shields-update" onClick={() => { const h = host(); if (h) void cookiesClearSite(h); }}>
+              Clear cookies for this site
+            </button>
+          </Show>
+          <button class="shields-update" onClick={() => void cookiesClearAll()}>Clear all cookies</button>
         </div>
       </Show>
     </div>

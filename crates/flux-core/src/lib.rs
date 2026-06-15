@@ -4,6 +4,7 @@
 pub mod agent_bridge;
 pub mod cli;
 pub mod commands;
+pub mod cookies;
 pub mod files;
 pub mod https;
 pub mod netfilter;
@@ -119,6 +120,8 @@ pub fn run(intent: cli::LaunchIntent) {
             https::https_status,
             https::https_set_enabled,
             https::https_allow_site,
+            cookies::cookies_clear_site,
+            cookies::cookies_clear_all,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,

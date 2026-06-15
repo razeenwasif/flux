@@ -192,6 +192,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve({ enabled: false, sites_allow_http: [] } as T);
     case "https_set_enabled":
     case "https_allow_site":
+    case "cookies_clear_site":
+    case "cookies_clear_all":
       return Promise.resolve(undefined as T);
     case "omni_sites":
       return Promise.resolve(JSON.stringify([

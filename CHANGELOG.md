@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Cookie controls** (BACKLOG #58). The Shields popover can now **clear cookies
+  for the current site** or **clear all cookies** — WebView2 `CookieManager`
+  (`DeleteCookies` / `DeleteAllCookies`), reached through any open tab webview
+  since they share one cookie store. COM verified against the msvc target;
+  Windows-only for now. (Clear-on-close + third-party-cookie blocking are next.)
 - **HTTPS-only mode** (BACKLOG #58). Opt-in (Shields popover toggle): Flux
   upgrades `http://` navigations + subresources to `https://` via a 307 from the
   **same WebView2 interceptor** as the content blocker (ADR 0007) — the request
