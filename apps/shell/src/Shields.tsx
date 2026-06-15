@@ -102,7 +102,9 @@ const Shields: Component = () => {
   };
 
   return (
-    <div style={{ position: "relative" }}>
+    // No positioning context here: the popover anchors to .sidebar-footer so it
+    // spans the sidebar width (never wider — it would fall behind the webview).
+    <div style={{ display: "contents" }}>
       <button classList={{ "icon-btn": true, active: open() }} title="Shields — content blocker" onClick={() => setOpen((v) => !v)}>
         🛡
         <Show when={(status()?.blocked ?? 0) > 0}>
@@ -111,7 +113,7 @@ const Shields: Component = () => {
       </button>
       <Show when={open()}>
         <div class="shield-backdrop" onClick={() => setOpen(false)} />
-        <div class="glass popover shields-pop" style={{ bottom: "calc(100% + 8px)", left: "6px" }}>
+        <div class="glass popover shields-pop footer-pop">
           <div class="shields-row">
             <span class="shields-label">Shields</span>
             <button classList={{ "shields-toggle": true, on: !!status()?.enabled }} onClick={toggleGlobal}>

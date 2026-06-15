@@ -504,6 +504,20 @@ body.resizing .shell { transition: none !important; }
 .popover button:hover { background: var(--flux-surface-2); }
 .popover kbd { float: right; color: var(--flux-text-mute); font-size: 11px; }
 
+/* Footer popovers (shields / bookmarks / extensions / settings) anchor to the
+   sidebar footer and span the sidebar with small side margins — never wider, or
+   the overflow would be clipped by the sidebar AND hidden behind the native
+   webview (a separate OS layer over the content card). Tall content scrolls. */
+.footer-pop {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% + 8px);
+  min-width: 0;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    Start page (new-tab dashboard)
    ════════════════════════════════════════════════════════════════════════ */
@@ -977,7 +991,7 @@ body.resizing .shell { transition: none !important; }
 }
 .shield-backdrop { position: fixed; inset: 0; z-index: 40; }
 .shields-pop {
-  z-index: 41; min-width: 226px; padding: 12px; display: flex; flex-direction: column; gap: 9px;
+  z-index: 41; padding: 12px; display: flex; flex-direction: column; gap: 9px;
 }
 .shields-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .shields-label { font-size: 13px; font-weight: 600; color: var(--flux-text); }

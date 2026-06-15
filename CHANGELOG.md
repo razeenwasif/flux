@@ -7,6 +7,23 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Fixed
+- **Shields popover clipped by the sidebar.** The footer popovers (shields,
+  bookmarks, extensions, settings) carried fixed min-widths (226–300px) wider
+  than the narrow sidebar, so they overflowed — clipped by the sidebar's
+  `overflow:hidden` and, worse, the overflow fell *behind* the native webview
+  (a separate OS layer over the content card). They now anchor to the sidebar
+  footer and span its width with small side margins (`.footer-pop`), so the box
+  always fits and is fully visible without widening the sidebar.
+
+### Changed
+- **Bounded the per-tab DOM snapshot cache** (BACKLOG #79 — RAM). Each tab's
+  captured page (`dom_publish`) is now capped at 1 MiB of HTML + 256 KiB of
+  text before caching. A page's outerHTML is often several MB; cached across
+  many open tabs that was the dominant chunk of Flux-controlled heap. The caps
+  are generous for the real consumers (agent, embedder, `flux extract-json`),
+  turning unbounded growth into O(tabs × cap).
+
 ### Added
 - **Find-in-page** (BACKLOG #33) — `Ctrl+F` opens a find bar. Typing drives the
   engine's native `window.find()` (works on both the Chromium-based WebView2 and
