@@ -1,0 +1,23 @@
+[package]
+name = "flux-vault"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Flux local password vault: AES-256-GCM at rest, OS-keychain key, importers (Proton Pass, …)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# AEAD: AES-256-GCM seals the serialized vault; nonce is random per write.
+aes-gcm = "0.10"
+# CSPRNG for the data key + per-write nonces.
+rand = "0.8"
+# Wipe decrypted plaintext + secrets from memory on drop.
+zeroize = "1"
+# NOTE: the OS-keychain data-key source (keyring crate: Windows Credential
+# Manager / macOS Keychain / Linux Secret Service) is wired in the flux-core
+# integration layer, where it's runtime-tested per platform. This crate stays
+# pure + testable: callers pass the 32-byte key explicitly.

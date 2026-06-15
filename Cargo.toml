@@ -18,6 +18,7 @@ members = [
     "crates/flux-import",
     "crates/flux-search",
     "crates/flux-filter",
+    "crates/flux-vault",
 ]
 
 [workspace.package]
@@ -44,6 +45,7 @@ flux-embed = { path = "crates/flux-embed" }
 flux-import = { path = "crates/flux-import" }
 flux-search = { path = "crates/flux-search" }
 flux-filter = { path = "crates/flux-filter" }
+flux-vault = { path = "crates/flux-vault" }
 
 # ── Performance profiles ─────────────────────────────────────────────────────
 # Release: maximum throughput, minimum binary size. LTO + 1 codegen unit costs

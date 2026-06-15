@@ -7,6 +7,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Password vault foundation** (BACKLOG #61, ADR 0009) — a new `flux-vault`
+  crate: the credential model, **AES-256-GCM** seal/open of the serialized vault
+  (random nonce per write; decrypted plaintext held in `Zeroizing` buffers),
+  conservative host matching for autofill, and a **Proton Pass JSON importer**
+  (tolerates the `username` vs `itemUsername`/`itemEmail` schema split, skips
+  trashed + non-login items, dedupes on a content-stable id). Pure + unit-tested
+  (4 tests); the 32-byte data key is supplied by the caller. ADR 0009 sets the
+  security model (OS-keychain data key, local-first, threat model, same-origin
+  user-initiated autofill, passkeys left to the native webview). _Next:_ wire
+  the OS keychain + flux-core commands, then autofill injection + a vault UI.
+
 ### Fixed
 - **Shields popover clipped by the sidebar.** The footer popovers (shields,
   bookmarks, extensions, settings) carried fixed min-widths (226–300px) wider
