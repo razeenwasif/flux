@@ -12,9 +12,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   now kept mounted in a keep-alive layer (only the active one is shown), so
   switching to another tab and back no longer kills the shell — the PTY,
   scrollback, and any running process persist. A terminal's PTY is now torn down
-  only when its tab is actually closed. (Restored terminal tabs from a saved
-  session still open a fresh shell at the saved cwd — the process can't outlive a
-  full restart.)
+  only when its tab is actually closed.
+- **Terminal sessions survive *closing Flux*** — opt-in, via `tmux`. Set
+  `FLUX_TERM_PERSIST=1` and each terminal runs inside a per-tab tmux session
+  (attach-or-create, `flux-<tab-id>`). Because tmux's server lives outside Flux
+  (in WSL / on Unix), closing Flux only *detaches* — reopening re-attaches the
+  **live** session: running processes, scrollback, cwd, all intact (tab ids
+  persist via session restore #19, so re-attach is automatic). Falls back to a
+  plain shell if tmux isn't installed (cached check); an explicit tab-close
+  kills the tmux session so nothing leaks. Persists across Flux restarts, not a
+  `wsl --shutdown` / reboot. WSL/Unix only — native Windows shells have no tmux.
 - **`flux://omni` — native Omni index dashboard.** A velvet/glass view of the
   Omni search index's live health, reachable from the omnibox (`flux://omni`) or
   a start-page quick action: stat cards (live docs, segments, tombstones,

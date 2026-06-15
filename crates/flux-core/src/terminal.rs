@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::sync::OnceLock;
 
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -92,14 +93,41 @@ pub fn terminal_spawn(
     // makes `cd $FLUX_TAB_DIR` / `flux extract-json` work the moment the shell
     // opens (the env bridge from `commands::terminal_env`, reused here).
     let shell = default_shell();
-    let mut cmd = CommandBuilder::new(&shell);
-    // WSL: start in the Linux home (~), not the translated Windows cwd
-    // (/mnt/c/Users/...). `--cd` overrides the inherited working directory.
+    // With FLUX_TERM_PERSIST set (and tmux installed), wrap each terminal in a
+    // per-session tmux (attach-or-create) so the *live* session survives a Flux
+    // restart: closing Flux detaches, reopening re-attaches `flux-<id>` (tab ids
+    // persist via session restore #19). Best-effort: falls back to a plain shell
+    // if tmux is missing. WSL/Unix only — native Windows shells have no tmux.
+    let use_tmux = persist_enabled() && tmux_available();
+    let tmux_name = format!("flux-{session}");
+
     #[cfg(windows)]
-    if shell.to_ascii_lowercase().contains("wsl") {
-        cmd.arg("--cd");
-        cmd.arg("~");
-    }
+    let mut cmd = {
+        let mut c = CommandBuilder::new(&shell);
+        // WSL: start in the Linux home (~), not the translated Windows cwd
+        // (/mnt/c/Users/...). `--cd` overrides the inherited working directory.
+        if shell.to_ascii_lowercase().contains("wsl") {
+            c.arg("--cd");
+            c.arg("~");
+            if use_tmux {
+                for a in ["--", "tmux", "new-session", "-A", "-s", &tmux_name] {
+                    c.arg(a);
+                }
+            }
+        }
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = if use_tmux {
+        let mut c = CommandBuilder::new("tmux");
+        for a in ["new-session", "-A", "-s", &tmux_name] {
+            c.arg(a);
+        }
+        c
+    } else {
+        CommandBuilder::new(&shell)
+    };
+
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("FLUX_SESSION", session.to_string());
@@ -210,12 +238,73 @@ pub fn terminal_resize(
 }
 
 /// Kill and drop a session (tab/pane closed).
+///
+/// With tmux persistence, killing the child only *detaches* (the whole point —
+/// so Flux closing keeps the session alive). An explicit tab close, though, is a
+/// deliberate "I'm done with this" — so also kill the tmux session, or it would
+/// leak. (App close doesn't run this: the webview dies without JS cleanup, so
+/// those sessions correctly survive to be re-attached next launch.)
 #[tauri::command]
 pub fn terminal_kill(manager: State<'_, TerminalManager>, session: u64) -> Result<(), String> {
     if let Some(s) = manager.sessions.lock().remove(&session) {
         let _ = s.child.lock().kill();
     }
+    if persist_enabled() && tmux_available() {
+        kill_tmux_session(session);
+    }
     Ok(())
+}
+
+/// Whether to wrap terminals in a persistent tmux session (`FLUX_TERM_PERSIST`).
+fn persist_enabled() -> bool {
+    std::env::var("FLUX_TERM_PERSIST")
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
+        })
+        .unwrap_or(false)
+}
+
+/// Is `tmux` available (in WSL on Windows, locally on Unix)? Cached — the check
+/// is a subprocess, and only persist-mode users ever reach it.
+fn tmux_available() -> bool {
+    static CACHE: OnceLock<bool> = OnceLock::new();
+    *CACHE.get_or_init(|| {
+        #[cfg(windows)]
+        let mut c = {
+            use std::os::windows::process::CommandExt;
+            let mut c = std::process::Command::new("wsl.exe");
+            c.args(["--", "sh", "-c", "command -v tmux"]);
+            c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            c
+        };
+        #[cfg(not(windows))]
+        let mut c = {
+            let mut c = std::process::Command::new("sh");
+            c.args(["-c", "command -v tmux"]);
+            c
+        };
+        c.output().map(|o| o.status.success()).unwrap_or(false)
+    })
+}
+
+/// Remove a leaked tmux session on explicit tab close (best-effort).
+fn kill_tmux_session(session: u64) {
+    let name = format!("flux-{session}");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("wsl.exe")
+            .args(["--", "tmux", "kill-session", "-t", &name])
+            .creation_flags(0x0800_0000)
+            .spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("tmux")
+            .args(["kill-session", "-t", &name])
+            .spawn();
+    }
 }
 
 // ─── small path helpers (kept dependency-free in the scaffold) ──────────────

@@ -151,10 +151,19 @@ the tab. Config via env: `FLUX_MODEL` (default `gemma4:12b-it-qat`),
 ## Terminal
 
 A real, usable dev terminal (ADR 0003): a Rust PTY (`portable-pty`) running your
-`$SHELL` with the `FLUX_TAB_*` context env, rendered by xterm.js. Open it as the
-**vertical column** (the persistent dev shell, ⌨ in the sidebar footer) or as a
-**Terminal tab** (the new-tab picker). xterm is lazy-loaded so it never weighs
-down the browser chrome.
+`$SHELL` (WSL by default on Windows; `FLUX_SHELL` overrides) with the
+`FLUX_TAB_*` context env, rendered by xterm.js. Open it as the **vertical
+column** (the persistent dev shell, ⌨ in the sidebar footer) or as a **Terminal
+tab** (the new-tab picker). xterm is lazy-loaded so it never weighs down the
+browser chrome. Terminal tabs are kept alive across tab switches (the shell
+keeps running when you switch away).
+
+**Persist sessions across closing Flux** — set `FLUX_TERM_PERSIST=1` and each
+terminal runs inside a per-tab `tmux` session (`flux-<tab-id>`, attach-or-create).
+tmux's server lives outside Flux, so closing Flux detaches and reopening
+re-attaches the *live* session (running processes + scrollback intact). Requires
+`tmux` in your WSL distro / on Unix (falls back to a plain shell otherwise);
+survives Flux restarts but not a `wsl --shutdown` or reboot.
 
 ## Files
 

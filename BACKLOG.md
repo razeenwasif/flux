@@ -35,6 +35,7 @@ grid/damage/renderer spine; these make it competitive with kitty/ghostty:
 | 76 | P1 | Bundle a Nerd Font (icon glyphs) as a webfont for guaranteed terminal/prompt icon coverage — `customGlyphs` + the fallback chain cover box-drawing/powerline but not Private-Use-Area icons |
 | 74 | P2 | Terminal throughput: raw-byte channel transport (avoid `number[]` JSON) and/or route the PTY stream into the `flux-term` WGPU renderer when compositing is solved |
 | 75 | P2 | Terminal splits/tabs *within* the column, OSC 133 shell integration, OSC 8 link → open Flux browser tab (supersedes earlier #15–17 once xterm is the renderer) |
+| 98 | P2 | Terminal session survival across **reboot** (today's tmux persistence via `FLUX_TERM_PERSIST` survives Flux restarts, but the tmux server dies on `wsl --shutdown`/reboot): a resurrected-tmux-server-on-boot hook, or a small detached PTY-host service. Also: a settings toggle for persistence instead of the env flag |
 
 ## Epic: Flux Agent
 
