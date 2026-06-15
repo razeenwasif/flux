@@ -116,15 +116,37 @@ The features that make Arc/Vivaldi/Zen users evangelical.
 
 ## Epic: Privacy, security & data
 
+**Active track** (chosen 2026-06-15): #91 → #57/#60, #58, #59, #61. Because Flux
+uses *native* webviews (WebView2 / WebKitGTK), not a Chromium network stack, the
+implementation path differs from a normal browser — captured per item below.
+**#91 is the enabling primitive** the blocker and HTTPS-upgrade both sit on.
+
 | # | P | Item | Inspiration |
 |---|---|---|---|
-| 57 | P1 | **Built-in content blocker**: ads + trackers (EasyList/uBO rules) with per-site shields UI — no extension | Brave, Vivaldi, Opera |
-| 58 | P1 | **HTTPS-only mode**, granular cookie controls, per-site clear-on-close | Brave, Firefox |
-| 59 | P1 | **Multi-account containers / profiles**: isolated cookie jars, one-click ephemeral/private container | Firefox, Safari profiles |
-| 60 | P2 | **Fingerprint randomization** + tracker-script blocking | Brave |
-| 61 | P1 | **Password manager + autofill + passkeys (WebAuthn)**; import from Chrome/1Password/Bitwarden | all |
-| 62 | P1 | **E2E-encrypted sync** of tabs/bookmarks/history/sessions across devices — account-optional, local-first (the gap Arc/Chrome leave open) | under-served |
-| 63 | P2 | Built-in proxy / VPN / Tor window hook (bring-your-own provider) | Brave, Opera |
+| 91 | P1 | **Request-interception layer** (foundation): flux-core hooks the native webview's request pipeline — WebView2 `WebResourceRequested` (via `AddWebResourceRequestedFilter`), WebKitGTK `WebKitWebView::resource-load-started` / `decide-policy` — to inspect/block/redirect/upgrade per tab, surfaced as a Rust trait so #57 and #58 share one path. Per-tab on/off + stats. | enabling primitive |
+| 57 | P1 | **Built-in content blocker**: ads + trackers, per-site shields UI — no extension. Use Brave's `adblock-rust` crate (parses EasyList/uBO lists, fast matching) on top of #91; ship default lists + user lists; element-hiding cosmetic filters via injected CSS. | Brave, Vivaldi, Opera |
+| 58 | P1 | **HTTPS-only mode** (upgrade/lock http→https via #91, interstitial on downgrade) + **granular cookie controls** (WebView2 `CookieManager` / WebKitGTK `WebKitCookieManager`) + per-site permission prompts + clear-on-close. | Brave, Firefox |
+| 59 | P1 | **Multi-account containers / profiles**: isolated cookie/storage jars per container — a webview data dir per profile (WebView2 user-data-folder / `WebKitWebsiteDataManager` per `WebKitWebContext`); one-click **ephemeral/private** container = in-memory data manager that's wiped on close. | Firefox, Safari profiles |
+| 60 | P2 | **Fingerprint randomization** + tracker-script blocking (script blocking falls out of #57; fingerprint defenses via injected JS shims over canvas/WebGL/audio). | Brave |
+| 61 | P1 | **Password manager + autofill + passkeys (WebAuthn)**: OS-keychain-backed vault (Windows Credential Manager/DPAPI, macOS Keychain, libsecret), autofill via Flux's existing JS injection, WebAuthn handled by the native webview; import from Chrome/1Password/Bitwarden. | all |
+| 62 | P1 | **E2E-encrypted sync** of tabs/bookmarks/history/sessions across devices — account-optional, local-first (the gap Arc/Chrome leave open). Builds on the session store (#19, done). | under-served |
+| 63 | P2 | Built-in proxy / VPN / Tor window hook (bring-your-own provider). | Brave, Opera |
+
+## Epic: Extensions (Flux mini-extension API)
+
+Decision (2026-06-15): Chrome/WebExtensions can't run in native webviews, so Flux
+ships its **own** curated, permissioned extension model rather than chasing
+WebExtensions compat or a raw userscript runtime. It reuses Flux's existing
+JS-injection substrate (capture.js + the agent's injection compiler). **Start
+with the ADR (#96)** — the security model gates everything else.
+
+| # | P | Item |
+|---|---|---|
+| 96 | P0 | **ADR + security model** (do first): isolated worlds for content scripts, a privileged broker for the API, capability gating from the manifest (no ambient authority), install-time consent, and what an extension can NEVER touch (other extensions' storage, raw IPC, tab webview internals beyond its grants). |
+| 92 | P1 | **Manifest + loader**: `flux.extension.json` (name, version, requested permissions, `content_scripts` = match globs + js/css, optional background worker, UI contributions). Load from a folder/zip; enable/disable/remove; persist the registry (extends the session store #19). |
+| 93 | P1 | **Content-script injection** in a per-extension **isolated world** scoped to `@match` patterns, built on the existing inject path; `postMessage`-style bridge between the content script and the privileged broker, mediated by the manifest's permissions. |
+| 94 | P1 | **Permissioned API surface** exposed to extensions: `flux.tabs` (query/open/navigate per grant), `flux.dom` (read/inject in granted tabs), `flux.storage` (per-extension KV), `flux.ui` (side panel + toolbar button + context-menu items), `flux.events`. Every call checks a grant; deny-by-default. |
+| 95 | P2 | **Extension manager UI** (fills the settings "extensions" view, #78): installed list, per-extension permission view + toggle, install/remove, update. A first-party **example extension** (e.g. a reader-mode or a page-summarizer that calls the local agent) as the reference. |
 
 ## Epic: Under-served — Flux's wedge
 
@@ -165,7 +187,7 @@ further:
   config + resolution; the user's own engine drops in via `search_add_engine` +
   `search_set_default`. Remaining: live suggestions UI (#32).
 - Terminal multiplexer protocol compat (tmux control mode)? Revisit after #15.
-- Extension story: confirmed we **cannot** run Chrome extensions in native
-  webviews. Decide how far to go on built-in equivalents (#57, #49) vs. a
-  curated mini-extension API. Big strategic call before #24.
+- ✅ **Extension story** (decided 2026-06-15): Chrome/WebExtensions can't run in
+  native webviews → Flux ships its **own curated mini-extension API** (new epic,
+  #92–96), not WebExtensions compat or built-in-only. Start at the ADR (#96).
 - CLI: replace the hand-rolled parser with `clap` once flags exceed ~6 (`cli.rs`).
