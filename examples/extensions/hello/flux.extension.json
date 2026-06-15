@@ -1,0 +1,17 @@
+{
+  "id": "com.flux.hello",
+  "name": "Hello Flux",
+  "version": "1.0.0",
+  "permissions": ["dom:read", "dom:write", "ui:toolbar"],
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://*/*"],
+      "js": ["hello.js"],
+      "css": ["hello.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "ui": {
+    "toolbar_button": { "title": "Say hello" }
+  }
+}

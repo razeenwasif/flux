@@ -32,6 +32,12 @@ let mockEntries: MockEntry[] = (
 ).map(([name, is_dir, size, days]) => ({ name, is_dir, symlink: false, size, modified: T0 - days * DAY }));
 
 const mockBase = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+
+// Installed extensions (BACKLOG #92) — mutable so the preview reflects install/toggle/remove.
+let mockExts: { manifest: { id: string; name: string; version: string; permissions: string[]; content_scripts: unknown[]; background: string | null; ui: unknown }; dir: string; enabled: boolean }[] = [
+  { manifest: { id: "com.flux.reader", name: "Reader Mode", version: "1.0.0", permissions: ["dom:read", "dom:write", "ui:toolbar"], content_scripts: [], background: null, ui: null }, dir: "~/.flux/extensions/reader", enabled: true },
+  { manifest: { id: "com.flux.darkall", name: "Dark Everywhere", version: "0.3.1", permissions: ["dom:write"], content_scripts: [], background: null, ui: null }, dir: "~/.flux/extensions/darkall", enabled: false },
+];
 const mockNow = () => T0 + DAY; // "just now" relative to the fixed dates above
 const tabs: TabMeta[] = [
   { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null },
@@ -202,6 +208,22 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(2 as T);
     case "permissions_status":
       return Promise.resolve(false as T);
+    case "ext_list":
+      return Promise.resolve(mockExts as T);
+    case "ext_install": {
+      const dir = String(args?.dir ?? "");
+      const m = { id: `local.${mockBase(dir) || "ext"}`, name: mockBase(dir) || "Extension", version: "1.0.0", permissions: ["dom:read"], content_scripts: [], background: null, ui: null };
+      mockExts = [...mockExts.filter((e) => e.manifest.id !== m.id), { manifest: m, dir, enabled: true }];
+      return Promise.resolve(m as T);
+    }
+    case "ext_set_enabled": {
+      const e = mockExts.find((x) => x.manifest.id === args?.id);
+      if (e) e.enabled = args?.on as boolean;
+      return Promise.resolve(undefined as T);
+    }
+    case "ext_remove":
+      mockExts = mockExts.filter((x) => x.manifest.id !== args?.id);
+      return Promise.resolve(undefined as T);
     case "cookies_status":
       return Promise.resolve({ clear_on_close: [] } as T);
     case "omni_sites":

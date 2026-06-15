@@ -5,6 +5,7 @@ pub mod agent_bridge;
 pub mod cli;
 pub mod commands;
 pub mod cookies;
+pub mod extensions;
 pub mod files;
 pub mod https;
 pub mod netfilter;
@@ -65,6 +66,13 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(cookies::CookieState::new());
             // Site-permission hardening (#58) — block camera/mic/geo on demand.
             app.manage(permissions::PermState::new());
+            // Mini-extension registry (#92) — installed extensions + enabled state.
+            let ext_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("extensions").join("registry.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-extensions.json"));
+            app.manage(extensions::ExtRegistry::restore(ext_path));
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -136,6 +144,10 @@ pub fn run(intent: cli::LaunchIntent) {
             tracking::tracking_set_level,
             permissions::permissions_status,
             permissions::permissions_set_block,
+            extensions::ext_install,
+            extensions::ext_list,
+            extensions::ext_set_enabled,
+            extensions::ext_remove,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (design; implementation is BACKLOG #92–95) |
+| **Status** | Accepted — #92 (manifest + loader + registry) implemented; #93–95 pending |
 | **Date** | 2026-06-15 |
 | **Deciders** | Flux Core Team |
 | **Relates to** | BACKLOG #96 (this ADR), #92 (manifest + loader), #93 (content scripts), #94 (API surface), #95 (manager UI). Builds on ADR 0007 (webview injection / with_webview). |

@@ -246,6 +246,34 @@ export const trackingSetLevel = (level: number) => invoke<void>("tracking_set_le
 export const permissionsStatus = () => invoke<boolean>("permissions_status");
 export const permissionsSetBlock = (on: boolean) => invoke<void>("permissions_set_block", { on });
 
+// ─── Extensions (BACKLOG #92, ADR 0008) ──────────────────────────────────────
+// Shapes mirror crates/flux-core/src/extensions.rs.
+export interface ExtContentScript {
+  matches: string[];
+  js: string[];
+  css: string[];
+  run_at: string;
+}
+export interface ExtManifest {
+  id: string;
+  name: string;
+  version: string;
+  permissions: string[];
+  content_scripts: ExtContentScript[];
+  background: string | null;
+  ui: { toolbar_button: { title: string; icon: string | null } | null; panel: boolean | null } | null;
+}
+export interface InstalledExt {
+  manifest: ExtManifest;
+  dir: string;
+  enabled: boolean;
+}
+/** Install the extension whose folder is `dir` (must hold flux.extension.json). */
+export const extInstall = (dir: string) => invoke<ExtManifest>("ext_install", { dir });
+export const extList = () => invoke<InstalledExt[]>("ext_list");
+export const extSetEnabled = (id: string, on: boolean) => invoke<void>("ext_set_enabled", { id, on });
+export const extRemove = (id: string) => invoke<void>("ext_remove", { id });
+
 // ─── Per-tab web content (webviews) ─────────────────────────────────────────
 
 export interface Rect { x: number; y: number; width: number; height: number }

@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Extension manifest + loader + registry** (BACKLOG #92, ADR 0008) — the
+  foundation of Flux's mini-extension model. `flux.extension.json` declares
+  id/name/version, deny-by-default `permissions`, `content_scripts`
+  (match globs + js/css + run_at), an optional `background` worker, and `ui`
+  contributions. `Manifest::parse` validates (id shape, known permissions only,
+  non-empty matches); `ExtRegistry` loads an extension folder, verifies its
+  content-script files exist, and persists `extensions/registry.json`
+  (install / list / enable-disable / remove). New commands
+  `ext_install`/`ext_list`/`ext_set_enabled`/`ext_remove` + ipc bindings + mock.
+  Ships a reference example at `examples/extensions/hello`. (Content-script
+  *injection* is #93, the `flux.*` broker API is #94, the manager UI is #95.)
 - **Block site permission requests** (BACKLOG #58, completes it). A Shields-
   popover toggle that auto-denies camera/mic/geolocation/notifications via
   WebView2's `PermissionRequested` (off by default — WebView2's own prompt
