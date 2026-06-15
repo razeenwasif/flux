@@ -191,6 +191,13 @@ pub async fn webview_navigate(app: AppHandle, tab_id: TabId, url: String) -> Res
     wv.navigate(parse_url(&url)?).map_err(|e| e.to_string())
 }
 
+/// Stop the current page load (#31). Engine-agnostic via the page's own
+/// `window.stop()`; the frontend clears the loading state when this fires.
+#[tauri::command]
+pub async fn webview_stop(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+    eval(&app, tab_id, "window.stop()")
+}
+
 /// Back / forward / reload. Tauri has no direct history API on `Webview`, so
 /// these drive the page's own history (works across engines).
 #[tauri::command]

@@ -18,8 +18,25 @@ import {
 
 const [tabs, setTabs] = createSignal<TabMeta[]>([]);
 const [activeId, setActiveId] = createSignal<number | null>(null);
+// Tabs currently loading a page (BACKLOG #31) — drives the stop/reload swap and
+// the omnibox progress bar. Fed by the page-load events (started/finished).
+const [loadingTabs, setLoadingTabs] = createSignal<Set<number>>(new Set());
 
 export { tabs, activeId };
+
+/** Whether a tab (default: the active one) is mid-load. */
+export const isLoading = (id: number | null = activeId()): boolean =>
+  id != null && loadingTabs().has(id);
+
+export function setTabLoading(id: number, loading: boolean): void {
+  setLoadingTabs((s) => {
+    if (loading === s.has(id)) return s;
+    const next = new Set(s);
+    if (loading) next.add(id);
+    else next.delete(id);
+    return next;
+  });
+}
 
 export const activeTab = (): TabMeta | null =>
   tabs().find((t) => t.id === activeId()) ?? null;
@@ -68,6 +85,7 @@ export async function togglePin(tab: TabMeta): Promise<void> {
 }
 
 export async function closeTab(id: number): Promise<void> {
+  setTabLoading(id, false);
   await webviewClose(id); // tear down the native webview (no-op for terminal tabs)
   await tabClose(id);
   // If we closed the active tab, fall back to the last remaining tab.

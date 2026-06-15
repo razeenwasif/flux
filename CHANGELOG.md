@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Navigation polish** (BACKLOG #31) — **stop** (a `webview_stop` command;
+  the reload button becomes ✕ while a page loads, and `Esc` stops the active
+  tab), per-tab **loading state** driven by the page-load events, a
+  **security/TLS badge** left of the omnibox (🔒 for HTTPS, ⚠ for plain HTTP),
+  and an indeterminate **loading bar** under the omnibox. (The progress bar
+  lives in the sidebar, not the content card: the native webview is a separate
+  OS layer that overlays the card and would hide an in-card bar.)
 - **Keyboard shortcuts** (BACKLOG #18) — Windows/Linux Ctrl-based bindings
   (Cmd also works on macOS): new browser tab `Ctrl+T`, terminal tab
   `Ctrl+Shift+T`, close tab `Ctrl+W`, next/prev tab `Ctrl+Tab` /

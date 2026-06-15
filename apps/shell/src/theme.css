@@ -300,6 +300,31 @@ body.resizing .shell { transition: none !important; }
   border-radius: 999px;
 }
 
+/* Omnibox row: security badge + address pill + loading bar (BACKLOG #31). */
+.address-row { position: relative; display: flex; align-items: center; gap: 6px; }
+.address-row .address { flex: 1; min-width: 0; }
+.sec { flex: none; font-size: 12px; line-height: 1; cursor: default; user-select: none; }
+.sec-secure { filter: grayscale(0.2); opacity: 0.85; }
+.sec-insecure { color: #ffcc66; }
+/* Indeterminate loading bar under the pill — the native webview can't cover it
+   here (it's in the sidebar, left of the content card). */
+.addr-progress {
+  position: absolute;
+  left: 10px; right: 10px; bottom: -3px; height: 2px;
+  border-radius: 2px; overflow: hidden;
+  background: color-mix(in srgb, var(--flux-teal) 18%, transparent);
+}
+.addr-progress::before {
+  content: ""; position: absolute; inset: 0; width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--flux-teal), transparent);
+  animation: flux-addr-progress 1.1s ease-in-out infinite;
+}
+@keyframes flux-addr-progress {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
 /* ── Pinned grid (glass tiles) ── */
 .pin-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
 .pin-tile {

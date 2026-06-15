@@ -46,6 +46,7 @@ import {
   webviewReload,
   webviewSetBounds,
   webviewShow,
+  webviewStop,
   win,
   type AgentAction,
   type AgentStatus,
@@ -65,9 +66,11 @@ import {
   activeTab,
   closeTab,
   focusTab,
+  isLoading,
   openTab,
   pinnedTabs,
   refreshTabs,
+  setTabLoading,
   tabs,
   togglePin,
   unpinnedTabs,
@@ -152,6 +155,16 @@ const App: Component = () => {
     ]);
     const inTerminal = () => !!(document.activeElement as HTMLElement | null)?.closest?.(".xterm");
     const onKey = (e: KeyboardEvent) => {
+      // Esc stops the active page load (#31). Handled separately from the chord
+      // table so it isn't forwarded from focused pages (they use Esc themselves).
+      if (e.key === "Escape" && !inTerminal()) {
+        const t = activeTab();
+        if (t?.kind === "browser" && isLoading(t.id)) {
+          void webviewStop(t.id).catch(() => {});
+          setTabLoading(t.id, false);
+        }
+        return;
+      }
       const a = keyToAction(e);
       if (!a) return;
       if (inTerminal() && !(terminalSafe.has(a) || a.startsWith("tab-"))) return;
@@ -169,6 +182,7 @@ const App: Component = () => {
     const unLoaded = await onTabLoaded((tabId, url, phase) => {
       console.log("[flux webview] load", phase, tabId, url); // diagnostic
       updateTabUrl(tabId, url);
+      setTabLoading(tabId, phase === "started"); // stop/reload swap + progress (#31)
       if (phase === "finished") {
         // Sync the live url to the backend so the persisted session (#19)
         // reflects where the tab actually is, not its creation url.
@@ -507,6 +521,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
     return isStartUrl(u) ? "" : u;
   };
 
+  // TLS/security state shown left of the omnibox (#31), from the active url.
+  const security = (): { icon: string; title: string; cls: string } | null => {
+    const u = activeTab()?.url ?? "";
+    if (!u || isStartUrl(u)) return null;
+    if (u.startsWith("https://")) return { icon: "🔒", title: "Connection is secure (HTTPS)", cls: "sec-secure" };
+    if (u.startsWith("http://")) return { icon: "⚠", title: "Not secure — sent over plain HTTP", cls: "sec-insecure" };
+    return null;
+  };
+
   const submitAddress = async (e: SubmitEvent) => {
     e.preventDefault();
     const v = address().trim();
@@ -552,14 +575,22 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <Show when={!props.collapsed}>
           <button class="icon-btn" title="Back (Alt+←)" onClick={() => navActive(webviewBack)}>‹</button>
           <button class="icon-btn" title="Forward (Alt+→)" onClick={() => navActive(webviewForward)}>›</button>
-          <button class="icon-btn" title="Reload (Ctrl+R)" onClick={() => navActive(webviewReload)}>⟳</button>
+          <Show
+            when={isLoading(activeId())}
+            fallback={<button class="icon-btn" title="Reload (Ctrl+R)" onClick={() => navActive(webviewReload)}>⟳</button>}
+          >
+            <button class="icon-btn" title="Stop (Esc)" onClick={() => navActive(webviewStop)}>✕</button>
+          </Show>
           <span style={{ flex: 1 }} />
         </Show>
       </div>
 
       <Show when={!props.collapsed}>
         {/* Address / search pill */}
-        <form onSubmit={submitAddress}>
+        <form onSubmit={submitAddress} class="address-row">
+          <Show when={security()}>
+            {(s) => <span class={`sec ${s().cls}`} title={s().title}>{s().icon}</span>}
+          </Show>
           <input
             id="flux-address"
             class="address"
@@ -569,6 +600,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
             placeholder="Search or enter address  (Ctrl+L)"
             spellcheck={false}
           />
+          {/* Loading bar: lives in the sidebar, never under the native webview. */}
+          <Show when={isLoading(activeId())}>
+            <div class="addr-progress" />
+          </Show>
         </form>
 
         {/* Pinned tiles (Arc Favorites) */}

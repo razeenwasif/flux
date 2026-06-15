@@ -80,7 +80,7 @@ These are the non-negotiables before Flux is a usable daily browser.
 
 | # | P | Item | Who has it |
 |---|---|---|---|
-| 31 | P0 | Navigation polish (basics shipped via #2: load/reload/back/forward/navigate): add **stop**, **loading + security/TLS state** in the address bar, and a loading progress affordance | all |
+| 31 | ✅ | **Navigation polish** (done): **stop** (`webview_stop` → `window.stop()`; reload button swaps to ✕ while loading + `Esc`); **loading state** tracked from the page-load events (started/finished) per tab; **security/TLS badge** left of the omnibox (🔒 HTTPS / ⚠ HTTP); **progress affordance** — an indeterminate bar under the omnibox (in the sidebar, since the native webview overlays the content card and would hide an in-card bar). | all |
 | 32 | P0 | Omnibox **live suggestions** UI: dropdown of typeahead results (fetch each engine's `suggest_template`, BACKLOG #68 backend) + history/bookmark autocomplete. (Search-or-URL resolution + `!bang`/keyword routing already ship via `flux-search`.) | all |
 | 33 | P0 | Find-in-page (⌘F) with match highlighting and count | all |
 | 34 | P1 | Download manager: progress, pause/resume, open/reveal, history, integrity (hash) | all |

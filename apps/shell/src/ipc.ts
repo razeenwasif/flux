@@ -308,6 +308,7 @@ export const webviewNavigate = (tabId: number, url: string) =>
 export const webviewBack = (tabId: number) => invoke<void>("webview_back", { tabId });
 export const webviewForward = (tabId: number) => invoke<void>("webview_forward", { tabId });
 export const webviewReload = (tabId: number) => invoke<void>("webview_reload", { tabId });
+export const webviewStop = (tabId: number) => invoke<void>("webview_stop", { tabId });
 export const webviewClose = (tabId: number) => invoke<void>("webview_close", { tabId });
 /** Diagnostic: window scale/size + the tab webview's actual physical bounds. */
 export const webviewDebug = (tabId: number) => invoke<string>("webview_debug", { tabId });
