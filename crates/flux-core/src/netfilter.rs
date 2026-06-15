@@ -28,7 +28,6 @@ pub fn install(app: &AppHandle, webview: &Webview) {
 fn install_windows(app: AppHandle, webview: &Webview) {
     use tauri::Manager;
     let r = webview.with_webview(move |platform| {
-        tracing::info!(target: "flux::netfilter", "with_webview callback running");
         // `with_webview` runs on the webview's UI thread — where the WebView2
         // event handler must also live.
         let controller = platform.controller();
@@ -76,7 +75,6 @@ mod win {
     ) -> Result<()> {
         core.AddWebResourceRequestedFilter(w!("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?;
         let core2 = core.clone();
-        let mut seen: u32 = 0;
         let handler = WebResourceRequestedEventHandler::create(Box::new(move |_sender, args| unsafe {
             let args = match args {
                 Some(a) => a,
@@ -100,17 +98,7 @@ mod win {
                 String::new()
             };
 
-            let blocked = should_block(&url, &source, req_type);
-
-            // DIAG: trace the first 40 requests (verdicts) + every block, so a
-            // smoke test shows whether the handler fires and what it decides.
-            seen += 1;
-            if blocked || seen <= 40 {
-                let host = url.split('/').nth(2).unwrap_or(url.as_str());
-                tracing::info!(target: "flux::netfilter", "req #{seen} blocked={blocked} type={req_type} host={host}");
-            }
-
-            if blocked {
+            if should_block(&url, &source, req_type) {
                 // Answer with a bodyless 403 → the resource never loads.
                 let env = core2.cast::<ICoreWebView2_2>()?.Environment()?;
                 let resp =
