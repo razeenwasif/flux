@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Session restore** (BACKLOG #19). Open tabs now survive a restart. Flux
+  persists the tab strip — url, title, `pinned`, `kind`, order, and the active
+  tab — to `session.json` in the app data dir on every change, and repopulates
+  `FluxState` on boot ("continue where you left off"). The backend is now the
+  source of truth: a new `tab_set_url` syncs in-webview navigation so restored
+  tabs reopen *where you left them*, not at their start page; `tab_list` is
+  ordered by id (creation order) so the strip is stable across reads/restores;
+  the id counter is bumped past every restored id. Pages load lazily (only the
+  focused tab opens a webview). **Fixes pinned tabs vanishing on relaunch.**
 - **Files tab — marquee (rubber-band) selection** (BACKLOG #90).
   Click-drag on empty space to sweep a selection rectangle over rows; ⇧/⌘/Ctrl
   while dragging adds to the existing selection. Works with the virtualized list

@@ -91,6 +91,11 @@ export const tabClose = (id: number) => invoke<void>("tab_close", { id });
 export const tabList = () => invoke<TabMeta[]>("tab_list");
 export const tabSetPinned = (id: number, pinned: boolean) =>
   invoke<void>("tab_set_pinned", { id, pinned });
+/** Sync a tab's live url/title to the backend so the persisted session is current. */
+export const tabSetUrl = (id: number, url: string, title?: string) =>
+  invoke<void>("tab_set_url", { id, url, title: title ?? null });
+/** The backend's currently-focused tab id (for restoring focus on boot). */
+export const tabActive = () => invoke<number | null>("tab_active");
 export const launchIntent = () => invoke<LaunchIntent>("launch_intent");
 export const chromeImportPreview = () =>
   invoke<ChromeProfilePreview[]>("chrome_import_preview");

@@ -5,6 +5,7 @@
  */
 import { createSignal } from "solid-js";
 import {
+  tabActive,
   tabClose,
   tabCreate,
   tabFocus,
@@ -41,10 +42,11 @@ export async function refreshTabs(): Promise<void> {
       return ft ? { ...bt, url: ft.url, title: ft.title } : bt;
     });
   });
-  // Seed selection on first load so a tab is always active (address bar +
-  // highlight reflect it). Backend already tracks its own active tab.
+  // Seed selection on first load so a tab is always active. Prefer the backend's
+  // restored active tab (session restore, #19); fall back to the last tab.
   if (activeId() === null && list.length > 0) {
-    setActiveId(list.at(-1)!.id);
+    const restored = await tabActive().catch(() => null);
+    setActiveId(restored && list.some((t) => t.id === restored) ? restored : list.at(-1)!.id);
   }
 }
 

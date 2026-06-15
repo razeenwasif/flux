@@ -32,6 +32,7 @@ import {
   searchEngines,
   searchResolve,
   searchSetDefault,
+  tabSetUrl,
   webviewBack,
   type SearchEngine,
   webviewDebug,
@@ -134,9 +135,14 @@ const App: Component = () => {
     const unLoaded = await onTabLoaded((tabId, url, phase) => {
       console.log("[flux webview] load", phase, tabId, url); // diagnostic
       updateTabUrl(tabId, url);
-      if (phase === "finished" && tabId === activeId()) {
-        const r = readRect();
-        if (r) wv(webviewSetBounds(tabId, r));
+      if (phase === "finished") {
+        // Sync the live url to the backend so the persisted session (#19)
+        // reflects where the tab actually is, not its creation url.
+        void tabSetUrl(tabId, url).catch(() => {});
+        if (tabId === activeId()) {
+          const r = readRect();
+          if (r) wv(webviewSetBounds(tabId, r));
+        }
       }
     });
     onCleanup(() => {
@@ -211,6 +217,7 @@ const App: Component = () => {
       return;
     }
     updateTabUrl(tab.id, url);
+    void tabSetUrl(tab.id, url).catch(() => {}); // keep the persisted session current (#19)
     if (!isStartUrl(url) && openedWebviews.has(tab.id)) {
       // `wv` swallows the benign "no such tab webview" race (navigating just as
       // the webview is (re)created) instead of an uncaught promise rejection.

@@ -47,6 +47,7 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
     let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None };
     state.tabs.insert(id, meta.clone());
     state.set_active_tab(id);
+    state.persist();
     meta
 }
 
@@ -54,12 +55,38 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
 /// rail is the user's deliberate order, not the embedder's.
 #[tauri::command]
 pub fn tab_set_pinned(state: State<'_, FluxState>, id: TabId, pinned: bool) -> Result<(), String> {
-    let mut meta = state.tabs.get_mut(&id).ok_or("no such tab")?;
-    meta.pinned = pinned;
-    if pinned {
-        meta.cluster = None;
+    {
+        // Scope the guard: `persist()` iterates the same DashMap.
+        let mut meta = state.tabs.get_mut(&id).ok_or("no such tab")?;
+        meta.pinned = pinned;
+        if pinned {
+            meta.cluster = None;
+        }
     }
+    state.persist();
     Ok(())
+}
+
+/// Sync a tab's live url/title from the frontend (in-webview navigation isn't
+/// visible to Rust otherwise) so the persisted session reflects where each tab
+/// actually is — not just where it was created. (BACKLOG #19.)
+#[tauri::command]
+pub fn tab_set_url(state: State<'_, FluxState>, id: TabId, url: String, title: Option<String>) {
+    {
+        if let Some(mut meta) = state.tabs.get_mut(&id) {
+            meta.url = url;
+            if let Some(t) = title {
+                meta.title = t;
+            }
+        }
+    }
+    state.persist();
+}
+
+/// The currently-focused tab id (so the shell can restore focus on boot).
+#[tauri::command]
+pub fn tab_active(state: State<'_, FluxState>) -> Option<TabId> {
+    state.active_tab()
 }
 
 /// One-shot launch intent (CLI args). The shell calls this on mount and
@@ -89,17 +116,23 @@ pub fn chrome_import_bookmarks(
 #[tauri::command]
 pub fn tab_focus(state: State<'_, FluxState>, id: TabId) {
     state.set_active_tab(id);
+    state.persist();
 }
 
 #[tauri::command]
 pub fn tab_close(state: State<'_, FluxState>, id: TabId) {
     state.tabs.remove(&id);
     state.dom_cache.remove(&id);
+    state.persist();
 }
 
 #[tauri::command]
 pub fn tab_list(state: State<'_, FluxState>) -> Vec<TabMeta> {
-    state.tabs.iter().map(|e| e.value().clone()).collect()
+    // Ordered by id (== creation order) so the tab strip is stable across reads
+    // and restores (DashMap iteration order is otherwise arbitrary).
+    let mut tabs: Vec<TabMeta> = state.tabs.iter().map(|e| e.value().clone()).collect();
+    tabs.sort_by_key(|t| t.id);
+    tabs
 }
 
 // ─── DOM snapshot ingestion (tab webview → Rust) ────────────────────────────

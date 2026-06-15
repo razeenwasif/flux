@@ -67,6 +67,13 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       if (t) t.pinned = args?.pinned as boolean;
       return Promise.resolve(undefined as T);
     }
+    case "tab_set_url": {
+      const t = tabs.find((t) => t.id === args?.id);
+      if (t) { t.url = args?.url as string; if (args?.title != null) t.title = args.title as string; }
+      return Promise.resolve(undefined as T);
+    }
+    case "tab_active":
+      return Promise.resolve((tabs.at(-1)?.id ?? null) as T);
     case "tab_close": {
       const i = tabs.findIndex((t) => t.id === args?.id);
       if (i >= 0) tabs.splice(i, 1);

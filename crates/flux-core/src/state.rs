@@ -101,9 +101,13 @@ pub struct FluxState {
     pub dom_cache: DashMap<TabId, Arc<DomSnapshot>>,
     /// Agent status — written by the agent task, read by UI/status commands.
     pub agent: RwLock<AgentStatus>,
+    /// Where the session is persisted (BACKLOG #19). `None` → no persistence
+    /// (tests / the `Default` impl).
+    session_path: Option<std::path::PathBuf>,
 }
 
 impl FluxState {
+    /// In-memory only (no session persistence) — used by tests and `Default`.
     pub fn new() -> Self {
         Self {
             active_tab: AtomicU64::new(0),
@@ -111,7 +115,47 @@ impl FluxState {
             tabs: DashMap::new(),
             dom_cache: DashMap::new(),
             agent: RwLock::new(AgentStatus::Idle),
+            session_path: None,
         }
+    }
+
+    /// Boot from a persisted session (BACKLOG #19): repopulate the tabs, the
+    /// active tab, and the id counter (bumped past every restored id so new
+    /// tabs never collide), then keep persisting to `session_path`.
+    pub fn restore(session_path: std::path::PathBuf) -> Self {
+        let session = crate::session::load(&session_path);
+        let tabs = DashMap::new();
+        let mut max_id = 0;
+        for t in session.tabs {
+            max_id = max_id.max(t.id);
+            tabs.insert(t.id, t);
+        }
+        let next = session.next_id.max(max_id + 1).max(1);
+        // Only keep the active pointer if that tab actually came back.
+        let active = if tabs.contains_key(&session.active) { session.active } else { 0 };
+        Self {
+            active_tab: AtomicU64::new(active),
+            next_tab_id: AtomicU64::new(next),
+            tabs,
+            dom_cache: DashMap::new(),
+            agent: RwLock::new(AgentStatus::Idle),
+            session_path: Some(session_path),
+        }
+    }
+
+    /// Write the current tabs to disk (no-op without a `session_path`). Cheap —
+    /// the file is a few KB — and called after each tab mutation. Tabs are
+    /// ordered by id (== creation order) so restore preserves the tab strip.
+    pub fn persist(&self) {
+        let Some(path) = &self.session_path else { return };
+        let mut tabs: Vec<TabMeta> = self.tabs.iter().map(|e| e.value().clone()).collect();
+        tabs.sort_by_key(|t| t.id);
+        let session = crate::session::Session {
+            tabs,
+            active: self.active_tab.load(Ordering::Acquire),
+            next_id: self.next_tab_id.load(Ordering::Acquire),
+        };
+        crate::session::save(path, &session);
     }
 
     /// Allocate a fresh tab id. `Relaxed` is sufficient: ids only need to be

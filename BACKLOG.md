@@ -13,7 +13,6 @@ Priorities: **P0** = blocks the core demo loop · **P1** = v0.1 release · **P2*
 |---|---|---|
 | 10 | P1 | CI perf-budget gates per ADR 0001: binary size, idle RSS, `criterion` IPC benches (`ipc_roundtrip`, `dom_snapshot`), chrome JS ≤ 50 KB gzip |
 | 12 | P1 | Generate TS types from Rust structs via `specta` (kill the manual `ipc.ts` mirror — it has already drifted once this week) |
-| 19 | P1 | Session restore: persist tabs (incl. `pinned`, `kind`) to disk on change, restore on boot |
 | 20 | P1 | Single-instance forwarding: second `flux <url>` invocation opens a tab in the running window (`tauri-plugin-single-instance`) instead of a second process |
 | 26 | P2 | Packaging: `.desktop` entry + icon on Linux, PATH shim on Windows/macOS, auto-update channel |
 

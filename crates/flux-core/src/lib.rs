@@ -6,6 +6,7 @@ pub mod cli;
 pub mod commands;
 pub mod files;
 pub mod search;
+pub mod session;
 pub mod state;
 pub mod terminal;
 pub mod webview;
@@ -23,8 +24,14 @@ pub fn run(intent: cli::LaunchIntent) {
 
     tauri::Builder::default()
         .setup(move |app| {
-            // Single source of truth, injected into every command.
-            app.manage(state::FluxState::new());
+            // Single source of truth, injected into every command. Restored
+            // from the persisted session so tabs survive a restart (#19).
+            let session_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("session.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-session.json"));
+            app.manage(state::FluxState::restore(session_path));
             // CLI launch intent — consumed once by the shell on mount.
             app.manage(intent);
             // Live PTY sessions for the embedded terminal.
@@ -56,6 +63,8 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::tab_close,
             commands::tab_list,
             commands::tab_set_pinned,
+            commands::tab_set_url,
+            commands::tab_active,
             commands::launch_intent,
             commands::chrome_import_preview,
             commands::chrome_import_bookmarks,
