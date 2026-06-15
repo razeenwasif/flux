@@ -45,6 +45,7 @@ import {
   webviewNavigate,
   webviewOpen,
   webviewReload,
+  omniIngestActive,
   webviewSetBounds,
   webviewShow,
   webviewStop,
@@ -335,6 +336,22 @@ const App: Component = () => {
     setFindOpen(false);
   };
 
+  // Save the active page into the Omni index (Ctrl/Cmd+Shift+O, or forwarded from
+  // a focused page). Shows a brief toast with the result.
+  const [omniToast, setOmniToast] = createSignal<string | null>(null);
+  let omniToastTimer: number | undefined;
+  const saveToOmni = async () => {
+    setOmniToast("Saving to Omni…");
+    try {
+      const r = await omniIngestActive();
+      setOmniToast(r.added ? "✦ Saved to Omni" : r.skipped ? "Already in Omni" : "Saved");
+    } catch (e) {
+      setOmniToast(`Omni: ${String(e)}`);
+    }
+    clearTimeout(omniToastTimer);
+    omniToastTimer = window.setTimeout(() => setOmniToast(null), 2600);
+  };
+
   // Run an app keyboard action — shared by the chrome's keydown listener and
   // the chords forwarded from a focused tab webview (#18).
   const dispatch = (action: string): boolean => {
@@ -352,6 +369,7 @@ const App: Component = () => {
       case "reload": navActive(webviewReload); return true;
       case "back": navActive(webviewBack); return true;
       case "forward": navActive(webviewForward); return true;
+      case "save-to-omni": void saveToOmni(); return true;
       default:
         if (action.startsWith("tab-")) {
           const n = Number(action.slice(4));
@@ -424,6 +442,7 @@ const App: Component = () => {
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         onToggleTerminal={() => setTerminalOpen((v) => !v)}
         onToggleAgent={() => setAgentOpen((v) => !v)}
+        onSaveToOmni={saveToOmni}
       />
       <ContentArea
         onNavigate={go}
@@ -458,6 +477,31 @@ const App: Component = () => {
           style={{ right: `${agentW()}px` }}
           onPointerDown={(e) => startPaneResize(e, agentW, setAgentW, -1, "flux.w.agent", 300, 640)}
         />
+      </Show>
+
+      {/* Transient confirmation for "save page to Omni" (Ctrl/Cmd+Shift+O). */}
+      <Show when={omniToast()}>
+        {(msg) => (
+          <div
+            style={{
+              position: "fixed",
+              bottom: "22px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              "z-index": 9999,
+              padding: "8px 16px",
+              "border-radius": "999px",
+              "font-size": "13px",
+              color: "var(--flux-text, #eef0fb)",
+              background: "var(--glass-fill, rgba(26,22,64,0.85))",
+              "backdrop-filter": "blur(20px)",
+              border: "1px solid rgba(180,190,255,0.22)",
+              "box-shadow": "0 12px 40px -8px rgba(0,0,0,0.6)",
+            }}
+          >
+            {msg()}
+          </div>
+        )}
       </Show>
 
       <ResizeHandles />
@@ -522,6 +566,7 @@ interface SidebarProps {
   onToggleSidebar: () => void;
   onToggleTerminal: () => void;
   onToggleAgent: () => void;
+  onSaveToOmni: () => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | null;
@@ -636,6 +681,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
             placeholder="Search or enter address  (Ctrl+L)"
             spellcheck={false}
           />
+          {/* Save the current page into the Omni index (also Ctrl+Shift+O). */}
+          <button
+            type="button"
+            class="icon-btn"
+            title="Save this page to Omni (Ctrl+Shift+O)"
+            onClick={() => props.onSaveToOmni()}
+          >
+            ✦
+          </button>
           {/* Loading bar: lives in the sidebar, never under the native webview. */}
           <Show when={isLoading(activeId())}>
             <div class="addr-progress" />
@@ -763,7 +817,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <button classList={{ "icon-btn": true, active: panel() === "settings" }} title="Settings" onClick={() => openPanel("settings")}>⚙</button>
 
         <Show when={panel()}>
-          <div class="glass popover" style={{ bottom: "calc(100% + 8px)", left: "6px", "min-width": "230px" }}>
+          <div class="glass popover footer-pop">
             <Show when={panel() === "settings"}>
               <div class="sidebar-section" style={{ padding: "4px 8px" }}>Default search engine</div>
               <For each={engines()}>
