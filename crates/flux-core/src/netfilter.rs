@@ -7,8 +7,9 @@
 //! request and answers blocked ones with a 403, so nothing downloads. Off
 //! Windows it's a no-op — the WebKitGTK interceptor is a follow-up.
 //!
-//! The COM usage below was compile-verified against the `x86_64-pc-windows-msvc`
-//! target; only its runtime behavior needs a Windows smoke test.
+//! The COM usage was compile-verified against `x86_64-pc-windows-msvc`; only its
+//! runtime behavior needs a Windows smoke test. The `flux::netfilter` tracing
+//! lines (in the `tauri dev` terminal) trace install + per-request verdicts.
 
 use tauri::webview::Webview;
 use tauri::AppHandle;
@@ -26,29 +27,38 @@ pub fn install(app: &AppHandle, webview: &Webview) {
 #[cfg(windows)]
 fn install_windows(app: AppHandle, webview: &Webview) {
     use tauri::Manager;
-    let _ = webview.with_webview(move |platform| {
+    let r = webview.with_webview(move |platform| {
+        tracing::info!(target: "flux::netfilter", "with_webview callback running");
         // `with_webview` runs on the webview's UI thread — where the WebView2
         // event handler must also live.
         let controller = platform.controller();
         unsafe {
             let core = match controller.CoreWebView2() {
                 Ok(c) => c,
-                Err(_) => return,
+                Err(e) => {
+                    tracing::warn!(target: "flux::netfilter", "CoreWebView2() failed: {e}");
+                    return;
+                }
             };
             let shields_app = app.clone();
-            let verdict = move |url: &str, source: &str, ty: &str| {
-                shields_app
-                    .try_state::<crate::shields::ShieldsState>()
-                    .map(|s| s.should_block(url, source, ty))
-                    .unwrap_or(false)
+            let verdict = move |url: &str, source: &str, ty: &str| match shields_app
+                .try_state::<crate::shields::ShieldsState>()
+            {
+                Some(s) => s.should_block(url, source, ty),
+                None => {
+                    tracing::warn!(target: "flux::netfilter", "ShieldsState not managed");
+                    false
+                }
             };
-            if let Err(e) = win::install_interceptor(&core, verdict) {
-                tracing::warn!(target: "flux::netfilter", "WebView2 interceptor install failed: {e}");
-            } else {
-                tracing::info!(target: "flux::netfilter", "content-blocker interceptor installed");
+            match win::install_interceptor(&core, verdict) {
+                Ok(()) => tracing::info!(target: "flux::netfilter", "interceptor installed"),
+                Err(e) => tracing::warn!(target: "flux::netfilter", "install failed: {e}"),
             }
         }
     });
+    if let Err(e) = r {
+        tracing::warn!(target: "flux::netfilter", "with_webview failed: {e}");
+    }
 }
 
 #[cfg(windows)]
@@ -66,6 +76,7 @@ mod win {
     ) -> Result<()> {
         core.AddWebResourceRequestedFilter(w!("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?;
         let core2 = core.clone();
+        let mut seen: u32 = 0;
         let handler = WebResourceRequestedEventHandler::create(Box::new(move |_sender, args| unsafe {
             let args = match args {
                 Some(a) => a,
@@ -89,7 +100,17 @@ mod win {
                 String::new()
             };
 
-            if should_block(&url, &source, req_type) {
+            let blocked = should_block(&url, &source, req_type);
+
+            // DIAG: trace the first 40 requests (verdicts) + every block, so a
+            // smoke test shows whether the handler fires and what it decides.
+            seen += 1;
+            if blocked || seen <= 40 {
+                let host = url.split('/').nth(2).unwrap_or(url.as_str());
+                tracing::info!(target: "flux::netfilter", "req #{seen} blocked={blocked} type={req_type} host={host}");
+            }
+
+            if blocked {
                 // Answer with a bodyless 403 → the resource never loads.
                 let env = core2.cast::<ICoreWebView2_2>()?.Environment()?;
                 let resp =
