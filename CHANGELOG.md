@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Extension manager UI** (BACKLOG #95). The footer 🧩 panel is now a real
+  manager: it lists installed extensions with name/version + permission chips,
+  an enable/disable toggle, a remove button, and an **install-from-folder** row
+  (point it at a folder with `flux.extension.json` — e.g.
+  `examples/extensions/hello` — and validation errors surface inline). Backed by
+  the #92 registry commands. This completes the extension epic (#92–95):
+  install → inject → grant-checked API → manage. (Still to come: `flux.ui`
+  extension-contributed chrome, `flux.events`, and a native folder picker.)
 - **Extension `flux.*` API + capability broker** (BACKLOG #94, ADR 0008). A
   privileged Rust broker (`broker.rs`) is the one door extension content scripts
   may call. Each content script gets a JS shim exposing `flux.runtime`

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted — #92 (manifest/loader) + #93 (injection) + #94 (broker + flux.* API: runtime/storage/tabs/dom) implemented; flux.ui/events + manager UI (#95) pending |
+| **Status** | Accepted — epic implemented: #92 (manifest/loader) + #93 (injection) + #94 (broker + flux.* API: runtime/storage/tabs/dom) + #95 (manager UI). Remaining follow-up: flux.ui (extension-contributed chrome) + flux.events. |
 | **Date** | 2026-06-15 |
 | **Deciders** | Flux Core Team |
 | **Relates to** | BACKLOG #96 (this ADR), #92 (manifest + loader), #93 (content scripts), #94 (API surface), #95 (manager UI). Builds on ADR 0007 (webview injection / with_webview). |

@@ -953,3 +953,18 @@ body.resizing .shell { transition: none !important; }
 
 .shields-sep { height: 1px; background: var(--glass-rim-soft); margin: 1px 0; }
 .shields-select { flex: none; font-size: 11.5px; padding: 3px 6px; border-radius: 7px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); }
+
+/* Extension manager (BACKLOG #95) */
+.ext-row { padding: 6px 8px; border-radius: 8px; }
+.ext-row:hover { background: var(--flux-surface-2); }
+.ext-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ext-name { font-size: 12.5px; color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-ver { font-size: 10.5px; color: var(--flux-text-dim); }
+.ext-remove { font-size: 12px; color: var(--flux-text-dim); padding: 2px 6px; border-radius: 6px; }
+.ext-remove:hover { color: #ff6b6b; background: var(--flux-surface-2); }
+.ext-perms { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.ext-chip { font-size: 10px; color: var(--flux-text-dim); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); border-radius: 6px; padding: 1px 6px; }
+.ext-install { display: flex; gap: 6px; align-items: center; padding: 2px 8px 0; }
+.ext-path { flex: 1; min-width: 0; font-size: 11.5px; padding: 4px 7px; border-radius: 7px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); }
+.ext-install .shields-update { padding: 4px 0 0; white-space: nowrap; }
+.ext-error { font-size: 11px; color: #ff8a8a; padding: 6px 8px 2px; word-break: break-word; }

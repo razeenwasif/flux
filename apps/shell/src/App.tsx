@@ -54,6 +54,7 @@ import {
 } from "./ipc";
 import TerminalView from "./TerminalView";
 import StartPage from "./StartPage";
+import Extensions from "./Extensions";
 import FilesView from "./FilesView";
 import OmniDashboard from "./OmniDashboard";
 import Shields from "./Shields";
@@ -625,10 +626,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </div>
             </Show>
             <Show when={panel() === "extensions"}>
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Extensions</div>
-              <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
-                Chrome extensions can't run in native webviews; Flux maps them to built-ins (BACKLOG #24, #57).
-              </div>
+              <Extensions />
             </Show>
           </div>
         </Show>
