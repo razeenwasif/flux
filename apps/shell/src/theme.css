@@ -516,6 +516,9 @@ body.resizing .shell { transition: none !important; }
   min-width: 0;
   max-height: calc(100vh - 140px);
   overflow-y: auto;
+  /* Above the click-away backdrop (z-index 40), or it would swallow clicks on
+     the popover's own inputs/buttons. */
+  z-index: 41;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
