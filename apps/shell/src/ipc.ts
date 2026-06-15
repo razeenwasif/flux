@@ -206,6 +206,20 @@ export const shieldsSetSite = (host: string, on: boolean) =>
 /** Re-fetch + rebuild the upstream filter lists (background). */
 export const shieldsRefresh = () => invoke<void>("shields_refresh");
 
+// ─── HTTPS-only mode (BACKLOG #58) ──────────────────────────────────────────
+
+export interface HttpsStatus {
+  enabled: boolean;
+  /** Hosts allowlisted to stay on HTTP. */
+  sites_allow_http: string[];
+}
+
+export const httpsStatus = () => invoke<HttpsStatus>("https_status");
+export const httpsSetEnabled = (on: boolean) => invoke<void>("https_set_enabled", { on });
+/** Allow (or stop allowing) a host to stay on plain HTTP under HTTPS-only. */
+export const httpsAllowSite = (host: string, allow: boolean) =>
+  invoke<void>("https_allow_site", { host, allow });
+
 // ─── Per-tab web content (webviews) ─────────────────────────────────────────
 
 export interface Rect { x: number; y: number; width: number; height: number }

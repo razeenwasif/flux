@@ -39,15 +39,21 @@ fn install_windows(app: AppHandle, webview: &Webview) {
                     return;
                 }
             };
-            let shields_app = app.clone();
-            let verdict = move |url: &str, source: &str, ty: &str| match shields_app
-                .try_state::<crate::shields::ShieldsState>()
-            {
-                Some(s) => s.should_block(url, source, ty),
-                None => {
-                    tracing::warn!(target: "flux::netfilter", "ShieldsState not managed");
-                    false
+            let policy_app = app.clone();
+            // Per request: block trackers/ads (shields), else upgrade http→https
+            // (HTTPS-only), else allow.
+            let verdict = move |url: &str, source: &str, ty: &str| -> win::Decision {
+                if let Some(s) = policy_app.try_state::<crate::shields::ShieldsState>() {
+                    if s.should_block(url, source, ty) {
+                        return win::Decision::Block;
+                    }
                 }
+                if let Some(h) = policy_app.try_state::<crate::https::HttpsState>() {
+                    if let Some(secure) = h.upgrade(url) {
+                        return win::Decision::Redirect(secure);
+                    }
+                }
+                win::Decision::Allow
             };
             match win::install_interceptor(&core, verdict) {
                 Ok(()) => tracing::info!(target: "flux::netfilter", "interceptor installed"),
@@ -64,14 +70,23 @@ fn install_windows(app: AppHandle, webview: &Webview) {
 mod win {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
     use webview2_com::WebResourceRequestedEventHandler;
-    use windows::core::{w, Interface, Result, PWSTR};
+    use windows::core::{w, Interface, Result, HSTRING, PWSTR};
     use windows::Win32::System::Com::IStream;
 
-    /// Hook `WebResourceRequested` on `core`, blocking requests for which
-    /// `should_block(url, source_url, request_type)` returns true.
+    /// What to do with a request.
+    pub enum Decision {
+        Allow,
+        /// Drop it with a 403 (content blocker).
+        Block,
+        /// 307-redirect it to this URL (HTTPS-only upgrade).
+        Redirect(String),
+    }
+
+    /// Hook `WebResourceRequested` on `core`, applying `decide(url, source,
+    /// request_type)` to every request.
     pub unsafe fn install_interceptor(
         core: &ICoreWebView2,
-        should_block: impl Fn(&str, &str, &str) -> bool + 'static,
+        decide: impl Fn(&str, &str, &str) -> Decision + 'static,
     ) -> Result<()> {
         core.AddWebResourceRequestedFilter(w!("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?;
         let core2 = core.clone();
@@ -98,12 +113,21 @@ mod win {
                 String::new()
             };
 
-            if should_block(&url, &source, req_type) {
-                // Answer with a bodyless 403 → the resource never loads.
-                let env = core2.cast::<ICoreWebView2_2>()?.Environment()?;
-                let resp =
-                    env.CreateWebResourceResponse(None::<&IStream>, 403, w!("Blocked by Flux"), w!(""))?;
-                args.SetResponse(&resp)?;
+            match decide(&url, &source, req_type) {
+                Decision::Allow => {}
+                Decision::Block => {
+                    // Bodyless 403 → the resource never loads.
+                    let env = core2.cast::<ICoreWebView2_2>()?.Environment()?;
+                    let resp = env.CreateWebResourceResponse(None::<&IStream>, 403, w!("Blocked by Flux"), w!(""))?;
+                    args.SetResponse(&resp)?;
+                }
+                Decision::Redirect(secure) => {
+                    // 307 with a Location header → upgrade to HTTPS.
+                    let env = core2.cast::<ICoreWebView2_2>()?.Environment()?;
+                    let headers = HSTRING::from(format!("Location: {secure}"));
+                    let resp = env.CreateWebResourceResponse(None::<&IStream>, 307, w!("Upgraded to HTTPS"), &headers)?;
+                    args.SetResponse(&resp)?;
+                }
             }
             Ok(())
         }));

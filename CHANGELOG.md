@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **HTTPS-only mode** (BACKLOG #58). Opt-in (Shields popover toggle): Flux
+  upgrades `http://` navigations + subresources to `https://` via a 307 from the
+  **same WebView2 interceptor** as the content blocker (ADR 0007) — the request
+  hook now returns allow/block/**redirect**. Skips loopback/`.local` and a
+  per-site "allow HTTP" allowlist (also in the popover) for sites with no HTTPS.
+  COM verified against the msvc target; runtime needs a Windows smoke test.
+  (Cookie/permission controls + a downgrade interstitial are the next #58 steps.)
 - **Content blocker — cosmetic (element-hiding) filtering** (BACKLOG #57,
   completes it). On each page load Flux injects the filter lists' element-hiding
   CSS for that URL (`Filter::cosmetic_css` → one `{ display: none !important }`

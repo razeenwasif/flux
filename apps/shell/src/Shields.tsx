@@ -5,10 +5,14 @@
  */
 import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
+  httpsAllowSite,
+  httpsSetEnabled,
+  httpsStatus,
   shieldsRefresh,
   shieldsSetEnabled,
   shieldsSetSite,
   shieldsStatus,
+  type HttpsStatus,
   type ShieldsStatus,
 } from "./ipc";
 import { activeTab } from "./store";
@@ -23,10 +27,14 @@ function hostOf(url: string): string | null {
 
 const Shields: Component = () => {
   const [status, setStatus] = createSignal<ShieldsStatus | null>(null);
+  const [https, setHttps] = createSignal<HttpsStatus | null>(null);
   const [open, setOpen] = createSignal(false);
   let timer: number | undefined;
 
-  const poll = () => void shieldsStatus().then(setStatus).catch(() => {});
+  const poll = () => {
+    void shieldsStatus().then(setStatus).catch(() => {});
+    void httpsStatus().then(setHttps).catch(() => {});
+  };
   onMount(() => {
     poll();
     timer = window.setInterval(poll, 2000);
@@ -53,6 +61,19 @@ const Shields: Component = () => {
     if (h) void shieldsSetSite(h, !siteOn()).then(poll);
   };
 
+  const httpsOn = () => !!https()?.enabled;
+  // Whether this site is allowlisted to stay on HTTP.
+  const siteAllowsHttp = () => {
+    const h = host();
+    const s = https();
+    return !!(h && s && s.sites_allow_http.includes(h));
+  };
+  const toggleHttps = () => void httpsSetEnabled(!httpsOn()).then(poll);
+  const toggleSiteHttp = () => {
+    const h = host();
+    if (h) void httpsAllowSite(h, !siteAllowsHttp()).then(poll);
+  };
+
   return (
     <div style={{ position: "relative" }}>
       <button classList={{ "icon-btn": true, active: open() }} title="Shields — content blocker" onClick={() => setOpen((v) => !v)}>
@@ -75,6 +96,21 @@ const Shields: Component = () => {
               <span class="shields-host" title={host()!}>{host()}</span>
               <button classList={{ "shields-toggle": true, on: siteOn() }} onClick={toggleSite}>
                 {siteOn() ? "On" : "Off"}
+              </button>
+            </div>
+          </Show>
+          <div class="shields-sep" />
+          <div class="shields-row">
+            <span class="shields-label">HTTPS-only</span>
+            <button classList={{ "shields-toggle": true, on: httpsOn() }} onClick={toggleHttps}>
+              {httpsOn() ? "On" : "Off"}
+            </button>
+          </div>
+          <Show when={httpsOn() && host()}>
+            <div class="shields-row">
+              <span class="shields-host">Allow HTTP here</span>
+              <button classList={{ "shields-toggle": true, on: siteAllowsHttp() }} onClick={toggleSiteHttp}>
+                {siteAllowsHttp() ? "Yes" : "No"}
               </button>
             </div>
           </Show>

@@ -5,6 +5,7 @@ pub mod agent_bridge;
 pub mod cli;
 pub mod commands;
 pub mod files;
+pub mod https;
 pub mod netfilter;
 pub mod omni;
 pub mod search;
@@ -53,6 +54,8 @@ pub fn run(intent: cli::LaunchIntent) {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || handle.state::<shields::ShieldsState>().refresh());
             }
+            // HTTPS-only mode (#58) — shares the request interceptor with shields.
+            app.manage(https::HttpsState::new());
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -113,6 +116,9 @@ pub fn run(intent: cli::LaunchIntent) {
             shields::shields_set_site,
             shields::shields_check,
             shields::shields_refresh,
+            https::https_status,
+            https::https_set_enabled,
+            https::https_allow_site,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,
