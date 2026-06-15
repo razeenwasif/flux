@@ -27,8 +27,6 @@ import {
   fsCreateDir,
   fsCreateFile,
   fsDelete,
-  fsDragIcon,
-  fsDragOut,
   fsList,
   fsMove,
   fsOpen,
@@ -76,7 +74,6 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const [notice, setNotice] = createSignal<{ kind: "ok" | "err"; text: string } | null>(null);
   const [dropTarget, setDropTarget] = createSignal<string | null>(null);
   let dragPaths: string[] = [];
-  let dragIcon = "";
   let noticeTimer: number | undefined;
   let unlistenFs: (() => void) | undefined;
   let watchTimer: number | undefined;
@@ -162,10 +159,6 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   onMount(async () => {
     await load(props.path);
     setPlaces(await fsQuickLocations().catch(() => []));
-    // Pre-fetch the drag-out preview icon path so Alt+drag can fire it without
-    // an async hop mid-gesture (#90).
-    dragIcon = await fsDragIcon().catch((e) => { console.error("[flux] fsDragIcon failed", e); return ""; });
-    console.log("[flux] drag icon path =", dragIcon);
     // Live watch: re-list (debounced) when the shown directory changes on disk.
     unlistenFs = await onFsChanged((p) => {
       if (p !== cwd()) return;
@@ -422,20 +415,6 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   };
   onCleanup(() => cancelAnimationFrame(marqueeRaf));
 
-  // DIAG (#90): confirm at the window level whether HTML5 drag events fire at
-  // all — tells us if `dragDropEnabled:false` took effect. Remove once drag is
-  // confirmed working.
-  const dndDiag = (e: DragEvent) =>
-    console.log("[flux dnd] window", e.type, (e.target as HTMLElement)?.className);
-  window.addEventListener("dragstart", dndDiag);
-  window.addEventListener("dragend", dndDiag);
-  window.addEventListener("drop", dndDiag);
-  onCleanup(() => {
-    window.removeEventListener("dragstart", dndDiag);
-    window.removeEventListener("dragend", dndDiag);
-    window.removeEventListener("drop", dndDiag);
-  });
-
   // Keyboard: nav + the operation shortcuts. Inputs and open dialogs opt out.
   const onKey = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement)?.tagName === "INPUT") return;
@@ -671,19 +650,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                             }}
                             onDragStart={(e) => {
                               if (!selected().has(entry.name)) selectOnly(idx());
-                              const paths = selectedPaths();
-                              console.log("[flux dnd] row dragstart", { alt: e.altKey, count: paths.length, hasDT: !!e.dataTransfer });
-                              if (e.altKey) {
-                                // Alt+drag → OS-native drag-out to other apps
-                                // (not an in-app move). #90
-                                e.preventDefault();
-                                fsDragOut(paths, dragIcon);
-                                return;
-                              }
-                              dragPaths = paths;
+                              dragPaths = selectedPaths();
                               if (e.dataTransfer) {
                                 e.dataTransfer.effectAllowed = "move";
-                                e.dataTransfer.setData("text/plain", paths.join("\n"));
+                                e.dataTransfer.setData("text/plain", dragPaths.join("\n"));
                               }
                             }}
                             onDragEnd={() => { dragPaths = []; setDropTarget(null); }}

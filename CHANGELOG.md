@@ -8,14 +8,7 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
-- **Files tab — OS-native drag-out** (completes BACKLOG #90). **Alt+drag** a
-  file (or a multi-selection) out of Flux into another app — Explorer/Finder,
-  mail, an editor — as a real OS file drag (copy), via `tauri-plugin-drag`.
-  Plain drag still does the in-app move (onto folders/rail/breadcrumbs); the Alt
-  modifier is what lets the two coexist (ADR 0006). The drag preview icon is
-  materialized to a temp path (`fs_drag_icon`); the plugin's `drag:default`
-  permission is granted only to the main chrome window, never tab webviews.
-- **Files tab — marquee (rubber-band) selection** (part of BACKLOG #90).
+- **Files tab — marquee (rubber-band) selection** (BACKLOG #90).
   Click-drag on empty space to sweep a selection rectangle over rows; ⇧/⌘/Ctrl
   while dragging adds to the existing selection. Works with the virtualized list
   (coordinates are in scroll-independent content space) and **auto-scrolls** when
@@ -70,12 +63,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (in-process, feature-gated). No FFI/GGUF — pure Rust, unit-tested.
 
 ### Fixed
-- **Files tab drag-and-drop did nothing** (both in-app drag-to-move and
-  Alt+drag-out). The main window left `dragDropEnabled` at its default `true`,
-  so Tauri's native OS drop handler claimed drag events and **suppressed the
-  webview's HTML5 drag-and-drop**. Set `dragDropEnabled: false` on the window so
-  the in-app DnD works (and the native drag-out source isn't fighting the
-  window's drop-target registration).
+- **Files tab drag-to-move did nothing.** The main window left `dragDropEnabled`
+  at its default `true`, so Tauri's native OS drop handler claimed drag events
+  and **suppressed the webview's HTML5 drag-and-drop**. Set
+  `dragDropEnabled: false` on the window so in-app DnD works.
 - **Opening/closing a tab reset other tabs to the home page.** The backend only
   stores each tab's *creation* url (in-webview navigation is frontend state), so
   `refreshTabs()`'s `setTabs(await tabList())` clobbered every open tab's live

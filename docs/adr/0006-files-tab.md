@@ -72,23 +72,26 @@ copy/cut/paste, drag-to-move, and delete. Design choices worth recording:
   create/rename, drag targets, confirm dialog); the backend stays mechanical
   and path-based, with name validation on the UI side.
 
-## Update (2026-06-15) — marquee selection + OS-native drag-out (#90)
+## Update (2026-06-15) — marquee selection (#90); in-app DnD; drag-out shelved
 
 - **Marquee (rubber-band) selection:** drag on empty space to sweep rows.
   Coordinates are kept in *content* space (scroll-independent), so it stays
   aligned with the virtualized rows and survives the edge auto-scroll (a rAF
   loop while the pointer sits near a viewport edge). It only starts on the empty
   background, so it never competes with a row's own drag.
-- **OS-native drag-out:** HTML5 drag-and-drop can't hand files to *other* apps,
-  so dragging a file into Explorer/mail/an editor needs a native drag
-  (`tauri-plugin-drag`, which also handles the main-thread dispatch + raw window
-  handle). That conflicts with the in-app drag-to-move (both want the drag
-  gesture), so the resolution is a **modifier**: plain drag = in-app move
-  (unchanged), **Alt+drag** = native drag-out (copy). The drag preview image
-  must be a real path, so `fs_drag_icon` writes the app's 32px icon to the temp
-  dir and the frontend caches it. Security: the plugin's `drag:default`
-  permission is granted only to the `main` chrome window — never to tab
-  webviews, consistent with the rest of the ACL.
+- **In-app drag-to-move** required `"dragDropEnabled": false` on the main window
+  — Tauri registers the window as a native OS drop target by default, which
+  *swallows* the webview's HTML5 drag-and-drop. That one flag is what makes
+  dropping a file onto a folder/rail/breadcrumb work.
+- **OS-native drag-out was attempted and shelved.** We wired `tauri-plugin-drag`
+  (Alt+drag → native OS drag) so files could be dragged into Explorer/mail/an
+  editor. On a Windows smoke test the gesture fired, sent a valid path, and the
+  OS returned `DRAGDROP_S_DROP` (success) — yet the file did not land at the
+  target. The transfer happens entirely inside the crate's native OLE code
+  (`ILCreateFromPathW` → shell data object), which can't be reproduced or
+  stepped through from the Linux dev box, so it was **removed** rather than
+  shipped half-working. In-app drag-to-move + cut/paste cover moving files;
+  drag-out is re-deferred (BACKLOG #90) for when there's a Windows debug loop.
 
 ## Update (2026-06-14) — live watch + undo
 

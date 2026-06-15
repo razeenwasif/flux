@@ -167,9 +167,7 @@ and delete — to the **OS trash** by default (recoverable) or permanent with
 space), a right-click context menu, and a confirm dialog on every destructive
 op. The listing **watches the directory** and updates itself on external
 changes (no manual refresh), and reversible ops are **undoable** with ⌘/Ctrl-Z
-(rename/move/trash → restore). **Alt+drag** a file out of Flux into another app
-(Explorer, mail, an editor) as a real OS file drag; plain drag still moves
-within Flux.
+(rename/move/trash → restore).
 
 ## Roadmap
 

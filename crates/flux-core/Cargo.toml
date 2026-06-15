@@ -48,9 +48,6 @@ trash = "5"
 # Files tab — live directory watch (inotify / ReadDirectoryChangesW), so the
 # listing reflects external changes without a manual refresh.
 notify = "6"
-# Files tab — OS-native drag-out (Alt+drag a file into Explorer/mail/editor).
-# Handles the main-thread dispatch + raw window handle for the native drag.
-tauri-plugin-drag = "2.1.1"
 
 # Windows-only: DWM rounded corners (the window is opaque, so CSS can't round
 # it). Cross-verified against the x86_64-pc-windows-msvc target.

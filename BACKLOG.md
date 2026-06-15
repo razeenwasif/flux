@@ -150,11 +150,12 @@ The Files tab shipped (ADR 0006): virtualized list, quick-access rail,
 breadcrumb nav, sort/filter, open-with-default, **file operations**
 (new/rename/copy/cut/paste/drag-move/delete-to-trash, multi-select, context
 menu, confirm-on-destructive), **live directory watch**, **undo** for reversible
-ops, **marquee selection**, and **OS-native drag-out** (Alt+drag)
-(BACKLOG #83/#84/#85/#89/#90, done). These take it further:
+ops, and **marquee selection** (BACKLOG #83/#84/#85/#89, done). These take it
+further:
 
 | # | P | Item |
 |---|---|---|
+| 90 | P2 | **OS-native drag-out** (drag a file into Explorer/mail/an editor). Attempted via `tauri-plugin-drag` then removed: on Windows the gesture fired and the OS returned `DRAGDROP_S_DROP`, but the file didn't land — the transfer is inside the crate's native OLE code, unreproducible from the Linux dev box. Revisit with a Windows debug loop; may need a custom CF_HDROP data object. In-app drag + cut/paste cover moving files meanwhile. |
 | 86 | P2 | **Stream/paginate pathological dirs** (100k+ entries): chunked `fs_list` instead of one JSON payload (the v1 acceptable-tradeoff noted in ADR 0006) |
 | 87 | P2 | **Flux cross-links**: "Open terminal here" (new Terminal tab at cwd), "Open in browser", agent file actions (summarize/rename-by-content); preview pane (text/image/pdf) |
 | 88 | P2 | **Search within tree** (recursive, ranked by `flux-embed` #11) + fuzzy filename jump |

@@ -217,31 +217,6 @@ export const fsUnwatch = (id: number) => invoke<void>("fs_unwatch", { id });
 export const onFsChanged = (cb: (path: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://fs-changed", (e) => cb(e.payload));
 
-// OS-native drag-out (Alt+drag in the Files tab → drop into Explorer/mail/etc.).
-/** Materialize the drag preview icon to a real path (cache the result). */
-export const fsDragIcon = () => invoke<string>("fs_drag_icon");
-/**
- * Start a native drag of `paths` out to other apps (copy). No-op outside Tauri.
- *
- * Calls the `tauri-plugin-drag` command directly (matching its JS binding) so we
- * don't carry an npm dependency just for one invoke. `onEvent` is a required
- * channel even when we ignore drag events.
- */
-export function fsDragOut(paths: string[], icon: string): void {
-  if (!inTauri() || !paths.length) return;
-  console.log("[flux drag-out] start_drag item=", JSON.stringify(paths), "icon=", icon);
-  const onEvent = new Channel<{ result: string; cursorPos: { x: number; y: number } }>();
-  onEvent.onmessage = (m) => console.log("[flux drag-out] event", JSON.stringify(m));
-  void invoke("plugin:drag|start_drag", {
-    item: paths,
-    image: icon,
-    options: { mode: "copy" },
-    onEvent,
-  })
-    .then(() => console.log("[flux drag-out] invoke resolved"))
-    .catch((e) => console.error("[flux drag-out] invoke FAILED:", e));
-}
-
 // ─── Terminal (PTY) ────────────────────────────────────────────────────────
 
 /** Spawn a PTY for `session`; `onData` streams raw output bytes (number[]). */
