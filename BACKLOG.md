@@ -32,7 +32,6 @@ grid/damage/renderer spine; these make it competitive with kitty/ghostty:
 | 16 | P1 | Shell integration: OSC 133 prompt marks → jump-between-prompts, per-command exit-status coloring, "copy last output" |
 | 17 | P1 | OSC 8 hyperlinks + URL detection; clicking a URL in the terminal opens a Flux browser tab (the loop closes both ways) |
 | 4 | P0 | `flux` CLI *inside* the terminal: `flux extract-json`, `flux dom`, `cd $FLUX_TAB_DIR` — backed by `dom_active_bytes` |
-| 73 | P1 | Persist terminal **tab** sessions across tab switches (hidden keep-alive mounts) — today only the vertical column session persists (ADR 0003) |
 | 76 | P1 | Bundle a Nerd Font (icon glyphs) as a webfont for guaranteed terminal/prompt icon coverage — `customGlyphs` + the fallback chain cover box-drawing/powerline but not Private-Use-Area icons |
 | 74 | P2 | Terminal throughput: raw-byte channel transport (avoid `number[]` JSON) and/or route the PTY stream into the `flux-term` WGPU renderer when compositing is solved |
 | 75 | P2 | Terminal splits/tabs *within* the column, OSC 133 shell integration, OSC 8 link → open Flux browser tab (supersedes earlier #15–17 once xterm is the renderer) |
@@ -157,7 +156,7 @@ beyond "another Chromium skin."
 |---|---|---|---|
 | 65 | P0 | **DOM-aware integrated terminal**: a real dev terminal that can read the active page (`flux extract-json`, `cd $FLUX_TAB_DIR`) and that the agent can drive. Nobody ships this | core |
 | 66 | P1 | **Semantic everything-search**: one box over open tabs + history + bookmarks + page contents, ranked by local embeddings (#11) — not just title substring | weak everywhere |
-| 97 | P2 | **`flux://omni` follow-ups** (dashboard shipped): drive the essential-sites grid from Omni's bang table via a `/sites` endpoint (it's mirrored statically in Flux for now) + a compact "Omni index" glance widget on the start page | search |
+| 97 | P2 | **`flux://omni` follow-up** (dashboard + live `/sites` grid shipped): a compact "Omni index" glance widget on the start page (key stats at a glance, link into the full dashboard) | search |
 | 67 | P1 | **Scriptable automation / macros**: record-and-replay browsing flows, schedulable, agent-authored. Power users beg for this; only flaky extensions exist | under-served |
 | 69 | P2 | **True offline archiving / read-later**: save the *rendered* page (MHTML/SingleFile), full-text indexed, available offline | weak everywhere |
 | 70 | P2 | **Per-tab resource governor**: live CPU/RAM/network per tab + hard caps + "what's draining my battery" attribution | requested, absent |

@@ -13,12 +13,8 @@ use tauri::State;
 
 use crate::search::SearchState;
 
-/// Fetch the Omni engine's `/stats` JSON (live index health). The base URL
-/// follows the configured default search engine, so it tracks wherever the user
-/// pointed Omni; `FLUX_OMNI_URL` overrides; falls back to `localhost:8080`.
-#[tauri::command]
-pub async fn omni_stats(search: State<'_, SearchState>) -> Result<String, String> {
-    let url = format!("{}/stats", search.omni_base());
+/// GET `url` and return the body, off the main thread. 5s timeout.
+async fn fetch(url: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         ureq::get(&url)
             .timeout(Duration::from_secs(5))
@@ -29,4 +25,19 @@ pub async fn omni_stats(search: State<'_, SearchState>) -> Result<String, String
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// The Omni engine's `/stats` JSON (live index health). The base URL follows the
+/// configured default search engine, so it tracks wherever the user pointed
+/// Omni; `FLUX_OMNI_URL` overrides; falls back to `localhost:8080`.
+#[tauri::command]
+pub async fn omni_stats(search: State<'_, SearchState>) -> Result<String, String> {
+    fetch(format!("{}/stats", search.omni_base())).await
+}
+
+/// The Omni engine's curated essential-site shortcuts (`/sites`), so the
+/// dashboard grid stays in sync with Omni's bang table.
+#[tauri::command]
+pub async fn omni_sites(search: State<'_, SearchState>) -> Result<String, String> {
+    fetch(format!("{}/sites", search.omni_base())).await
 }

@@ -9,7 +9,7 @@
  * One instance per session: a Terminal tab passes its TabId; the vertical
  * column passes PANE_SESSION (0).
  */
-import { onCleanup, onMount, type Component } from "solid-js";
+import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import { Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
 
@@ -38,8 +38,20 @@ const THEME = {
   brightWhite: "#eef0fb",
 } as const;
 
-const TerminalView: Component<{ session: number }> = (props) => {
+const TerminalView: Component<{ session: number; active?: boolean }> = (props) => {
   let host!: HTMLDivElement;
+  let termRef: XTerm | undefined;
+  let fitRef: { fit: () => void } | undefined;
+
+  // Re-fit + re-focus when this terminal becomes the active tab again — it was
+  // hidden (display:none) in the keep-alive layer (#73), so xterm needs to
+  // re-measure now that it has a size. (onMount handles the first show.)
+  createEffect(() => {
+    if (props.active && termRef) {
+      termRef.focus();
+      requestAnimationFrame(() => fitRef?.fit());
+    }
+  });
 
   onMount(async () => {
     // Lazy chunk: xterm core + addons + css, all off the base bundle.
@@ -78,6 +90,8 @@ const TerminalView: Component<{ session: number }> = (props) => {
     term.loadAddon(new WebLinksAddon());
     term.open(host);
     fit.fit();
+    termRef = term; // expose to the active-tab effect (keep-alive re-fit/focus)
+    fitRef = fit;
 
     // Surface shell exit / spawn failure in the terminal itself, so a broken
     // shell shows a message instead of a silent blank pane.

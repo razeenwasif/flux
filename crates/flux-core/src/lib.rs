@@ -96,6 +96,7 @@ pub fn run(intent: cli::LaunchIntent) {
             search::search_add_engine,
             search::search_remove_engine,
             omni::omni_stats,
+            omni::omni_sites,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,

@@ -8,15 +8,23 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Terminal sessions survive tab switches** (BACKLOG #73). Terminal tabs are
+  now kept mounted in a keep-alive layer (only the active one is shown), so
+  switching to another tab and back no longer kills the shell — the PTY,
+  scrollback, and any running process persist. A terminal's PTY is now torn down
+  only when its tab is actually closed. (Restored terminal tabs from a saved
+  session still open a fresh shell at the saved cwd — the process can't outlive a
+  full restart.)
 - **`flux://omni` — native Omni index dashboard.** A velvet/glass view of the
   Omni search index's live health, reachable from the omnibox (`flux://omni`) or
   a start-page quick action: stat cards (live docs, segments, tombstones,
-  embeddings, ANN, avg length), per-segment fill bars, an essential-sites grid,
-  and the PageRank authority list — clickable, auto-refreshed every 2.5s. Data
-  comes from Omni's `/stats` via a new `omni_stats` Rust command (proxied
-  through Rust because the shell CSP blocks a direct `http://localhost:8080`
-  fetch); the Omni base URL follows the configured search engine, with
-  `FLUX_OMNI_URL` as an override.
+  embeddings, ANN, avg length), per-segment fill bars, a live essential-sites
+  grid (from Omni's `/sites` bang table), and the PageRank authority list —
+  clickable, auto-refreshed every 2.5s. Data comes from Omni's `/stats` +
+  `/sites` via the `omni_stats` / `omni_sites` Rust commands (proxied through
+  Rust because the shell CSP blocks a direct `http://localhost:8080` fetch); the
+  Omni base URL follows the configured search engine, with `FLUX_OMNI_URL` as an
+  override.
 - **Session restore** (BACKLOG #19). Open tabs now survive a restart. Flux
   persists the tab strip — url, title, `pinned`, `kind`, order, and the active
   tab — to `session.json` in the app data dir on every change, and repopulates

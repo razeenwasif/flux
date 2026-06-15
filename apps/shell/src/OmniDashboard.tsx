@@ -8,12 +8,13 @@
  * ranked doc navigates this tab there.
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
-import { omniStats, type OmniStats } from "./ipc";
+import { omniSites, omniStats, type OmniSite, type OmniStats } from "./ipc";
 
 const REFRESH_MS = 2500;
 
-/** Curated essential sites — mirrors Omni's bang table (`!key` to jump in search). */
-const SITES = [
+/** Fallback essential sites (mirrors Omni's bang table) — used until/if Omni's
+ *  live `/sites` endpoint responds. */
+const FALLBACK_SITES: OmniSite[] = [
   { key: "yt", name: "YouTube", home: "https://www.youtube.com", blurb: "video lectures, talks, and tutorials" },
   { key: "gh", name: "GitHub", home: "https://github.com", blurb: "source code, repositories, and projects" },
   { key: "ol", name: "Overleaf", home: "https://www.overleaf.com", blurb: "collaborative LaTeX papers and templates" },
@@ -27,6 +28,7 @@ const SITES = [
 
 const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const [stats, setStats] = createSignal<OmniStats | null>(null);
+  const [sites, setSites] = createSignal<OmniSite[]>(FALLBACK_SITES);
   const [error, setError] = createSignal<string | null>(null);
   let timer: number | undefined;
 
@@ -41,6 +43,8 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
 
   onMount(() => {
     void tick();
+    // Sites are static-ish — fetch once; keep the fallback if Omni is older / down.
+    void omniSites().then((s) => { if (s.length) setSites(s); }).catch(() => {});
     timer = window.setInterval(() => void tick(), REFRESH_MS);
     onCleanup(() => clearInterval(timer));
   });
@@ -120,7 +124,7 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
             <section class="omni-panel">
               <div class="omni-panel-h">Essential sites <span class="omni-note">type <code>!key</code> in search to jump</span></div>
               <div class="omni-sites">
-                <For each={SITES}>
+                <For each={sites()}>
                   {(site) => (
                     <button class="omni-site" onClick={() => props.onNavigate(site.home)} title={site.home}>
                       <span class="omni-bang">!{site.key}</span>

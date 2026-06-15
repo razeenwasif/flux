@@ -383,6 +383,7 @@ body.resizing .shell { transition: none !important; }
    overflows the fixed-height shell, and nothing inside can scroll. */
 .content { grid-area: content; min-width: 0; min-height: 0; padding: var(--flux-frame-pad); padding-left: 0; }
 .card {
+  position: relative; /* anchor for the absolute keep-alive terminal layer */
   width: 100%; height: 100%;
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
   border: 1px solid var(--glass-rim-soft);
@@ -400,6 +401,11 @@ body.resizing .shell { transition: none !important; }
 }
 
 /* ── Vertical terminal column ── */
+/* Keep-alive terminal layer (#73): each Terminal tab's xterm stays mounted,
+   overlaying the card; only the active one is `display:block`. Absolute so the
+   hidden ones don't add implicit grid rows to the card. */
+.term-layer { position: absolute; inset: 0; }
+
 .terminal-col { grid-area: term; min-width: 0; padding: var(--flux-frame-pad); padding-left: 0; }
 .terminal-surface {
   width: 100%; height: 100%;

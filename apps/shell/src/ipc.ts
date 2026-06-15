@@ -173,9 +173,20 @@ export interface OmniStats {
   top_docs: { url: string; title: string; rank: number }[];
 }
 
+export interface OmniSite {
+  key: string;
+  name: string;
+  home: string;
+  blurb: string;
+}
+
 /** Fetch Omni's live `/stats` (proxied through Rust to dodge the webview CSP). */
 export const omniStats = async (): Promise<OmniStats> =>
   JSON.parse(await invoke<string>("omni_stats"));
+
+/** Fetch Omni's curated essential-site shortcuts (`/sites`). */
+export const omniSites = async (): Promise<OmniSite[]> =>
+  JSON.parse(await invoke<string>("omni_sites"));
 
 // ─── Per-tab web content (webviews) ─────────────────────────────────────────
 

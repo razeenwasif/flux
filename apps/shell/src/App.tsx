@@ -17,7 +17,7 @@
  * Sidebar collapses to a 60px icon rail; terminal and agent columns each
  * collapse to 0. Defaults: sidebar open, agent open, terminal closed.
  */
-import { For, Match, Show, Switch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
   OMNI_URL,
   PANE_SESSION,
@@ -639,9 +639,24 @@ const ContentArea: Component<{
   onNavigate: (url: string) => void;
   onNewTerminal: () => void;
   onToggleAgent: () => void;
-}> = (props) => (
+}> = (props) => {
+  // Keyed by id (primitive) so the list is stable across unrelated tab updates.
+  const terminalIds = createMemo(() => tabs().filter((t) => t.kind === "terminal").map((t) => t.id));
+  return (
   <main class="content">
     <div class="card" id="flux-web-area">
+      {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
+          its PTY + scrollback survive tab switches; only the active one shows.
+          (TerminalView only unmounts — and kills its PTY — when the tab closes,
+          which removes it from this list.) */}
+      <For each={terminalIds()}>
+        {(id) => (
+          <div class="term-layer" style={{ display: activeTab()?.id === id ? "block" : "none" }}>
+            <TerminalView session={id} active={activeTab()?.id === id} />
+          </div>
+        )}
+      </For>
+      <Show when={activeTab()?.kind !== "terminal"}>
       <Switch
         fallback={
           /* Browser tab with a real page — the native webview overlays this. */
@@ -652,10 +667,6 @@ const ContentArea: Component<{
           </span>
         }
       >
-        {/* `keyed` so switching tabs remounts fresh per-tab state. */}
-        <Match when={activeTab()?.kind === "terminal"}>
-          <Show when={activeTab()} keyed>{(tab) => <TerminalView session={tab.id} />}</Show>
-        </Match>
         <Match when={activeTab()?.kind === "files"}>
           {/* Key on the tab *id* (stable), NOT the tab object: onPathChange
               patches the tab (new object ref), and keying on the object would
@@ -687,9 +698,11 @@ const ContentArea: Component<{
           />
         </Match>
       </Switch>
+      </Show>
     </div>
   </main>
-);
+  );
+};
 
 // ─── Vertical terminal column ───────────────────────────────────────────────
 

@@ -182,6 +182,13 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           { url: "https://en.wikipedia.org/wiki/Help:Contents", title: "Help Contents - Wikipedia", rank: 0.0131 },
         ],
       }) as T);
+    case "omni_sites":
+      return Promise.resolve(JSON.stringify([
+        { key: "yt", name: "YouTube", home: "https://www.youtube.com", blurb: "video lectures, talks, and tutorials" },
+        { key: "gh", name: "GitHub", home: "https://github.com", blurb: "source code, repositories, and projects" },
+        { key: "ax", name: "arXiv", home: "https://arxiv.org", blurb: "open-access e-prints in physics, math, CS" },
+        { key: "mdn", name: "MDN Web Docs", home: "https://developer.mozilla.org", blurb: "web platform and JavaScript reference" },
+      ]) as T);
     case "search_default":
       return Promise.resolve("ddg" as T);
     case "search_engines":
