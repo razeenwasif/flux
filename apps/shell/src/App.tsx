@@ -212,7 +212,9 @@ const App: Component = () => {
     }
     updateTabUrl(tab.id, url);
     if (!isStartUrl(url) && openedWebviews.has(tab.id)) {
-      void webviewNavigate(tab.id, url);
+      // `wv` swallows the benign "no such tab webview" race (navigating just as
+      // the webview is (re)created) instead of an uncaught promise rejection.
+      wv(webviewNavigate(tab.id, url));
     }
   };
 
@@ -421,9 +423,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
   };
 
   // Nav buttons act on the active browser tab's webview.
-  const navActive = (fn: (id: number) => unknown) => {
+  const navActive = (fn: (id: number) => Promise<unknown>) => {
     const tab = activeTab();
-    if (tab?.kind === "browser") void fn(tab.id);
+    // Swallow the benign "no such tab webview" race instead of an uncaught reject.
+    if (tab?.kind === "browser") void fn(tab.id).catch(() => {});
   };
 
   const create = async (kind: "browser" | "terminal" | "files") => {
