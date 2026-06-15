@@ -1,0 +1,63 @@
+! Flux default content-filter list (BACKLOG #57) — a small curated starter set
+! of the major ad / tracker / analytics networks, in EasyList syntax. Ships
+! bundled so blocking works offline on first run; fetching the full EasyList /
+! uBO lists (and user lists) is the next increment (ADR 0007).
+!
+! Analytics / tag managers
+||google-analytics.com^
+||analytics.google.com^
+||googletagmanager.com^
+||googletagservices.com^
+||google-analytics.com/analytics.js
+||stats.g.doubleclick.net^
+||hotjar.com^
+||mixpanel.com^
+||segment.io^
+||segment.com/analytics.js
+||amplitude.com^
+||fullstory.com^
+||mouseflow.com^
+||quantserve.com^
+||scorecardresearch.com^
+||chartbeat.com^
+||newrelic.com^
+||nr-data.net^
+!
+! Ad networks / exchanges
+||doubleclick.net^
+||googlesyndication.com^
+||google.com/pagead
+||googleadservices.com^
+||adservice.google.com^
+||2mdn.net^
+||adnxs.com^
+||adsrvr.org^
+||rubiconproject.com^
+||pubmatic.com^
+||openx.net^
+||criteo.com^
+||criteo.net^
+||taboola.com^
+||outbrain.com^
+||moatads.com^
+||adcolony.com^
+||amazon-adsystem.com^
+||casalemedia.com^
+||sharethrough.com^
+||smartadserver.com^
+||teads.tv^
+!
+! Social trackers / pixels
+||facebook.com/tr
+||connect.facebook.net/*/fbevents.js
+||ads-twitter.com^
+||analytics.tiktok.com^
+||snap.licdn.com^
+||bat.bing.com^
+!
+! Misc trackers
+||branch.io^
+||onesignal.com^
+||crazyegg.com^
+||clarity.ms^
+||yandex.ru/metrika

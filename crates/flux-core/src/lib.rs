@@ -8,6 +8,7 @@ pub mod files;
 pub mod omni;
 pub mod search;
 pub mod session;
+pub mod shields;
 pub mod state;
 pub mod terminal;
 pub mod webview;
@@ -42,6 +43,8 @@ pub fn run(intent: cli::LaunchIntent) {
             // Files tab: live directory watchers + the file-op undo stack.
             app.manage(files::FsWatchers::default());
             app.manage(files::UndoStack::default());
+            // Content-blocker shields: the filter engine + per-site policy (#57).
+            app.manage(shields::ShieldsState::new());
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -97,6 +100,10 @@ pub fn run(intent: cli::LaunchIntent) {
             search::search_remove_engine,
             omni::omni_stats,
             omni::omni_sites,
+            shields::shields_status,
+            shields::shields_set_enabled,
+            shields::shields_set_site,
+            shields::shields_check,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,

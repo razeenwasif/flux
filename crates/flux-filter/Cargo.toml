@@ -1,0 +1,13 @@
+[package]
+name = "flux-filter"
+description = "Network content filtering (ad/tracker blocking) — the matching engine for Flux's request-interception layer (BACKLOG #91/#57)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Brave's adblock engine: parses EasyList/uBO filter syntax and matches network
+# requests + cosmetic (element-hiding) rules. Pure Rust → unit-testable here,
+# independent of the native webview wiring.
+adblock = "0.12"
+serde.workspace = true

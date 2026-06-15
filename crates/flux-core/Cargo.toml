@@ -31,6 +31,7 @@ dashmap.workspace = true
 
 flux-agent.workspace = true
 flux-embed.workspace = true
+flux-filter.workspace = true
 flux-import.workspace = true
 flux-search.workspace = true
 

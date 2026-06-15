@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Content-blocker engine + shields** (BACKLOG #91/#57, ADR 0007) — the
+  foundation of the security pass. New `flux-filter` crate wraps Brave's
+  `adblock` engine (EasyList/uBO syntax → per-request block decisions); it's made
+  `Send + Sync` via serialize-once + thread-local deserialize so it can live in
+  shared state and be called from the native request interceptor. A `shields`
+  policy layer adds a global on/off + per-site allowlist + blocked-request count
+  (commands `shields_status` / `_set_enabled` / `_set_site` / `_check`), seeded
+  with a bundled curated starter list of the major ad/tracker networks. Fully
+  unit-tested (blocks trackers, honors `@@` exceptions + the toggles). The native
+  per-webview interceptor that calls it (WebView2 `WebResourceRequested`) is the
+  next step; full EasyList fetching follows.
 - **Terminal sessions survive tab switches** (BACKLOG #73). Terminal tabs are
   now kept mounted in a keep-alive layer (only the active one is shown), so
   switching to another tab and back no longer kills the shell — the PTY,
