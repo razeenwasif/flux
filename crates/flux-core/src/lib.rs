@@ -99,7 +99,8 @@ pub fn run(intent: cli::LaunchIntent) {
                 .invoke_handler(tauri::generate_handler![
                     commands::dom_publish,
                     broker::ext_broker_call,
-                    commands::chrome_key
+                    commands::chrome_key,
+                    commands::find_result
                 ])
                 .build(),
         )
@@ -130,6 +131,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_hide,
             webview::webview_navigate,
             webview::webview_stop,
+            webview::webview_find,
             webview::webview_back,
             webview::webview_forward,
             webview::webview_reload,

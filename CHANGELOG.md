@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Find-in-page** (BACKLOG #33) — `Ctrl+F` opens a find bar. Typing drives the
+  engine's native `window.find()` (works on both the Chromium-based WebView2 and
+  WebKitGTK) to highlight + scroll to matches; Enter / Shift+Enter (and the
+  ‹ › buttons) step forward/back, and a case-insensitive **match count** is
+  reported back to the bar over a new `find_result` event. Esc closes it. Like
+  the loading bar, the find bar lives in the sidebar — the native webview is a
+  separate OS layer over the content card. (Follow-up: precise current/total
+  index + highlight-all; `window.find` only gives a single native highlight.)
 - **Navigation polish** (BACKLOG #31) — **stop** (a `webview_stop` command;
   the reload button becomes ✕ while a page loads, and `Esc` stops the active
   tab), per-tab **loading state** driven by the page-load events, a

@@ -102,6 +102,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "terminal_resize":
     case "terminal_kill":
     case "webview_stop":
+    case "webview_find":
       return Promise.resolve(undefined as T);
     case "search_resolve": {
       const input = String(args?.input ?? "").trim();

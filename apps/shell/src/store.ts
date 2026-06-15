@@ -22,7 +22,12 @@ const [activeId, setActiveId] = createSignal<number | null>(null);
 // the omnibox progress bar. Fed by the page-load events (started/finished).
 const [loadingTabs, setLoadingTabs] = createSignal<Set<number>>(new Set());
 
-export { tabs, activeId };
+// Find-in-page (BACKLOG #33). The bar lives in the sidebar (the native webview
+// overlays the content card); `findMatches` is the count reported by the page.
+const [findOpen, setFindOpen] = createSignal(false);
+const [findMatches, setFindMatches] = createSignal<number | null>(null);
+
+export { tabs, activeId, findOpen, setFindOpen, findMatches, setFindMatches };
 
 /** Whether a tab (default: the active one) is mid-load. */
 export const isLoading = (id: number | null = activeId()): boolean =>

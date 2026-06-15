@@ -185,6 +185,14 @@ pub fn chrome_key(app: AppHandle, action: String) -> Result<(), String> {
     app.emit("flux://shortcut", action).map_err(|e| e.to_string())
 }
 
+/// Find-in-page result reported by the page (#33): match count + whether the
+/// current step landed on a match. Re-emitted to the chrome's find bar. A
+/// `fluxtab` plugin command so the (remote) page may call it, like `dom_publish`.
+#[tauri::command]
+pub fn find_result(app: AppHandle, tab_id: TabId, count: usize, found: bool) -> Result<(), String> {
+    app.emit("flux://find-result", (tab_id, count, found)).map_err(|e| e.to_string())
+}
+
 /// Hand the active tab's DOM to the frontend (e.g. terminal running
 /// `flux extract-json`) as an ArrayBuffer — `Response` skips JSON entirely.
 #[tauri::command]

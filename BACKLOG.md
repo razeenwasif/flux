@@ -82,7 +82,7 @@ These are the non-negotiables before Flux is a usable daily browser.
 |---|---|---|---|
 | 31 | ✅ | **Navigation polish** (done): **stop** (`webview_stop` → `window.stop()`; reload button swaps to ✕ while loading + `Esc`); **loading state** tracked from the page-load events (started/finished) per tab; **security/TLS badge** left of the omnibox (🔒 HTTPS / ⚠ HTTP); **progress affordance** — an indeterminate bar under the omnibox (in the sidebar, since the native webview overlays the content card and would hide an in-card bar). | all |
 | 32 | P0 | Omnibox **live suggestions** UI: dropdown of typeahead results (fetch each engine's `suggest_template`, BACKLOG #68 backend) + history/bookmark autocomplete. (Search-or-URL resolution + `!bang`/keyword routing already ship via `flux-search`.) | all |
-| 33 | P0 | Find-in-page (⌘F) with match highlighting and count | all |
+| 33 | ✅ | **Find-in-page** (done): `Ctrl+F` opens a find bar (sidebar-resident — the native webview overlays the content card); typing drives the engine's native `window.find()` (Chromium + WebKit) for highlight + scroll, Enter/Shift+Enter (and ‹ ›) step next/prev, and a case-insensitive **match count** is reported back over `flux://find-result`. Esc closes. _Follow-up:_ precise current/total index + highlight-all (window.find gives native single-match highlight only). | all |
 | 34 | P1 | Download manager: progress, pause/resume, open/reveal, history, integrity (hash) | all |
 | 35 | P1 | Built-in PDF viewer (+ annotation, fill forms) | all |
 | 36 | P1 | Per-site zoom (persisted) and full-page zoom | all |

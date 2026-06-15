@@ -198,6 +198,31 @@ pub async fn webview_stop(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     eval(&app, tab_id, "window.stop()")
 }
 
+/// Find-in-page (#33). Uses the engine's native `window.find()` (Chromium +
+/// WebKit both implement it) to highlight + scroll to the next/previous match,
+/// counts case-insensitive occurrences in the visible text, and reports
+/// `{count, found}` back to the chrome via the `find_result` fluxtab command.
+/// An empty `query` clears the current selection/highlight.
+#[tauri::command]
+pub async fn webview_find(app: AppHandle, tab_id: TabId, query: String, forward: bool) -> Result<(), String> {
+    let q = serde_json::to_string(&query).unwrap_or_else(|_| "\"\"".into());
+    // `window.find(str, caseSensitive, backwards, wrapAround, wholeWord, searchInFrames, showDialog)`
+    let js = format!(
+        "(function(q,fwd){{try{{\
+           var inv=window.__TAURI_INTERNALS__&&window.__TAURI_INTERNALS__.invoke;\
+           var sel=window.getSelection&&window.getSelection();\
+           if(!q){{if(sel)sel.removeAllRanges();\
+             if(inv)inv('plugin:fluxtab|find_result',{{tabId:window.__FLUX_TAB_ID__,count:0,found:false}});return;}}\
+           var hay=(document.body&&document.body.innerText)||'';\
+           var esc=q.replace(/[.*+?^${{}}()|[\\]\\\\]/g,'\\\\$&');\
+           var count=(hay.match(new RegExp(esc,'gi'))||[]).length;\
+           var found=window.find?window.find(q,false,!fwd,true,false,true,false):false;\
+           if(inv)inv('plugin:fluxtab|find_result',{{tabId:window.__FLUX_TAB_ID__,count:count,found:!!found}});\
+         }}catch(e){{}}}})({q},{forward});"
+    );
+    eval(&app, tab_id, &js)
+}
+
 /// Back / forward / reload. Tauri has no direct history API on `Webview`, so
 /// these drive the page's own history (works across engines).
 #[tauri::command]

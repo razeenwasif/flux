@@ -29,6 +29,7 @@ import {
   onClustersUpdated,
   onExtOpenTab,
   onDomUpdated,
+  onFindResult,
   onShortcut,
   onTabLoaded,
   searchDefault,
@@ -47,6 +48,7 @@ import {
   webviewSetBounds,
   webviewShow,
   webviewStop,
+  webviewFind,
   win,
   type AgentAction,
   type AgentStatus,
@@ -57,6 +59,7 @@ import {
 import TerminalView from "./TerminalView";
 import StartPage from "./StartPage";
 import { keyToAction } from "./shortcuts";
+import FindBar from "./FindBar";
 import Extensions from "./Extensions";
 import FilesView from "./FilesView";
 import OmniDashboard from "./OmniDashboard";
@@ -65,11 +68,14 @@ import {
   activeId,
   activeTab,
   closeTab,
+  findOpen,
   focusTab,
   isLoading,
   openTab,
   pinnedTabs,
   refreshTabs,
+  setFindMatches,
+  setFindOpen,
   setTabLoading,
   tabs,
   togglePin,
@@ -155,9 +161,14 @@ const App: Component = () => {
     ]);
     const inTerminal = () => !!(document.activeElement as HTMLElement | null)?.closest?.(".xterm");
     const onKey = (e: KeyboardEvent) => {
-      // Esc stops the active page load (#31). Handled separately from the chord
-      // table so it isn't forwarded from focused pages (they use Esc themselves).
+      // Esc closes the find bar (#33), else stops the active page load (#31).
+      // Handled outside the chord table so it isn't forwarded from focused pages
+      // (they use Esc themselves).
       if (e.key === "Escape" && !inTerminal()) {
+        if (findOpen()) {
+          closeFind();
+          return;
+        }
         const t = activeTab();
         if (t?.kind === "browser" && isLoading(t.id)) {
           void webviewStop(t.id).catch(() => {});
@@ -176,6 +187,10 @@ const App: Component = () => {
     window.addEventListener("keydown", onKey, true);
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     const unShortcut = await onShortcut((a) => dispatch(a));
+    // Find-in-page match count from the active page (#33).
+    const unFind = await onFindResult((tabId, count) => {
+      if (tabId === activeId()) setFindMatches(count);
+    });
     // Keep the address bar fresh as pages navigate, and re-apply the active
     // tab's bounds once it finishes loading (defensive: ensures the page sits
     // in the content card even if the initial position didn't stick).
@@ -198,6 +213,7 @@ const App: Component = () => {
       unDom();
       unExtOpen();
       unShortcut();
+      unFind();
       unLoaded();
     });
 
@@ -300,6 +316,25 @@ const App: Component = () => {
     });
   };
 
+  // Open the find bar (Ctrl+F). It lives in the sidebar, so open that first.
+  const openFind = () => {
+    setSidebarOpen(true);
+    setFindOpen(true);
+    requestAnimationFrame(() => {
+      const el = document.getElementById("flux-find") as HTMLInputElement | null;
+      el?.focus();
+      el?.select();
+    });
+  };
+
+  // Close the find bar + clear the page highlight.
+  const closeFind = () => {
+    const t = activeTab();
+    if (t?.kind === "browser") void webviewFind(t.id, "").catch(() => {});
+    setFindMatches(null);
+    setFindOpen(false);
+  };
+
   // Run an app keyboard action — shared by the chrome's keydown listener and
   // the chords forwarded from a focused tab webview (#18).
   const dispatch = (action: string): boolean => {
@@ -313,6 +348,7 @@ const App: Component = () => {
       case "toggle-agent": setAgentOpen((v) => !v); return true;
       case "toggle-sidebar": setSidebarOpen((v) => !v); return true;
       case "focus-address": focusAddress(); return true;
+      case "find": openFind(); return true;
       case "reload": navActive(webviewReload); return true;
       case "back": navActive(webviewBack); return true;
       case "forward": navActive(webviewForward); return true;
@@ -605,6 +641,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <div class="addr-progress" />
           </Show>
         </form>
+
+        {/* Find-in-page (#33) — also sidebar-resident, for the same reason. */}
+        <Show when={findOpen()}>
+          <FindBar />
+        </Show>
 
         {/* Pinned tiles (Arc Favorites) */}
         <Show when={pinnedTabs().length > 0}>

@@ -135,6 +135,12 @@ export const onExtOpenTab = (cb: (url: string) => void): Promise<UnlistenFn> =>
 export const onShortcut = (cb: (action: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://shortcut", (e) => cb(e.payload));
 
+/** Find-in-page result from the page: [tabId, matchCount, found] (BACKLOG #33). */
+export const onFindResult = (
+  cb: (tabId: number, count: number, found: boolean) => void,
+): Promise<UnlistenFn> =>
+  listen<[number, number, boolean]>("flux://find-result", (e) => cb(...e.payload));
+
 // ─── Search (pluggable backend) ─────────────────────────────────────────────
 
 export interface SearchEngine {
@@ -309,6 +315,9 @@ export const webviewBack = (tabId: number) => invoke<void>("webview_back", { tab
 export const webviewForward = (tabId: number) => invoke<void>("webview_forward", { tabId });
 export const webviewReload = (tabId: number) => invoke<void>("webview_reload", { tabId });
 export const webviewStop = (tabId: number) => invoke<void>("webview_stop", { tabId });
+/** Find-in-page (BACKLOG #33). Empty query clears the highlight. */
+export const webviewFind = (tabId: number, query: string, forward = true) =>
+  invoke<void>("webview_find", { tabId, query, forward });
 export const webviewClose = (tabId: number) => invoke<void>("webview_close", { tabId });
 /** Diagnostic: window scale/size + the tab webview's actual physical bounds. */
 export const webviewDebug = (tabId: number) => invoke<string>("webview_debug", { tabId });

@@ -325,6 +325,27 @@ body.resizing .shell { transition: none !important; }
   100% { transform: translateX(320%); }
 }
 
+/* Find-in-page bar (BACKLOG #33) — sidebar-resident. */
+.find-bar {
+  display: flex; align-items: center; gap: 4px; margin-top: 8px;
+  padding: 4px 4px 4px 10px;
+  background: var(--flux-surface-2);
+  border: 1px solid var(--glass-rim-soft);
+  border-radius: 999px;
+}
+.find-input {
+  flex: 1; min-width: 0; font-size: 12px; padding: 4px 0;
+  background: transparent; border: none; color: var(--flux-text);
+}
+.find-input:focus { outline: none; }
+.find-count { flex: none; font-size: 10.5px; color: var(--flux-text-dim); padding: 0 4px; white-space: nowrap; }
+.find-count.none { color: #ffcc66; }
+.find-nav {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 13px; color: var(--flux-text-dim);
+}
+.find-nav:hover { color: var(--flux-teal); background: rgba(255, 255, 255, 0.06); }
+
 /* ── Pinned grid (glass tiles) ── */
 .pin-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
 .pin-tile {
