@@ -55,6 +55,7 @@ import TerminalView from "./TerminalView";
 import StartPage from "./StartPage";
 import FilesView from "./FilesView";
 import OmniDashboard from "./OmniDashboard";
+import Shields from "./Shields";
 import {
   activeId,
   activeTab,
@@ -591,6 +592,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
       >
         <button classList={{ "icon-btn": true, active: props.terminalOpen }} title="Terminal (⌃`)" onClick={props.onToggleTerminal}>⌨</button>
         <button classList={{ "icon-btn": true, active: props.agentOpen }} title="Flux Agent (⌃A)" onClick={props.onToggleAgent}>✦</button>
+        <Shields />
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
         <button classList={{ "icon-btn": true, active: panel() === "extensions" }} title="Extensions" onClick={() => openPanel("extensions")}>🧩</button>
         <button classList={{ "icon-btn": true, active: panel() === "settings" }} title="Settings" onClick={() => openPanel("settings")}>⚙</button>

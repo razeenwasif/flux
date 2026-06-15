@@ -182,6 +182,12 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           { url: "https://en.wikipedia.org/wiki/Help:Contents", title: "Help Contents - Wikipedia", rank: 0.0131 },
         ],
       }) as T);
+    case "shields_status":
+      return Promise.resolve({ enabled: true, blocked: 42, sites_off: [] } as T);
+    case "shields_set_enabled":
+    case "shields_set_site":
+    case "shields_refresh":
+      return Promise.resolve(undefined as T);
     case "omni_sites":
       return Promise.resolve(JSON.stringify([
         { key: "yt", name: "YouTube", home: "https://www.youtube.com", blurb: "video lectures, talks, and tutorials" },

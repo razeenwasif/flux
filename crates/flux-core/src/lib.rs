@@ -45,7 +45,14 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(files::FsWatchers::default());
             app.manage(files::UndoStack::default());
             // Content-blocker shields: the filter engine + per-site policy (#57).
-            app.manage(shields::ShieldsState::new());
+            let filters_dir = app.path().app_data_dir().ok().map(|d| d.join("filters"));
+            app.manage(shields::ShieldsState::new(filters_dir));
+            // Fetch/refresh the big filter lists (EasyList/EasyPrivacy) off the
+            // main thread — parsing tens of thousands of rules is heavy.
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || handle.state::<shields::ShieldsState>().refresh());
+            }
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -105,6 +112,7 @@ pub fn run(intent: cli::LaunchIntent) {
             shields::shields_set_enabled,
             shields::shields_set_site,
             shields::shields_check,
+            shields::shields_refresh,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,

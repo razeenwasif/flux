@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Content blocker — full EasyList + shields UI** (BACKLOG #57). On top of the
+  bundled starter list, Flux now **fetches + caches EasyList + EasyPrivacy**
+  (in the background on boot, re-fetched when older than 5 days; `tls`/`gzip`
+  ureq) and hot-swaps them into the live filter — a big jump in coverage. A new
+  **Shields control** in the sidebar footer shows a live blocked-count badge and
+  a popover to toggle blocking **globally or per-site**, plus an "update filter
+  lists" action. Commands: `shields_refresh` (+ the existing status/toggles).
 - **Content-blocker engine + shields** (BACKLOG #91/#57, ADR 0007) — the
   foundation of the security pass. New `flux-filter` crate wraps Brave's
   `adblock` engine (EasyList/uBO syntax → per-request block decisions); it's made

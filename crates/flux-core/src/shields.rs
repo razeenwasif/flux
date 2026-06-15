@@ -6,17 +6,29 @@
 //! [`ShieldsState::should_block`] for every request; the frontend drives the
 //! toggles and reads the blocked-request count for the shields badge.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use dashmap::DashMap;
 use flux_filter::Filter;
 use parking_lot::RwLock;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
-/// The bundled curated starter list (major ad/tracker networks). Fetching full
-/// EasyList/uBO lists is the next increment (ADR 0007).
+/// The bundled curated starter list (major ad/tracker networks) — always active,
+/// so blocking works offline / before the big lists download.
 const DEFAULT_FILTERS: &str = include_str!("../assets/default-filters.txt");
+
+/// Upstream filter lists fetched + cached on top of the bundled default.
+/// `(cache filename, url)`.
+const LISTS: &[(&str, &str)] = &[
+    ("easylist.txt", "https://easylist.to/easylist/easylist.txt"),
+    ("easyprivacy.txt", "https://easylist.to/easylist/easyprivacy.txt"),
+];
+
+/// Re-fetch a cached list once it's older than this.
+const MAX_AGE_DAYS: u64 = 5;
 
 pub struct ShieldsState {
     filter: RwLock<Filter>,
@@ -24,22 +36,56 @@ pub struct ShieldsState {
     off_for: DashMap<String, ()>,
     enabled: AtomicBool,
     blocked: AtomicU64,
+    /// Where fetched lists are cached (`None` → bundled default only; tests).
+    filters_dir: Option<PathBuf>,
 }
 
 impl Default for ShieldsState {
     fn default() -> Self {
+        Self::new(None)
+    }
+}
+
+impl ShieldsState {
+    /// Start with the bundled default list (fast — parsing the big lists is
+    /// deferred to [`refresh`](Self::refresh) on a background thread).
+    pub fn new(filters_dir: Option<PathBuf>) -> Self {
         Self {
             filter: RwLock::new(Filter::from_list(DEFAULT_FILTERS)),
             off_for: DashMap::new(),
             enabled: AtomicBool::new(true),
             blocked: AtomicU64::new(0),
+            filters_dir,
         }
     }
-}
 
-impl ShieldsState {
-    pub fn new() -> Self {
-        Self::default()
+    /// Fetch any stale/missing upstream lists, then rebuild the filter from the
+    /// bundled default + every cached list and swap it in. Blocking + heavy
+    /// (parses tens of thousands of rules) — call from a background thread.
+    pub fn refresh(&self) {
+        let Some(dir) = &self.filters_dir else { return };
+        let _ = std::fs::create_dir_all(dir);
+        for (name, url) in LISTS {
+            let path = dir.join(name);
+            if is_stale(&path) {
+                match fetch(url) {
+                    Ok(body) if body.len() > 1024 => {
+                        let _ = std::fs::write(&path, body);
+                    }
+                    Ok(_) => tracing::warn!(target: "flux::shields", "{url}: suspiciously small, kept old"),
+                    Err(e) => tracing::warn!(target: "flux::shields", "{url}: {e}"),
+                }
+            }
+        }
+        let mut text = String::from(DEFAULT_FILTERS);
+        for (name, _) in LISTS {
+            if let Ok(s) = std::fs::read_to_string(dir.join(name)) {
+                text.push('\n');
+                text.push_str(&s);
+            }
+        }
+        *self.filter.write() = Filter::from_list(&text);
+        tracing::info!(target: "flux::shields", "content-filter lists refreshed ({} bytes of rules)", text.len());
     }
 
     /// The interception verdict for one request. `source_url` is the page making
@@ -88,6 +134,24 @@ fn host_of(url: &str) -> Option<&str> {
     Some(host.split(':').next().unwrap_or(host)) // strip port
 }
 
+/// A cached list is stale if missing or older than [`MAX_AGE_DAYS`].
+fn is_stale(path: &Path) -> bool {
+    match std::fs::metadata(path).and_then(|m| m.modified()) {
+        Ok(mtime) => mtime.elapsed().map(|e| e.as_secs() > MAX_AGE_DAYS * 86_400).unwrap_or(true),
+        Err(_) => true,
+    }
+}
+
+/// Download a filter list (a few MB) — generous timeout, off the main thread.
+fn fetch(url: &str) -> Result<String, String> {
+    ureq::get(url)
+        .timeout(Duration::from_secs(20))
+        .call()
+        .map_err(|e| e.to_string())?
+        .into_string()
+        .map_err(|e| e.to_string())
+}
+
 // ─── Commands ────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -129,13 +193,20 @@ pub fn shields_check(
     state.filter.read().should_block(&url, &source, &request_type)
 }
 
+/// Re-fetch the upstream filter lists + rebuild, on a background thread (the
+/// download + parse are heavy). Fire-and-forget.
+#[tauri::command]
+pub fn shields_refresh(app: AppHandle) {
+    std::thread::spawn(move || app.state::<ShieldsState>().refresh());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn default_list_blocks_a_major_tracker() {
-        let s = ShieldsState::new();
+        let s = ShieldsState::new(None);
         assert!(s.should_block("https://www.google-analytics.com/analytics.js", "https://news.com", "script"));
         assert!(s.should_block("https://doubleclick.net/ad", "https://news.com", "image"));
         assert!(!s.should_block("https://news.com/app.js", "https://news.com", "script"));
@@ -143,7 +214,7 @@ mod tests {
 
     #[test]
     fn global_toggle_and_per_site_allowlist() {
-        let s = ShieldsState::new();
+        let s = ShieldsState::new(None);
         let (url, page) = ("https://google-analytics.com/ga.js", "https://news.com");
         assert!(s.should_block(url, page, "script"));
 

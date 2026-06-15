@@ -917,3 +917,36 @@ body.resizing .shell { transition: none !important; }
 
 .omni-empty { padding: 40px 16px; text-align: center; color: var(--flux-text-mute); font-size: 13px; }
 .omni-empty.sm { padding: 14px; font-size: 12px; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Shields — content-blocker control (#57)
+   ════════════════════════════════════════════════════════════════════════ */
+.shield-badge {
+  position: absolute; top: -2px; right: -2px;
+  min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box;
+  display: grid; place-items: center;
+  font-size: 9px; font-weight: 700; line-height: 1;
+  color: #06121a; background: var(--flux-teal);
+  border-radius: 999px;
+}
+.shield-backdrop { position: fixed; inset: 0; z-index: 40; }
+.shields-pop {
+  z-index: 41; min-width: 226px; padding: 12px; display: flex; flex-direction: column; gap: 9px;
+}
+.shields-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.shields-label { font-size: 13px; font-weight: 600; color: var(--flux-text); }
+.shields-host {
+  font-size: 12px; color: var(--flux-text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;
+}
+.shields-toggle {
+  flex: none; padding: 3px 12px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  color: var(--flux-text-mute); background: var(--flux-surface-2);
+  border: 1px solid var(--glass-rim-soft);
+}
+.shields-toggle.on { color: #06121a; background: var(--flux-teal); border-color: transparent; }
+.shields-stat { font-size: 11px; color: var(--flux-text-mute); padding-top: 2px; border-top: 1px solid var(--glass-rim-soft); }
+.shields-update {
+  font-size: 11.5px; color: var(--flux-text-dim); text-align: left; padding: 5px 0 0;
+}
+.shields-update:hover { color: var(--flux-teal); }

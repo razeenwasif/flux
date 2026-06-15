@@ -188,6 +188,24 @@ export const omniStats = async (): Promise<OmniStats> =>
 export const omniSites = async (): Promise<OmniSite[]> =>
   JSON.parse(await invoke<string>("omni_sites"));
 
+// ─── Content blocker / shields (BACKLOG #57) ────────────────────────────────
+
+export interface ShieldsStatus {
+  enabled: boolean;
+  /** Requests blocked this session. */
+  blocked: number;
+  /** Hosts the user has allowlisted (shields off). */
+  sites_off: string[];
+}
+
+export const shieldsStatus = () => invoke<ShieldsStatus>("shields_status");
+export const shieldsSetEnabled = (on: boolean) => invoke<void>("shields_set_enabled", { on });
+/** Turn shields on/off for one site (`on = false` allowlists it). */
+export const shieldsSetSite = (host: string, on: boolean) =>
+  invoke<void>("shields_set_site", { host, on });
+/** Re-fetch + rebuild the upstream filter lists (background). */
+export const shieldsRefresh = () => invoke<void>("shields_refresh");
+
 // ─── Per-tab web content (webviews) ─────────────────────────────────────────
 
 export interface Rect { x: number; y: number; width: number; height: number }
