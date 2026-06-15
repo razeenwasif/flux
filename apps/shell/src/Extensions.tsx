@@ -36,7 +36,7 @@ const Extensions: Component = () => {
   const remove = (e: InstalledExt) => void extRemove(e.manifest.id).then(refresh);
 
   return (
-    <div style={{ "min-width": "300px" }}>
+    <div>
       <div class="sidebar-section" style={{ padding: "4px 8px" }}>Extensions</div>
 
       <Show
