@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **`flux://omni` — native Omni index dashboard.** A velvet/glass view of the
+  Omni search index's live health, reachable from the omnibox (`flux://omni`) or
+  a start-page quick action: stat cards (live docs, segments, tombstones,
+  embeddings, ANN, avg length), per-segment fill bars, an essential-sites grid,
+  and the PageRank authority list — clickable, auto-refreshed every 2.5s. Data
+  comes from Omni's `/stats` via a new `omni_stats` Rust command (proxied
+  through Rust because the shell CSP blocks a direct `http://localhost:8080`
+  fetch); the Omni base URL follows the configured search engine, with
+  `FLUX_OMNI_URL` as an override.
 - **Session restore** (BACKLOG #19). Open tabs now survive a restart. Flux
   persists the tab strip — url, title, `pinned`, `kind`, order, and the active
   tab — to `session.json` in the app data dir on every change, and repopulates

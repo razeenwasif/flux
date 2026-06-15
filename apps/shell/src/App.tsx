@@ -19,6 +19,7 @@
  */
 import { For, Match, Show, Switch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
+  OMNI_URL,
   PANE_SESSION,
   agentChat,
   agentExecute,
@@ -53,6 +54,7 @@ import {
 import TerminalView from "./TerminalView";
 import StartPage from "./StartPage";
 import FilesView from "./FilesView";
+import OmniDashboard from "./OmniDashboard";
 import {
   activeId,
   activeTab,
@@ -422,6 +424,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const v = address().trim();
     if (!v) return;
     setAddress("");
+    // `flux://…` internal pages (e.g. the Omni dashboard) bypass search.
+    if (v.startsWith("flux://")) {
+      props.onNavigate(v);
+      return;
+    }
     // The pluggable search backend (#68) decides navigate-vs-search, applies
     // !bang/keyword routing, and builds the final URL with the default engine;
     // `go` (in App) handles start-page vs. open-tab webview lifecycle.
@@ -667,6 +674,10 @@ const ContentArea: Component<{
               />
             )}
           </Show>
+        </Match>
+        {/* Before the generic start match — `flux://omni` is also a `flux://` url. */}
+        <Match when={activeTab()?.url === OMNI_URL}>
+          <OmniDashboard onNavigate={props.onNavigate} />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage

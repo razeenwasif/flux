@@ -48,6 +48,9 @@ trash = "5"
 # Files tab — live directory watch (inotify / ReadDirectoryChangesW), so the
 # listing reflects external changes without a manual refresh.
 notify = "6"
+# flux://omni dashboard: fetch the Omni engine's /stats from Rust (the shell's
+# CSP blocks http://localhost:8080, the Rust process isn't subject to it).
+ureq = { version = "2", default-features = false }
 
 # Windows-only: DWM rounded corners (the window is opaque, so CSS can't round
 # it). Cross-verified against the x86_64-pc-windows-msvc target.

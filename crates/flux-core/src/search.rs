@@ -41,6 +41,27 @@ impl SearchState {
         let json = serde_json::to_vec_pretty(&*self.config.read()).map_err(|e| e.to_string())?;
         std::fs::write(&self.path, json).map_err(|e| e.to_string())
     }
+
+    /// Origin of the Omni engine (`scheme://host[:port]`) for the `flux://omni`
+    /// dashboard. Follows the default search engine so it tracks wherever the
+    /// user pointed Omni; `FLUX_OMNI_URL` overrides; defaults to localhost:8080.
+    pub fn omni_base(&self) -> String {
+        if let Ok(u) = std::env::var("FLUX_OMNI_URL") {
+            return u.trim_end_matches('/').to_string();
+        }
+        let cfg = self.config.read();
+        cfg.engine(&cfg.default_id)
+            .and_then(|e| origin_of(&e.search_template))
+            .unwrap_or_else(|| "http://localhost:8080".into())
+    }
+}
+
+/// `"http://host:port/search?q={query}"` → `"http://host:port"`.
+fn origin_of(template: &str) -> Option<String> {
+    let scheme_end = template.find("://")? + 3;
+    let rest = template.get(scheme_end..)?;
+    let host_end = rest.find('/').unwrap_or(rest.len());
+    Some(format!("{}{}", &template[..scheme_end], &rest[..host_end]))
 }
 
 /// Resolve raw omnibox input → final URL (navigate vs search vs keyword).

@@ -166,6 +166,22 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "fs_watch":
     case "fs_unwatch":
       return Promise.resolve(undefined as T); // no live watch in the preview
+    case "omni_stats":
+      return Promise.resolve(JSON.stringify({
+        live_docs: 591, total_docs: 591, tombstones: 0, segments: 2,
+        embedded: true, ann: true, ann_vectors: 591, dated: 12,
+        embedder_kind: "hash", embedder_dim: 2560,
+        avg_title_len: 7, avg_body_len: 6130,
+        segment_sizes: [{ live: 412, total: 412 }, { live: 179, total: 179 }],
+        top_docs: [
+          { url: "https://arxiv.org/", title: "arXiv.org e-Print archive", rank: 0.0190 },
+          { url: "https://arxiv.org/login", title: "Log in to arXiv", rank: 0.0182 },
+          { url: "https://en.wikipedia.org/wiki/Inverted_index", title: "Inverted index - Wikipedia", rank: 0.0151 },
+          { url: "https://en.wikipedia.org/wiki/PageRank", title: "PageRank - Wikipedia", rank: 0.0144 },
+          { url: "https://en.wikipedia.org/wiki/Rust_(programming_language)", title: "Rust (programming language) - Wikipedia", rank: 0.0139 },
+          { url: "https://en.wikipedia.org/wiki/Help:Contents", title: "Help Contents - Wikipedia", rank: 0.0131 },
+        ],
+      }) as T);
     case "search_default":
       return Promise.resolve("ddg" as T);
     case "search_engines":

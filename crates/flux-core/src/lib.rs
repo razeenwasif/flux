@@ -5,6 +5,7 @@ pub mod agent_bridge;
 pub mod cli;
 pub mod commands;
 pub mod files;
+pub mod omni;
 pub mod search;
 pub mod session;
 pub mod state;
@@ -94,6 +95,7 @@ pub fn run(intent: cli::LaunchIntent) {
             search::search_set_default,
             search::search_add_engine,
             search::search_remove_engine,
+            omni::omni_stats,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,

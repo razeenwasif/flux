@@ -1011,6 +1011,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trash",
+ "ureq",
  "windows-sys 0.59.0",
 ]
 

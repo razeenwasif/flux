@@ -157,6 +157,7 @@ beyond "another Chromium skin."
 |---|---|---|---|
 | 65 | P0 | **DOM-aware integrated terminal**: a real dev terminal that can read the active page (`flux extract-json`, `cd $FLUX_TAB_DIR`) and that the agent can drive. Nobody ships this | core |
 | 66 | P1 | **Semantic everything-search**: one box over open tabs + history + bookmarks + page contents, ranked by local embeddings (#11) — not just title substring | weak everywhere |
+| 97 | P2 | **`flux://omni` follow-ups** (dashboard shipped): drive the essential-sites grid from Omni's bang table via a `/sites` endpoint (it's mirrored statically in Flux for now) + a compact "Omni index" glance widget on the start page | search |
 | 67 | P1 | **Scriptable automation / macros**: record-and-replay browsing flows, schedulable, agent-authored. Power users beg for this; only flaky extensions exist | under-served |
 | 69 | P2 | **True offline archiving / read-later**: save the *rendered* page (MHTML/SingleFile), full-text indexed, available offline | weak everywhere |
 | 70 | P2 | **Per-tab resource governor**: live CPU/RAM/network per tab + hard caps + "what's draining my battery" attribution | requested, absent |

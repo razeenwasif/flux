@@ -8,7 +8,7 @@
  * actions; and a subtle flowing wave for the "flux" feel.
  */
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
-import { searchDefault, searchEngines, searchResolve } from "./ipc";
+import { OMNI_URL, searchDefault, searchEngines, searchResolve } from "./ipc";
 import { activeId, focusTab, tabs } from "./store";
 
 interface Shortcut {
@@ -225,6 +225,9 @@ const StartPage: Component<{
             </button>
             <button class="start-action" onClick={props.onToggleAgent}>
               <span class="start-action-icon" style={{ color: "var(--flux-violet)" }}>✦</span> Ask Flux Agent
+            </button>
+            <button class="start-action" onClick={() => props.onNavigate(OMNI_URL)}>
+              <span class="start-action-icon" style={{ color: "var(--flux-teal)" }}>✦</span> Omni index
             </button>
           </div>
         </div>

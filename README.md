@@ -119,6 +119,16 @@ The config persists to `search.json` in the app config dir, so you can also edit
 it there directly. Live typeahead suggestions (using `suggest_template`) are the
 omnibox-suggestions work in BACKLOG #32.
 
+### `flux://omni` — index dashboard
+
+If your engine is the [Omni](https://github.com) index, **`flux://omni`** (from
+the omnibox or the start-page "Omni index" quick action) is a native velvet/glass
+view of its live health: stat cards (live docs, segments, embeddings, ANN),
+per-segment fill bars, an essential-sites grid, and the PageRank authority list,
+auto-refreshed every 2.5s. It reads Omni's `/stats` through a Rust proxy
+(`omni_stats`) so the shell CSP doesn't block it; the base URL follows your
+default engine (`FLUX_OMNI_URL` overrides).
+
 ## Flux Agent (local AI)
 
 The agent runs a local **Gemma** model via **Ollama** (ADR 0005) — no cloud, no

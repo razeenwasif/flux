@@ -151,6 +151,32 @@ export const searchAddEngine = (engine: SearchEngine) =>
   invoke<void>("search_add_engine", { engine });
 export const searchRemoveEngine = (id: string) => invoke<void>("search_remove_engine", { id });
 
+// ─── Omni index dashboard (flux://omni) ─────────────────────────────────────
+
+/** Sentinel url for the native Omni dashboard page (no webview). */
+export const OMNI_URL = "flux://omni";
+
+export interface OmniStats {
+  live_docs: number;
+  total_docs: number;
+  tombstones: number;
+  segments: number;
+  embedded: boolean;
+  ann: boolean;
+  ann_vectors: number;
+  dated: number;
+  embedder_kind: string;
+  embedder_dim: number;
+  avg_title_len: number;
+  avg_body_len: number;
+  segment_sizes: { live: number; total: number }[];
+  top_docs: { url: string; title: string; rank: number }[];
+}
+
+/** Fetch Omni's live `/stats` (proxied through Rust to dodge the webview CSP). */
+export const omniStats = async (): Promise<OmniStats> =>
+  JSON.parse(await invoke<string>("omni_stats"));
+
 // ─── Per-tab web content (webviews) ─────────────────────────────────────────
 
 export interface Rect { x: number; y: number; width: number; height: number }
