@@ -144,6 +144,27 @@ pub fn tab_list(state: State<'_, FluxState>) -> Vec<TabMeta> {
 // only worked from the local chrome origin; it can't work from arbitrary
 // remote pages.)
 
+/// Per-tab DOM snapshot caps (BACKLOG #79 — RAM). A page's outerHTML is often
+/// several MB; cached for every open tab that dominates Flux's heap and is the
+/// main memory cost we control (the rest is the native webviews themselves).
+/// These bounds are generous for the actual consumers — the agent, the embedder
+/// (which truncates anyway), and `flux extract-json` — so the cap is invisible
+/// in practice but turns unbounded growth into O(tabs × cap).
+const MAX_SNAPSHOT_HTML: usize = 1024 * 1024; // 1 MiB
+const MAX_SNAPSHOT_TEXT: usize = 256 * 1024; //  256 KiB
+
+/// Truncate to at most `max` bytes on a UTF-8 boundary (no realloc when short).
+fn cap_utf8(mut s: String, max: usize) -> String {
+    if s.len() > max {
+        let mut end = max;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+    }
+    s
+}
+
 #[tauri::command]
 pub fn dom_publish(
     app: AppHandle,
@@ -153,6 +174,10 @@ pub fn dom_publish(
     html: String,
     text: String,
 ) -> Result<(), String> {
+    // Bound per-tab memory before anything holds onto these strings (#79).
+    let html = cap_utf8(html, MAX_SNAPSHOT_HTML);
+    let text = cap_utf8(text, MAX_SNAPSHOT_TEXT);
+
     // Live ingest into Omni (no-op unless the user enabled auto-ingest). Done
     // before the snapshot is built so the page text is still owned here.
     let title = state
