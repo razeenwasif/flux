@@ -16,9 +16,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   policy layer adds a global on/off + per-site allowlist + blocked-request count
   (commands `shields_status` / `_set_enabled` / `_set_site` / `_check`), seeded
   with a bundled curated starter list of the major ad/tracker networks. Fully
-  unit-tested (blocks trackers, honors `@@` exceptions + the toggles). The native
-  per-webview interceptor that calls it (WebView2 `WebResourceRequested`) is the
-  next step; full EasyList fetching follows.
+  unit-tested (blocks trackers, honors `@@` exceptions + the toggles).
+- **Content blocker — WebView2 interceptor wired** (BACKLOG #91/#57). Each tab
+  webview now installs a `WebResourceRequested` hook (via `with_webview` → raw
+  `ICoreWebView2`) that asks `ShieldsState` per request and answers blocked ones
+  with a bodyless `403`, so trackers/ads never download. The COM code is
+  compile-verified against the `x86_64-pc-windows-msvc` target (webview2-com 0.38
+  / windows 0.61, pinned to match wry so the types unify); its *runtime* blocking
+  needs a Windows smoke test. WebKitGTK interceptor + full EasyList fetch follow.
 - **Terminal sessions survive tab switches** (BACKLOG #73). Terminal tabs are
   now kept mounted in a keep-alive layer (only the active one is shown), so
   switching to another tab and back no longer kills the shell — the PTY,

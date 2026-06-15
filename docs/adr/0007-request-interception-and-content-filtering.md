@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted (engine landed; native interceptor in progress) |
+| **Status** | Accepted (engine + WebView2 interceptor landed; runtime-pending on Windows; WebKitGTK follow-up) |
 | **Date** | 2026-06-15 |
 | **Deciders** | Flux Core Team |
 | **Relates to** | BACKLOG #91 (interception layer), #57 (content blocker), #58 (HTTPS-only), #60 (fingerprint/script blocking) |

@@ -5,6 +5,7 @@ pub mod agent_bridge;
 pub mod cli;
 pub mod commands;
 pub mod files;
+pub mod netfilter;
 pub mod omni;
 pub mod search;
 pub mod session;
