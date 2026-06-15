@@ -2,7 +2,7 @@
   "id": "com.flux.hello",
   "name": "Hello Flux",
   "version": "1.0.0",
-  "permissions": ["dom:read", "dom:write", "ui:toolbar"],
+  "permissions": ["dom:read", "dom:write", "storage", "ui:toolbar"],
   "content_scripts": [
     {
       "matches": ["https://*/*", "http://*/*"],

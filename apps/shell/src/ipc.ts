@@ -127,6 +127,10 @@ export const onClustersUpdated = (cb: () => void): Promise<UnlistenFn> =>
 export const onDomUpdated = (cb: (tabId: number) => void): Promise<UnlistenFn> =>
   listen<number>("flux://dom-updated", (e) => cb(e.payload));
 
+/** An extension asked to open a tab (flux.tabs.open, BACKLOG #94). */
+export const onExtOpenTab = (cb: (url: string) => void): Promise<UnlistenFn> =>
+  listen<string>("flux://ext-open-tab", (e) => cb(e.payload));
+
 // ─── Search (pluggable backend) ─────────────────────────────────────────────
 
 export interface SearchEngine {

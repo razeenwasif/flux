@@ -177,20 +177,16 @@ impl ExtRegistry {
         self.entries.read().clone()
     }
 
-    /// Assemble the CSS + JS to inject into `url` for this load phase
-    /// (`at_start` = `document_start`, else `document_end`/`document_idle`) — the
+    /// The raw per-extension content-script payloads that apply to `url` at this
+    /// load phase (`at_start` = `document_start`, else `document_end`/idle) — the
     /// content scripts of every *enabled* extension whose `@match` patterns hit
-    /// (#93). Each extension's JS is wrapped in its own IIFE: WebView2 has no
-    /// isolated worlds (ADR 0008), so this scope guard is the boundary we get —
-    /// top-level declarations don't leak into the page or collide between
-    /// extensions. The injected `flux` object carries the extension's identity +
-    /// granted permissions; the callable `flux.*` API is layered on in #94.
-    pub fn injection_for(&self, url: &str, at_start: bool) -> Injection {
-        let mut css = String::new();
-        let mut js = String::new();
+    /// (#93). File contents are read here; the caller decides how to wrap the JS
+    /// (identity shim vs the #94 broker API shim).
+    pub fn pieces_for(&self, url: &str, at_start: bool) -> Vec<ExtPiece> {
+        let mut out = Vec::new();
         for ext in self.entries.read().iter().filter(|e| e.enabled) {
             let dir = Path::new(&ext.dir);
-            let mut ext_js = String::new();
+            let (mut css, mut js) = (String::new(), String::new());
             for cs in &ext.manifest.content_scripts {
                 if (cs.run_at == "document_start") != at_start {
                     continue;
@@ -206,22 +202,57 @@ impl ExtRegistry {
                 }
                 for f in &cs.js {
                     if let Ok(s) = std::fs::read_to_string(dir.join(f)) {
-                        ext_js.push_str(&s);
-                        ext_js.push('\n');
+                        js.push_str(&s);
+                        js.push('\n');
                     }
                 }
             }
-            if !ext_js.is_empty() {
-                let id = json_str(&ext.manifest.id);
-                let ver = json_str(&ext.manifest.version);
-                let perms = serde_json::to_string(&ext.manifest.permissions).unwrap_or_else(|_| "[]".into());
-                js.push_str(&format!(
-                    ";(function(){{\nconst flux=Object.freeze({{id:{id},version:{ver},permissions:Object.freeze({perms})}});\ntry{{\n{ext_js}\n}}catch(e){{console.error('[flux ext '+{id}+']',e);}}\n}})();\n"
-                ));
+            if !css.is_empty() || !js.is_empty() {
+                out.push(ExtPiece {
+                    id: ext.manifest.id.clone(),
+                    version: ext.manifest.version.clone(),
+                    permissions: ext.manifest.permissions.clone(),
+                    css,
+                    js,
+                });
             }
+        }
+        out
+    }
+
+    /// Assemble the injectable CSS + JS for `url` at this load phase, wrapping
+    /// each extension's JS in its own IIFE scope guard (WebView2 has no isolated
+    /// worlds, ADR 0008) carrying a frozen `flux` *identity* object. This is the
+    /// no-broker fallback; with a [`crate::broker::BrokerState`] present, the
+    /// broker builds a richer shim that exposes the callable `flux.*` API (#94).
+    pub fn injection_for(&self, url: &str, at_start: bool) -> Injection {
+        let mut css = String::new();
+        let mut js = String::new();
+        for p in self.pieces_for(url, at_start) {
+            css.push_str(&p.css);
+            if p.js.is_empty() {
+                continue;
+            }
+            let id = json_str(&p.id);
+            let ver = json_str(&p.version);
+            let perms = serde_json::to_string(&p.permissions).unwrap_or_else(|_| "[]".into());
+            let user = &p.js;
+            js.push_str(&format!(
+                ";(function(){{\nconst flux=Object.freeze({{id:{id},version:{ver},permissions:Object.freeze({perms})}});\ntry{{\n{user}\n}}catch(e){{console.error('[flux ext '+{id}+']',e);}}\n}})();\n"
+            ));
         }
         Injection { css, js }
     }
+}
+
+/// One enabled extension's content-script payload for a page (raw file text).
+#[derive(Debug, Clone)]
+pub struct ExtPiece {
+    pub id: String,
+    pub version: String,
+    pub permissions: Vec<String>,
+    pub css: String,
+    pub js: String,
 }
 
 /// The CSS + JS to inject into a page for one load phase.
@@ -231,7 +262,7 @@ pub struct Injection {
     pub js: String,
 }
 
-fn json_str(s: &str) -> String {
+pub(crate) fn json_str(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
 

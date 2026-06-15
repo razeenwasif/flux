@@ -77,14 +77,18 @@ pub async fn webview_open(
                     ));
                 }
             }
-            // Extension content scripts (#93): inject the CSS + JS of every
+            // Extension content scripts (#93/#94): inject the CSS + JS of every
             // enabled extension whose @match patterns hit this URL, at the right
-            // phase (document_start vs document_end/idle).
+            // phase (document_start vs document_end/idle). With the broker present
+            // (#94), the JS gets the callable `flux.*` API shim (+ cap token);
+            // otherwise it falls back to the bare identity shim.
             let at_start = matches!(payload.event(), PageLoadEvent::Started);
-            let inj = app_for_load
-                .try_state::<crate::extensions::ExtRegistry>()
-                .map(|r| r.injection_for(&url, at_start))
-                .unwrap_or_default();
+            let registry = app_for_load.try_state::<crate::extensions::ExtRegistry>();
+            let inj = match (registry, app_for_load.try_state::<crate::broker::BrokerState>()) {
+                (Some(reg), Some(broker)) => broker.build_injection(&reg, &url, at_start),
+                (Some(reg), None) => reg.injection_for(&url, at_start),
+                _ => Default::default(),
+            };
             if !inj.css.is_empty() {
                 if let Ok(lit) = serde_json::to_string(&inj.css) {
                     let _ = webview.eval(&format!(
@@ -221,7 +225,7 @@ pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> 
     Ok(())
 }
 
-fn eval(app: &AppHandle, tab_id: TabId, js: &str) -> Result<(), String> {
+pub(crate) fn eval(app: &AppHandle, tab_id: TabId, js: &str) -> Result<(), String> {
     let wv = app.get_webview(&label(tab_id)).ok_or("no such tab webview")?;
     wv.eval(js).map_err(|e| e.to_string())
 }

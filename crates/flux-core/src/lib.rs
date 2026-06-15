@@ -2,6 +2,7 @@
 //! commands without booting a window.
 
 pub mod agent_bridge;
+pub mod broker;
 pub mod cli;
 pub mod commands;
 pub mod cookies;
@@ -73,6 +74,14 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("extensions").join("registry.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-extensions.json"));
             app.manage(extensions::ExtRegistry::restore(ext_path));
+            // Extension broker (#94) — capability tokens + grant-checked flux.*
+            // API + per-extension persisted storage.
+            let storage_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("extensions").join("storage.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-ext-storage.json"));
+            app.manage(broker::BrokerState::restore(storage_path));
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -86,7 +95,7 @@ pub fn run(intent: cli::LaunchIntent) {
         // must be plugin-namespaced to be grantable to remote `tab-*` webviews.
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("fluxtab")
-                .invoke_handler(tauri::generate_handler![commands::dom_publish])
+                .invoke_handler(tauri::generate_handler![commands::dom_publish, broker::ext_broker_call])
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![

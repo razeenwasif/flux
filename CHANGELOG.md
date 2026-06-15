@@ -8,6 +8,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Extension `flux.*` API + capability broker** (BACKLOG #94, ADR 0008). A
+  privileged Rust broker (`broker.rs`) is the one door extension content scripts
+  may call. Each content script gets a JS shim exposing `flux.runtime`
+  (id/version/permissions), `flux.storage` (per-extension persisted KV),
+  `flux.tabs` (query/open/navigate), and `flux.dom` (read cached snapshot /
+  inject JS) — every method forwards to `plugin:fluxtab|ext_broker_call` tagged
+  with a per-extension **capability token**. The broker resolves the token →
+  extension and checks every call against the manifest's grants:
+  **deny-by-default**, so unknown calls and ungranted permissions are rejected.
+  Grant model, token mint/resolve, storage round-trip, and the shim are
+  unit-tested. (`flux.ui` and `flux.events` land with the manager UI in #95.)
+  Security caveat (documented in ADR 0008): on WebView2 the shim runs in the
+  page world, so the token isn't hidden from a hostile same-page script —
+  WebKitGTK script worlds are the future hardening path.
 - **Extension content-script injection** (BACKLOG #93, ADR 0008). On each page
   load, `ExtRegistry::injection_for(url, phase)` assembles the CSS + JS of every
   enabled extension whose `@match` patterns hit the URL — honoring `run_at`

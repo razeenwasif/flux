@@ -27,6 +27,7 @@ import {
   launchIntent,
   onAgentStatus,
   onClustersUpdated,
+  onExtOpenTab,
   onDomUpdated,
   onTabLoaded,
   searchDefault,
@@ -132,6 +133,9 @@ const App: Component = () => {
     const unDom = await onDomUpdated((tabId) =>
       console.log("[flux] DOM captured for tab", tabId),
     );
+    // An extension called flux.tabs.open (#94) — the shell owns webview
+    // geometry, so the broker emits an intent and we open the tab here.
+    const unExtOpen = await onExtOpenTab((url) => void openTab("browser", url));
     // Keep the address bar fresh as pages navigate, and re-apply the active
     // tab's bounds once it finishes loading (defensive: ensures the page sits
     // in the content card even if the initial position didn't stick).
@@ -151,6 +155,7 @@ const App: Component = () => {
     onCleanup(() => {
       unClusters();
       unDom();
+      unExtOpen();
       unLoaded();
     });
 
