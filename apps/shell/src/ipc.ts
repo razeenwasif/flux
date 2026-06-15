@@ -283,11 +283,29 @@ export interface CredentialMeta {
 }
 export interface VaultStatus {
   available: boolean;
-  count: number;
-  /** "keychain" | "file" | "none" */
+  locked: boolean;
+  /** "keychain" | "password" */
+  protection: string;
+  /** "keychain" | "file" | "password" | "none" */
   source: string;
+  count: number;
+  autolock_minutes: number;
 }
 export const vaultStatus = () => invoke<VaultStatus>("vault_status");
+/** Unlock a master-password-protected vault. */
+export const vaultUnlock = (password: string) => invoke<void>("vault_unlock", { password });
+/** Lock now (clears the decrypted vault + key from memory). */
+export const vaultLock = () => invoke<void>("vault_lock");
+/** Enable/change master-password protection (Argon2id; removes the keychain key). */
+export const vaultSetMasterPassword = (password: string) => invoke<void>("vault_set_master_password", { password });
+/** Remove master-password protection (verifies it, moves the key back to the keychain). */
+export const vaultDisableMasterPassword = (password: string) =>
+  invoke<void>("vault_disable_master_password", { password });
+/** Idle auto-lock timeout in minutes (0 = never). */
+export const vaultSetAutolock = (minutes: number) => invoke<void>("vault_set_autolock", { minutes });
+/** Fires when the vault auto-locks after idle. */
+export const onVaultLocked = (cb: () => void): Promise<UnlistenFn> =>
+  listen("flux://vault-locked", () => cb());
 export const vaultList = () => invoke<CredentialMeta[]>("vault_list");
 export const vaultForHost = (host: string) => invoke<CredentialMeta[]>("vault_for_host", { host });
 /** Reveal one password (explicit user action). */

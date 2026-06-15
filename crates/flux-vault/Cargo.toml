@@ -13,6 +13,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 # AEAD: AES-256-GCM seals the serialized vault; nonce is random per write.
 aes-gcm = "0.10"
+# Argon2id KDF: derives a key-encryption key from the master password to wrap
+# the vault's data key (optional master-password protection).
+argon2 = "0.5"
 # CSPRNG for the data key + per-write nonces.
 rand = "0.8"
 # Wipe decrypted plaintext + secrets from memory on drop.

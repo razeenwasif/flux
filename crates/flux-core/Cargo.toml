@@ -28,6 +28,7 @@ tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot.workspace = true
 dashmap.workspace = true
+zeroize = "1"
 
 flux-agent.workspace = true
 flux-embed.workspace = true

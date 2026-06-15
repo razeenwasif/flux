@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted — implemented: `flux-vault` (model + AES-GCM + Proton import), OS-keychain key (`keyring`, file fallback), flux-core commands, same-origin autofill injection, footer 🔑 vault UI. Follow-ups: save-password prompt, more importers, optional master password. |
+| **Status** | Accepted — implemented: `flux-vault` (model + AES-GCM + Proton import CSV/ZIP/PGP/JSON), OS-keychain key (`keyring`, file fallback), **optional master password (Argon2id) + idle auto-lock**, flux-core commands, same-origin autofill injection, footer 🔑 vault UI. Follow-ups: save-password prompt, Chrome/1Password/Bitwarden importers. |
 | **Date** | 2026-06-16 |
 | **Deciders** | Flux Core Team |
 | **Relates to** | BACKLOG #61 (this). Builds on the JS-injection substrate (capture.js / agent injection, ADR 0007) and the session store (#19). |
@@ -31,16 +31,21 @@ default (E2E sync is a separate item, #62).
   without the OS-user-protected key.
 - Decrypted plaintext + secrets are held in `Zeroizing` buffers and wiped on
   drop; secrets are never logged.
-- **Future hardening (not v1):** an optional master password (Argon2id-derived
-  key wrapping the data key) for at-rest protection independent of OS login, and
-  auto-lock on idle.
+- **Optional master password (implemented):** setting one derives an Argon2id
+  key (19 MiB, t=2, p=1) that wraps the data key on disk (`keywrap.json`) and
+  **removes the key from the OS keychain** — so the data key is recoverable only
+  with the password, closing the "malware as the logged-in user" gap. The vault
+  boots locked, `vault_unlock` opens it, and **idle auto-lock** + a manual lock
+  clear the decrypted vault + key from memory. Removing the master password
+  moves the key back to the keychain.
 
 ### Threat model (explicit)
 - **In scope:** disk theft / file exfiltration (file is encrypted; key is in the
   OS store), accidental logging/sync (never logged, never auto-synced).
-- **Out of scope (v1):** malware running as the logged-in user — the OS keychain
-  releases the key to that user. This matches every OS-keychain password manager
-  without a master password; the master-password option above closes it later.
+- **OS-user malware** is out of scope in default (keychain) mode — the keychain
+  releases the key to that user, like every OS-keychain manager without a master
+  password. The **optional master password closes this gap**: the key isn't in
+  the keychain, so it can't be recovered without the password.
 
 ### Autofill (next increment)
 - Matched by **registrable host**; fill only into the **top-level same-origin**

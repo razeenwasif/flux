@@ -21,7 +21,7 @@ pub mod terminal;
 pub mod vault;
 pub mod webview;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Build the Tauri application. Split from `main` for testability.
 pub fn run(intent: cli::LaunchIntent) {
@@ -87,6 +87,19 @@ pub fn run(intent: cli::LaunchIntent) {
             // Password vault (#61) — OS-keychain data key + decrypted-in-memory
             // for autofill; persists to app_data/vault/vault.bin.
             app.manage(vault::VaultState::load(app.handle()));
+            // Idle auto-lock watchdog (master-password mode): clears the
+            // decrypted vault from memory after the configured idle timeout.
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(20));
+                    if let Some(v) = handle.try_state::<vault::VaultState>() {
+                        if v.maybe_autolock() {
+                            let _ = handle.emit("flux://vault-locked", ());
+                        }
+                    }
+                });
+            }
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -180,6 +193,11 @@ pub fn run(intent: cli::LaunchIntent) {
             vault::vault_remove,
             vault::vault_import_proton,
             vault::vault_fill,
+            vault::vault_unlock,
+            vault::vault_lock,
+            vault::vault_set_master_password,
+            vault::vault_disable_master_password,
+            vault::vault_set_autolock,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,

@@ -307,6 +307,58 @@ pub fn new_key() -> [u8; 32] {
     random_bytes::<32>()
 }
 
+// ─── Master-password key wrapping (Argon2id) ─────────────────────────────────
+
+/// The data key wrapped by a master-password-derived key — persisted to disk
+/// instead of (not alongside) the OS keychain, so the vault is sealed even from
+/// the logged-in OS user until the password is entered.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct KeyWrap {
+    pub kdf: String, // "argon2id"
+    pub salt: Vec<u8>,
+    pub m_cost: u32, // memory, KiB
+    pub t_cost: u32, // iterations
+    pub p_cost: u32, // parallelism
+    /// `nonce(12) ‖ AES-256-GCM(KEK, data_key)`.
+    pub wrapped: Vec<u8>,
+}
+
+// OWASP-recommended Argon2id baseline: 19 MiB, 2 iterations, 1 lane.
+const ARGON_M: u32 = 19_456;
+const ARGON_T: u32 = 2;
+const ARGON_P: u32 = 1;
+
+fn derive_kek(password: &str, salt: &[u8], m: u32, t: u32, p: u32) -> Result<Zeroizing<[u8; 32]>, VaultError> {
+    let params = argon2::Params::new(m, t, p, Some(32)).map_err(|_| VaultError::Crypto)?;
+    let argon = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+    let mut kek = Zeroizing::new([0u8; 32]);
+    argon
+        .hash_password_into(password.as_bytes(), salt, kek.as_mut())
+        .map_err(|_| VaultError::Crypto)?;
+    Ok(kek)
+}
+
+/// Wrap `data_key` under a master `password` (fresh salt + Argon2id KEK).
+pub fn wrap_key(password: &str, data_key: &[u8; 32]) -> Result<KeyWrap, VaultError> {
+    let salt = random_bytes::<16>();
+    let kek = derive_kek(password, &salt, ARGON_M, ARGON_T, ARGON_P)?;
+    let wrapped = seal(&kek, data_key)?;
+    Ok(KeyWrap { kdf: "argon2id".into(), salt: salt.to_vec(), m_cost: ARGON_M, t_cost: ARGON_T, p_cost: ARGON_P, wrapped })
+}
+
+/// Recover the data key from a [`KeyWrap`] with the master `password`. A wrong
+/// password fails (AES-GCM authentication) rather than returning garbage.
+pub fn unwrap_key(password: &str, w: &KeyWrap) -> Result<[u8; 32], VaultError> {
+    let kek = derive_kek(password, &w.salt, w.m_cost, w.t_cost, w.p_cost)?;
+    let dk = open(&kek, &w.wrapped)?;
+    if dk.len() != 32 {
+        return Err(VaultError::Crypto);
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&dk);
+    Ok(out)
+}
+
 /// Seal `plaintext` under `key` → `nonce(12) ‖ ciphertext+tag`.
 pub fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, VaultError> {
     let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
@@ -572,6 +624,19 @@ stId2UebxS4ovcBQnVs2ewu4FJn7j2l7PMe1yddXDv4wN0tRToM37JosBKpfTOEn\n\
 q4e4WwdEzdZAJlCGsMBVO681Df3h+WUfCCQ/4wcyVseCWIqL2XM3S4jS+BpuI71z\n\
 6JwNXZiIqjsE8JdMfsRJv0bwuEJNVCI/DlJfvjA+YKK0lkgGHYhPLmMT6d80iRFL\n\
 jRQjwtU=\n=+uGW\n-----END PGP MESSAGE-----\n";
+
+    #[test]
+    fn master_password_wrap_roundtrips() {
+        let dk = key();
+        let w = wrap_key("correct horse battery staple", &dk).unwrap();
+        assert_eq!(w.kdf, "argon2id");
+        // Right password recovers the data key.
+        assert_eq!(unwrap_key("correct horse battery staple", &w).unwrap(), dk);
+        // Wrong password fails (AEAD auth), doesn't return garbage.
+        assert!(unwrap_key("wrong password", &w).is_err());
+        // Fresh wrap of the same key uses a fresh salt → different blob.
+        assert_ne!(wrap_key("correct horse battery staple", &dk).unwrap().wrapped, w.wrapped);
+    }
 
     #[test]
     fn import_pgp_with_passphrase() {

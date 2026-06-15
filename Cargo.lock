@@ -1779,6 +1779,7 @@ dependencies = [
  "webview2-com",
  "windows 0.61.3",
  "windows-sys 0.59.0",
+ "zeroize",
 ]
 
 [[package]]
@@ -1830,6 +1831,7 @@ name = "flux-vault"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "argon2",
  "csv",
  "pgp",
  "rand",

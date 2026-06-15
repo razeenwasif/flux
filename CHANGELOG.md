@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Vault master password + auto-lock** (BACKLOG #61, ADR 0009). Optional
+  hardening that seals the vault even from the logged-in OS user. Setting a
+  master password derives an **Argon2id** key (19 MiB / t=2) that wraps the data
+  key on disk (`keywrap.json`) and **removes the key from the OS keychain**, so
+  the data key is recoverable only with the password. The vault then boots
+  **locked**; `vault_unlock` decrypts it into memory, **idle auto-lock**
+  (configurable Off/1/5/15/30 min) and a "Lock now" button clear the decrypted
+  vault + key from memory, and the master password can be changed or removed
+  (which moves the key back to the keychain). The 🔑 footer button shows 🔒 +
+  an unlock prompt when locked, and a Security section manages it all. Argon2id
+  wrap/unwrap is unit-tested. (Default stays keychain-mode — no password — so
+  nothing changes unless you opt in.)
 - **Password manager + autofill** (BACKLOG #61, ADR 0009). A local-first vault
   with a **Proton Pass importer** — since Proton Pass ships only a WebExtension
   (which can't run in native webviews) and has no public API, Flux owns the data

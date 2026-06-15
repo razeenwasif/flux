@@ -233,7 +233,13 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       mockExts = mockExts.filter((x) => x.manifest.id !== args?.id);
       return Promise.resolve(undefined as T);
     case "vault_status":
-      return Promise.resolve({ available: true, count: mockVault.length, source: "keychain" } as T);
+      return Promise.resolve({ available: true, locked: false, protection: "keychain", source: "keychain", count: mockVault.length, autolock_minutes: 0 } as T);
+    case "vault_unlock":
+    case "vault_lock":
+    case "vault_set_master_password":
+    case "vault_disable_master_password":
+    case "vault_set_autolock":
+      return Promise.resolve(undefined as T);
     case "vault_list":
       return Promise.resolve(mockVault.map(({ password: _pw, ...m }) => m) as T);
     case "vault_for_host":
