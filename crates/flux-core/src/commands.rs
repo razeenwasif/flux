@@ -153,6 +153,15 @@ pub fn dom_publish(
     html: String,
     text: String,
 ) -> Result<(), String> {
+    // Live ingest into Omni (no-op unless the user enabled auto-ingest). Done
+    // before the snapshot is built so the page text is still owned here.
+    let title = state
+        .tabs
+        .get(&tab_id)
+        .map(|t| t.title.clone())
+        .unwrap_or_default();
+    crate::omni::maybe_auto_ingest(&app, &url, &title, &text);
+
     let snapshot = Arc::new(DomSnapshot {
         tab: tab_id,
         url,
@@ -164,6 +173,16 @@ pub fn dom_publish(
 
     // Nudge interested panes (terminal env bar, agent sidebar).
     app.emit("flux://dom-updated", tab_id).map_err(|e| e.to_string())
+}
+
+/// App keyboard shortcuts forwarded from a focused tab webview (#18). A native
+/// child webview eats key events when focused, so the injected `shortcuts.js`
+/// detects Flux's chord set and calls this; we re-emit it to the chrome, which
+/// dispatches the same action it would for a chrome-focused keypress. Like
+/// `dom_publish`, this is a `fluxtab` plugin command so remote pages may call it.
+#[tauri::command]
+pub fn chrome_key(app: AppHandle, action: String) -> Result<(), String> {
+    app.emit("flux://shortcut", action).map_err(|e| e.to_string())
 }
 
 /// Hand the active tab's DOM to the frontend (e.g. terminal running

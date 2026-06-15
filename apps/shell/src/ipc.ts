@@ -131,6 +131,10 @@ export const onDomUpdated = (cb: (tabId: number) => void): Promise<UnlistenFn> =
 export const onExtOpenTab = (cb: (url: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://ext-open-tab", (e) => cb(e.payload));
 
+/** An app keyboard chord forwarded from a focused tab webview (BACKLOG #18). */
+export const onShortcut = (cb: (action: string) => void): Promise<UnlistenFn> =>
+  listen<string>("flux://shortcut", (e) => cb(e.payload));
+
 // ─── Search (pluggable backend) ─────────────────────────────────────────────
 
 export interface SearchEngine {
@@ -191,6 +195,17 @@ export const omniStats = async (): Promise<OmniStats> =>
 /** Fetch Omni's curated essential-site shortcuts (`/sites`). */
 export const omniSites = async (): Promise<OmniSite[]> =>
   JSON.parse(await invoke<string>("omni_sites"));
+
+// ─── Omni live ingest (feed browsed pages into the index) ───────────────────
+
+/** Whether auto-ingest (index every substantial page on load) is on. */
+export const omniIngestStatus = () => invoke<boolean>("omni_ingest_status");
+/** Toggle auto-ingest for this session. */
+export const omniIngestSetAuto = (enabled: boolean) =>
+  invoke<void>("omni_ingest_set_auto", { enabled });
+/** Explicitly save the active tab's page to Omni; returns Omni's JSON reply. */
+export const omniIngestActive = async (): Promise<{ added: number; skipped: number }> =>
+  JSON.parse(await invoke<string>("omni_ingest_active"));
 
 // ─── Content blocker / shields (BACKLOG #57) ────────────────────────────────
 

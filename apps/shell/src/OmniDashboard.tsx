@@ -8,7 +8,14 @@
  * ranked doc navigates this tab there.
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
-import { omniSites, omniStats, type OmniSite, type OmniStats } from "./ipc";
+import {
+  omniIngestSetAuto,
+  omniIngestStatus,
+  omniSites,
+  omniStats,
+  type OmniSite,
+  type OmniStats,
+} from "./ipc";
 
 const REFRESH_MS = 2500;
 
@@ -30,7 +37,18 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
   const [stats, setStats] = createSignal<OmniStats | null>(null);
   const [sites, setSites] = createSignal<OmniSite[]>(FALLBACK_SITES);
   const [error, setError] = createSignal<string | null>(null);
+  const [autoIngest, setAutoIngest] = createSignal(false);
   let timer: number | undefined;
+
+  const toggleIngest = async () => {
+    const next = !autoIngest();
+    try {
+      await omniIngestSetAuto(next);
+      setAutoIngest(next);
+    } catch {
+      /* ignore — Omni/Flux command unavailable */
+    }
+  };
 
   const tick = async () => {
     try {
@@ -45,6 +63,7 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
     void tick();
     // Sites are static-ish — fetch once; keep the fallback if Omni is older / down.
     void omniSites().then((s) => { if (s.length) setSites(s); }).catch(() => {});
+    void omniIngestStatus().then(setAutoIngest).catch(() => {});
     timer = window.setInterval(() => void tick(), REFRESH_MS);
     onCleanup(() => clearInterval(timer));
   });
@@ -70,6 +89,22 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
       <header class="omni-head">
         <span class="omni-brand"><span class="omni-spark">✦</span> Omni <span class="omni-sub">index dashboard</span></span>
         <span style={{ flex: 1 }} />
+        <button
+          onClick={toggleIngest}
+          title="Auto-index every substantial page you visit into your Omni index (off by default — privacy-sensitive)"
+          style={{
+            "margin-right": "10px",
+            padding: "4px 10px",
+            "border-radius": "999px",
+            cursor: "pointer",
+            "font-size": "12px",
+            border: `1px solid ${autoIngest() ? "rgba(47,243,255,0.5)" : "rgba(180,190,255,0.18)"}`,
+            background: autoIngest() ? "rgba(47,243,255,0.14)" : "rgba(120,130,200,0.06)",
+            color: autoIngest() ? "#2ff3ff" : "var(--flux-text-dim, #9aa0c4)",
+          }}
+        >
+          {autoIngest() ? "◉ auto-index on" : "○ auto-index off"}
+        </button>
         <Show
           when={!error()}
           fallback={<span class="omni-status off">offline</span>}

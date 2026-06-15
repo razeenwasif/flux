@@ -47,6 +47,7 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(terminal::TerminalManager::new());
             // Pluggable search config (persisted to the app config dir).
             app.manage(search::SearchState::load(app.handle()));
+            app.manage(omni::IngestState::new());
             // Files tab: live directory watchers + the file-op undo stack.
             app.manage(files::FsWatchers::default());
             app.manage(files::UndoStack::default());
@@ -95,7 +96,11 @@ pub fn run(intent: cli::LaunchIntent) {
         // must be plugin-namespaced to be grantable to remote `tab-*` webviews.
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("fluxtab")
-                .invoke_handler(tauri::generate_handler![commands::dom_publish, broker::ext_broker_call])
+                .invoke_handler(tauri::generate_handler![
+                    commands::dom_publish,
+                    broker::ext_broker_call,
+                    commands::chrome_key
+                ])
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
@@ -137,6 +142,9 @@ pub fn run(intent: cli::LaunchIntent) {
             search::search_remove_engine,
             omni::omni_stats,
             omni::omni_sites,
+            omni::omni_ingest_status,
+            omni::omni_ingest_set_auto,
+            omni::omni_ingest_active,
             shields::shields_status,
             shields::shields_set_enabled,
             shields::shields_set_site,

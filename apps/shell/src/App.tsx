@@ -29,6 +29,7 @@ import {
   onClustersUpdated,
   onExtOpenTab,
   onDomUpdated,
+  onShortcut,
   onTabLoaded,
   searchDefault,
   searchEngines,
@@ -54,6 +55,7 @@ import {
 } from "./ipc";
 import TerminalView from "./TerminalView";
 import StartPage from "./StartPage";
+import { keyToAction } from "./shortcuts";
 import Extensions from "./Extensions";
 import FilesView from "./FilesView";
 import OmniDashboard from "./OmniDashboard";
@@ -137,6 +139,30 @@ const App: Component = () => {
     // An extension called flux.tabs.open (#94) — the shell owns webview
     // geometry, so the broker emits an intent and we open the tab here.
     const unExtOpen = await onExtOpenTab((url) => void openTab("browser", url));
+    // App keyboard shortcuts (#18). Capture phase so we win over child widgets
+    // (e.g. xterm's own key handler) when the chrome/terminal is focused; the
+    // injected shortcuts.js handles the case where a page webview has focus and
+    // forwards the action over `flux://shortcut`.
+    // While the terminal (xterm) is focused, plain Ctrl+letter chords are
+    // readline/tmux bindings (Ctrl+R search, Ctrl+W delete-word, Ctrl+L clear,
+    // Ctrl+B tmux prefix, …) and must reach the shell. Only claim chords that
+    // don't collide — shifted/alt variants, the terminal toggle, and tab nav.
+    const terminalSafe = new Set([
+      "toggle-terminal", "toggle-agent", "new-terminal", "next-tab", "prev-tab", "back", "forward",
+    ]);
+    const inTerminal = () => !!(document.activeElement as HTMLElement | null)?.closest?.(".xterm");
+    const onKey = (e: KeyboardEvent) => {
+      const a = keyToAction(e);
+      if (!a) return;
+      if (inTerminal() && !(terminalSafe.has(a) || a.startsWith("tab-"))) return;
+      if (dispatch(a)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    onCleanup(() => window.removeEventListener("keydown", onKey, true));
+    const unShortcut = await onShortcut((a) => dispatch(a));
     // Keep the address bar fresh as pages navigate, and re-apply the active
     // tab's bounds once it finishes loading (defensive: ensures the page sits
     // in the content card even if the initial position didn't stick).
@@ -157,6 +183,7 @@ const App: Component = () => {
       unClusters();
       unDom();
       unExtOpen();
+      unShortcut();
       unLoaded();
     });
 
@@ -231,6 +258,60 @@ const App: Component = () => {
       // `wv` swallows the benign "no such tab webview" race (navigating just as
       // the webview is (re)created) instead of an uncaught promise rejection.
       wv(webviewNavigate(tab.id, url));
+    }
+  };
+
+  // Run a webview command against the active browser tab (back/forward/reload).
+  const navActive = (fn: (id: number) => Promise<unknown>) => {
+    const t = activeTab();
+    if (t?.kind === "browser") void fn(t.id).catch(() => {});
+  };
+
+  // Cycle the active tab through the strip order (Ctrl+Tab / Ctrl+Shift+Tab).
+  const cycleTab = (dir: 1 | -1) => {
+    const list = tabs();
+    if (list.length < 2) return;
+    const i = list.findIndex((t) => t.id === activeId());
+    const next = list[(i + dir + list.length) % list.length];
+    if (next) void focusTab(next.id);
+  };
+
+  // Focus + select the omnibox (Ctrl+L); open the sidebar first if collapsed.
+  const focusAddress = () => {
+    setSidebarOpen(true);
+    requestAnimationFrame(() => {
+      const el = document.getElementById("flux-address") as HTMLInputElement | null;
+      el?.focus();
+      el?.select();
+    });
+  };
+
+  // Run an app keyboard action — shared by the chrome's keydown listener and
+  // the chords forwarded from a focused tab webview (#18).
+  const dispatch = (action: string): boolean => {
+    switch (action) {
+      case "new-tab": void openTab("browser"); return true;
+      case "new-terminal": void openTab("terminal").then(() => setTerminalOpen(true)); return true;
+      case "close-tab": { const id = activeId(); if (id != null) void closeTab(id); return true; }
+      case "next-tab": cycleTab(1); return true;
+      case "prev-tab": cycleTab(-1); return true;
+      case "toggle-terminal": setTerminalOpen((v) => !v); return true;
+      case "toggle-agent": setAgentOpen((v) => !v); return true;
+      case "toggle-sidebar": setSidebarOpen((v) => !v); return true;
+      case "focus-address": focusAddress(); return true;
+      case "reload": navActive(webviewReload); return true;
+      case "back": navActive(webviewBack); return true;
+      case "forward": navActive(webviewForward); return true;
+      default:
+        if (action.startsWith("tab-")) {
+          const n = Number(action.slice(4));
+          const list = tabs();
+          // Ctrl+1..8 → that position; Ctrl+9 → last tab (browser convention).
+          const t = n === 9 ? list.at(-1) : list[n - 1];
+          if (t) void focusTab(t.id);
+          return true;
+        }
+        return false;
     }
   };
 
@@ -465,13 +546,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
         classList={{ collapsed: props.collapsed }}
         data-tauri-drag-region="deep"
       >
-        <button class="icon-btn" title="Toggle sidebar (⌘S)" onClick={props.onToggleSidebar}>
+        <button class="icon-btn" title="Toggle sidebar (Ctrl+B)" onClick={props.onToggleSidebar}>
           {props.collapsed ? "»" : "«"}
         </button>
         <Show when={!props.collapsed}>
-          <button class="icon-btn" title="Back" onClick={() => navActive(webviewBack)}>‹</button>
-          <button class="icon-btn" title="Forward" onClick={() => navActive(webviewForward)}>›</button>
-          <button class="icon-btn" title="Reload" onClick={() => navActive(webviewReload)}>⟳</button>
+          <button class="icon-btn" title="Back (Alt+←)" onClick={() => navActive(webviewBack)}>‹</button>
+          <button class="icon-btn" title="Forward (Alt+→)" onClick={() => navActive(webviewForward)}>›</button>
+          <button class="icon-btn" title="Reload (Ctrl+R)" onClick={() => navActive(webviewReload)}>⟳</button>
           <span style={{ flex: 1 }} />
         </Show>
       </div>
@@ -480,10 +561,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
         {/* Address / search pill */}
         <form onSubmit={submitAddress}>
           <input
+            id="flux-address"
             class="address"
             value={address() || currentUrl()}
             onInput={(e) => setAddress(e.currentTarget.value)}
-            placeholder="Search or enter address"
+            onFocus={(e) => e.currentTarget.select()}
+            placeholder="Search or enter address  (Ctrl+L)"
             spellcheck={false}
           />
         </form>
@@ -526,10 +609,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <Show when={picker()}>
             <div class="glass popover" style={{ top: "calc(100% + 6px)", left: 0 }}>
               <button onClick={() => create("browser")}>
-                🌐 Browser tab <kbd>⌘T</kbd>
+                🌐 Browser tab <kbd>Ctrl+T</kbd>
               </button>
               <button onClick={() => create("terminal")}>
-                ⌨ Terminal tab <kbd>⌘⇧T</kbd>
+                ⌨ Terminal tab <kbd>Ctrl+Shift+T</kbd>
               </button>
               <button onClick={() => create("files")}>
                 📁 Files tab
@@ -596,8 +679,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
         classList={{ collapsed: props.collapsed }}
         style={{ position: "relative" }}
       >
-        <button classList={{ "icon-btn": true, active: props.terminalOpen }} title="Terminal (⌃`)" onClick={props.onToggleTerminal}>⌨</button>
-        <button classList={{ "icon-btn": true, active: props.agentOpen }} title="Flux Agent (⌃A)" onClick={props.onToggleAgent}>✦</button>
+        <button classList={{ "icon-btn": true, active: props.terminalOpen }} title="Terminal (Ctrl+`)" onClick={props.onToggleTerminal}>⌨</button>
+        <button classList={{ "icon-btn": true, active: props.agentOpen }} title="Flux Agent (Ctrl+Shift+A)" onClick={props.onToggleAgent}>✦</button>
         <Shields />
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
         <button classList={{ "icon-btn": true, active: panel() === "extensions" }} title="Extensions" onClick={() => openPanel("extensions")}>🧩</button>

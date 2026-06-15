@@ -22,6 +22,10 @@ const CHROME_WINDOW: &str = "main";
 /// capture.js, injected into every tab webview (stamped with its tab id).
 const CAPTURE_JS: &str = include_str!("../assets/capture.js");
 
+/// shortcuts.js: forwards Flux's app keyboard chords from a focused page back
+/// to the chrome (#18), since a focused child webview eats the keyboard.
+const SHORTCUTS_JS: &str = include_str!("../assets/shortcuts.js");
+
 fn label(tab: TabId) -> String {
     format!("tab-{tab}")
 }
@@ -49,8 +53,9 @@ pub async fn webview_open(
     let window = app.get_window(CHROME_WINDOW).ok_or("chrome window missing")?;
     let target = parse_url(&url)?;
 
-    // Init script runs before page scripts: stamp the tab id, then capture.js.
-    let init = format!("window.__FLUX_TAB_ID__ = {tab_id};\n{CAPTURE_JS}");
+    // Init script runs before page scripts: stamp the tab id, capture.js, then
+    // the app keyboard-shortcut forwarder (#18).
+    let init = format!("window.__FLUX_TAB_ID__ = {tab_id};\n{CAPTURE_JS}\n{SHORTCUTS_JS}");
 
     let app_for_load = app.clone();
     let builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))

@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Keyboard shortcuts** (BACKLOG #18) — Windows/Linux Ctrl-based bindings
+  (Cmd also works on macOS): new browser tab `Ctrl+T`, terminal tab
+  `Ctrl+Shift+T`, close tab `Ctrl+W`, next/prev tab `Ctrl+Tab` /
+  `Ctrl+Shift+Tab`, jump to tab `Ctrl+1‑9`, toggle terminal `` Ctrl+` ``,
+  toggle agent `Ctrl+Shift+A`, toggle sidebar `Ctrl+B`, focus omnibox `Ctrl+L`,
+  reload `Ctrl+R`/`F5`, back/forward `Alt+←`/`Alt+→`. The chrome handles these
+  via a capture-phase listener; when a page webview has focus (which eats the
+  keyboard), an injected `shortcuts.js` forwards the chord to the chrome through
+  a new `chrome_key` fluxtab command. A terminal-focus guard leaves
+  readline/tmux chords (Ctrl+R/W/L/B) to the shell. (Avoided ⌃A/⌘S from the
+  original spec — they collide with select-all / save-page on Win/Linux; the
+  `Ctrl+K` command palette waits on #6.)
 - **Extension manager UI** (BACKLOG #95). The footer 🧩 panel is now a real
   manager: it lists installed extensions with name/version + permission chips,
   an enable/disable toggle, a remove button, and an **install-from-folder** row
