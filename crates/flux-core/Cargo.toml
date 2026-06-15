@@ -34,6 +34,12 @@ flux-embed.workspace = true
 flux-filter.workspace = true
 flux-import.workspace = true
 flux-search.workspace = true
+flux-vault.workspace = true
+
+# OS secret store for the vault's data key (#61): Windows Credential Manager,
+# macOS Keychain, Linux Secret Service (pure-rust zbus + crypto-rust, no C deps).
+# Falls back to a file-backed key when no store is available (e.g. headless WSL).
+keyring = { version = "3", default-features = false, features = ["windows-native", "apple-native", "sync-secret-service", "crypto-rust"] }
 
 # Embedded terminal: real PTY (the wezterm crate). flux-term (WGPU renderer)
 # remains the future native-render path; the PTY here feeds either renderer.

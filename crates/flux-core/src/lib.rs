@@ -18,6 +18,7 @@ pub mod shields;
 pub mod tracking;
 pub mod state;
 pub mod terminal;
+pub mod vault;
 pub mod webview;
 
 use tauri::Manager;
@@ -83,6 +84,9 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("extensions").join("storage.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-ext-storage.json"));
             app.manage(broker::BrokerState::restore(storage_path));
+            // Password vault (#61) — OS-keychain data key + decrypted-in-memory
+            // for autofill; persists to app_data/vault/vault.bin.
+            app.manage(vault::VaultState::load(app.handle()));
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -168,6 +172,14 @@ pub fn run(intent: cli::LaunchIntent) {
             extensions::ext_list,
             extensions::ext_set_enabled,
             extensions::ext_remove,
+            vault::vault_status,
+            vault::vault_list,
+            vault::vault_for_host,
+            vault::vault_reveal,
+            vault::vault_add,
+            vault::vault_remove,
+            vault::vault_import_proton,
+            vault::vault_fill,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,

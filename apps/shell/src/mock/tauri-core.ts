@@ -38,6 +38,12 @@ let mockExts: { manifest: { id: string; name: string; version: string; permissio
   { manifest: { id: "com.flux.reader", name: "Reader Mode", version: "1.0.0", permissions: ["dom:read", "dom:write", "ui:toolbar"], content_scripts: [], background: null, ui: null }, dir: "~/.flux/extensions/reader", enabled: true },
   { manifest: { id: "com.flux.darkall", name: "Dark Everywhere", version: "0.3.1", permissions: ["dom:write"], content_scripts: [], background: null, ui: null }, dir: "~/.flux/extensions/darkall", enabled: false },
 ];
+
+// Password vault (BACKLOG #61) — mutable so the preview reflects add/remove.
+let mockVault: { id: string; name: string; urls: string[]; username: string; password: string; has_totp: boolean }[] = [
+  { id: "c1", name: "GitHub", urls: ["https://github.com"], username: "octocat", password: "correct-horse", has_totp: true },
+  { id: "c2", name: "Hacker News", urls: ["https://news.ycombinator.com"], username: "pg", password: "battery-staple", has_totp: false },
+];
 const mockNow = () => T0 + DAY; // "just now" relative to the fixed dates above
 const tabs: TabMeta[] = [
   { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null },
@@ -225,6 +231,26 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "ext_remove":
       mockExts = mockExts.filter((x) => x.manifest.id !== args?.id);
+      return Promise.resolve(undefined as T);
+    case "vault_status":
+      return Promise.resolve({ available: true, count: mockVault.length, source: "keychain" } as T);
+    case "vault_list":
+      return Promise.resolve(mockVault.map(({ password: _pw, ...m }) => m) as T);
+    case "vault_for_host":
+      return Promise.resolve(mockVault.map(({ password: _pw, ...m }) => m) as T);
+    case "vault_reveal":
+      return Promise.resolve((mockVault.find((c) => c.id === args?.id)?.password ?? null) as T);
+    case "vault_add": {
+      const id = `c${nextId++}`;
+      mockVault.push({ id, name: String(args?.name ?? ""), urls: args?.url ? [String(args.url)] : [], username: String(args?.username ?? ""), password: String(args?.password ?? ""), has_totp: false });
+      return Promise.resolve(undefined as T);
+    }
+    case "vault_remove":
+      mockVault = mockVault.filter((c) => c.id !== args?.id);
+      return Promise.resolve(undefined as T);
+    case "vault_import_proton":
+      return Promise.resolve(0 as T); // no filesystem in the preview
+    case "vault_fill":
       return Promise.resolve(undefined as T);
     case "cookies_status":
       return Promise.resolve({ clear_on_close: [] } as T);

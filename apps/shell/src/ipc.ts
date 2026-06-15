@@ -271,6 +271,35 @@ export const trackingSetLevel = (level: number) => invoke<void>("tracking_set_le
 export const permissionsStatus = () => invoke<boolean>("permissions_status");
 export const permissionsSetBlock = (on: boolean) => invoke<void>("permissions_set_block", { on });
 
+// ─── Password vault (BACKLOG #61, ADR 0009) ──────────────────────────────────
+// Metadata only — passwords never come to the chrome except via vault_reveal
+// (explicit) or are injected straight into the page by vault_fill.
+export interface CredentialMeta {
+  id: string;
+  name: string;
+  urls: string[];
+  username: string;
+  has_totp: boolean;
+}
+export interface VaultStatus {
+  available: boolean;
+  count: number;
+  /** "keychain" | "file" | "none" */
+  source: string;
+}
+export const vaultStatus = () => invoke<VaultStatus>("vault_status");
+export const vaultList = () => invoke<CredentialMeta[]>("vault_list");
+export const vaultForHost = (host: string) => invoke<CredentialMeta[]>("vault_for_host", { host });
+/** Reveal one password (explicit user action). */
+export const vaultReveal = (id: string) => invoke<string | null>("vault_reveal", { id });
+export const vaultAdd = (name: string, url: string, username: string, password: string) =>
+  invoke<void>("vault_add", { name, url, username, password });
+export const vaultRemove = (id: string) => invoke<void>("vault_remove", { id });
+/** Import a Proton Pass JSON export from a file path; returns the count imported. */
+export const vaultImportProton = (path: string) => invoke<number>("vault_import_proton", { path });
+/** Autofill credential `id` into the active tab's login form (same-origin enforced). */
+export const vaultFill = (tabId: number, id: string) => invoke<void>("vault_fill", { tabId, id });
+
 // ─── Extensions (BACKLOG #92, ADR 0008) ──────────────────────────────────────
 // Shapes mirror crates/flux-core/src/extensions.rs.
 export interface ExtContentScript {

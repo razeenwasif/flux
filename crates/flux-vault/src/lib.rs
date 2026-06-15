@@ -181,6 +181,11 @@ fn random_bytes<const N: usize>() -> [u8; N] {
     b
 }
 
+/// A fresh random 256-bit data key — for the OS keychain / key file.
+pub fn new_key() -> [u8; 32] {
+    random_bytes::<32>()
+}
+
 /// Seal `plaintext` under `key` → `nonce(12) ‖ ciphertext+tag`.
 pub fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, VaultError> {
     let cipher = Aes256Gcm::new(GenericArray::from_slice(key));

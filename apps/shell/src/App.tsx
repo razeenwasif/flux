@@ -64,6 +64,7 @@ import FindBar from "./FindBar";
 import Extensions from "./Extensions";
 import FilesView from "./FilesView";
 import OmniDashboard from "./OmniDashboard";
+import Passwords from "./Passwords";
 import Shields from "./Shields";
 import {
   activeId,
@@ -812,6 +813,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <button classList={{ "icon-btn": true, active: props.terminalOpen }} title="Terminal (Ctrl+`)" onClick={props.onToggleTerminal}>⌨</button>
         <button classList={{ "icon-btn": true, active: props.agentOpen }} title="Flux Agent (Ctrl+Shift+A)" onClick={props.onToggleAgent}>✦</button>
         <Shields />
+        <Passwords />
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
         <button classList={{ "icon-btn": true, active: panel() === "extensions" }} title="Extensions" onClick={() => openPanel("extensions")}>🧩</button>
         <button classList={{ "icon-btn": true, active: panel() === "settings" }} title="Settings" onClick={() => openPanel("settings")}>⚙</button>

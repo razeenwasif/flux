@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Accepted — foundation (`flux-vault`: model + AES-GCM + Proton import) implemented; keychain wiring, commands, autofill UI pending |
+| **Status** | Accepted — implemented: `flux-vault` (model + AES-GCM + Proton import), OS-keychain key (`keyring`, file fallback), flux-core commands, same-origin autofill injection, footer 🔑 vault UI. Follow-ups: save-password prompt, more importers, optional master password. |
 | **Date** | 2026-06-16 |
 | **Deciders** | Flux Core Team |
 | **Relates to** | BACKLOG #61 (this). Builds on the JS-injection substrate (capture.js / agent injection, ADR 0007) and the session store (#19). |
