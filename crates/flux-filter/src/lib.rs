@@ -74,6 +74,24 @@ impl Filter {
         self.enabled.load(Ordering::Relaxed)
     }
 
+    /// Run `f` with this rule set's thread-local engine (deserialized on first
+    /// use per thread / when the rules change). Returns `R::default()` if the
+    /// engine can't be rebuilt.
+    fn with_engine<R: Default>(&self, f: impl FnOnce(&Engine) -> R) -> R {
+        LOCAL_ENGINE.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            let stale = slot.as_ref().map(|(g, _)| *g != self.generation).unwrap_or(true);
+            if stale {
+                let mut engine = Engine::from_filter_set(FilterSet::new(false), false);
+                if engine.deserialize(&self.serialized).is_err() {
+                    return R::default();
+                }
+                *slot = Some((self.generation, engine));
+            }
+            f(&slot.as_ref().unwrap().1)
+        })
+    }
+
     /// Should this request be blocked?
     ///
     /// * `url`          — the request URL.
@@ -91,17 +109,25 @@ impl Filter {
             Ok(r) => r,
             Err(_) => return false,
         };
-        LOCAL_ENGINE.with(|cell| {
-            let mut slot = cell.borrow_mut();
-            let stale = slot.as_ref().map(|(g, _)| *g != self.generation).unwrap_or(true);
-            if stale {
-                let mut engine = Engine::from_filter_set(FilterSet::new(false), false);
-                if engine.deserialize(&self.serialized).is_err() {
-                    return false;
-                }
-                *slot = Some((self.generation, engine));
+        self.with_engine(|engine| engine.check_network_request(&req).matched)
+    }
+
+    /// Element-hiding CSS for `url` — the selectors the cosmetic rules say to
+    /// hide, as one `… { display: none !important; }` rule (empty if none /
+    /// disabled). Inject it into the page to remove ad slots + leftover
+    /// placeholders. (Generic class/id cosmetics that need the page's live DOM
+    /// aren't included — that's a runtime-reporting follow-up.)
+    pub fn cosmetic_css(&self, url: &str) -> String {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return String::new();
+        }
+        self.with_engine(|engine| {
+            let res = engine.url_cosmetic_resources(url);
+            if res.hide_selectors.is_empty() {
+                return String::new();
             }
-            slot.as_ref().unwrap().1.check_network_request(&req).matched
+            let selectors = res.hide_selectors.iter().cloned().collect::<Vec<_>>().join(",");
+            format!("{selectors} {{ display: none !important; }}")
         })
     }
 }
@@ -155,5 +181,21 @@ mod tests {
     fn is_send_and_sync() {
         fn assert_ss<T: Send + Sync>() {}
         assert_ss::<Filter>();
+    }
+
+    #[test]
+    fn cosmetic_hides_site_specific_selector() {
+        let f = Filter::from_list("example.com##.sponsored-ad\n");
+        let css = f.cosmetic_css("https://example.com/page");
+        assert!(css.contains(".sponsored-ad"), "got: {css}");
+        assert!(css.contains("display: none"), "got: {css}");
+    }
+
+    #[test]
+    fn cosmetic_empty_when_no_rules_or_disabled() {
+        let f = Filter::from_list("example.com##.ad\n");
+        assert_eq!(f.cosmetic_css("https://other.com/p"), ""); // different site
+        f.set_enabled(false);
+        assert_eq!(f.cosmetic_css("https://example.com/p"), ""); // disabled
     }
 }

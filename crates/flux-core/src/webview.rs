@@ -55,12 +55,29 @@ pub async fn webview_open(
     let app_for_load = app.clone();
     let builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
         .initialization_script(&init)
-        .on_page_load(move |_webview, payload| {
+        .on_page_load(move |webview, payload| {
             let phase = match payload.event() {
                 PageLoadEvent::Started => "started",
                 PageLoadEvent::Finished => "finished",
             };
-            let _ = app_for_load.emit("flux://tab-loaded", (tab_id, payload.url().to_string(), phase));
+            let url = payload.url().to_string();
+            // Cosmetic filtering (#57): inject element-hiding CSS for this page,
+            // so blocked ad slots / leftover placeholders don't leave gaps. Works
+            // on every backend (it's just CSS injection, unlike the network hook).
+            let css = app_for_load
+                .try_state::<crate::shields::ShieldsState>()
+                .map(|s| s.cosmetic_css(&url))
+                .unwrap_or_default();
+            if !css.is_empty() {
+                if let Ok(lit) = serde_json::to_string(&css) {
+                    let _ = webview.eval(&format!(
+                        "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-cosmetic');\
+                         if(!s){{s=d.createElement('style');s.id='flux-cosmetic';}}s.textContent=c;\
+                         var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
+                    ));
+                }
+            }
+            let _ = app_for_load.emit("flux://tab-loaded", (tab_id, url, phase));
         });
 
     let scale = window.scale_factor().unwrap_or(1.0);

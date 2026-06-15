@@ -106,6 +106,20 @@ impl ShieldsState {
         blocked
     }
 
+    /// Element-hiding CSS for a page (empty if shields are off globally or for
+    /// this site). Injected per page-load by the webview layer (ADR 0007).
+    pub fn cosmetic_css(&self, url: &str) -> String {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return String::new();
+        }
+        if let Some(host) = host_of(url) {
+            if self.off_for.contains_key(host) {
+                return String::new();
+            }
+        }
+        self.filter.read().cosmetic_css(url)
+    }
+
     fn status(&self) -> ShieldsStatus {
         ShieldsStatus {
             enabled: self.enabled.load(Ordering::Relaxed),

@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Content blocker — cosmetic (element-hiding) filtering** (BACKLOG #57,
+  completes it). On each page load Flux injects the filter lists' element-hiding
+  CSS for that URL (`Filter::cosmetic_css` → one `{ display: none !important }`
+  rule over the matched selectors), so blocked ad slots + leftover placeholders
+  are *hidden*, not just emptied. It's plain CSS injection, so it works on
+  **every** backend — including the WebKitGTK/WSL build where the network hook
+  isn't wired yet. Respects the global + per-site shields toggle.
 - **Content blocker — full EasyList + shields UI** (BACKLOG #57). On top of the
   bundled starter list, Flux now **fetches + caches EasyList + EasyPrivacy**
   (in the background on boot, re-fetched when older than 5 days; `tls`/`gzip`
