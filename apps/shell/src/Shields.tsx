@@ -14,6 +14,8 @@ import {
   shieldsSetEnabled,
   shieldsSetSite,
   shieldsStatus,
+  trackingSetLevel,
+  trackingStatus,
   type HttpsStatus,
   type ShieldsStatus,
 } from "./ipc";
@@ -30,12 +32,14 @@ function hostOf(url: string): string | null {
 const Shields: Component = () => {
   const [status, setStatus] = createSignal<ShieldsStatus | null>(null);
   const [https, setHttps] = createSignal<HttpsStatus | null>(null);
+  const [tracking, setTracking] = createSignal(2);
   const [open, setOpen] = createSignal(false);
   let timer: number | undefined;
 
   const poll = () => {
     void shieldsStatus().then(setStatus).catch(() => {});
     void httpsStatus().then(setHttps).catch(() => {});
+    void trackingStatus().then(setTracking).catch(() => {});
   };
   onMount(() => {
     poll();
@@ -102,6 +106,19 @@ const Shields: Component = () => {
             </div>
           </Show>
           <div class="shields-sep" />
+          <div class="shields-row">
+            <span class="shields-label">Trackers</span>
+            <select
+              class="shields-select"
+              value={String(tracking())}
+              onChange={(e) => { const v = Number(e.currentTarget.value); setTracking(v); void trackingSetLevel(v); }}
+            >
+              <option value="0">Off</option>
+              <option value="1">Basic</option>
+              <option value="2">Balanced</option>
+              <option value="3">Strict</option>
+            </select>
+          </div>
           <div class="shields-row">
             <span class="shields-label">HTTPS-only</span>
             <button classList={{ "shields-toggle": true, on: httpsOn() }} onClick={toggleHttps}>

@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Tracking prevention** (BACKLOG #58, third-party trackers/cookies). A
+  "Trackers" selector (Off/Basic/Balanced/Strict, default **Balanced**) in the
+  Shields popover drives WebView2's native Edge tracking prevention
+  (`ICoreWebView2Profile3`) — profile-wide third-party tracker + cookie blocking
+  that complements the EasyList content blocker. Applied to each tab webview on
+  creation and on change. COM verified against the msvc target.
 - **Extension architecture decided — ADR 0008** (BACKLOG #96). Flux's mini-
   extension model: a manifest (`flux.extension.json`), content scripts injected
   via the existing path, and the capable `flux.*` API in a **Rust broker**

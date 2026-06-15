@@ -952,3 +952,4 @@ body.resizing .shell { transition: none !important; }
 .shields-update:hover { color: var(--flux-teal); }
 
 .shields-sep { height: 1px; background: var(--glass-rim-soft); margin: 1px 0; }
+.shields-select { flex: none; font-size: 11.5px; padding: 3px 6px; border-radius: 7px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); }

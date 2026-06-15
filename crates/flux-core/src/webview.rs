@@ -94,8 +94,10 @@ pub async fn webview_open(
     let _ = child.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)));
     let _ = child.show();
     let _ = child.set_focus();
-    // Install the content-blocker request interceptor (#57/#91, ADR 0007).
+    // Install the content-blocker request interceptor (#57/#91, ADR 0007) +
+    // native tracking prevention (#58).
     crate::netfilter::install(&app, &child);
+    crate::tracking::install(&app, &child);
     tracing::info!(target: "flux::webview", tab_id, %url, x, y, width, height, scale, "opened tab webview");
     Ok(())
 }

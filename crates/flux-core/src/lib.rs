@@ -12,6 +12,7 @@ pub mod omni;
 pub mod search;
 pub mod session;
 pub mod shields;
+pub mod tracking;
 pub mod state;
 pub mod terminal;
 pub mod webview;
@@ -57,6 +58,8 @@ pub fn run(intent: cli::LaunchIntent) {
             }
             // HTTPS-only mode (#58) — shares the request interceptor with shields.
             app.manage(https::HttpsState::new());
+            // Tracking prevention (#58) — native WebView2 3rd-party blocking.
+            app.manage(tracking::TrackingState::new());
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -122,6 +125,8 @@ pub fn run(intent: cli::LaunchIntent) {
             https::https_allow_site,
             cookies::cookies_clear_site,
             cookies::cookies_clear_all,
+            tracking::tracking_status,
+            tracking::tracking_set_level,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,

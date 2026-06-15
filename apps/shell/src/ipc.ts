@@ -227,6 +227,11 @@ export const cookiesClearSite = (host: string) => invoke<void>("cookies_clear_si
 /** Clear every cookie in the store. */
 export const cookiesClearAll = () => invoke<void>("cookies_clear_all");
 
+// ─── Tracking prevention (BACKLOG #58) ──────────────────────────────────────
+// Level: 0 = Off · 1 = Basic · 2 = Balanced · 3 = Strict.
+export const trackingStatus = () => invoke<number>("tracking_status");
+export const trackingSetLevel = (level: number) => invoke<void>("tracking_set_level", { level });
+
 // ─── Per-tab web content (webviews) ─────────────────────────────────────────
 
 export interface Rect { x: number; y: number; width: number; height: number }
