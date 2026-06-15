@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Extension architecture decided — ADR 0008** (BACKLOG #96). Flux's mini-
+  extension model: a manifest (`flux.extension.json`), content scripts injected
+  via the existing path, and the capable `flux.*` API in a **Rust broker**
+  (content scripts treated as untrusted vs the page). A document-start
+  **capability-token handshake** authenticates the extension (WebView2 has no
+  isolated worlds; WebKitGTK adds a script world where it can), permissions are
+  deny-by-default with install consent, and hard boundaries wall off other
+  extensions' storage, raw IPC, and blanket net/fs. Implementation is #92–95.
 - **Cookie controls** (BACKLOG #58). The Shields popover can now **clear cookies
   for the current site** or **clear all cookies** — WebView2 `CookieManager`
   (`DeleteCookies` / `DeleteAllCookies`), reached through any open tab webview

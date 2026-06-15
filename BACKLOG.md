@@ -137,12 +137,13 @@ implementation path differs from a normal browser — captured per item below.
 Decision (2026-06-15): Chrome/WebExtensions can't run in native webviews, so Flux
 ships its **own** curated, permissioned extension model rather than chasing
 WebExtensions compat or a raw userscript runtime. It reuses Flux's existing
-JS-injection substrate (capture.js + the agent's injection compiler). **Start
-with the ADR (#96)** — the security model gates everything else.
+JS-injection substrate (capture.js + the agent's injection compiler). The
+architecture + security model are decided in **ADR 0008** (#96 ✅); #92–95 build
+it out, starting with the manifest + loader (#92).
 
 | # | P | Item |
 |---|---|---|
-| 96 | P0 | **ADR + security model** (do first): isolated worlds for content scripts, a privileged broker for the API, capability gating from the manifest (no ambient authority), install-time consent, and what an extension can NEVER touch (other extensions' storage, raw IPC, tab webview internals beyond its grants). |
+| 96 | ✅ | **ADR + security model** — written: ADR 0008. Manifest-declared, capability-gated model; the powerful `flux.*` API lives in a **Rust broker** (content scripts are untrusted vs the page); a document-start **capability-token handshake** authenticates the extension (+ WebKitGTK script worlds where available, since WebView2 lacks isolated worlds); deny-by-default permissions w/ install consent; hard boundaries (no other-extension storage, no raw IPC, no blanket net/fs). |
 | 92 | P1 | **Manifest + loader**: `flux.extension.json` (name, version, requested permissions, `content_scripts` = match globs + js/css, optional background worker, UI contributions). Load from a folder/zip; enable/disable/remove; persist the registry (extends the session store #19). |
 | 93 | P1 | **Content-script injection** in a per-extension **isolated world** scoped to `@match` patterns, built on the existing inject path; `postMessage`-style bridge between the content script and the privileged broker, mediated by the manifest's permissions. |
 | 94 | P1 | **Permissioned API surface** exposed to extensions: `flux.tabs` (query/open/navigate per grant), `flux.dom` (read/inject in granted tabs), `flux.storage` (per-extension KV), `flux.ui` (side panel + toolbar button + context-menu items), `flux.events`. Every call checks a grant; deny-by-default. |
