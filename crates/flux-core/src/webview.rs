@@ -180,6 +180,20 @@ pub async fn webview_reload(app: AppHandle, tab_id: TabId) -> Result<(), String>
 
 #[tauri::command]
 pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+    // Clear-on-close (#58): if this tab's host is flagged, wipe its cookies
+    // (through the always-alive main webview) before tearing the tab down.
+    let host: Option<String> = app
+        .try_state::<crate::state::FluxState>()
+        .and_then(|s| s.tabs.get(&tab_id).and_then(|t| crate::cookies::host_of(&t.url).map(str::to_string)));
+    if let Some(host) = host {
+        let flagged = app
+            .try_state::<crate::cookies::CookieState>()
+            .map(|c| c.should_clear_on_close(&host))
+            .unwrap_or(false);
+        if flagged {
+            crate::cookies::clear_for_host(&app, &host);
+        }
+    }
     if let Some(wv) = app.get_webview(&label(tab_id)) {
         wv.close().map_err(|e| e.to_string())?;
     }

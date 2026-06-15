@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Clear cookies on close** (BACKLOG #58). A per-site "Clear cookies on close"
+  toggle (Shields popover): when a flagged site's tab closes, its cookies are
+  wiped. Cookie ops now run through the always-alive **main** webview (shared
+  cookie store) instead of a tab webview, avoiding a teardown race with the
+  closing tab.
 - **Tracking prevention** (BACKLOG #58, third-party trackers/cookies). A
   "Trackers" selector (Off/Basic/Balanced/Strict, default **Balanced**) in the
   Shields popover drives WebView2's native Edge tracking prevention

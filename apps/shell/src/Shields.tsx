@@ -7,6 +7,8 @@ import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js
 import {
   cookiesClearAll,
   cookiesClearSite,
+  cookiesSetClearOnClose,
+  cookiesStatus,
   httpsAllowSite,
   httpsSetEnabled,
   httpsStatus,
@@ -16,6 +18,7 @@ import {
   shieldsStatus,
   trackingSetLevel,
   trackingStatus,
+  type CookieStatus,
   type HttpsStatus,
   type ShieldsStatus,
 } from "./ipc";
@@ -33,6 +36,7 @@ const Shields: Component = () => {
   const [status, setStatus] = createSignal<ShieldsStatus | null>(null);
   const [https, setHttps] = createSignal<HttpsStatus | null>(null);
   const [tracking, setTracking] = createSignal(2);
+  const [cookies, setCookies] = createSignal<CookieStatus | null>(null);
   const [open, setOpen] = createSignal(false);
   let timer: number | undefined;
 
@@ -40,6 +44,7 @@ const Shields: Component = () => {
     void shieldsStatus().then(setStatus).catch(() => {});
     void httpsStatus().then(setHttps).catch(() => {});
     void trackingStatus().then(setTracking).catch(() => {});
+    void cookiesStatus().then(setCookies).catch(() => {});
   };
   onMount(() => {
     poll();
@@ -78,6 +83,16 @@ const Shields: Component = () => {
   const toggleSiteHttp = () => {
     const h = host();
     if (h) void httpsAllowSite(h, !siteAllowsHttp()).then(poll);
+  };
+
+  const clearOnClose = () => {
+    const h = host();
+    const c = cookies();
+    return !!(h && c && c.clear_on_close.includes(h));
+  };
+  const toggleClearOnClose = () => {
+    const h = host();
+    if (h) void cookiesSetClearOnClose(h, !clearOnClose()).then(poll);
   };
 
   return (
@@ -137,6 +152,12 @@ const Shields: Component = () => {
           <button class="shields-update" onClick={() => void shieldsRefresh()}>Update filter lists</button>
           <div class="shields-sep" />
           <Show when={host()}>
+            <div class="shields-row">
+              <span class="shields-host">Clear cookies on close</span>
+              <button classList={{ "shields-toggle": true, on: clearOnClose() }} onClick={toggleClearOnClose}>
+                {clearOnClose() ? "Yes" : "No"}
+              </button>
+            </div>
             <button class="shields-update" onClick={() => { const h = host(); if (h) void cookiesClearSite(h); }}>
               Clear cookies for this site
             </button>

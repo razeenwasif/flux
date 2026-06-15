@@ -194,10 +194,13 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "https_allow_site":
     case "cookies_clear_site":
     case "cookies_clear_all":
+    case "cookies_set_clear_on_close":
     case "tracking_set_level":
       return Promise.resolve(undefined as T);
     case "tracking_status":
       return Promise.resolve(2 as T);
+    case "cookies_status":
+      return Promise.resolve({ clear_on_close: [] } as T);
     case "omni_sites":
       return Promise.resolve(JSON.stringify([
         { key: "yt", name: "YouTube", home: "https://www.youtube.com", blurb: "video lectures, talks, and tutorials" },

@@ -227,6 +227,15 @@ export const cookiesClearSite = (host: string) => invoke<void>("cookies_clear_si
 /** Clear every cookie in the store. */
 export const cookiesClearAll = () => invoke<void>("cookies_clear_all");
 
+export interface CookieStatus {
+  /** Hosts whose cookies are wiped when their tab closes. */
+  clear_on_close: string[];
+}
+export const cookiesStatus = () => invoke<CookieStatus>("cookies_status");
+/** Flag (or unflag) a host to clear its cookies when its tab closes. */
+export const cookiesSetClearOnClose = (host: string, on: boolean) =>
+  invoke<void>("cookies_set_clear_on_close", { host, on });
+
 // ─── Tracking prevention (BACKLOG #58) ──────────────────────────────────────
 // Level: 0 = Off · 1 = Basic · 2 = Balanced · 3 = Strict.
 export const trackingStatus = () => invoke<number>("tracking_status");
