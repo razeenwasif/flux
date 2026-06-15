@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Extension content-script injection** (BACKLOG #93, ADR 0008). On each page
+  load, `ExtRegistry::injection_for(url, phase)` assembles the CSS + JS of every
+  enabled extension whose `@match` patterns hit the URL — honoring `run_at`
+  (document_start vs document_end/idle) — and injects them through the existing
+  `on_page_load`/`eval` path (the same one cosmetic filtering uses). Each
+  extension's JS runs inside its own IIFE scope guard (WebView2 has no isolated
+  worlds) carrying a frozen `flux` identity object. New match-pattern + glob
+  engine (`https://*/*`, `*://*.example.com/*`, `<all_urls>`, path globs),
+  unit-tested. The callable `flux.*` broker API replaces the identity shim in
+  #94.
 - **Extension manifest + loader + registry** (BACKLOG #92, ADR 0008) — the
   foundation of Flux's mini-extension model. `flux.extension.json` declares
   id/name/version, deny-by-default `permissions`, `content_scripts`

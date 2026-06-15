@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{State, Url};
 
 /// The set of permissions an extension may request (ADR 0008 §4). `net:<host>`
 /// is checked by prefix; everything else must match exactly.
@@ -176,6 +176,121 @@ impl ExtRegistry {
     pub fn list(&self) -> Vec<InstalledExt> {
         self.entries.read().clone()
     }
+
+    /// Assemble the CSS + JS to inject into `url` for this load phase
+    /// (`at_start` = `document_start`, else `document_end`/`document_idle`) — the
+    /// content scripts of every *enabled* extension whose `@match` patterns hit
+    /// (#93). Each extension's JS is wrapped in its own IIFE: WebView2 has no
+    /// isolated worlds (ADR 0008), so this scope guard is the boundary we get —
+    /// top-level declarations don't leak into the page or collide between
+    /// extensions. The injected `flux` object carries the extension's identity +
+    /// granted permissions; the callable `flux.*` API is layered on in #94.
+    pub fn injection_for(&self, url: &str, at_start: bool) -> Injection {
+        let mut css = String::new();
+        let mut js = String::new();
+        for ext in self.entries.read().iter().filter(|e| e.enabled) {
+            let dir = Path::new(&ext.dir);
+            let mut ext_js = String::new();
+            for cs in &ext.manifest.content_scripts {
+                if (cs.run_at == "document_start") != at_start {
+                    continue;
+                }
+                if !cs.matches.iter().any(|m| pattern_matches(m, url)) {
+                    continue;
+                }
+                for f in &cs.css {
+                    if let Ok(s) = std::fs::read_to_string(dir.join(f)) {
+                        css.push_str(&s);
+                        css.push('\n');
+                    }
+                }
+                for f in &cs.js {
+                    if let Ok(s) = std::fs::read_to_string(dir.join(f)) {
+                        ext_js.push_str(&s);
+                        ext_js.push('\n');
+                    }
+                }
+            }
+            if !ext_js.is_empty() {
+                let id = json_str(&ext.manifest.id);
+                let ver = json_str(&ext.manifest.version);
+                let perms = serde_json::to_string(&ext.manifest.permissions).unwrap_or_else(|_| "[]".into());
+                js.push_str(&format!(
+                    ";(function(){{\nconst flux=Object.freeze({{id:{id},version:{ver},permissions:Object.freeze({perms})}});\ntry{{\n{ext_js}\n}}catch(e){{console.error('[flux ext '+{id}+']',e);}}\n}})();\n"
+                ));
+            }
+        }
+        Injection { css, js }
+    }
+}
+
+/// The CSS + JS to inject into a page for one load phase.
+#[derive(Default, Debug)]
+pub struct Injection {
+    pub css: String,
+    pub js: String,
+}
+
+fn json_str(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
+}
+
+/// Match a content-script `@match` pattern (`<scheme>://<host><path>`, or the
+/// special `<all_urls>`) against a concrete URL. Scheme `*` = http/https; a host
+/// of `*` is any, `*.foo.com` matches `foo.com` and its subdomains; the path is
+/// a `*`-glob. Unparseable URLs never match.
+fn pattern_matches(pattern: &str, url: &str) -> bool {
+    let Ok(u) = Url::parse(url) else { return false };
+    let scheme = u.scheme();
+    let host = u.host_str().unwrap_or("");
+    let path = u.path();
+
+    if pattern == "<all_urls>" {
+        return matches!(scheme, "http" | "https" | "file" | "ftp");
+    }
+    let Some((ps, rest)) = pattern.split_once("://") else { return false };
+    let (ph, pp) = match rest.find('/') {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, "/*"),
+    };
+
+    let scheme_ok = ps == "*" && matches!(scheme, "http" | "https") || ps == scheme;
+    let host_ok = if ph == "*" {
+        true
+    } else if let Some(suffix) = ph.strip_prefix("*.") {
+        host == suffix || host.ends_with(&format!(".{suffix}"))
+    } else {
+        host == ph
+    };
+    scheme_ok && host_ok && glob_match(pp, path)
+}
+
+/// Classic linear wildcard match supporting only `*` (matches any run, incl.
+/// empty). No `?`. Used for content-script path globs.
+fn glob_match(pat: &str, text: &str) -> bool {
+    let (p, t) = (pat.as_bytes(), text.as_bytes());
+    let (mut pi, mut ti) = (0usize, 0usize);
+    let (mut star, mut mark) = (None, 0usize);
+    while ti < t.len() {
+        if pi < p.len() && p[pi] == t[ti] {
+            pi += 1;
+            ti += 1;
+        } else if pi < p.len() && p[pi] == b'*' {
+            star = Some(pi);
+            mark = ti;
+            pi += 1;
+        } else if let Some(s) = star {
+            pi = s + 1;
+            mark += 1;
+            ti = mark;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == b'*' {
+        pi += 1;
+    }
+    pi == p.len()
 }
 
 // ─── Commands ────────────────────────────────────────────────────────────────
@@ -238,6 +353,46 @@ mod tests {
         let m = reg.install(&dir).unwrap();
         assert_eq!(m.id, "com.flux.hello");
         assert_eq!(m.content_scripts[0].js, vec!["hello.js"]);
+    }
+
+    #[test]
+    fn match_patterns() {
+        assert!(pattern_matches("https://*/*", "https://example.com/a/b"));
+        assert!(pattern_matches("http://*/*", "http://x.org/"));
+        assert!(pattern_matches("<all_urls>", "https://anything.example/"));
+        // scheme `*` is http/https only.
+        assert!(pattern_matches("*://*/*", "http://x/"));
+        assert!(!pattern_matches("*://*/*", "ftp://x/"));
+        // subdomain wildcard.
+        assert!(pattern_matches("https://*.example.com/*", "https://www.example.com/x"));
+        assert!(pattern_matches("https://*.example.com/*", "https://example.com/x"));
+        assert!(!pattern_matches("https://*.example.com/*", "https://example.org/x"));
+        // path glob.
+        assert!(pattern_matches("https://site.com/docs/*", "https://site.com/docs/intro"));
+        assert!(!pattern_matches("https://site.com/docs/*", "https://site.com/blog/x"));
+        // scheme mismatch + garbage url.
+        assert!(!pattern_matches("https://x/*", "http://x/"));
+        assert!(!pattern_matches("https://*/*", "not a url"));
+    }
+
+    #[test]
+    fn injection_assembles_for_matching_url() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/extensions/hello");
+        let reg = ExtRegistry::new();
+        reg.install(&dir).unwrap();
+
+        // The example runs at document_idle → present at Finished, absent at Started.
+        let at_end = reg.injection_for("https://example.com/", false);
+        assert!(at_end.js.contains("Hello from a Flux extension"));
+        assert!(at_end.js.contains("const flux=Object.freeze")); // identity shim
+        assert!(at_end.css.contains("#flux-hello-badge"));
+
+        let at_start = reg.injection_for("https://example.com/", true);
+        assert!(at_start.js.is_empty() && at_start.css.is_empty());
+
+        // Disabled extensions inject nothing.
+        reg.set_enabled("com.flux.hello", false);
+        assert!(reg.injection_for("https://example.com/", false).js.is_empty());
     }
 
     #[test]

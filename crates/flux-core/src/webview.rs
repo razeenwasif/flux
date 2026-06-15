@@ -77,6 +77,26 @@ pub async fn webview_open(
                     ));
                 }
             }
+            // Extension content scripts (#93): inject the CSS + JS of every
+            // enabled extension whose @match patterns hit this URL, at the right
+            // phase (document_start vs document_end/idle).
+            let at_start = matches!(payload.event(), PageLoadEvent::Started);
+            let inj = app_for_load
+                .try_state::<crate::extensions::ExtRegistry>()
+                .map(|r| r.injection_for(&url, at_start))
+                .unwrap_or_default();
+            if !inj.css.is_empty() {
+                if let Ok(lit) = serde_json::to_string(&inj.css) {
+                    let _ = webview.eval(&format!(
+                        "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-ext-css');\
+                         if(!s){{s=d.createElement('style');s.id='flux-ext-css';}}s.textContent=c;\
+                         var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
+                    ));
+                }
+            }
+            if !inj.js.is_empty() {
+                let _ = webview.eval(&inj.js);
+            }
             let _ = app_for_load.emit("flux://tab-loaded", (tab_id, url, phase));
         });
 
