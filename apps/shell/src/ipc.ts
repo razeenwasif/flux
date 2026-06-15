@@ -241,6 +241,11 @@ export const cookiesSetClearOnClose = (host: string, on: boolean) =>
 export const trackingStatus = () => invoke<number>("tracking_status");
 export const trackingSetLevel = (level: number) => invoke<void>("tracking_set_level", { level });
 
+// ─── Site permissions (BACKLOG #58) ─────────────────────────────────────────
+/** Whether camera/mic/geo permission requests are auto-denied. */
+export const permissionsStatus = () => invoke<boolean>("permissions_status");
+export const permissionsSetBlock = (on: boolean) => invoke<void>("permissions_set_block", { on });
+
 // ─── Per-tab web content (webviews) ─────────────────────────────────────────
 
 export interface Rect { x: number; y: number; width: number; height: number }

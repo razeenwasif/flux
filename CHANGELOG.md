@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Block site permission requests** (BACKLOG #58, completes it). A Shields-
+  popover toggle that auto-denies camera/mic/geolocation/notifications via
+  WebView2's `PermissionRequested` (off by default — WebView2's own prompt
+  handles the normal case; this is one-switch hardening). COM verified against
+  the msvc target. The HTTPS downgrade *interstitial* was deliberately skipped —
+  the per-site "Allow HTTP" toggle already recovers from a no-HTTPS site.
 - **Clear cookies on close** (BACKLOG #58). A per-site "Clear cookies on close"
   toggle (Shields popover): when a flagged site's tab closes, its cookies are
   wiped. Cookie ops now run through the always-alive **main** webview (shared

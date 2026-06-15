@@ -98,6 +98,7 @@ pub async fn webview_open(
     // native tracking prevention (#58).
     crate::netfilter::install(&app, &child);
     crate::tracking::install(&app, &child);
+    crate::permissions::install(&app, &child);
     tracing::info!(target: "flux::webview", tab_id, %url, x, y, width, height, scale, "opened tab webview");
     Ok(())
 }

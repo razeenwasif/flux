@@ -12,6 +12,8 @@ import {
   httpsAllowSite,
   httpsSetEnabled,
   httpsStatus,
+  permissionsSetBlock,
+  permissionsStatus,
   shieldsRefresh,
   shieldsSetEnabled,
   shieldsSetSite,
@@ -37,6 +39,7 @@ const Shields: Component = () => {
   const [https, setHttps] = createSignal<HttpsStatus | null>(null);
   const [tracking, setTracking] = createSignal(2);
   const [cookies, setCookies] = createSignal<CookieStatus | null>(null);
+  const [blockPerms, setBlockPerms] = createSignal(false);
   const [open, setOpen] = createSignal(false);
   let timer: number | undefined;
 
@@ -45,7 +48,10 @@ const Shields: Component = () => {
     void httpsStatus().then(setHttps).catch(() => {});
     void trackingStatus().then(setTracking).catch(() => {});
     void cookiesStatus().then(setCookies).catch(() => {});
+    void permissionsStatus().then(setBlockPerms).catch(() => {});
   };
+
+  const togglePerms = () => void permissionsSetBlock(!blockPerms()).then(poll);
   onMount(() => {
     poll();
     timer = window.setInterval(poll, 2000);
@@ -148,6 +154,12 @@ const Shields: Component = () => {
               </button>
             </div>
           </Show>
+          <div class="shields-row">
+            <span class="shields-label">Block camera/mic/geo</span>
+            <button classList={{ "shields-toggle": true, on: blockPerms() }} onClick={togglePerms}>
+              {blockPerms() ? "On" : "Off"}
+            </button>
+          </div>
           <div class="shields-stat">{status()?.blocked ?? 0} blocked this session</div>
           <button class="shields-update" onClick={() => void shieldsRefresh()}>Update filter lists</button>
           <div class="shields-sep" />

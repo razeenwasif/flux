@@ -9,6 +9,7 @@ pub mod files;
 pub mod https;
 pub mod netfilter;
 pub mod omni;
+pub mod permissions;
 pub mod search;
 pub mod session;
 pub mod shields;
@@ -62,6 +63,8 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(tracking::TrackingState::new());
             // Per-site cookie flags (clear-on-close, #58).
             app.manage(cookies::CookieState::new());
+            // Site-permission hardening (#58) — block camera/mic/geo on demand.
+            app.manage(permissions::PermState::new());
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
             if let Some(win) = app.get_webview_window("main") {
@@ -131,6 +134,8 @@ pub fn run(intent: cli::LaunchIntent) {
             cookies::cookies_status,
             tracking::tracking_status,
             tracking::tracking_set_level,
+            permissions::permissions_status,
+            permissions::permissions_set_block,
             files::fs_list,
             files::fs_home,
             files::fs_quick_locations,
