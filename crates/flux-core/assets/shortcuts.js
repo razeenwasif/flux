@@ -28,6 +28,7 @@
     if (mod && e.shiftKey && !e.altKey) {
       if (k === "t") return "new-terminal";
       if (k === "a") return "toggle-agent";
+      if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
       if (e.key === "Tab") return "prev-tab";
     }
     if (e.altKey && !mod) {
