@@ -7,6 +7,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Changed
+- **Content card: padding on all sides + rounded page corners.** The page area
+  now floats with even padding (previously it was flush against the sidebar).
+  Internal pages (start, history, passwords, omni) get the card's rounded
+  corners for free; live web pages are a separate OS layer, so on Windows their
+  host window is clipped to a matching rounded region (`SetWindowRgn`,
+  re-applied on resize; harmless square fallback if the engine doesn't honor
+  it). COM verified against the msvc target.
+
 ### Added
 - **Download manager** (BACKLOG #34) — Flux now intercepts WebView2's
   `DownloadStarting`, tracks each download's live progress + state, and owns the

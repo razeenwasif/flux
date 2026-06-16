@@ -138,6 +138,7 @@ pub async fn webview_open(
     let _ = child.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)));
     let _ = child.show();
     let _ = child.set_focus();
+    round_webview(&child, width, height, scale); // rounded corners (#center-pane)
     // Install the content-blocker request interceptor (#57/#91, ADR 0007) +
     // native tracking prevention (#58).
     crate::netfilter::install(&app, &child);
@@ -180,6 +181,8 @@ pub async fn webview_set_bounds(
     if let Some(wv) = app.get_webview(&label(tab_id)) {
         wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
         wv.set_size(LogicalSize::new(width.max(0.0), height.max(0.0))).map_err(|e| e.to_string())?;
+        let scale = app.get_window(CHROME_WINDOW).and_then(|w| w.scale_factor().ok()).unwrap_or(1.0);
+        round_webview(&wv, width, height, scale); // keep rounded corners on resize
     }
     Ok(())
 }
@@ -309,6 +312,37 @@ pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> 
 pub(crate) fn eval(app: &AppHandle, tab_id: TabId, js: &str) -> Result<(), String> {
     let wv = app.get_webview(&label(tab_id)).ok_or("no such tab webview")?;
     wv.eval(js).map_err(|e| e.to_string())
+}
+
+/// Clip a tab's native webview to rounded corners (Windows). The page is a
+/// separate OS layer that CSS can't round, so we set a rounded window region on
+/// its host HWND. No-op elsewhere; harmless square fallback if it can't apply.
+fn round_webview(wv: &tauri::webview::Webview, width: f64, height: f64, scale: f64) {
+    #[cfg(windows)]
+    {
+        // Corner radius matches the CSS `--flux-radius-card` (18px); GDI's
+        // rounded-rect ellipse dimension is 2×the radius.
+        let wp = (width * scale).round() as i32;
+        let hp = (height * scale).round() as i32;
+        let ellipse = (18.0 * scale * 2.0).round() as i32;
+        if wp <= 1 || hp <= 1 {
+            return;
+        }
+        let _ = wv.with_webview(move |platform| unsafe {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
+            let mut hwnd = HWND::default();
+            if platform.controller().ParentWindow(&mut hwnd).is_err() {
+                return;
+            }
+            let rgn = CreateRoundRectRgn(0, 0, wp + 1, hp + 1, ellipse, ellipse);
+            let _ = SetWindowRgn(hwnd, Some(rgn), true);
+        });
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (wv, width, height, scale);
+    }
 }
 
 /// Round the window's corners on Windows 11 (DWM). The window is opaque
