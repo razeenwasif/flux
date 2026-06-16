@@ -29,6 +29,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot.workspace = true
 dashmap.workspace = true
 zeroize = "1"
+# System + process memory readout, for memory-pressure tab eviction (#45).
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 
 flux-agent.workspace = true
 flux-embed.workspace = true

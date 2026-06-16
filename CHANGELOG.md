@@ -26,6 +26,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   Memory: on/off + 5 min / 15 min / 30 min / 1 hour). The active tab and
   start/terminal/files tabs are never slept; hibernating does **not** run
   clear-on-close (the tab isn't closing).
+- **Memory-pressure tab eviction** (BACKLOG #45). Beyond the idle timer, Flux now
+  reads actual system + process memory (`sysinfo`) and, when free RAM is
+  genuinely low (<12%, more aggressively under 6%), sleeps the
+  least-recently-used background tabs early to relieve pressure. Adaptive to the
+  machine — it stays quiet while there's headroom — and on by default. Settings
+  (⚙ → Memory) gains the toggle plus a live readout of Flux's RSS and free RAM.
 - **Sleeping tabs keep their scroll position + form input** (BACKLOG #45).
   Switching away from a tab snapshots its scroll offset and non-password form
   fields (text/select/checkbox/radio) into a **RAM-only** store; when the tab

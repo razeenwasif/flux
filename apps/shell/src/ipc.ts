@@ -370,6 +370,15 @@ export const webviewStop = (tabId: number) => invoke<void>("webview_stop", { tab
 export const webviewHibernate = (tabId: number) => invoke<void>("webview_hibernate", { tabId });
 /** Snapshot a tab's scroll/form state before it sleeps, to restore on wake. #45 */
 export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capture_state", { tabId });
+
+export interface MemInfo {
+  total_mb: number;
+  available_mb: number;
+  process_mb: number;
+  available_pct: number;
+}
+/** System + Flux memory, for the memory-pressure tab eviction (#45). */
+export const memStatus = () => invoke<MemInfo>("mem_status");
 /** Find-in-page (BACKLOG #33). Empty query clears the highlight. */
 export const webviewFind = (tabId: number, query: string, forward = true) =>
   invoke<void>("webview_find", { tabId, query, forward });

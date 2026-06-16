@@ -9,6 +9,7 @@ pub mod cookies;
 pub mod extensions;
 pub mod files;
 pub mod hibernate;
+pub mod mem;
 pub mod https;
 pub mod netfilter;
 pub mod omni;
@@ -87,6 +88,8 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(broker::BrokerState::restore(storage_path));
             // Per-tab scroll/form state for hibernation wake (#45) — RAM only.
             app.manage(hibernate::HibernateStore::new());
+            // System memory monitor for memory-pressure eviction (#45).
+            app.manage(mem::SysMon::new());
             // Password vault (#61) — OS-keychain data key + decrypted-in-memory
             // for autofill; persists to app_data/vault/vault.bin.
             app.manage(vault::VaultState::load(app.handle()));
@@ -152,6 +155,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_hide,
             webview::webview_hibernate,
             webview::webview_capture_state,
+            mem::mem_status,
             webview::webview_navigate,
             webview::webview_stop,
             webview::webview_find,

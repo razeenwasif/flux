@@ -57,6 +57,15 @@ export function setHibernateMins(m: number): void {
   localStorage.setItem("flux.hibernate.mins", String(m));
 }
 
+// Sleep background tabs early when free system memory is low (#45). On by
+// default — it only acts under genuine pressure, so it's quiet with headroom.
+const [memEvict, setMemEvictRaw] = createSignal(localStorage.getItem("flux.mem.evict") !== "0");
+export { memEvict };
+export function setMemEvict(on: boolean): void {
+  setMemEvictRaw(on);
+  localStorage.setItem("flux.mem.evict", on ? "1" : "0");
+}
+
 /** Whether a tab (default: the active one) is mid-load. */
 export const isLoading = (id: number | null = activeId()): boolean =>
   id != null && loadingTabs().has(id);

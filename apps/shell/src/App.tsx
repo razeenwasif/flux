@@ -42,6 +42,7 @@ import {
   type SearchEngine,
   webviewDebug,
   webviewForward,
+  memStatus,
   webviewCaptureState,
   webviewHibernate,
   webviewHide,
@@ -56,6 +57,7 @@ import {
   win,
   type AgentAction,
   type AgentStatus,
+  type MemInfo,
   type Rect,
   type ResizeDir,
   type TabMeta,
@@ -80,6 +82,7 @@ import {
   hibernateMins,
   isHibernated,
   isLoading,
+  memEvict,
   openTab,
   pinnedTabs,
   refreshTabs,
@@ -88,6 +91,7 @@ import {
   setHibernated,
   setHibernateEnabled,
   setHibernateMins,
+  setMemEvict,
   setTabLoading,
   tabs,
   togglePin,
@@ -202,22 +206,35 @@ const App: Component = () => {
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     const unShortcut = await onShortcut((a) => dispatch(a));
     // Tab hibernation (#45): every 30s, keep the active tab fresh and destroy
-    // the webviews of browser tabs idle past the timeout — freeing their RAM.
-    // They stay in the strip and reload when re-activated (the effect above
-    // re-opens any tab not in `openedWebviews`).
-    const hibTimer = window.setInterval(() => {
+    // the webviews of browser tabs that are idle past the timeout — or, under
+    // genuine memory pressure, the least-recently-used ones. Freed tabs stay in
+    // the strip and reload when re-activated (the effect above re-opens any tab
+    // not in `openedWebviews`).
+    const hibernateTab = (id: number) => {
+      openedWebviews.delete(id);
+      setHibernated(id, true);
+      wv(webviewHibernate(id));
+    };
+    const liveBackground = (act: number | null) =>
+      tabs().filter((t) => t.kind === "browser" && t.id !== act && !isStartUrl(t.url) && openedWebviews.has(t.id));
+    const hibTimer = window.setInterval(async () => {
       const now = Date.now();
       const act = activeId();
       if (act != null) lastActive.set(act, now);
-      if (!hibernateEnabled()) return;
-      const cutoff = hibernateMins() * 60_000;
-      for (const t of tabs()) {
-        if (t.kind !== "browser" || t.id === act || isStartUrl(t.url)) continue;
-        if (!openedWebviews.has(t.id)) continue; // already has no webview
-        if (now - (lastActive.get(t.id) ?? now) > cutoff) {
-          openedWebviews.delete(t.id);
-          setHibernated(t.id, true);
-          wv(webviewHibernate(t.id));
+      // Idle-timeout sleep.
+      if (hibernateEnabled()) {
+        const cutoff = hibernateMins() * 60_000;
+        for (const t of liveBackground(act)) {
+          if (now - (lastActive.get(t.id) ?? now) > cutoff) hibernateTab(t.id);
+        }
+      }
+      // Memory-pressure eviction — only when free system memory is genuinely
+      // low; sleep the LRU few (more when it's critical).
+      if (memEvict()) {
+        const m = await memStatus().catch(() => null);
+        if (m && m.available_pct < 12) {
+          const lru = liveBackground(act).sort((a, b) => (lastActive.get(a.id) ?? 0) - (lastActive.get(b.id) ?? 0));
+          for (const t of lru.slice(0, m.available_pct < 6 ? 4 : 2)) hibernateTab(t.id);
         }
       }
     }, 30_000);
@@ -629,10 +646,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [panel, setPanel] = createSignal<FooterPanel>(null);
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
   const [defaultEngine, setDefaultEngine] = createSignal("");
+  const [mem, setMem] = createSignal<MemInfo | null>(null);
 
   const openPanel = async (p: FooterPanel) => {
     setPanel((cur) => (cur === p ? null : p));
     if (p === "settings") {
+      void memStatus().then(setMem).catch(() => {});
       try {
         const [es, d] = await Promise.all([searchEngines(), searchDefault()]);
         setEngines(es);
@@ -642,6 +661,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
       }
     }
   };
+  // Live-ish RAM readout while the settings panel is open.
+  onMount(() => {
+    const t = window.setInterval(() => {
+      if (panel() === "settings") void memStatus().then(setMem).catch(() => {});
+    }, 2500);
+    onCleanup(() => clearInterval(t));
+  });
 
   const pickEngine = async (id: string) => {
     setDefaultEngine(id);
@@ -901,6 +927,17 @@ const Sidebar: Component<SidebarProps> = (props) => {
                     <option value="30">30 min</option>
                     <option value="60">1 hour</option>
                   </select>
+                </div>
+              </Show>
+              <div class="shields-row" style={{ padding: "2px 8px" }}>
+                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="When free system memory runs low, sleep the least-recently-used tabs early.">Sleep under memory pressure</span>
+                <button classList={{ "shields-toggle": true, on: memEvict() }} onClick={() => setMemEvict(!memEvict())}>
+                  {memEvict() ? "On" : "Off"}
+                </button>
+              </div>
+              <Show when={mem()}>
+                <div class="shields-stat" style={{ padding: "2px 8px 4px" }}>
+                  Flux {mem()!.process_mb} MB · {(mem()!.available_mb / 1024).toFixed(1)} GB free ({mem()!.available_pct}%)
                 </div>
               </Show>
             </Show>
