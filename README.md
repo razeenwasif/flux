@@ -59,6 +59,49 @@ npm run build
 > need WebView2 (Windows) or WKWebView (macOS)**. For real browsing, build and
 > run Flux **natively on Windows/macOS** with that OS's Rust + Node toolchain.
 
+## Install (`flux` on your PATH)
+
+Package Flux into a self-contained binary (the SolidJS frontend is embedded at
+build time) and install it so `flux` launches from any directory.
+
+**Linux / WSL** — installs to `~/.cargo/bin/flux`:
+
+```sh
+scripts/install-linux.sh
+```
+
+**Windows** (the WebView2 build — required for real browsing) — installs to
+`%USERPROFILE%\.cargo\bin\flux.exe`:
+
+```powershell
+# from the repo root, in PowerShell
+scripts\install-windows.ps1            # reuses an existing apps\shell\dist
+scripts\install-windows.ps1 -Frontend  # force a fresh frontend build (needs Node)
+```
+
+The Windows script checks prerequisites first. The one most often missing is the
+**MSVC C++ build tools** (`link.exe`) — installing only the Windows SDK is *not*
+enough. Install the "Desktop development with C++" workload:
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override `
+  "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+You also need the **WebView2 Runtime** (preinstalled on current Win10/11; else
+`winget install Microsoft.EdgeWebView2Runtime`). If the repo lives on the WSL
+filesystem, building over the `\\wsl.localhost\...` share works but is slow —
+copy it to a local Windows path (e.g. `C:\src\Flux`) for a faster build.
+
+Then, on any platform:
+
+```sh
+flux                       # start page
+flux example.com           # open a tab
+flux -t                    # open with a terminal tab focused
+flux --help
+```
+
 ## UI / UX
 
 The shell follows an **Arc-style vertical layout** (ADR 0002) with a

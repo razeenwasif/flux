@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Install scripts — `flux` on your PATH.** `scripts/install-linux.sh` and
+  `scripts/install-windows.ps1` build a self-contained binary (the frontend is
+  embedded) and install it to `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on
+  Windows), so `flux` launches from any directory. The Windows script checks
+  prerequisites (Rust msvc, the MSVC C++ build tools / `link.exe`, Node) and
+  prints exact fixes. README gains an **Install** section.
 - **Split view** (BACKLOG #43) — two browser tabs tiled side by side in the
   content card. Start one by **right-clicking a tab → "Split with current tab"**
   or by **dragging a tab onto the right edge of another**. A draggable seam
