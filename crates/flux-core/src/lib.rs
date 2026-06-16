@@ -117,16 +117,23 @@ pub fn run(intent: cli::LaunchIntent) {
                 .app_data_dir()
                 .map(|d| d.join("history.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-history.json"));
-            app.manage(history::HistoryStore::restore(history_path));
+            // Empty now (no disk I/O on the boot thread — a large history.json
+            // would delay window show); hydrated from disk on the thread below.
+            app.manage(history::HistoryStore::empty(history_path));
             {
-                // Background save: flush history to disk if it changed. 60s (was
-                // 15s) — fewer idle wakeups; the write is skipped unless dirty, so
-                // the worst case is ~60s of unsaved history on a hard crash.
+                // Load history off the boot path, then flush to disk if it changed
+                // every 60s (was 15s) — fewer idle wakeups; the write is skipped
+                // unless dirty, so worst case is ~60s of unsaved history on a crash.
                 let handle = app.handle().clone();
-                std::thread::spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_secs(60));
+                std::thread::spawn(move || {
                     if let Some(h) = handle.try_state::<history::HistoryStore>() {
-                        h.persist_if_dirty();
+                        h.hydrate();
+                    }
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(60));
+                        if let Some(h) = handle.try_state::<history::HistoryStore>() {
+                            h.persist_if_dirty();
+                        }
                     }
                 });
             }

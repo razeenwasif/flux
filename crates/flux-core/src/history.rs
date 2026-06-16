@@ -30,6 +30,19 @@ pub struct HistoryEntry {
     pub title: String,
     pub last_visit_ms: u64,
     pub visits: u32,
+    /// Precomputed lowercased "url\ntitle" for substring search — set on
+    /// insert/update and recomputed on load. Skipped on disk + IPC (recomputable,
+    /// and the frontend doesn't need it). Avoids re-lowercasing every entry on
+    /// every omnibox keystroke.
+    #[serde(skip)]
+    key: String,
+}
+
+fn search_key(url: &str, title: &str) -> String {
+    let mut k = url.to_lowercase();
+    k.push('\n');
+    k.push_str(&title.to_lowercase());
+    k
 }
 
 impl HistoryEntry {
@@ -48,12 +61,33 @@ pub struct HistoryStore {
 
 impl HistoryStore {
     pub fn restore(path: PathBuf) -> Self {
-        let entries = std::fs::read_to_string(&path)
+        let s = Self::empty(path);
+        s.hydrate();
+        s
+    }
+
+    /// An empty store bound to `path` — does NO disk I/O. Pair with `hydrate()`
+    /// on a background thread so a large history.json doesn't block window show.
+    pub fn empty(path: PathBuf) -> Self {
+        Self { entries: RwLock::new(HashMap::new()), path: Some(path), dirty: AtomicBool::new(false) }
+    }
+
+    /// Load entries from disk into the store, recomputing each search key. Merges
+    /// (never clobbers an entry already recorded since boot), so it's safe to run
+    /// after the store is live. Does not mark the store dirty.
+    pub fn hydrate(&self) {
+        let Some(path) = &self.path else { return };
+        let Some(loaded) = std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str::<Vec<HistoryEntry>>(&s).ok())
-            .map(|v| v.into_iter().map(|e| (e.url.clone(), e)).collect())
-            .unwrap_or_default();
-        Self { entries: RwLock::new(entries), path: Some(path), dirty: AtomicBool::new(false) }
+        else {
+            return;
+        };
+        let mut e = self.entries.write();
+        for mut entry in loaded {
+            entry.key = search_key(&entry.url, &entry.title);
+            e.entry(entry.url.clone()).or_insert(entry);
+        }
     }
 
     /// Record (or refresh) a visit. Ignores non-http(s) URLs (flux://, files, …).
@@ -80,12 +114,14 @@ impl HistoryStore {
                         en.visits += 1;
                     }
                     en.last_visit_ms = now;
-                    if !title.trim().is_empty() {
+                    if !title.trim().is_empty() && title != en.title {
                         en.title = title.to_string();
+                        en.key = search_key(&en.url, &en.title);
                     }
                 }
                 None => {
-                    e.insert(url.to_string(), HistoryEntry { url: url.to_string(), title: title.to_string(), last_visit_ms: now, visits: 1 });
+                    let key = search_key(url, title);
+                    e.insert(url.to_string(), HistoryEntry { url: url.to_string(), title: title.to_string(), last_visit_ms: now, visits: 1, key });
                     if e.len() > MAX_ENTRIES {
                         if let Some(oldest) = e.values().min_by_key(|x| x.last_visit_ms).map(|x| x.url.clone()) {
                             e.remove(&oldest);
@@ -111,11 +147,12 @@ impl HistoryStore {
         if q.is_empty() {
             return self.recent(limit);
         }
+        // Match against the precomputed lowercased key — no per-entry allocation.
         let mut v: Vec<HistoryEntry> = self
             .entries
             .read()
             .values()
-            .filter(|e| e.url.to_lowercase().contains(&q) || e.title.to_lowercase().contains(&q))
+            .filter(|e| e.key.contains(&q))
             .cloned()
             .collect();
         v.sort_unstable_by(|a, b| b.score().cmp(&a.score()));
@@ -202,5 +239,24 @@ mod tests {
         assert_eq!(h.entries.read().len(), 1);
         h.clear();
         assert!(h.entries.read().is_empty());
+    }
+
+    #[test]
+    fn hydrate_recomputes_search_key_after_load() {
+        let dir = std::env::temp_dir().join(format!("flux-hist-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("history.json");
+
+        let a = HistoryStore::restore(path.clone());
+        a.record("https://example.com/page", "Gamma Report");
+        a.persist_if_dirty();
+
+        // Fresh store loaded from disk (key is #[serde(skip)] → must be recomputed
+        // by hydrate, or search would silently return nothing after a restart).
+        let b = HistoryStore::restore(path.clone());
+        assert_eq!(b.entries.read().len(), 1);
+        assert_eq!(b.search("gamma", 10).len(), 1, "search must work on loaded entries");
+        assert_eq!(b.search("example.com", 10).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

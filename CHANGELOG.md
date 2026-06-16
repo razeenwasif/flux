@@ -66,6 +66,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Changed
+- **History: deferred load + precomputed search keys.** `history.json` is now
+  loaded on a background thread after the window shows instead of being parsed
+  synchronously on the boot path (a large history no longer delays first paint).
+  Each entry carries a precomputed lowercased search key (skipped on disk/IPC,
+  recomputed on load), so omnibox search no longer re-lowercases every entry on
+  every keystroke — it matches against the cached key.
 - **Favicons are fine-grained reactive.** Moved the favicon cache from one big
   object signal to a per-host store, so loading one site's icon only re-renders
   the rows showing that host — not every favicon consumer (it was ~O(rows²) when
