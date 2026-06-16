@@ -291,6 +291,8 @@ export interface VaultStatus {
   count: number;
   autolock_minutes: number;
 }
+/** Sentinel url for the full-page vault manager (DOM-rendered, no webview). */
+export const VAULT_URL = "flux://passwords";
 export const vaultStatus = () => invoke<VaultStatus>("vault_status");
 /** Unlock a master-password-protected vault. */
 export const vaultUnlock = (password: string) => invoke<void>("vault_unlock", { password });

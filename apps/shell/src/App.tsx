@@ -20,6 +20,7 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
   OMNI_URL,
+  VAULT_URL,
   PANE_SESSION,
   agentChat,
   agentExecute,
@@ -67,6 +68,7 @@ import Extensions from "./Extensions";
 import FilesView from "./FilesView";
 import OmniDashboard from "./OmniDashboard";
 import Passwords from "./Passwords";
+import VaultPage from "./VaultPage";
 import Shields from "./Shields";
 import {
   activeId,
@@ -977,6 +979,9 @@ const ContentArea: Component<{
         {/* Before the generic start match — `flux://omni` is also a `flux://` url. */}
         <Match when={activeTab()?.url === OMNI_URL}>
           <OmniDashboard onNavigate={props.onNavigate} />
+        </Match>
+        <Match when={activeTab()?.url === VAULT_URL}>
+          <VaultPage onNavigate={props.onNavigate} />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage

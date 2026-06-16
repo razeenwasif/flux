@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Full-page password manager** at `flux://passwords` (BACKLOG #61). The sidebar
+  popover was too cramped for a real vault (narrow + lots of scrolling), so the
+  management UI moved to a roomy in-content page (DOM-rendered like
+  `flux://omni`, no webview): a **searchable two-pane** layout — login list with
+  avatars on the left, a detail pane on the right (reveal/copy username +
+  password, open websites, delete) — plus **New login**, **Import from Proton
+  Pass** (CSV/ZIP/PGP), and **Security** (master password + auto-lock) as tabs.
+  The footer 🔑 popover is now lean and *contextual* (Proton-extension-style):
+  logins that match the current site with one-click **Fill**, unlock/lock, and
+  an "Open Passwords manager" link to the full page.
 - **Tab hibernation / sleeping tabs** (BACKLOG #45) — the RAM win. Background
   browser tabs idle past a timeout have their **native webview destroyed**,
   freeing its memory; the tab stays in the strip (dimmed, with a 💤) and the
