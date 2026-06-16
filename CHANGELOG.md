@@ -66,6 +66,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Changed
+- **Favicons are fine-grained reactive.** Moved the favicon cache from one big
+  object signal to a per-host store, so loading one site's icon only re-renders
+  the rows showing that host — not every favicon consumer (it was ~O(rows²) when
+  many tabs fetched icons at once on session restore). `activeTab()` is now
+  memoized too (it's read in many reactive scopes per render).
 - **Dropped per-event work that shipped in release.** Removed debug `console.log`s
   that fired on every DOM capture (~every 400ms on active pages), every page-load,
   and every tab-open — plus a `webview_debug` IPC round-trip that ran on every tab

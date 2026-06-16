@@ -4,6 +4,7 @@
  * one signal write — no prop drilling, no context provider overhead.
  */
 import { createMemo, createSignal } from "solid-js";
+import { createStore } from "solid-js/store";
 import {
   darkmodeSet,
   faviconFetch,
@@ -236,11 +237,13 @@ export function setMemEvict(on: boolean): void {
 
 // Favicons (#21) — host → data URL (string) | null (no icon) | undefined (not
 // fetched). Backed by the Rust per-host cache; fetched once per host per session.
-const [favicons, setFavicons] = createSignal<Record<string, string | null>>({});
-export { favicons };
+// A fine-grained store (not one big object signal) so loading one host's icon
+// only re-renders rows showing THAT host — not every favicon consumer (which was
+// O(rows²) when many tabs fetched icons at once on session restore).
+const [favicons, setFavicons] = createStore<Record<string, string | null>>({});
 const faviconInflight = new Set<string>();
 export const faviconFor = (host: string | null): string | null | undefined =>
-  host ? favicons()[host] : undefined;
+  host ? favicons[host] : undefined;
 // AI search answers (#32-ish / agent): when you search, the local Gemma also
 // drafts a quick answer in the agent panel. On by default (it's local — no
 // privacy cost, just local compute); toggle in Settings.
@@ -288,11 +291,11 @@ export function setOmniAutoAnswer(on: boolean): void {
 }
 
 export function ensureFavicon(host: string | null): void {
-  if (!host || host in favicons() || faviconInflight.has(host)) return;
+  if (!host || host in favicons || faviconInflight.has(host)) return;
   faviconInflight.add(host);
   void faviconFetch(host)
-    .then((d) => setFavicons((m) => ({ ...m, [host]: d ?? null })))
-    .catch(() => setFavicons((m) => ({ ...m, [host]: null })))
+    .then((d) => setFavicons(host, d ?? null))
+    .catch(() => setFavicons(host, null))
     .finally(() => faviconInflight.delete(host));
 }
 
@@ -310,8 +313,10 @@ export function setTabLoading(id: number, loading: boolean): void {
   });
 }
 
-export const activeTab = (): TabMeta | null =>
-  tabs().find((t) => t.id === activeId()) ?? null;
+// Memoized — read in many reactive scopes per render (effects, components, the
+// sidebar); recompute once per tabs()/activeId() change, not per call.
+export const activeTab = createMemo((): TabMeta | null =>
+  tabs().find((t) => t.id === activeId()) ?? null);
 
 // Only the active workspace's tabs appear in the strip (#44). Memoized — these
 // are read many times per render (every tab row, group section, split fold), so
