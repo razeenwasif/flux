@@ -228,6 +228,24 @@ body.resizing .shell { transition: none !important; }
 }
 .pane-splitter:hover::after { background: rgba(47, 243, 255, 0.35); }
 
+/* Split-view merge bar in the sidebar (#43) — the page is covered by native
+   webviews, so the un-split control lives in the chrome. */
+.split-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 6px 9px;
+  border-radius: 9px;
+  background: var(--flux-teal-dim);
+  border: 1px solid rgba(47, 243, 255, 0.22);
+  font-size: 11.5px; color: var(--flux-text-dim);
+}
+.split-bar button {
+  font-size: 11.5px; color: var(--flux-teal);
+  padding: 3px 9px; border-radius: 7px;
+  border: 1px solid rgba(47, 243, 255, 0.30);
+  background: rgba(47, 243, 255, 0.08);
+}
+.split-bar button:hover { background: rgba(47, 243, 255, 0.16); }
+
 /* ── Sidebar (liquid glass over velvet) ── */
 .sidebar {
   grid-area: side;

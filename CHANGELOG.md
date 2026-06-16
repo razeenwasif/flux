@@ -16,7 +16,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (neither hibernates) and re-tile across resizes. Built over the existing
   child-webview model: the seam is a DOM splitter in the gap the OS webview
   layers don't cover, and dragging briefly hides the panes so the chrome can
-  track the pointer (a native webview captures the mouse otherwise).
+  track the pointer (a native webview captures the mouse otherwise). **Merge**:
+  a "⤢ Merge" control appears in the sidebar while split — it lives in the chrome
+  because the webviews cover the page — and un-splits back to a single tab.
 - **Send a tab or a whole group to another workspace** (BACKLOG #44) —
   right-click a tab or a group header → "Send to workspace …". Moving a group
   carries all its tabs; the moved webviews are torn down (they left the active
@@ -45,6 +47,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Fixed
+- **Ctrl+Tab / Ctrl+Shift+Tab cycle only non-pinned tabs** (and stay within the
+  active workspace) — previously the cycle wrapped through pinned tabs (and, in
+  principle, other workspaces). If a pinned tab is active, the cycle enters at the
+  first/last non-pinned tab.
+- **The tab/group right-click menu is no longer clipped** by the sidebar edges or
+  its bottom. The sidebar's `backdrop-filter` made it the containing block for the
+  `position:fixed` menu, and its `overflow:hidden` cropped it — the menus now
+  render through a Portal to `<body>` and clamp to stay on-screen.
 - **Ctrl+Tab / Ctrl+Shift+Tab cycle tabs.** A focused page webview ate the chord
   before the injected forwarder ran (WebView2 treats it as a built-in browser
   accelerator), so cycling never fired. Now intercepted natively at the

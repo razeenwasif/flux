@@ -18,6 +18,7 @@
  * collapse to 0. Defaults: sidebar open, agent open, terminal closed.
  */
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { Portal } from "solid-js/web";
 import {
   OMNI_URL,
   VAULT_URL,
@@ -471,12 +472,14 @@ const App: Component = () => {
     if (t?.kind === "browser") void fn(t.id).catch(() => {});
   };
 
-  // Cycle the active tab through the strip order (Ctrl+Tab / Ctrl+Shift+Tab).
+  // Cycle through the non-pinned tabs of the active workspace (Ctrl+Tab /
+  // Ctrl+Shift+Tab). Pinned tabs aren't part of the cycle; if a pinned tab is
+  // active, we enter the loop at the first (forward) or last (backward) tab.
   const cycleTab = (dir: 1 | -1) => {
-    const list = tabs();
-    if (list.length < 2) return;
+    const list = unpinnedTabs();
+    if (list.length === 0) return;
     const i = list.findIndex((t) => t.id === activeId());
-    const next = list[(i + dir + list.length) % list.length];
+    const next = i < 0 ? (dir === 1 ? list[0] : list[list.length - 1]) : list[(i + dir + list.length) % list.length];
     if (next) void focusTab(next.id);
   };
 
@@ -884,6 +887,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [editWs, setEditWs] = createSignal<number | null>(null);
   const openCtx = (e: MouseEvent, tab: TabMeta) => { e.preventDefault(); setCtxTab(tab); setCtxPos({ x: e.clientX, y: e.clientY }); };
   const closeCtx = () => setCtxTab(null);
+  // Keep a context menu fully on-screen: after it renders, nudge it left/up if it
+  // would overflow the viewport (e.g. a tall menu opened near the bottom).
+  const clampMenu = (el: HTMLElement) => {
+    requestAnimationFrame(() => {
+      const r = el.getBoundingClientRect();
+      const pad = 8;
+      let { x, y } = ctxPos();
+      if (x + r.width > window.innerWidth - pad) x = window.innerWidth - r.width - pad;
+      if (y + r.height > window.innerHeight - pad) y = window.innerHeight - r.height - pad;
+      el.style.left = `${Math.max(pad, x)}px`;
+      el.style.top = `${Math.max(pad, y)}px`;
+    });
+  };
   const ungroupedTabs = () => unpinnedTabs().filter((t) => t.group == null || !groups().some((g) => g.id === t.group));
   const GROUP_PALETTE = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
   const cycleGroupColor = (g: TabGroup) => {
@@ -1195,6 +1211,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <button class="group-topic" title="Group tabs by topic (from semantic clusters)" onClick={() => void groupByTopic()}>⊞ Group</button>
           </Show>
         </div>
+        {/* Split view (#43): a merge control lives in the chrome because the
+            native webviews cover the page, leaving the gap too thin for a button. */}
+        <Show when={splitPanes()}>
+          <div class="split-bar">
+            <span>◧◨ Split view</span>
+            <button title="Merge — back to a single tab" onClick={() => clearSplit()}>⤢ Merge</button>
+          </div>
+        </Show>
         <div class="tab-list">
           <For each={groups()}>
             {(g) => {
@@ -1242,12 +1266,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
         </div>
       </Show>
 
-      {/* Tab right-click menu (#56): pin, grouping, close. */}
+      {/* Tab right-click menu (#56): pin, grouping, close. Portaled to <body> so
+          the sidebar's overflow:hidden + backdrop-filter containing block can't
+          clip it; clampMenu keeps it on-screen near the panel edges/bottom. */}
       <Show when={ctxTab()}>
         {(t) => (
-          <>
+          <Portal>
             <div class="ctx-backdrop" onClick={closeCtx} onContextMenu={(e) => { e.preventDefault(); closeCtx(); }} />
-            <div class="tab-ctx glass" style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}>
+            <div class="tab-ctx glass" ref={clampMenu} style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}>
               <button onClick={() => { void togglePin(t()); closeCtx(); }}>{t().pinned ? "Unpin" : "Pin tab"}</button>
               <button onClick={() => { void newGroupWithTab(t().id); closeCtx(); }}>New group with tab</button>
               <Show when={groups().length > 0}>
@@ -1285,16 +1311,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <div class="ctx-sep" />
               <button onClick={() => { void closeTab(t().id); closeCtx(); }}>Close tab</button>
             </div>
-          </>
+          </Portal>
         )}
       </Show>
 
       {/* Group right-click menu (#44/#56): rename, recolor, send-to-workspace. */}
       <Show when={ctxGroup()}>
         {(g) => (
-          <>
+          <Portal>
             <div class="ctx-backdrop" onClick={() => setCtxGroup(null)} onContextMenu={(e) => { e.preventDefault(); setCtxGroup(null); }} />
-            <div class="tab-ctx glass" style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}>
+            <div class="tab-ctx glass" ref={clampMenu} style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}>
               <button onClick={() => { setEditGroup(g().id); setCtxGroup(null); }}>Rename group</button>
               <button onClick={() => { cycleGroupColor(g()); setCtxGroup(null); }}>Change color</button>
               <Show when={workspaces().length > 1}>
@@ -1311,7 +1337,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <div class="ctx-sep" />
               <button onClick={() => { void deleteGroup(g().id); setCtxGroup(null); }}>Ungroup</button>
             </div>
-          </>
+          </Portal>
         )}
       </Show>
 
