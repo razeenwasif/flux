@@ -34,7 +34,6 @@ import {
   onAgentStatus,
   onClustersUpdated,
   onExtOpenTab,
-  onDomUpdated,
   onFindResult,
   onShortcut,
   onTabLoaded,
@@ -47,7 +46,6 @@ import {
   tabSetUrl,
   webviewBack,
   type SearchEngine,
-  webviewDebug,
   webviewForward,
   memStatus,
   webviewCaptureState,
@@ -247,10 +245,6 @@ const App: Component = () => {
     if (tabs().length === 0) await openTab("browser");
     applyDarkMode(); // re-apply the persisted dark-mode preference (#40)
     const unClusters = await onClustersUpdated(refreshTabs);
-    // Diagnostic: fires when a tab's DOM reaches the cache (capture.js works).
-    const unDom = await onDomUpdated((tabId) =>
-      console.log("[flux] DOM captured for tab", tabId),
-    );
     // An extension called flux.tabs.open (#94) — the shell owns webview
     // geometry, so the broker emits an intent and we open the tab here.
     const unExtOpen = await onExtOpenTab((url) => void openTab("browser", url));
@@ -350,7 +344,6 @@ const App: Component = () => {
     // tab's bounds once it finishes loading (defensive: ensures the page sits
     // in the content card even if the initial position didn't stick).
     const unLoaded = await onTabLoaded((tabId, url, phase) => {
-      console.log("[flux webview] load", phase, tabId, url); // diagnostic
       updateTabUrl(tabId, url);
       setTabLoading(tabId, phase === "started"); // stop/reload swap + progress (#31)
       if (phase === "finished") {
@@ -365,7 +358,6 @@ const App: Component = () => {
     });
     onCleanup(() => {
       unClusters();
-      unDom();
       unExtOpen();
       unShortcut();
       unFind();
@@ -424,14 +416,8 @@ const App: Component = () => {
         setHibernated(id, false); // (re)opening = waking from sleep (#45)
         lastActive.set(id, Date.now());
         const r = p.rect;
-        console.log(
-          `[flux webview] open id=${id} url=${p.tab.url} rect=${JSON.stringify(r)} ` +
-            `dpr=${window.devicePixelRatio} win=${window.innerWidth}x${window.innerHeight}`,
-        );
         webviewOpen(id, p.tab.url, r)
           .then(() => webviewSetBounds(id, r))
-          .then(() => webviewDebug(id))
-          .then((info) => console.log("[flux webview] tauri sees:", info))
           .catch((e) => console.error("[flux webview] open failed:", e));
       }
     }

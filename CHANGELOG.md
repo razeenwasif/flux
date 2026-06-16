@@ -66,6 +66,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Changed
+- **Dropped per-event work that shipped in release.** Removed debug `console.log`s
+  that fired on every DOM capture (~every 400ms on active pages), every page-load,
+  and every tab-open — plus a `webview_debug` IPC round-trip that ran on every tab
+  open purely to log diagnostics. capture.js no longer builds/logs a string per
+  publish. History `record` now takes a read-only fast path for a URL seen within
+  the dedup window: it no longer write-locks or marks the store dirty for a page
+  you're just sitting on, so an actively-mutating tab stops rewriting the whole
+  ~2 MB `history.json` every 60s.
 - **Responsiveness: cheaper sidebar renders + no resize IPC spam.** The tab-list
   derivations (pinned/unpinned tabs, per-group members, ungrouped remainder, the
   split fold) are now memoized instead of re-filtering `tabs()` once per tab row —

@@ -20,18 +20,12 @@
   });
 
   const invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
-  console.log(
-    "[flux capture] init tab=" + TAB_ID + " ipc=" + (invoke ? "yes" : "MISSING"),
-  );
 
   let timer = 0;
   const publish = () => {
+    if (!invoke) return;
     clearTimeout(timer);
     timer = setTimeout(() => {
-      if (!invoke) {
-        console.warn("[flux capture] no __TAURI_INTERNALS__.invoke in this webview");
-        return;
-      }
       const s = snapshot();
       // Plain JSON args (NOT a raw body): real pages' CSPs block Tauri's
       // fetch IPC, forcing the postMessage path, which doesn't carry raw
@@ -43,10 +37,7 @@
         html: s.html,
         text: s.text,
         title: s.title,
-      }).then(
-        () => console.log("[flux capture] published " + s.text.length + " chars (tab " + TAB_ID + ")"),
-        (e) => console.error("[flux capture] dom_publish rejected:", e),
-      );
+      }).catch(() => {});
     }, 400); // debounce: SPA mutation storms → at most ~2 snapshots/s
   };
 

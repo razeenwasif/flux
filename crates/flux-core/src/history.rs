@@ -62,6 +62,16 @@ impl HistoryStore {
             return;
         }
         let now = now_ms();
+        // Fast path under a READ lock: a URL already seen within the dedup window
+        // is the same visit — nothing meaningful changed, so take no write lock and
+        // leave `dirty` alone. Without this, an actively-mutating page (capture.js
+        // republishes every ~400ms) kept history perpetually dirty, rewriting the
+        // whole ~2 MB file every 60s for a page you're just sitting on.
+        if let Some(en) = self.entries.read().get(url) {
+            if now.saturating_sub(en.last_visit_ms) < VISIT_DEDUP_MS {
+                return;
+            }
+        }
         {
             let mut e = self.entries.write();
             match e.get_mut(url) {
