@@ -88,7 +88,7 @@ These are the non-negotiables before Flux is a usable daily browser.
 | 36 | P1 | Per-site zoom (persisted) and full-page zoom | all |
 | 37 | P1 | Picture-in-picture for video, auto-PiP on tab switch | Chrome/Arc/Safari |
 | 38 | P1 | Permissions UI: camera/mic/location/notifications prompts + per-site manager | all |
-| 39 | P1 | History: full-text searchable, calendar view, clear-browsing-data | all |
+| 39 | ✅ | **History** (done): persisted, searchable browsing history at `flux://history` — auto-recorded from the DOM-capture pipe (URL + page title), frecency-ranked, capped + debounced-save. Full-page view: recents grouped by day, live search, per-row favicons (#21), open / remove-one / clear-all; reachable from Start page + 🔖 Library. Store unit-tested. _Follow-up:_ a calendar view. | all |
 | 40 | P2 | Translate page (local model candidate — ties into the Gemma work) | Chrome/Edge/Safari |
 | 41 | P2 | Reader mode: declutter + typography + TTS | Safari/FF/Edge |
 | 42 | P2 | PWA / "install site as app" with its own window + dock icon | Chrome/Edge |

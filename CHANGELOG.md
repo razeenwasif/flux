@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Browsing history** (BACKLOG #39) — a persisted, searchable history at
+  `flux://history`. Visits are recorded automatically from the DOM-capture pipe
+  (real navigated URL + page `<title>`), deduped per visit and ranked by a
+  simple frecency (recency + visit count); the store is capped + saved on a
+  debounced background timer. The full-page view (DOM-rendered, like
+  `flux://passwords`) shows recents grouped by day, live search, per-row
+  favicons (#21), click-to-open, remove-one, and clear-all. Reachable from the
+  Start page and the 🔖 Library popover. Store logic is unit-tested. Local-only.
 - **Favicons** (BACKLOG #21) — the tab strip + pinned rail now show each site's
   real favicon instead of a letter glyph. Fetched **directly from the site and
   without cookies** (a plain `<img>` would send them) — never a third-party

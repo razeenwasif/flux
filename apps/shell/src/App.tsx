@@ -21,6 +21,7 @@ import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCle
 import {
   OMNI_URL,
   VAULT_URL,
+  HISTORY_URL,
   PANE_SESSION,
   agentChat,
   agentExecute,
@@ -71,6 +72,7 @@ import FilesView from "./FilesView";
 import OmniDashboard from "./OmniDashboard";
 import Passwords from "./Passwords";
 import VaultPage from "./VaultPage";
+import HistoryPage from "./HistoryPage";
 import Shields from "./Shields";
 import {
   activeId,
@@ -944,7 +946,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </Show>
             </Show>
             <Show when={panel() === "bookmarks"}>
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Bookmarks</div>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Library</div>
+              <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(HISTORY_URL); }}>🕘 Browsing history</button>
               <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
                 Bookmark store + Chrome import land in BACKLOG #22. Import data is already parsed by <code>flux-import</code>.
               </div>
@@ -1021,6 +1024,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === VAULT_URL}>
           <VaultPage onNavigate={props.onNavigate} />
+        </Match>
+        <Match when={activeTab()?.url === HISTORY_URL}>
+          <HistoryPage onNavigate={props.onNavigate} />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage

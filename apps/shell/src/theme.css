@@ -1112,3 +1112,25 @@ body.resizing .shell { transition: none !important; }
 .vault-msg { font-size: 12px; }
 .vault-msg.err { color: #ff8a8a; }
 .vault-toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; font-size: 12.5px; color: var(--flux-text); }
+
+/* ── Full-page history (flux://history, BACKLOG #39) ── */
+.hist-page { height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; overflow: hidden; color: var(--flux-text); }
+.hist-head { display: flex; align-items: center; gap: 12px; flex: none; }
+.hist-title { font-size: 18px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.hist-search { flex: 1; max-width: 460px; padding: 8px 14px; font-size: 13px; border-radius: 999px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); }
+.hist-clear { margin-left: auto; flex: none; padding: 7px 13px; border-radius: 9px; font-size: 12.5px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); }
+.hist-clear:hover { color: #fff; background: #c0392b; border-color: transparent; }
+.hist-body { flex: 1; overflow-y: auto; min-height: 0; max-width: 860px; }
+.hist-group { margin-bottom: 14px; }
+.hist-day { font-size: 11.5px; font-weight: 600; color: var(--flux-text-mute); text-transform: uppercase; letter-spacing: 0.05em; padding: 4px 8px; position: sticky; top: 0; background: var(--flux-bg, var(--flux-surface)); }
+.hist-row { display: flex; align-items: center; gap: 11px; padding: 7px 10px; border-radius: 9px; cursor: pointer; }
+.hist-row:hover { background: var(--flux-surface-2); }
+.hist-time { flex: none; width: 52px; font-size: 11.5px; color: var(--flux-text-mute); font-variant-numeric: tabular-nums; }
+.hist-letter { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; font-size: 11px; font-weight: 650; color: var(--flux-text-dim); }
+.hist-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hist-name { font-size: 13px; color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-url { font-size: 11.5px; color: var(--flux-text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-forget { flex: none; opacity: 0; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 12px; color: var(--flux-text-dim); }
+.hist-row:hover .hist-forget { opacity: 1; }
+.hist-forget:hover { color: #fff; background: #c0392b; }
+.hist-empty { font-size: 13px; color: var(--flux-text-mute); padding: 30px 10px; text-align: center; }

@@ -116,6 +116,16 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve({ total_mb: 16384, available_mb: 9216, process_mb: 312, available_pct: 56 } as T);
     case "favicon":
       return Promise.resolve(null as T); // no network in preview → letter glyphs
+    case "history_recent":
+    case "history_search":
+      return Promise.resolve([
+        { url: "https://news.ycombinator.com", title: "Hacker News", last_visit_ms: T0 + DAY, visits: 12 },
+        { url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", last_visit_ms: T0 + DAY - 3600_000, visits: 8 },
+        { url: "https://rust-lang.org", title: "Rust Programming Language", last_visit_ms: T0, visits: 3 },
+      ] as T);
+    case "history_delete":
+    case "history_clear":
+      return Promise.resolve(undefined as T);
     case "search_resolve": {
       const input = String(args?.input ?? "").trim();
       const hasScheme = /^https?:\/\//.test(input);

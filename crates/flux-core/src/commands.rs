@@ -173,18 +173,24 @@ pub fn dom_publish(
     url: String,
     html: String,
     text: String,
+    title: Option<String>,
 ) -> Result<(), String> {
     // Bound per-tab memory before anything holds onto these strings (#79).
     let html = cap_utf8(html, MAX_SNAPSHOT_HTML);
     let text = cap_utf8(text, MAX_SNAPSHOT_TEXT);
 
+    // Prefer the page's own <title>; fall back to the tab's stored title.
+    let title = title.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| {
+        state.tabs.get(&tab_id).map(|t| t.title.clone()).unwrap_or_default()
+    });
+
+    // Record the visit in browsing history (#39); skips non-http(s) internally.
+    if let Some(h) = app.try_state::<crate::history::HistoryStore>() {
+        h.record(&url, &title);
+    }
+
     // Live ingest into Omni (no-op unless the user enabled auto-ingest). Done
     // before the snapshot is built so the page text is still owned here.
-    let title = state
-        .tabs
-        .get(&tab_id)
-        .map(|t| t.title.clone())
-        .unwrap_or_default();
     crate::omni::maybe_auto_ingest(&app, &url, &title, &text);
 
     let snapshot = Arc::new(DomSnapshot {

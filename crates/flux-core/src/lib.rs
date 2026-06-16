@@ -10,6 +10,7 @@ pub mod extensions;
 pub mod favicon;
 pub mod files;
 pub mod hibernate;
+pub mod history;
 pub mod mem;
 pub mod https;
 pub mod netfilter;
@@ -94,6 +95,23 @@ pub fn run(intent: cli::LaunchIntent) {
             // Favicon cache (#21) — fetched cookielessly, cached per host on disk.
             let fav_dir = app.path().app_data_dir().ok().map(|d| d.join("favicons"));
             app.manage(favicon::FaviconCache::new(fav_dir));
+            // Browsing history (#39) — recorded from dom_publish, persisted.
+            let history_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("history.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-history.json"));
+            app.manage(history::HistoryStore::restore(history_path));
+            {
+                // Debounced background save: flush history to disk if it changed.
+                let handle = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(15));
+                    if let Some(h) = handle.try_state::<history::HistoryStore>() {
+                        h.persist_if_dirty();
+                    }
+                });
+            }
             // Password vault (#61) — OS-keychain data key + decrypted-in-memory
             // for autofill; persists to app_data/vault/vault.bin.
             app.manage(vault::VaultState::load(app.handle()));
@@ -161,6 +179,10 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_capture_state,
             mem::mem_status,
             favicon::favicon,
+            history::history_recent,
+            history::history_search,
+            history::history_delete,
+            history::history_clear,
             webview::webview_navigate,
             webview::webview_stop,
             webview::webview_find,

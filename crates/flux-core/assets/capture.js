@@ -42,6 +42,7 @@
         url: s.url,
         html: s.html,
         text: s.text,
+        title: s.title,
       }).then(
         () => console.log("[flux capture] published " + s.text.length + " chars (tab " + TAB_ID + ")"),
         (e) => console.error("[flux capture] dom_publish rejected:", e),

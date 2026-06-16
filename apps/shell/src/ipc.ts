@@ -382,6 +382,22 @@ export const memStatus = () => invoke<MemInfo>("mem_status");
 
 /** A host's favicon as a data: URL (fetched cookielessly + cached), or null. #21 */
 export const faviconFetch = (host: string) => invoke<string | null>("favicon", { host });
+
+// ─── Browsing history (BACKLOG #39) ──────────────────────────────────────────
+/** Sentinel url for the full-page history view (DOM-rendered, no webview). */
+export const HISTORY_URL = "flux://history";
+export interface HistoryEntry {
+  url: string;
+  title: string;
+  last_visit_ms: number;
+  visits: number;
+}
+export const historyRecent = (limit?: number) =>
+  invoke<HistoryEntry[]>("history_recent", { limit: limit ?? null });
+export const historySearch = (query: string, limit?: number) =>
+  invoke<HistoryEntry[]>("history_search", { query, limit: limit ?? null });
+export const historyDelete = (url: string) => invoke<void>("history_delete", { url });
+export const historyClear = () => invoke<void>("history_clear");
 /** Find-in-page (BACKLOG #33). Empty query clears the highlight. */
 export const webviewFind = (tabId: number, query: string, forward = true) =>
   invoke<void>("webview_find", { tabId, query, forward });
