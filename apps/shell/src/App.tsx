@@ -63,6 +63,7 @@ import {
   type MemInfo,
   type Rect,
   type ResizeDir,
+  type TabGroup,
   type TabMeta,
 } from "./ipc";
 import TerminalView from "./TerminalView";
@@ -83,21 +84,30 @@ import {
   activeTab,
   aiAnswersOn,
   closeTab,
+  deleteGroup,
   ensureFavicon,
   faviconFor,
   findOpen,
   focusTab,
+  groupByTopic,
+  groupColor,
+  groups,
   hibernateEnabled,
   hibernateMins,
   isHibernated,
   isLoading,
   memEvict,
+  newGroupWithTab,
   openTab,
   pendingAsk,
   pinnedTabs,
+  recolorGroup,
   refreshTabs,
+  renameGroup,
   reorderTabs,
   searchSuggestOn,
+  setTabGroup,
+  toggleGroupCollapsed,
   setFindMatches,
   setFindOpen,
   setHibernated,
@@ -711,6 +721,42 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Tab drag-reorder (#30).
   const [dragId, setDragId] = createSignal<number | null>(null);
   const [dropId, setDropId] = createSignal<number | null>(null);
+  // Tab right-click menu + grouping (#56).
+  const [ctxTab, setCtxTab] = createSignal<TabMeta | null>(null);
+  const [ctxPos, setCtxPos] = createSignal({ x: 0, y: 0 });
+  const openCtx = (e: MouseEvent, tab: TabMeta) => { e.preventDefault(); setCtxTab(tab); setCtxPos({ x: e.clientX, y: e.clientY }); };
+  const closeCtx = () => setCtxTab(null);
+  const ungroupedTabs = () => unpinnedTabs().filter((t) => t.group == null || !groups().some((g) => g.id === t.group));
+  const GROUP_PALETTE = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
+  const cycleGroupColor = (g: TabGroup) => {
+    const i = GROUP_PALETTE.indexOf(g.color);
+    void recolorGroup(g.id, GROUP_PALETTE[(i + 1) % GROUP_PALETTE.length]!);
+  };
+  const renamePrompt = (g: TabGroup) => {
+    const n = window.prompt("Group name", g.name);
+    if (n != null && n.trim()) void renameGroup(g.id, n.trim());
+  };
+
+  // One tab row — reused for grouped + ungrouped lists.
+  const TabRow: Component<{ tab: TabMeta }> = (p) => (
+    <div
+      classList={{ "tab-row": true, active: activeId() === p.tab.id, sleeping: isHibernated(p.tab.id), dragging: dragId() === p.tab.id, "drag-over": dropId() === p.tab.id }}
+      style={{ "border-left-color": clusterColor(p.tab) }}
+      draggable={true}
+      onClick={() => focusTab(p.tab.id)}
+      onContextMenu={(e) => openCtx(e, p.tab)}
+      onDragStart={(e) => { setDragId(p.tab.id); e.dataTransfer!.effectAllowed = "move"; e.dataTransfer!.setData("text/plain", String(p.tab.id)); }}
+      onDragOver={(e) => { if (dragId() == null || dragId() === p.tab.id) return; e.preventDefault(); e.dataTransfer!.dropEffect = "move"; setDropId(p.tab.id); }}
+      onDragLeave={() => { if (dropId() === p.tab.id) setDropId(null); }}
+      onDrop={(e) => { e.preventDefault(); const d = dragId(); if (d != null && d !== p.tab.id) { const r = e.currentTarget.getBoundingClientRect(); void reorderTabs(d, p.tab.id, e.clientY > r.top + r.height / 2); } setDragId(null); setDropId(null); }}
+      onDragEnd={() => { setDragId(null); setDropId(null); }}
+      title={isHibernated(p.tab.id) ? "sleeping — click to wake" : "drag to reorder · right-click for menu"}
+    >
+      <span class="tab-favicon">{isHibernated(p.tab.id) ? "💤" : <Favicon tab={p.tab} />}</span>
+      <span class="title">{p.tab.title || p.tab.url}</span>
+      <button class="close" title="Close tab" onClick={(e) => { e.stopPropagation(); void closeTab(p.tab.id); }}>✕</button>
+    </div>
+  );
 
   const openPanel = async (p: FooterPanel) => {
     setPanel((cur) => (cur === p ? null : p));
@@ -968,61 +1014,68 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Show>
         </div>
 
-        {/* Tab list */}
-        <span class="sidebar-section">Tabs</span>
-        <div class="tab-list">
-          <For each={unpinnedTabs()}>
-            {(tab) => (
-              <div
-                classList={{ "tab-row": true, active: activeId() === tab.id, sleeping: isHibernated(tab.id), dragging: dragId() === tab.id, "drag-over": dropId() === tab.id }}
-                style={{ "border-left-color": clusterColor(tab) }}
-                draggable={true}
-                onClick={() => focusTab(tab.id)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  void togglePin(tab); // → moves to the pinned grid
-                }}
-                onDragStart={(e) => {
-                  setDragId(tab.id);
-                  e.dataTransfer!.effectAllowed = "move";
-                  e.dataTransfer!.setData("text/plain", String(tab.id));
-                }}
-                onDragOver={(e) => {
-                  if (dragId() == null || dragId() === tab.id) return;
-                  e.preventDefault();
-                  e.dataTransfer!.dropEffect = "move";
-                  setDropId(tab.id);
-                }}
-                onDragLeave={() => { if (dropId() === tab.id) setDropId(null); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const d = dragId();
-                  if (d != null && d !== tab.id) {
-                    const r = e.currentTarget.getBoundingClientRect();
-                    void reorderTabs(d, tab.id, e.clientY > r.top + r.height / 2);
-                  }
-                  setDragId(null);
-                  setDropId(null);
-                }}
-                onDragEnd={() => { setDragId(null); setDropId(null); }}
-                title={isHibernated(tab.id) ? "sleeping — click to wake" : "drag to reorder · right-click to pin"}
-              >
-                <span class="tab-favicon">{isHibernated(tab.id) ? "💤" : <Favicon tab={tab} />}</span>
-                <span class="title">{tab.title || tab.url}</span>
-                <button
-                  class="close"
-                  title="Close tab"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void closeTab(tab.id);
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-          </For>
+        {/* Tab list — grouped sections (#56) then ungrouped, all drag-reorderable */}
+        <div class="tab-list-head">
+          <span class="sidebar-section">Tabs</span>
+          <Show when={unpinnedTabs().some((t) => t.cluster) || groups().length > 0}>
+            <button class="group-topic" title="Group tabs by topic (from semantic clusters)" onClick={() => void groupByTopic()}>⊞ Group</button>
+          </Show>
         </div>
+        <div class="tab-list">
+          <For each={groups()}>
+            {(g) => {
+              const members = () => unpinnedTabs().filter((t) => t.group === g.id);
+              return (
+                <Show when={members().length > 0}>
+                  <div class="tab-group">
+                    <div class="tab-group-head" onClick={() => void toggleGroupCollapsed(g)}>
+                      <span class="tab-group-dot" title="Recolor" style={{ background: groupColor(g) }} onClick={(e) => { e.stopPropagation(); cycleGroupColor(g); }} />
+                      <span class="tab-group-name" title="Double-click to rename" onDblClick={(e) => { e.stopPropagation(); renamePrompt(g); }}>{g.name}</span>
+                      <span class="tab-group-count">{members().length}</span>
+                      <button class="tab-group-x" title="Ungroup" onClick={(e) => { e.stopPropagation(); void deleteGroup(g.id); }}>✕</button>
+                      <span class="tab-group-chev">{g.collapsed ? "▸" : "▾"}</span>
+                    </div>
+                    <Show when={!g.collapsed}>
+                      <div class="tab-group-body" style={{ "border-left-color": groupColor(g) }}>
+                        <For each={members()}>{(tab) => <TabRow tab={tab} />}</For>
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+              );
+            }}
+          </For>
+          <For each={ungroupedTabs()}>{(tab) => <TabRow tab={tab} />}</For>
+        </div>
+      </Show>
+
+      {/* Tab right-click menu (#56): pin, grouping, close. */}
+      <Show when={ctxTab()}>
+        {(t) => (
+          <>
+            <div class="ctx-backdrop" onClick={closeCtx} onContextMenu={(e) => { e.preventDefault(); closeCtx(); }} />
+            <div class="tab-ctx glass" style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}>
+              <button onClick={() => { void togglePin(t()); closeCtx(); }}>{t().pinned ? "Unpin" : "Pin tab"}</button>
+              <button onClick={() => { void newGroupWithTab(t().id); closeCtx(); }}>New group with tab</button>
+              <Show when={groups().length > 0}>
+                <div class="ctx-sep" />
+                <div class="ctx-label">Add to group</div>
+                <For each={groups()}>
+                  {(g) => (
+                    <button onClick={() => { void setTabGroup(t().id, g.id); closeCtx(); }}>
+                      <span class="tab-group-dot" style={{ background: groupColor(g) }} /> {g.name}
+                    </button>
+                  )}
+                </For>
+              </Show>
+              <Show when={t().group != null}>
+                <button onClick={() => { void setTabGroup(t().id, null); closeCtx(); }}>Remove from group</button>
+              </Show>
+              <div class="ctx-sep" />
+              <button onClick={() => { void closeTab(t().id); closeCtx(); }}>Close tab</button>
+            </div>
+          </>
+        )}
       </Show>
 
       {/* Collapsed rail: pinned tiles stack vertically, nothing else. */}

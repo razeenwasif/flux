@@ -404,6 +404,30 @@ body.resizing .shell { transition: none !important; }
   position: relative;
 }
 .tab-row:hover { background: var(--flux-surface); color: var(--flux-text); }
+/* Tab groups (BACKLOG #56). */
+.tab-list-head { display: flex; align-items: center; justify-content: space-between; }
+.group-topic { font-size: 10.5px; color: var(--flux-text-mute); padding: 2px 7px; border-radius: 6px; }
+.group-topic:hover { color: var(--flux-teal); background: var(--flux-surface-2); }
+.tab-group { margin-bottom: 2px; }
+.tab-group-head { display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 7px; cursor: pointer; }
+.tab-group-head:hover { background: var(--flux-surface); }
+.tab-group-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; cursor: pointer; }
+.tab-group-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-group-count { flex: none; font-size: 10.5px; color: var(--flux-text-mute); }
+.tab-group-x { flex: none; opacity: 0; width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 11px; color: var(--flux-text-dim); }
+.tab-group-head:hover .tab-group-x { opacity: 1; }
+.tab-group-x:hover { color: var(--flux-text); background: var(--flux-surface-2); }
+.tab-group-chev { flex: none; font-size: 9px; color: var(--flux-text-mute); }
+.tab-group-body { border-left: 2px solid; margin-left: 12px; padding-left: 3px; display: flex; flex-direction: column; gap: 3px; }
+
+/* Tab context menu (BACKLOG #56). */
+.ctx-backdrop { position: fixed; inset: 0; z-index: 50; }
+.tab-ctx { position: fixed; z-index: 51; min-width: 180px; max-width: 240px; padding: 5px; display: flex; flex-direction: column; gap: 1px; border-radius: 10px; }
+.tab-ctx button { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 7px; text-align: left; font-size: 12.5px; color: var(--flux-text); }
+.tab-ctx button:hover { background: var(--flux-surface-2); }
+.ctx-sep { height: 1px; background: var(--glass-rim-soft); margin: 3px 4px; }
+.ctx-label { font-size: 10px; color: var(--flux-text-mute); text-transform: uppercase; letter-spacing: 0.05em; padding: 4px 10px 2px; }
+
 /* Drag-reorder (BACKLOG #30). */
 .tab-row { cursor: grab; }
 .tab-row.dragging { opacity: 0.4; cursor: grabbing; }

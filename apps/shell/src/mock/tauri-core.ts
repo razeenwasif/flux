@@ -46,14 +46,16 @@ let mockVault: { id: string; name: string; urls: string[]; username: string; pas
 ];
 const mockNow = () => T0 + DAY; // "just now" relative to the fixed dates above
 const tabs: TabMeta[] = [
-  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null },
-  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null },
-  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb } },
-  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null },
-  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb } },
-  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null },
-  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null },
+  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null, group: null },
+  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null, group: null },
+  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null },
+  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null, group: null },
+  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null },
+  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null, group: null },
+  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null, group: null },
 ];
+// Tab groups (BACKLOG #56).
+let mockGroups: { id: number; name: string; color: number; collapsed: boolean }[] = [];
 
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   switch (cmd) {
@@ -70,6 +72,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         title: kind === "terminal" ? `term #${nextId}` : "New Tab",
         pinned: false,
         cluster: null,
+        group: null,
       };
       tabs.push(tab);
       return Promise.resolve(tab as T);
@@ -79,6 +82,31 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       tabs.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
       return Promise.resolve(undefined as T);
     }
+    case "groups_list":
+      return Promise.resolve(mockGroups as T);
+    case "group_create": {
+      const id = nextId++;
+      mockGroups.push({ id, name: String(args?.name ?? "New group"), color: Number(args?.color ?? 0x5bc0eb), collapsed: false });
+      for (const t of tabs) if ((args?.tabIds as number[] ?? []).includes(t.id)) t.group = id;
+      return Promise.resolve(id as T);
+    }
+    case "group_update": {
+      const g = mockGroups.find((x) => x.id === args?.id);
+      if (g) { if (args?.name != null) g.name = String(args.name); if (args?.color != null) g.color = Number(args.color); if (args?.collapsed != null) g.collapsed = Boolean(args.collapsed); }
+      return Promise.resolve(undefined as T);
+    }
+    case "group_delete": {
+      mockGroups = mockGroups.filter((g) => g.id !== args?.id);
+      for (const t of tabs) if (t.group === args?.id) t.group = null;
+      return Promise.resolve(undefined as T);
+    }
+    case "tab_set_group": {
+      const t = tabs.find((x) => x.id === args?.tabId);
+      if (t) t.group = (args?.group as number | null) ?? null;
+      return Promise.resolve(undefined as T);
+    }
+    case "groups_from_clusters":
+      return Promise.resolve(0 as T);
     case "tab_set_pinned": {
       const t = tabs.find((t) => t.id === args?.id);
       if (t) t.pinned = args?.pinned as boolean;

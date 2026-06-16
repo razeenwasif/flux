@@ -44,7 +44,7 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
             (start, title)
         }
     };
-    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None };
+    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None };
     state.tabs.insert(id, meta.clone());
     state.order_push(id);
     state.set_active_tab(id);
@@ -140,6 +140,57 @@ pub fn tab_list(state: State<'_, FluxState>) -> Vec<TabMeta> {
 pub fn tab_reorder(state: State<'_, FluxState>, ids: Vec<TabId>) {
     state.set_order(ids);
     state.persist();
+}
+
+// ─── Tab groups (BACKLOG #56) ────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn groups_list(state: State<'_, FluxState>) -> Vec<crate::state::TabGroup> {
+    state.groups_list()
+}
+
+/// Create a group (optionally seeded with `tab_ids`); returns its id.
+#[tauri::command]
+pub fn group_create(state: State<'_, FluxState>, name: String, color: u32, tab_ids: Vec<TabId>) -> u32 {
+    let id = state.group_create(name, color);
+    for t in tab_ids {
+        state.set_tab_group(t, Some(id));
+    }
+    state.persist();
+    id
+}
+
+#[tauri::command]
+pub fn group_update(
+    state: State<'_, FluxState>,
+    id: u32,
+    name: Option<String>,
+    color: Option<u32>,
+    collapsed: Option<bool>,
+) {
+    state.group_update(id, name, color, collapsed);
+    state.persist();
+}
+
+#[tauri::command]
+pub fn group_delete(state: State<'_, FluxState>, id: u32) {
+    state.group_delete(id);
+    state.persist();
+}
+
+/// Add a tab to a group (`group = None` removes it).
+#[tauri::command]
+pub fn tab_set_group(state: State<'_, FluxState>, tab_id: TabId, group: Option<u32>) {
+    state.set_tab_group(tab_id, group);
+    state.persist();
+}
+
+/// "Group by topic" — seed groups from the semantic clusters. Returns the count.
+#[tauri::command]
+pub fn groups_from_clusters(state: State<'_, FluxState>) -> usize {
+    let n = state.groups_from_clusters();
+    state.persist();
+    n
 }
 
 // ─── DOM snapshot ingestion (tab webview → Rust) ────────────────────────────

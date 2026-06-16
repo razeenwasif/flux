@@ -48,6 +48,16 @@ export interface TabMeta {
   title: string;
   pinned: boolean;
   cluster: ClusterTag | null;
+  /** Manual tab group id (BACKLOG #56), or null if ungrouped. */
+  group: number | null;
+}
+
+export interface TabGroup {
+  id: number;
+  name: string;
+  /** 0xRRGGBB. */
+  color: number;
+  collapsed: boolean;
 }
 
 export interface LaunchIntent {
@@ -93,6 +103,17 @@ export const tabSetPinned = (id: number, pinned: boolean) =>
   invoke<void>("tab_set_pinned", { id, pinned });
 /** Reorder the tab strip — `ids` is the new full display order (BACKLOG #30). */
 export const tabReorder = (ids: number[]) => invoke<void>("tab_reorder", { ids });
+// ─── Tab groups (BACKLOG #56) ────────────────────────────────────────────────
+export const groupsList = () => invoke<TabGroup[]>("groups_list");
+export const groupCreate = (name: string, color: number, tabIds: number[]) =>
+  invoke<number>("group_create", { name, color, tabIds });
+export const groupUpdate = (id: number, patch: { name?: string; color?: number; collapsed?: boolean }) =>
+  invoke<void>("group_update", { id, name: patch.name ?? null, color: patch.color ?? null, collapsed: patch.collapsed ?? null });
+export const groupDelete = (id: number) => invoke<void>("group_delete", { id });
+export const tabSetGroup = (tabId: number, group: number | null) =>
+  invoke<void>("tab_set_group", { tabId, group });
+/** "Group by topic" — seed groups from the semantic clusters; returns the count. */
+export const groupsFromClusters = () => invoke<number>("groups_from_clusters");
 /** Sync a tab's live url/title to the backend so the persisted session is current. */
 export const tabSetUrl = (id: number, url: string, title?: string) =>
   invoke<void>("tab_set_url", { id, url, title: title ?? null });

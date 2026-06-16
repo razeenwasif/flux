@@ -6,20 +6,68 @@
 import { createSignal } from "solid-js";
 import {
   faviconFetch,
+  groupCreate,
+  groupDelete,
+  groupUpdate,
+  groupsFromClusters,
+  groupsList,
   tabActive,
   tabClose,
   tabCreate,
   tabFocus,
   tabList,
   tabReorder,
+  tabSetGroup,
   tabSetPinned,
   webviewClose,
+  type TabGroup,
   type TabKind,
   type TabMeta,
 } from "./ipc";
 
 const [tabs, setTabs] = createSignal<TabMeta[]>([]);
 const [activeId, setActiveId] = createSignal<number | null>(null);
+// Manual tab groups (BACKLOG #56).
+const [groups, setGroups] = createSignal<TabGroup[]>([]);
+export { groups };
+
+async function refreshGroups(): Promise<void> {
+  setGroups(await groupsList().catch(() => []));
+}
+/** Color of a group as a CSS hex string. */
+export const groupColor = (g: TabGroup): string => `#${(g.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
+
+export async function newGroupWithTab(tabId: number): Promise<void> {
+  const palette = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
+  const color = palette[groups().length % palette.length]!;
+  await groupCreate("New group", color, [tabId]).catch(() => {});
+  await Promise.all([refreshTabs(), refreshGroups()]);
+}
+export async function setTabGroup(tabId: number, group: number | null): Promise<void> {
+  await tabSetGroup(tabId, group).catch(() => {});
+  await Promise.all([refreshTabs(), refreshGroups()]);
+}
+export async function deleteGroup(id: number): Promise<void> {
+  await groupDelete(id).catch(() => {});
+  await Promise.all([refreshTabs(), refreshGroups()]);
+}
+export async function renameGroup(id: number, name: string): Promise<void> {
+  await groupUpdate(id, { name }).catch(() => {});
+  await refreshGroups();
+}
+export async function recolorGroup(id: number, color: number): Promise<void> {
+  await groupUpdate(id, { color }).catch(() => {});
+  await refreshGroups();
+}
+export async function toggleGroupCollapsed(g: TabGroup): Promise<void> {
+  await groupUpdate(g.id, { collapsed: !g.collapsed }).catch(() => {});
+  await refreshGroups();
+}
+export async function groupByTopic(): Promise<number> {
+  const n = await groupsFromClusters().catch(() => 0);
+  await Promise.all([refreshTabs(), refreshGroups()]);
+  return n;
+}
 // Tabs currently loading a page (BACKLOG #31) — drives the stop/reload swap and
 // the omnibox progress bar. Fed by the page-load events (started/finished).
 const [loadingTabs, setLoadingTabs] = createSignal<Set<number>>(new Set());
@@ -147,6 +195,7 @@ export async function refreshTabs(): Promise<void> {
     const restored = await tabActive().catch(() => null);
     setActiveId(restored && list.some((t) => t.id === restored) ? restored : list.at(-1)!.id);
   }
+  void refreshGroups();
 }
 
 export async function openTab(kind: TabKind, url?: string): Promise<TabMeta> {

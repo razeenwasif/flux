@@ -47,6 +47,22 @@ pub struct TabMeta {
     pub pinned: bool,
     /// Semantic cluster assigned by `flux-embed`. `None` until first embed.
     pub cluster: Option<ClusterTag>,
+    /// Manual tab group (BACKLOG #56). `None` = ungrouped.
+    #[serde(default)]
+    pub group: Option<u32>,
+}
+
+/// A manual, user-controlled tab group (BACKLOG #56) — named, colored,
+/// collapsible. Distinct from the auto semantic `cluster`, though "group by
+/// topic" can seed groups from clusters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabGroup {
+    pub id: u32,
+    pub name: String,
+    /// 0xRRGGBB.
+    pub color: u32,
+    #[serde(default)]
+    pub collapsed: bool,
 }
 
 /// A semantic cluster: stable id + the display color the UI paints the tab.
@@ -104,6 +120,9 @@ pub struct FluxState {
     /// Explicit tab display order (BACKLOG #30) — the user can drag-reorder, so
     /// this is the source of truth for ordering rather than tab id.
     order: RwLock<Vec<TabId>>,
+    /// Manual tab groups (BACKLOG #56).
+    groups: RwLock<Vec<TabGroup>>,
+    next_group_id: AtomicU64,
     /// Where the session is persisted (BACKLOG #19). `None` → no persistence
     /// (tests / the `Default` impl).
     session_path: Option<std::path::PathBuf>,
@@ -119,6 +138,8 @@ impl FluxState {
             dom_cache: DashMap::new(),
             agent: RwLock::new(AgentStatus::Idle),
             order: RwLock::new(Vec::new()),
+            groups: RwLock::new(Vec::new()),
+            next_group_id: AtomicU64::new(1),
             session_path: None,
         }
     }
@@ -139,6 +160,7 @@ impl FluxState {
         let next = session.next_id.max(max_id + 1).max(1);
         // Only keep the active pointer if that tab actually came back.
         let active = if tabs.contains_key(&session.active) { session.active } else { 0 };
+        let next_group = session.groups.iter().map(|g| g.id).max().unwrap_or(0) as u64 + 1;
         Self {
             active_tab: AtomicU64::new(active),
             next_tab_id: AtomicU64::new(next),
@@ -146,6 +168,8 @@ impl FluxState {
             dom_cache: DashMap::new(),
             agent: RwLock::new(AgentStatus::Idle),
             order: RwLock::new(order),
+            groups: RwLock::new(session.groups),
+            next_group_id: AtomicU64::new(next_group),
             session_path: Some(session_path),
         }
     }
@@ -194,6 +218,79 @@ impl FluxState {
         *self.order.write() = next;
     }
 
+    // ── Tab groups (BACKLOG #56) ──────────────────────────────────────────────
+
+    pub fn groups_list(&self) -> Vec<TabGroup> {
+        self.groups.read().clone()
+    }
+
+    pub fn group_create(&self, name: String, color: u32) -> u32 {
+        let id = self.next_group_id.fetch_add(1, Ordering::Relaxed) as u32;
+        self.groups.write().push(TabGroup { id, name, color, collapsed: false });
+        id
+    }
+
+    pub fn group_update(&self, id: u32, name: Option<String>, color: Option<u32>, collapsed: Option<bool>) {
+        if let Some(g) = self.groups.write().iter_mut().find(|g| g.id == id) {
+            if let Some(n) = name {
+                g.name = n;
+            }
+            if let Some(c) = color {
+                g.color = c;
+            }
+            if let Some(c) = collapsed {
+                g.collapsed = c;
+            }
+        }
+    }
+
+    /// Delete a group and ungroup its tabs.
+    pub fn group_delete(&self, id: u32) {
+        self.groups.write().retain(|g| g.id != id);
+        for mut t in self.tabs.iter_mut() {
+            if t.group == Some(id) {
+                t.group = None;
+            }
+        }
+    }
+
+    pub fn set_tab_group(&self, tab_id: TabId, group: Option<u32>) {
+        if let Some(mut t) = self.tabs.get_mut(&tab_id) {
+            t.group = group;
+        }
+    }
+
+    /// "Group by topic": create a group per semantic cluster present on the
+    /// unpinned tabs, and assign those tabs to it. Returns the count created.
+    pub fn groups_from_clusters(&self) -> usize {
+        use std::collections::HashMap;
+        // cluster id → (color, tab ids)
+        let mut by_cluster: HashMap<u32, (u32, Vec<TabId>)> = HashMap::new();
+        for t in self.tabs.iter() {
+            if t.pinned {
+                continue;
+            }
+            if let Some(c) = t.cluster {
+                by_cluster.entry(c.id).or_insert((c.color, Vec::new())).1.push(t.id);
+            }
+        }
+        let mut created = 0;
+        // Stable order by cluster id for deterministic naming.
+        let mut clusters: Vec<_> = by_cluster.into_iter().collect();
+        clusters.sort_by_key(|(cid, _)| *cid);
+        for (_cid, (color, tab_ids)) in clusters {
+            if tab_ids.len() < 2 {
+                continue; // a group of one isn't useful
+            }
+            let gid = self.group_create(format!("Topic {}", created + 1), color);
+            for id in tab_ids {
+                self.set_tab_group(id, Some(gid));
+            }
+            created += 1;
+        }
+        created
+    }
+
     /// Write the current tabs to disk (no-op without a `session_path`). Cheap —
     /// the file is a few KB — and called after each tab mutation. Tabs are
     /// ordered by id (== creation order) so restore preserves the tab strip.
@@ -205,6 +302,7 @@ impl FluxState {
             tabs: self.ordered_tabs(),
             active: self.active_tab.load(Ordering::Acquire),
             next_id: self.next_tab_id.load(Ordering::Acquire),
+            groups: self.groups.read().clone(),
         };
         crate::session::save(path, &session);
     }

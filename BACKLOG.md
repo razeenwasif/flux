@@ -112,7 +112,7 @@ The features that make Arc/Vivaldi/Zen users evangelical.
 | 53 | P2 | **Notes / easels / annotations** tied to pages, local-first | Arc, Vivaldi |
 | 54 | P2 | **Web capture**: region + full-scrolling-page screenshot with annotation | Edge, Firefox |
 | 55 | P2 | **Compact / focus mode**: hide all chrome, content-only | Zen, Arc |
-| 56 | P2 | **Tab stacking** (groups within the vertical list, collapsible) | Vivaldi, Chrome groups |
+| 56 | ✅ | **Tab groups** (done): named/colored/collapsible groups in the strip. Right-click → pin / new group / add-to / remove / close; headers collapse, rename (dblclick), recolor (dot), ungroup (✕). **"⊞ Group"** = group-by-topic, seeded from the semantic clusters (#14). Persisted (`TabGroup` model + commands). _Follow-up:_ drag tabs between groups (today grouping is via the menu; drag only reorders). | Vivaldi, Chrome groups |
 
 ## Epic: Privacy, security & data
 

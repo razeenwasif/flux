@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Tab groups** (BACKLOG #56) — named, colored, collapsible groups in the tab
+  strip. Right-click a tab for: pin, **new group**, **add to** an existing group,
+  **remove from group**, close. Group headers collapse/expand, rename
+  (double-click), recolor (click the dot), and ungroup (✕). A **"⊞ Group"** button
+  by the Tabs header runs **group-by-topic**, seeding groups from Flux's existing
+  semantic clusters (flux-embed). Groups + per-tab membership persist across
+  restart. Backend model is `TabGroup` + commands; the UI reuses one drag-aware
+  `TabRow` for grouped and ungrouped tabs.
 - **Drag-and-drop tab reordering** (BACKLOG #30). Tabs in the strip are now
   draggable — drop above/below another tab to reposition (the drop point follows
   the cursor's half of the target row). The order is an explicit, persisted
