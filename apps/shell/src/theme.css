@@ -378,6 +378,18 @@ body.resizing .shell { transition: none !important; }
   white-space: pre-wrap; word-break: break-word;
   max-height: 220px; overflow-y: auto;
 }
+/* Inline footnote citation ([n]) rendered within the streamed answer prose. */
+.omni-cite {
+  cursor: pointer;
+  color: var(--flux-violet, #9d8df1);
+  font-weight: 700;
+  font-size: 0.7em;
+  vertical-align: super;
+  line-height: 0;
+}
+.omni-cite::before { content: "["; }
+.omni-cite::after { content: "]"; }
+.omni-cite:hover { text-decoration: underline; }
 .omni-answer-src { display: flex; flex-wrap: wrap; gap: 6px; }
 .omni-answer-cite {
   font-size: 11px; color: var(--flux-text-dim);
