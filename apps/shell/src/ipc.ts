@@ -157,6 +157,8 @@ export type Resolution =
 
 /** Resolve omnibox input → final URL (navigate vs search vs keyword). */
 export const searchResolve = (input: string) => invoke<Resolution>("search_resolve", { input });
+/** Live search suggestions from the default engine's suggest endpoint (#32). */
+export const searchSuggest = (query: string) => invoke<string[]>("search_suggest", { query });
 export const searchEngines = () => invoke<SearchEngine[]>("search_engines");
 export const searchDefault = () => invoke<string>("search_default");
 export const searchSetDefault = (id: string) => invoke<void>("search_set_default", { id });

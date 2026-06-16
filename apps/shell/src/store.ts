@@ -74,6 +74,15 @@ export { favicons };
 const faviconInflight = new Set<string>();
 export const faviconFor = (host: string | null): string | null | undefined =>
   host ? favicons()[host] : undefined;
+// Omnibox search suggestions (#32). On by default; gating it off keeps your
+// keystrokes off the search engine (history suggestions stay local either way).
+const [searchSuggestOn, setSearchSuggestRaw] = createSignal(localStorage.getItem("flux.suggest") !== "0");
+export { searchSuggestOn };
+export function setSearchSuggestOn(on: boolean): void {
+  setSearchSuggestRaw(on);
+  localStorage.setItem("flux.suggest", on ? "1" : "0");
+}
+
 export function ensureFavicon(host: string | null): void {
   if (!host || host in favicons() || faviconInflight.has(host)) return;
   faviconInflight.add(host);

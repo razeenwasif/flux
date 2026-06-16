@@ -306,6 +306,23 @@ body.resizing .shell { transition: none !important; }
 .sec { flex: none; font-size: 12px; line-height: 1; cursor: default; user-select: none; }
 .sec-secure { filter: grayscale(0.2); opacity: 0.85; }
 .sec-insecure { color: #ffcc66; }
+/* Omnibox live suggestions (BACKLOG #32) — drops below the address pill, within
+   the sidebar (never under the native webview). */
+.omni-suggest {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 35;
+  display: flex; flex-direction: column; gap: 1px; padding: 4px;
+  max-height: 320px; overflow-y: auto;
+  border-radius: 12px;
+  background: var(--flux-surface); border: 1px solid var(--glass-rim-soft);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+.omni-sug { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 8px; text-align: left; width: 100%; }
+.omni-sug.sel, .omni-sug:hover { background: var(--flux-surface-2); }
+.omni-sug-icon { flex: none; font-size: 12px; opacity: 0.7; }
+.omni-sug-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.omni-sug-label { font-size: 12.5px; color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.omni-sug-sub { font-size: 11px; color: var(--flux-text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Indeterminate loading bar under the pill — the native webview can't cover it
    here (it's in the sidebar, left of the content card). */
 .addr-progress {

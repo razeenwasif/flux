@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Omnibox live suggestions** (BACKLOG #32) — as you type in the address bar, a
+  dropdown shows local **history matches** (with favicons) followed by **search
+  suggestions** from the default engine's suggest endpoint (OpenSearch JSON, as
+  DuckDuckGo/Google/Bing return). Arrow keys move the selection, Enter opens it,
+  Esc dismisses, click/hover work. The dropdown lives in the sidebar (never under
+  the native webview). A **"Search suggestions" toggle** (Settings ⚙, on by
+  default) gates the remote fetch — turn it off and only local history is used,
+  so your keystrokes never leave the machine.
 - **Browsing history** (BACKLOG #39) — a persisted, searchable history at
   `flux://history`. Visits are recorded automatically from the DOM-capture pipe
   (real navigated URL + page `<title>`), deduped per visit and ranked by a

@@ -34,10 +34,12 @@ import {
   onFindResult,
   onShortcut,
   onTabLoaded,
+  historySearch,
   searchDefault,
   searchEngines,
   searchResolve,
   searchSetDefault,
+  searchSuggest,
   tabSetUrl,
   webviewBack,
   type SearchEngine,
@@ -90,12 +92,14 @@ import {
   openTab,
   pinnedTabs,
   refreshTabs,
+  searchSuggestOn,
   setFindMatches,
   setFindOpen,
   setHibernated,
   setHibernateEnabled,
   setHibernateMins,
   setMemEvict,
+  setSearchSuggestOn,
   setTabLoading,
   tabs,
   togglePin,
@@ -643,6 +647,8 @@ interface SidebarProps {
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | null;
+/** An omnibox suggestion (#32): a local history hit (has `url`) or an engine suggestion. */
+type Suggestion = { kind: "history" | "search"; label: string; sub?: string; url?: string };
 
 const Sidebar: Component<SidebarProps> = (props) => {
   const [picker, setPicker] = createSignal(false);
@@ -693,8 +699,57 @@ const Sidebar: Component<SidebarProps> = (props) => {
     return null;
   };
 
+  // Omnibox live suggestions (#32): local history matches + engine suggestions.
+  const [suggestions, setSuggestions] = createSignal<Suggestion[]>([]);
+  const [selIdx, setSelIdx] = createSignal(-1);
+  let sugTimer: number | undefined;
+  const closeSuggest = () => { setSuggestions([]); setSelIdx(-1); };
+
+  const onAddressInput = (v: string) => {
+    setAddress(v);
+    setSelIdx(-1);
+    clearTimeout(sugTimer);
+    const q = v.trim();
+    if (!q || q.startsWith("flux://")) { setSuggestions([]); return; }
+    sugTimer = window.setTimeout(async () => {
+      const hist = await historySearch(q, 5).catch(() => []);
+      const out: Suggestion[] = hist.map((h) => ({ kind: "history", label: h.title || h.url, sub: h.url, url: h.url }));
+      if (searchSuggestOn()) {
+        const sug = await searchSuggest(q).catch(() => []);
+        for (const t of sug) {
+          if (out.length >= 8) break;
+          if (!out.some((x) => x.label.toLowerCase() === t.toLowerCase())) out.push({ kind: "search", label: t });
+        }
+      }
+      // Drop suggestions if the user already moved on / cleared the field.
+      if (address().trim() === q) setSuggestions(out.slice(0, 8));
+    }, 110);
+  };
+
+  const chooseSuggestion = async (s: Suggestion) => {
+    closeSuggest();
+    setAddress("");
+    if (s.url) props.onNavigate(s.url);
+    else {
+      const { url } = await searchResolve(s.label);
+      props.onNavigate(url);
+    }
+  };
+
+  const onAddressKeyDown = (e: KeyboardEvent) => {
+    const n = suggestions().length;
+    if (e.key === "ArrowDown" && n) { e.preventDefault(); setSelIdx((i) => (i + 1) % n); }
+    else if (e.key === "ArrowUp" && n) { e.preventDefault(); setSelIdx((i) => (i - 1 + n) % n); }
+    else if (e.key === "Escape") { closeSuggest(); }
+    else if (e.key === "Enter") {
+      const s = suggestions()[selIdx()];
+      if (s) { e.preventDefault(); void chooseSuggestion(s); }
+    }
+  };
+
   const submitAddress = async (e: SubmitEvent) => {
     e.preventDefault();
+    closeSuggest();
     const v = address().trim();
     if (!v) return;
     setAddress("");
@@ -758,10 +813,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
             id="flux-address"
             class="address"
             value={address() || currentUrl()}
-            onInput={(e) => setAddress(e.currentTarget.value)}
+            onInput={(e) => onAddressInput(e.currentTarget.value)}
             onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={onAddressKeyDown}
+            onBlur={() => setTimeout(closeSuggest, 150)}
             placeholder="Search or enter address  (Ctrl+L)"
             spellcheck={false}
+            autocomplete="off"
           />
           {/* Save the current page into the Omni index (also Ctrl+Shift+O). */}
           <button
@@ -775,6 +833,27 @@ const Sidebar: Component<SidebarProps> = (props) => {
           {/* Loading bar: lives in the sidebar, never under the native webview. */}
           <Show when={isLoading(activeId())}>
             <div class="addr-progress" />
+          </Show>
+          {/* Live suggestions (#32) — sidebar-resident, so never under the webview. */}
+          <Show when={suggestions().length > 0}>
+            <div class="omni-suggest">
+              <For each={suggestions()}>
+                {(s, i) => (
+                  <button
+                    type="button"
+                    classList={{ "omni-sug": true, sel: selIdx() === i() }}
+                    onMouseDown={(e) => { e.preventDefault(); void chooseSuggestion(s); }}
+                    onMouseEnter={() => setSelIdx(i())}
+                  >
+                    <span class="omni-sug-icon">{s.kind === "history" ? "🕘" : "🔍"}</span>
+                    <span class="omni-sug-text">
+                      <span class="omni-sug-label">{s.label}</span>
+                      <Show when={s.sub}><span class="omni-sug-sub">{s.sub}</span></Show>
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
           </Show>
         </form>
 
@@ -914,6 +993,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <Show when={engines().length === 0}>
                 <div class="start-empty" style={{ padding: "6px 8px" }}>Engines load in the running app.</div>
               </Show>
+              <div class="shields-row" style={{ padding: "4px 8px 2px" }}>
+                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Send what you type to the search engine for live suggestions. History suggestions stay local either way.">Search suggestions</span>
+                <button classList={{ "shields-toggle": true, on: searchSuggestOn() }} onClick={() => setSearchSuggestOn(!searchSuggestOn())}>
+                  {searchSuggestOn() ? "On" : "Off"}
+                </button>
+              </div>
               <div class="shields-sep" />
               <div class="sidebar-section" style={{ padding: "4px 8px" }}>Memory</div>
               <div class="shields-row" style={{ padding: "2px 8px" }}>

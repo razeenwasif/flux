@@ -192,6 +192,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_close,
             webview::webview_debug,
             search::search_resolve,
+            search::search_suggest,
             search::search_engines,
             search::search_default,
             search::search_set_default,

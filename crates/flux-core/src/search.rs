@@ -4,6 +4,7 @@
 //! custom engine becomes the one Flux searches with (BACKLOG #68).
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use parking_lot::RwLock;
 use tauri::{AppHandle, Manager, State};
@@ -54,6 +55,22 @@ impl SearchState {
             .and_then(|e| origin_of(&e.search_template))
             .unwrap_or_else(|| "http://localhost:8080".into())
     }
+
+    /// The default engine's suggestions endpoint for `query`, if it defines one.
+    pub fn suggest_url(&self, query: &str) -> Option<String> {
+        let cfg = self.config.read();
+        cfg.engine(&cfg.default_id).and_then(|e| e.suggest_url(query))
+    }
+}
+
+/// Parse an OpenSearch suggestions response (`[query, [completions], …]`) —
+/// the format DuckDuckGo, Google, and Bing all return.
+fn parse_opensearch(body: &str) -> Vec<String> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get(1).and_then(|a| a.as_array()).cloned())
+        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).take(8).collect())
+        .unwrap_or_default()
 }
 
 /// `"http://host:port/search?q={query}"` → `"http://host:port"`.
@@ -68,6 +85,26 @@ fn origin_of(template: &str) -> Option<String> {
 #[tauri::command]
 pub fn search_resolve(state: State<'_, SearchState>, input: String) -> Resolution {
     state.config.read().resolve(&input)
+}
+
+/// Live omnibox suggestions for `query` from the default engine's suggest
+/// endpoint (#32). Empty if the engine has none. Note: this sends the query to
+/// the engine — the chrome only calls it when the user enabled suggestions.
+#[tauri::command]
+pub async fn search_suggest(state: State<'_, SearchState>, query: String) -> Result<Vec<String>, String> {
+    let q = query.trim();
+    if q.len() < 2 {
+        return Ok(vec![]);
+    }
+    let Some(url) = state.suggest_url(q) else {
+        return Ok(vec![]);
+    };
+    let body = tauri::async_runtime::spawn_blocking(move || {
+        ureq::get(&url).timeout(Duration::from_secs(4)).call().ok()?.into_string().ok()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(body.map(|b| parse_opensearch(&b)).unwrap_or_default())
 }
 
 #[tauri::command]

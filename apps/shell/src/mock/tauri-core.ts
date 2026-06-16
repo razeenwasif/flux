@@ -126,6 +126,10 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "history_delete":
     case "history_clear":
       return Promise.resolve(undefined as T);
+    case "search_suggest": {
+      const q = String(args?.query ?? "");
+      return Promise.resolve((q ? [`${q} tutorial`, `${q} reddit`, `${q} vs alternatives`] : []) as T);
+    }
     case "search_resolve": {
       const input = String(args?.input ?? "").trim();
       const hasScheme = /^https?:\/\//.test(input);
