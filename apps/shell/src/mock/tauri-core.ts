@@ -46,16 +46,22 @@ let mockVault: { id: string; name: string; urls: string[]; username: string; pas
 ];
 const mockNow = () => T0 + DAY; // "just now" relative to the fixed dates above
 const tabs: TabMeta[] = [
-  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null, group: null },
-  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null, group: null },
-  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null },
-  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null, group: null },
-  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null },
-  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null, group: null },
-  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null, group: null },
+  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null, group: null, workspace: 1 },
+  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null, group: null, workspace: 1 },
+  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, workspace: 1 },
+  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null, group: null, workspace: 1 },
+  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, workspace: 1 },
+  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null, group: null, workspace: 1 },
+  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null, group: null, workspace: 1 },
 ];
 // Tab groups (BACKLOG #56).
 let mockGroups: { id: number; name: string; color: number; collapsed: boolean }[] = [];
+// Workspaces (BACKLOG #44).
+let mockWorkspaces: { id: number; name: string; color: number }[] = [
+  { id: 1, name: "Personal", color: 0x9d8df1 },
+  { id: 2, name: "Work", color: 0x5bc0eb },
+];
+let mockActiveWs = 1;
 
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   switch (cmd) {
@@ -73,6 +79,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         pinned: false,
         cluster: null,
         group: null,
+        workspace: mockActiveWs,
       };
       tabs.push(tab);
       return Promise.resolve(tab as T);
@@ -107,6 +114,30 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "groups_from_clusters":
       return Promise.resolve(0 as T);
+    case "workspaces_list":
+      return Promise.resolve(mockWorkspaces as T);
+    case "workspace_active":
+      return Promise.resolve(mockActiveWs as T);
+    case "workspace_switch":
+      mockActiveWs = Number(args?.id ?? 1);
+      return Promise.resolve(undefined as T);
+    case "workspace_create": {
+      const id = nextId++;
+      mockWorkspaces.push({ id, name: String(args?.name ?? "New space"), color: Number(args?.color ?? 0x9d8df1) });
+      return Promise.resolve(id as T);
+    }
+    case "workspace_update": {
+      const w = mockWorkspaces.find((x) => x.id === args?.id);
+      if (w) { if (args?.name != null) w.name = String(args.name); if (args?.color != null) w.color = Number(args.color); }
+      return Promise.resolve(undefined as T);
+    }
+    case "workspace_delete": {
+      const id = Number(args?.id);
+      const closed = tabs.filter((t) => t.workspace === id).map((t) => t.id);
+      mockWorkspaces = mockWorkspaces.filter((w) => w.id !== id);
+      if (mockActiveWs === id) mockActiveWs = mockWorkspaces[0]?.id ?? 1;
+      return Promise.resolve(closed as T);
+    }
     case "tab_set_pinned": {
       const t = tabs.find((t) => t.id === args?.id);
       if (t) t.pinned = args?.pinned as boolean;

@@ -50,6 +50,24 @@ pub struct TabMeta {
     /// Manual tab group (BACKLOG #56). `None` = ungrouped.
     #[serde(default)]
     pub group: Option<u32>,
+    /// Workspace this tab belongs to (BACKLOG #44). Defaults to workspace 1.
+    #[serde(default = "default_workspace")]
+    pub workspace: u32,
+}
+
+fn default_workspace() -> u32 {
+    1
+}
+
+/// An Arc-style workspace (BACKLOG #44): a named, colored set of tabs. Only the
+/// active workspace's tabs hold live webviews — inactive ones are pure metadata
+/// (kilobytes), so switching is cheap.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Workspace {
+    pub id: u32,
+    pub name: String,
+    /// 0xRRGGBB accent.
+    pub color: u32,
 }
 
 /// A manual, user-controlled tab group (BACKLOG #56) — named, colored,
@@ -123,6 +141,10 @@ pub struct FluxState {
     /// Manual tab groups (BACKLOG #56).
     groups: RwLock<Vec<TabGroup>>,
     next_group_id: AtomicU64,
+    /// Workspaces (BACKLOG #44) + the active one.
+    workspaces: RwLock<Vec<Workspace>>,
+    active_workspace: AtomicU64,
+    next_workspace_id: AtomicU64,
     /// Where the session is persisted (BACKLOG #19). `None` → no persistence
     /// (tests / the `Default` impl).
     session_path: Option<std::path::PathBuf>,
@@ -140,6 +162,9 @@ impl FluxState {
             order: RwLock::new(Vec::new()),
             groups: RwLock::new(Vec::new()),
             next_group_id: AtomicU64::new(1),
+            workspaces: RwLock::new(vec![Workspace { id: 1, name: "Personal".into(), color: 0x9d8df1 }]),
+            active_workspace: AtomicU64::new(1),
+            next_workspace_id: AtomicU64::new(2),
             session_path: None,
         }
     }
@@ -161,6 +186,17 @@ impl FluxState {
         // Only keep the active pointer if that tab actually came back.
         let active = if tabs.contains_key(&session.active) { session.active } else { 0 };
         let next_group = session.groups.iter().map(|g| g.id).max().unwrap_or(0) as u64 + 1;
+        // Workspaces: seed a default if the session had none (older files).
+        let mut workspaces = session.workspaces;
+        if workspaces.is_empty() {
+            workspaces.push(Workspace { id: 1, name: "Personal".into(), color: 0x9d8df1 });
+        }
+        let next_ws = workspaces.iter().map(|w| w.id).max().unwrap_or(1) as u64 + 1;
+        let active_ws = if workspaces.iter().any(|w| w.id == session.active_workspace) {
+            session.active_workspace
+        } else {
+            workspaces[0].id
+        };
         Self {
             active_tab: AtomicU64::new(active),
             next_tab_id: AtomicU64::new(next),
@@ -170,6 +206,9 @@ impl FluxState {
             order: RwLock::new(order),
             groups: RwLock::new(session.groups),
             next_group_id: AtomicU64::new(next_group),
+            workspaces: RwLock::new(workspaces),
+            active_workspace: AtomicU64::new(active_ws as u64),
+            next_workspace_id: AtomicU64::new(next_ws),
             session_path: Some(session_path),
         }
     }
@@ -291,6 +330,62 @@ impl FluxState {
         created
     }
 
+    // ── Workspaces (BACKLOG #44) ──────────────────────────────────────────────
+
+    pub fn workspaces_list(&self) -> Vec<Workspace> {
+        self.workspaces.read().clone()
+    }
+
+    pub fn active_workspace(&self) -> u32 {
+        self.active_workspace.load(Ordering::Acquire) as u32
+    }
+
+    pub fn set_active_workspace(&self, id: u32) {
+        if self.workspaces.read().iter().any(|w| w.id == id) {
+            self.active_workspace.store(id as u64, Ordering::Release);
+        }
+    }
+
+    pub fn workspace_create(&self, name: String, color: u32) -> u32 {
+        let id = self.next_workspace_id.fetch_add(1, Ordering::Relaxed) as u32;
+        self.workspaces.write().push(Workspace { id, name, color });
+        id
+    }
+
+    pub fn workspace_update(&self, id: u32, name: Option<String>, color: Option<u32>) {
+        if let Some(w) = self.workspaces.write().iter_mut().find(|w| w.id == id) {
+            if let Some(n) = name {
+                w.name = n;
+            }
+            if let Some(c) = color {
+                w.color = c;
+            }
+        }
+    }
+
+    /// Delete a workspace and all its tabs. Refuses to remove the last one;
+    /// returns the tab ids that were closed (so the shell can tear down their
+    /// webviews). If the active workspace is deleted, the active pointer moves.
+    pub fn workspace_delete(&self, id: u32) -> Vec<TabId> {
+        if self.workspaces.read().len() <= 1 {
+            return Vec::new();
+        }
+        let closed: Vec<TabId> =
+            self.tabs.iter().filter(|t| t.workspace == id).map(|t| t.id).collect();
+        for tid in &closed {
+            self.tabs.remove(tid);
+            self.dom_cache.remove(tid);
+            self.order_remove(*tid);
+        }
+        self.workspaces.write().retain(|w| w.id != id);
+        if self.active_workspace() == id {
+            if let Some(first) = self.workspaces.read().first().map(|w| w.id) {
+                self.active_workspace.store(first as u64, Ordering::Release);
+            }
+        }
+        closed
+    }
+
     /// Write the current tabs to disk (no-op without a `session_path`). Cheap —
     /// the file is a few KB — and called after each tab mutation. Tabs are
     /// ordered by id (== creation order) so restore preserves the tab strip.
@@ -303,6 +398,8 @@ impl FluxState {
             active: self.active_tab.load(Ordering::Acquire),
             next_id: self.next_tab_id.load(Ordering::Acquire),
             groups: self.groups.read().clone(),
+            workspaces: self.workspaces.read().clone(),
+            active_workspace: self.active_workspace.load(Ordering::Acquire) as u32,
         };
         crate::session::save(path, &session);
     }

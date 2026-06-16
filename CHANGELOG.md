@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Workspaces** (BACKLOG #44) — Arc-style named, colored tab spaces. Each tab
+  belongs to a workspace; the strip (pinned + groups + tabs) shows only the
+  active one. A switcher above the sidebar tools: click a pill to switch, **+**
+  to create, double-click to rename, click the dot to recolor, right-click to
+  delete (closes its tabs). **Highly RAM-optimized**: switching away **destroys
+  the leaving workspace's webviews**, so inactive workspaces cost only their
+  tab metadata (kilobytes) — and tabs are created lazily anyway, so an unvisited
+  workspace holds no webviews at all. Workspaces + per-tab membership + the
+  active one persist across restart.
 - **Tab groups** (BACKLOG #56) — named, colored, collapsible groups in the tab
   strip. Right-click a tab for: pin, **new group**, **add to** an existing group,
   **remove from group**, close. Group headers collapse/expand, rename

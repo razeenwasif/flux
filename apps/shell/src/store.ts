@@ -20,13 +20,47 @@ import {
   tabSetGroup,
   tabSetPinned,
   webviewClose,
+  workspaceActive,
+  workspaceCreate,
+  workspaceSwitch,
+  workspaceUpdate,
+  workspacesList,
   type TabGroup,
   type TabKind,
   type TabMeta,
+  type Workspace,
 } from "./ipc";
 
 const [tabs, setTabs] = createSignal<TabMeta[]>([]);
 const [activeId, setActiveId] = createSignal<number | null>(null);
+// Workspaces (BACKLOG #44). Only the active workspace's tabs are shown + hold
+// live webviews; inactive workspaces are pure metadata (kilobytes of RAM).
+const [workspaces, setWorkspaces] = createSignal<Workspace[]>([]);
+const [activeWorkspace, setActiveWorkspaceSig] = createSignal<number>(1);
+export { workspaces, activeWorkspace };
+export const workspaceColor = (w: Workspace): string => `#${(w.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
+async function refreshWorkspaces(): Promise<void> {
+  const [ws, act] = await Promise.all([workspacesList().catch(() => []), workspaceActive().catch(() => 1)]);
+  setWorkspaces(ws);
+  setActiveWorkspaceSig(act);
+}
+export function setActiveWorkspace(id: number): void {
+  setActiveWorkspaceSig(id);
+}
+export async function createWorkspace(name: string, color: number): Promise<number> {
+  const id = await workspaceCreate(name, color).catch(() => 0);
+  await refreshWorkspaces();
+  return id;
+}
+export async function renameWorkspace(id: number, name: string): Promise<void> {
+  await workspaceUpdate(id, { name }).catch(() => {});
+  await refreshWorkspaces();
+}
+export async function recolorWorkspace(id: number, color: number): Promise<void> {
+  await workspaceUpdate(id, { color }).catch(() => {});
+  await refreshWorkspaces();
+}
+
 // Manual tab groups (BACKLOG #56).
 const [groups, setGroups] = createSignal<TabGroup[]>([]);
 export { groups };
@@ -171,8 +205,9 @@ export function setTabLoading(id: number, loading: boolean): void {
 export const activeTab = (): TabMeta | null =>
   tabs().find((t) => t.id === activeId()) ?? null;
 
-export const pinnedTabs = () => tabs().filter((t) => t.pinned);
-export const unpinnedTabs = () => tabs().filter((t) => !t.pinned);
+// Only the active workspace's tabs appear in the strip (#44).
+export const pinnedTabs = () => tabs().filter((t) => t.pinned && t.workspace === activeWorkspace());
+export const unpinnedTabs = () => tabs().filter((t) => !t.pinned && t.workspace === activeWorkspace());
 
 export async function refreshTabs(): Promise<void> {
   const list = await tabList();
@@ -196,6 +231,7 @@ export async function refreshTabs(): Promise<void> {
     setActiveId(restored && list.some((t) => t.id === restored) ? restored : list.at(-1)!.id);
   }
   void refreshGroups();
+  void refreshWorkspaces();
 }
 
 export async function openTab(kind: TabKind, url?: string): Promise<TabMeta> {

@@ -404,6 +404,16 @@ body.resizing .shell { transition: none !important; }
   position: relative;
 }
 .tab-row:hover { background: var(--flux-surface); color: var(--flux-text); }
+/* Workspace switcher (BACKLOG #44). */
+.workspace-bar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 2px; border-top: 1px solid var(--glass-rim-soft); }
+.ws-pill { display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; border: 1px solid transparent; font-size: 11.5px; color: var(--flux-text-dim); background: var(--flux-surface-2); max-width: 130px; }
+.ws-pill.active { color: var(--flux-text); background: var(--flux-surface); }
+.ws-pill:hover { color: var(--flux-text); }
+.ws-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; cursor: pointer; }
+.ws-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-add { flex: none; width: 26px; height: 26px; border-radius: 999px; display: grid; place-items: center; font-size: 15px; color: var(--flux-text-mute); background: var(--flux-surface-2); }
+.ws-add:hover { color: var(--flux-teal); }
+
 /* Tab groups (BACKLOG #56). */
 .tab-list-head { display: flex; align-items: center; justify-content: space-between; }
 .group-topic { font-size: 10.5px; color: var(--flux-text-mute); padding: 2px 7px; border-radius: 6px; }

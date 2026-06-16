@@ -57,6 +57,9 @@ import {
   webviewShow,
   webviewStop,
   webviewFind,
+  workspaceActive,
+  workspaceDelete,
+  workspaceSwitch,
   win,
   type AgentAction,
   type AgentStatus,
@@ -65,6 +68,7 @@ import {
   type ResizeDir,
   type TabGroup,
   type TabMeta,
+  type Workspace,
 } from "./ipc";
 import TerminalView from "./TerminalView";
 import StartPage from "./StartPage";
@@ -82,8 +86,10 @@ import Shields from "./Shields";
 import {
   activeId,
   activeTab,
+  activeWorkspace,
   aiAnswersOn,
   closeTab,
+  createWorkspace,
   deleteGroup,
   ensureFavicon,
   faviconFor,
@@ -102,12 +108,17 @@ import {
   pendingAsk,
   pinnedTabs,
   recolorGroup,
+  recolorWorkspace,
   refreshTabs,
   renameGroup,
+  renameWorkspace,
   reorderTabs,
   searchSuggestOn,
+  setActiveWorkspace,
   setTabGroup,
   toggleGroupCollapsed,
+  workspaceColor,
+  workspaces,
   setFindMatches,
   setFindOpen,
   setHibernated,
@@ -453,6 +464,48 @@ const App: Component = () => {
     omniToastTimer = window.setTimeout(() => setOmniToast(null), 2600);
   };
 
+  // Workspaces (#44). Switching destroys the leaving workspace's webviews so
+  // inactive workspaces cost only their (KB) metadata; it activates the target
+  // workspace's last-used tab.
+  const wsLastTab = new Map<number, number>();
+  const switchWorkspace = async (id: number) => {
+    if (id === activeWorkspace()) return;
+    const cur = activeId();
+    if (cur != null) wsLastTab.set(activeWorkspace(), cur);
+    for (const t of tabs()) {
+      if (t.workspace !== id && openedWebviews.has(t.id)) {
+        openedWebviews.delete(t.id);
+        setHibernated(t.id, true);
+        wv(webviewHibernate(t.id));
+      }
+    }
+    await workspaceSwitch(id).catch(() => {});
+    setActiveWorkspace(id);
+    const members = tabs().filter((t) => t.workspace === id);
+    const target = members.find((t) => t.id === wsLastTab.get(id)) ?? members[0];
+    if (target) void focusTab(target.id);
+    else void openTab("browser"); // empty workspace → a fresh tab (created in it)
+  };
+  const newWorkspace = async () => {
+    const palette = [0x9d8df1, 0x5bc0eb, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
+    const id = await createWorkspace("New space", palette[workspaces().length % palette.length]!);
+    if (id) await switchWorkspace(id);
+  };
+  const removeWorkspace = async (id: number) => {
+    if (workspaces().length <= 1) return;
+    if (!confirm("Delete this workspace and all its tabs?")) return;
+    const closed = await workspaceDelete(id).catch(() => [] as number[]);
+    for (const tid of closed) {
+      openedWebviews.delete(tid);
+      wv(webviewHibernate(tid));
+    }
+    await refreshTabs();
+    const act = await workspaceActive().catch(() => activeWorkspace());
+    setActiveWorkspace(act);
+    const members = tabs().filter((t) => t.workspace === act);
+    if (members[0]) void focusTab(members[0].id);
+  };
+
   // Command palette (#6). It's a centered modal; the native webview is a
   // separate OS layer over the content card, so hide the active page while it's
   // open and show it again on close.
@@ -575,6 +628,9 @@ const App: Component = () => {
         onToggleAgent={() => setAgentOpen((v) => !v)}
         onSaveToOmni={saveToOmni}
         onAiSearch={(q) => { if (aiAnswersOn()) { setAgentOpen(true); setPendingAsk(q); } }}
+        onSwitchWorkspace={switchWorkspace}
+        onNewWorkspace={newWorkspace}
+        onDeleteWorkspace={removeWorkspace}
       />
       <ContentArea
         onNavigate={go}
@@ -705,6 +761,9 @@ interface SidebarProps {
   onToggleAgent: () => void;
   onSaveToOmni: () => void;
   onAiSearch: (query: string) => void;
+  onSwitchWorkspace: (id: number) => void;
+  onNewWorkspace: () => void;
+  onDeleteWorkspace: (id: number) => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | null;
@@ -735,6 +794,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const renamePrompt = (g: TabGroup) => {
     const n = window.prompt("Group name", g.name);
     if (n != null && n.trim()) void renameGroup(g.id, n.trim());
+  };
+  const WS_PALETTE = [0x9d8df1, 0x5bc0eb, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
+  const cycleWsColor = (w: Workspace) => {
+    const i = WS_PALETTE.indexOf(w.color);
+    void recolorWorkspace(w.id, WS_PALETTE[(i + 1) % WS_PALETTE.length]!);
   };
 
   // One tab row — reused for grouped + ungrouped lists.
@@ -1093,6 +1157,28 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </button>
             )}
           </For>
+        </div>
+      </Show>
+
+      {/* Workspace switcher (#44) — Arc-style, above the tools. */}
+      <Show when={!props.collapsed}>
+        <div class="workspace-bar">
+          <For each={workspaces()}>
+            {(w) => (
+              <button
+                classList={{ "ws-pill": true, active: activeWorkspace() === w.id }}
+                style={{ "border-color": activeWorkspace() === w.id ? workspaceColor(w) : "transparent" }}
+                title={`${w.name} — double-click to rename, right-click to delete`}
+                onClick={() => props.onSwitchWorkspace(w.id)}
+                onDblClick={() => { const n = window.prompt("Workspace name", w.name); if (n && n.trim()) void renameWorkspace(w.id, n.trim()); }}
+                onContextMenu={(e) => { e.preventDefault(); props.onDeleteWorkspace(w.id); }}
+              >
+                <span class="ws-dot" title="Recolor" style={{ background: workspaceColor(w) }} onClick={(e) => { e.stopPropagation(); cycleWsColor(w); }} />
+                <span class="ws-name">{w.name}</span>
+              </button>
+            )}
+          </For>
+          <button class="ws-add" title="New workspace" onClick={() => props.onNewWorkspace()}>+</button>
         </div>
       </Show>
 

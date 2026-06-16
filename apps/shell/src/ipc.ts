@@ -50,6 +50,15 @@ export interface TabMeta {
   cluster: ClusterTag | null;
   /** Manual tab group id (BACKLOG #56), or null if ungrouped. */
   group: number | null;
+  /** Workspace this tab belongs to (BACKLOG #44). */
+  workspace: number;
+}
+
+export interface Workspace {
+  id: number;
+  name: string;
+  /** 0xRRGGBB. */
+  color: number;
 }
 
 export interface TabGroup {
@@ -114,6 +123,15 @@ export const tabSetGroup = (tabId: number, group: number | null) =>
   invoke<void>("tab_set_group", { tabId, group });
 /** "Group by topic" — seed groups from the semantic clusters; returns the count. */
 export const groupsFromClusters = () => invoke<number>("groups_from_clusters");
+// ─── Workspaces (BACKLOG #44) ────────────────────────────────────────────────
+export const workspacesList = () => invoke<Workspace[]>("workspaces_list");
+export const workspaceActive = () => invoke<number>("workspace_active");
+export const workspaceSwitch = (id: number) => invoke<void>("workspace_switch", { id });
+export const workspaceCreate = (name: string, color: number) => invoke<number>("workspace_create", { name, color });
+export const workspaceUpdate = (id: number, patch: { name?: string; color?: number }) =>
+  invoke<void>("workspace_update", { id, name: patch.name ?? null, color: patch.color ?? null });
+/** Delete a workspace + its tabs; returns the closed tab ids. */
+export const workspaceDelete = (id: number) => invoke<number[]>("workspace_delete", { id });
 /** Sync a tab's live url/title to the backend so the persisted session is current. */
 export const tabSetUrl = (id: number, url: string, title?: string) =>
   invoke<void>("tab_set_url", { id, url, title: title ?? null });
