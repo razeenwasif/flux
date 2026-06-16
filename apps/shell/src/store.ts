@@ -171,6 +171,21 @@ export async function groupByTopic(): Promise<number> {
   await Promise.all([refreshTabs(), refreshGroups()]);
   return n;
 }
+/** Open a set of URLs as browser tabs and bundle them into a new tab group
+ *  (#56). Capped so a big folder can't open hundreds of tabs at once. The
+ *  practical "import tab groups" bridge: open a bookmark folder as a group. */
+export async function openUrlsAsGroup(name: string, urls: string[]): Promise<number> {
+  const palette = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
+  const color = palette[groups().length % palette.length]!;
+  const ids: number[] = [];
+  for (const url of urls.slice(0, 20)) {
+    const t = await openTab("browser", url).catch(() => null);
+    if (t) ids.push(t.id);
+  }
+  if (ids.length) await groupCreate(name || "Group", color, ids).catch(() => {});
+  await Promise.all([refreshTabs(), refreshGroups()]);
+  return ids.length;
+}
 // Tabs currently loading a page (BACKLOG #31) — drives the stop/reload swap and
 // the omnibox progress bar. Fed by the page-load events (started/finished).
 const [loadingTabs, setLoadingTabs] = createSignal<Set<number>>(new Set());
@@ -260,6 +275,16 @@ export { searchSuggestOn };
 export function setSearchSuggestOn(on: boolean): void {
   setSearchSuggestRaw(on);
   localStorage.setItem("flux.suggest", on ? "1" : "0");
+}
+
+// Auto-trigger the streaming Omni answer on every search submit. Off by default:
+// each submit spins up the local LLM (seconds + VRAM), so it's opt-in — the
+// "Ask Omni" row / Alt+Enter are always available regardless.
+const [omniAutoAnswer, setOmniAutoAnswerRaw] = createSignal(localStorage.getItem("flux.omni-auto") === "1");
+export { omniAutoAnswer };
+export function setOmniAutoAnswer(on: boolean): void {
+  setOmniAutoAnswerRaw(on);
+  localStorage.setItem("flux.omni-auto", on ? "1" : "0");
 }
 
 export function ensureFavicon(host: string | null): void {

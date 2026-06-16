@@ -489,6 +489,26 @@ export const historyRecent = (limit?: number) =>
 export const historySearch = (query: string, limit?: number) =>
   invoke<HistoryEntry[]>("history_search", { query, limit: limit ?? null });
 export const historyDelete = (url: string) => invoke<void>("history_delete", { url });
+
+// ─── Bookmarks (BACKLOG #22) ─────────────────────────────────────────────────
+/** Sentinel url for the full-page bookmarks view (DOM-rendered, no webview). */
+export const BOOKMARKS_URL = "flux://bookmarks";
+export interface Bookmark {
+  id: number;
+  title: string;
+  url: string;
+  folder: string;
+  added_ms: number;
+}
+export const bookmarksList = () => invoke<Bookmark[]>("bookmarks_list");
+export const bookmarkFolders = () => invoke<string[]>("bookmark_folders");
+export const bookmarkAdd = (title: string, url: string, folder?: string) =>
+  invoke<Bookmark>("bookmark_add", { title, url, folder: folder ?? null });
+export const bookmarkRemove = (id: number) => invoke<void>("bookmark_remove", { id });
+export const bookmarksClear = () => invoke<void>("bookmarks_clear");
+/** Import every bookmark from a Chrome profile; returns the count added. */
+export const bookmarksImportChrome = (profileDir: string) =>
+  invoke<number>("bookmarks_import_chrome", { profileDir });
 export const historyClear = () => invoke<void>("history_clear");
 
 // ─── Downloads (BACKLOG #34) ─────────────────────────────────────────────────

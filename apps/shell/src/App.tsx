@@ -23,9 +23,11 @@ import {
   OMNI_URL,
   VAULT_URL,
   HISTORY_URL,
+  BOOKMARKS_URL,
   PANE_SESSION,
   agentChat,
   agentExecute,
+  bookmarkAdd,
   chromeFocus,
   isStartUrl,
   launchIntent,
@@ -85,6 +87,7 @@ import OmniDashboard from "./OmniDashboard";
 import Passwords from "./Passwords";
 import VaultPage from "./VaultPage";
 import HistoryPage from "./HistoryPage";
+import BookmarksPage from "./BookmarksPage";
 import Downloads from "./Downloads";
 import Shields from "./Shields";
 import {
@@ -144,6 +147,8 @@ import {
   setMemEvict,
   setPendingAsk,
   setSearchSuggestOn,
+  omniAutoAnswer,
+  setOmniAutoAnswer,
   setTabLoading,
   sendTabToWorkspace,
   sendGroupToWorkspace,
@@ -621,6 +626,7 @@ const App: Component = () => {
     { id: "new-term", label: "New terminal tab", icon: "⌨", run: () => void openTab("terminal").then(() => setTerminalOpen(true)) },
     { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
     { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
+    { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
@@ -874,6 +880,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [picker, setPicker] = createSignal(false);
   const [address, setAddress] = createSignal("");
   const [panel, setPanel] = createSignal<FooterPanel>(null);
+  const [bmFlash, setBmFlash] = createSignal("");
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
   const [defaultEngine, setDefaultEngine] = createSignal("");
   const [mem, setMem] = createSignal<MemInfo | null>(null);
@@ -1123,8 +1130,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
     // `go` (in App) handles start-page vs. open-tab webview lifecycle.
     const r = await searchResolve(v);
     props.onNavigate(r.url);
-    // A genuine search (not a URL) also gets a quick local-AI answer (#ai).
-    if (r.kind === "search") props.onAiSearch(v);
+    // A genuine search (not a URL) also gets a quick local-AI answer (#ai), and —
+    // when opted in — a streamed, grounded answer card from the Omni index.
+    if (r.kind === "search") {
+      props.onAiSearch(v);
+      if (omniAutoAnswer()) startOmniAnswer(v);
+    }
   };
 
   // Nav buttons act on the active browser tab's webview.
@@ -1546,6 +1557,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 </button>
               </div>
               <div class="shields-row" style={{ padding: "2px 8px" }}>
+                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="On every search, stream a grounded answer card from your Omni index in the omnibox (with citations). Off by default — it runs the local LLM each time. The 'Ask Omni' row and Alt+Enter work regardless.">Omni answer on search</span>
+                <button classList={{ "shields-toggle": true, on: omniAutoAnswer() }} onClick={() => setOmniAutoAnswer(!omniAutoAnswer())}>
+                  {omniAutoAnswer() ? "On" : "Off"}
+                </button>
+              </div>
+              <div class="shields-row" style={{ padding: "2px 8px" }}>
                 <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Ask websites to render dark (prefers-color-scheme). Works on most modern sites.">Dark mode (websites)</span>
                 <button classList={{ "shields-toggle": true, on: darkMode() }} onClick={() => setDarkMode(!darkMode())}>
                   {darkMode() ? "On" : "Off"}
@@ -1584,9 +1601,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
             </Show>
             <Show when={panel() === "bookmarks"}>
               <div class="sidebar-section" style={{ padding: "4px 8px" }}>Library</div>
+              <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
+                <button class="shields-update" onClick={() => {
+                  const t = activeTab()!;
+                  void bookmarkAdd(t.title || t.url, t.url).then(() => { setBmFlash("✓ saved"); window.setTimeout(() => setBmFlash(""), 2000); }).catch(() => {});
+                }}>★ Bookmark this page <Show when={bmFlash()}><span class="bm-inline-flash">{bmFlash()}</span></Show></button>
+              </Show>
+              <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(BOOKMARKS_URL); }}>🔖 All bookmarks</button>
               <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(HISTORY_URL); }}>🕘 Browsing history</button>
               <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
-                Bookmark store + Chrome import land in BACKLOG #22. Import data is already parsed by <code>flux-import</code>.
+                Import Chrome bookmarks and open folders as tab groups from the <b>All bookmarks</b> page.
               </div>
             </Show>
             <Show when={panel() === "extensions"}>
@@ -1692,6 +1716,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === HISTORY_URL}>
           <HistoryPage onNavigate={props.onNavigate} />
+        </Match>
+        <Match when={activeTab()?.url === BOOKMARKS_URL}>
+          <BookmarksPage onNavigate={props.onNavigate} />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage

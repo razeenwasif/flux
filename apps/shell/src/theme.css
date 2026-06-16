@@ -1282,6 +1282,26 @@ body.resizing .shell { transition: none !important; }
 .hist-forget:hover { color: #fff; background: #c0392b; }
 .hist-empty { font-size: 13px; color: var(--flux-text-mute); padding: 30px 10px; text-align: center; }
 
+/* ── Bookmarks page (#22) — reuses .hist-* rows, adds folder headers + import ── */
+.bm-folder { display: flex; align-items: center; gap: 8px; padding: 4px 4px 6px; }
+.bm-folder-name { font-size: 12px; font-weight: 600; color: var(--flux-text-dim); }
+.bm-open-group {
+  font-size: 11px; color: var(--flux-teal);
+  padding: 2px 8px; border-radius: 7px;
+  border: 1px solid rgba(47, 243, 255, 0.28); background: rgba(47, 243, 255, 0.07);
+}
+.bm-open-group:hover { background: rgba(47, 243, 255, 0.16); }
+.bm-import { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 2px; }
+.bm-note { font-size: 12px; color: var(--flux-text-mute); }
+.bm-profile {
+  font-size: 12px; color: var(--flux-text);
+  padding: 5px 10px; border-radius: 8px;
+  border: 1px solid var(--flux-border); background: var(--flux-surface);
+}
+.bm-profile:hover { border-color: var(--flux-teal); }
+.bm-flash { font-size: 12px; color: var(--flux-teal); padding: 2px 4px; }
+.bm-inline-flash { float: right; color: var(--flux-teal); font-size: 11px; }
+
 /* ── Command palette (⌘K, BACKLOG #6) ── */
 .palette-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.4); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
 .palette { width: min(620px, 90vw); max-height: 60vh; display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5); }

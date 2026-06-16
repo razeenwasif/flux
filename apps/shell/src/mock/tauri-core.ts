@@ -206,6 +206,23 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "history_delete":
     case "history_clear":
       return Promise.resolve(undefined as T);
+    case "bookmarks_list":
+      return Promise.resolve([
+        { id: 1, title: "Rust", url: "https://rust-lang.org", folder: "Imported", added_ms: T0 },
+        { id: 2, title: "CI", url: "https://ci.example.com", folder: "Imported/Work", added_ms: T0 },
+        { id: 3, title: "Docs", url: "https://docs.example.com", folder: "Imported/Work", added_ms: T0 },
+      ] as T);
+    case "bookmark_folders":
+      return Promise.resolve(["Imported", "Imported/Work"] as T);
+    case "bookmark_add":
+      return Promise.resolve({ id: 99, title: String(args?.title ?? ""), url: String(args?.url ?? ""), folder: String(args?.folder ?? ""), added_ms: T0 } as T);
+    case "bookmark_remove":
+    case "bookmarks_clear":
+      return Promise.resolve(undefined as T);
+    case "bookmarks_import_chrome":
+      return Promise.resolve(42 as T);
+    case "chrome_import_preview":
+      return Promise.resolve([{ dir: "/mock/Default", name: "Default", bookmark_count: 1006, extension_count: 7, has_saved_tab_groups: false }] as T);
     case "search_suggest": {
       const q = String(args?.query ?? "");
       return Promise.resolve((q ? [`${q} tutorial`, `${q} reddit`, `${q} vs alternatives`] : []) as T);

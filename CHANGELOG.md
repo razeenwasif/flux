@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Bookmarks** (BACKLOG #22) — a persisted, folder-aware bookmark store with a
+  `flux://bookmarks` page (search, folder grouping, delete, clear), a footer 🔖
+  popover (**★ Bookmark this page**, All bookmarks, History), and a ⌘K "Open
+  Bookmarks" action. **Chrome import** pulls every bookmark from a chosen profile
+  (de-duped, under an "Imported" folder). Each folder has **"⊞ Open as group"**,
+  which opens its bookmarks as tabs in a new Flux tab group (capped at 20) — the
+  practical bridge for bringing Chrome tab groups over. (Chrome's *saved* tab
+  groups live in a separate SQLite db, parsed in #23; live/unsaved groups are an
+  undocumented session blob — your profile had none.)
 - **Split tabs show as one combined unit in the strip** (BACKLOG #43) — like
   Chrome's paired split tabs: the two tiled tabs render together inside a teal
   "◧◨ Split" bracket with a ⤢ merge (un-split) button, instead of as two

@@ -2,6 +2,7 @@
 //! commands without booting a window.
 
 pub mod agent_bridge;
+pub mod bookmarks;
 pub mod broker;
 pub mod cli;
 pub mod commands;
@@ -99,6 +100,13 @@ pub fn run(intent: cli::LaunchIntent) {
             // Favicon cache (#21) — fetched cookielessly, cached per host on disk.
             let fav_dir = app.path().app_data_dir().ok().map(|d| d.join("favicons"));
             app.manage(favicon::FaviconCache::new(fav_dir));
+            // Bookmarks (#22) — persisted store + Chrome import.
+            let bm_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("bookmarks.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-bookmarks.json"));
+            app.manage(bookmarks::BookmarkStore::restore(bm_path));
             // Download manager (#34) — WebView2 DownloadStarting + progress.
             app.manage(downloads::DownloadState::new());
             // Native dark mode (#40) — WebView2 PreferredColorScheme.
@@ -209,6 +217,12 @@ pub fn run(intent: cli::LaunchIntent) {
             history::history_search,
             history::history_delete,
             history::history_clear,
+            bookmarks::bookmarks_list,
+            bookmarks::bookmark_folders,
+            bookmarks::bookmark_add,
+            bookmarks::bookmark_remove,
+            bookmarks::bookmarks_clear,
+            bookmarks::bookmarks_import_chrome,
             downloads::downloads_list,
             downloads::downloads_clear,
             downloads::download_open,
