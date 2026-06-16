@@ -130,6 +130,18 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       const q = String(args?.query ?? "");
       return Promise.resolve((q ? [`${q} tutorial`, `${q} reddit`, `${q} vs alternatives`] : []) as T);
     }
+    case "downloads_list":
+      return Promise.resolve([
+        { id: 1, url: "https://example.com/flux-setup.exe", filename: "flux-setup.exe", path: "C:\\Users\\me\\Downloads\\flux-setup.exe", received: 7_340_032, total: 12_582_912, state: "in_progress", started_ms: T0 + DAY },
+        { id: 2, url: "https://example.com/report.pdf", filename: "report.pdf", path: "C:\\Users\\me\\Downloads\\report.pdf", received: 1_310_720, total: 1_310_720, state: "completed", started_ms: T0 + DAY - 60_000 },
+      ] as T);
+    case "downloads_clear":
+    case "download_open":
+    case "download_reveal":
+    case "download_cancel":
+    case "download_pause":
+    case "download_resume":
+      return Promise.resolve(undefined as T);
     case "search_resolve": {
       const input = String(args?.input ?? "").trim();
       const hasScheme = /^https?:\/\//.test(input);

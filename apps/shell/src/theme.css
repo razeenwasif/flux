@@ -1072,6 +1072,19 @@ body.resizing .shell { transition: none !important; }
 }
 .vault-add { display: flex; flex-direction: column; gap: 5px; padding: 4px 8px 2px; }
 
+/* Downloads popover (BACKLOG #34) */
+.dl-clear { font-size: 11px; color: var(--flux-text-dim); padding: 2px 8px; border-radius: 6px; }
+.dl-clear:hover { color: var(--flux-teal); background: var(--flux-surface-2); }
+.dl-row { padding: 7px 8px; border-radius: 8px; }
+.dl-row:hover { background: var(--flux-surface-2); }
+.dl-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dl-name { font-size: 12.5px; color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-actions { flex: none; display: flex; gap: 3px; }
+.dl-sub { font-size: 11px; color: var(--flux-text-mute); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.dl-bar { height: 4px; margin-top: 5px; border-radius: 3px; background: var(--flux-surface-2); overflow: hidden; }
+.dl-fill { height: 100%; border-radius: 3px; background: var(--flux-teal); transition: width 0.2s var(--ease-soft); }
+.dl-fill.indet { width: 35%; animation: flux-addr-progress 1.1s ease-in-out infinite; }
+
 /* ── Full-page vault manager (flux://passwords, BACKLOG #61) ── */
 .vault-page { height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; overflow: hidden; color: var(--flux-text); position: relative; }
 .vault-head { display: flex; align-items: center; gap: 12px; flex: none; }

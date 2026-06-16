@@ -76,6 +76,7 @@ import OmniDashboard from "./OmniDashboard";
 import Passwords from "./Passwords";
 import VaultPage from "./VaultPage";
 import HistoryPage from "./HistoryPage";
+import Downloads from "./Downloads";
 import Shields from "./Shields";
 import {
   activeId,
@@ -1017,6 +1018,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <button classList={{ "icon-btn": true, active: props.agentOpen }} title="Flux Agent (Ctrl+Shift+A)" onClick={props.onToggleAgent}>✦</button>
         <Shields />
         <Passwords />
+        <Downloads />
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
         <button classList={{ "icon-btn": true, active: panel() === "extensions" }} title="Extensions" onClick={() => openPanel("extensions")}>🧩</button>
         <button classList={{ "icon-btn": true, active: panel() === "settings" }} title="Settings" onClick={() => openPanel("settings")}>⚙</button>

@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Download manager** (BACKLOG #34) — Flux now intercepts WebView2's
+  `DownloadStarting`, tracks each download's live progress + state, and owns the
+  UI (the default WebView2 bubble is suppressed). A footer ⬇ popover (with an
+  active-count badge) shows downloads with progress bars and controls:
+  pause/resume/cancel while running, open / show-in-folder when done. Live COM
+  operations are held on the UI thread and driven via `run_on_main_thread`; the
+  serializable model is unit-tested and the WebView2 COM was compile-verified
+  against the msvc target. (Windows/WebView2 for now; the WebKitGTK download
+  hook is a follow-up.)
 - **Command palette** (BACKLOG #6) — **Ctrl+K** opens a centered fuzzy search over
   open tabs (switch to), actions (new tab/terminal/files, toggle terminal/agent/
   sidebar, open History/Passwords/Omni, find, reload, close tab), and browsing

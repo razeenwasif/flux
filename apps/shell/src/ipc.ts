@@ -400,6 +400,29 @@ export const historySearch = (query: string, limit?: number) =>
   invoke<HistoryEntry[]>("history_search", { query, limit: limit ?? null });
 export const historyDelete = (url: string) => invoke<void>("history_delete", { url });
 export const historyClear = () => invoke<void>("history_clear");
+
+// ─── Downloads (BACKLOG #34) ─────────────────────────────────────────────────
+export interface DownloadItem {
+  id: number;
+  url: string;
+  filename: string;
+  path: string;
+  received: number;
+  total: number;
+  /** "in_progress" | "paused" | "completed" | "interrupted" */
+  state: string;
+  started_ms: number;
+}
+export const downloadsList = () => invoke<DownloadItem[]>("downloads_list");
+export const downloadsClear = () => invoke<void>("downloads_clear");
+export const downloadOpen = (id: number) => invoke<void>("download_open", { id });
+export const downloadReveal = (id: number) => invoke<void>("download_reveal", { id });
+export const downloadCancel = (id: number) => invoke<void>("download_cancel", { id });
+export const downloadPause = (id: number) => invoke<void>("download_pause", { id });
+export const downloadResume = (id: number) => invoke<void>("download_resume", { id });
+/** Fires (with the download id) on any progress/state change. */
+export const onDownloadUpdated = (cb: () => void): Promise<UnlistenFn> =>
+  listen<number>("flux://download-updated", () => cb());
 /** Find-in-page (BACKLOG #33). Empty query clears the highlight. */
 export const webviewFind = (tabId: number, query: string, forward = true) =>
   invoke<void>("webview_find", { tabId, query, forward });

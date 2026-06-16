@@ -6,6 +6,7 @@ pub mod broker;
 pub mod cli;
 pub mod commands;
 pub mod cookies;
+pub mod downloads;
 pub mod extensions;
 pub mod favicon;
 pub mod files;
@@ -95,6 +96,8 @@ pub fn run(intent: cli::LaunchIntent) {
             // Favicon cache (#21) — fetched cookielessly, cached per host on disk.
             let fav_dir = app.path().app_data_dir().ok().map(|d| d.join("favicons"));
             app.manage(favicon::FaviconCache::new(fav_dir));
+            // Download manager (#34) — WebView2 DownloadStarting + progress.
+            app.manage(downloads::DownloadState::new());
             // Browsing history (#39) — recorded from dom_publish, persisted.
             let history_path = app
                 .path()
@@ -183,6 +186,13 @@ pub fn run(intent: cli::LaunchIntent) {
             history::history_search,
             history::history_delete,
             history::history_clear,
+            downloads::downloads_list,
+            downloads::downloads_clear,
+            downloads::download_open,
+            downloads::download_reveal,
+            downloads::download_cancel,
+            downloads::download_pause,
+            downloads::download_resume,
             webview::webview_navigate,
             webview::webview_stop,
             webview::webview_find,
