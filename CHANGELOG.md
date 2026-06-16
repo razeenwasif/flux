@@ -66,6 +66,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Changed
+- **Startup: smaller boot bundle.** The flux:// pages (Vault, History, Bookmarks,
+  Omni), the file manager, the command palette, and the extensions panel are now
+  lazy-loaded — none of them show on a fresh window, so they no longer sit in the
+  initial parse. The boot JS bundle dropped ~157 KB → ~112 KB (gz 49.8 → 36.3);
+  the deferred chunks load on first use, which is instant since assets are local.
+  (xterm was already lazy — only loaded when a terminal tab opens.)
 - **CPU/battery: idle is now near-silent.** Several always-on polling timers that
   woke every 2–3s regardless of whether their UI was open are now event-driven /
   open-gated: the Settings RAM readout (2.5s), Shields status (2s × 5 IPCs →

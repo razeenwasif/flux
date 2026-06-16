@@ -17,7 +17,7 @@
  * Sidebar collapses to a 60px icon rail; terminal and agent columns each
  * collapse to 0. Defaults: sidebar open, agent open, terminal closed.
  */
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Match, Show, Suspense, Switch, createEffect, createMemo, createSignal, lazy, onCleanup, onMount, type Component } from "solid-js";
 import { Portal } from "solid-js/web";
 import {
   OMNI_URL,
@@ -80,16 +80,19 @@ import TerminalView from "./TerminalView";
 import StartPage from "./StartPage";
 import { keyToAction } from "./shortcuts";
 import FindBar from "./FindBar";
-import CommandPalette, { type PaletteAction } from "./CommandPalette";
-import Extensions from "./Extensions";
-import FilesView from "./FilesView";
-import OmniDashboard from "./OmniDashboard";
 import Passwords from "./Passwords";
-import VaultPage from "./VaultPage";
-import HistoryPage from "./HistoryPage";
-import BookmarksPage from "./BookmarksPage";
 import Downloads from "./Downloads";
 import Shields from "./Shields";
+import type { PaletteAction } from "./CommandPalette";
+// Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
+// and load on first use (instant — assets are local/embedded). #startup
+const CommandPalette = lazy(() => import("./CommandPalette"));
+const Extensions = lazy(() => import("./Extensions"));
+const FilesView = lazy(() => import("./FilesView"));
+const OmniDashboard = lazy(() => import("./OmniDashboard"));
+const VaultPage = lazy(() => import("./VaultPage"));
+const HistoryPage = lazy(() => import("./HistoryPage"));
+const BookmarksPage = lazy(() => import("./BookmarksPage"));
 import {
   activeId,
   activeTab,
@@ -805,7 +808,7 @@ const App: Component = () => {
 
       {/* Command palette (#6) — overlay; renders above the (hidden) webview. */}
       <Show when={paletteOpen()}>
-        <CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} />
+        <Suspense><CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} /></Suspense>
       </Show>
     </div>
   );
@@ -1658,7 +1661,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </div>
             </Show>
             <Show when={panel() === "extensions"}>
-              <Extensions />
+              <Suspense><Extensions /></Suspense>
             </Show>
           </div>
         </Show>
@@ -1722,6 +1725,7 @@ const ContentArea: Component<{
         )}
       </For>
       <Show when={activeTab()?.kind !== "terminal"}>
+      <Suspense>
       <Switch
         fallback={
           /* Browser tab with a real page — the native webview overlays this. */
@@ -1772,6 +1776,7 @@ const ContentArea: Component<{
           />
         </Match>
       </Switch>
+      </Suspense>
       </Show>
     </div>
   </main>
