@@ -58,6 +58,19 @@ codegen-units = 1
 panic = "abort"        # no unwinding tables → smaller binary, faster calls
 strip = true
 
+# Cold-path heavy crates — only touched on import (PGP/zip/csv export parsing)
+# and occasional favicon transcode (image). Build them for size, not speed: this
+# shrinks the binary without affecting the hot browsing/render path (which stays
+# opt-level 3 above). Their runtime latency is irrelevant (one-shot operations).
+[profile.release.package.pgp]
+opt-level = "z"
+[profile.release.package.image]
+opt-level = "z"
+[profile.release.package.zip]
+opt-level = "z"
+[profile.release.package.csv]
+opt-level = "z"
+
 # Dev: keep *our* code fast to compile, but optimize dependencies (wgpu, vte,
 # llama bindings) so the dev-loop terminal still hits 120fps.
 [profile.dev]

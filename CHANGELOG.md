@@ -66,6 +66,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Changed
+- **Binary: cold-path crates built for size.** PGP/zip/csv (import) and `image`
+  (favicon transcode) now compile at `opt-level="z"` — they're one-shot/occasional
+  operations where latency is irrelevant — while the hot browsing/render path
+  stays at `opt-level=3`. Trims ~98 KB off the release binary with no runtime
+  cost. (The binary was already lean: fat-LTO + strip + `panic=abort`; further
+  cuts would require sizing the whole build, which would regress the speed work.)
 - **RAM: hibernated tabs release their DOM snapshot.** Sleeping a tab now drops
   its cached DOM (up to ~1.25 MiB/tab) instead of keeping it resident; it
   re-captures on the wake reload. In a many-tab session this is the main Rust-side
