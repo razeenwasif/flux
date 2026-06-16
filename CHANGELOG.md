@@ -15,8 +15,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   it). On by default with a 30-minute timeout, configurable in Settings (⚙ →
   Memory: on/off + 5 min / 15 min / 30 min / 1 hour). The active tab and
   start/terminal/files tabs are never slept; hibernating does **not** run
-  clear-on-close (the tab isn't closing). _Follow-up:_ preserve scroll/form state
-  across sleep (today it reloads fresh), and memory-pressure-based eviction.
+  clear-on-close (the tab isn't closing).
+- **Sleeping tabs keep their scroll position + form input** (BACKLOG #45).
+  Switching away from a tab snapshots its scroll offset and non-password form
+  fields (text/select/checkbox/radio) into a **RAM-only** store; when the tab
+  later wakes and reloads, Flux re-applies them once (matched to the same URL).
+  **Password fields are never captured** and nothing is written to disk.
+  (_Follow-up left:_ memory-pressure-based eviction.)
 - **Vault master password + auto-lock** (BACKLOG #61, ADR 0009). Optional
   hardening that seals the vault even from the logged-in OS user. Setting a
   master password derives an **Argon2id** key (19 MiB / t=2) that wraps the data

@@ -366,6 +366,8 @@ export const webviewReload = (tabId: number) => invoke<void>("webview_reload", {
 export const webviewStop = (tabId: number) => invoke<void>("webview_stop", { tabId });
 /** Hibernate a tab: destroy its webview to free RAM (no clear-on-close). #45 */
 export const webviewHibernate = (tabId: number) => invoke<void>("webview_hibernate", { tabId });
+/** Snapshot a tab's scroll/form state before it sleeps, to restore on wake. #45 */
+export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capture_state", { tabId });
 /** Find-in-page (BACKLOG #33). Empty query clears the highlight. */
 export const webviewFind = (tabId: number, query: string, forward = true) =>
   invoke<void>("webview_find", { tabId, query, forward });

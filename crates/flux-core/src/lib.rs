@@ -8,6 +8,7 @@ pub mod commands;
 pub mod cookies;
 pub mod extensions;
 pub mod files;
+pub mod hibernate;
 pub mod https;
 pub mod netfilter;
 pub mod omni;
@@ -84,6 +85,8 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("extensions").join("storage.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-ext-storage.json"));
             app.manage(broker::BrokerState::restore(storage_path));
+            // Per-tab scroll/form state for hibernation wake (#45) — RAM only.
+            app.manage(hibernate::HibernateStore::new());
             // Password vault (#61) — OS-keychain data key + decrypted-in-memory
             // for autofill; persists to app_data/vault/vault.bin.
             app.manage(vault::VaultState::load(app.handle()));
@@ -117,7 +120,8 @@ pub fn run(intent: cli::LaunchIntent) {
                     commands::dom_publish,
                     broker::ext_broker_call,
                     commands::chrome_key,
-                    commands::find_result
+                    commands::find_result,
+                    hibernate::hibernate_capture
                 ])
                 .build(),
         )
@@ -147,6 +151,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_show,
             webview::webview_hide,
             webview::webview_hibernate,
+            webview::webview_capture_state,
             webview::webview_navigate,
             webview::webview_stop,
             webview::webview_find,

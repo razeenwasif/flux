@@ -41,6 +41,7 @@ import {
   type SearchEngine,
   webviewDebug,
   webviewForward,
+  webviewCaptureState,
   webviewHibernate,
   webviewHide,
   webviewNavigate,
@@ -305,6 +306,22 @@ const App: Component = () => {
         }
       }
     }
+  });
+
+  // Capture a tab's scroll/form state the moment you switch away from it (#45),
+  // while its webview still exists — so it's preserved if the tab later sleeps.
+  // No rush: a backgrounded page is frozen, so this never races hibernation.
+  let prevActive: number | null = null;
+  createEffect(() => {
+    const cur = activeId();
+    if (prevActive != null && prevActive !== cur) {
+      const pid = prevActive;
+      const pt = tabs().find((t) => t.id === pid);
+      if (pt?.kind === "browser" && !isStartUrl(pt.url) && openedWebviews.has(pid)) {
+        void webviewCaptureState(pid).catch(() => {});
+      }
+    }
+    prevActive = cur;
   });
 
   // Navigate the active tab to `url` (from the omnibox or the start page).

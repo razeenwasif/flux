@@ -10,7 +10,7 @@ fn main() {
         tauri_build::Attributes::new().plugin(
             "fluxtab",
             tauri_build::InlinedPlugin::new()
-                .commands(&["dom_publish", "ext_broker_call", "chrome_key", "find_result"])
+                .commands(&["dom_publish", "ext_broker_call", "chrome_key", "find_result", "hibernate_capture"])
                 .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands),
         ),
     )

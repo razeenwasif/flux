@@ -26,6 +26,10 @@ const CAPTURE_JS: &str = include_str!("../assets/capture.js");
 /// to the chrome (#18), since a focused child webview eats the keyboard.
 const SHORTCUTS_JS: &str = include_str!("../assets/shortcuts.js");
 
+/// hibernate.js: `__fluxCapture()` / `__fluxRestore()` for preserving a tab's
+/// scroll + form state across hibernation (#45).
+const HIBERNATE_JS: &str = include_str!("../assets/hibernate.js");
+
 fn label(tab: TabId) -> String {
     format!("tab-{tab}")
 }
@@ -53,9 +57,9 @@ pub async fn webview_open(
     let window = app.get_window(CHROME_WINDOW).ok_or("chrome window missing")?;
     let target = parse_url(&url)?;
 
-    // Init script runs before page scripts: stamp the tab id, capture.js, then
-    // the app keyboard-shortcut forwarder (#18).
-    let init = format!("window.__FLUX_TAB_ID__ = {tab_id};\n{CAPTURE_JS}\n{SHORTCUTS_JS}");
+    // Init script runs before page scripts: stamp the tab id, capture.js, the
+    // app keyboard-shortcut forwarder (#18), and the hibernation state helpers (#45).
+    let init = format!("window.__FLUX_TAB_ID__ = {tab_id};\n{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}");
 
     let app_for_load = app.clone();
     let builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
@@ -105,6 +109,17 @@ pub async fn webview_open(
             }
             if !inj.js.is_empty() {
                 let _ = webview.eval(&inj.js);
+            }
+            // Restore scroll/form state for a waking hibernated tab (#45), once,
+            // after the page is laid out. `json` is the captured state as a valid
+            // JS object literal; armed only when the tab was actually hibernated.
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                if let Some(json) = app_for_load
+                    .try_state::<crate::hibernate::HibernateStore>()
+                    .and_then(|s| s.take_for_restore(tab_id))
+                {
+                    let _ = webview.eval(&format!("window.__fluxRestore&&window.__fluxRestore({json})"));
+                }
             }
             let _ = app_for_load.emit("flux://tab-loaded", (tab_id, url, phase));
         });
@@ -191,10 +206,22 @@ pub async fn webview_hide(app: AppHandle, tab_id: TabId) -> Result<(), String> {
 /// intact so the shell re-creates the webview (reloading the page) on focus.
 #[tauri::command]
 pub async fn webview_hibernate(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+    // Arm restore (#45) so the captured scroll/form state re-applies on wake.
+    if let Some(store) = app.try_state::<crate::hibernate::HibernateStore>() {
+        store.mark_wake(tab_id);
+    }
     if let Some(wv) = app.get_webview(&label(tab_id)) {
         wv.close().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Snapshot a tab's scroll + form state into the hibernation store (#45). Called
+/// by the chrome when a tab is backgrounded, so the state is ready well before
+/// the tab actually hibernates.
+#[tauri::command]
+pub async fn webview_capture_state(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+    eval(&app, tab_id, "window.__fluxCapture&&window.__fluxCapture()")
 }
 
 #[tauri::command]
@@ -267,6 +294,10 @@ pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> 
         if flagged {
             crate::cookies::clear_for_host(&app, &host);
         }
+    }
+    // Drop any preserved hibernation state — the tab is gone for good (#45).
+    if let Some(store) = app.try_state::<crate::hibernate::HibernateStore>() {
+        store.remove(tab_id);
     }
     if let Some(wv) = app.get_webview(&label(tab_id)) {
         wv.close().map_err(|e| e.to_string())?;
