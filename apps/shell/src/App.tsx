@@ -1035,6 +1035,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // doesn't spin up the local LLM as you type. Tokens stream in over a Channel.
   type OmniAns = { text: string; sources: OmniAnswerSource[]; streaming: boolean };
   const [omniAns, setOmniAns] = createSignal<OmniAns | null>(null);
+  const [addrFocused, setAddrFocused] = createSignal(false);
   let omniGen = 0; // ignore events from a superseded request
   const closeSuggest = () => { setSuggestions([]); setSelIdx(-1); };
   const clearOmniAns = () => { omniGen++; setOmniAns(null); };
@@ -1084,6 +1085,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
   const chooseSuggestion = async (s: Suggestion) => {
     closeSuggest();
+    clearOmniAns();
     setAddress("");
     if (s.url) props.onNavigate(s.url);
     else {
@@ -1107,6 +1109,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const submitAddress = async (e: SubmitEvent) => {
     e.preventDefault();
     closeSuggest();
+    clearOmniAns();
     const v = address().trim();
     if (!v) return;
     setAddress("");
@@ -1173,9 +1176,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
             class="address"
             value={address() || currentUrl()}
             onInput={(e) => onAddressInput(e.currentTarget.value)}
-            onFocus={(e) => e.currentTarget.select()}
+            onFocus={(e) => { e.currentTarget.select(); setAddrFocused(true); }}
             onKeyDown={onAddressKeyDown}
-            onBlur={() => setTimeout(closeSuggest, 150)}
+            onBlur={() => { setAddrFocused(false); setTimeout(closeSuggest, 150); }}
             placeholder="Search or enter address  (Ctrl+L)"
             spellcheck={false}
             autocomplete="off"
@@ -1195,7 +1198,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Show>
           {/* Live suggestions (#32) — sidebar-resident, so never under the webview.
               Also hosts the Omni AI answer card + its "Ask" trigger. */}
-          <Show when={suggestions().length > 0 || omniAns() !== null || canAsk()}>
+          <Show when={omniAns() !== null || ((suggestions().length > 0 || canAsk()) && addrFocused())}>
             <div class="omni-suggest">
               {/* Streamed, grounded answer from the Omni index. */}
               <Show when={omniAns()}>
