@@ -379,6 +379,9 @@ export interface MemInfo {
 }
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */
 export const memStatus = () => invoke<MemInfo>("mem_status");
+
+/** A host's favicon as a data: URL (fetched cookielessly + cached), or null. #21 */
+export const faviconFetch = (host: string) => invoke<string | null>("favicon", { host });
 /** Find-in-page (BACKLOG #33). Empty query clears the highlight. */
 export const webviewFind = (tabId: number, query: string, forward = true) =>
   invoke<void>("webview_find", { tabId, query, forward });

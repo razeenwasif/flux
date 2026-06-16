@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Favicons** (BACKLOG #21) — the tab strip + pinned rail now show each site's
+  real favicon instead of a letter glyph. Fetched **directly from the site and
+  without cookies** (a plain `<img>` would send them) — never a third-party
+  favicon service, in keeping with Flux's privacy stance — by a Rust command
+  that tries `/favicon.ico`, falls back to the page's declared
+  `<link rel="…icon">`, validates the bytes are actually an image (filtering
+  soft-404 HTML), and caches the result **per host on disk** as a `data:` URL.
+  The letter glyph remains as the fallback while loading or when a site has no
+  usable icon. Image-type detection, HTML attribute parsing, and URL resolution
+  are unit-tested.
 - **Full-page password manager** at `flux://passwords` (BACKLOG #61). The sidebar
   popover was too cramped for a real vault (narrow + lots of scrolling), so the
   management UI moved to a roomy in-content page (DOM-rendered like

@@ -5,6 +5,7 @@
  */
 import { createSignal } from "solid-js";
 import {
+  faviconFetch,
   tabActive,
   tabClose,
   tabCreate,
@@ -64,6 +65,22 @@ export { memEvict };
 export function setMemEvict(on: boolean): void {
   setMemEvictRaw(on);
   localStorage.setItem("flux.mem.evict", on ? "1" : "0");
+}
+
+// Favicons (#21) — host → data URL (string) | null (no icon) | undefined (not
+// fetched). Backed by the Rust per-host cache; fetched once per host per session.
+const [favicons, setFavicons] = createSignal<Record<string, string | null>>({});
+export { favicons };
+const faviconInflight = new Set<string>();
+export const faviconFor = (host: string | null): string | null | undefined =>
+  host ? favicons()[host] : undefined;
+export function ensureFavicon(host: string | null): void {
+  if (!host || host in favicons() || faviconInflight.has(host)) return;
+  faviconInflight.add(host);
+  void faviconFetch(host)
+    .then((d) => setFavicons((m) => ({ ...m, [host]: d ?? null })))
+    .catch(() => setFavicons((m) => ({ ...m, [host]: null })))
+    .finally(() => faviconInflight.delete(host));
 }
 
 /** Whether a tab (default: the active one) is mid-load. */

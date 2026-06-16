@@ -411,6 +411,12 @@ body.resizing .shell { transition: none !important; }
   color: var(--flux-text-dim);
 }
 
+/* Favicons (BACKLOG #21): real icon once fetched, letter glyph while loading. */
+.fav-img { width: 15px; height: 15px; object-fit: contain; display: block; border-radius: 3px; }
+.fav-letter { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+.tab-favicon .fav-img { background: #fff; padding: 1px; }
+.pin-tile .fav-img { width: 20px; height: 20px; border-radius: 4px; }
+
 .sidebar-section { font-size: 10.5px; color: var(--flux-text-mute); padding: 2px 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; }
 
 .sidebar-footer {

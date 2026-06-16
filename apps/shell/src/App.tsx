@@ -76,6 +76,8 @@ import {
   activeId,
   activeTab,
   closeTab,
+  ensureFavicon,
+  faviconFor,
   findOpen,
   focusTab,
   hibernateEnabled,
@@ -793,7 +795,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                     void togglePin(tab);
                   }}
                 >
-                  {favicon(tab)}
+                  <Favicon tab={tab} />
                 </button>
               )}
             </For>
@@ -844,7 +846,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 }}
                 title={isHibernated(tab.id) ? "sleeping — click to wake" : "right-click to pin"}
               >
-                <span class="tab-favicon">{isHibernated(tab.id) ? "💤" : favicon(tab)}</span>
+                <span class="tab-favicon">{isHibernated(tab.id) ? "💤" : <Favicon tab={tab} />}</span>
                 <span class="title">{tab.title || tab.url}</span>
                 <button
                   class="close"
@@ -873,7 +875,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 title={tab.title || tab.url}
                 onClick={() => focusTab(tab.id)}
               >
-                {favicon(tab)}
+                <Favicon tab={tab} />
               </button>
             )}
           </For>
@@ -1151,13 +1153,34 @@ const AgentPanel: Component = () => {
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-/** Favicon stand-in (BACKLOG #21): terminal → ⌨, files → 📁, browser → host initial. */
-function favicon(tab: TabMeta): string {
-  if (tab.kind === "terminal") return "⌨";
-  if (tab.kind === "files") return "📁";
-  const host = tab.url.split("/")[2] ?? tab.url;
-  return (host.replace(/^www\./, "")[0] ?? "?").toUpperCase();
-}
+/** Tab/pin icon: the site's real favicon (#21) once fetched, else a letter
+ *  glyph (or ⌨/📁 for terminal/files). Favicons are fetched cookielessly +
+ *  cached by Rust per host; the letter shows while loading or when none exists. */
+const Favicon: Component<{ tab: TabMeta }> = (props) => {
+  const host = (): string | null => {
+    const t = props.tab;
+    if (t.kind !== "browser" || isStartUrl(t.url)) return null;
+    try {
+      return new URL(t.url).hostname.replace(/^www\./, "") || null;
+    } catch {
+      return t.url.split("/")[2]?.replace(/^www\./, "") ?? null;
+    }
+  };
+  createEffect(() => ensureFavicon(host()));
+  const data = () => faviconFor(host());
+  const letter = () => {
+    const t = props.tab;
+    if (t.kind === "terminal") return "⌨";
+    if (t.kind === "files") return "📁";
+    const h = host() ?? t.url.split("/")[2] ?? t.url;
+    return (h.replace(/^www\./, "")[0] ?? "?").toUpperCase();
+  };
+  return (
+    <Show when={typeof data() === "string"} fallback={<span class="fav-letter">{letter()}</span>}>
+      <img class="fav-img" src={data() as string} alt="" />
+    </Show>
+  );
+};
 
 /** Last path segment of a filesystem path (Windows or Unix), for the tab title. */
 function basename(path: string): string {

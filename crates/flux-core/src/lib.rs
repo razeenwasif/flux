@@ -7,6 +7,7 @@ pub mod cli;
 pub mod commands;
 pub mod cookies;
 pub mod extensions;
+pub mod favicon;
 pub mod files;
 pub mod hibernate;
 pub mod mem;
@@ -90,6 +91,9 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(hibernate::HibernateStore::new());
             // System memory monitor for memory-pressure eviction (#45).
             app.manage(mem::SysMon::new());
+            // Favicon cache (#21) — fetched cookielessly, cached per host on disk.
+            let fav_dir = app.path().app_data_dir().ok().map(|d| d.join("favicons"));
+            app.manage(favicon::FaviconCache::new(fav_dir));
             // Password vault (#61) — OS-keychain data key + decrypted-in-memory
             // for autofill; persists to app_data/vault/vault.bin.
             app.manage(vault::VaultState::load(app.handle()));
@@ -156,6 +160,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_hibernate,
             webview::webview_capture_state,
             mem::mem_status,
+            favicon::favicon,
             webview::webview_navigate,
             webview::webview_stop,
             webview::webview_find,

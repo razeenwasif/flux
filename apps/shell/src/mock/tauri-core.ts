@@ -114,6 +114,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(undefined as T);
     case "mem_status":
       return Promise.resolve({ total_mb: 16384, available_mb: 9216, process_mb: 312, available_pct: 56 } as T);
+    case "favicon":
+      return Promise.resolve(null as T); // no network in preview → letter glyphs
     case "search_resolve": {
       const input = String(args?.input ?? "").trim();
       const hasScheme = /^https?:\/\//.test(input);
