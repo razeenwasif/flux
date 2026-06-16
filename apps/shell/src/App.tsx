@@ -25,6 +25,7 @@ import {
   PANE_SESSION,
   agentChat,
   agentExecute,
+  chromeFocus,
   isStartUrl,
   launchIntent,
   onAgentStatus,
@@ -432,6 +433,9 @@ const App: Component = () => {
       if (t.id !== lastStartFocus) {
         lastStartFocus = t.id;
         setSidebarOpen(true);
+        // A focused page webview holds OS keyboard focus, so pull it back to the
+        // chrome window first — otherwise el.focus() is a no-op for typing (#18).
+        void chromeFocus().catch(() => {});
         requestAnimationFrame(() => {
           const el = document.getElementById("flux-address") as HTMLInputElement | null;
           el?.focus();
@@ -479,6 +483,7 @@ const App: Component = () => {
   // Focus + select the omnibox (Ctrl+L); open the sidebar first if collapsed.
   const focusAddress = () => {
     setSidebarOpen(true);
+    void chromeFocus().catch(() => {}); // grab OS focus from any page webview (#18)
     requestAnimationFrame(() => {
       const el = document.getElementById("flux-address") as HTMLInputElement | null;
       el?.focus();

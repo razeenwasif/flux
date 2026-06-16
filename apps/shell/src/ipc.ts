@@ -431,8 +431,12 @@ export const memStatus = () => invoke<MemInfo>("mem_status");
 
 // ─── Native dark mode (BACKLOG #40) ──────────────────────────────────────────
 export const darkmodeStatus = () => invoke<boolean>("darkmode_status");
-/** Set WebView2's preferred color scheme to dark (true) or auto (false). */
+/** Force-dark all tab webviews (true) or restore (false). */
 export const darkmodeSet = (on: boolean) => invoke<void>("darkmode_set", { on });
+
+/** Pull OS keyboard focus back to the chrome window (so focusing a chrome DOM
+ *  element actually grabs the keyboard while a page webview held focus). #18 */
+export const chromeFocus = () => invoke<void>("chrome_focus");
 
 /** A host's favicon as a data: URL (fetched cookielessly + cached), or null. #21 */
 export const faviconFetch = (host: string) => invoke<string | null>("favicon", { host });

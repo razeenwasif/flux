@@ -194,6 +194,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(false as T);
     case "darkmode_set":
       return Promise.resolve(undefined as T);
+    case "chrome_focus":
+      return Promise.resolve(undefined as T);
     case "history_recent":
     case "history_search":
       return Promise.resolve([

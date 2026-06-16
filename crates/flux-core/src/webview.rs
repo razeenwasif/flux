@@ -30,6 +30,10 @@ const SHORTCUTS_JS: &str = include_str!("../assets/shortcuts.js");
 /// scroll + form state across hibernation (#45).
 const HIBERNATE_JS: &str = include_str!("../assets/hibernate.js");
 
+/// darkmode.js: `__fluxDark(on)` force-dark for all sites (#40); applied at
+/// document_start via the `window.__FLUX_DARK__` flag the init script stamps.
+pub(crate) const DARKMODE_JS: &str = include_str!("../assets/darkmode.js");
+
 fn label(tab: TabId) -> String {
     format!("tab-{tab}")
 }
@@ -58,8 +62,13 @@ pub async fn webview_open(
     let target = parse_url(&url)?;
 
     // Init script runs before page scripts: stamp the tab id, capture.js, the
-    // app keyboard-shortcut forwarder (#18), and the hibernation state helpers (#45).
-    let init = format!("window.__FLUX_TAB_ID__ = {tab_id};\n{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}");
+    // app keyboard-shortcut forwarder (#18), the hibernation state helpers (#45),
+    // and force-dark (#40) — stamping `__FLUX_DARK__` so it applies at start when on.
+    let dark = app.try_state::<crate::darkmode::DarkState>().map(|s| s.is_on()).unwrap_or(false);
+    let dark_flag = if dark { "window.__FLUX_DARK__ = true;\n" } else { "" };
+    let init = format!(
+        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}"
+    );
 
     let app_for_load = app.clone();
     let builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))

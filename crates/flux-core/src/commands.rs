@@ -332,6 +332,17 @@ pub fn chrome_key(app: AppHandle, action: String) -> Result<(), String> {
     app.emit("flux://shortcut", action).map_err(|e| e.to_string())
 }
 
+/// Pull OS keyboard focus back to the chrome window. A focused native tab
+/// webview is a separate OS child window that holds the keyboard, so focusing a
+/// chrome DOM element (e.g. the omnibox on Ctrl+T / Ctrl+L) does nothing until
+/// the chrome window itself is focused. The frontend calls this first.
+#[tauri::command]
+pub fn chrome_focus(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_focus();
+    }
+}
+
 /// Find-in-page result reported by the page (#33): match count + whether the
 /// current step landed on a match. Re-emitted to the chrome's find bar. A
 /// `fluxtab` plugin command so the (remote) page may call it, like `dom_publish`.

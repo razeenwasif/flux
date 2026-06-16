@@ -22,12 +22,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   carries all its tabs; the moved webviews are torn down (they left the active
   space), and if you sent the active tab away, focus falls back to a remaining
   tab in the current space.
-- **Native dark mode** — a Settings toggle that sets WebView2's
-  profile-level `PreferredColorScheme` to Dark, so pages honoring
-  `prefers-color-scheme` (most modern sites) render dark with no CSS-filter
-  hacks. Profile-wide (all tabs at once), persists across launches. COM verified
-  vs msvc. (Algorithmic force-dark for sites without dark support is a
-  startup-flag follow-up.)
+- **Dark mode for all sites** — a Settings toggle that force-darkens every page
+  by injecting a CSS "smart invert" (invert the page, re-invert images/video so
+  media looks normal). Engine-agnostic — works on both WebView2 (Windows) and
+  WebKitGTK (Linux) and on every site regardless of `prefers-color-scheme`
+  support. Toggles live on all open tabs; new tabs apply it at document-start.
+  Persists across launches. (An earlier attempt used WebView2's profile-level
+  `PreferredColorScheme`, which only darkened opt-in sites and was a no-op on the
+  WebKitGTK build — replaced by this.)
 - **Drag a tab onto a group to join it** (BACKLOG #56) — drop a tab on a group
   header (or onto the middle of another tab) to add it to that group; dropping
   on an ungrouped tab's middle starts a new group with both. Tab-row edges still
@@ -55,8 +57,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - **Group + workspace rename now work.** They used `window.prompt`, which is a
   no-op in the webview — replaced with inline editing (double-click the name,
   Enter/blur to commit, Esc to cancel).
-- **New tabs focus the address bar** so you can type immediately (the omnibox
-  auto-focuses whenever a start page becomes active).
+- **New tabs focus the address bar** so you can type immediately — now works
+  when opened with **Ctrl+T** from a focused page too. A focused page webview
+  holds OS keyboard focus (it's a separate child window), so focusing the chrome
+  omnibox was a no-op; the chrome now reclaims OS focus (`chrome_focus`) first.
+  Same fix applies to Ctrl+L.
 - **Tab groups** (BACKLOG #56) — named, colored, collapsible groups in the tab
   strip. Right-click a tab for: pin, **new group**, **add to** an existing group,
   **remove from group**, close. Group headers collapse/expand, rename

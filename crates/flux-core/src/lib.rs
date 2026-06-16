@@ -171,6 +171,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::group_create,
             commands::group_update,
             commands::group_delete,
+            commands::chrome_focus,
             commands::tab_set_group,
             commands::tab_set_workspace,
             commands::group_set_workspace,
