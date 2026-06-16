@@ -38,6 +38,8 @@ pub fn run(intent: cli::LaunchIntent) {
         .init();
 
     tauri::Builder::default()
+        // Persist + restore window size/position across launches (open as closed).
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(move |app| {
             // Single source of truth, injected into every command. Restored
             // from the persisted session so tabs survive a restart (#19).

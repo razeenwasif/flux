@@ -24,6 +24,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   follow-ups.
 
 ### Changed
+- **Window remembers its size + position** across launches
+  (`tauri-plugin-window-state`) — Flux reopens exactly as you left it instead of
+  resetting to the default size.
 - **Content card: padding on all sides + rounded page corners.** The page area
   now floats with even padding (previously it was flush against the sidebar).
   Internal pages (start, history, passwords, omni) get the card's rounded
