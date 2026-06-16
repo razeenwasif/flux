@@ -81,6 +81,7 @@ import Shields from "./Shields";
 import {
   activeId,
   activeTab,
+  aiAnswersOn,
   closeTab,
   ensureFavicon,
   faviconFor,
@@ -92,6 +93,7 @@ import {
   isLoading,
   memEvict,
   openTab,
+  pendingAsk,
   pinnedTabs,
   refreshTabs,
   reorderTabs,
@@ -100,8 +102,10 @@ import {
   setFindOpen,
   setHibernated,
   setHibernateEnabled,
+  setAiAnswersOn,
   setHibernateMins,
   setMemEvict,
+  setPendingAsk,
   setSearchSuggestOn,
   setTabLoading,
   tabs,
@@ -560,6 +564,7 @@ const App: Component = () => {
         onToggleTerminal={() => setTerminalOpen((v) => !v)}
         onToggleAgent={() => setAgentOpen((v) => !v)}
         onSaveToOmni={saveToOmni}
+        onAiSearch={(q) => { if (aiAnswersOn()) { setAgentOpen(true); setPendingAsk(q); } }}
       />
       <ContentArea
         onNavigate={go}
@@ -689,6 +694,7 @@ interface SidebarProps {
   onToggleTerminal: () => void;
   onToggleAgent: () => void;
   onSaveToOmni: () => void;
+  onAiSearch: (query: string) => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | null;
@@ -809,8 +815,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
     // The pluggable search backend (#68) decides navigate-vs-search, applies
     // !bang/keyword routing, and builds the final URL with the default engine;
     // `go` (in App) handles start-page vs. open-tab webview lifecycle.
-    const { url } = await searchResolve(v);
-    props.onNavigate(url);
+    const r = await searchResolve(v);
+    props.onNavigate(r.url);
+    // A genuine search (not a URL) also gets a quick local-AI answer (#ai).
+    if (r.kind === "search") props.onAiSearch(v);
   };
 
   // Nav buttons act on the active browser tab's webview.
@@ -1072,6 +1080,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   {searchSuggestOn() ? "On" : "Off"}
                 </button>
               </div>
+              <div class="shields-row" style={{ padding: "2px 8px" }}>
+                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="When you search, the local Gemma drafts a quick answer in the agent panel. Runs on-device.">AI answers for searches</span>
+                <button classList={{ "shields-toggle": true, on: aiAnswersOn() }} onClick={() => setAiAnswersOn(!aiAnswersOn())}>
+                  {aiAnswersOn() ? "On" : "Off"}
+                </button>
+              </div>
               <div class="shields-sep" />
               <div class="sidebar-section" style={{ padding: "4px 8px" }}>Memory</div>
               <div class="shields-row" style={{ padding: "2px 8px" }}>
@@ -1238,6 +1252,30 @@ const AgentPanel: Component = () => {
   });
 
   const working = () => busy() || status().state === "thinking";
+
+  // A quick AI answer for a search query, drafted by the local model (#ai).
+  // Fed in via `pendingAsk` when the user runs a search with AI answers on.
+  const answerSearch = async (query: string) => {
+    if (working()) return;
+    setFeed((f) => [...f, { role: "user", text: query }]);
+    setBusy(true);
+    try {
+      const reply = await agentChat(`Give a concise, direct answer to this search query: "${query}"`);
+      setFeed((f) => [...f, { role: "assistant", text: reply.trim() }]);
+    } catch (err) {
+      setFeed((f) => [...f, { role: "error", text: String(err) }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Consume a queued search query (set by the omnibox) exactly once.
+  createEffect(() => {
+    const q = pendingAsk();
+    if (q) {
+      setPendingAsk(null);
+      void answerSearch(q);
+    }
+  });
 
   const run = async (e: SubmitEvent) => {
     e.preventDefault();

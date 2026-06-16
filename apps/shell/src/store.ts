@@ -75,6 +75,19 @@ export { favicons };
 const faviconInflight = new Set<string>();
 export const faviconFor = (host: string | null): string | null | undefined =>
   host ? favicons()[host] : undefined;
+// AI search answers (#32-ish / agent): when you search, the local Gemma also
+// drafts a quick answer in the agent panel. On by default (it's local — no
+// privacy cost, just local compute); toggle in Settings.
+const [aiAnswersOn, setAiAnswersRaw] = createSignal(localStorage.getItem("flux.ai-answers") !== "0");
+export { aiAnswersOn };
+export function setAiAnswersOn(on: boolean): void {
+  setAiAnswersRaw(on);
+  localStorage.setItem("flux.ai-answers", on ? "1" : "0");
+}
+// A search query handed to the agent panel to answer (consumed once).
+const [pendingAsk, setPendingAsk] = createSignal<string | null>(null);
+export { pendingAsk, setPendingAsk };
+
 // Omnibox search suggestions (#32). On by default; gating it off keeps your
 // keystrokes off the search engine (history suggestions stay local either way).
 const [searchSuggestOn, setSearchSuggestRaw] = createSignal(localStorage.getItem("flux.suggest") !== "0");
