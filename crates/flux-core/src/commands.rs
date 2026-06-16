@@ -185,6 +185,24 @@ pub fn tab_set_group(state: State<'_, FluxState>, tab_id: TabId, group: Option<u
     state.persist();
 }
 
+/// Send a tab to another workspace (#44). Returns the tab's prior webview is the
+/// shell's concern; here we just move the metadata + detach it from any group.
+#[tauri::command]
+pub fn tab_set_workspace(state: State<'_, FluxState>, tab_id: TabId, workspace: u32) {
+    state.set_tab_workspace(tab_id, workspace);
+    state.persist();
+}
+
+/// Send a whole group (all member tabs) to another workspace (#44). Returns the
+/// moved tab ids so the shell can hibernate their webviews if they left the
+/// active workspace.
+#[tauri::command]
+pub fn group_set_workspace(state: State<'_, FluxState>, group: u32, workspace: u32) -> Vec<TabId> {
+    let moved = state.set_group_workspace(group, workspace);
+    state.persist();
+    moved
+}
+
 /// "Group by topic" — seed groups from the semantic clusters. Returns the count.
 #[tauri::command]
 pub fn groups_from_clusters(state: State<'_, FluxState>) -> usize {

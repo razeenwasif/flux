@@ -52,6 +52,9 @@
   /* ── Liquid glass tokens ── */
   --glass-fill:      rgba(26, 22, 64, 0.55);
   --glass-fill-soft: rgba(26, 22, 64, 0.38);
+  /* Opaque popover fill — for menus that float over the native webview layer,
+     where backdrop-blur can't sample the page (see .popover/.footer-pop). */
+  --flux-popover-fill: #14102e;
   --glass-blur:      saturate(180%) blur(40px);
   --glass-rim:       rgba(180, 190, 255, 0.22);   /* specular edge */
   --glass-rim-soft:  rgba(180, 190, 255, 0.10);
@@ -588,6 +591,17 @@ body.resizing .shell { transition: none !important; }
   /* Above the click-away backdrop (z-index 40), or it would swallow clicks on
      the popover's own inputs/buttons. */
   z-index: 41;
+}
+
+/* Sidebar popovers (shields / settings / passwords / downloads / extensions)
+   float over the native webview — a separate OS layer the backdrop-blur can't
+   sample, so glass translucency reads as see-through and unreadable against the
+   page. Make them fully OPAQUE (keep the glass rim + sheen, drop the blur). */
+.popover,
+.footer-pop {
+  background: var(--flux-popover-fill);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

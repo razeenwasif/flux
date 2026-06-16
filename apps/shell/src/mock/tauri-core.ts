@@ -112,6 +112,16 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       if (t) t.group = (args?.group as number | null) ?? null;
       return Promise.resolve(undefined as T);
     }
+    case "tab_set_workspace": {
+      const t = tabs.find((x) => x.id === args?.tabId);
+      if (t) { t.workspace = Number(args?.workspace ?? 1); t.group = null; }
+      return Promise.resolve(undefined as T);
+    }
+    case "group_set_workspace": {
+      const ws = Number(args?.workspace ?? 1);
+      const moved = tabs.filter((t) => t.group === args?.group).map((t) => { t.workspace = ws; return t.id; });
+      return Promise.resolve(moved as T);
+    }
     case "groups_from_clusters":
       return Promise.resolve(0 as T);
     case "workspaces_list":

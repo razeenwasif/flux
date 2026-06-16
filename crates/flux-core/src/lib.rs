@@ -172,6 +172,8 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::group_update,
             commands::group_delete,
             commands::tab_set_group,
+            commands::tab_set_workspace,
+            commands::group_set_workspace,
             commands::groups_from_clusters,
             commands::workspaces_list,
             commands::workspace_active,

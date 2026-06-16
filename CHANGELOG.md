@@ -8,6 +8,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Split view** (BACKLOG #43) — two browser tabs tiled side by side in the
+  content card. Start one by **right-clicking a tab → "Split with current tab"**
+  or by **dragging a tab onto the right edge of another**. A draggable seam
+  resizes the panes (double-click to even out); the split pauses when you focus a
+  third tab and resumes when you return to a pair member. Both panes stay live
+  (neither hibernates) and re-tile across resizes. Built over the existing
+  child-webview model: the seam is a DOM splitter in the gap the OS webview
+  layers don't cover, and dragging briefly hides the panes so the chrome can
+  track the pointer (a native webview captures the mouse otherwise).
+- **Send a tab or a whole group to another workspace** (BACKLOG #44) —
+  right-click a tab or a group header → "Send to workspace …". Moving a group
+  carries all its tabs; the moved webviews are torn down (they left the active
+  space), and if you sent the active tab away, focus falls back to a remaining
+  tab in the current space.
 - **Native dark mode** — a Settings toggle that sets WebView2's
   profile-level `PreferredColorScheme` to Dark, so pages honoring
   `prefers-color-scheme` (most modern sites) render dark with no CSS-filter
@@ -18,14 +32,7 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   header (or onto the middle of another tab) to add it to that group; dropping
   on an ungrouped tab's middle starts a new group with both. Tab-row edges still
   reorder.
-- **Workspaces** (BACKLOG #44)
-
-### Fixed
-- **Group + workspace rename now work.** They used `window.prompt`, which is a
-  no-op in the webview — replaced with inline editing (double-click the name,
-  Enter/blur to commit, Esc to cancel).
-- **New tabs focus the address bar** so you can type immediately (the omnibox
-  auto-focuses whenever a start page becomes active). — Arc-style named, colored tab spaces. Each tab
+- **Workspaces** (BACKLOG #44) — Arc-style named, colored tab spaces. Each tab
   belongs to a workspace; the strip (pinned + groups + tabs) shows only the
   active one. A switcher above the sidebar tools: click a pill to switch, **+**
   to create, double-click to rename, click the dot to recolor, right-click to
@@ -34,6 +41,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   tab metadata (kilobytes) — and tabs are created lazily anyway, so an unvisited
   workspace holds no webviews at all. Workspaces + per-tab membership + the
   active one persist across restart.
+
+### Fixed
+- **Ctrl+Tab / Ctrl+Shift+Tab cycle tabs.** A focused page webview ate the chord
+  before the injected forwarder ran (WebView2 treats it as a built-in browser
+  accelerator), so cycling never fired. Now intercepted natively at the
+  controller's `AcceleratorKeyPressed` event and forwarded to the chrome as
+  next/prev-tab. COM verified vs msvc.
+- **Sidebar popovers are opaque.** Shields / Settings / Passwords / Downloads /
+  Extensions menus float over the native webview — a separate OS layer the
+  backdrop-blur can't sample — so glass translucency read as see-through. They're
+  now solid (keeping the glass rim + sheen).
+- **Group + workspace rename now work.** They used `window.prompt`, which is a
+  no-op in the webview — replaced with inline editing (double-click the name,
+  Enter/blur to commit, Esc to cancel).
+- **New tabs focus the address bar** so you can type immediately (the omnibox
+  auto-focuses whenever a start page becomes active).
 - **Tab groups** (BACKLOG #56) — named, colored, collapsible groups in the tab
   strip. Right-click a tab for: pin, **new group**, **add to** an existing group,
   **remove from group**, close. Group headers collapse/expand, rename

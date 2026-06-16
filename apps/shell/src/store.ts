@@ -7,6 +7,7 @@ import { createSignal } from "solid-js";
 import {
   darkmodeSet,
   faviconFetch,
+  isStartUrl,
   groupCreate,
   groupDelete,
   groupUpdate,
@@ -19,7 +20,9 @@ import {
   tabList,
   tabReorder,
   tabSetGroup,
+  tabSetWorkspace,
   tabSetPinned,
+  groupSetWorkspace,
   webviewClose,
   workspaceActive,
   workspaceCreate,
@@ -62,6 +65,44 @@ export async function recolorWorkspace(id: number, color: number): Promise<void>
   await refreshWorkspaces();
 }
 
+// Split view (BACKLOG #43): two browser tabs tiled in the content card.
+// `splitPair` is [leftId, rightId]; the split renders only while one of the pair
+// is the active tab (switching to a third tab pauses it, switching back resumes).
+// `splitRatio` is the left pane's fraction of the card width. `splitDragging`
+// hides the native webviews while the seam is dragged — a native webview is a
+// separate OS layer that captures the mouse, so the DOM splitter can't track the
+// pointer over it; hiding the panes lets the chrome see pointer moves again.
+const [splitPair, setSplitPairSig] = createSignal<[number, number] | null>(null);
+const [splitRatio, setSplitRatio] = createSignal(0.5);
+const [splitDragging, setSplitDragging] = createSignal(false);
+export { splitPair, splitRatio, setSplitRatio, splitDragging, setSplitDragging };
+
+/** Tile two browser tabs side by side (left | right) and focus the left one so
+ *  the split shows immediately. No-op if asked to split a tab with itself. */
+export function startSplit(leftId: number, rightId: number): void {
+  if (leftId === rightId) return;
+  setSplitPairSig([leftId, rightId]);
+  setSplitRatio(0.5);
+  void focusTab(leftId);
+}
+export function clearSplit(): void {
+  setSplitPairSig(null);
+}
+/** The two tabs to tile, or null when the split isn't currently showable: no
+ *  pair, the active tab is outside the pair, or a member was closed / left the
+ *  workspace / isn't a real page. */
+export const splitPanes = (): [TabMeta, TabMeta] | null => {
+  const p = splitPair();
+  if (!p) return null;
+  const a = activeId();
+  if (a == null || (p[0] !== a && p[1] !== a)) return null;
+  const l = tabs().find((t) => t.id === p[0]);
+  const r = tabs().find((t) => t.id === p[1]);
+  const ok = (t?: TabMeta) =>
+    !!t && t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url);
+  return ok(l) && ok(r) ? [l as TabMeta, r as TabMeta] : null;
+};
+
 // Manual tab groups (BACKLOG #56).
 const [groups, setGroups] = createSignal<TabGroup[]>([]);
 export { groups };
@@ -96,6 +137,18 @@ export async function groupWithTab(draggedId: number, targetId: number): Promise
 export async function setTabGroup(tabId: number, group: number | null): Promise<void> {
   await tabSetGroup(tabId, group).catch(() => {});
   await Promise.all([refreshTabs(), refreshGroups()]);
+}
+/** Send a tab to another workspace (#44). Detaches it from any group. The
+ *  caller (App) tears down the moved tab's webview, since it left this space. */
+export async function sendTabToWorkspace(tabId: number, ws: number): Promise<void> {
+  await tabSetWorkspace(tabId, ws).catch(() => {});
+  await Promise.all([refreshTabs(), refreshGroups()]);
+}
+/** Send a whole group to another workspace (#44). Returns the moved tab ids. */
+export async function sendGroupToWorkspace(groupId: number, ws: number): Promise<number[]> {
+  const moved = await groupSetWorkspace(groupId, ws).catch(() => [] as number[]);
+  await Promise.all([refreshTabs(), refreshGroups()]);
+  return moved;
 }
 export async function deleteGroup(id: number): Promise<void> {
   await groupDelete(id).catch(() => {});
@@ -282,6 +335,7 @@ export async function togglePin(tab: TabMeta): Promise<void> {
 }
 
 export async function closeTab(id: number): Promise<void> {
+  if (splitPair()?.includes(id)) clearSplit(); // a tiled tab is gone → drop the split
   setTabLoading(id, false);
   setHibernated(id, false);
   await webviewClose(id); // tear down the native webview (no-op for terminal tabs)

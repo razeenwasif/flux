@@ -145,6 +145,7 @@ pub async fn webview_open(
     crate::tracking::install(&app, &child);
     crate::permissions::install(&app, &child);
     crate::downloads::install(&app, &child);
+    install_tab_accelerators(&app, &child); // Ctrl+Tab cycling (#18)
     tracing::info!(target: "flux::webview", tab_id, %url, x, y, width, height, scale, "opened tab webview");
     Ok(())
 }
@@ -312,6 +313,62 @@ pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> 
 pub(crate) fn eval(app: &AppHandle, tab_id: TabId, js: &str) -> Result<(), String> {
     let wv = app.get_webview(&label(tab_id)).ok_or("no such tab webview")?;
     wv.eval(js).map_err(|e| e.to_string())
+}
+
+/// Forward Ctrl+Tab / Ctrl+Shift+Tab from a focused tab webview to the chrome
+/// as `next-tab` / `prev-tab` (#18). A focused native webview eats these chords
+/// before our injected `shortcuts.js` keydown listener runs, because WebView2
+/// treats them as built-in browser accelerators — so we intercept them at the
+/// controller's `AcceleratorKeyPressed` event (which fires regardless) and emit
+/// the same `flux://shortcut` event `chrome_key` uses. No-op off Windows.
+fn install_tab_accelerators(app: &AppHandle, wv: &tauri::webview::Webview) {
+    #[cfg(windows)]
+    {
+        let app = app.clone();
+        let _ = wv.with_webview(move |platform| unsafe {
+            use tauri::Emitter;
+            use webview2_com::AcceleratorKeyPressedEventHandler;
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+            };
+            use windows::Win32::UI::Input::KeyboardAndMouse::{
+                GetKeyState, VK_CONTROL, VK_SHIFT, VK_TAB,
+            };
+
+            let controller = platform.controller();
+            let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_sender, args| {
+                let Some(args) = args else { return Ok(()) };
+                let mut kind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN;
+                let _ = args.KeyEventKind(&mut kind);
+                // Only act on key-down (the event also fires on key-up).
+                if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
+                    && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
+                {
+                    return Ok(());
+                }
+                let mut vk = 0u32;
+                let _ = args.VirtualKey(&mut vk);
+                if vk != VK_TAB.0 as u32 {
+                    return Ok(());
+                }
+                // High bit of GetKeyState → the modifier is currently down.
+                let down = |k: i32| (GetKeyState(k) as u16 & 0x8000) != 0;
+                if !down(VK_CONTROL.0 as i32) {
+                    return Ok(());
+                }
+                let _ = args.SetHandled(true); // swallow the browser default
+                let action = if down(VK_SHIFT.0 as i32) { "prev-tab" } else { "next-tab" };
+                let _ = app.emit("flux://shortcut", action);
+                Ok(())
+            }));
+            let mut token = 0i64;
+            let _ = controller.add_AcceleratorKeyPressed(&handler, &mut token);
+        });
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, wv);
+    }
 }
 
 /// Clip a tab's native webview to rounded corners (Windows). The page is a

@@ -299,6 +299,30 @@ impl FluxState {
         }
     }
 
+    /// Move a single tab to another workspace (send-to-workspace, #44). Detaches
+    /// it from any group, since groups are rendered per-workspace — a lone member
+    /// stranded in a different space would render as a one-tab group.
+    pub fn set_tab_workspace(&self, tab_id: TabId, workspace: u32) {
+        if let Some(mut t) = self.tabs.get_mut(&tab_id) {
+            t.workspace = workspace;
+            t.group = None;
+        }
+    }
+
+    /// Move an entire group — all its member tabs — to another workspace, keeping
+    /// the group intact (it simply renders in the target space now). Returns the
+    /// moved tab ids.
+    pub fn set_group_workspace(&self, group: u32, workspace: u32) -> Vec<TabId> {
+        let mut moved = Vec::new();
+        for mut t in self.tabs.iter_mut() {
+            if t.group == Some(group) {
+                t.workspace = workspace;
+                moved.push(t.id);
+            }
+        }
+        moved
+    }
+
     /// "Group by topic": create a group per semantic cluster present on the
     /// unpinned tabs, and assign those tabs to it. Returns the count created.
     pub fn groups_from_clusters(&self) -> usize {

@@ -121,6 +121,12 @@ export const groupUpdate = (id: number, patch: { name?: string; color?: number; 
 export const groupDelete = (id: number) => invoke<void>("group_delete", { id });
 export const tabSetGroup = (tabId: number, group: number | null) =>
   invoke<void>("tab_set_group", { tabId, group });
+/** Send a tab to another workspace (#44); detaches it from any group. */
+export const tabSetWorkspace = (tabId: number, workspace: number) =>
+  invoke<void>("tab_set_workspace", { tabId, workspace });
+/** Send a whole group to another workspace (#44); returns the moved tab ids. */
+export const groupSetWorkspace = (group: number, workspace: number) =>
+  invoke<number[]>("group_set_workspace", { group, workspace });
 /** "Group by topic" — seed groups from the semantic clusters; returns the count. */
 export const groupsFromClusters = () => invoke<number>("groups_from_clusters");
 // ─── Workspaces (BACKLOG #44) ────────────────────────────────────────────────

@@ -120,6 +120,14 @@ import {
   setActiveWorkspace,
   setDarkMode,
   setTabGroup,
+  startSplit,
+  clearSplit,
+  splitPair,
+  splitPanes,
+  splitRatio,
+  setSplitRatio,
+  splitDragging,
+  setSplitDragging,
   toggleGroupCollapsed,
   workspaceColor,
   workspaces,
@@ -133,6 +141,8 @@ import {
   setPendingAsk,
   setSearchSuggestOn,
   setTabLoading,
+  sendTabToWorkspace,
+  sendGroupToWorkspace,
   tabs,
   togglePin,
   unpinnedTabs,
@@ -172,17 +182,38 @@ const App: Component = () => {
     return { x: r.x, y: r.y, width: r.width, height: r.height };
   };
 
+  // The pane layout (#43): normally the active browser tab fills the card; when
+  // a split is active and one of the pair is focused, the two pair tabs tile
+  // left | right at `splitRatio` with a small gap the DOM splitter sits in.
+  const SPLIT_GAP = 8;
+  const paneLayout = (): { tab: TabMeta; rect: Rect }[] => {
+    const rect = readRect();
+    if (!rect) return [];
+    const pair = splitPanes();
+    if (pair) {
+      const ratio = Math.min(0.8, Math.max(0.2, splitRatio()));
+      const lw = Math.round(rect.width * ratio - SPLIT_GAP / 2);
+      const rw = Math.round(rect.width - lw - SPLIT_GAP);
+      return [
+        { tab: pair[0], rect: { x: rect.x, y: rect.y, width: lw, height: rect.height } },
+        { tab: pair[1], rect: { x: rect.x + lw + SPLIT_GAP, y: rect.y, width: rw, height: rect.height } },
+      ];
+    }
+    const act = activeTab();
+    if (act?.kind === "browser" && !isStartUrl(act.url)) return [{ tab: act, rect }];
+    return [];
+  };
+
   // Coalesce webview bounds updates to one IPC call per animation frame — a
   // resize fires dozens of layout changes/sec, and one IPC each was the lag.
+  // Pane-aware: repositions every tiled pane, not just the active tab.
   let boundsRaf = 0;
-  let boundsId = 0;
-  const scheduleBounds = (id: number) => {
-    boundsId = id;
+  const scheduleRelayout = () => {
     if (boundsRaf) return;
     boundsRaf = requestAnimationFrame(() => {
       boundsRaf = 0;
-      const r = readRect();
-      if (r) wv(webviewSetBounds(boundsId, r));
+      if (splitDragging()) return; // panes are hidden mid-drag
+      for (const p of paneLayout()) wv(webviewSetBounds(p.tab.id, p.rect));
     });
   };
 
@@ -263,8 +294,12 @@ const App: Component = () => {
       setHibernated(id, true);
       wv(webviewHibernate(id));
     };
-    const liveBackground = (act: number | null) =>
-      tabs().filter((t) => t.kind === "browser" && t.id !== act && !isStartUrl(t.url) && openedWebviews.has(t.id));
+    // Background = live browser tabs that aren't currently tiled in the card.
+    // (In split view both panes are visible, so neither is hibernatable.)
+    const liveBackground = (_act: number | null) => {
+      const visible = new Set(paneLayout().map((p) => p.tab.id));
+      return tabs().filter((t) => t.kind === "browser" && !visible.has(t.id) && !isStartUrl(t.url) && openedWebviews.has(t.id));
+    };
     const hibTimer = window.setInterval(async () => {
       const now = Date.now();
       const act = activeId();
@@ -302,10 +337,10 @@ const App: Component = () => {
         // Sync the live url to the backend so the persisted session (#19)
         // reflects where the tab actually is, not its creation url.
         void tabSetUrl(tabId, url).catch(() => {});
-        if (tabId === activeId()) {
-          const r = readRect();
-          if (r) wv(webviewSetBounds(tabId, r));
-        }
+        // Re-apply the pane layout once loaded (defensive: ensures the page sits
+        // in its pane even if the initial position didn't stick). Pane-aware so a
+        // split pane lands in its half, not the full card.
+        if (paneLayout().some((p) => p.tab.id === tabId)) scheduleRelayout();
       }
     });
     onCleanup(() => {
@@ -333,46 +368,44 @@ const App: Component = () => {
     }
   });
 
-  // Sync native webviews to the active tab + content rect: show the active
-  // browser tab's page at the card rect, hide every other tab's webview.
-  // `flux://start` tabs get no webview — the dashboard renders in the card.
+  // Sync native webviews to the pane layout (#2/#43): show the tiled pane(s) at
+  // their rects, hide every other browser tab's webview. `flux://start` tabs get
+  // no webview — the dashboard renders in the card. While the split seam is being
+  // dragged, hide all panes so the DOM splitter can track the pointer (a native
+  // webview is a separate OS layer that would otherwise eat the mouse).
   createEffect(() => {
-    const tab = activeTab();
     contentRect(); // subscribe: re-run on any layout change
-    const rect = readRect(); // but always use the freshest DOM measurement
+    splitRatio(); // subscribe: re-tile when the seam moves
+    const dragging = splitDragging();
+    const panes = paneLayout();
+    const liveIds = new Set(panes.map((p) => p.tab.id));
     for (const t of tabs()) {
-      if (t.kind === "browser" && t.id !== tab?.id) wv(webviewHide(t.id));
+      if (t.kind === "browser" && (dragging || !liveIds.has(t.id))) wv(webviewHide(t.id));
     }
-    if (tab?.kind === "browser") {
-      if (isStartUrl(tab.url)) {
-        if (openedWebviews.has(tab.id)) wv(webviewHide(tab.id));
-      } else if (rect) {
-        if (openedWebviews.has(tab.id)) {
-          scheduleBounds(tab.id); // throttled — follows resizes without lag
-          wv(webviewShow(tab.id));
-        } else {
-          openedWebviews.add(tab.id);
-          setHibernated(tab.id, false); // (re)opening = waking from sleep (#45)
-          lastActive.set(tab.id, Date.now());
-          const id = tab.id;
-          const r = rect;
-          // Diagnostic for the "page stuck on loading" bug: rect we send,
-          // then what Tauri actually applied (after the webview exists).
-          console.log(
-            `[flux webview] open id=${id} url=${tab.url} ` +
-              `rect=${JSON.stringify(r)} dpr=${window.devicePixelRatio} ` +
-              `win=${window.innerWidth}x${window.innerHeight}`,
-          );
-          webviewOpen(id, tab.url, r)
-            .then(() => {
-              scheduleBounds(id);
-              return webviewDebug(id);
-            })
-            .then((info) => console.log("[flux webview] tauri sees:", info))
-            .catch((e) => console.error("[flux webview] open failed:", e));
-        }
+    if (dragging) return; // panes re-show when the drag ends
+    let needRelayout = false;
+    for (const p of panes) {
+      const id = p.tab.id;
+      if (openedWebviews.has(id)) {
+        wv(webviewShow(id));
+        needRelayout = true; // throttled bounds for resize/seam follow
+      } else {
+        openedWebviews.add(id);
+        setHibernated(id, false); // (re)opening = waking from sleep (#45)
+        lastActive.set(id, Date.now());
+        const r = p.rect;
+        console.log(
+          `[flux webview] open id=${id} url=${p.tab.url} rect=${JSON.stringify(r)} ` +
+            `dpr=${window.devicePixelRatio} win=${window.innerWidth}x${window.innerHeight}`,
+        );
+        webviewOpen(id, p.tab.url, r)
+          .then(() => webviewSetBounds(id, r))
+          .then(() => webviewDebug(id))
+          .then((info) => console.log("[flux webview] tauri sees:", info))
+          .catch((e) => console.error("[flux webview] open failed:", e));
       }
     }
+    if (needRelayout) scheduleRelayout();
   });
 
   // Capture a tab's scroll/form state the moment you switch away from it (#45),
@@ -530,6 +563,35 @@ const App: Component = () => {
     if (members[0]) void focusTab(members[0].id);
   };
 
+  // Send tab(s) to another workspace (#44). The moved tabs leave the active
+  // space, so tear down their webviews (freeing the RAM) and — if we sent the
+  // active tab away — fall back to another tab in the current workspace.
+  const teardownMoved = (ids: number[]) => {
+    const act = activeId();
+    for (const id of ids) {
+      if (openedWebviews.has(id)) {
+        openedWebviews.delete(id);
+        setHibernated(id, true);
+        wv(webviewHibernate(id));
+      }
+    }
+    if (act != null && ids.includes(act)) {
+      const here = tabs().filter((t) => t.workspace === activeWorkspace() && !ids.includes(t.id));
+      if (here.length) void focusTab(here[here.length - 1]!.id);
+      else void openTab("browser");
+    }
+  };
+  const sendTabToWs = async (tabId: number, ws: number) => {
+    if (ws === activeWorkspace()) return;
+    await sendTabToWorkspace(tabId, ws);
+    teardownMoved([tabId]);
+  };
+  const sendGroupToWs = async (groupId: number, ws: number) => {
+    if (ws === activeWorkspace()) return;
+    const moved = await sendGroupToWorkspace(groupId, ws);
+    teardownMoved(moved);
+  };
+
   // Command palette (#6). It's a centered modal; the native webview is a
   // separate OS layer over the content card, so hide the active page while it's
   // open and show it again on close.
@@ -655,6 +717,8 @@ const App: Component = () => {
         onSwitchWorkspace={switchWorkspace}
         onNewWorkspace={newWorkspace}
         onDeleteWorkspace={removeWorkspace}
+        onSendTabToWorkspace={sendTabToWs}
+        onSendGroupToWorkspace={sendGroupToWs}
       />
       <ContentArea
         onNavigate={go}
@@ -788,6 +852,8 @@ interface SidebarProps {
   onSwitchWorkspace: (id: number) => void;
   onNewWorkspace: () => void;
   onDeleteWorkspace: (id: number) => void;
+  onSendTabToWorkspace: (tabId: number, ws: number) => void;
+  onSendGroupToWorkspace: (groupId: number, ws: number) => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | null;
@@ -806,6 +872,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [dropId, setDropId] = createSignal<number | null>(null);
   // Tab right-click menu + grouping (#56).
   const [ctxTab, setCtxTab] = createSignal<TabMeta | null>(null);
+  const [ctxGroup, setCtxGroup] = createSignal<TabGroup | null>(null);
   const [ctxPos, setCtxPos] = createSignal({ x: 0, y: 0 });
   // Inline rename (window.prompt is a no-op in the webview, so edit in place).
   const [editGroup, setEditGroup] = createSignal<number | null>(null);
@@ -840,15 +907,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
         const d = dragId();
         if (d != null && d !== p.tab.id) {
           const r = e.currentTarget.getBoundingClientRect();
-          const frac = (e.clientY - r.top) / r.height;
-          if (frac > 0.25 && frac < 0.75) void groupWithTab(d, p.tab.id); // center → group
-          else void reorderTabs(d, p.tab.id, frac >= 0.75); // edge → reorder
+          const fx = (e.clientX - r.left) / r.width;
+          const fy = (e.clientY - r.top) / r.height;
+          const dragged = tabs().find((t) => t.id === d);
+          const bothPages = dragged?.kind === "browser" && p.tab.kind === "browser";
+          if (fx > 0.6 && bothPages) startSplit(p.tab.id, d); // right side → split (#43)
+          else if (fy > 0.25 && fy < 0.75) void groupWithTab(d, p.tab.id); // center → group
+          else void reorderTabs(d, p.tab.id, fy >= 0.75); // top/bottom → reorder
         }
         setDragId(null);
         setDropId(null);
       }}
       onDragEnd={() => { setDragId(null); setDropId(null); }}
-      title={isHibernated(p.tab.id) ? "sleeping — click to wake" : "drag to reorder · right-click for menu"}
+      title={isHibernated(p.tab.id) ? "sleeping — click to wake" : "drag: top/bottom reorder · middle group · right edge split · right-click for menu"}
     >
       <span class="tab-favicon">{isHibernated(p.tab.id) ? "💤" : <Favicon tab={p.tab} />}</span>
       <span class="title">{p.tab.title || p.tab.url}</span>
@@ -1129,6 +1200,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                     <div
                       classList={{ "tab-group-head": true, "drag-over": dropId() === -g.id }}
                       onClick={() => void toggleGroupCollapsed(g)}
+                      onContextMenu={(e) => { e.preventDefault(); setCtxGroup(g); setCtxPos({ x: e.clientX, y: e.clientY }); }}
                       onDragOver={(e) => { if (dragId() != null) { e.preventDefault(); e.dataTransfer!.dropEffect = "move"; setDropId(-g.id); } }}
                       onDragLeave={() => { if (dropId() === -g.id) setDropId(null); }}
                       onDrop={(e) => { e.preventDefault(); const d = dragId(); if (d != null) void setTabGroup(d, g.id); setDragId(null); setDropId(null); }}
@@ -1187,8 +1259,52 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <Show when={t().group != null}>
                 <button onClick={() => { void setTabGroup(t().id, null); closeCtx(); }}>Remove from group</button>
               </Show>
+              <Show when={t().kind === "browser" && !isStartUrl(t().url) && activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url) && activeId() !== t().id}>
+                <div class="ctx-sep" />
+                <button onClick={() => { startSplit(activeId()!, t().id); closeCtx(); }}>⊟ Split with current tab</button>
+              </Show>
+              <Show when={splitPair()}>
+                <button onClick={() => { clearSplit(); closeCtx(); }}>Exit split view</button>
+              </Show>
+              <Show when={workspaces().length > 1}>
+                <div class="ctx-sep" />
+                <div class="ctx-label">Send to workspace</div>
+                <For each={workspaces().filter((w) => w.id !== t().workspace)}>
+                  {(w) => (
+                    <button onClick={() => { props.onSendTabToWorkspace(t().id, w.id); closeCtx(); }}>
+                      <span class="ws-dot" style={{ background: workspaceColor(w) }} /> {w.name}
+                    </button>
+                  )}
+                </For>
+              </Show>
               <div class="ctx-sep" />
               <button onClick={() => { void closeTab(t().id); closeCtx(); }}>Close tab</button>
+            </div>
+          </>
+        )}
+      </Show>
+
+      {/* Group right-click menu (#44/#56): rename, recolor, send-to-workspace. */}
+      <Show when={ctxGroup()}>
+        {(g) => (
+          <>
+            <div class="ctx-backdrop" onClick={() => setCtxGroup(null)} onContextMenu={(e) => { e.preventDefault(); setCtxGroup(null); }} />
+            <div class="tab-ctx glass" style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}>
+              <button onClick={() => { setEditGroup(g().id); setCtxGroup(null); }}>Rename group</button>
+              <button onClick={() => { cycleGroupColor(g()); setCtxGroup(null); }}>Change color</button>
+              <Show when={workspaces().length > 1}>
+                <div class="ctx-sep" />
+                <div class="ctx-label">Send group to workspace</div>
+                <For each={workspaces().filter((w) => w.id !== activeWorkspace())}>
+                  {(w) => (
+                    <button onClick={() => { props.onSendGroupToWorkspace(g().id, w.id); setCtxGroup(null); }}>
+                      <span class="ws-dot" style={{ background: workspaceColor(w) }} /> {w.name}
+                    </button>
+                  )}
+                </For>
+              </Show>
+              <div class="ctx-sep" />
+              <button onClick={() => { void deleteGroup(g().id); setCtxGroup(null); }}>Ungroup</button>
             </div>
           </>
         )}
@@ -1358,6 +1474,34 @@ const ContentArea: Component<{
   return (
   <main class="content">
     <div class="card" id="flux-web-area">
+      {/* Split-view seam (#43): sits in the gap between the two tiled webviews
+          (the one strip of card the OS webview layers don't cover), so it's
+          visible + draggable. Dragging hides the panes (setSplitDragging) so the
+          chrome can track the pointer, then re-tiles at the new ratio on release. */}
+      <Show when={splitPanes()}>
+        <div
+          class="pane-splitter"
+          style={{ left: `${Math.min(80, Math.max(20, splitRatio() * 100))}%` }}
+          title="Drag to resize · double-click to even out"
+          onDblClick={() => setSplitRatio(0.5)}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            const card = document.getElementById("flux-web-area");
+            if (!card) return;
+            const rect = card.getBoundingClientRect();
+            setSplitDragging(true);
+            const move = (ev: PointerEvent) =>
+              setSplitRatio(Math.min(0.8, Math.max(0.2, (ev.clientX - rect.left) / rect.width)));
+            const up = () => {
+              setSplitDragging(false);
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", up);
+            };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", up);
+          }}
+        />
+      </Show>
       {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
           its PTY + scrollback survive tab switches; only the active one shows.
           (TerminalView only unmounts — and kills its PTY — when the tab closes,
