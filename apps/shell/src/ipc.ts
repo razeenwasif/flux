@@ -91,6 +91,8 @@ export const tabClose = (id: number) => invoke<void>("tab_close", { id });
 export const tabList = () => invoke<TabMeta[]>("tab_list");
 export const tabSetPinned = (id: number, pinned: boolean) =>
   invoke<void>("tab_set_pinned", { id, pinned });
+/** Reorder the tab strip — `ids` is the new full display order (BACKLOG #30). */
+export const tabReorder = (ids: number[]) => invoke<void>("tab_reorder", { ids });
 /** Sync a tab's live url/title to the backend so the persisted session is current. */
 export const tabSetUrl = (id: number, url: string, title?: string) =>
   invoke<void>("tab_set_url", { id, url, title: title ?? null });

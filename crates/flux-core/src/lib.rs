@@ -161,6 +161,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::tab_set_pinned,
             commands::tab_set_url,
             commands::tab_active,
+            commands::tab_reorder,
             commands::launch_intent,
             commands::chrome_import_preview,
             commands::chrome_import_bookmarks,

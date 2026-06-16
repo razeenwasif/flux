@@ -404,6 +404,10 @@ body.resizing .shell { transition: none !important; }
   position: relative;
 }
 .tab-row:hover { background: var(--flux-surface); color: var(--flux-text); }
+/* Drag-reorder (BACKLOG #30). */
+.tab-row { cursor: grab; }
+.tab-row.dragging { opacity: 0.4; cursor: grabbing; }
+.tab-row.drag-over { outline: 1.5px solid var(--flux-teal); outline-offset: -1.5px; }
 /* Hibernated tabs (BACKLOG #45) — dimmed + italic; wake on click. */
 .tab-row.sleeping { opacity: 0.55; }
 .tab-row.sleeping .title { font-style: italic; }

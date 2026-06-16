@@ -94,6 +94,7 @@ import {
   openTab,
   pinnedTabs,
   refreshTabs,
+  reorderTabs,
   searchSuggestOn,
   setFindMatches,
   setFindOpen,
@@ -701,6 +702,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
   const [defaultEngine, setDefaultEngine] = createSignal("");
   const [mem, setMem] = createSignal<MemInfo | null>(null);
+  // Tab drag-reorder (#30).
+  const [dragId, setDragId] = createSignal<number | null>(null);
+  const [dropId, setDropId] = createSignal<number | null>(null);
 
   const openPanel = async (p: FooterPanel) => {
     setPanel((cur) => (cur === p ? null : p));
@@ -962,14 +966,38 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <For each={unpinnedTabs()}>
             {(tab) => (
               <div
-                classList={{ "tab-row": true, active: activeId() === tab.id, sleeping: isHibernated(tab.id) }}
+                classList={{ "tab-row": true, active: activeId() === tab.id, sleeping: isHibernated(tab.id), dragging: dragId() === tab.id, "drag-over": dropId() === tab.id }}
                 style={{ "border-left-color": clusterColor(tab) }}
+                draggable={true}
                 onClick={() => focusTab(tab.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   void togglePin(tab); // → moves to the pinned grid
                 }}
-                title={isHibernated(tab.id) ? "sleeping — click to wake" : "right-click to pin"}
+                onDragStart={(e) => {
+                  setDragId(tab.id);
+                  e.dataTransfer!.effectAllowed = "move";
+                  e.dataTransfer!.setData("text/plain", String(tab.id));
+                }}
+                onDragOver={(e) => {
+                  if (dragId() == null || dragId() === tab.id) return;
+                  e.preventDefault();
+                  e.dataTransfer!.dropEffect = "move";
+                  setDropId(tab.id);
+                }}
+                onDragLeave={() => { if (dropId() === tab.id) setDropId(null); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const d = dragId();
+                  if (d != null && d !== tab.id) {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    void reorderTabs(d, tab.id, e.clientY > r.top + r.height / 2);
+                  }
+                  setDragId(null);
+                  setDropId(null);
+                }}
+                onDragEnd={() => { setDragId(null); setDropId(null); }}
+                title={isHibernated(tab.id) ? "sleeping — click to wake" : "drag to reorder · right-click to pin"}
               >
                 <span class="tab-favicon">{isHibernated(tab.id) ? "💤" : <Favicon tab={tab} />}</span>
                 <span class="title">{tab.title || tab.url}</span>

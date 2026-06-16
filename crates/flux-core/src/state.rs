@@ -101,6 +101,9 @@ pub struct FluxState {
     pub dom_cache: DashMap<TabId, Arc<DomSnapshot>>,
     /// Agent status — written by the agent task, read by UI/status commands.
     pub agent: RwLock<AgentStatus>,
+    /// Explicit tab display order (BACKLOG #30) — the user can drag-reorder, so
+    /// this is the source of truth for ordering rather than tab id.
+    order: RwLock<Vec<TabId>>,
     /// Where the session is persisted (BACKLOG #19). `None` → no persistence
     /// (tests / the `Default` impl).
     session_path: Option<std::path::PathBuf>,
@@ -115,6 +118,7 @@ impl FluxState {
             tabs: DashMap::new(),
             dom_cache: DashMap::new(),
             agent: RwLock::new(AgentStatus::Idle),
+            order: RwLock::new(Vec::new()),
             session_path: None,
         }
     }
@@ -125,9 +129,11 @@ impl FluxState {
     pub fn restore(session_path: std::path::PathBuf) -> Self {
         let session = crate::session::load(&session_path);
         let tabs = DashMap::new();
+        let mut order = Vec::new();
         let mut max_id = 0;
         for t in session.tabs {
             max_id = max_id.max(t.id);
+            order.push(t.id); // the saved sequence IS the display order
             tabs.insert(t.id, t);
         }
         let next = session.next_id.max(max_id + 1).max(1);
@@ -139,8 +145,53 @@ impl FluxState {
             tabs,
             dom_cache: DashMap::new(),
             agent: RwLock::new(AgentStatus::Idle),
+            order: RwLock::new(order),
             session_path: Some(session_path),
         }
+    }
+
+    /// Tabs in display order (BACKLOG #30): the `order` sequence first, then any
+    /// tabs not yet ordered (by id) — defensive against races / older sessions.
+    pub fn ordered_tabs(&self) -> Vec<TabMeta> {
+        let order = self.order.read();
+        let mut out = Vec::with_capacity(self.tabs.len());
+        let mut seen = std::collections::HashSet::new();
+        for id in order.iter() {
+            if let Some(t) = self.tabs.get(id) {
+                out.push(t.value().clone());
+                seen.insert(*id);
+            }
+        }
+        let mut extra: Vec<TabMeta> =
+            self.tabs.iter().filter(|e| !seen.contains(e.key())).map(|e| e.value().clone()).collect();
+        extra.sort_by_key(|t| t.id);
+        out.extend(extra);
+        out
+    }
+
+    /// Append a new tab to the end of the order.
+    pub fn order_push(&self, id: TabId) {
+        let mut o = self.order.write();
+        if !o.contains(&id) {
+            o.push(id);
+        }
+    }
+
+    /// Drop a closed tab from the order.
+    pub fn order_remove(&self, id: TabId) {
+        self.order.write().retain(|x| *x != id);
+    }
+
+    /// Replace the order with `ids` (filtered to live tabs; any live tab missing
+    /// from `ids` is appended so none is ever dropped from the strip).
+    pub fn set_order(&self, ids: Vec<TabId>) {
+        let mut next: Vec<TabId> = ids.into_iter().filter(|id| self.tabs.contains_key(id)).collect();
+        for e in self.tabs.iter() {
+            if !next.contains(e.key()) {
+                next.push(*e.key());
+            }
+        }
+        *self.order.write() = next;
     }
 
     /// Write the current tabs to disk (no-op without a `session_path`). Cheap —
@@ -148,10 +199,10 @@ impl FluxState {
     /// ordered by id (== creation order) so restore preserves the tab strip.
     pub fn persist(&self) {
         let Some(path) = &self.session_path else { return };
-        let mut tabs: Vec<TabMeta> = self.tabs.iter().map(|e| e.value().clone()).collect();
-        tabs.sort_by_key(|t| t.id);
         let session = crate::session::Session {
-            tabs,
+            // Saved in display order, so a restart preserves the drag-reordered
+            // strip (#30) — `restore` reads the sequence back as the order.
+            tabs: self.ordered_tabs(),
             active: self.active_tab.load(Ordering::Acquire),
             next_id: self.next_tab_id.load(Ordering::Acquire),
         };

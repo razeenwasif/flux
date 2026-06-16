@@ -46,6 +46,7 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
     };
     let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None };
     state.tabs.insert(id, meta.clone());
+    state.order_push(id);
     state.set_active_tab(id);
     state.persist();
     meta
@@ -123,16 +124,22 @@ pub fn tab_focus(state: State<'_, FluxState>, id: TabId) {
 pub fn tab_close(state: State<'_, FluxState>, id: TabId) {
     state.tabs.remove(&id);
     state.dom_cache.remove(&id);
+    state.order_remove(id);
     state.persist();
 }
 
 #[tauri::command]
 pub fn tab_list(state: State<'_, FluxState>) -> Vec<TabMeta> {
-    // Ordered by id (== creation order) so the tab strip is stable across reads
-    // and restores (DashMap iteration order is otherwise arbitrary).
-    let mut tabs: Vec<TabMeta> = state.tabs.iter().map(|e| e.value().clone()).collect();
-    tabs.sort_by_key(|t| t.id);
-    tabs
+    // In explicit display order (#30) — the user can drag-reorder.
+    state.ordered_tabs()
+}
+
+/// Reorder the tab strip (BACKLOG #30): `ids` is the new full order; any live
+/// tab omitted is kept (appended) so nothing vanishes.
+#[tauri::command]
+pub fn tab_reorder(state: State<'_, FluxState>, ids: Vec<TabId>) {
+    state.set_order(ids);
+    state.persist();
 }
 
 // ─── DOM snapshot ingestion (tab webview → Rust) ────────────────────────────

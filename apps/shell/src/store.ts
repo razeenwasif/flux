@@ -11,6 +11,7 @@ import {
   tabCreate,
   tabFocus,
   tabList,
+  tabReorder,
   tabSetPinned,
   webviewClose,
   type TabKind,
@@ -163,6 +164,21 @@ export async function closeTab(id: number): Promise<void> {
     setActiveId(remaining.at(-1)?.id ?? null);
   }
   await refreshTabs();
+}
+
+/** Drag-reorder (#30): move `draggedId` before/after `targetId`, optimistically
+ *  update the strip, and persist the new full order to the backend. */
+export async function reorderTabs(draggedId: number, targetId: number, after: boolean): Promise<void> {
+  if (draggedId === targetId) return;
+  const cur = tabs();
+  const moved = cur.find((t) => t.id === draggedId);
+  if (!moved) return;
+  const rest = cur.filter((t) => t.id !== draggedId);
+  const ti = rest.findIndex((t) => t.id === targetId);
+  const idx = ti < 0 ? rest.length : after ? ti + 1 : ti;
+  const next = [...rest.slice(0, idx), moved, ...rest.slice(idx)];
+  setTabs(next); // optimistic
+  await tabReorder(next.map((t) => t.id)).catch(() => void refreshTabs());
 }
 
 /** Patch a tab's url/title in place (e.g. from a page-load event). */

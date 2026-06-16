@@ -7,6 +7,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Drag-and-drop tab reordering** (BACKLOG #30). Tabs in the strip are now
+  draggable — drop above/below another tab to reposition (the drop point follows
+  the cursor's half of the target row). The order is an explicit, persisted
+  sequence in the backend (`tab_reorder`), so a drag-reordered strip survives
+  restart. Reorder within the pinned grid + dragging into/out of it are
+  follow-ups.
+
 ### Changed
 - **Content card: padding on all sides + rounded page corners.** The page area
   now floats with even padding (previously it was flush against the sidebar).

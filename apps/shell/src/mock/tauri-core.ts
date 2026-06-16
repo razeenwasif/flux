@@ -74,6 +74,11 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       tabs.push(tab);
       return Promise.resolve(tab as T);
     }
+    case "tab_reorder": {
+      const ids = (args?.ids as number[]) ?? [];
+      tabs.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+      return Promise.resolve(undefined as T);
+    }
     case "tab_set_pinned": {
       const t = tabs.find((t) => t.id === args?.id);
       if (t) t.pinned = args?.pinned as boolean;
