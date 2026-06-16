@@ -27,7 +27,35 @@ const [loadingTabs, setLoadingTabs] = createSignal<Set<number>>(new Set());
 const [findOpen, setFindOpen] = createSignal(false);
 const [findMatches, setFindMatches] = createSignal<number | null>(null);
 
-export { tabs, activeId, findOpen, setFindOpen, findMatches, setFindMatches };
+// Hibernated tabs (BACKLOG #45) — their native webview was destroyed to free
+// RAM; the tab stays in the strip and reloads when re-activated.
+const [hibernated, setHibernatedSet] = createSignal<Set<number>>(new Set());
+
+export { tabs, activeId, findOpen, setFindOpen, findMatches, setFindMatches, hibernated };
+
+export const isHibernated = (id: number): boolean => hibernated().has(id);
+export function setHibernated(id: number, on: boolean): void {
+  setHibernatedSet((s) => {
+    if (on === s.has(id)) return s;
+    const next = new Set(s);
+    if (on) next.add(id);
+    else next.delete(id);
+    return next;
+  });
+}
+
+// Hibernation settings (persisted). Default on, 30 min — the RAM win.
+const [hibernateEnabled, setHibEnabledRaw] = createSignal(localStorage.getItem("flux.hibernate") !== "0");
+const [hibernateMins, setHibMinsRaw] = createSignal(Number(localStorage.getItem("flux.hibernate.mins")) || 30);
+export { hibernateEnabled, hibernateMins };
+export function setHibernateEnabled(on: boolean): void {
+  setHibEnabledRaw(on);
+  localStorage.setItem("flux.hibernate", on ? "1" : "0");
+}
+export function setHibernateMins(m: number): void {
+  setHibMinsRaw(m);
+  localStorage.setItem("flux.hibernate.mins", String(m));
+}
 
 /** Whether a tab (default: the active one) is mid-load. */
 export const isLoading = (id: number | null = activeId()): boolean =>
@@ -91,6 +119,7 @@ export async function togglePin(tab: TabMeta): Promise<void> {
 
 export async function closeTab(id: number): Promise<void> {
   setTabLoading(id, false);
+  setHibernated(id, false);
   await webviewClose(id); // tear down the native webview (no-op for terminal tabs)
   await tabClose(id);
   // If we closed the active tab, fall back to the last remaining tab.

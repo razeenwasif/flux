@@ -146,6 +146,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_set_bounds,
             webview::webview_show,
             webview::webview_hide,
+            webview::webview_hibernate,
             webview::webview_navigate,
             webview::webview_stop,
             webview::webview_find,

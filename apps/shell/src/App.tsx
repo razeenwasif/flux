@@ -41,6 +41,7 @@ import {
   type SearchEngine,
   webviewDebug,
   webviewForward,
+  webviewHibernate,
   webviewHide,
   webviewNavigate,
   webviewOpen,
@@ -72,12 +73,18 @@ import {
   closeTab,
   findOpen,
   focusTab,
+  hibernateEnabled,
+  hibernateMins,
+  isHibernated,
   isLoading,
   openTab,
   pinnedTabs,
   refreshTabs,
   setFindMatches,
   setFindOpen,
+  setHibernated,
+  setHibernateEnabled,
+  setHibernateMins,
   setTabLoading,
   tabs,
   togglePin,
@@ -101,6 +108,8 @@ const App: Component = () => {
   // Native tab webviews are positioned to match it (BACKLOG #2).
   const [contentRect, setContentRect] = createSignal<Rect | null>(null);
   const openedWebviews = new Set<number>();
+  // Last time each tab was the active one (ms) — drives tab hibernation (#45).
+  const lastActive = new Map<number, number>();
 
   // Fire-and-forget a webview command, surfacing failures (the search/position
   // bug is hard to see otherwise — check the devtools console).
@@ -189,6 +198,27 @@ const App: Component = () => {
     window.addEventListener("keydown", onKey, true);
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     const unShortcut = await onShortcut((a) => dispatch(a));
+    // Tab hibernation (#45): every 30s, keep the active tab fresh and destroy
+    // the webviews of browser tabs idle past the timeout — freeing their RAM.
+    // They stay in the strip and reload when re-activated (the effect above
+    // re-opens any tab not in `openedWebviews`).
+    const hibTimer = window.setInterval(() => {
+      const now = Date.now();
+      const act = activeId();
+      if (act != null) lastActive.set(act, now);
+      if (!hibernateEnabled()) return;
+      const cutoff = hibernateMins() * 60_000;
+      for (const t of tabs()) {
+        if (t.kind !== "browser" || t.id === act || isStartUrl(t.url)) continue;
+        if (!openedWebviews.has(t.id)) continue; // already has no webview
+        if (now - (lastActive.get(t.id) ?? now) > cutoff) {
+          openedWebviews.delete(t.id);
+          setHibernated(t.id, true);
+          wv(webviewHibernate(t.id));
+        }
+      }
+    }, 30_000);
+    onCleanup(() => clearInterval(hibTimer));
     // Find-in-page match count from the active page (#33).
     const unFind = await onFindResult((tabId, count) => {
       if (tabId === activeId()) setFindMatches(count);
@@ -254,6 +284,8 @@ const App: Component = () => {
           wv(webviewShow(tab.id));
         } else {
           openedWebviews.add(tab.id);
+          setHibernated(tab.id, false); // (re)opening = waking from sleep (#45)
+          lastActive.set(tab.id, Date.now());
           const id = tab.id;
           const r = rect;
           // Diagnostic for the "page stuck on loading" bug: rect we send,
@@ -758,16 +790,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <For each={unpinnedTabs()}>
             {(tab) => (
               <div
-                classList={{ "tab-row": true, active: activeId() === tab.id }}
+                classList={{ "tab-row": true, active: activeId() === tab.id, sleeping: isHibernated(tab.id) }}
                 style={{ "border-left-color": clusterColor(tab) }}
                 onClick={() => focusTab(tab.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   void togglePin(tab); // → moves to the pinned grid
                 }}
-                title="right-click to pin"
+                title={isHibernated(tab.id) ? "sleeping — click to wake" : "right-click to pin"}
               >
-                <span class="tab-favicon">{favicon(tab)}</span>
+                <span class="tab-favicon">{isHibernated(tab.id) ? "💤" : favicon(tab)}</span>
                 <span class="title">{tab.title || tab.url}</span>
                 <button
                   class="close"
@@ -832,6 +864,25 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </For>
               <Show when={engines().length === 0}>
                 <div class="start-empty" style={{ padding: "6px 8px" }}>Engines load in the running app.</div>
+              </Show>
+              <div class="shields-sep" />
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Memory</div>
+              <div class="shields-row" style={{ padding: "2px 8px" }}>
+                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Free a background tab's memory by unloading it; it reloads when you return.">Sleep inactive tabs</span>
+                <button classList={{ "shields-toggle": true, on: hibernateEnabled() }} onClick={() => setHibernateEnabled(!hibernateEnabled())}>
+                  {hibernateEnabled() ? "On" : "Off"}
+                </button>
+              </div>
+              <Show when={hibernateEnabled()}>
+                <div class="shields-row" style={{ padding: "2px 8px" }}>
+                  <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }}>After</span>
+                  <select class="shields-select" value={String(hibernateMins())} onChange={(e) => setHibernateMins(Number(e.currentTarget.value))}>
+                    <option value="5">5 min</option>
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                    <option value="60">1 hour</option>
+                  </select>
+                </div>
               </Show>
             </Show>
             <Show when={panel() === "bookmarks"}>

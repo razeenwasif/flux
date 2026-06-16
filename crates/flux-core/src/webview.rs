@@ -185,6 +185,18 @@ pub async fn webview_hide(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     Ok(())
 }
 
+/// Hibernate a tab (#45): destroy its native webview to free the RAM, while the
+/// tab stays in the strip. Unlike `webview_close` this does NOT run clear-on-
+/// close — the tab isn't closing, just sleeping — and leaves the tab metadata
+/// intact so the shell re-creates the webview (reloading the page) on focus.
+#[tauri::command]
+pub async fn webview_hibernate(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&label(tab_id)) {
+        wv.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn webview_navigate(app: AppHandle, tab_id: TabId, url: String) -> Result<(), String> {
     let wv = app.get_webview(&label(tab_id)).ok_or("no such tab webview")?;

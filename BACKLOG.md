@@ -101,7 +101,7 @@ The features that make Arc/Vivaldi/Zen users evangelical.
 |---|---|---|---|
 | 43 | P1 | **Split view**: 2–4 tabs tiled in the content area, adjustable, saved with the session | Arc, Edge, Vivaldi, Zen |
 | 44 | P1 | **Spaces / workspaces**: named tab sets with their own pinned tabs + theme; switch instantly (semantic clustering #14 feeds auto-assignment) | Arc, Opera, Zen, Edge |
-| 45 | P1 | **Tab hibernation / sleeping tabs**: unload background tabs, preserve scroll/form state, wake on focus; per-tab + global memory cap | Edge, Vivaldi, Brave |
+| 45 | ✅ | **Tab hibernation / sleeping tabs** (done): background browser tabs idle past a timeout have their **native webview destroyed** (RAM freed); the tab stays in the strip (dimmed + 💤) and the page reloads when re-activated (reuses the lazy-webview path). On by default, 30 min, configurable in Settings (on/off + 5/15/30/60 min). Active + start/terminal/files tabs never sleep; no clear-on-close on hibernate. _Follow-ups:_ preserve scroll/form state across sleep, memory-pressure-based eviction. | Edge, Vivaldi, Brave |
 | 46 | P1 | **Auto-archive** stale tabs after N days (with an easy "archived tabs" view) | Arc |
 | 47 | P1 | **Session management**: named, auto-saved, restorable sessions; "reopen everything from yesterday" | Vivaldi, Opera |
 | 48 | P1 | **Web panels**: pin a site (chat, docs, music) to a slim side panel beside any tab | Vivaldi, Opera, Edge |

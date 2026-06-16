@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Tab hibernation / sleeping tabs** (BACKLOG #45) — the RAM win. Background
+  browser tabs idle past a timeout have their **native webview destroyed**,
+  freeing its memory; the tab stays in the strip (dimmed, with a 💤) and the
+  page **reloads when you click back to it** (Flux's lazy-webview path re-creates
+  it). On by default with a 30-minute timeout, configurable in Settings (⚙ →
+  Memory: on/off + 5 min / 15 min / 30 min / 1 hour). The active tab and
+  start/terminal/files tabs are never slept; hibernating does **not** run
+  clear-on-close (the tab isn't closing). _Follow-up:_ preserve scroll/form state
+  across sleep (today it reloads fresh), and memory-pressure-based eviction.
 - **Vault master password + auto-lock** (BACKLOG #61, ADR 0009). Optional
   hardening that seals the vault even from the logged-in OS user. Setting a
   master password derives an **Argon2id** key (19 MiB / t=2) that wraps the data

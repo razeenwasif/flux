@@ -387,6 +387,10 @@ body.resizing .shell { transition: none !important; }
   position: relative;
 }
 .tab-row:hover { background: var(--flux-surface); color: var(--flux-text); }
+/* Hibernated tabs (BACKLOG #45) — dimmed + italic; wake on click. */
+.tab-row.sleeping { opacity: 0.55; }
+.tab-row.sleeping .title { font-style: italic; }
+.pin-tile.sleeping { opacity: 0.5; }
 .tab-row.active {
   background: var(--flux-surface-2);
   color: var(--flux-text);
