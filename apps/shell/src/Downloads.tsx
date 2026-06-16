@@ -4,7 +4,7 @@
  * folder when done). Fed by WebView2's DownloadStarting interception in
  * downloads.rs; updates arrive over flux://download-updated.
  */
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
   downloadCancel,
   downloadOpen,
@@ -29,15 +29,21 @@ const Downloads: Component = () => {
   const [items, setItems] = createSignal<DownloadItem[]>([]);
 
   const refresh = () => void downloadsList().then(setItems).catch(() => {});
-  let timer: number | undefined;
   onMount(async () => {
-    refresh();
-    timer = window.setInterval(refresh, 3000);
+    refresh(); // initial — for the badge at startup
     const un = await onDownloadUpdated(refresh);
-    onCleanup(() => { clearInterval(timer); un(); });
+    onCleanup(un);
   });
 
   const active = createMemo(() => items().filter((d) => d.state === "in_progress" || d.state === "paused").length);
+  // Poll only while the popover is open OR a download is in flight (the badge
+  // needs progress then); idle + closed → no timer. The onDownloadUpdated event
+  // bootstraps `active()` when a download starts.
+  createEffect(() => {
+    if (!open() && active() === 0) return;
+    const t = window.setInterval(refresh, 3000);
+    onCleanup(() => clearInterval(t));
+  });
   const pct = (d: DownloadItem) => (d.total > 0 ? Math.min(100, Math.round((d.received / d.total) * 100)) : null);
 
   return (

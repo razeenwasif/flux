@@ -3,7 +3,7 @@
  * live blocked-count badge; clicking opens a popover to toggle blocking globally
  * or for the current site, and to refresh the filter lists.
  */
-import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, type Component } from "solid-js";
 import {
   cookiesClearAll,
   cookiesClearSite,
@@ -41,10 +41,10 @@ const Shields: Component = () => {
   const [cookies, setCookies] = createSignal<CookieStatus | null>(null);
   const [blockPerms, setBlockPerms] = createSignal(false);
   const [open, setOpen] = createSignal(false);
-  let timer: number | undefined;
-
+  // Just the blocked-count for the icon badge (cheap, refreshed on navigation).
+  const pollBadge = () => void shieldsStatus().then(setStatus).catch(() => {});
   const poll = () => {
-    void shieldsStatus().then(setStatus).catch(() => {});
+    pollBadge();
     void httpsStatus().then(setHttps).catch(() => {});
     void trackingStatus().then(setTracking).catch(() => {});
     void cookiesStatus().then(setCookies).catch(() => {});
@@ -52,17 +52,25 @@ const Shields: Component = () => {
   };
 
   const togglePerms = () => void permissionsSetBlock(!blockPerms()).then(poll);
-  onMount(() => {
-    poll();
-    timer = window.setInterval(poll, 2000);
-    onCleanup(() => clearInterval(timer));
-  });
 
   // The active browser tab's host drives the per-site toggle.
   const host = () => {
     const t = activeTab();
     return t && t.kind === "browser" ? hostOf(t.url) : null;
   };
+
+  // Refresh the badge whenever the active host changes (i.e. on navigation) —
+  // no always-on timer. The full status set polls only while the popover is open.
+  createEffect(() => {
+    host();
+    pollBadge();
+  });
+  createEffect(() => {
+    if (!open()) return;
+    poll();
+    const t = window.setInterval(poll, 2000);
+    onCleanup(() => clearInterval(t));
+  });
   const siteOn = () => {
     const h = host();
     const s = status();

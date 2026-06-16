@@ -313,15 +313,20 @@ const App: Component = () => {
       const now = Date.now();
       const act = activeId();
       if (act != null) lastActive.set(act, now);
+      // Nothing live in the background → no idle-sleep candidates and no reason
+      // to scan system memory. Bail before the sysinfo IPC (the periodic cost).
+      const bg = liveBackground(act);
+      if (bg.length === 0) return;
       // Idle-timeout sleep.
       if (hibernateEnabled()) {
         const cutoff = hibernateMins() * 60_000;
-        for (const t of liveBackground(act)) {
+        for (const t of bg) {
           if (now - (lastActive.get(t.id) ?? now) > cutoff) hibernateTab(t.id);
         }
       }
       // Memory-pressure eviction — only when free system memory is genuinely
-      // low; sleep the LRU few (more when it's critical).
+      // low; sleep the LRU few (more when it's critical). memStatus (a sysinfo
+      // scan) runs only here, i.e. only when there are background tabs to evict.
       if (memEvict()) {
         const m = await memStatus().catch(() => null);
         if (m && m.available_pct < 12) {
@@ -329,7 +334,7 @@ const App: Component = () => {
           for (const t of lru.slice(0, m.available_pct < 6 ? 4 : 2)) hibernateTab(t.id);
         }
       }
-    }, 30_000);
+    }, 60_000);
     onCleanup(() => clearInterval(hibTimer));
     // Find-in-page match count from the active page (#33).
     const unFind = await onFindResult((tabId, count) => {
@@ -1021,11 +1026,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
       }
     }
   };
-  // Live-ish RAM readout while the settings panel is open.
-  onMount(() => {
-    const t = window.setInterval(() => {
-      if (panel() === "settings") void memStatus().then(setMem).catch(() => {});
-    }, 2500);
+  // Live-ish RAM readout — only polls while the settings panel is actually open
+  // (was an always-on 2.5s timer that ran even with the panel closed).
+  createEffect(() => {
+    if (panel() !== "settings") return;
+    void memStatus().then(setMem).catch(() => {});
+    const t = window.setInterval(() => void memStatus().then(setMem).catch(() => {}), 2500);
     onCleanup(() => clearInterval(t));
   });
 

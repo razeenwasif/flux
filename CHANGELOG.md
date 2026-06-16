@@ -65,6 +65,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   workspace holds no webviews at all. Workspaces + per-tab membership + the
   active one persist across restart.
 
+### Changed
+- **CPU/battery: idle is now near-silent.** Several always-on polling timers that
+  woke every 2–3s regardless of whether their UI was open are now event-driven /
+  open-gated: the Settings RAM readout (2.5s), Shields status (2s × 5 IPCs →
+  badge refreshes on navigation, full poll only while open), Passwords matches
+  (2.5s → only while open), and Downloads (3s → only while open or a download is
+  in flight). The hibernation sweep moved 30s→60s and now skips the `sysinfo`
+  memory scan entirely when there are no background tabs to evict; the history
+  autosave moved 15s→60s. Net: a fully idle window goes from ~sub-second
+  aggregate wakeups to a handful per minute.
+
 ### Fixed
 - **Built `flux`/`flux.exe` showed `ERR_CONNECTION_REFUSED` (localhost:1420).**
   A plain `cargo build --release` doesn't enable Tauri's `custom-protocol`

@@ -4,7 +4,7 @@
  * match the current site with a one-click Fill, plus unlock/lock and a link to
  * the full-page manager (flux://passwords) for browsing/editing everything.
  */
-import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
   VAULT_URL,
   onVaultLocked,
@@ -45,12 +45,17 @@ const Passwords: Component = () => {
     if (h && !locked()) void vaultForHost(h).then(setMatches).catch(() => setMatches([]));
     else setMatches([]);
   };
-  let timer: number | undefined;
   onMount(async () => {
-    refresh();
-    timer = window.setInterval(() => open() && refresh(), 2500);
     const un = await onVaultLocked(() => refresh());
-    onCleanup(() => { clearInterval(timer); un(); });
+    onCleanup(un);
+  });
+  // Poll for host matches only while the popover is open (was an always-on 2.5s
+  // timer). The locked-state badge stays fresh via the onVaultLocked event.
+  createEffect(() => {
+    if (!open()) return;
+    refresh();
+    const t = window.setInterval(refresh, 2500);
+    onCleanup(() => clearInterval(t));
   });
 
   const fill = (c: CredentialMeta) => {
