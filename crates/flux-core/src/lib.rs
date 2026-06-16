@@ -233,6 +233,7 @@ pub fn run(intent: cli::LaunchIntent) {
             search::search_remove_engine,
             omni::omni_stats,
             omni::omni_sites,
+            omni::omni_answer,
             omni::omni_ingest_status,
             omni::omni_ingest_set_auto,
             omni::omni_ingest_active,

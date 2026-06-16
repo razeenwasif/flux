@@ -228,23 +228,31 @@ body.resizing .shell { transition: none !important; }
 }
 .pane-splitter:hover::after { background: rgba(47, 243, 255, 0.35); }
 
-/* Split-view merge bar in the sidebar (#43) — the page is covered by native
-   webviews, so the un-split control lives in the chrome. */
-.split-bar {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; padding: 6px 9px;
-  border-radius: 9px;
-  background: var(--flux-teal-dim);
-  border: 1px solid rgba(47, 243, 255, 0.22);
-  font-size: 11.5px; color: var(--flux-text-dim);
+/* Split view (#43): the two tiled tabs shown as one bracketed unit in the strip
+   (like Chrome's paired split tabs). A teal frame links them; the head carries a
+   "merge" (un-split) button. */
+.split-pair {
+  border: 1px solid rgba(47, 243, 255, 0.28);
+  border-radius: 10px;
+  background: rgba(47, 243, 255, 0.05);
+  padding: 3px;
+  display: flex; flex-direction: column; gap: 2px;
 }
-.split-bar button {
-  font-size: 11.5px; color: var(--flux-teal);
-  padding: 3px 9px; border-radius: 7px;
+.split-pair-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1px 6px 2px;
+}
+.split-pair-label {
+  font-size: 10px; color: var(--flux-teal);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.split-pair-merge {
+  font-size: 12px; line-height: 1; color: var(--flux-teal);
+  padding: 2px 6px; border-radius: 6px;
   border: 1px solid rgba(47, 243, 255, 0.30);
   background: rgba(47, 243, 255, 0.08);
 }
-.split-bar button:hover { background: rgba(47, 243, 255, 0.16); }
+.split-pair-merge:hover { background: rgba(47, 243, 255, 0.18); }
 
 /* ── Sidebar (liquid glass over velvet) ── */
 .sidebar {
@@ -343,6 +351,41 @@ body.resizing .shell { transition: none !important; }
 .omni-sug-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .omni-sug-label { font-size: 12.5px; color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .omni-sug-sub { font-size: 11px; color: var(--flux-text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Omni AI answer card (grounded, streamed) — sits atop the suggestions dropdown. */
+.omni-ask .omni-sug-icon { color: var(--flux-violet, #9d8df1); opacity: 1; }
+.omni-answer {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 11px 12px; margin-bottom: 3px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(123, 97, 255, 0.14), rgba(123, 97, 255, 0.04));
+  border: 1px solid rgba(123, 97, 255, 0.32);
+}
+.omni-answer-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--flux-violet, #9d8df1);
+}
+.omni-answer-head .spark { font-size: 11px; }
+.omni-answer-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--flux-violet, #9d8df1);
+  animation: omni-pulse 1s var(--ease-soft, ease) infinite;
+}
+@keyframes omni-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+.omni-answer-body {
+  font-size: 13px; line-height: 1.55; color: var(--flux-text);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 220px; overflow-y: auto;
+}
+.omni-answer-src { display: flex; flex-wrap: wrap; gap: 6px; }
+.omni-answer-cite {
+  font-size: 11px; color: var(--flux-text-dim);
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.omni-answer-cite:hover { color: var(--flux-text); border-color: rgba(123, 97, 255, 0.4); }
 
 /* Indeterminate loading bar under the pill — the native webview can't cover it
    here (it's in the sidebar, left of the content card). */
@@ -457,7 +500,7 @@ body.resizing .shell { transition: none !important; }
 
 /* Tab context menu (BACKLOG #56). */
 .ctx-backdrop { position: fixed; inset: 0; z-index: 50; }
-.tab-ctx { position: fixed; z-index: 51; min-width: 180px; max-width: 240px; padding: 5px; display: flex; flex-direction: column; gap: 1px; border-radius: 10px; }
+.tab-ctx { position: fixed; z-index: 51; min-width: 180px; max-width: 240px; padding: 5px; display: flex; flex-direction: column; gap: 1px; border-radius: 10px; max-height: calc(100vh - 16px); overflow-y: auto; }
 .tab-ctx button { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 7px; text-align: left; font-size: 12.5px; color: var(--flux-text); }
 .tab-ctx button:hover { background: var(--flux-surface-2); }
 .ctx-sep { height: 1px; background: var(--glass-rim-soft); margin: 3px 4px; }

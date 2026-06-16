@@ -251,6 +251,40 @@ export const omniStats = async (): Promise<OmniStats> =>
 export const omniSites = async (): Promise<OmniSite[]> =>
   JSON.parse(await invoke<string>("omni_sites"));
 
+/** A grounding source cited by a generative answer. */
+export interface OmniAnswerSource {
+  n: number;
+  title: string;
+  url: string;
+}
+
+/** One streamed answer event (mirrors Omni's SSE `data:` payloads). */
+export type OmniAnswerEvent =
+  | { type: "sources"; sources: OmniAnswerSource[] }
+  | { type: "token"; text: string }
+  | { type: "done" };
+
+/**
+ * Stream a generative RAG answer for `query` from Omni, calling `onEvent` for each
+ * event (sources first, then tokens, then done). Proxied + relayed through Rust
+ * over a Tauri Channel to dodge the webview CSP. Resolves when the stream ends.
+ */
+export const omniAnswer = (
+  query: string,
+  onEvent: (e: OmniAnswerEvent) => void,
+  model?: string,
+): Promise<void> => {
+  const ch = new Channel<string>();
+  ch.onmessage = (raw) => {
+    try {
+      onEvent(JSON.parse(raw) as OmniAnswerEvent);
+    } catch {
+      /* ignore a malformed frame */
+    }
+  };
+  return invoke<void>("omni_answer", { query, model, onToken: ch });
+};
+
 // ─── Omni live ingest (feed browsed pages into the index) ───────────────────
 
 /** Whether auto-ingest (index every substantial page on load) is on. */

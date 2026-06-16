@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::json;
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
 use crate::search::SearchState;
@@ -43,6 +44,55 @@ pub async fn omni_stats(search: State<'_, SearchState>) -> Result<String, String
 #[tauri::command]
 pub async fn omni_sites(search: State<'_, SearchState>) -> Result<String, String> {
     fetch(format!("{}/sites", search.omni_base())).await
+}
+
+/// Stream a generative RAG answer for `query` from Omni's `/answer?stream=1`,
+/// relaying each Server-Sent-Event `data:` payload to the frontend over `on_token`
+/// as it arrives. Proxied through Rust (like the other Omni calls) so it dodges the
+/// webview CSP that blocks a direct `http://localhost` fetch — and a Tauri `Channel`
+/// is what carries the tokens live, so the omnibox renders the answer word-by-word.
+/// Each payload is a JSON event: `{type:"sources",…}`, `{type:"token",text}`,
+/// or `{type:"done"}` — the frontend parses them (no Rust-side schema to sync).
+#[tauri::command]
+pub async fn omni_answer(
+    search: State<'_, SearchState>,
+    query: String,
+    model: Option<String>,
+    on_token: Channel<String>,
+) -> Result<(), String> {
+    let base = search.omni_base();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        use std::io::BufRead;
+        let mut req = ureq::get(&format!("{base}/answer"))
+            .timeout(Duration::from_secs(180))
+            .query("stream", "1")
+            .query("q", &query);
+        if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
+            req = req.query("model", m);
+        }
+        let reader = req.call().map_err(|e| e.to_string())?.into_reader();
+        let mut buf = std::io::BufReader::new(reader);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match buf.read_line(&mut line) {
+                Ok(0) => break, // stream closed
+                Ok(_) => {
+                    // SSE frames are `data: <json>`; forward the JSON payload as-is.
+                    if let Some(data) = line.trim().strip_prefix("data:") {
+                        let payload = data.trim();
+                        if !payload.is_empty() && on_token.send(payload.to_string()).is_err() {
+                            break; // frontend dropped the channel — stop relaying
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ─── Live ingest: feed browsed pages into the Omni index ─────────────────────

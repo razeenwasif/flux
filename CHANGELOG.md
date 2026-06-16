@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Split tabs show as one combined unit in the strip** (BACKLOG #43) — like
+  Chrome's paired split tabs: the two tiled tabs render together inside a teal
+  "◧◨ Split" bracket with a ⤢ merge (un-split) button, instead of as two
+  scattered rows. (Replaces the earlier separate "Merge" bar.)
 - **Install scripts — `flux` on your PATH.** `scripts/install-linux.sh` and
   `scripts/install-windows.ps1` build a self-contained binary (the frontend is
   embedded) and install it to `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on
@@ -53,6 +57,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Fixed
+- **ICO favicons now render** (e.g. medium.com). WebKitGTK doesn't decode
+  `data:image/x-icon` in `<img>`, so ICO-only sites showed no icon; favicons are
+  now transcoded to PNG in Rust (and fetched with a browser User-Agent, so
+  Cloudflare-fronted sites don't serve a challenge page instead of the icon).
+- **Tab/group right-click menu no longer clips off-screen** — the menu is bounded
+  to the viewport height (scrolls if taller) in addition to the Portal + clamp, so
+  it can't run past the bottom of the panel.
 - **Ctrl+Tab / Ctrl+Shift+Tab cycle only non-pinned tabs** (and stay within the
   active workspace) — previously the cycle wrapped through pinned tabs (and, in
   principle, other workspaces). If a pinned tab is active, the cycle enters at the

@@ -35,6 +35,9 @@ tauri-plugin-window-state = "2"
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 # Favicons (#21): encode fetched icon bytes into a data: URL.
 base64 = "0.22"
+# Transcode ICO favicons → PNG so every engine (incl. WebKitGTK, which doesn't
+# render data:image/x-icon in <img>) shows them. Just the ico+png codecs.
+image = { version = "0.25", default-features = false, features = ["ico", "png"] }
 
 flux-agent.workspace = true
 flux-embed.workspace = true

@@ -71,16 +71,42 @@ fn try_fetch(host: &str) -> Option<String> {
     None
 }
 
+/// A browser-ish UA — some sites (Cloudflare-fronted, etc.) serve a challenge
+/// page or 403 to non-browser agents, which would fail icon detection.
+const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+
 fn fetch_icon(url: &str) -> Option<String> {
-    let resp = ureq::get(url).timeout(Duration::from_secs(5)).call().ok()?;
+    let resp = ureq::get(url)
+        .set("User-Agent", UA)
+        .set("Accept", "image/avif,image/webp,image/png,image/svg+xml,image/*,*/*;q=0.8")
+        .timeout(Duration::from_secs(5))
+        .call()
+        .ok()?;
     if resp.status() != 200 {
         return None;
     }
     let ct = resp.header("content-type").unwrap_or("").split(';').next().unwrap_or("").trim().to_ascii_lowercase();
     let mut buf = Vec::new();
     resp.into_reader().take(256 * 1024).read_to_end(&mut buf).ok()?;
-    let mime = image_mime(&buf, &ct)?; // rejects soft-404 HTML served as 200
+    let mut mime = image_mime(&buf, &ct)?; // rejects soft-404 HTML served as 200
+    // WebKitGTK (the Linux engine) doesn't render `data:image/x-icon` in <img>,
+    // so transcode ICO → PNG; every engine renders PNG. Other formats pass through.
+    if mime == "image/x-icon" {
+        if let Some(png) = ico_to_png(&buf) {
+            buf = png;
+            mime = "image/png".into();
+        }
+    }
     Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&buf)))
+}
+
+/// Decode an ICO and re-encode the (largest) frame as PNG. `None` if the bytes
+/// don't decode as an ICO — caller then falls back to the raw ICO bytes.
+fn ico_to_png(buf: &[u8]) -> Option<Vec<u8>> {
+    let img = image::load_from_memory_with_format(buf, image::ImageFormat::Ico).ok()?;
+    let mut out = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).ok()?;
+    Some(out)
 }
 
 /// Identify the image type by magic bytes (falling back to a sane content-type),
@@ -116,7 +142,13 @@ fn image_mime(buf: &[u8], ct: &str) -> Option<String> {
 }
 
 fn root_icon_href(host: &str) -> Option<String> {
-    let html = ureq::get(&format!("https://{host}/")).timeout(Duration::from_secs(5)).call().ok()?.into_string().ok()?;
+    let html = ureq::get(&format!("https://{host}/"))
+        .set("User-Agent", UA)
+        .timeout(Duration::from_secs(5))
+        .call()
+        .ok()?
+        .into_string()
+        .ok()?;
     // Scan <link …> tags; take the first that mentions "icon" and has an href.
     for tag in html.split('<') {
         let lower = tag.to_ascii_lowercase();

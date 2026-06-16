@@ -55,6 +55,8 @@ import {
   webviewOpen,
   webviewReload,
   omniIngestActive,
+  omniAnswer,
+  type OmniAnswerSource,
   webviewSetBounds,
   webviewShow,
   webviewStop,
@@ -948,6 +950,40 @@ const Sidebar: Component<SidebarProps> = (props) => {
     </div>
   );
 
+  // Split view (#43): the two tiled tabs render together as one bracketed unit in
+  // the strip (like Chrome's paired split tabs), with a "merge" (un-split) button.
+  const SplitPair: Component<{ a: TabMeta; b: TabMeta }> = (p) => (
+    <div class="split-pair">
+      <div class="split-pair-head">
+        <span class="split-pair-label">◧◨ Split</span>
+        <button class="split-pair-merge" title="Merge — back to a single tab" onClick={(e) => { e.stopPropagation(); clearSplit(); }}>⤢</button>
+      </div>
+      <TabRow tab={p.a} />
+      <TabRow tab={p.b} />
+    </div>
+  );
+
+  // The ungrouped strip, with the split pair (when both members are ungrouped &
+  // present in this space) folded into a single combined item at the first
+  // member's position.
+  const ungroupedItems = (): ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] => {
+    const list = ungroupedTabs();
+    const pair = splitPair();
+    const a = pair ? list.find((t) => t.id === pair[0]) : undefined;
+    const b = pair ? list.find((t) => t.id === pair[1]) : undefined;
+    const combine = !!(a && b);
+    const out: ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] = [];
+    let placed = false;
+    for (const t of list) {
+      if (combine && (t.id === a!.id || t.id === b!.id)) {
+        if (!placed) { out.push({ kind: "split", a: a!, b: b! }); placed = true; }
+        continue;
+      }
+      out.push({ kind: "tab", tab: t });
+    }
+    return out;
+  };
+
   const openPanel = async (p: FooterPanel) => {
     setPanel((cur) => (cur === p ? null : p));
     if (p === "settings") {
@@ -993,11 +1029,41 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [suggestions, setSuggestions] = createSignal<Suggestion[]>([]);
   const [selIdx, setSelIdx] = createSignal(-1);
   let sugTimer: number | undefined;
+
+  // Omnibox AI answer card: a grounded, streamed answer from the Omni index.
+  // User-initiated (the "Ask Omni" row or Alt+Enter) — never per-keystroke, so it
+  // doesn't spin up the local LLM as you type. Tokens stream in over a Channel.
+  type OmniAns = { text: string; sources: OmniAnswerSource[]; streaming: boolean };
+  const [omniAns, setOmniAns] = createSignal<OmniAns | null>(null);
+  let omniGen = 0; // ignore events from a superseded request
   const closeSuggest = () => { setSuggestions([]); setSelIdx(-1); };
+  const clearOmniAns = () => { omniGen++; setOmniAns(null); };
+
+  // Show the "Ask Omni" affordance for a real query (not a URL / flux:// page).
+  const canAsk = () => {
+    const q = address().trim();
+    return q.length > 2 && !q.startsWith("flux://") && !/^[a-z]+:\/\//i.test(q);
+  };
+
+  const startOmniAnswer = (q: string) => {
+    const query = q.trim();
+    if (!query) return;
+    const gen = ++omniGen;
+    setOmniAns({ text: "", sources: [], streaming: true });
+    void omniAnswer(query, (e) => {
+      if (gen !== omniGen) return; // a newer ask superseded this stream
+      if (e.type === "sources") setOmniAns((a) => (a ? { ...a, sources: e.sources } : a));
+      else if (e.type === "token") setOmniAns((a) => (a ? { ...a, text: a.text + e.text } : a));
+      else if (e.type === "done") setOmniAns((a) => (a ? { ...a, streaming: false } : a));
+    }).catch(() => {
+      if (gen === omniGen) setOmniAns((a) => (a ? { ...a, streaming: false } : a));
+    });
+  };
 
   const onAddressInput = (v: string) => {
     setAddress(v);
     setSelIdx(-1);
+    clearOmniAns(); // a new query invalidates any shown answer
     clearTimeout(sugTimer);
     const q = v.trim();
     if (!q || q.startsWith("flux://")) { setSuggestions([]); return; }
@@ -1028,9 +1094,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
   const onAddressKeyDown = (e: KeyboardEvent) => {
     const n = suggestions().length;
-    if (e.key === "ArrowDown" && n) { e.preventDefault(); setSelIdx((i) => (i + 1) % n); }
+    if (e.key === "Enter" && e.altKey) { e.preventDefault(); startOmniAnswer(address()); }
+    else if (e.key === "ArrowDown" && n) { e.preventDefault(); setSelIdx((i) => (i + 1) % n); }
     else if (e.key === "ArrowUp" && n) { e.preventDefault(); setSelIdx((i) => (i - 1 + n) % n); }
-    else if (e.key === "Escape") { closeSuggest(); }
+    else if (e.key === "Escape") { closeSuggest(); clearOmniAns(); }
     else if (e.key === "Enter") {
       const s = suggestions()[selIdx()];
       if (s) { e.preventDefault(); void chooseSuggestion(s); }
@@ -1126,9 +1193,54 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <Show when={isLoading(activeId())}>
             <div class="addr-progress" />
           </Show>
-          {/* Live suggestions (#32) — sidebar-resident, so never under the webview. */}
-          <Show when={suggestions().length > 0}>
+          {/* Live suggestions (#32) — sidebar-resident, so never under the webview.
+              Also hosts the Omni AI answer card + its "Ask" trigger. */}
+          <Show when={suggestions().length > 0 || omniAns() !== null || canAsk()}>
             <div class="omni-suggest">
+              {/* Streamed, grounded answer from the Omni index. */}
+              <Show when={omniAns()}>
+                {(a) => (
+                  <div class="omni-answer">
+                    <div class="omni-answer-head">
+                      <span class="spark">✦</span> Omni answer
+                      <Show when={a().streaming}><span class="omni-answer-dot" /></Show>
+                    </div>
+                    <div class="omni-answer-body">
+                      {a().text || (a().streaming ? "Thinking…" : "No answer.")}
+                    </div>
+                    <Show when={a().sources.length > 0}>
+                      <div class="omni-answer-src">
+                        <For each={a().sources}>
+                          {(s) => (
+                            <button
+                              type="button"
+                              class="omni-answer-cite"
+                              title={s.url}
+                              onMouseDown={(e) => { e.preventDefault(); props.onNavigate(s.url); }}
+                            >
+                              [{s.n}] {s.title}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
+                )}
+              </Show>
+              {/* Ask trigger (until an answer exists for this query). */}
+              <Show when={omniAns() === null && canAsk()}>
+                <button
+                  type="button"
+                  class="omni-sug omni-ask"
+                  onMouseDown={(e) => { e.preventDefault(); startOmniAnswer(address()); }}
+                >
+                  <span class="omni-sug-icon">✦</span>
+                  <span class="omni-sug-text">
+                    <span class="omni-sug-label">Ask Omni: {address().trim()}</span>
+                    <span class="omni-sug-sub">grounded answer from your index · Alt+Enter</span>
+                  </span>
+                </button>
+              </Show>
               <For each={suggestions()}>
                 {(s, i) => (
                   <button
@@ -1211,14 +1323,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <button class="group-topic" title="Group tabs by topic (from semantic clusters)" onClick={() => void groupByTopic()}>⊞ Group</button>
           </Show>
         </div>
-        {/* Split view (#43): a merge control lives in the chrome because the
-            native webviews cover the page, leaving the gap too thin for a button. */}
-        <Show when={splitPanes()}>
-          <div class="split-bar">
-            <span>◧◨ Split view</span>
-            <button title="Merge — back to a single tab" onClick={() => clearSplit()}>⤢ Merge</button>
-          </div>
-        </Show>
         <div class="tab-list">
           <For each={groups()}>
             {(g) => {
@@ -1262,7 +1366,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
               );
             }}
           </For>
-          <For each={ungroupedTabs()}>{(tab) => <TabRow tab={tab} />}</For>
+          <For each={ungroupedItems()}>
+            {(it) => it.kind === "split" ? <SplitPair a={it.a} b={it.b} /> : <TabRow tab={it.tab} />}
+          </For>
         </div>
       </Show>
 
