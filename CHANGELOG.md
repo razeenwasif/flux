@@ -66,6 +66,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Changed
+- **RAM: hibernated tabs release their DOM snapshot.** Sleeping a tab now drops
+  its cached DOM (up to ~1.25 MiB/tab) instead of keeping it resident; it
+  re-captures on the wake reload. In a many-tab session this is the main Rust-side
+  retained-memory win (the process RSS is otherwise dominated by the webview
+  engine itself, which is already managed by hibernation + workspaces).
 - **Startup: smaller boot bundle.** The flux:// pages (Vault, History, Bookmarks,
   Omni), the file manager, the command palette, and the extensions panel are now
   lazy-loaded — none of them show on a fresh window, so they no longer sit in the

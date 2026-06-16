@@ -224,6 +224,12 @@ pub async fn webview_hibernate(app: AppHandle, tab_id: TabId) -> Result<(), Stri
     if let Some(store) = app.try_state::<crate::hibernate::HibernateStore>() {
         store.mark_wake(tab_id);
     }
+    // Drop the cached DOM snapshot (up to ~1.25 MiB/tab) — a sleeping tab isn't
+    // being acted on, and it re-captures on the wake reload. Frees real RAM in
+    // many-tab sessions (without this, hibernation kept every tab's DOM in core).
+    if let Some(state) = app.try_state::<crate::state::FluxState>() {
+        state.dom_cache.remove(&tab_id);
+    }
     if let Some(wv) = app.get_webview(&label(tab_id)) {
         wv.close().map_err(|e| e.to_string())?;
     }
