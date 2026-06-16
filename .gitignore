@@ -18,6 +18,31 @@ crates/flux-core/gen
 /models
 *.gguf
 
+# ── Secrets & local user data — NEVER commit ─────────────────────────────────
+# Password vault (#61). Lives in the OS app-data dir, but these guard the dev
+# fallback that writes to the CWD when app_data_dir can't resolve.
+/vault/
+vault.bin
+key.bin
+keywrap.json
+# Session / extension stores — CWD fallbacks if app_data_dir can't resolve.
+flux-session.json
+flux-extensions.json
+flux-ext-storage.json
+# Password-manager exports dropped in to import (Proton Pass etc.) carry real
+# credentials. Keep any CSV/ZIP/JSON exports under secrets/ or private/.
+*.pgp
+*.gpg
+/secrets/
+/private/
+# Environment & credential files.
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+
 # OS / editor noise
 .DS_Store
 *.log
