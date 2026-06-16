@@ -18,6 +18,7 @@ export type ShortcutAction =
   | "toggle-agent"
   | "toggle-sidebar"
   | "focus-address"
+  | "palette"
   | "find"
   | "reload"
   | "back"
@@ -35,6 +36,7 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
       case "w": return "close-tab";
       case "b": return "toggle-sidebar";
       case "l": return "focus-address";
+      case "k": return "palette";
       case "f": return "find";
       case "r": return "reload";
       case "`": return "toggle-terminal";

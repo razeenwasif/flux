@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Command palette** (BACKLOG #6) — **Ctrl+K** opens a centered fuzzy search over
+  open tabs (switch to), actions (new tab/terminal/files, toggle terminal/agent/
+  sidebar, open History/Passwords/Omni, find, reload, close tab), and browsing
+  history (as you type). Arrow keys + Enter + Esc; click/hover too. This also
+  wires up the one shortcut that was previously blocked on this feature. Because
+  it's a centered modal and the native webview is a separate OS layer over the
+  content card, the active page is hidden while the palette is open and restored
+  on close.
 - **Omnibox live suggestions** (BACKLOG #32) — as you type in the address bar, a
   dropdown shows local **history matches** (with favicons) followed by **search
   suggestions** from the default engine's suggest endpoint (OpenSearch JSON, as

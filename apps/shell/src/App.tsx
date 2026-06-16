@@ -69,6 +69,7 @@ import TerminalView from "./TerminalView";
 import StartPage from "./StartPage";
 import { keyToAction } from "./shortcuts";
 import FindBar from "./FindBar";
+import CommandPalette, { type PaletteAction } from "./CommandPalette";
 import Extensions from "./Extensions";
 import FilesView from "./FilesView";
 import OmniDashboard from "./OmniDashboard";
@@ -112,6 +113,7 @@ const App: Component = () => {
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
   const [terminalOpen, setTerminalOpen] = createSignal(false);
   const [agentOpen, setAgentOpen] = createSignal(true);
+  const [paletteOpen, setPaletteOpen] = createSignal(false);
 
   // Resizable pane widths (px), persisted across sessions (BACKLOG #27).
   const loadW = (k: string, d: number) => Number(localStorage.getItem(k)) || d;
@@ -187,6 +189,12 @@ const App: Component = () => {
     ]);
     const inTerminal = () => !!(document.activeElement as HTMLElement | null)?.closest?.(".xterm");
     const onKey = (e: KeyboardEvent) => {
+      // The command palette (#6) is modal: only Ctrl+K (to toggle it closed) is
+      // a chrome shortcut while it's open; everything else goes to its input.
+      if (paletteOpen()) {
+        if (keyToAction(e) === "palette") { e.preventDefault(); e.stopPropagation(); dispatch("palette"); }
+        return;
+      }
       // Esc closes the find bar (#33), else stops the active page load (#31).
       // Handled outside the chord table so it isn't forwarded from focused pages
       // (they use Esc themselves).
@@ -429,6 +437,35 @@ const App: Component = () => {
     omniToastTimer = window.setTimeout(() => setOmniToast(null), 2600);
   };
 
+  // Command palette (#6). It's a centered modal; the native webview is a
+  // separate OS layer over the content card, so hide the active page while it's
+  // open and show it again on close.
+  const openPalette = () => {
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
+    setPaletteOpen(true);
+  };
+  const closePalette = () => {
+    setPaletteOpen(false);
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url)) wv(webviewShow(t.id));
+  };
+  // Actions offered by the palette (tab-switching + history are built in).
+  const paletteActions = (): PaletteAction[] => [
+    { id: "new-tab", label: "New browser tab", icon: "🌐", run: () => void openTab("browser") },
+    { id: "new-term", label: "New terminal tab", icon: "⌨", run: () => void openTab("terminal").then(() => setTerminalOpen(true)) },
+    { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
+    { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
+    { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
+    { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
+    { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
+    { id: "reload", label: "Reload page", icon: "⟳", run: () => navActive(webviewReload) },
+    { id: "tog-term", label: "Toggle terminal", icon: "⌨", run: () => setTerminalOpen((v) => !v) },
+    { id: "tog-agent", label: "Toggle agent", icon: "✦", run: () => setAgentOpen((v) => !v) },
+    { id: "tog-side", label: "Toggle sidebar", icon: "◧", run: () => setSidebarOpen((v) => !v) },
+    { id: "close", label: "Close current tab", icon: "✕", run: () => { const id = activeId(); if (id != null) void closeTab(id); } },
+  ];
+
   // Run an app keyboard action — shared by the chrome's keydown listener and
   // the chords forwarded from a focused tab webview (#18).
   const dispatch = (action: string): boolean => {
@@ -442,6 +479,7 @@ const App: Component = () => {
       case "toggle-agent": setAgentOpen((v) => !v); return true;
       case "toggle-sidebar": setSidebarOpen((v) => !v); return true;
       case "focus-address": focusAddress(); return true;
+      case "palette": if (paletteOpen()) closePalette(); else openPalette(); return true;
       case "find": openFind(); return true;
       case "reload": navActive(webviewReload); return true;
       case "back": navActive(webviewBack); return true;
@@ -582,6 +620,11 @@ const App: Component = () => {
       </Show>
 
       <ResizeHandles />
+
+      {/* Command palette (#6) — overlay; renders above the (hidden) webview. */}
+      <Show when={paletteOpen()}>
+        <CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} />
+      </Show>
     </div>
   );
 };

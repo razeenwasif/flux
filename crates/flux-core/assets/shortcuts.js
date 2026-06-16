@@ -18,6 +18,7 @@
         case "w": return "close-tab";
         case "b": return "toggle-sidebar";
         case "l": return "focus-address";
+        case "k": return "palette";
         case "f": return "find";
         case "r": return "reload";
         case "`": return "toggle-terminal";
