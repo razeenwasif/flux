@@ -12,7 +12,9 @@ echo "==> Building frontend (embedded into the binary): apps/shell/dist"
 npm run build --workspace apps/shell
 
 echo "==> Building release binary (LTO — takes a few minutes)"
-cargo build --release -p flux-core
+# custom-protocol → serve the embedded frontend (without it the app loads the
+# dev server URL and shows ERR_CONNECTION_REFUSED).
+cargo build --release -p flux-core --features custom-protocol
 
 DEST="${CARGO_HOME:-$HOME/.cargo}/bin"
 mkdir -p "$DEST"

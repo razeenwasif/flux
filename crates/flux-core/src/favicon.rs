@@ -38,10 +38,12 @@ pub async fn favicon(cache: State<'_, FaviconCache>, host: String) -> Result<Opt
     if let Some(v) = cache.mem.get(&host) {
         return Ok(v.clone());
     }
-    // Disk cache (successes only).
+    // Disk cache (successes only). Skip stale `data:image/x-icon` entries written
+    // before the ICO→PNG transcode landed — they don't render on WebKitGTK, so
+    // ignoring them forces a fresh fetch (which now transcodes + rewrites cache).
     if let Some(dir) = &cache.dir {
         if let Ok(data) = std::fs::read_to_string(dir.join(format!("{}.txt", sanitize(&host)))) {
-            if !data.is_empty() {
+            if !data.is_empty() && !data.starts_with("data:image/x-icon") {
                 cache.mem.insert(host.clone(), Some(data.clone()));
                 return Ok(Some(data));
             }

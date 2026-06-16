@@ -66,6 +66,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Fixed
+- **Built `flux`/`flux.exe` showed `ERR_CONNECTION_REFUSED` (localhost:1420).**
+  A plain `cargo build --release` doesn't enable Tauri's `custom-protocol`
+  feature, so the app served the dev-server URL instead of the embedded
+  frontend. Added a `custom-protocol` feature and both install scripts now build
+  with `--features custom-protocol`. A boot log prints `dev=<bool>` so the mode
+  is visible from the terminal (a release binary must show `dev=false`).
+- **ICO favicons: self-heal stale cache.** Favicons cached as `data:image/x-icon`
+  before the ICO→PNG transcode landed were served straight from disk (still
+  unrenderable on WebKitGTK); those entries are now skipped on read, forcing a
+  fresh fetch that transcodes to PNG.
 - **ICO favicons now render** (e.g. medium.com). WebKitGTK doesn't decode
   `data:image/x-icon` in `<img>`, so ICO-only sites showed no icon; favicons are
   now transcoded to PNG in Rust (and fetched with a browser User-Agent, so

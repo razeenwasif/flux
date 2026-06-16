@@ -80,7 +80,9 @@ if ($Frontend -or -not (Test-Path $dist)) {
 
 # --- Release binary -----------------------------------------------------------
 Write-Host "==> Building release flux.exe (LTO - takes several minutes)" -ForegroundColor Cyan
-cargo build --release -p flux-core
+# custom-protocol -> serve the embedded frontend (without it the app loads the
+# dev server URL and shows ERR_CONNECTION_REFUSED).
+cargo build --release -p flux-core --features custom-protocol
 
 $exe = Join-Path $root 'target\release\flux.exe'
 if (-not (Test-Path $exe)) { throw "Build reported success but $exe is missing." }

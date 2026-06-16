@@ -149,7 +149,10 @@ pub fn run(intent: cli::LaunchIntent) {
             if let Some(win) = app.get_webview_window("main") {
                 webview::round_window_corners(&win);
             }
-            tracing::info!(target: "flux::boot", "state managed, window up");
+            // dev=false means the embedded frontend is served (custom-protocol);
+            // dev=true means it's loading devUrl (localhost:1420) — a release
+            // binary must show dev=false or it'll ERR_CONNECTION_REFUSED.
+            tracing::info!(target: "flux::boot", dev = tauri::is_dev(), "state managed, window up");
             Ok(())
         })
         // `dom_publish` lives in the `fluxtab` inlined plugin (see build.rs):

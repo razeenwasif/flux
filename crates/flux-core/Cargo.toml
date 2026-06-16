@@ -81,6 +81,11 @@ windows = { version = "0.61", features = ["Win32_System_Com", "Win32_Foundation"
 
 [features]
 default = []
+# Production asset serving (DO NOT REMOVE). Without this, even a release build
+# loads the dev server URL (devUrl → localhost:1420) instead of the embedded
+# frontend → ERR_CONNECTION_REFUSED. `cargo tauri build` sets it automatically;
+# our install scripts pass `--features custom-protocol` to plain `cargo build`.
+custom-protocol = ["tauri/custom-protocol"]
 # Compile real llama.cpp inference. Off by default so `cargo check` stays
 # fast and CI doesn't need CUDA/Metal toolchains; the MockBackend serves dev.
 llama = ["flux-agent/llama"]
