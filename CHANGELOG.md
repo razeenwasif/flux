@@ -66,6 +66,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Changed
+- **Responsiveness: cheaper sidebar renders + no resize IPC spam.** The tab-list
+  derivations (pinned/unpinned tabs, per-group members, ungrouped remainder, the
+  split fold) are now memoized instead of re-filtering `tabs()` once per tab row —
+  was O(tabs²) per render, now one pass per change. The native-webview layout
+  effect issues show/hide IPC only on visibility transitions (tracked in a `shown`
+  set): a window resize now triggers just the throttled bounds update, not a
+  hide-every-tab sweep each frame. Redundant `refreshGroups` calls (already done
+  inside `refreshTabs`) were dropped from 8 mutation paths.
 - **Binary: cold-path crates built for size.** PGP/zip/csv (import) and `image`
   (favicon transcode) now compile at `opt-level="z"` — they're one-shot/occasional
   operations where latency is irrelevant — while the hot browsing/render path

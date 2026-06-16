@@ -178,6 +178,9 @@ const App: Component = () => {
   // Native tab webviews are positioned to match it (BACKLOG #2).
   const [contentRect, setContentRect] = createSignal<Rect | null>(null);
   const openedWebviews = new Set<number>();
+  // Webview ids currently shown (visible panes). Lets the layout effect issue
+  // show/hide IPC only on transitions, not once per tab on every resize frame.
+  const shown = new Set<number>();
   // Last time each tab was the active one (ms) — drives tab hibernation (#45).
   const lastActive = new Map<number, number>();
 
@@ -396,18 +399,28 @@ const App: Component = () => {
     const dragging = splitDragging();
     const panes = paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
-    for (const t of tabs()) {
-      if (t.kind === "browser" && (dragging || !liveIds.has(t.id))) wv(webviewHide(t.id));
+    // Hide only what's currently shown but shouldn't be (or everything mid-drag).
+    // Crucially this issues NO hide IPC on a pure resize — `shown` already matches
+    // `liveIds`, so the loop is a no-op and only the throttled bounds update runs.
+    for (const id of [...shown]) {
+      if (dragging || !liveIds.has(id)) {
+        wv(webviewHide(id));
+        shown.delete(id);
+      }
     }
     if (dragging) return; // panes re-show when the drag ends
     let needRelayout = false;
     for (const p of panes) {
       const id = p.tab.id;
       if (openedWebviews.has(id)) {
-        wv(webviewShow(id));
+        if (!shown.has(id)) {
+          wv(webviewShow(id)); // only on transition into view
+          shown.add(id);
+        }
         needRelayout = true; // throttled bounds for resize/seam follow
       } else {
         openedWebviews.add(id);
+        shown.add(id);
         setHibernated(id, false); // (re)opening = waking from sleep (#45)
         lastActive.set(id, Date.now());
         const r = p.rect;
@@ -934,7 +947,22 @@ const Sidebar: Component<SidebarProps> = (props) => {
       el.style.top = `${Math.max(pad, y)}px`;
     });
   };
-  const ungroupedTabs = () => unpinnedTabs().filter((t) => t.group == null || !groups().some((g) => g.id === t.group));
+  // Memoized tab-list derivations (recomputed once per tabs()/groups() change,
+  // not per render call): a Set of live group ids, the unpinned tabs bucketed by
+  // group, and the ungrouped remainder. Replaces O(tabs×groups) per-render scans.
+  const groupIds = createMemo(() => new Set(groups().map((g) => g.id)));
+  const membersByGroup = createMemo(() => {
+    const m = new Map<number, TabMeta[]>();
+    for (const t of unpinnedTabs()) {
+      if (t.group != null && groupIds().has(t.group)) {
+        const arr = m.get(t.group);
+        if (arr) arr.push(t);
+        else m.set(t.group, [t]);
+      }
+    }
+    return m;
+  });
+  const ungroupedTabs = createMemo(() => unpinnedTabs().filter((t) => t.group == null || !groupIds().has(t.group)));
   const GROUP_PALETTE = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
   const cycleGroupColor = (g: TabGroup) => {
     const i = GROUP_PALETTE.indexOf(g.color);
@@ -998,7 +1026,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // The ungrouped strip, with the split pair (when both members are ungrouped &
   // present in this space) folded into a single combined item at the first
   // member's position.
-  const ungroupedItems = (): ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] => {
+  const ungroupedItems = createMemo((): ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] => {
     const list = ungroupedTabs();
     const pair = splitPair();
     const a = pair ? list.find((t) => t.id === pair[0]) : undefined;
@@ -1014,7 +1042,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
       out.push({ kind: "tab", tab: t });
     }
     return out;
-  };
+  });
 
   const openPanel = async (p: FooterPanel) => {
     setPanel((cur) => (cur === p ? null : p));
@@ -1387,7 +1415,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <div class="tab-list">
           <For each={groups()}>
             {(g) => {
-              const members = () => unpinnedTabs().filter((t) => t.group === g.id);
+              const members = () => membersByGroup().get(g.id) ?? [];
               return (
                 <Show when={members().length > 0}>
                   <div class="tab-group">

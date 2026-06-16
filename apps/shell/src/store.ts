@@ -3,7 +3,7 @@
  * and web area all read the same source of truth, so a pin/focus mutation is
  * one signal write — no prop drilling, no context provider overhead.
  */
-import { createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import {
   darkmodeSet,
   faviconFetch,
@@ -117,7 +117,7 @@ export async function newGroupWithTab(tabId: number): Promise<void> {
   const palette = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
   const color = palette[groups().length % palette.length]!;
   await groupCreate("New group", color, [tabId]).catch(() => {});
-  await Promise.all([refreshTabs(), refreshGroups()]);
+  await refreshTabs(); // refreshTabs already refreshes groups + workspaces
 }
 /** Drag-to-group (#56): drop `dragged` onto `target` → join target's group, or
  *  start a new group containing both if the target is ungrouped. */
@@ -131,28 +131,28 @@ export async function groupWithTab(draggedId: number, targetId: number): Promise
     const palette = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
     const color = palette[groups().length % palette.length]!;
     await groupCreate("New group", color, [targetId, draggedId]).catch(() => {});
-    await Promise.all([refreshTabs(), refreshGroups()]);
+    await refreshTabs(); // refreshTabs already refreshes groups + workspaces
   }
 }
 export async function setTabGroup(tabId: number, group: number | null): Promise<void> {
   await tabSetGroup(tabId, group).catch(() => {});
-  await Promise.all([refreshTabs(), refreshGroups()]);
+  await refreshTabs(); // refreshTabs already refreshes groups + workspaces
 }
 /** Send a tab to another workspace (#44). Detaches it from any group. The
  *  caller (App) tears down the moved tab's webview, since it left this space. */
 export async function sendTabToWorkspace(tabId: number, ws: number): Promise<void> {
   await tabSetWorkspace(tabId, ws).catch(() => {});
-  await Promise.all([refreshTabs(), refreshGroups()]);
+  await refreshTabs(); // refreshTabs already refreshes groups + workspaces
 }
 /** Send a whole group to another workspace (#44). Returns the moved tab ids. */
 export async function sendGroupToWorkspace(groupId: number, ws: number): Promise<number[]> {
   const moved = await groupSetWorkspace(groupId, ws).catch(() => [] as number[]);
-  await Promise.all([refreshTabs(), refreshGroups()]);
+  await refreshTabs(); // refreshTabs already refreshes groups + workspaces
   return moved;
 }
 export async function deleteGroup(id: number): Promise<void> {
   await groupDelete(id).catch(() => {});
-  await Promise.all([refreshTabs(), refreshGroups()]);
+  await refreshTabs(); // refreshTabs already refreshes groups + workspaces
 }
 export async function renameGroup(id: number, name: string): Promise<void> {
   await groupUpdate(id, { name }).catch(() => {});
@@ -168,7 +168,7 @@ export async function toggleGroupCollapsed(g: TabGroup): Promise<void> {
 }
 export async function groupByTopic(): Promise<number> {
   const n = await groupsFromClusters().catch(() => 0);
-  await Promise.all([refreshTabs(), refreshGroups()]);
+  await refreshTabs(); // refreshTabs already refreshes groups + workspaces
   return n;
 }
 /** Open a set of URLs as browser tabs and bundle them into a new tab group
@@ -183,7 +183,7 @@ export async function openUrlsAsGroup(name: string, urls: string[]): Promise<num
     if (t) ids.push(t.id);
   }
   if (ids.length) await groupCreate(name || "Group", color, ids).catch(() => {});
-  await Promise.all([refreshTabs(), refreshGroups()]);
+  await refreshTabs(); // refreshTabs already refreshes groups + workspaces
   return ids.length;
 }
 // Tabs currently loading a page (BACKLOG #31) — drives the stop/reload swap and
@@ -313,9 +313,11 @@ export function setTabLoading(id: number, loading: boolean): void {
 export const activeTab = (): TabMeta | null =>
   tabs().find((t) => t.id === activeId()) ?? null;
 
-// Only the active workspace's tabs appear in the strip (#44).
-export const pinnedTabs = () => tabs().filter((t) => t.pinned && t.workspace === activeWorkspace());
-export const unpinnedTabs = () => tabs().filter((t) => !t.pinned && t.workspace === activeWorkspace());
+// Only the active workspace's tabs appear in the strip (#44). Memoized — these
+// are read many times per render (every tab row, group section, split fold), so
+// recomputing the filter each call was O(tabs) per call → O(tabs²) per render.
+export const pinnedTabs = createMemo(() => tabs().filter((t) => t.pinned && t.workspace === activeWorkspace()));
+export const unpinnedTabs = createMemo(() => tabs().filter((t) => !t.pinned && t.workspace === activeWorkspace()));
 
 export async function refreshTabs(): Promise<void> {
   const list = await tabList();
