@@ -8,7 +8,24 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
-- **Workspaces** (BACKLOG #44) — Arc-style named, colored tab spaces. Each tab
+- **Native dark mode** — a Settings toggle that sets WebView2's
+  profile-level `PreferredColorScheme` to Dark, so pages honoring
+  `prefers-color-scheme` (most modern sites) render dark with no CSS-filter
+  hacks. Profile-wide (all tabs at once), persists across launches. COM verified
+  vs msvc. (Algorithmic force-dark for sites without dark support is a
+  startup-flag follow-up.)
+- **Drag a tab onto a group to join it** (BACKLOG #56) — drop a tab on a group
+  header (or onto the middle of another tab) to add it to that group; dropping
+  on an ungrouped tab's middle starts a new group with both. Tab-row edges still
+  reorder.
+- **Workspaces** (BACKLOG #44)
+
+### Fixed
+- **Group + workspace rename now work.** They used `window.prompt`, which is a
+  no-op in the webview — replaced with inline editing (double-click the name,
+  Enter/blur to commit, Esc to cancel).
+- **New tabs focus the address bar** so you can type immediately (the omnibox
+  auto-focuses whenever a start page becomes active). — Arc-style named, colored tab spaces. Each tab
   belongs to a workspace; the strip (pinned + groups + tabs) shows only the
   active one. A switcher above the sidebar tools: click a pill to switch, **+**
   to create, double-click to rename, click the dot to recolor, right-click to

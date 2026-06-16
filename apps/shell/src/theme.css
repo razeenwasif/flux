@@ -429,6 +429,10 @@ body.resizing .shell { transition: none !important; }
 .tab-group-x:hover { color: var(--flux-text); background: var(--flux-surface-2); }
 .tab-group-chev { flex: none; font-size: 9px; color: var(--flux-text-mute); }
 .tab-group-body { border-left: 2px solid; margin-left: 12px; padding-left: 3px; display: flex; flex-direction: column; gap: 3px; }
+/* Inline rename (groups + workspaces) — window.prompt is a no-op in the webview. */
+.inline-edit { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--flux-teal); border-radius: 5px; padding: 1px 5px; }
+.inline-edit:focus { outline: none; }
+.inline-edit.ws { font-weight: 500; }
 
 /* Tab context menu (BACKLOG #56). */
 .ctx-backdrop { position: fixed; inset: 0; z-index: 50; }

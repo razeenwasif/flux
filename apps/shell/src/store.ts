@@ -5,6 +5,7 @@
  */
 import { createSignal } from "solid-js";
 import {
+  darkmodeSet,
   faviconFetch,
   groupCreate,
   groupDelete,
@@ -76,6 +77,21 @@ export async function newGroupWithTab(tabId: number): Promise<void> {
   const color = palette[groups().length % palette.length]!;
   await groupCreate("New group", color, [tabId]).catch(() => {});
   await Promise.all([refreshTabs(), refreshGroups()]);
+}
+/** Drag-to-group (#56): drop `dragged` onto `target` → join target's group, or
+ *  start a new group containing both if the target is ungrouped. */
+export async function groupWithTab(draggedId: number, targetId: number): Promise<void> {
+  if (draggedId === targetId) return;
+  const target = tabs().find((t) => t.id === targetId);
+  if (!target) return;
+  if (target.group != null) {
+    await setTabGroup(draggedId, target.group);
+  } else {
+    const palette = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
+    const color = palette[groups().length % palette.length]!;
+    await groupCreate("New group", color, [targetId, draggedId]).catch(() => {});
+    await Promise.all([refreshTabs(), refreshGroups()]);
+  }
 }
 export async function setTabGroup(tabId: number, group: number | null): Promise<void> {
   await tabSetGroup(tabId, group).catch(() => {});
@@ -169,6 +185,20 @@ export function setAiAnswersOn(on: boolean): void {
 // A search query handed to the agent panel to answer (consumed once).
 const [pendingAsk, setPendingAsk] = createSignal<string | null>(null);
 export { pendingAsk, setPendingAsk };
+
+// Native dark mode (#40) — WebView2 preferred-color-scheme. Persisted; applied
+// on boot + on toggle.
+const [darkMode, setDarkRaw] = createSignal(localStorage.getItem("flux.dark") === "1");
+export { darkMode };
+export function setDarkMode(on: boolean): void {
+  setDarkRaw(on);
+  localStorage.setItem("flux.dark", on ? "1" : "0");
+  void darkmodeSet(on).catch(() => {});
+}
+/** Apply the persisted dark-mode setting (call once on boot). */
+export function applyDarkMode(): void {
+  void darkmodeSet(darkMode()).catch(() => {});
+}
 
 // Omnibox search suggestions (#32). On by default; gating it off keeps your
 // keystrokes off the search engine (history suggestions stay local either way).

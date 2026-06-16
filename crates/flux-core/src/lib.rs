@@ -6,6 +6,7 @@ pub mod broker;
 pub mod cli;
 pub mod commands;
 pub mod cookies;
+pub mod darkmode;
 pub mod downloads;
 pub mod extensions;
 pub mod favicon;
@@ -100,6 +101,8 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(favicon::FaviconCache::new(fav_dir));
             // Download manager (#34) — WebView2 DownloadStarting + progress.
             app.manage(downloads::DownloadState::new());
+            // Native dark mode (#40) — WebView2 PreferredColorScheme.
+            app.manage(darkmode::DarkState::new());
             // Browsing history (#39) — recorded from dom_publish, persisted.
             let history_path = app
                 .path()
@@ -196,6 +199,8 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_hibernate,
             webview::webview_capture_state,
             mem::mem_status,
+            darkmode::darkmode_status,
+            darkmode::darkmode_set,
             favicon::favicon,
             history::history_recent,
             history::history_search,

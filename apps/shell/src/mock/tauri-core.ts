@@ -180,6 +180,10 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve({ total_mb: 16384, available_mb: 9216, process_mb: 312, available_pct: 56 } as T);
     case "favicon":
       return Promise.resolve(null as T); // no network in preview → letter glyphs
+    case "darkmode_status":
+      return Promise.resolve(false as T);
+    case "darkmode_set":
+      return Promise.resolve(undefined as T);
     case "history_recent":
     case "history_search":
       return Promise.resolve([

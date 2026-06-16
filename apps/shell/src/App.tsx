@@ -88,8 +88,10 @@ import {
   activeTab,
   activeWorkspace,
   aiAnswersOn,
+  applyDarkMode,
   closeTab,
   createWorkspace,
+  darkMode,
   deleteGroup,
   ensureFavicon,
   faviconFor,
@@ -97,6 +99,7 @@ import {
   focusTab,
   groupByTopic,
   groupColor,
+  groupWithTab,
   groups,
   hibernateEnabled,
   hibernateMins,
@@ -115,6 +118,7 @@ import {
   reorderTabs,
   searchSuggestOn,
   setActiveWorkspace,
+  setDarkMode,
   setTabGroup,
   toggleGroupCollapsed,
   workspaceColor,
@@ -195,6 +199,7 @@ const App: Component = () => {
     }
     // Always land on something: a fresh session opens the start page.
     if (tabs().length === 0) await openTab("browser");
+    applyDarkMode(); // re-apply the persisted dark-mode preference (#40)
     const unClusters = await onClustersUpdated(refreshTabs);
     // Diagnostic: fires when a tab's DOM reaches the cache (capture.js works).
     const unDom = await onDomUpdated((tabId) =>
@@ -384,6 +389,25 @@ const App: Component = () => {
       }
     }
     prevActive = cur;
+  });
+
+  // New tab / start page → focus the omnibox so you can just start typing.
+  let lastStartFocus: number | null = null;
+  createEffect(() => {
+    const t = activeTab();
+    if (t && t.kind === "browser" && isStartUrl(t.url)) {
+      if (t.id !== lastStartFocus) {
+        lastStartFocus = t.id;
+        setSidebarOpen(true);
+        requestAnimationFrame(() => {
+          const el = document.getElementById("flux-address") as HTMLInputElement | null;
+          el?.focus();
+          el?.select();
+        });
+      }
+    } else {
+      lastStartFocus = null; // re-arm so returning to a start tab refocuses
+    }
   });
 
   // Navigate the active tab to `url` (from the omnibox or the start page).
@@ -783,6 +807,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Tab right-click menu + grouping (#56).
   const [ctxTab, setCtxTab] = createSignal<TabMeta | null>(null);
   const [ctxPos, setCtxPos] = createSignal({ x: 0, y: 0 });
+  // Inline rename (window.prompt is a no-op in the webview, so edit in place).
+  const [editGroup, setEditGroup] = createSignal<number | null>(null);
+  const [editWs, setEditWs] = createSignal<number | null>(null);
   const openCtx = (e: MouseEvent, tab: TabMeta) => { e.preventDefault(); setCtxTab(tab); setCtxPos({ x: e.clientX, y: e.clientY }); };
   const closeCtx = () => setCtxTab(null);
   const ungroupedTabs = () => unpinnedTabs().filter((t) => t.group == null || !groups().some((g) => g.id === t.group));
@@ -790,10 +817,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const cycleGroupColor = (g: TabGroup) => {
     const i = GROUP_PALETTE.indexOf(g.color);
     void recolorGroup(g.id, GROUP_PALETTE[(i + 1) % GROUP_PALETTE.length]!);
-  };
-  const renamePrompt = (g: TabGroup) => {
-    const n = window.prompt("Group name", g.name);
-    if (n != null && n.trim()) void renameGroup(g.id, n.trim());
   };
   const WS_PALETTE = [0x9d8df1, 0x5bc0eb, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
   const cycleWsColor = (w: Workspace) => {
@@ -812,7 +835,18 @@ const Sidebar: Component<SidebarProps> = (props) => {
       onDragStart={(e) => { setDragId(p.tab.id); e.dataTransfer!.effectAllowed = "move"; e.dataTransfer!.setData("text/plain", String(p.tab.id)); }}
       onDragOver={(e) => { if (dragId() == null || dragId() === p.tab.id) return; e.preventDefault(); e.dataTransfer!.dropEffect = "move"; setDropId(p.tab.id); }}
       onDragLeave={() => { if (dropId() === p.tab.id) setDropId(null); }}
-      onDrop={(e) => { e.preventDefault(); const d = dragId(); if (d != null && d !== p.tab.id) { const r = e.currentTarget.getBoundingClientRect(); void reorderTabs(d, p.tab.id, e.clientY > r.top + r.height / 2); } setDragId(null); setDropId(null); }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const d = dragId();
+        if (d != null && d !== p.tab.id) {
+          const r = e.currentTarget.getBoundingClientRect();
+          const frac = (e.clientY - r.top) / r.height;
+          if (frac > 0.25 && frac < 0.75) void groupWithTab(d, p.tab.id); // center → group
+          else void reorderTabs(d, p.tab.id, frac >= 0.75); // edge → reorder
+        }
+        setDragId(null);
+        setDropId(null);
+      }}
       onDragEnd={() => { setDragId(null); setDropId(null); }}
       title={isHibernated(p.tab.id) ? "sleeping — click to wake" : "drag to reorder · right-click for menu"}
     >
@@ -1092,9 +1126,27 @@ const Sidebar: Component<SidebarProps> = (props) => {
               return (
                 <Show when={members().length > 0}>
                   <div class="tab-group">
-                    <div class="tab-group-head" onClick={() => void toggleGroupCollapsed(g)}>
+                    <div
+                      classList={{ "tab-group-head": true, "drag-over": dropId() === -g.id }}
+                      onClick={() => void toggleGroupCollapsed(g)}
+                      onDragOver={(e) => { if (dragId() != null) { e.preventDefault(); e.dataTransfer!.dropEffect = "move"; setDropId(-g.id); } }}
+                      onDragLeave={() => { if (dropId() === -g.id) setDropId(null); }}
+                      onDrop={(e) => { e.preventDefault(); const d = dragId(); if (d != null) void setTabGroup(d, g.id); setDragId(null); setDropId(null); }}
+                    >
                       <span class="tab-group-dot" title="Recolor" style={{ background: groupColor(g) }} onClick={(e) => { e.stopPropagation(); cycleGroupColor(g); }} />
-                      <span class="tab-group-name" title="Double-click to rename" onDblClick={(e) => { e.stopPropagation(); renamePrompt(g); }}>{g.name}</span>
+                      <Show
+                        when={editGroup() === g.id}
+                        fallback={<span class="tab-group-name" title="Double-click to rename" onDblClick={(e) => { e.stopPropagation(); setEditGroup(g.id); }}>{g.name}</span>}
+                      >
+                        <input
+                          class="inline-edit"
+                          value={g.name}
+                          autofocus
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameGroup(g.id, v); setEditGroup(null); }}
+                          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditGroup(null); }}
+                        />
+                      </Show>
                       <span class="tab-group-count">{members().length}</span>
                       <button class="tab-group-x" title="Ungroup" onClick={(e) => { e.stopPropagation(); void deleteGroup(g.id); }}>✕</button>
                       <span class="tab-group-chev">{g.collapsed ? "▸" : "▾"}</span>
@@ -1170,11 +1222,23 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 style={{ "border-color": activeWorkspace() === w.id ? workspaceColor(w) : "transparent" }}
                 title={`${w.name} — double-click to rename, right-click to delete`}
                 onClick={() => props.onSwitchWorkspace(w.id)}
-                onDblClick={() => { const n = window.prompt("Workspace name", w.name); if (n && n.trim()) void renameWorkspace(w.id, n.trim()); }}
+                onDblClick={() => setEditWs(w.id)}
                 onContextMenu={(e) => { e.preventDefault(); props.onDeleteWorkspace(w.id); }}
               >
                 <span class="ws-dot" title="Recolor" style={{ background: workspaceColor(w) }} onClick={(e) => { e.stopPropagation(); cycleWsColor(w); }} />
-                <span class="ws-name">{w.name}</span>
+                <Show
+                  when={editWs() === w.id}
+                  fallback={<span class="ws-name">{w.name}</span>}
+                >
+                  <input
+                    class="inline-edit ws"
+                    value={w.name}
+                    autofocus
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameWorkspace(w.id, v); setEditWs(null); }}
+                    onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditWs(null); }}
+                  />
+                </Show>
               </button>
             )}
           </For>
@@ -1223,6 +1287,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="When you search, the local Gemma drafts a quick answer in the agent panel. Runs on-device.">AI answers for searches</span>
                 <button classList={{ "shields-toggle": true, on: aiAnswersOn() }} onClick={() => setAiAnswersOn(!aiAnswersOn())}>
                   {aiAnswersOn() ? "On" : "Off"}
+                </button>
+              </div>
+              <div class="shields-row" style={{ padding: "2px 8px" }}>
+                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Ask websites to render dark (prefers-color-scheme). Works on most modern sites.">Dark mode (websites)</span>
+                <button classList={{ "shields-toggle": true, on: darkMode() }} onClick={() => setDarkMode(!darkMode())}>
+                  {darkMode() ? "On" : "Off"}
                 </button>
               </div>
               <div class="shields-sep" />

@@ -423,6 +423,11 @@ export interface MemInfo {
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */
 export const memStatus = () => invoke<MemInfo>("mem_status");
 
+// ─── Native dark mode (BACKLOG #40) ──────────────────────────────────────────
+export const darkmodeStatus = () => invoke<boolean>("darkmode_status");
+/** Set WebView2's preferred color scheme to dark (true) or auto (false). */
+export const darkmodeSet = (on: boolean) => invoke<void>("darkmode_set", { on });
+
 /** A host's favicon as a data: URL (fetched cookielessly + cached), or null. #21 */
 export const faviconFetch = (host: string) => invoke<string | null>("favicon", { host });
 
