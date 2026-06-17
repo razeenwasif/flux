@@ -196,7 +196,9 @@ import {
 
 const App: Component = () => {
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
-  const [terminalOpen, setTerminalOpen] = createSignal(false);
+  // Terminal column open by default (persisted — toggling off sticks).
+  const [terminalOpen, setTerminalOpen] = createSignal(localStorage.getItem("flux.term.open") !== "0");
+  createEffect(() => localStorage.setItem("flux.term.open", terminalOpen() ? "1" : "0"));
   const [agentOpen, setAgentOpen] = createSignal(true);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
 

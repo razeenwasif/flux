@@ -115,7 +115,12 @@ export const splitPanes = (): [TabMeta, TabMeta] | null => {
 // is the pane width; `panelDragging` hides the panel + tab webviews while the
 // divider is dragged so the DOM splitter can track the pointer.
 const [panels, setPanels] = createSignal<WebPanel[]>([]);
-const [activePanelId, setActivePanelId] = createSignal<number | null>(null);
+const [activePanelId, setActivePanelIdRaw] = createSignal<number | null>(null);
+// Persist which panel is open so it reopens on next launch (panel "on by default").
+function setActivePanelId(id: number | null): void {
+  setActivePanelIdRaw(id);
+  localStorage.setItem("flux.panel.active", id == null ? "" : String(id));
+}
 const [panelWidth, setPanelWidthSig] = createSignal(Number(localStorage.getItem("flux.panel.w")) || 380);
 const [panelDragging, setPanelDragging] = createSignal(false);
 export { panels, activePanelId, panelWidth, panelDragging, setPanelDragging };
@@ -127,7 +132,12 @@ export function setPanelWidth(px: number): void {
   localStorage.setItem("flux.panel.w", String(w));
 }
 async function refreshPanels(): Promise<void> {
-  setPanels(await panelsList().catch(() => []));
+  const list = await panelsList().catch(() => []);
+  setPanels(list);
+  // On boot, reopen the last-open panel (panel "on by default"); drop a stale one.
+  const saved = Number(localStorage.getItem("flux.panel.active") || "0");
+  if (activePanelId() == null && saved && list.some((p) => p.id === saved)) setActivePanelIdRaw(saved);
+  else if (activePanelId() != null && !list.some((p) => p.id === activePanelId())) setActivePanelIdRaw(null);
 }
 /** Pin a site as a panel and open it. */
 export async function pinPanel(url: string, title: string): Promise<void> {
@@ -143,7 +153,7 @@ export async function unpinPanel(id: number): Promise<void> {
 }
 /** Toggle a panel open/closed (only one open at a time). */
 export function togglePanel(id: number): void {
-  setActivePanelId((cur) => (cur === id ? null : id));
+  setActivePanelId(activePanelId() === id ? null : id);
 }
 export function closePanel(): void {
   setActivePanelId(null);
