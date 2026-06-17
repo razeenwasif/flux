@@ -613,6 +613,12 @@ export const darkmodeSet = (on: boolean) => invoke<void>("darkmode_set", { on })
  *  element actually grabs the keyboard while a page webview held focus). #18 */
 export const chromeFocus = () => invoke<void>("chrome_focus");
 
+/** Page-initiated new window (window.open / target="_blank" / modified click)
+ *  forwarded from a tab webview → open it as a new Flux tab. `background` keeps
+ *  focus on the current tab (middle-click / Ctrl-click). */
+export const onOpenUrl = (cb: (url: string, background: boolean) => void): Promise<UnlistenFn> =>
+  listen<[string, boolean]>("flux://open-url", (e) => cb(e.payload[0], e.payload[1]));
+
 // ─── Navigation toggles (BACKLOG #51/#52) ────────────────────────────────────
 export const navStatus = () => invoke<[boolean, boolean]>("nav_status");
 export const navSet = (hints: boolean, gestures: boolean) => invoke<void>("nav_set", { hints, gestures });

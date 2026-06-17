@@ -47,6 +47,7 @@ import {
   onExtOpenTab,
   onFindResult,
   onShortcut,
+  onOpenUrl,
   onTabLoaded,
   historySearch,
   searchDefault,
@@ -398,6 +399,11 @@ const App: Component = () => {
     window.addEventListener("keydown", onKey, true);
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     const unShortcut = await onShortcut((a) => dispatch(a));
+    // Page-initiated new windows (window.open / target="_blank" / modified
+    // click) → open as a Flux tab; background tabs don't steal focus.
+    const unOpenUrl = await onOpenUrl((url, background) => {
+      void openTab("browser", url, false, background).catch(() => {});
+    });
     // Reader mode (#41): the injected extractor posts blocks back here.
     const unReader = await onReader((tabId, title, blocks) => openReader(tabId, title, blocks));
     onCleanup(unReader);
@@ -508,6 +514,7 @@ const App: Component = () => {
       unClusters();
       unExtOpen();
       unShortcut();
+      unOpenUrl();
       unFind();
       unLoaded();
     });

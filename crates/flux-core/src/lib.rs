@@ -242,6 +242,7 @@ pub fn run(intent: cli::LaunchIntent) {
             tauri::plugin::Builder::<tauri::Wry>::new("fluxtab")
                 .invoke_handler(tauri::generate_handler![
                     commands::dom_publish,
+                    commands::chrome_open_url,
                     broker::ext_broker_call,
                     commands::chrome_key,
                     commands::find_result,

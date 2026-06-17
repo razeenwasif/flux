@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **New windows & "open in new tab"** (BACKLOG #109) — `window.open()`,
+  `target="_blank"` links, and **middle-click / Ctrl-click (⌘-click)** on any
+  link now open as **new Flux tabs**. Previously they silently did nothing —
+  native child webviews ignore page-initiated windows. Middle/modifier clicks
+  open in the **background** (focus stays put); explicit `_blank` links open in
+  the foreground. (Injected `newtab.js` forwards them via the `chrome_open_url`
+  command → `flux://open-url` → the chrome opens the tab. A *connected* popup
+  window with a live opener — for OAuth/`postMessage` handshakes — is separate
+  and still out of scope.)
 - **Site permissions manager** (BACKLOG #38) — **`flux://permissions`** (⌘K
   "Site permissions", or "Manage site permissions…" in the Shields popover): a
   per-site, per-kind manager for **camera / microphone / location / notifications**

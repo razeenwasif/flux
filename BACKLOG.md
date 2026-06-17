@@ -92,6 +92,7 @@ These are the non-negotiables before Flux is a usable daily browser.
 | 40 | P2 | Translate page (local model candidate — ties into the Gemma work) | Chrome/Edge/Safari |
 | 41 | ✅ | **Reader mode** (done): 📖 in the address row (+ ⌘K) extracts the article (injected `reader.js` density heuristic → structured blocks posted via `reader_publish`) and renders a decluttered, typographic view over the hidden webview. **Text-to-speech** via the Web Speech API (🔊 Listen). Blocks render as text + `<img src>` only — no raw HTML, no XSS. Esc/✕/tab-switch closes it. _Follow-up:_ richer extraction (Readability-grade), per-paragraph TTS highlight, font/width controls. | Safari/FF/Edge |
 | 42 | P2 | PWA / "install site as app" with its own window + dock icon | Chrome/Edge |
+| 109 | ✅ | **New windows / "open in new tab"** (done): `window.open()`, `target="_blank"` links, and middle-click / Ctrl-(⌘-)click on any link open as new Flux tabs — previously a silent no-op since native child webviews ignore page-initiated windows. Injected `newtab.js` → `chrome_open_url` (fluxtab cmd) → `flux://open-url` → frontend `openTab` (background for middle/modifier clicks, foreground for explicit `_blank`). _Follow-up:_ a *connected* popup window with a live opener (OAuth / `postMessage` handshakes) needs WebView2 `NewWindowRequested` / WRY new-window hosting — separate, larger, and Google blocks embedded-webview OAuth regardless. | all |
 
 ## Epic: Best-in-class power features
 
