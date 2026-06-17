@@ -84,18 +84,60 @@ impl Default for OllamaBackend {
     }
 }
 
+/// Keep the model resident between agent turns (default 30 min). Eliminates the
+/// cold model-load latency on each `/api/generate` — the most reliable agent
+/// latency win we fully control (BACKLOG #102). `FLUX_OLLAMA_KEEPALIVE`.
+fn keep_alive() -> String {
+    std::env::var("FLUX_OLLAMA_KEEPALIVE").unwrap_or_else(|_| "30m".into())
+}
+
+/// Cap the context window: a 12B model's quality degrades long before its full
+/// window fills, prompt-eval cost is linear in context, and a smaller window
+/// bounds RAM. `FLUX_OLLAMA_NUM_CTX` (default 4096).
+fn num_ctx() -> u32 {
+    std::env::var("FLUX_OLLAMA_NUM_CTX").ok().and_then(|s| s.parse().ok()).unwrap_or(4096)
+}
+
+/// Extra Ollama `options` merged over the defaults, as a JSON object string in
+/// `FLUX_OLLAMA_OPTIONS`. This is the **speculative-decoding hook** (arXiv
+/// 2203.16487): draft-model / `num_*` knobs land here when the local Ollama
+/// build exposes them — Flux passes them through without a rebuild. Speculative
+/// decoding itself is governed server-side by Ollama/llama.cpp; this lets the
+/// user turn it on. Invalid/non-object JSON is ignored.
+fn extra_options() -> Option<serde_json::Map<String, serde_json::Value>> {
+    let raw = std::env::var("FLUX_OLLAMA_OPTIONS").ok()?;
+    serde_json::from_str::<serde_json::Value>(&raw).ok()?.as_object().cloned()
+}
+
+/// Merge `extra` over `base` (extra wins). Pure, so the passthrough is testable
+/// without touching the process environment.
+fn merge_options(mut base: serde_json::Value, extra: Option<serde_json::Map<String, serde_json::Value>>) -> serde_json::Value {
+    if let (Some(b), Some(e)) = (base.as_object_mut(), extra) {
+        for (k, v) in e {
+            b.insert(k, v);
+        }
+    }
+    base
+}
+
 /// Build a `/api/generate` body. `json` forces structured JSON output (DOM
 /// actions); plain text + a warmer temperature is used for chat. Split out so
 /// it's unit-testable without a live server.
 fn generate_body(model: &str, prompt: &str, json: bool) -> serde_json::Value {
+    let options = merge_options(
+        serde_json::json!({
+            "temperature": if json { 0.1 } else { 0.6 },
+            "num_predict": if json { 512 } else { 1024 },
+            "num_ctx": num_ctx(),
+        }),
+        extra_options(),
+    );
     let mut body = serde_json::json!({
         "model": model,
         "prompt": prompt,
         "stream": false,
-        "options": {
-            "temperature": if json { 0.1 } else { 0.6 },
-            "num_predict": if json { 512 } else { 1024 }
-        }
+        "keep_alive": keep_alive(),
+        "options": options,
     });
     if json {
         body["format"] = serde_json::Value::String("json".into());
@@ -146,6 +188,23 @@ mod tests {
         assert_eq!(b["stream"], false);
         assert_eq!(b["format"], "json");
         assert_eq!(b["options"]["temperature"], 0.1);
+        // Latency levers (#102): model kept warm + context capped.
+        assert!(b.get("keep_alive").is_some());
+        assert!(b["options"]["num_ctx"].is_number());
+    }
+
+    #[test]
+    fn options_passthrough_merges_and_overrides() {
+        let mut extra = serde_json::Map::new();
+        extra.insert("num_ctx".into(), serde_json::json!(8192)); // override a default
+        extra.insert("draft_model".into(), serde_json::json!("gemma4:2b")); // a new knob
+        let merged = merge_options(
+            serde_json::json!({ "temperature": 0.1, "num_ctx": 4096 }),
+            Some(extra),
+        );
+        assert_eq!(merged["num_ctx"], 8192, "extra options override defaults");
+        assert_eq!(merged["draft_model"], "gemma4:2b", "new knobs pass through");
+        assert_eq!(merged["temperature"], 0.1, "untouched defaults survive");
     }
 
     #[test]

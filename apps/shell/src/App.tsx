@@ -26,6 +26,8 @@ import {
   BOOKMARKS_URL,
   SESSIONS_URL,
   RESOURCES_URL,
+  TASKS_URL,
+  SPEEDTEST_URL,
   PANE_SESSION,
   agentChat,
   agentChatTabs,
@@ -56,6 +58,11 @@ import {
   type SearchEngine,
   webviewForward,
   memStatus,
+  hibernateRank,
+  prefetchRecord,
+  prefetchHints,
+  prefetchSetPressure,
+  webviewPreconnect,
   webviewCaptureState,
   webviewHibernate,
   webviewHide,
@@ -113,6 +120,8 @@ const HistoryPage = lazy(() => import("./HistoryPage"));
 const BookmarksPage = lazy(() => import("./BookmarksPage"));
 const SessionsPage = lazy(() => import("./SessionsPage"));
 const ResourcesPage = lazy(() => import("./ResourcesPage"));
+const TasksPage = lazy(() => import("./TasksPage"));
+const SpeedtestPage = lazy(() => import("./SpeedtestPage"));
 import {
   activeId,
   activeTab,
@@ -242,6 +251,9 @@ const App: Component = () => {
   const shown = new Set<number>();
   // Last time each tab was the active one (ms) — drives tab hibernation (#45).
   const lastActive = new Map<number, number>();
+  // Last finished URL per tab — the "from" of the next navigation, for training
+  // the predictive-prefetch Markov model (#103).
+  const prevUrlByTab = new Map<number, string>();
 
   // Fire-and-forget a webview command, surfacing failures (the search/position
   // bug is hard to see otherwise — check the devtools console).
@@ -429,9 +441,25 @@ const App: Component = () => {
       // scan) runs only here, i.e. only when there are background tabs to evict.
       if (memEvict()) {
         const m = await memStatus().catch(() => null);
+        // Gate predictive prefetch (#103) on real memory pressure.
+        if (m) void prefetchSetPressure(m.available_pct < 12).catch(() => {});
         if (m && m.available_pct < 12) {
-          const lru = liveBackground(act).sort((a, b) => (lastActive.get(a.id) ?? 0) - (lastActive.get(b.id) ?? 0));
-          for (const t of lru.slice(0, m.available_pct < 6 ? 4 : 2)) hibernateTab(t.id);
+          const bgNow = liveBackground(act);
+          const limit = m.available_pct < 6 ? 4 : 2;
+          // #106: ask the backend to order candidates worst-first (least likely
+          // to be needed next, per the #103 Markov model), skipping any it wants
+          // to keep. Fall back to plain LRU if the call fails / returns nothing.
+          const candidates = bgNow.map((t) => ({
+            tab_id: t.id,
+            url: t.url,
+            idle_secs: Math.round((now - (lastActive.get(t.id) ?? now)) / 1000),
+          }));
+          const ranked = await hibernateRank(activeTab()?.url ?? "", candidates).catch(() => null);
+          const order =
+            ranked && ranked.length
+              ? ranked.filter((r) => !r.protected).map((r) => r.tab_id)
+              : bgNow.sort((a, b) => (lastActive.get(a.id) ?? 0) - (lastActive.get(b.id) ?? 0)).map((t) => t.id);
+          for (const id of order.slice(0, limit)) hibernateTab(id);
         }
       }
     }, 60_000);
@@ -457,6 +485,21 @@ const App: Component = () => {
         // Re-apply this host's saved zoom (#36).
         const z = zoomFor(hostOfUrl(url));
         if (z !== 1) void webviewZoom(tabId, z).catch(() => {});
+        // Predictive prefetch (#103): learn this navigation transition, then
+        // preconnect to the hosts the model expects you to visit next from here.
+        if (url.startsWith("http")) {
+          const prev = prevUrlByTab.get(tabId);
+          if (prev && prev !== url && prev.startsWith("http")) {
+            void prefetchRecord(prev, url).catch(() => {});
+          }
+          prevUrlByTab.set(tabId, url);
+          void prefetchHints(url, 4)
+            .then((hints) => {
+              const hosts = (hints ?? []).map((h) => h.host);
+              if (hosts.length) void webviewPreconnect(tabId, hosts).catch(() => {});
+            })
+            .catch(() => {});
+        }
       }
     });
     onCleanup(() => {
@@ -828,6 +871,8 @@ const App: Component = () => {
     { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
     { id: "resources", label: "Open Resource monitor", icon: "📊", run: () => go(RESOURCES_URL) },
+    { id: "tasks", label: "Open Task manager", icon: "🗂️", run: () => go(TASKS_URL) },
+    { id: "speedtest", label: "Network speed test", icon: "⚡", run: () => go(SPEEDTEST_URL) },
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
@@ -2226,6 +2271,12 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === RESOURCES_URL}>
           <ResourcesPage onNavigate={props.onNavigate} onSleepBackground={props.onSleepBackground} />
+        </Match>
+        <Match when={activeTab()?.url === TASKS_URL}>
+          <TasksPage />
+        </Match>
+        <Match when={activeTab()?.url === SPEEDTEST_URL}>
+          <SpeedtestPage />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage

@@ -239,6 +239,37 @@ pub async fn webview_hide(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     Ok(())
 }
 
+/// Speculative preconnect (BACKLOG #103): inject `<link rel="preconnect">` tags
+/// for the predicted next hosts into the active page, so the engine's own
+/// network stack opens DNS+TCP+TLS to them ahead of the likely next navigation.
+/// Hosts come from the prefetch model's confidence-gated hints; idempotent
+/// (skips a host already preconnected this page).
+#[tauri::command]
+pub async fn webview_preconnect(app: AppHandle, tab_id: TabId, hosts: Vec<String>) -> Result<(), String> {
+    if hosts.is_empty() {
+        return Ok(());
+    }
+    let Some(wv) = app.get_webview(&label(tab_id)) else { return Ok(()) };
+    // Hosts are JSON-encoded → injection-safe inside the script literal.
+    let json = serde_json::to_string(&hosts).map_err(|e| e.to_string())?;
+    let js = format!(
+        r#"(() => {{
+  const seen = (window.__fluxPreconnect ||= new Set());
+  for (const h of {json}) {{
+    if (!h || seen.has(h)) continue;
+    seen.add(h);
+    for (const rel of ['preconnect', 'dns-prefetch']) {{
+      const l = document.createElement('link');
+      l.rel = rel; l.href = 'https://' + h; l.crossOrigin = '';
+      document.head.appendChild(l);
+    }}
+  }}
+}})();"#
+    );
+    wv.eval(&js).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Hibernate a tab (#45): destroy its native webview to free the RAM, while the
 /// tab stays in the strip. Unlike `webview_close` this does NOT run clear-on-
 /// close — the tab isn't closing, just sleeping — and leaves the tab metadata

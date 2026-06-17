@@ -351,6 +351,12 @@ export interface ShieldsStatus {
   blocked: number;
   /** Hosts the user has allowlisted (shields off). */
   sites_off: string[];
+  /** Decision-cache hit ratio % — verdicts served without re-running the engine (#99). */
+  cache_hit_pct: number;
+  /** Live entries in the decision cache (#99). */
+  cache_len: number;
+  /** Distinct rules observed firing this session — the live hot set (#99). */
+  rules_fired: number;
 }
 
 export const shieldsStatus = () => invoke<ShieldsStatus>("shields_status");
@@ -360,6 +366,17 @@ export const shieldsSetSite = (host: string, on: boolean) =>
   invoke<void>("shields_set_site", { host, on });
 /** Re-fetch + rebuild the upstream filter lists (background). */
 export const shieldsRefresh = () => invoke<void>("shields_refresh");
+
+/** The session's hot rule set — filters that actually fired, busiest first (#99). */
+export interface HotRule { rule: string; hits: number }
+export const shieldsHotRules = (limit: number) =>
+  invoke<HotRule[]>("shields_hot_rules", { limit });
+
+// ─── Per-site lean mode (BACKLOG #105) ───────────────────────────────────────
+export interface LeanStatus { enabled: boolean; sites_on: string[] }
+export const leanStatus = () => invoke<LeanStatus>("lean_status");
+export const leanSetEnabled = (on: boolean) => invoke<void>("lean_set_enabled", { on });
+export const leanSetSite = (host: string, on: boolean) => invoke<void>("lean_set_site", { host, on });
 
 // ─── HTTPS-only mode (BACKLOG #58) ──────────────────────────────────────────
 
@@ -500,6 +517,57 @@ export const webviewExtractReader = (tabId: number) => invoke<void>("webview_ext
 export const RESOURCES_URL = "flux://resources";
 /** Per-tab captured-DOM payload size in bytes (proxy for page weight). */
 export const tabDomSizes = () => invoke<[number, number][]>("tab_dom_sizes");
+
+// ─── Task manager (BACKLOG #107) ─────────────────────────────────────────────
+export const TASKS_URL = "flux://tasks";
+export interface ProcInfo {
+  pid: number;
+  name: string;
+  /** CPU %, summed across cores (may exceed 100). */
+  cpu: number;
+  mem_mb: number;
+  /** Part of Flux's process tree (engine/helper processes). */
+  is_flux: boolean;
+  /** The main Flux process — ending it quits the browser. */
+  current: boolean;
+}
+export const tasksList = () => invoke<ProcInfo[]>("tasks_list");
+export const tasksKill = (pid: number) => invoke<boolean>("tasks_kill", { pid });
+
+// ─── Network speed test (BACKLOG #108) ───────────────────────────────────────
+export const SPEEDTEST_URL = "flux://speedtest";
+export interface SpeedResult {
+  ping_ms: number;
+  jitter_ms: number;
+  download_mbps: number;
+  upload_mbps: number;
+  server: string;
+}
+export const netspeedRun = () => invoke<SpeedResult>("netspeed_run");
+/** Phase progress: "ping" → "download" → "upload" → "done". */
+export const onNetspeedProgress = (cb: (phase: string) => void): Promise<UnlistenFn> =>
+  listen<string>("flux://netspeed-progress", (e) => cb(e.payload));
+
+// ─── Predictive prefetch (BACKLOG #103) ──────────────────────────────────────
+export interface PrefetchHint { host: string; confidence: number }
+/** Record a navigation transition so the model can learn (`from` may be ""). */
+export const prefetchRecord = (from: string, to: string) =>
+  invoke<void>("prefetch_record", { from, to });
+/** Hosts worth preconnecting next from `url`, most-confident first. */
+export const prefetchHints = (url: string, max: number) =>
+  invoke<PrefetchHint[]>("prefetch_hints", { url, max });
+/** Pause/resume speculation under memory pressure. */
+export const prefetchSetPressure = (on: boolean) => invoke<void>("prefetch_set_pressure", { on });
+/** Inject `<link rel=preconnect>` for predicted next hosts into the active page. */
+export const webviewPreconnect = (tabId: number, hosts: string[]) =>
+  invoke<void>("webview_preconnect", { tabId, hosts });
+
+// ─── Belady/Markov hibernation ranking (BACKLOG #106) ────────────────────────
+export interface HibernateCandidate { tab_id: number; url: string; idle_secs: number }
+export interface EvictionRank { tab_id: number; score: number; protected: boolean }
+/** Rank background tabs worst-first for hibernation (least likely needed next). */
+export const hibernateRank = (currentUrl: string, candidates: HibernateCandidate[]) =>
+  invoke<EvictionRank[]>("hibernate_rank", { currentUrl, candidates });
 
 // ─── Web capture (BACKLOG #54) ───────────────────────────────────────────────
 export const webviewCapture = (tabId: number) => invoke<string>("webview_capture", { tabId });

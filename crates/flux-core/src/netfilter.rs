@@ -48,6 +48,12 @@ fn install_windows(app: AppHandle, webview: &Webview) {
                         return win::Decision::Block;
                     }
                 }
+                // Lean mode (#105): extra heavy-script blocking for opted-in sites.
+                if let Some(l) = policy_app.try_state::<crate::leanmode::LeanState>() {
+                    if l.should_block(url, source, ty) {
+                        return win::Decision::Block;
+                    }
+                }
                 if let Some(h) = policy_app.try_state::<crate::https::HttpsState>() {
                     if let Some(secure) = h.upgrade(url) {
                         return win::Decision::Redirect(secure);

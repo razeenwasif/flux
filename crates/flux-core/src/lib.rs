@@ -4,6 +4,7 @@
 pub mod agent_bridge;
 pub mod bookmarks;
 pub mod broker;
+pub mod cache;
 pub mod cli;
 pub mod commands;
 pub mod cookies;
@@ -14,18 +15,22 @@ pub mod favicon;
 pub mod files;
 pub mod hibernate;
 pub mod history;
+pub mod leanmode;
 pub mod mem;
+pub mod netspeed;
 pub mod nav;
 pub mod notes;
 pub mod https;
 pub mod netfilter;
 pub mod omni;
 pub mod permissions;
+pub mod prefetch;
 pub mod screenshot;
 pub mod search;
 pub mod session;
 pub mod sessions;
 pub mod shields;
+pub mod taskmgr;
 pub mod tracking;
 pub mod state;
 pub mod terminal;
@@ -33,6 +38,38 @@ pub mod vault;
 pub mod webview;
 
 use tauri::{Emitter, Manager};
+
+/// Ensure the web engine negotiates **HTTP/3 / QUIC** (BACKLOG #100). Research
+/// (arXiv 2102.12358, 2306.11643) shows H3 + connection coalescing is a real
+/// latency win on high-latency / lossy links, and it compounds with the shields
+/// cutting third-party domains.
+///
+/// On Windows the engine is Chromium-based WebView2: we append `--enable-quic`
+/// to `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (read when the WebView2
+/// environment is created, so this must run before any webview). H3 is on by
+/// default in recent WebView2; this makes it explicit and survives an
+/// Edge-side default flip. `FLUX_WEBVIEW2_ARGS` lets a user add their own flags.
+///
+/// On Linux the engine is WebKitGTK, whose QUIC support is limited and not
+/// configured this way — so this is a no-op there (documented, not silent).
+fn enable_http3() {
+    if !cfg!(target_os = "windows") {
+        tracing::debug!(target: "flux::net", "HTTP/3 flag skipped (engine is WebKitGTK, not WebView2)");
+        return;
+    }
+    const KEY: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+    let mut args = std::env::var(KEY).unwrap_or_default();
+    for flag in ["--enable-quic", &std::env::var("FLUX_WEBVIEW2_ARGS").unwrap_or_default()] {
+        if !flag.is_empty() && !args.contains(flag) {
+            if !args.is_empty() {
+                args.push(' ');
+            }
+            args.push_str(flag);
+        }
+    }
+    std::env::set_var(KEY, &args);
+    tracing::info!(target: "flux::net", args = %args, "HTTP/3: WebView2 browser args set");
+}
 
 /// Build the Tauri application. Split from `main` for testability.
 pub fn run(intent: cli::LaunchIntent) {
@@ -42,6 +79,8 @@ pub fn run(intent: cli::LaunchIntent) {
                 .unwrap_or_else(|_| "flux=info".into()),
         )
         .init();
+
+    enable_http3();
 
     tauri::Builder::default()
         // Persist + restore window size/position across launches (open as closed).
@@ -101,6 +140,13 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(hibernate::HibernateStore::new());
             // System memory monitor for memory-pressure eviction (#45).
             app.manage(mem::SysMon::new());
+            // Predictive-prefetch Markov model (#103) — per-origin next-host
+            // prediction for confidence-gated preconnect.
+            app.manage(prefetch::PrefetchModel::new());
+            // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
+            app.manage(leanmode::LeanState::new());
+            // Built-in task manager (#107) — system process monitor.
+            app.manage(taskmgr::TaskManager::new());
             // Favicon cache (#21) — fetched cookielessly, cached per host on disk.
             let fav_dir = app.path().app_data_dir().ok().map(|d| d.join("favicons"));
             app.manage(favicon::FaviconCache::new(fav_dir));
@@ -255,6 +301,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_set_bounds,
             webview::webview_show,
             webview::webview_hide,
+            webview::webview_preconnect,
             webview::webview_hibernate,
             webview::webview_capture_state,
             mem::mem_status,
@@ -322,6 +369,18 @@ pub fn run(intent: cli::LaunchIntent) {
             shields::shields_set_site,
             shields::shields_check,
             shields::shields_refresh,
+            shields::shields_hot_rules,
+            prefetch::prefetch_record,
+            prefetch::prefetch_hints,
+            prefetch::prefetch_set_pressure,
+            hibernate::hibernate_rank,
+            leanmode::lean_status,
+            leanmode::lean_set_enabled,
+            leanmode::lean_set_site,
+            leanmode::lean_active_for,
+            taskmgr::tasks_list,
+            taskmgr::tasks_kill,
+            netspeed::netspeed_run,
             https::https_status,
             https::https_set_enabled,
             https::https_allow_site,
