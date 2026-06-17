@@ -1390,7 +1390,25 @@ const Sidebar: Component<SidebarProps> = (props) => {
   };
 
   return (
-    <nav class="sidebar">
+    <nav class="sidebar" classList={{ "with-apps": !props.collapsed && panels().length > 0 }}>
+      {/* Left app rail (#48 launcher) — Opera-style: pinned web-app panels as
+          icons on the sidebar's left edge; click toggles the slide-out panel. */}
+      <Show when={!props.collapsed && panels().length > 0}>
+        <div class="app-rail">
+          <For each={panels()}>
+            {(p) => (
+              <button
+                classList={{ "app-rail-icon": true, active: activePanelId() === p.id }}
+                title={p.title || p.url}
+                onClick={() => togglePanel(p.id)}
+              >
+                <PanelIcon url={p.url} />
+              </button>
+            )}
+          </For>
+          <button class="app-rail-add" title="Pin a web app (panels)" onClick={() => openPanel("webpanels")}>+</button>
+        </div>
+      </Show>
       {/* Nav row. Also a drag region (`deep`) for extra grab area; buttons
           still click through. Traffic lights live in the title bar now. */}
       <div
@@ -1410,6 +1428,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           >
             <button class="icon-btn" title="Stop (Esc)" onClick={() => navActive(webviewStop)}>✕</button>
           </Show>
+          <button class="icon-btn" title="Home (new tab page)" onClick={() => props.onNavigate("flux://start")}>⌂</button>
           <span style={{ flex: 1 }} />
         </Show>
       </div>
@@ -1763,37 +1782,37 @@ const Sidebar: Component<SidebarProps> = (props) => {
         </div>
       </Show>
 
-      {/* Workspace switcher (#44) — Arc-style, above the tools. */}
+      {/* Workspace rail (#44) — a thin vertical strip of colored dots on the
+          sidebar's right edge; hover a dot to pop out its name + controls. */}
       <Show when={!props.collapsed}>
-        <div class="workspace-bar">
+        <div class="ws-rail">
           <For each={workspaces()}>
             {(w) => (
-              <button
-                classList={{ "ws-pill": true, active: activeWorkspace() === w.id }}
-                style={{ "border-color": activeWorkspace() === w.id ? workspaceColor(w) : "transparent" }}
-                title={`${w.name} — double-click to rename, right-click to delete`}
-                onClick={() => props.onSwitchWorkspace(w.id)}
-                onDblClick={() => setEditWs(w.id)}
-                onContextMenu={(e) => { e.preventDefault(); props.onDeleteWorkspace(w.id); }}
-              >
-                <span class="ws-dot" title="Recolor" style={{ background: workspaceColor(w) }} onClick={(e) => { e.stopPropagation(); cycleWsColor(w); }} />
-                <Show
-                  when={editWs() === w.id}
-                  fallback={<span class="ws-name">{w.name}</span>}
-                >
-                  <input
-                    class="inline-edit ws"
-                    value={w.name}
-                    autofocus
-                    onClick={(e) => e.stopPropagation()}
-                    onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameWorkspace(w.id, v); setEditWs(null); }}
-                    onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditWs(null); }}
-                  />
-                </Show>
-              </button>
+              <div classList={{ "ws-rail-item": true, active: activeWorkspace() === w.id }}>
+                <button
+                  class="ws-rail-dot"
+                  style={{ background: workspaceColor(w) }}
+                  title={w.name}
+                  onClick={() => props.onSwitchWorkspace(w.id)}
+                />
+                <div class="ws-rail-pop glass">
+                  <span class="ws-dot" title="Recolor" style={{ background: workspaceColor(w) }} onClick={(e) => { e.stopPropagation(); cycleWsColor(w); }} />
+                  <Show when={editWs() === w.id} fallback={<span class="ws-name" title="Double-click to rename" onDblClick={() => setEditWs(w.id)}>{w.name}</span>}>
+                    <input
+                      class="inline-edit ws"
+                      value={w.name}
+                      autofocus
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameWorkspace(w.id, v); setEditWs(null); }}
+                      onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditWs(null); }}
+                    />
+                  </Show>
+                  <button class="ws-rail-x" title="Delete workspace" onClick={(e) => { e.stopPropagation(); props.onDeleteWorkspace(w.id); }}>✕</button>
+                </div>
+              </div>
             )}
           </For>
-          <button class="ws-add" title="New workspace" onClick={() => props.onNewWorkspace()}>+</button>
+          <button class="ws-rail-add" title="New workspace" onClick={() => props.onNewWorkspace()}>+</button>
         </div>
       </Show>
 
@@ -2365,6 +2384,20 @@ const AgentPanel: Component = () => {
 /** Tab/pin icon: the site's real favicon (#21) once fetched, else a letter
  *  glyph (or ⌨/📁 for terminal/files). Favicons are fetched cookielessly +
  *  cached by Rust per host; the letter shows while loading or when none exists. */
+/** Favicon for a bare URL (the app-rail web-panel icons). */
+const PanelIcon: Component<{ url: string }> = (props) => {
+  const host = (): string | null => {
+    try { return new URL(props.url).hostname.replace(/^www\./, "") || null; } catch { return null; }
+  };
+  createEffect(() => ensureFavicon(host()));
+  const data = () => faviconFor(host());
+  return (
+    <Show when={typeof data() === "string"} fallback={<span class="fav-letter">{(host() ?? "?").charAt(0).toUpperCase()}</span>}>
+      <img class="fav-img" src={data() as string} alt="" />
+    </Show>
+  );
+};
+
 const Favicon: Component<{ tab: TabMeta }> = (props) => {
   const host = (): string | null => {
     const t = props.tab;

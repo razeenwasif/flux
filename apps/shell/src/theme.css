@@ -67,7 +67,7 @@
   --flux-radius:        10px;
   --flux-radius-card:   18px;
   --flux-frame-pad:     12px;
-  --flux-sidebar-w:     252px;
+  --flux-sidebar-w:     272px;
   --flux-sidebar-w-min: 72px;
   --flux-terminal-w:    440px;
   --flux-agent-w:       372px;
@@ -282,7 +282,9 @@ body.resizing .shell { transition: none !important; }
   display: flex;
   flex-direction: column;
   gap: 11px;
-  padding: 10px 10px 12px;
+  /* extra right gutter for the workspace rail (#44); left gutter added by
+     .with-apps for the app rail (#48). */
+  padding: 10px 18px 12px 10px;
   min-width: 0;
   overflow: hidden;
   position: relative;
@@ -292,6 +294,54 @@ body.resizing .shell { transition: none !important; }
   border-right: 1px solid var(--glass-rim-soft);
   box-shadow: inset -1px 0 0 0 rgba(255, 255, 255, 0.04);
 }
+.sidebar.with-apps { padding-left: 42px; }
+
+/* Workspace rail (#44) — vertical dots on the right edge; hover → name popout. */
+.ws-rail {
+  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+  z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 9px;
+}
+.ws-rail-item { position: relative; display: flex; align-items: center; }
+.ws-rail-dot {
+  width: 11px; height: 11px; border-radius: 50%; cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.3); transition: transform .12s var(--ease-soft);
+}
+.ws-rail-item:hover .ws-rail-dot { transform: scale(1.25); }
+.ws-rail-item.active .ws-rail-dot { box-shadow: 0 0 0 2px var(--flux-bg, #0b0820), 0 0 0 3px currentColor; }
+.ws-rail-pop {
+  position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+  display: none; align-items: center; gap: 7px; padding: 5px 9px; border-radius: 9px;
+  white-space: nowrap; font-size: 12px; color: var(--flux-text); z-index: 20;
+}
+.ws-rail-item:hover .ws-rail-pop, .ws-rail-pop:has(input) { display: flex; }
+.ws-rail-pop .ws-name { max-width: 160px; }
+.ws-rail-x { flex: none; width: 20px; height: 20px; border-radius: 6px; color: var(--flux-text-mute); font-size: 11px; }
+.ws-rail-x:hover { color: #fff; background: #c0392b; }
+.ws-rail-add {
+  width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 13px; color: var(--flux-text-mute); border: 1px dashed var(--glass-rim-soft);
+}
+.ws-rail-add:hover { color: var(--flux-teal); border-color: var(--flux-teal); }
+
+/* App rail (#48) — Opera-style web-app launcher on the left edge. */
+.app-rail {
+  position: absolute; left: 4px; top: 84px; bottom: 56px; width: 34px;
+  z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 7px;
+  overflow-y: auto; scrollbar-width: none;
+}
+.app-rail::-webkit-scrollbar { display: none; }
+.app-rail-icon {
+  flex: none; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--glass-rim-soft);
+}
+.app-rail-icon img { width: 18px; height: 18px; border-radius: 3px; }
+.app-rail-icon:hover { border-color: rgba(47,243,255,0.45); }
+.app-rail-icon.active { border-color: var(--flux-teal); box-shadow: 0 0 10px -3px var(--flux-teal); }
+.app-rail-add {
+  flex: none; width: 30px; height: 22px; border-radius: 8px; display: grid; place-items: center;
+  font-size: 14px; color: var(--flux-text-mute); border: 1px dashed var(--glass-rim-soft);
+}
+.app-rail-add:hover { color: var(--flux-teal); border-color: var(--flux-teal); }
 
 .sidebar-controls {
   display: flex;
@@ -469,19 +519,20 @@ body.resizing .shell { transition: none !important; }
 .find-nav:hover { color: var(--flux-teal); background: rgba(255, 255, 255, 0.06); }
 
 /* ── Pinned grid (glass tiles) ── */
-.pin-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.pin-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
 .pin-tile {
   aspect-ratio: 1;
   display: grid;
   place-items: center;
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 650;
   color: var(--flux-text);
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--glass-rim-soft);
-  border-radius: var(--flux-radius);
+  border-radius: 8px;
   box-shadow: var(--glass-inset);
 }
+.pin-tile .fav-img, .pin-tile img { width: 16px; height: 16px; }
 .pin-tile:hover {
   border-color: rgba(47, 243, 255, 0.4);
   transform: translateY(-2px);

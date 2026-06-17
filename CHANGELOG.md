@@ -135,6 +135,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   active one persist across restart.
 
 ### Changed
+- **Sidebar layout refresh.** Pinned-tab tiles are smaller (6 per row, up from 4).
+  Workspaces moved from a horizontal pill bar to a **vertical color-dot rail on
+  the right edge** — hover a dot to pop out its name + recolor/rename/delete. An
+  **Opera-style app rail on the left edge** shows your pinned web-app panels as
+  icons (appears once you've pinned one); click an icon to toggle that panel,
+  `+` to pin more. A **home button** (⌂) sits next to reload (loads the new-tab
+  page). The sidebar widened slightly to make room.
 - **History: deferred load + precomputed search keys.** `history.json` is now
   loaded on a background thread after the window shows instead of being parsed
   synchronously on the boot path (a large history no longer delays first paint).
