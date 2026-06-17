@@ -529,6 +529,19 @@ export const RESOURCES_URL = "flux://resources";
 /** Per-tab captured-DOM payload size in bytes (proxy for page weight). */
 export const tabDomSizes = () => invoke<[number, number][]>("tab_dom_sizes");
 
+// ─── Offline archive / read-later (BACKLOG #69) ──────────────────────────────
+export const ARCHIVE_URL = "flux://archive";
+export interface ArchiveMeta { id: number; url: string; title: string; saved_ms: number; snippet: string; score: number }
+export interface ArchiveEntry { id: number; url: string; title: string; saved_ms: number; text: string }
+/** Save the active page for offline reading + semantic search. */
+export const archiveSave = () => invoke<ArchiveMeta>("archive_save");
+export const archiveList = () => invoke<ArchiveMeta[]>("archive_list");
+export const archiveGet = (id: number) => invoke<ArchiveEntry | null>("archive_get", { id });
+export const archiveDelete = (id: number) => invoke<void>("archive_delete", { id });
+/** Semantic search over saved pages (empty query → newest first). */
+export const archiveSearch = (query: string, limit: number) =>
+  invoke<ArchiveMeta[]>("archive_search", { query, limit });
+
 // ─── Built-in PDF viewer (BACKLOG #35) ───────────────────────────────────────
 export const PDF_URL = "flux://pdf";
 /** Is this URL/path a PDF? (extension check, ignoring query/hash) */
