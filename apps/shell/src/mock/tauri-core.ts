@@ -442,11 +442,14 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       ] as T);
     }
     case "agent_execute":
+    case "agent_plan":
       return Promise.resolve({
         action: "click",
         selector: "a[href*='unsubscribe']",
         reason: "unsubscribe link",
       } as T);
+    case "agent_run_action":
+      return Promise.resolve((args?.action ?? { action: "refuse", reason: "n/a" }) as T);
     default:
       return Promise.resolve(undefined as T);
   }

@@ -624,6 +624,49 @@ pub async fn agent_execute(
     Ok(action)
 }
 
+/// Plan a page action WITHOUT executing it (BACKLOG #8): the frontend previews
+/// the proposed action and asks the user to approve before anything touches the
+/// page. Returns the planned action; status returns to Idle (we're awaiting
+/// confirmation, not acting).
+#[tauri::command]
+pub async fn agent_plan(app: AppHandle, state: State<'_, FluxState>, prompt: String) -> Result<flux_agent::AgentAction, String> {
+    let snap = state.active_snapshot().ok_or("no page context — open a tab first")?;
+    *state.agent.write() = AgentStatus::Thinking { prompt: prompt.clone() };
+    let _ = app.emit("flux://agent-status", state.agent.read().clone());
+    let page_text = Arc::clone(&snap.text);
+    let action = tauri::async_runtime::spawn_blocking(move || crate::agent_bridge::planner().plan(&prompt, &page_text))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            *state.agent.write() = AgentStatus::Error { message: e.to_string() };
+            let _ = app.emit("flux://agent-status", state.agent.read().clone());
+            e.to_string()
+        })?;
+    *state.agent.write() = AgentStatus::Idle;
+    let _ = app.emit("flux://agent-status", state.agent.read().clone());
+    Ok(action)
+}
+
+/// Execute a previously-planned action that the user approved (BACKLOG #8).
+/// Compiles it to JS (the script paints the magenta highlight, then acts) and
+/// injects it into the active tab's webview.
+#[tauri::command]
+pub async fn agent_run_action(app: AppHandle, state: State<'_, FluxState>, action: flux_agent::AgentAction) -> Result<flux_agent::AgentAction, String> {
+    let tab = state.active_tab().ok_or("no active tab")?;
+    *state.agent.write() = AgentStatus::Acting {
+        description: action.describe(),
+        selector: action.selector().unwrap_or_default().to_owned(),
+    };
+    let _ = app.emit("flux://agent-status", state.agent.read().clone());
+    let webview = app
+        .get_webview(&format!("tab-{tab}"))
+        .ok_or_else(|| format!("webview tab-{tab} not found"))?;
+    webview.eval(&action.to_js()).map_err(|e| e.to_string())?;
+    *state.agent.write() = AgentStatus::Idle;
+    let _ = app.emit("flux://agent-status", state.agent.read().clone());
+    Ok(action)
+}
+
 // ─── Semantic tab clustering ────────────────────────────────────────────────
 
 /// Re-embed all tabs and broadcast new cluster assignments. Runs off-thread;

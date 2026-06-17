@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Agent actions are now preview-and-approve** (BACKLOG #8) — `/act` plans the
+  action and shows it as a **preview with Approve / Skip** instead of touching the
+  page immediately. Approve runs it (with the magenta highlight); Skip discards it;
+  a refusal shows as a note. (`agent_plan` + `agent_run_action`.) Autonomous
+  multi-action sequences from one prompt are a follow-up (#82); for now you
+  confirm each step.
 - **Named sessions** (BACKLOG #47) — save the current set of tabs as a named
   session and restore it later (reopens every tab) from a new `flux://sessions`
   page, ⌘K "Open Sessions", or the Library popover. Persisted separately from the

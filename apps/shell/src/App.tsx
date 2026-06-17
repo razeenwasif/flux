@@ -29,6 +29,8 @@ import {
   agentChat,
   agentChatTabs,
   agentExecute,
+  agentPlan,
+  agentRunAction,
   bookmarkAdd,
   chromeFocus,
   isStartUrl,
@@ -1949,7 +1951,7 @@ const TerminalColumn: Component = () => (
 
 /** The "Liquid AI" surface. Status drives the visual state machine: idle →
  *  violet dot, thinking → kinetic gradient border, acting → magenta line. */
-type FeedItem = { role: "user" | "assistant" | "action" | "error"; text: string };
+type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan"; text: string; action?: AgentAction; pending?: boolean };
 
 const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
@@ -2011,8 +2013,13 @@ const AgentPanel: Component = () => {
       // grounded in the active page or all open tabs per the scope toggle.
       const act = p.match(/^\/(?:act|do)\s+([\s\S]+)/i);
       if (act?.[1]) {
-        const action = await agentExecute(act[1].trim());
-        setFeed((f) => [...f, { role: "action", text: describeAction(action) }]);
+        // Plan first, then PREVIEW — nothing touches the page until you approve (#8).
+        const action = await agentPlan(act[1].trim());
+        if (action.action === "refuse") {
+          setFeed((f) => [...f, { role: "assistant", text: describeAction(action) }]);
+        } else {
+          setFeed((f) => [...f, { role: "plan", text: describeAction(action), action, pending: true }]);
+        }
       } else {
         const reply = scope() === "tabs" ? await agentChatTabs(p, browserTabIds()) : await agentChat(p);
         setFeed((f) => [...f, { role: "assistant", text: reply.trim() }]);
@@ -2024,6 +2031,22 @@ const AgentPanel: Component = () => {
     }
   };
   const run = (e: SubmitEvent) => { e.preventDefault(); void send(prompt().trim()); };
+
+  // Approve a previewed action → execute it on the page (#8).
+  const approve = async (idx: number, action: AgentAction) => {
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
+    setBusy(true);
+    try {
+      await agentRunAction(action);
+      setFeed((f) => [...f, { role: "action", text: `✓ ${describeAction(action)}` }]);
+    } catch (err) {
+      setFeed((f) => [...f, { role: "error", text: String(err) }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cancelPlan = (idx: number) =>
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `Skipped: ${it.text}` } : it)));
 
   return (
     <aside class="agent">
@@ -2048,12 +2071,23 @@ const AgentPanel: Component = () => {
             fallback={
               <div class="agent-empty">
                 Chat with your local Gemma — ask anything. Use <kbd>/act</kbd> to control
-                the page (e.g. <em>/act click the login button</em>).
+                the page (e.g. <em>/act click the login button</em>) — you'll preview and
+                approve each action before it runs.
               </div>
             }
           >
             <For each={feed()}>
-              {(item) => <div classList={{ "agent-msg": true, [`agent-${item.role}`]: true }}>{item.text}</div>}
+              {(item, i) => (
+                <div classList={{ "agent-msg": true, [`agent-${item.role}`]: true }}>
+                  <div>{item.text}</div>
+                  <Show when={item.role === "plan" && item.pending && item.action}>
+                    <div class="agent-approve">
+                      <button class="agent-approve-yes" onClick={() => void approve(i(), item.action!)}>✓ Approve</button>
+                      <button class="agent-approve-no" onClick={() => cancelPlan(i())}>Skip</button>
+                    </div>
+                  </Show>
+                </div>
+              )}
             </For>
           </Show>
           <Show when={status().state === "acting"}>

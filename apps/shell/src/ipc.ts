@@ -164,6 +164,10 @@ export const chromeImportBookmarks = (profileDir: string) =>
   invoke<ChromeBookmark[]>("chrome_import_bookmarks", { profileDir });
 export const terminalEnv = () => invoke<Record<string, string>>("terminal_env");
 export const agentExecute = (prompt: string) => invoke<AgentAction>("agent_execute", { prompt });
+/** Plan a page action without executing it — the UI previews + asks to approve (#8). */
+export const agentPlan = (prompt: string) => invoke<AgentAction>("agent_plan", { prompt });
+/** Execute a user-approved planned action (#8). */
+export const agentRunAction = (action: AgentAction) => invoke<AgentAction>("agent_run_action", { action });
 /** Free-form chat with the local model (no page required). Returns the reply. */
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
 /** Chat grounded in the captured text of several tabs (chat-with-tabs). */
