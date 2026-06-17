@@ -54,6 +54,40 @@ pub fn list_models() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The embedding model used for semantic search (BACKLOG #11). `FLUX_EMBED_MODEL`
+/// overrides the default. Must be pulled in Ollama (`ollama pull embeddinggemma`).
+pub const DEFAULT_EMBED_MODEL: &str = "embeddinggemma";
+pub fn embed_model() -> String {
+    std::env::var("FLUX_EMBED_MODEL").unwrap_or_else(|_| DEFAULT_EMBED_MODEL.into())
+}
+
+/// Embed `text` via Ollama's `/api/embed`, L2-normalized so cosine == dot.
+/// `None` on any failure (server down, model not pulled) → callers fall back to
+/// the local hashing embedder, so search always works.
+pub fn embed_remote(text: &str) -> Option<Vec<f32>> {
+    let url = format!("{}/api/embed", endpoint());
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(3))
+        .timeout_read(Duration::from_secs(30))
+        .build();
+    let resp = agent
+        .post(&url)
+        .send_json(serde_json::json!({ "model": embed_model(), "input": text }))
+        .ok()?;
+    let value: serde_json::Value = resp.into_json().ok()?;
+    // `/api/embed` returns { "embeddings": [[...]] }.
+    let arr = value.get("embeddings")?.as_array()?.first()?.as_array()?;
+    let mut v: Vec<f32> = arr.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect();
+    if v.is_empty() {
+        return None;
+    }
+    let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 1e-6 {
+        v.iter_mut().for_each(|x| *x /= norm);
+    }
+    Some(v)
+}
+
 pub struct OllamaBackend {
     agent: ureq::Agent,
     endpoint: String,

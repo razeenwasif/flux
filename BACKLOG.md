@@ -45,7 +45,7 @@ grid/damage/renderer spine; these make it competitive with kitty/ghostty:
 | 81 | ✅ | **Agent model picker** (done): the agent-sidebar header shows the active model and opens a dropdown of locally-pulled Ollama models (`/api/tags`); picking one switches the agent live (runtime override over `FLUX_MODEL`) and persists. _Follow-up:_ show which model is active in the sidebar per-message; per-task model routing. |
 | 82 | P2 | Agent: schema-constrained output via Ollama `format` = JSON schema (vs current `format:"json"` + prompt) and multi-step plans (#8); stream tokens to the sidebar |
 | 8 | ✅ | **Agent action confirmation** (done): `/act` now **plans then previews** the action (agent_plan) and waits for **Approve / Skip** before anything touches the page (agent_run_action injects the magenta-highlight + action). Refusals show as a note. _Follow-up:_ autonomous **multi-action sequences** from one prompt need structured multi-step output (#82); today you confirm each `/act` step. |
-| 11 | P2 | Replace hashing embedder with EmbeddingGemma int8 behind `flux-embed/model` |
+| 11 | ◐ | **Real embeddings (EmbeddingGemma)** (done for search): `embedding.rs` prefers Ollama `/api/embed` (`embeddinggemma`, `FLUX_EMBED_MODEL`) with the hashing embedder as automatic fallback (search never breaks offline). Vectors persisted + embedder-tagged; an embedder change triggers a background re-embed (`migrate`). Wired into the **archive** (#69). _Remaining:_ Omni (#66) + clustering (#14) still use hashing — they embed per-keystroke / on every dom_publish, so they need a vector cache first; archive_save/search are sync (brief network block when the model path is active) — make async; int8/quantized model guidance. |
 
 ## Epic: Tabs & Chrome import
 
