@@ -16,6 +16,16 @@ use parking_lot::RwLock;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
+use crate::cache::TtlCache;
+
+/// Decision-cache bounds. Most page loads re-request the same tracker/CDN/beacon
+/// URLs, so memoizing the engine verdict per `(url, source-host, type)` skips the
+/// match entirely on the hot path (BACKLOG #99 — the tokenized engine is already
+/// fast, so the win is *not re-running it* for repeats). Bounded + short-TTL so a
+/// rule refresh or a long session can't grow it without bound.
+const DECISION_CACHE_CAP: usize = 8192;
+const DECISION_CACHE_TTL: Duration = Duration::from_secs(600);
+
 /// The bundled curated starter list (major ad/tracker networks) — always active,
 /// so blocking works offline / before the big lists download.
 const DEFAULT_FILTERS: &str = include_str!("../assets/default-filters.txt");
@@ -36,6 +46,17 @@ pub struct ShieldsState {
     off_for: DashMap<String, ()>,
     enabled: AtomicBool,
     blocked: AtomicU64,
+    /// Memoized engine verdicts: `(url \u{1} source-host \u{1} type) → blocked?`
+    /// The global toggle + per-site allowlist are checked *before* this, so a
+    /// cached value is the pure rule-engine decision and stays valid across
+    /// those toggles. Cleared when the rule set is rebuilt.
+    decisions: TtlCache<String, bool>,
+    /// The observed **hot set**: rules that have actually fired, with a
+    /// distinct-context fire count. arXiv 1810.09160 found ~90% of EasyList
+    /// never matches real traffic; this surfaces the live ~10% on *this* user's
+    /// browsing. Recorded only on the engine path (cache misses), so the hot
+    /// path stays a single map lookup.
+    fired_rules: DashMap<String, u64>,
     /// Where fetched lists are cached (`None` → bundled default only; tests).
     filters_dir: Option<PathBuf>,
 }
@@ -55,6 +76,8 @@ impl ShieldsState {
             off_for: DashMap::new(),
             enabled: AtomicBool::new(true),
             blocked: AtomicU64::new(0),
+            decisions: TtlCache::new(DECISION_CACHE_CAP, Some(DECISION_CACHE_TTL)),
+            fired_rules: DashMap::new(),
             filters_dir,
         }
     }
@@ -84,8 +107,15 @@ impl ShieldsState {
                 text.push_str(&s);
             }
         }
-        *self.filter.write() = Filter::from_list(&text);
+        self.install_filter(Filter::from_list(&text));
         tracing::info!(target: "flux::shields", "content-filter lists refreshed ({} bytes of rules)", text.len());
+    }
+
+    /// Swap in a rebuilt rule set and invalidate the decision cache — every
+    /// memoized verdict was computed against the old rules (#99).
+    fn install_filter(&self, filter: Filter) {
+        *self.filter.write() = filter;
+        self.decisions.clear();
     }
 
     /// The interception verdict for one request. `source_url` is the page making
@@ -99,10 +129,27 @@ impl ShieldsState {
                 return false;
             }
         }
-        let blocked = self.filter.read().should_block(url, source_url, request_type);
+        let blocked = self.engine_verdict(url, source_url, request_type);
         if blocked {
             self.blocked.fetch_add(1, Ordering::Relaxed);
         }
+        blocked
+    }
+
+    /// The pure rule-engine verdict, served from the decision cache when we've
+    /// seen this `(url, source-host, type)` recently. On a miss we run the engine
+    /// and, if it blocked, record the firing rule into the hot set (#99).
+    fn engine_verdict(&self, url: &str, source_url: &str, request_type: &str) -> bool {
+        let src_host = host_of(source_url).unwrap_or(source_url);
+        let key = format!("{url}\u{1}{src_host}\u{1}{request_type}");
+        if let Some(v) = self.decisions.get(&key) {
+            return v;
+        }
+        let (blocked, rule) = self.filter.read().check(url, source_url, request_type);
+        if let Some(rule) = rule {
+            *self.fired_rules.entry(rule).or_insert(0) += 1;
+        }
+        self.decisions.insert(key, blocked);
         blocked
     }
 
@@ -121,11 +168,31 @@ impl ShieldsState {
     }
 
     fn status(&self) -> ShieldsStatus {
+        let cache = self.decisions.stats();
         ShieldsStatus {
             enabled: self.enabled.load(Ordering::Relaxed),
             blocked: self.blocked.load(Ordering::Relaxed),
             sites_off: self.off_for.iter().map(|e| e.key().clone()).collect(),
+            cache_hit_pct: cache.hit_pct(),
+            cache_len: cache.len,
+            rules_fired: self.fired_rules.len(),
         }
+    }
+
+    /// The observed hot set: rules that actually fired this session, busiest
+    /// first, capped at `limit`. The empirical "keep these synchronous" tier of
+    /// arXiv 1810.09160. (`limit = 0` → all.)
+    pub fn hot_rules(&self, limit: usize) -> Vec<HotRule> {
+        let mut v: Vec<HotRule> = self
+            .fired_rules
+            .iter()
+            .map(|e| HotRule { rule: e.key().clone(), hits: *e.value() })
+            .collect();
+        v.sort_by(|a, b| b.hits.cmp(&a.hits).then_with(|| a.rule.cmp(&b.rule)));
+        if limit > 0 {
+            v.truncate(limit);
+        }
+        v
     }
 }
 
@@ -137,6 +204,21 @@ pub struct ShieldsStatus {
     pub blocked: u64,
     /// Hosts the user has allowlisted (shields off).
     pub sites_off: Vec<String>,
+    /// Decision-cache hit ratio (%) — how often a verdict was served without
+    /// re-running the engine (BACKLOG #99).
+    pub cache_hit_pct: u32,
+    /// Live entries in the decision cache.
+    pub cache_len: usize,
+    /// Distinct rules observed firing this session (the live hot set vs the
+    /// tens of thousands of loaded rules — the 1810.09160 "most rules are dead"
+    /// signal, on the user's own traffic).
+    pub rules_fired: usize,
+}
+
+#[derive(Serialize)]
+pub struct HotRule {
+    pub rule: String,
+    pub hits: u64,
 }
 
 /// Host of a URL (`https://a.b.com/x` → `a.b.com`), best-effort and dependency
@@ -214,6 +296,14 @@ pub fn shields_refresh(app: AppHandle) {
     std::thread::spawn(move || app.state::<ShieldsState>().refresh());
 }
 
+/// The session's hot rule set — the filters that actually fired, busiest first
+/// (BACKLOG #99). Surfaced in the shields UI as "N of your loaded rules are
+/// doing the work."
+#[tauri::command]
+pub fn shields_hot_rules(state: State<'_, ShieldsState>, limit: usize) -> Vec<HotRule> {
+    state.hot_rules(limit)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +331,36 @@ mod tests {
         // Global off → nothing blocked anywhere.
         s.enabled.store(false, Ordering::Relaxed);
         assert!(!s.should_block(url, "https://other.com", "script"));
+    }
+
+    #[test]
+    fn decision_cache_serves_repeats_and_tracks_hot_rules() {
+        let s = ShieldsState::new(None);
+        let (url, page) = ("https://google-analytics.com/ga.js", "https://news.com");
+        // First call: engine path (cache miss) → records the firing rule.
+        assert!(s.should_block(url, page, "script"));
+        // Repeat: served from the decision cache.
+        assert!(s.should_block(url, page, "script"));
+        assert!(s.should_block(url, page, "script"));
+
+        let st = s.status();
+        assert!(st.cache_hit_pct > 0, "repeats should hit the cache: {}", st.cache_hit_pct);
+        assert!(st.cache_len >= 1);
+        assert!(st.rules_fired >= 1, "a blocked request should populate the hot set");
+
+        let hot = s.hot_rules(10);
+        assert!(!hot.is_empty());
+        assert!(hot[0].hits >= 1);
+    }
+
+    #[test]
+    fn rebuilding_rules_clears_decision_cache() {
+        let s = ShieldsState::new(None);
+        assert!(s.should_block("https://doubleclick.net/ad", "https://news.com", "image"));
+        s.should_block("https://doubleclick.net/ad", "https://news.com", "image");
+        assert!(s.status().cache_len >= 1);
+        s.install_filter(Filter::from_list(DEFAULT_FILTERS)); // the swap refresh() performs
+        assert_eq!(s.status().cache_len, 0, "rebuilding the rule set must invalidate verdicts");
     }
 
     #[test]

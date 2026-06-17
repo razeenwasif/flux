@@ -731,8 +731,18 @@ pub async fn agent_plan(app: AppHandle, state: State<'_, FluxState>, prompt: Str
 #[tauri::command]
 pub async fn agent_run_action(app: AppHandle, state: State<'_, FluxState>, action: flux_agent::AgentAction) -> Result<flux_agent::AgentAction, String> {
     let tab = state.active_tab().ok_or("no active tab")?;
+    // #104: flag destructive intent for the activity feed. The compiled click
+    // JS independently re-checks the element's *live* label and aborts there —
+    // this annotation is the user-facing heads-up, not the enforcement point.
+    let description = match action.is_destructive() {
+        Some(term) => {
+            tracing::warn!(target: "flux::agent", term, "destructive action queued — guard will verify the live label");
+            format!("⚠ {} (destructive: “{term}” — Flux will block it if the control confirms it)", action.describe())
+        }
+        None => action.describe(),
+    };
     *state.agent.write() = AgentStatus::Acting {
-        description: action.describe(),
+        description,
         selector: action.selector().unwrap_or_default().to_owned(),
     };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());

@@ -8,6 +8,44 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Research-driven optimization pass** (BACKLOG #99–#106) — eight techniques
+  distilled from the 40-paper survey (`research/RESEARCH.md`), implemented in the
+  Rust core with unit tests (cache 7 · shields 5 · prefetch 6 · agent guard 4 ·
+  hibernation rank 3 · ollama 4 · lean mode 4):
+  - **Shields decision cache + hot-rule observation** (#99, arXiv 1810.09160) —
+    block/allow verdicts are memoized per `(url, source-host, type)` so repeated
+    tracker/CDN/beacon requests skip the engine entirely; the shields status now
+    reports cache hit-rate and the **live hot rule set** (the ~10% of loaded
+    rules actually firing on your traffic). _Follow-up:_ surface the hot set in
+    the shields UI.
+  - **TTL/LRU cache utility** (#101, arXiv 2602.06074) — a bounded `TtlCache`
+    in the core, reused by shields (and available for favicon/metadata/settings).
+  - **Predictive prefetch model** (#103, arXiv 1906.00877) — a per-origin Markov
+    chain (LFU-decayed) predicts the likely next host; `prefetch_hints` returns
+    confidence-gated preconnect targets, silenced under memory pressure.
+    _Follow-up:_ chrome issues the preconnect from the hints.
+  - **Agent destructive-action guard** (#104, arXiv 2511.19477) — every
+    agent-driven click is gated in the **execution layer**: the injected JS reads
+    the element's *real* accessible name and aborts on a destructive deny-list
+    (delete / pay / place order / refund …), independent of the model's claim
+    (defense against prompt injection). Read-only actions and the headline
+    "unsubscribe" task are unaffected. _Follow-up:_ a11y-tree primary context +
+    versioned element refs (ties into the agent epic).
+  - **Belady/Markov hibernation ranking** (#106, arXiv 1202.5539) —
+    `hibernate_rank` orders sleep candidates by *least likely to be needed next*
+    (discounting idle time by the #103 prediction) instead of plain LRU.
+    _Follow-up:_ the memory-pressure path calls it.
+  - **Agent latency levers** (#102, arXiv 2203.16487) — the model is kept warm
+    (`keep_alive`) to drop per-call reload latency, context is capped
+    (`num_ctx`), and an options passthrough (`FLUX_OLLAMA_OPTIONS`) is the hook
+    for enabling speculative decoding when the local Ollama build supports it.
+  - **HTTP/3 / QUIC** (#100, arXiv 2102.12358) — Flux makes the WebView2 engine
+    negotiate QUIC explicitly (`--enable-quic`); no-op on WebKitGTK (limited H3).
+  - **Per-site lean mode** (#105, arXiv 2106.08948) — an opt-in toggle that, for
+    sites you turn it on for, blocks heavy non-essential third-party scripts
+    (tag managers, analytics, A/B, session replay, chat/social widgets) on top of
+    shields, via the request interceptor. _Follow-up:_ dynamic per-function dead-JS
+    elimination needs a webview coverage trace the engines don't yet expose.
 - **Agent model picker** (BACKLOG #81) — the Flux Agent header now shows the
   active model and opens a dropdown of your locally-pulled **Ollama models**;
   pick one to switch the agent **live** (no restart) — the choice persists. (Was

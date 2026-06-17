@@ -1,0 +1,37 @@
+! Flux "lean mode" supplementary filter list (BACKLOG #105).
+! Opt-in PER SITE — applied on top of normal shields only for hosts the user
+! turned lean mode on for. These block heavy, non-essential third-party scripts
+! (tag managers, product analytics, A/B testing, session replay, chat widgets,
+! social embeds) whose removal cuts JS parse/exec time and RAM — the practical
+! effect the dead-JS papers (arXiv 2106.08948, 2308.16729) achieve. They're too
+! aggressive to block globally (can break logged-in flows / live chat), hence
+! opt-in. EasyList/EasyPrivacy already cover some; this is the curated
+! "performance" tier.
+!
+! Tag managers / loaders
+||googletagmanager.com^$script
+||tagmanager.google.com^$script
+||cdn.segment.com^$script
+||cdn.segment.io^$script
+||assets.adobedtm.com^$script
+! Product analytics
+||cdn.amplitude.com^$script
+||cdn.mxpnl.com^$script
+||static.hotjar.com^$script
+||script.hotjar.com^$script
+||cdn.heapanalytics.com^$script
+||fullstory.com^$script
+||cdn.pendo.io^$script
+! A/B testing / personalization (render-blocking, flicker)
+||cdn.optimizely.com^$script
+||cdn.vwo.com^$script
+||widget.intercom.io^$script
+! Live-chat / support widgets
+||js.intercomcdn.com^$script
+||widget.drift.com^$script
+||static.zdassets.com^$script
+||embed.tawk.to^$script
+! Social embeds (heavy, tracking-laden)
+||platform.twitter.com^$script
+||connect.facebook.net^$script
+||platform.linkedin.com^$script

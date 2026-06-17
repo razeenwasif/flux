@@ -80,7 +80,46 @@ impl AgentAction {
     pub fn to_js(&self) -> String {
         compile::to_js(self)
     }
+
+    /// Does this action target a **destructive** control (BACKLOG #104, arXiv
+    /// 2511.19477)? Returns the matched deny-list term. Only `Click` can be
+    /// destructive (extract/reveal/type/refuse don't commit state); the verdict
+    /// comes from a fixed Rust list — **never** the model, since prompt
+    /// injection makes LLM judgment untrustworthy here. This is the *preview*
+    /// signal; the injected click JS enforces the same list against the
+    /// element's real rendered label at click time (`compile::to_js`).
+    pub fn is_destructive(&self) -> Option<&'static str> {
+        let Self::Click { selector, reason } = self else { return None };
+        let hay = format!("{selector} {reason}").to_lowercase();
+        DESTRUCTIVE_TERMS.iter().copied().find(|t| hay.contains(*t))
+    }
 }
+
+/// Execution-layer destructive-action deny-list (BACKLOG #104). Matched
+/// case-insensitively as substrings — in Rust against the action's
+/// selector+reason, and in the injected click JS against the resolved element's
+/// accessible name (aria-label / text / value / title). One source of truth so
+/// the two layers can never drift. Deliberately excludes "unsubscribe" — the
+/// canonical *wanted* agent task — and other benign verbs.
+pub const DESTRUCTIVE_TERMS: &[&str] = &[
+    "delete",
+    "permanently",
+    "deactivate",
+    "close account",
+    "remove account",
+    "wipe",
+    "erase",
+    "place order",
+    "buy now",
+    "pay now",
+    "complete purchase",
+    "confirm purchase",
+    "confirm payment",
+    "send money",
+    "withdraw",
+    "refund",
+    "factory reset",
+];
 
 /// Backend abstraction: Ollama today, llama.cpp behind a feature, mock in CI.
 pub trait Inference: Send + Sync {
@@ -264,5 +303,31 @@ mod tests {
         let t = truncate_utf8(&s, 7);
         assert!(t.len() <= 7);
         assert!(std::str::from_utf8(t.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn destructive_classification() {
+        let del = AgentAction::Click {
+            selector: "button#delete-account".into(),
+            reason: "remove the user".into(),
+        };
+        assert_eq!(del.is_destructive(), Some("delete"));
+
+        let pay = AgentAction::Click {
+            selector: ".btn".into(),
+            reason: "Place order to complete checkout".into(),
+        };
+        assert_eq!(pay.is_destructive(), Some("place order"));
+
+        // The headline use case must NOT be flagged.
+        let unsub = AgentAction::Click {
+            selector: "a[href*='unsubscribe']".into(),
+            reason: "unsubscribe link".into(),
+        };
+        assert_eq!(unsub.is_destructive(), None);
+
+        // Read-only actions are never destructive, even with scary text.
+        let read = AgentAction::ExtractTable { selector: "#delete table".into(), format: ExtractFormat::Csv };
+        assert_eq!(read.is_destructive(), None);
     }
 }

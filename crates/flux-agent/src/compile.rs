@@ -29,18 +29,43 @@ fn highlight_prelude(selector: &str) -> String {
     )
 }
 
+/// JS that aborts a click when the resolved element's accessible name matches
+/// the destructive deny-list (BACKLOG #104). The term list is generated from
+/// the single Rust source of truth so it can never drift from
+/// [`AgentAction::is_destructive`](crate::AgentAction::is_destructive). Runs
+/// inside the click `setTimeout` body, so `return` exits before `__el.click()`.
+fn destructive_guard() -> String {
+    let deny = js_str_arr(crate::DESTRUCTIVE_TERMS);
+    format!(
+        r#"const __name = ((__el.getAttribute('aria-label') || __el.innerText || __el.value || __el.title || '') + '').slice(0, 240).toLowerCase();
+    const __hit = {deny}.find(t => __name.includes(t));
+    if (__hit) {{ __el.style.cssText = __old; window.__FLUX__?.report('blocked_destructive', __hit); return; }}"#
+    )
+}
+
+/// JSON-encode a string slice as a JS array literal (injection-safe).
+fn js_str_arr(items: &[&str]) -> String {
+    serde_json::to_string(items).expect("array serialization is infallible")
+}
+
 pub fn to_js(action: &AgentAction) -> String {
     match action {
+        // The click is gated by the destructive-action guard (#104): at click
+        // time we read the element's *real* accessible name and abort if it
+        // matches the deny-list — catching destructive controls the planner's
+        // selector/reason didn't reveal (defense against prompt injection).
         AgentAction::Click { selector, .. } => format!(
             r#"(() => {{
   {prelude}
   setTimeout(() => {{
+    {guard}
     __el.click();
     __el.style.cssText = __old;
     window.__FLUX__?.report('clicked', {sel});
   }}, 180); /* long enough to perceive the highlight, short enough to feel instant */
 }})();"#,
             prelude = highlight_prelude(selector),
+            guard = destructive_guard(),
             sel = js_str(selector),
         ),
 
@@ -124,5 +149,20 @@ mod tests {
             let js = AgentAction::ExtractTable { selector: "table".into(), format: fmt }.to_js();
             assert!(js.contains("querySelectorAll('tr')"));
         }
+    }
+
+    #[test]
+    fn click_embeds_the_destructive_guard() {
+        let js = AgentAction::Click { selector: "button#x".into(), reason: "go".into() }.to_js();
+        // The guard reads the live label and reports a block before clicking.
+        assert!(js.contains("blocked_destructive"), "click must carry the #104 guard");
+        assert!(js.contains("aria-label"));
+        // Deny-list terms are baked in from the Rust source of truth.
+        assert!(js.contains("\"delete\""));
+        assert!(js.contains("\"refund\""));
+        // The guard precedes the actual click in source order.
+        let g = js.find("blocked_destructive").unwrap();
+        let c = js.find("__el.click()").unwrap();
+        assert!(g < c, "guard must run before the click");
     }
 }

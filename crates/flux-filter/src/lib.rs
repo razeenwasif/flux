@@ -102,14 +102,26 @@ impl Filter {
     ///
     /// Fails safe: an unparseable URL is never blocked.
     pub fn should_block(&self, url: &str, source_url: &str, request_type: &str) -> bool {
+        self.check(url, source_url, request_type).0
+    }
+
+    /// Like [`should_block`](Self::should_block) but also returns the **matching
+    /// rule** (when blocked), so callers can observe *which* filters actually
+    /// fire — the basis for the hot/cold rule tiering in BACKLOG #99 (arXiv
+    /// 1810.09160 found ~90% of EasyList rules never match real traffic). The
+    /// returned string is the canonical filter text from the engine.
+    pub fn check(&self, url: &str, source_url: &str, request_type: &str) -> (bool, Option<String>) {
         if !self.enabled.load(Ordering::Relaxed) {
-            return false;
+            return (false, None);
         }
         let req = match Request::new(url, source_url, request_type) {
             Ok(r) => r,
-            Err(_) => return false,
+            Err(_) => return (false, None),
         };
-        self.with_engine(|engine| engine.check_network_request(&req).matched)
+        self.with_engine(|engine| {
+            let r = engine.check_network_request(&req);
+            (r.matched, if r.matched { r.filter } else { None })
+        })
     }
 
     /// Element-hiding CSS for `url` — the selectors the cosmetic rules say to
@@ -181,6 +193,17 @@ mod tests {
     fn is_send_and_sync() {
         fn assert_ss<T: Send + Sync>() {}
         assert_ss::<Filter>();
+    }
+
+    #[test]
+    fn check_reports_matching_rule() {
+        let (blocked, rule) = sample().check("https://ads.example.com/a.js", "https://news.com", "script");
+        assert!(blocked);
+        assert!(rule.is_some(), "a blocked request should name the rule that fired");
+        // An allowed request names no rule.
+        let (blocked, rule) = sample().check("https://site.com/app.js", "https://site.com", "script");
+        assert!(!blocked);
+        assert!(rule.is_none());
     }
 
     #[test]
