@@ -46,13 +46,13 @@ let mockVault: { id: string; name: string; urls: string[]; username: string; pas
 ];
 const mockNow = () => T0 + DAY; // "just now" relative to the fixed dates above
 const tabs: TabMeta[] = [
-  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
-  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
-  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, folder: null, workspace: 1, private: false, container: 0 },
-  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
-  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, folder: null, workspace: 1, private: false, container: 0 },
-  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
-  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
+  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null, group: null, folder: null, custom_title: null, workspace: 1, private: false, container: 0 },
+  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null, group: null, folder: null, custom_title: null, workspace: 1, private: false, container: 0 },
+  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, folder: null, custom_title: null, workspace: 1, private: false, container: 0 },
+  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null, group: null, folder: null, custom_title: null, workspace: 1, private: false, container: 0 },
+  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, folder: null, custom_title: null, workspace: 1, private: false, container: 0 },
+  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null, group: null, folder: null, custom_title: null, workspace: 1, private: false, container: 0 },
+  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null, group: null, folder: null, custom_title: null, workspace: 1, private: false, container: 0 },
 ];
 // Tab groups (BACKLOG #56).
 let mockGroups: { id: number; name: string; color: number; collapsed: boolean }[] = [];
@@ -83,7 +83,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         title: kind === "terminal" ? `term #${nextId}` : "New Tab",
         pinned: false,
         cluster: null,
-        group: null, folder: null,
+        group: null, folder: null, custom_title: null,
         workspace: mockActiveWs,
         private: Boolean(args?.private),
         container: Number(args?.container ?? 0),

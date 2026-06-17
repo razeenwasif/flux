@@ -54,6 +54,10 @@ pub struct TabMeta {
     /// collapsible section above the footer, not in the strip. `None` = loose.
     #[serde(default)]
     pub folder: Option<u32>,
+    /// User-set tab name that overrides the page title in the UI (`None` = use
+    /// the page title). Survives page-title updates from `dom_publish`.
+    #[serde(default)]
+    pub custom_title: Option<String>,
     /// Workspace this tab belongs to (BACKLOG #44). Defaults to workspace 1.
     #[serde(default = "default_workspace")]
     pub workspace: u32,
@@ -423,6 +427,13 @@ impl FluxState {
             if t.folder == Some(id) {
                 t.folder = None;
             }
+        }
+    }
+
+    /// Set (or clear, with `None`/empty) a tab's user-chosen name.
+    pub fn set_tab_custom_title(&self, tab_id: TabId, name: Option<String>) {
+        if let Some(mut t) = self.tabs.get_mut(&tab_id) {
+            t.custom_title = name.filter(|n| !n.trim().is_empty());
         }
     }
 

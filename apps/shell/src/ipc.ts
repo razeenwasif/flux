@@ -52,6 +52,8 @@ export interface TabMeta {
   group: number | null;
   /** Tab folder id — members are kept hibernated (≈0 RAM); null if loose. */
   folder: number | null;
+  /** User-set name overriding the page title (null = use the page title). */
+  custom_title: string | null;
   /** Workspace this tab belongs to (BACKLOG #44). */
   workspace: number;
   /** Private/incognito tab (BACKLOG #59) — ephemeral session, not in history. */
@@ -88,6 +90,9 @@ export const folderUpdate = (id: number, patch: { name?: string; collapsed?: boo
 export const folderDelete = (id: number) => invoke<void>("folder_delete", { id });
 export const tabSetFolder = (tabId: number, folder: number | null) =>
   invoke<void>("tab_set_folder", { tabId, folder });
+/** Rename a tab (empty/null clears the custom name → revert to page title). */
+export const tabRename = (tabId: number, name: string | null) =>
+  invoke<void>("tab_rename", { tabId, name: name || null });
 
 export interface LaunchIntent {
   urls: string[];

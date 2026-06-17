@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Rename tabs & folders** — double-click a tab's name (or right-click → *Rename
+  tab*) to give it a **custom name** that sticks (survives page-title updates;
+  clear it to revert). Folders get an explicit **✎ rename** button (plus
+  double-click). Both persist.
 - **Tab folders** (BACKLOG #111) — a collapsible **Folders** section above the
   footer holds tabs that are kept **hibernated (≈0 RAM)**. Right-click a tab →
   *Move to folder* (or *+ New folder with tab*) to park it; it drops out of the

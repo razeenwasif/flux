@@ -44,7 +44,7 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
             (start, title)
         }
     };
-    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None, folder: None, workspace: state.active_workspace(), private: private.unwrap_or(false), container: container.unwrap_or(0) };
+    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None, folder: None, custom_title: None, workspace: state.active_workspace(), private: private.unwrap_or(false), container: container.unwrap_or(0) };
     state.tabs.insert(id, meta.clone());
     state.order_push(id);
     state.set_active_tab(id);
@@ -218,6 +218,14 @@ pub fn folder_delete(state: State<'_, FluxState>, id: u32) {
 #[tauri::command]
 pub fn tab_set_folder(state: State<'_, FluxState>, tab_id: TabId, folder: Option<u32>) {
     state.set_tab_folder(tab_id, folder);
+    state.persist();
+}
+
+/// Rename a tab (a user-chosen name that overrides the page title). Empty name
+/// clears it (revert to the page title).
+#[tauri::command]
+pub fn tab_rename(state: State<'_, FluxState>, tab_id: TabId, name: Option<String>) {
+    state.set_tab_custom_title(tab_id, name);
     state.persist();
 }
 

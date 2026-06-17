@@ -293,6 +293,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::folder_update,
             commands::folder_delete,
             commands::tab_set_folder,
+            commands::tab_rename,
             commands::tab_set_workspace,
             commands::group_set_workspace,
             commands::groups_from_clusters,

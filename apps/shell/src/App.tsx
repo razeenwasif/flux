@@ -240,6 +240,8 @@ import {
   sendTabToWorkspace,
   sendGroupToWorkspace,
   tabs,
+  tabLabel,
+  renameTab,
   togglePin,
   unpinnedTabs,
   updateTabTitle,
@@ -1287,6 +1289,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [editWs, setEditWs] = createSignal<number | null>(null);
   const [editContainer, setEditContainer] = createSignal<number | null>(null);
   const [editFolder, setEditFolder] = createSignal<number | null>(null);
+  const [editTab, setEditTab] = createSignal<number | null>(null);
   const openCtx = (e: MouseEvent, tab: TabMeta) => { e.preventDefault(); setCtxTab(tab); setCtxPos({ x: e.clientX, y: e.clientY }); };
   const closeCtx = () => setCtxTab(null);
   // Keep a context menu fully on-screen: after it renders, nudge it left/up if it
@@ -1366,7 +1369,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
       title={isHibernated(p.tab.id) ? "sleeping — click to wake" : "drag: top/bottom reorder · middle group · right edge split · right-click for menu"}
     >
       <span class="tab-favicon">{p.tab.private ? "🕶" : isHibernated(p.tab.id) ? "💤" : <Favicon tab={p.tab} />}</span>
-      <span class="title">{p.tab.title || p.tab.url}</span>
+      <Show when={editTab() === p.tab.id} fallback={<span class="title" onDblClick={(e) => { e.stopPropagation(); setEditTab(p.tab.id); }}>{tabLabel(p.tab)}</span>}>
+        <input
+          class="tab-rename"
+          value={tabLabel(p.tab)}
+          autofocus
+          onClick={(e) => e.stopPropagation()}
+          onBlur={(e) => { void renameTab(p.tab.id, e.currentTarget.value.trim()); setEditTab(null); }}
+          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditTab(null); }}
+        />
+      </Show>
       <button class="close" title="Close tab" onClick={(e) => { e.stopPropagation(); void closeTab(p.tab.id); }}>✕</button>
     </div>
   );
@@ -1880,6 +1892,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <div class="ctx-backdrop" onClick={closeCtx} onContextMenu={(e) => { e.preventDefault(); closeCtx(); }} />
             <div class="tab-ctx glass" ref={clampMenu} style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}>
               <button onClick={() => { void togglePin(t()); closeCtx(); }}>{t().pinned ? "Unpin" : "Pin tab"}</button>
+              <button onClick={() => { const id = t().id; closeCtx(); setEditTab(id); }}>Rename tab</button>
               <button onClick={() => { void newGroupWithTab(t().id); closeCtx(); }}>New group with tab</button>
               <Show when={groups().length > 0}>
                 <div class="ctx-sep" />
@@ -2035,6 +2048,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                       />
                     </Show>
                     <span class="folder-count">{members().length}</span>
+                    <button class="folder-edit" title="Rename folder" onClick={(e) => { e.stopPropagation(); setEditFolder(f.id); }}>✎</button>
                     <button class="folder-x" title="Delete folder (tabs return to the strip)" onClick={(e) => { e.stopPropagation(); void deleteFolder(f.id); }}>✕</button>
                   </div>
                   <Show when={!f.collapsed}>
@@ -2047,7 +2061,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                             onClick={() => void focusTab(t.id)}
                           >
                             <span class="folder-tab-ico"><Favicon tab={t} /></span>
-                            <span class="folder-tab-title">{t.title || t.url}</span>
+                            <span class="folder-tab-title">{tabLabel(t)}</span>
                             <button class="folder-tab-out" title="Take out of folder" onClick={(e) => { e.stopPropagation(); void setTabFolder(t.id, null); }}>⏏</button>
                           </div>
                         )}

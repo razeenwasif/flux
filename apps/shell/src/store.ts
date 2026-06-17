@@ -22,6 +22,7 @@ import {
   folderUpdate,
   folderDelete,
   tabSetFolder,
+  tabRename,
   type TabFolder,
   tabActive,
   tabClose,
@@ -356,6 +357,14 @@ export async function toggleFolderCollapsed(f: TabFolder): Promise<void> {
 }
 export async function deleteFolder(id: number): Promise<void> {
   await folderDelete(id).catch(() => {});
+  await refreshTabs();
+}
+
+/** Display name for a tab: the user's custom name, else the page title, else url. */
+export const tabLabel = (t: TabMeta): string => t.custom_title || t.title || t.url;
+/** Rename a tab (empty → revert to the page title). */
+export async function renameTab(id: number, name: string): Promise<void> {
+  await tabRename(id, name).catch(() => {});
   await refreshTabs();
 }
 /** Restore a named session (#47): open each of its tabs. Returns the count. */
