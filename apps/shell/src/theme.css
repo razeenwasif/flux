@@ -1371,6 +1371,43 @@ body.resizing .shell { transition: none !important; }
 .bm-flash { font-size: 12px; color: var(--flux-teal); padding: 2px 4px; }
 .bm-inline-flash { float: right; color: var(--flux-teal); font-size: 11px; }
 
+/* ── Reader mode (#41) — decluttered article over the hidden webview ── */
+.reader {
+  position: absolute; inset: 0; z-index: 7;
+  display: flex; flex-direction: column;
+  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+  border-radius: var(--flux-radius-card);
+}
+.reader-bar {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; border-bottom: 1px solid var(--glass-rim-soft);
+}
+.reader-bar .reader-count { flex: 1; font-size: 11px; color: var(--flux-text-mute); }
+.reader-btn {
+  font-size: 12px; padding: 5px 12px; border-radius: 8px;
+  color: var(--flux-text); border: 1px solid var(--flux-border); background: var(--flux-surface);
+}
+.reader-btn:hover { border-color: var(--flux-teal); }
+.reader-doc {
+  flex: 1; overflow-y: auto; min-height: 0;
+  width: 100%; max-width: 720px; margin: 0 auto;
+  padding: 26px 28px 80px;
+  color: var(--flux-text); line-height: 1.7; font-size: 16px;
+  user-select: text; cursor: auto;
+}
+.reader-title { font-size: 30px; line-height: 1.2; margin: 0 0 18px; color: #fff; }
+.reader-h { font-weight: 600; color: #fff; margin: 22px 0 8px; }
+.reader-h.h1, .reader-h.h2 { font-size: 22px; }
+.reader-h.h3 { font-size: 19px; }
+.reader-h.h4 { font-size: 17px; }
+.reader-p { margin: 0 0 16px; }
+.reader-li { margin: 0 0 8px 18px; position: relative; }
+.reader-li::before { content: "•"; position: absolute; left: -16px; color: var(--flux-teal); }
+.reader-quote { margin: 0 0 16px; padding: 4px 0 4px 16px; border-left: 3px solid var(--flux-violet); color: var(--flux-text-dim); font-style: italic; }
+.reader-pre { margin: 0 0 16px; padding: 12px 14px; border-radius: 8px; background: rgba(0,0,0,0.3); overflow-x: auto; font-size: 13px; white-space: pre-wrap; }
+.reader-cap { font-size: 13px; color: var(--flux-text-mute); margin: -8px 0 16px; }
+.reader-img { max-width: 100%; height: auto; border-radius: 10px; margin: 6px 0 18px; display: block; }
+
 /* ── Command palette (⌘K, BACKLOG #6) ── */
 .palette-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.4); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
 .palette { width: min(620px, 90vw); max-height: 60vh; display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5); }

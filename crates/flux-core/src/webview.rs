@@ -30,6 +30,10 @@ const SHORTCUTS_JS: &str = include_str!("../assets/shortcuts.js");
 /// scroll + form state across hibernation (#45).
 const HIBERNATE_JS: &str = include_str!("../assets/hibernate.js");
 
+/// reader.js: on-demand article extractor (#41) — posts structured blocks back
+/// via the `reader_publish` fluxtab command. Injected only when reader mode opens.
+const READER_JS: &str = include_str!("../assets/reader.js");
+
 /// darkmode.js: `__fluxDark(on)` force-dark for all sites (#40); applied at
 /// document_start via the `window.__FLUX_DARK__` flag the init script stamps.
 pub(crate) const DARKMODE_JS: &str = include_str!("../assets/darkmode.js");
@@ -304,6 +308,12 @@ pub async fn webview_forward(app: AppHandle, tab_id: TabId) -> Result<(), String
 #[tauri::command]
 pub async fn webview_reload(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     eval(&app, tab_id, "location.reload()")
+}
+
+/// Inject the reader-mode extractor (#41); it posts blocks back via `reader_publish`.
+#[tauri::command]
+pub async fn webview_extract_reader(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+    eval(&app, tab_id, READER_JS)
 }
 
 /// Set the zoom factor of a tab's webview (per-site zoom, #36). 1.0 = 100%.

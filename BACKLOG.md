@@ -90,7 +90,7 @@ These are the non-negotiables before Flux is a usable daily browser.
 | 38 | P1 | Permissions UI: camera/mic/location/notifications prompts + per-site manager | all |
 | 39 | ✅ | **History** (done): persisted, searchable browsing history at `flux://history` — auto-recorded from the DOM-capture pipe (URL + page title), frecency-ranked, capped + debounced-save. Full-page view: recents grouped by day, live search, per-row favicons (#21), open / remove-one / clear-all; reachable from Start page + 🔖 Library. Store unit-tested. _Follow-up:_ a calendar view. | all |
 | 40 | P2 | Translate page (local model candidate — ties into the Gemma work) | Chrome/Edge/Safari |
-| 41 | P2 | Reader mode: declutter + typography + TTS | Safari/FF/Edge |
+| 41 | ✅ | **Reader mode** (done): 📖 in the address row (+ ⌘K) extracts the article (injected `reader.js` density heuristic → structured blocks posted via `reader_publish`) and renders a decluttered, typographic view over the hidden webview. **Text-to-speech** via the Web Speech API (🔊 Listen). Blocks render as text + `<img src>` only — no raw HTML, no XSS. Esc/✕/tab-switch closes it. _Follow-up:_ richer extraction (Readability-grade), per-paragraph TTS highlight, font/width controls. | Safari/FF/Edge |
 | 42 | P2 | PWA / "install site as app" with its own window + dock icon | Chrome/Edge |
 
 ## Epic: Best-in-class power features

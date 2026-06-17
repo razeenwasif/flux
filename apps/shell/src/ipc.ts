@@ -480,6 +480,11 @@ export const webviewHide = (tabId: number) => invoke<void>("webview_hide", { tab
 export const webviewNavigate = (tabId: number, url: string) =>
   invoke<void>("webview_navigate", { tabId, url });
 export const webviewZoom = (tabId: number, factor: number) => invoke<void>("webview_zoom", { tabId, factor });
+// ─── Reader mode (BACKLOG #41) ───────────────────────────────────────────────
+export interface ReaderBlock { kind: string; text: string; level: number; src: string }
+export const webviewExtractReader = (tabId: number) => invoke<void>("webview_extract_reader", { tabId });
+export const onReader = (cb: (tabId: number, title: string, blocks: ReaderBlock[]) => void): Promise<UnlistenFn> =>
+  listen<[number, string, ReaderBlock[]]>("flux://reader", (e) => cb(e.payload[0], e.payload[1], e.payload[2]));
 export const webviewBack = (tabId: number) => invoke<void>("webview_back", { tabId });
 export const webviewForward = (tabId: number) => invoke<void>("webview_forward", { tabId });
 export const webviewReload = (tabId: number) => invoke<void>("webview_reload", { tabId });

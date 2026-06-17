@@ -59,6 +59,9 @@ import {
   webviewOpen,
   webviewReload,
   webviewZoom,
+  webviewExtractReader,
+  onReader,
+  type ReaderBlock,
   omniIngestActive,
   omniAnswer,
   type OmniAnswerSource,
@@ -153,6 +156,12 @@ import {
   setTabGroup,
   zoomFor,
   nudgeZoom,
+  readerOpen,
+  readerTitle,
+  readerBlocks,
+  readerTab,
+  openReader,
+  closeReader,
   startSplit,
   clearSplit,
   splitPair,
@@ -244,6 +253,7 @@ const App: Component = () => {
     return { x: r.x + r.width - pw, y: r.y + PANEL_TOOLBAR, width: pw, height: Math.max(0, r.height - PANEL_TOOLBAR) };
   };
   const paneLayout = (): { tab: TabMeta; rect: Rect }[] => {
+    if (readerOpen()) return []; // reader view covers the card; hide the page
     const rect = mainRect();
     if (!rect) return [];
     const pair = splitPanes();
@@ -315,6 +325,10 @@ const App: Component = () => {
       // Handled outside the chord table so it isn't forwarded from focused pages
       // (they use Esc themselves).
       if (e.key === "Escape" && !inTerminal()) {
+        if (readerOpen()) {
+          closeReader();
+          return;
+        }
         if (findOpen()) {
           closeFind();
           return;
@@ -337,6 +351,9 @@ const App: Component = () => {
     window.addEventListener("keydown", onKey, true);
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     const unShortcut = await onShortcut((a) => dispatch(a));
+    // Reader mode (#41): the injected extractor posts blocks back here.
+    const unReader = await onReader((tabId, title, blocks) => openReader(tabId, title, blocks));
+    onCleanup(unReader);
     // Tab hibernation (#45): every 30s, keep the active tab fresh and destroy
     // the webviews of browser tabs that are idle past the timeout — or, under
     // genuine memory pressure, the least-recently-used ones. Freed tabs stay in
@@ -486,8 +503,8 @@ const App: Component = () => {
       openedPanel = null;
     }
     if (!p) return;
-    if (dragging) {
-      wv(panelHide(p.id));
+    if (dragging || readerOpen()) {
+      wv(panelHide(p.id)); // reader covers the card
       return;
     }
     const rect = panelViewRect();
@@ -515,6 +532,11 @@ const App: Component = () => {
       }
     }
     prevActive = cur;
+  });
+
+  // Reader mode (#41) closes when you switch away from its tab.
+  createEffect(() => {
+    if (readerOpen() && activeId() !== readerTab()) closeReader();
   });
 
   // New tab / start page → focus the omnibox so you can just start typing.
@@ -574,6 +596,15 @@ const App: Component = () => {
     if (!host) return;
     const f = nudgeZoom(host, dir);
     void webviewZoom(t.id, f).catch(() => {});
+  };
+
+  // Reader mode (#41): inject the extractor (result arrives via onReader → opens
+  // the reader view), or close it if already open.
+  const toggleReader = () => {
+    if (readerOpen()) { closeReader(); return; }
+    const t = activeTab();
+    if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
+    void webviewExtractReader(t.id).catch(() => {});
   };
 
   // Cycle through the non-pinned tabs of the active workspace (Ctrl+Tab /
@@ -729,6 +760,7 @@ const App: Component = () => {
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
+    { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
     { id: "zoom-reset", label: "Reset zoom", icon: "🔍", run: () => dispatch("zoom-reset") },
@@ -841,6 +873,7 @@ const App: Component = () => {
         onSendTabToWorkspace={sendTabToWs}
         onSendGroupToWorkspace={sendGroupToWs}
         onZoomReset={() => zoom("reset")}
+        onToggleReader={toggleReader}
       />
       <ContentArea
         onNavigate={go}
@@ -977,6 +1010,7 @@ interface SidebarProps {
   onSendTabToWorkspace: (tabId: number, ws: number) => void;
   onSendGroupToWorkspace: (groupId: number, ws: number) => void;
   onZoomReset: () => void;
+  onToggleReader: () => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | null;
@@ -1345,6 +1379,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <button type="button" class="zoom-pill" title="Reset zoom (Ctrl+0)" onClick={() => props.onZoomReset()}>
               {Math.round(activeZoom() * 100)}%
             </button>
+          </Show>
+          {/* Reader mode (#41): declutter the current article. */}
+          <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
+            <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
           </Show>
           {/* Save the current page into the Omni index (also Ctrl+Shift+O). */}
           <button
@@ -1824,6 +1862,56 @@ const Sidebar: Component<SidebarProps> = (props) => {
   );
 };
 
+// ─── Reader mode (#41) ──────────────────────────────────────────────────────
+
+/** Render one extracted block. Text-only (+ <img src>) — never raw HTML. */
+const ReaderBlockView: Component<{ b: ReaderBlock }> = (props) => {
+  const b = props.b;
+  return (
+    <Switch fallback={<p class="reader-p">{b.text}</p>}>
+      <Match when={b.kind === "h"}><p classList={{ "reader-h": true, [`h${b.level || 2}`]: true }}>{b.text}</p></Match>
+      <Match when={b.kind === "li"}><div class="reader-li">{b.text}</div></Match>
+      <Match when={b.kind === "quote"}><blockquote class="reader-quote">{b.text}</blockquote></Match>
+      <Match when={b.kind === "pre"}><pre class="reader-pre">{b.text}</pre></Match>
+      <Match when={b.kind === "cap"}><div class="reader-cap">{b.text}</div></Match>
+      <Match when={b.kind === "img"}><img class="reader-img" src={b.src} alt={b.text} loading="lazy" /></Match>
+    </Switch>
+  );
+};
+
+/** The decluttered article view, shown over the (hidden) webview. TTS via the
+ *  Web Speech API. */
+const ReaderView: Component = () => {
+  const [speaking, setSpeaking] = createSignal(false);
+  const speakable = () =>
+    readerBlocks().filter((b) => b.kind === "p" || b.kind === "li" || b.kind === "quote" || b.kind === "h").map((b) => b.text).join(". ");
+  const toggleSpeak = () => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    if (speaking()) { synth.cancel(); setSpeaking(false); return; }
+    const u = new SpeechSynthesisUtterance(`${readerTitle()}. ${speakable()}`.slice(0, 20000));
+    u.onend = () => setSpeaking(false);
+    u.onerror = () => setSpeaking(false);
+    synth.cancel();
+    synth.speak(u);
+    setSpeaking(true);
+  };
+  onCleanup(() => window.speechSynthesis?.cancel());
+  return (
+    <div class="reader">
+      <div class="reader-bar">
+        <button class="reader-btn" onClick={toggleSpeak}>{speaking() ? "⏹ Stop" : "🔊 Listen"}</button>
+        <span class="reader-count">{readerBlocks().length} blocks</span>
+        <button class="reader-btn" onClick={() => closeReader()} title="Close (Esc)">✕ Close</button>
+      </div>
+      <article class="reader-doc">
+        <h1 class="reader-title">{readerTitle()}</h1>
+        <For each={readerBlocks()}>{(b) => <ReaderBlockView b={b} />}</For>
+      </article>
+    </div>
+  );
+};
+
 // ─── Content card ─────────────────────────────────────────────────────────
 
 /** The floating card. Holds, by active tab: a Terminal PTY, the start-page
@@ -1839,6 +1927,10 @@ const ContentArea: Component<{
   return (
   <main class="content">
     <div class="card" id="flux-web-area">
+      {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
+      <Show when={readerOpen()}>
+        <ReaderView />
+      </Show>
       {/* Split-view seam (#43): sits in the gap between the two tiled webviews
           (the one strip of card the OS webview layers don't cover), so it's
           visible + draggable. Dragging hides the panes (setSplitDragging) so the

@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Reader mode + text-to-speech** (BACKLOG #41) — **📖** in the address row (or
+  ⌘K "Reader mode") declutters the current article into a clean, typographic view
+  over the page, and **🔊 Listen** reads it aloud (Web Speech API). The article is
+  extracted into structured blocks (headings/paragraphs/lists/quotes/images) and
+  rendered as **text + image src only** — never raw HTML, so there's no injection
+  surface. Esc, ✕, or switching tabs closes it.
 - **Per-site zoom** (BACKLOG #36) — **Ctrl +/−/0** zoom the active page; the level
   is **remembered per site** and re-applied automatically on every visit. A `%`
   pill appears in the address row when zoom ≠ 100% (click to reset), and zoom

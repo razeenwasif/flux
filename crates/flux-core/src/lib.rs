@@ -182,6 +182,7 @@ pub fn run(intent: cli::LaunchIntent) {
                     broker::ext_broker_call,
                     commands::chrome_key,
                     commands::find_result,
+                    commands::reader_publish,
                     hibernate::hibernate_capture
                 ])
                 .build(),
@@ -268,6 +269,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_forward,
             webview::webview_reload,
             webview::webview_zoom,
+            webview::webview_extract_reader,
             webview::webview_close,
             webview::webview_debug,
             webview::panel_open,

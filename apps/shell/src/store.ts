@@ -35,6 +35,7 @@ import {
   panelRemove,
   sessionRestore,
   type WebPanel,
+  type ReaderBlock,
   type TabGroup,
   type TabKind,
   type TabMeta,
@@ -175,6 +176,25 @@ export function nudgeZoom(host: string, dir: "in" | "out" | "reset"): number {
   const next = ZOOM_STEPS[ni]!;
   setZoomFor(host, next);
   return next;
+}
+
+// Reader mode (BACKLOG #41): the extracted article for the active tab, rendered
+// over the (hidden) webview. `readerTab` is the tab it belongs to so it closes
+// when you switch away.
+const [readerOpen, setReaderOpen] = createSignal(false);
+const [readerTitle, setReaderTitle] = createSignal("");
+const [readerBlocks, setReaderBlocks] = createSignal<ReaderBlock[]>([]);
+const [readerTab, setReaderTab] = createSignal<number | null>(null);
+export { readerOpen, readerTitle, readerBlocks, readerTab };
+export function openReader(tab: number, title: string, blocks: ReaderBlock[]): void {
+  setReaderTab(tab);
+  setReaderTitle(title);
+  setReaderBlocks(blocks);
+  setReaderOpen(true);
+}
+export function closeReader(): void {
+  setReaderOpen(false);
+  setReaderBlocks([]);
 }
 
 // Manual tab groups (BACKLOG #56).

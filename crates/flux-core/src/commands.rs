@@ -385,6 +385,27 @@ pub fn find_result(app: AppHandle, tab_id: TabId, count: usize, found: bool) -> 
     app.emit("flux://find-result", (tab_id, count, found)).map_err(|e| e.to_string())
 }
 
+/// One structured block of a reader-mode extraction (#41): a heading, paragraph,
+/// list item, quote, preformatted block, image caption, or image.
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct ReaderBlock {
+    pub kind: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub level: u32,
+    #[serde(default)]
+    pub src: String,
+}
+
+/// Reader-mode result posted by the injected extractor (#41). Re-emitted to the
+/// chrome, which renders the blocks safely (text + img src, never raw HTML). A
+/// `fluxtab` plugin command so the (remote) page may call it, like `dom_publish`.
+#[tauri::command]
+pub fn reader_publish(app: AppHandle, tab_id: TabId, title: String, blocks: Vec<ReaderBlock>) -> Result<(), String> {
+    app.emit("flux://reader", (tab_id, title, blocks)).map_err(|e| e.to_string())
+}
+
 /// Hand the active tab's DOM to the frontend (e.g. terminal running
 /// `flux extract-json`) as an ArrayBuffer — `Response` skips JSON entirely.
 #[tauri::command]
