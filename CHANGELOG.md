@@ -17,6 +17,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   menus.
 
 ### Added
+- **Offline archive + semantic search** (BACKLOG #69) — **Save page for offline**
+  (⌘K or the 📚 page-action) stores a page's text locally; **`flux://archive`**
+  lets you **semantically search** your saved pages and **read them fully offline**
+  (clean text view, no remote resources). Search runs the local `flux-embed`
+  embedder — no network, no service — so it works on a plane; re-saving a URL
+  updates it in place, and private pages are never archived. _Follow-up:_ full
+  rendered-page (MHTML) capture; surfacing the archive inside Omni search.
 - **DOM-aware terminal** (BACKLOG #65/#4) — the `flux` CLI, run **inside Flux's
   terminal**, reads the **active page**: `flux url`, `flux title`, `flux dom`
   (visible text), `flux links`, and `flux extract-json` (pipe to `jq`). Flux

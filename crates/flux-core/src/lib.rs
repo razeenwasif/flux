@@ -2,6 +2,7 @@
 //! commands without booting a window.
 
 pub mod agent_bridge;
+pub mod archive;
 pub mod bookmarks;
 pub mod broker;
 pub mod cache;
@@ -159,6 +160,16 @@ pub fn run(intent: cli::LaunchIntent) {
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-rpc"));
             let _ = std::fs::create_dir_all(&rpc_dir);
             app.manage(rpc::RpcDir(rpc_dir));
+            // Offline page archive + semantic search (#69).
+            let archive_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("archive").join("archive.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-archive.json"));
+            if let Some(parent) = archive_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            app.manage(archive::ArchiveStore::restore(archive_path));
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -392,6 +403,11 @@ pub fn run(intent: cli::LaunchIntent) {
             prefetch::prefetch_hints,
             prefetch::prefetch_set_pressure,
             pdf::pdf_fetch,
+            archive::archive_save,
+            archive::archive_list,
+            archive::archive_get,
+            archive::archive_delete,
+            archive::archive_search,
             hibernate::hibernate_rank,
             leanmode::lean_status,
             leanmode::lean_set_enabled,

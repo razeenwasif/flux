@@ -514,6 +514,18 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       ] as T);
     case "lean_status":
       return Promise.resolve({ enabled: true, sites_on: [] } as T);
+    case "archive_search":
+    case "archive_list":
+      return Promise.resolve([
+        { id: 1, url: "https://example.com/rust", title: "Rust ownership explained", saved_ms: Date.now() - 86400000, snippet: "Ownership, borrowing, and lifetimes are the core of Rust's memory safety…", score: 92 },
+        { id: 2, url: "https://example.com/pasta", title: "The perfect pasta", saved_ms: Date.now() - 172800000, snippet: "Tomato, garlic, basil, and good olive oil…", score: 0 },
+      ] as T);
+    case "archive_get":
+      return Promise.resolve({ id: 1, url: "https://example.com/rust", title: "Rust ownership explained", saved_ms: Date.now() - 86400000, text: "Ownership is Rust's most distinctive feature.\n\nEach value has a single owner, and when the owner goes out of scope the value is dropped." } as T);
+    case "archive_save":
+      return Promise.resolve({ id: 3, url: "https://example.com/new", title: "Saved page", saved_ms: Date.now(), snippet: "", score: 0 } as T);
+    case "archive_delete":
+      return Promise.resolve(undefined as T);
     case "permissions_list":
       return Promise.resolve([
         { host: "meet.google.com", kind: "camera", decision: "allow" },

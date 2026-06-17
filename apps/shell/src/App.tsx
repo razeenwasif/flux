@@ -32,6 +32,8 @@ import {
   PDF_URL,
   isPdfUrl,
   pdfViewerUrl,
+  ARCHIVE_URL,
+  archiveSave,
   PANE_SESSION,
   agentChat,
   agentChatTabs,
@@ -132,6 +134,7 @@ const TasksPage = lazy(() => import("./TasksPage"));
 const SpeedtestPage = lazy(() => import("./SpeedtestPage"));
 const PermissionsPage = lazy(() => import("./PermissionsPage"));
 const PdfViewer = lazy(() => import("./PdfViewer"));
+const ArchivePage = lazy(() => import("./ArchivePage"));
 import {
   activeId,
   activeTab,
@@ -749,6 +752,17 @@ const App: Component = () => {
     void webviewCapture(t.id).catch((e) => { setOmniToast(`Capture: ${String(e)}`); window.setTimeout(() => setOmniToast(null), 3000); });
   };
 
+  // Offline archive / read-later (#69): save the active page's text for offline
+  // reading + semantic search.
+  const saveToArchive = () => {
+    const t = activeTab();
+    if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
+    const flash = (m: string) => { setOmniToast(m); window.setTimeout(() => setOmniToast(null), 2400); };
+    void archiveSave()
+      .then((m) => flash(m ? `📚 Saved “${m.title || "page"}” for offline` : "Nothing to save"))
+      .catch((e) => flash(`Archive: ${String(e)}`));
+  };
+
   // Reader mode (#41): inject the extractor (result arrives via onReader → opens
   // the reader view), or close it if already open.
   const toggleReader = () => {
@@ -918,6 +932,8 @@ const App: Component = () => {
     { id: "tasks", label: "Open Task manager", icon: "🗂️", run: () => go(TASKS_URL) },
     { id: "speedtest", label: "Network speed test", icon: "⚡", run: () => go(SPEEDTEST_URL) },
     { id: "permissions", label: "Site permissions", icon: "🔐", run: () => go(PERMISSIONS_URL) },
+    { id: "archive-save", label: "Save page for offline (read later)", icon: "📚", run: () => saveToArchive() },
+    { id: "archive", label: "Open Archive", icon: "📚", run: () => go(ARCHIVE_URL) },
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
@@ -1043,6 +1059,7 @@ const App: Component = () => {
         onZoomReset={() => zoom("reset")}
         onToggleReader={toggleReader}
         onCapture={capturePage}
+        onArchive={saveToArchive}
         onToggleBookmark={toggleBookmark}
         isBookmarked={() => bookmarkedId() != null}
       />
@@ -1184,6 +1201,7 @@ interface SidebarProps {
   onZoomReset: () => void;
   onToggleReader: () => void;
   onCapture: () => void;
+  onArchive: () => void;
   onToggleBookmark: () => void;
   isBookmarked: () => boolean;
 }
@@ -1704,6 +1722,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             </button>
             <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
             <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
+            <button type="button" class="icon-btn" title="Save for offline (read later)" onClick={() => props.onArchive()}>📚</button>
             <button type="button" class="icon-btn" title="Save this page to Omni (Ctrl+Shift+O)" onClick={() => props.onSaveToOmni()}>✦</button>
           </div>
         </Show>
@@ -2345,6 +2364,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url?.startsWith(PDF_URL)}>
           <PdfViewer />
+        </Match>
+        <Match when={activeTab()?.url === ARCHIVE_URL}>
+          <ArchivePage onNavigate={props.onNavigate} />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage
