@@ -19,7 +19,7 @@ use std::sync::OnceLock;
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::FluxState;
 
@@ -131,6 +131,11 @@ pub fn terminal_spawn(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("FLUX_SESSION", session.to_string());
+    // DOM-aware terminal bridge (#65/#4): the dir holding active.json, which the
+    // `flux` CLI reads for the active page. WSLENV `/p` (below) translates the
+    // path for WSL shells.
+    let rpc_dir = app.state::<crate::rpc::RpcDir>();
+    cmd.env("FLUX_RPC_DIR", rpc_dir.dir().to_string_lossy().as_ref());
     let mut cwd: Option<String> = None;
     if let Some(id) = state.active_tab() {
         if let Some(tab) = state.tabs.get(&id) {
@@ -153,7 +158,9 @@ pub fn terminal_spawn(
     #[cfg(windows)]
     cmd.env(
         "WSLENV",
-        "FLUX_SESSION:FLUX_TAB_ID:FLUX_TAB_URL:FLUX_TAB_TITLE:FLUX_TAB_DIR",
+        // `/p` on FLUX_RPC_DIR → WSL sees the path as /mnt/c/... so the Linux
+        // `flux` CLI can read active.json across the Windows↔WSL boundary.
+        "FLUX_SESSION:FLUX_TAB_ID:FLUX_TAB_URL:FLUX_TAB_TITLE:FLUX_TAB_DIR:FLUX_RPC_DIR/p",
     );
 
     // Only set a cwd that actually exists — an invalid cwd makes spawn fail

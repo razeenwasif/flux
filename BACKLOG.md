@@ -31,7 +31,7 @@ grid/damage/renderer spine; these make it competitive with kitty/ghostty:
 | 15 | P1 | Splits and tabs *within* the terminal pane (ghostty-style), keyboard-driven |
 | 16 | P1 | Shell integration: OSC 133 prompt marks → jump-between-prompts, per-command exit-status coloring, "copy last output" |
 | 17 | P1 | OSC 8 hyperlinks + URL detection; clicking a URL in the terminal opens a Flux browser tab (the loop closes both ways) |
-| 4 | P0 | `flux` CLI *inside* the terminal: `flux extract-json`, `flux dom`, `cd $FLUX_TAB_DIR` — backed by `dom_active_bytes` |
+| 4 | ✅ | **`flux` CLI inside the terminal** (done): `flux url|title|dom|links|extract-json` read the active page (`extract-json` → JSON for `jq`). Flux writes the active browser tab's context to `$FLUX_RPC_DIR/active.json` (`rpc.rs`, refreshed on dom_publish + tab switch; private tabs withheld); the CLI (`cli.rs`) reads it. File-based (not a socket) so it crosses the WSL↔Windows boundary via `WSLENV …/p`. _Remaining:_ the `flux` binary must be on the terminal's PATH (Linux build in WSL); native-Windows-console stdout needs AttachConsole (`windows_subsystem` swallows it). |
 | 76 | P1 | Bundle a Nerd Font (icon glyphs) as a webfont for guaranteed terminal/prompt icon coverage — `customGlyphs` + the fallback chain cover box-drawing/powerline but not Private-Use-Area icons |
 | 74 | P2 | Terminal throughput: raw-byte channel transport (avoid `number[]` JSON) and/or route the PTY stream into the `flux-term` WGPU renderer when compositing is solved |
 | 75 | P2 | Terminal splits/tabs *within* the column, OSC 133 shell integration, OSC 8 link → open Flux browser tab (supersedes earlier #15–17 once xterm is the renderer) |
@@ -158,7 +158,7 @@ beyond "another Chromium skin."
 
 | # | P | Item | The gap |
 |---|---|---|---|
-| 65 | P0 | **DOM-aware integrated terminal**: a real dev terminal that can read the active page (`flux extract-json`, `cd $FLUX_TAB_DIR`) and that the agent can drive. Nobody ships this | core |
+| 65 | ◐ | **DOM-aware integrated terminal**: the read-the-active-page half is done (#4) — `flux extract-json` / `flux dom` / `flux links` pipe the live page into the shell via the `$FLUX_RPC_DIR/active.json` bridge. _Remaining:_ the **agent driving the terminal** (run/inspect commands as agent actions), and `cd $FLUX_TAB_DIR` into per-page artifact dirs. Nobody ships this. | core |
 | 66 | ✅ | **Semantic everything-search** (done): ⌘K now ranks one list across open tabs (by title **+ captured page content**), bookmarks, and history via the local embedder (`omni_search`); large corpora are lexically pre-filtered then embedding-reranked so it's cheap per keystroke. Empty query = browse open tabs. _Follow-up:_ true synonymy needs the stronger embedder (#11); index history page text for offline content search (#69). | weak everywhere |
 | 97 | P2 | **`flux://omni` follow-up** (dashboard + live `/sites` grid shipped): a compact "Omni index" glance widget on the start page (key stats at a glance, link into the full dashboard) | search |
 | 67 | P1 | **Scriptable automation / macros**: record-and-replay browsing flows, schedulable, agent-authored. Power users beg for this; only flaky extensions exist | under-served |

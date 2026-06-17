@@ -52,11 +52,64 @@ flux — AI-native browser with a built-in terminal
 
 USAGE:
     flux [FLAGS] [URL]...
+    flux <context-command>      (inside a Flux terminal)
 
 FLAGS:
     -t, --terminal    open a terminal tab on launch
     -h, --help        print this help
-    -V, --version     print version";
+    -V, --version     print version
+
+CONTEXT COMMANDS (read the active page; run inside a Flux terminal):
+    flux url            print the active page URL
+    flux title          print the active page title
+    flux dom            print the active page's visible text
+    flux links          print the page's links, one per line
+    flux extract-json   print the page context as JSON (pipe to jq)";
+
+/// Context subcommands read the active browser page from the file Flux writes at
+/// `$FLUX_RPC_DIR/active.json` (BACKLOG #65/#4). Returns `Some((output, code))`
+/// when `name` is a context command (so `main` can print + exit), else `None`
+/// so it falls through to normal launch parsing.
+pub fn context_command(name: &str) -> Option<(String, i32)> {
+    match name {
+        "url" | "title" | "dom" | "text" | "links" | "json" | "extract-json" => {
+            Some(run_context(name))
+        }
+        _ => None,
+    }
+}
+
+fn run_context(cmd: &str) -> (String, i32) {
+    let Ok(dir) = std::env::var("FLUX_RPC_DIR") else {
+        return ("flux: not inside a Flux terminal (FLUX_RPC_DIR is unset)".into(), 1);
+    };
+    let path = std::path::Path::new(&dir).join("active.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return ("flux: no active page yet — open a page in Flux first".into(), 1);
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return ("flux: could not read the page context".into(), 1);
+    };
+    if v.get("private").and_then(|p| p.as_bool()).unwrap_or(false) {
+        return ("flux: the active tab is private — no page context is exposed".into(), 1);
+    }
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    match cmd {
+        "url" => (s("url"), 0),
+        "title" => (s("title"), 0),
+        "dom" | "text" => (s("text"), 0),
+        "links" => {
+            let out = v
+                .get("links")
+                .and_then(|a| a.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("\n"))
+                .unwrap_or_default();
+            (out, 0)
+        }
+        "json" | "extract-json" => (serde_json::to_string_pretty(&v).unwrap_or(raw), 0),
+        _ => unreachable!(),
+    }
+}
 
 #[cfg(test)]
 mod tests {

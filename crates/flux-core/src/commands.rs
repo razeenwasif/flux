@@ -115,9 +115,11 @@ pub fn chrome_import_bookmarks(
 }
 
 #[tauri::command]
-pub fn tab_focus(state: State<'_, FluxState>, id: TabId) {
+pub fn tab_focus(app: AppHandle, state: State<'_, FluxState>, id: TabId) {
     state.set_active_tab(id);
     state.persist();
+    // Keep the terminal's page-context file pointed at what you're looking at (#65/#4).
+    crate::rpc::publish_active(&app);
 }
 
 #[tauri::command]
@@ -377,6 +379,11 @@ pub fn dom_publish(
         captured_at_ms: now_ms(),
     });
     state.dom_cache.insert(tab_id, snapshot);
+
+    // Refresh the terminal's page-context file if this is the active tab (#65/#4).
+    if state.active_tab() == Some(tab_id) {
+        crate::rpc::publish_active(&app);
+    }
 
     // Nudge interested panes (terminal env bar, agent sidebar).
     app.emit("flux://dom-updated", tab_id).map_err(|e| e.to_string())

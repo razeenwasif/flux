@@ -26,6 +26,7 @@ pub mod omni;
 pub mod pdf;
 pub mod permissions;
 pub mod prefetch;
+pub mod rpc;
 pub mod screenshot;
 pub mod search;
 pub mod session;
@@ -149,6 +150,15 @@ pub fn run(intent: cli::LaunchIntent) {
             // Predictive-prefetch Markov model (#103) — per-origin next-host
             // prediction for confidence-gated preconnect.
             app.manage(prefetch::PrefetchModel::new());
+            // DOM-aware terminal bridge (#65/#4) — Flux writes the active page's
+            // context here for the `flux` CLI to read inside the terminal.
+            let rpc_dir = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("rpc"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-rpc"));
+            let _ = std::fs::create_dir_all(&rpc_dir);
+            app.manage(rpc::RpcDir(rpc_dir));
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
