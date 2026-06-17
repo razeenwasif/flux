@@ -16,11 +16,24 @@
   var hideTimer = 0;
   var btn = null;
 
-  // The best video to PiP: the largest one that's playing, else the largest.
+  // Is this a real, watchable video (vs. a muted autoplay-loop *thumbnail* like
+  // the hover previews on YouTube/social grids)? Offering PiP on those popped a
+  // preview clip the site then tore down. Require a sane size, and either real
+  // audio or a non-trivial duration; reject the muted-loop thumbnail signature.
+  function eligible(v) {
+    if (!v || v.disablePictureInPicture || v.videoWidth < 180) return false;
+    var r = v.getBoundingClientRect();
+    if (r.width < 200 || r.height < 140) return false;
+    if (v.loop && v.muted) return false; // classic hover-thumbnail
+    var hasAudio = !!v.webkitAudioDecodedByteCount || v.mozHasAudio || (v.audioTracks && v.audioTracks.length > 0);
+    if (hasAudio) return true;
+    return isFinite(v.duration) && v.duration >= 20;
+  }
+
+  // The best video to PiP: the largest eligible one that's playing, else the
+  // largest eligible one.
   function pickVideo() {
-    var vids = Array.prototype.slice
-      .call(document.querySelectorAll("video"))
-      .filter(function (v) { return v.readyState > 0 && v.videoWidth > 0 && !v.disablePictureInPicture; });
+    var vids = Array.prototype.slice.call(document.querySelectorAll("video")).filter(eligible);
     if (!vids.length) return null;
     var playing = vids.filter(function (v) { return !v.paused && !v.ended; });
     var pool = playing.length ? playing : vids;
@@ -82,8 +95,8 @@
   }
   function hide() { if (btn) btn.style.display = "none"; }
   function showFor(v) {
+    if (!eligible(v)) return; // no PiP button on thumbnails / hover previews
     var r = v.getBoundingClientRect();
-    if (v.disablePictureInPicture || r.width < 180 || r.height < 120) return;
     currentVid = v;
     var b = ensureBtn();
     b.style.display = "block";
