@@ -233,6 +233,16 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(undefined as T);
     case "bookmarks_import_chrome":
       return Promise.resolve(42 as T);
+    case "sessions_list":
+      return Promise.resolve([
+        { id: 1, name: "Research", created_ms: T0, tabs: [{ url: "https://rust-lang.org", title: "Rust", pinned: false }] },
+      ] as T);
+    case "session_save":
+      return Promise.resolve({ id: nextId++, name: String(args?.name ?? "Untitled"), created_ms: T0, tabs: [] } as T);
+    case "session_delete":
+      return Promise.resolve(undefined as T);
+    case "session_restore":
+      return Promise.resolve([{ url: "https://rust-lang.org", title: "Rust", pinned: false }] as T);
     case "chrome_import_preview":
       return Promise.resolve([{ dir: "/mock/Default", name: "Default", bookmark_count: 1006, extension_count: 7, has_saved_tab_groups: false }] as T);
     case "search_suggest": {

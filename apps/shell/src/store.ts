@@ -33,6 +33,7 @@ import {
   panelsList,
   panelAdd,
   panelRemove,
+  sessionRestore,
   type WebPanel,
   type TabGroup,
   type TabKind,
@@ -214,6 +215,12 @@ export async function groupByTopic(): Promise<number> {
   const n = await groupsFromClusters().catch(() => 0);
   await refreshTabs(); // refreshTabs already refreshes groups + workspaces
   return n;
+}
+/** Restore a named session (#47): open each of its tabs. Returns the count. */
+export async function restoreSession(id: number): Promise<number> {
+  const tabs = await sessionRestore(id).catch(() => []);
+  for (const t of tabs) await openTab("browser", t.url).catch(() => {});
+  return tabs.length;
 }
 /** Open a set of URLs as browser tabs and bundle them into a new tab group
  *  (#56). Capped so a big folder can't open hundreds of tabs at once. The

@@ -24,6 +24,7 @@ import {
   VAULT_URL,
   HISTORY_URL,
   BOOKMARKS_URL,
+  SESSIONS_URL,
   PANE_SESSION,
   agentChat,
   agentChatTabs,
@@ -98,6 +99,7 @@ const OmniDashboard = lazy(() => import("./OmniDashboard"));
 const VaultPage = lazy(() => import("./VaultPage"));
 const HistoryPage = lazy(() => import("./HistoryPage"));
 const BookmarksPage = lazy(() => import("./BookmarksPage"));
+const SessionsPage = lazy(() => import("./SessionsPage"));
 import {
   activeId,
   activeTab,
@@ -701,6 +703,7 @@ const App: Component = () => {
     { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
     { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
     { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
+    { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
@@ -1737,6 +1740,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 }}>★ Bookmark this page <Show when={bmFlash()}><span class="bm-inline-flash">{bmFlash()}</span></Show></button>
               </Show>
               <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(BOOKMARKS_URL); }}>🔖 All bookmarks</button>
+              <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(SESSIONS_URL); }}>🗃 Sessions</button>
               <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(HISTORY_URL); }}>🕘 Browsing history</button>
               <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
                 Import Chrome bookmarks and open folders as tab groups from the <b>All bookmarks</b> page.
@@ -1909,6 +1913,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === BOOKMARKS_URL}>
           <BookmarksPage onNavigate={props.onNavigate} />
+        </Match>
+        <Match when={activeTab()?.url === SESSIONS_URL}>
+          <SessionsPage onNavigate={props.onNavigate} />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage

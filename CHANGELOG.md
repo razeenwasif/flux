@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Named sessions** (BACKLOG #47) — save the current set of tabs as a named
+  session and restore it later (reopens every tab) from a new `flux://sessions`
+  page, ⌘K "Open Sessions", or the Library popover. Persisted separately from the
+  always-on "continue where you left off" session.
 - **Semantic everything-search** (BACKLOG #66) — ⌘K now searches *everything* in
   one ranked list: open tabs **by page content** (not just title), bookmarks, and
   history, scored by the local embedder (`omni_search`). Large corpora are

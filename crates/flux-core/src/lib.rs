@@ -21,6 +21,7 @@ pub mod omni;
 pub mod permissions;
 pub mod search;
 pub mod session;
+pub mod sessions;
 pub mod shields;
 pub mod tracking;
 pub mod state;
@@ -107,6 +108,13 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("bookmarks.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-bookmarks.json"));
             app.manage(bookmarks::BookmarkStore::restore(bm_path));
+            // Named sessions (#47) — save/restore bundles of tabs.
+            let sessions_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("sessions.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-sessions.json"));
+            app.manage(sessions::SessionStore::restore(sessions_path));
             // Download manager (#34) — WebView2 DownloadStarting + progress.
             app.manage(downloads::DownloadState::new());
             // Native dark mode (#40) — WebView2 PreferredColorScheme.
@@ -240,6 +248,10 @@ pub fn run(intent: cli::LaunchIntent) {
             bookmarks::bookmark_remove,
             bookmarks::bookmarks_clear,
             bookmarks::bookmarks_import_chrome,
+            sessions::sessions_list,
+            sessions::session_save,
+            sessions::session_delete,
+            sessions::session_restore,
             downloads::downloads_list,
             downloads::downloads_clear,
             downloads::download_open,

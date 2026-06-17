@@ -537,6 +537,15 @@ export const bookmarksClear = () => invoke<void>("bookmarks_clear");
 /** Import every bookmark from a Chrome profile; returns the count added. */
 export const bookmarksImportChrome = (profileDir: string) =>
   invoke<number>("bookmarks_import_chrome", { profileDir });
+
+// ─── Named sessions (BACKLOG #47) ────────────────────────────────────────────
+export const SESSIONS_URL = "flux://sessions";
+export interface SavedTab { url: string; title: string; pinned: boolean }
+export interface SavedSession { id: number; name: string; created_ms: number; tabs: SavedTab[] }
+export const sessionsList = () => invoke<SavedSession[]>("sessions_list");
+export const sessionSave = (name: string) => invoke<SavedSession>("session_save", { name });
+export const sessionDelete = (id: number) => invoke<void>("session_delete", { id });
+export const sessionRestore = (id: number) => invoke<SavedTab[]>("session_restore", { id });
 export const historyClear = () => invoke<void>("history_clear");
 
 // ─── Downloads (BACKLOG #34) ─────────────────────────────────────────────────
