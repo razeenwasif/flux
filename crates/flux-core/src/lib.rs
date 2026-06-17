@@ -120,7 +120,12 @@ pub fn run(intent: cli::LaunchIntent) {
             // Per-site cookie flags (clear-on-close, #58).
             app.manage(cookies::CookieState::new());
             // Site-permission hardening (#58) — block camera/mic/geo on demand.
-            app.manage(permissions::PermState::new());
+            let perms_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("permissions.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-permissions.json"));
+            app.manage(permissions::PermState::restore(perms_path));
             // Mini-extension registry (#92) — installed extensions + enabled state.
             let ext_path = app
                 .path()
@@ -392,6 +397,10 @@ pub fn run(intent: cli::LaunchIntent) {
             tracking::tracking_set_level,
             permissions::permissions_status,
             permissions::permissions_set_block,
+            permissions::permissions_list,
+            permissions::permissions_set,
+            permissions::permissions_clear_host,
+            permissions::permissions_clear_all,
             extensions::ext_install,
             extensions::ext_list,
             extensions::ext_set_enabled,

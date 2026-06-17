@@ -413,10 +413,21 @@ export const cookiesSetClearOnClose = (host: string, on: boolean) =>
 export const trackingStatus = () => invoke<number>("tracking_status");
 export const trackingSetLevel = (level: number) => invoke<void>("tracking_set_level", { level });
 
-// ─── Site permissions (BACKLOG #58) ─────────────────────────────────────────
-/** Whether camera/mic/geo permission requests are auto-denied. */
+// ─── Site permissions (BACKLOG #58 / #38) ────────────────────────────────────
+/** Whether camera/mic/geo permission requests are auto-denied (global, #58). */
 export const permissionsStatus = () => invoke<boolean>("permissions_status");
 export const permissionsSetBlock = (on: boolean) => invoke<void>("permissions_set_block", { on });
+
+/** Per-site permission manager (#38). */
+export const PERMISSIONS_URL = "flux://permissions";
+export type PermKind = "camera" | "microphone" | "geolocation" | "notifications" | "clipboard_read" | "other";
+export type PermDecision = "ask" | "allow" | "deny";
+export interface SitePerm { host: string; kind: PermKind; decision: PermDecision }
+export const permissionsList = () => invoke<SitePerm[]>("permissions_list");
+export const permissionsSet = (host: string, kind: PermKind, decision: PermDecision) =>
+  invoke<void>("permissions_set", { host, kind, decision });
+export const permissionsClearHost = (host: string) => invoke<void>("permissions_clear_host", { host });
+export const permissionsClearAll = () => invoke<void>("permissions_clear_all");
 
 // ─── Password vault (BACKLOG #61, ADR 0009) ──────────────────────────────────
 // Metadata only — passwords never come to the chrome except via vault_reveal

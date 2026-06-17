@@ -14,6 +14,7 @@ import {
   httpsStatus,
   leanSetSite,
   leanStatus,
+  PERMISSIONS_URL,
   permissionsSetBlock,
   permissionsStatus,
   shieldsRefresh,
@@ -37,7 +38,7 @@ function hostOf(url: string): string | null {
   }
 }
 
-const Shields: Component = () => {
+const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const [status, setStatus] = createSignal<ShieldsStatus | null>(null);
   const [https, setHttps] = createSignal<HttpsStatus | null>(null);
   const [tracking, setTracking] = createSignal(2);
@@ -186,6 +187,9 @@ const Shields: Component = () => {
               {blockPerms() ? "On" : "Off"}
             </button>
           </div>
+          <button class="shields-update" onClick={() => { setOpen(false); props.onNavigate(PERMISSIONS_URL); }}>
+            Manage site permissions…
+          </button>
           <Show when={host()}>
             <div class="shields-row">
               <span class="shields-host" title="Block heavy third-party scripts (analytics, A/B, chat widgets) on this site. May break live chat / logins.">

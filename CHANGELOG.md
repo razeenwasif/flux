@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Site permissions manager** (BACKLOG #38) — **`flux://permissions`** (⌘K
+  "Site permissions", or "Manage site permissions…" in the Shields popover): a
+  per-site, per-kind manager for **camera / microphone / location / notifications**
+  (+ clipboard). Set **Allow / Block / Ask** per site or add a rule manually;
+  decisions persist. A remembered Allow/Block is applied automatically on
+  WebView2 (`PermissionRequested`), short-circuiting the native prompt; **Ask**
+  leaves the engine's own prompt. The global "block camera/mic/geo" switch (#58)
+  still overrides everything. _Follow-up:_ a Flux-styled prompt for the Ask case
+  (needs a WebView2 deferral) + the WebKitGTK signal on the Linux backend.
 - **Built-in task manager** (BACKLOG #107) — **`flux://tasks`** (⌘K "Open Task
   manager"): a system-wide process monitor — name / CPU% / resident memory,
   sortable, with one-click **end task**. **Flux's own process tree** (engine +
