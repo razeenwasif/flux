@@ -34,6 +34,10 @@ const HIBERNATE_JS: &str = include_str!("../assets/hibernate.js");
 /// via the `reader_publish` fluxtab command. Injected only when reader mode opens.
 const READER_JS: &str = include_str!("../assets/reader.js");
 
+/// nav.js: Vim link-hints + mouse gestures (#51/#52); inert unless enabled via
+/// the `__FLUX_NAV__` flags stamped below.
+const NAV_JS: &str = include_str!("../assets/nav.js");
+
 /// darkmode.js: `__fluxDark(on)` force-dark for all sites (#40); applied at
 /// document_start via the `window.__FLUX_DARK__` flag the init script stamps.
 pub(crate) const DARKMODE_JS: &str = include_str!("../assets/darkmode.js");
@@ -70,8 +74,12 @@ pub async fn webview_open(
     // and force-dark (#40) — stamping `__FLUX_DARK__` so it applies at start when on.
     let dark = app.try_state::<crate::darkmode::DarkState>().map(|s| s.is_on()).unwrap_or(false);
     let dark_flag = if dark { "window.__FLUX_DARK__ = true;\n" } else { "" };
+    let nav_flag = app
+        .try_state::<crate::nav::NavState>()
+        .map(|s| format!("window.__FLUX_NAV__ = {{hints:{},gestures:{}}};\n", s.hints(), s.gestures()))
+        .unwrap_or_default();
     let init = format!(
-        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}"
+        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}\n{NAV_JS}"
     );
 
     // Private tabs (#59) use an in-memory session; container tabs (#59) use a

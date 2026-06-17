@@ -7,6 +7,7 @@ import { createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
   darkmodeSet,
+  navSet,
   faviconFetch,
   isStartUrl,
   groupCreate,
@@ -421,6 +422,26 @@ export function setDarkMode(on: boolean): void {
 /** Apply the persisted dark-mode setting (call once on boot). */
 export function applyDarkMode(): void {
   void darkmodeSet(darkMode()).catch(() => {});
+}
+
+// Navigation toggles (#51/#52): vim link-hints + mouse gestures. Off by default
+// (they hijack `f` and the right-drag), persisted; applied on boot + on toggle.
+const [vimHints, setVimHintsRaw] = createSignal(localStorage.getItem("flux.nav.hints") === "1");
+const [mouseGestures, setMouseGesturesRaw] = createSignal(localStorage.getItem("flux.nav.gestures") === "1");
+export { vimHints, mouseGestures };
+export function setVimHints(on: boolean): void {
+  setVimHintsRaw(on);
+  localStorage.setItem("flux.nav.hints", on ? "1" : "0");
+  void navSet(on, mouseGestures()).catch(() => {});
+}
+export function setMouseGestures(on: boolean): void {
+  setMouseGesturesRaw(on);
+  localStorage.setItem("flux.nav.gestures", on ? "1" : "0");
+  void navSet(vimHints(), on).catch(() => {});
+}
+/** Apply the persisted nav toggles (call once on boot). */
+export function applyNav(): void {
+  void navSet(vimHints(), mouseGestures()).catch(() => {});
 }
 
 // Omnibox search suggestions (#32). On by default; gating it off keeps your

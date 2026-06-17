@@ -530,6 +530,10 @@ export const darkmodeSet = (on: boolean) => invoke<void>("darkmode_set", { on })
  *  element actually grabs the keyboard while a page webview held focus). #18 */
 export const chromeFocus = () => invoke<void>("chrome_focus");
 
+// ─── Navigation toggles (BACKLOG #51/#52) ────────────────────────────────────
+export const navStatus = () => invoke<[boolean, boolean]>("nav_status");
+export const navSet = (hints: boolean, gestures: boolean) => invoke<void>("nav_set", { hints, gestures });
+
 /** A host's favicon as a data: URL (fetched cookielessly + cached), or null. #21 */
 export const faviconFetch = (host: string) => invoke<string | null>("favicon", { host });
 

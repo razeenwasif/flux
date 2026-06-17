@@ -15,6 +15,7 @@ pub mod files;
 pub mod hibernate;
 pub mod history;
 pub mod mem;
+pub mod nav;
 pub mod https;
 pub mod netfilter;
 pub mod omni;
@@ -120,6 +121,8 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(downloads::DownloadState::new());
             // Native dark mode (#40) — WebView2 PreferredColorScheme.
             app.manage(darkmode::DarkState::new());
+            // Navigation toggles (#51/#52) — vim link-hints + mouse gestures.
+            app.manage(nav::NavState::new());
             // Browsing history (#39) — recorded from dom_publish, persisted.
             let history_path = app
                 .path()
@@ -246,6 +249,8 @@ pub fn run(intent: cli::LaunchIntent) {
             mem::mem_status,
             darkmode::darkmode_status,
             darkmode::darkmode_set,
+            nav::nav_status,
+            nav::nav_set,
             favicon::favicon,
             history::history_recent,
             history::history_search,

@@ -233,6 +233,10 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(undefined as T);
     case "chrome_focus":
       return Promise.resolve(undefined as T);
+    case "nav_status":
+      return Promise.resolve([false, false] as T);
+    case "nav_set":
+      return Promise.resolve(undefined as T);
     case "history_recent":
     case "history_search":
       return Promise.resolve([

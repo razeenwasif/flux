@@ -116,6 +116,11 @@ import {
   activeWorkspace,
   aiAnswersOn,
   applyDarkMode,
+  applyNav,
+  vimHints,
+  mouseGestures,
+  setVimHints,
+  setMouseGestures,
   closeTab,
   createWorkspace,
   containers,
@@ -312,6 +317,7 @@ const App: Component = () => {
     // Always land on something: a fresh session opens the start page.
     if (tabs().length === 0) await openTab("browser");
     applyDarkMode(); // re-apply the persisted dark-mode preference (#40)
+    applyNav(); // re-apply vim-hints / mouse-gestures toggles (#51/#52)
     const unClusters = await onClustersUpdated(refreshTabs);
     // An extension called flux.tabs.open (#94) — the shell owns webview
     // geometry, so the broker emits an intent and we open the tab here.
@@ -1865,6 +1871,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 <button classList={{ "shields-toggle": true, on: darkMode() }} onClick={() => setDarkMode(!darkMode())}>
                   {darkMode() ? "On" : "Off"}
                 </button>
+              </div>
+              <div class="shields-sep" />
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Navigation</div>
+              <div class="shields-row" style={{ padding: "2px 8px" }}>
+                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Press f to label links/buttons, then type the label to click. Also j/k scroll, gg/G top/bottom.">Vim link hints (f)</span>
+                <button classList={{ "shields-toggle": true, on: vimHints() }} onClick={() => setVimHints(!vimHints())}>{vimHints() ? "On" : "Off"}</button>
+              </div>
+              <div class="shields-row" style={{ padding: "2px 8px" }}>
+                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Hold the right mouse button and drag: left = back, right = forward, down = reload, up = top.">Mouse gestures</span>
+                <button classList={{ "shields-toggle": true, on: mouseGestures() }} onClick={() => setMouseGestures(!mouseGestures())}>{mouseGestures() ? "On" : "Off"}</button>
               </div>
               <div class="shields-sep" />
               <div class="sidebar-section" style={{ padding: "4px 8px" }}>Memory</div>

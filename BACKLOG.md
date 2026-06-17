@@ -107,8 +107,8 @@ The features that make Arc/Vivaldi/Zen users evangelical.
 | 48 | ✅ | **Web panels** (done): pin a site (chat, docs, music) to a slim pane on the right of the content card, persistent across tab switches. Footer ◨ popover: pin this page / toggle / unpin (persisted). Draggable divider; DOM toolbar (title / reload / close). Its own native webview (no capture.js → never pollutes history/clustering); only the open panel is live (RAM-conscious). _Follow-ups:_ multiple concurrent panels, left-side option, per-panel zoom. | Vivaldi, Opera, Edge |
 | 49 | P2 | **Boosts / userstyles + userscripts**: per-site CSS/JS injection, no extension needed (the agent can author these) | Arc, Vivaldi, Stylus |
 | 50 | P2 | **Peek / glance / little-window**: open a link in a transient overlay without committing to a tab | Arc, Zen |
-| 51 | P2 | **Mouse gestures** + rocker gestures, fully rebindable | Vivaldi, Opera |
-| 52 | P2 | **Vim-style keyboard navigation** (link hints, scroll, tab nav) built in, not an extension | Vimium users |
+| 51 | ✅ | **Mouse gestures** (done): hold right button + drag — left = back, right = forward, down = reload, up = top; suppresses the context menu after a gesture. Settings toggle (off by default). _Follow-up:_ rocker gestures + rebindable. | Vivaldi, Opera |
+| 52 | ✅ | **Vim link-hints + scroll** (done): `f` labels clickable elements (type the label to click), `j`/`k` scroll, `gg`/`G` top/bottom; never fires while typing in a field. Injected `nav.js` gated by a Settings toggle (off by default). _Follow-up:_ `F` open-in-new-tab, visual-mode, more motions. | Vimium users |
 | 53 | P2 | **Notes / easels / annotations** tied to pages, local-first | Arc, Vivaldi |
 | 54 | ✅ | **Web capture** (done): 📸 in the address row (+ ⌘K "Capture page") saves the visible page to a PNG in `app_data/screenshots` via WebView2 `CapturePreview` (COM verified vs msvc); a toast confirms when written. _Remaining:_ full-scrolling-page stitch, region select, annotation, and a WebKitGTK snapshot path (Windows/WebView2 only today). | Edge, Firefox |
 | 55 | P2 | **Compact / focus mode**: hide all chrome, content-only | Zen, Arc |

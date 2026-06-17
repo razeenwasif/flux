@@ -3,6 +3,7 @@
 //! error (a snapshot path there is a follow-up). Full-scrolling-page capture is
 //! a follow-up too — this is the visible viewport.
 
+#[cfg(windows)]
 use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};

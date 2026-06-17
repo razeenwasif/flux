@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Vim link-hints + mouse gestures** (BACKLOG #52 / #51) — opt-in Settings
+  toggles (under **Navigation**). With hints on, **`f`** labels every clickable
+  element (type the label to click); **`j`/`k`** scroll, **`gg`/`G`** jump
+  top/bottom — and never while you're typing in a field. With gestures on, hold
+  the **right mouse button and drag**: left = back, right = forward, down =
+  reload, up = top. (Injected `nav.js`, inert until enabled; both off by default.)
 - **Resource monitor** (BACKLOG #70, partial) — **📊** `flux://resources` (+ ⌘K)
   shows overall Flux/free RAM and a per-tab list (captured-page weight + live /
   💤 sleeping), with one-click **💤 Sleep background tabs** to reclaim RAM. (True
