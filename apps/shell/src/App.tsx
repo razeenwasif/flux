@@ -216,6 +216,13 @@ import {
   splitDragging,
   setSplitDragging,
   toggleGroupCollapsed,
+  folders,
+  folderTabs,
+  setTabFolder,
+  newFolderWithTab,
+  renameFolder,
+  toggleFolderCollapsed,
+  deleteFolder,
   workspaceColor,
   workspaces,
   setFindMatches,
@@ -433,6 +440,17 @@ const App: Component = () => {
       setHibernated(id, true);
       wv(webviewHibernate(id));
     };
+    // Tab folders: members are kept hibernated (≈0 RAM) — the active tab is the
+    // only exception (you're viewing it); switching away re-sleeps it. Reacts to
+    // folder membership (tabs()) and the active tab.
+    createEffect(() => {
+      const act = activeId();
+      for (const t of tabs()) {
+        if (t.folder != null && t.id !== act && openedWebviews.has(t.id)) {
+          hibernateTab(t.id);
+        }
+      }
+    });
     // Background = live browser tabs that aren't currently tiled in the card.
     // (In split view both panes are visible, so neither is hibernatable.)
     const liveBackground = (_act: number | null) => {
@@ -1268,6 +1286,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [editGroup, setEditGroup] = createSignal<number | null>(null);
   const [editWs, setEditWs] = createSignal<number | null>(null);
   const [editContainer, setEditContainer] = createSignal<number | null>(null);
+  const [editFolder, setEditFolder] = createSignal<number | null>(null);
   const openCtx = (e: MouseEvent, tab: TabMeta) => { e.preventDefault(); setCtxTab(tab); setCtxPos({ x: e.clientX, y: e.clientY }); };
   const closeCtx = () => setCtxTab(null);
   // Keep a context menu fully on-screen: after it renders, nudge it left/up if it
@@ -1883,6 +1902,17 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <Show when={splitPair()}>
                 <button onClick={() => { clearSplit(); closeCtx(); }}>Exit split view</button>
               </Show>
+              <div class="ctx-sep" />
+              <div class="ctx-label">Move to folder (sleeps to save RAM)</div>
+              <button onClick={() => { void newFolderWithTab(t().id); closeCtx(); }}>+ New folder with tab</button>
+              <For each={folders()}>
+                {(f) => (
+                  <button onClick={() => { void setTabFolder(t().id, f.id); closeCtx(); }}>🗂 {f.name}</button>
+                )}
+              </For>
+              <Show when={t().folder != null}>
+                <button onClick={() => { void setTabFolder(t().id, null); closeCtx(); }}>Take out of folder</button>
+              </Show>
               <Show when={workspaces().length > 1}>
                 <div class="ctx-sep" />
                 <div class="ctx-label">Send to workspace</div>
@@ -1976,6 +2006,58 @@ const Sidebar: Component<SidebarProps> = (props) => {
             )}
           </For>
           <button class="ws-rail-add" title="New workspace" onClick={() => props.onNewWorkspace()}>+</button>
+        </div>
+      </Show>
+
+      {/* Tab folders — collapsible parking buckets above the footer. Members are
+          kept hibernated (≈0 RAM); click one to wake + view it. */}
+      <Show when={!props.collapsed && folders().length > 0}>
+        <div class="folders">
+          <For each={folders()}>
+            {(f) => {
+              const members = () => folderTabs(f.id);
+              return (
+                <div class="folder">
+                  <div class="folder-head" onClick={() => void toggleFolderCollapsed(f)}>
+                    <span class="folder-caret">{f.collapsed ? "▸" : "▾"}</span>
+                    <span class="folder-icon">🗂</span>
+                    <Show
+                      when={editFolder() === f.id}
+                      fallback={<span class="folder-name" onDblClick={(e) => { e.stopPropagation(); setEditFolder(f.id); }}>{f.name}</span>}
+                    >
+                      <input
+                        class="folder-rename"
+                        value={f.name}
+                        autofocus
+                        onClick={(e) => e.stopPropagation()}
+                        onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameFolder(f.id, v); setEditFolder(null); }}
+                        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditFolder(null); }}
+                      />
+                    </Show>
+                    <span class="folder-count">{members().length}</span>
+                    <button class="folder-x" title="Delete folder (tabs return to the strip)" onClick={(e) => { e.stopPropagation(); void deleteFolder(f.id); }}>✕</button>
+                  </div>
+                  <Show when={!f.collapsed}>
+                    <div class="folder-tabs">
+                      <For each={members()}>
+                        {(t) => (
+                          <div
+                            classList={{ "folder-tab": true, active: activeId() === t.id }}
+                            title={t.title || t.url}
+                            onClick={() => void focusTab(t.id)}
+                          >
+                            <span class="folder-tab-ico"><Favicon tab={t} /></span>
+                            <span class="folder-tab-title">{t.title || t.url}</span>
+                            <button class="folder-tab-out" title="Take out of folder" onClick={(e) => { e.stopPropagation(); void setTabFolder(t.id, null); }}>⏏</button>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              );
+            }}
+          </For>
         </div>
       </Show>
 

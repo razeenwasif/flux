@@ -17,6 +17,12 @@ import {
   groupUpdate,
   groupsFromClusters,
   groupsList,
+  foldersList,
+  folderCreate,
+  folderUpdate,
+  folderDelete,
+  tabSetFolder,
+  type TabFolder,
   tabActive,
   tabClose,
   tabCreate,
@@ -321,6 +327,37 @@ export async function groupByTopic(): Promise<number> {
   await refreshTabs(); // refreshTabs already refreshes groups + workspaces
   return n;
 }
+
+// Tab folders — hibernated parking buckets (distinct from groups). Refreshed by
+// refreshTabs. Member tabs are excluded from the strip (see unpinnedTabs) and
+// the App keeps them hibernated.
+const [folders, setFolders] = createSignal<TabFolder[]>([]);
+export { folders };
+async function refreshFolders(): Promise<void> {
+  setFolders(await foldersList().catch(() => []));
+}
+/** Move a tab into a folder (or out, with null). App hibernates folder members. */
+export async function setTabFolder(tabId: number, folder: number | null): Promise<void> {
+  await tabSetFolder(tabId, folder).catch(() => {});
+  await refreshTabs(); // refreshes folders too
+}
+export async function newFolderWithTab(tabId: number): Promise<void> {
+  const id = await folderCreate("New folder").catch(() => null);
+  if (id != null) await tabSetFolder(tabId, id).catch(() => {});
+  await refreshTabs();
+}
+export async function renameFolder(id: number, name: string): Promise<void> {
+  await folderUpdate(id, { name }).catch(() => {});
+  await refreshFolders();
+}
+export async function toggleFolderCollapsed(f: TabFolder): Promise<void> {
+  await folderUpdate(f.id, { collapsed: !f.collapsed }).catch(() => {});
+  await refreshFolders();
+}
+export async function deleteFolder(id: number): Promise<void> {
+  await folderDelete(id).catch(() => {});
+  await refreshTabs();
+}
 /** Restore a named session (#47): open each of its tabs. Returns the count. */
 export async function restoreSession(id: number): Promise<number> {
   const tabs = await sessionRestore(id).catch(() => []);
@@ -511,8 +548,13 @@ export const activeTab = createMemo((): TabMeta | null =>
 // Only the active workspace's tabs appear in the strip (#44). Memoized — these
 // are read many times per render (every tab row, group section, split fold), so
 // recomputing the filter each call was O(tabs) per call → O(tabs²) per render.
-export const pinnedTabs = createMemo(() => tabs().filter((t) => t.pinned && t.workspace === activeWorkspace()));
-export const unpinnedTabs = createMemo(() => tabs().filter((t) => !t.pinned && t.workspace === activeWorkspace()));
+export const pinnedTabs = createMemo(() => tabs().filter((t) => t.pinned && t.folder == null && t.workspace === activeWorkspace()));
+// Folder tabs are parked out of the strip (rendered in the folder section); they
+// stay hibernated for ≈0 RAM.
+export const unpinnedTabs = createMemo(() => tabs().filter((t) => !t.pinned && t.folder == null && t.workspace === activeWorkspace()));
+/** Active-workspace tabs in a given folder (for the folder section). */
+export const folderTabs = (folderId: number) =>
+  tabs().filter((t) => t.folder === folderId && t.workspace === activeWorkspace());
 
 export async function refreshTabs(): Promise<void> {
   const list = await tabList();
@@ -536,6 +578,7 @@ export async function refreshTabs(): Promise<void> {
     setActiveId(restored && list.some((t) => t.id === restored) ? restored : list.at(-1)!.id);
   }
   void refreshGroups();
+  void refreshFolders();
   void refreshWorkspaces();
   void refreshPanels();
   void refreshContainers();

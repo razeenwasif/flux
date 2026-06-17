@@ -46,16 +46,17 @@ let mockVault: { id: string; name: string; urls: string[]; username: string; pas
 ];
 const mockNow = () => T0 + DAY; // "just now" relative to the fixed dates above
 const tabs: TabMeta[] = [
-  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null, group: null, workspace: 1, private: false, container: 0 },
-  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null, group: null, workspace: 1, private: false, container: 0 },
-  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, workspace: 1, private: false, container: 0 },
-  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null, group: null, workspace: 1, private: false, container: 0 },
-  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, workspace: 1, private: false, container: 0 },
-  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null, group: null, workspace: 1, private: false, container: 0 },
-  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null, group: null, workspace: 1, private: false, container: 0 },
+  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
+  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
+  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, folder: null, workspace: 1, private: false, container: 0 },
+  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
+  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, folder: null, workspace: 1, private: false, container: 0 },
+  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
+  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null, group: null, folder: null, workspace: 1, private: false, container: 0 },
 ];
 // Tab groups (BACKLOG #56).
 let mockGroups: { id: number; name: string; color: number; collapsed: boolean }[] = [];
+let mockFolders: { id: number; name: string; collapsed: boolean }[] = [];
 // Workspaces (BACKLOG #44).
 let mockWorkspaces: { id: number; name: string; color: number }[] = [
   { id: 1, name: "Personal", color: 0x9d8df1 },
@@ -82,7 +83,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         title: kind === "terminal" ? `term #${nextId}` : "New Tab",
         pinned: false,
         cluster: null,
-        group: null,
+        group: null, folder: null,
         workspace: mockActiveWs,
         private: Boolean(args?.private),
         container: Number(args?.container ?? 0),
@@ -116,6 +117,28 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "tab_set_group": {
       const t = tabs.find((x) => x.id === args?.tabId);
       if (t) t.group = (args?.group as number | null) ?? null;
+      return Promise.resolve(undefined as T);
+    }
+    case "folders_list":
+      return Promise.resolve(mockFolders as T);
+    case "folder_create": {
+      const id = nextId++;
+      mockFolders.push({ id, name: String(args?.name ?? "New folder"), collapsed: false });
+      return Promise.resolve(id as T);
+    }
+    case "folder_update": {
+      const f = mockFolders.find((x) => x.id === args?.id);
+      if (f) { if (args?.name != null) f.name = String(args.name); if (args?.collapsed != null) f.collapsed = Boolean(args.collapsed); }
+      return Promise.resolve(undefined as T);
+    }
+    case "folder_delete": {
+      mockFolders = mockFolders.filter((f) => f.id !== args?.id);
+      for (const t of tabs) if (t.folder === args?.id) t.folder = null;
+      return Promise.resolve(undefined as T);
+    }
+    case "tab_set_folder": {
+      const t = tabs.find((x) => x.id === args?.tabId);
+      if (t) t.folder = (args?.folder as number | null) ?? null;
       return Promise.resolve(undefined as T);
     }
     case "tab_set_workspace": {

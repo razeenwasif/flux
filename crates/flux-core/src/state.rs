@@ -50,6 +50,10 @@ pub struct TabMeta {
     /// Manual tab group (BACKLOG #56). `None` = ungrouped.
     #[serde(default)]
     pub group: Option<u32>,
+    /// Tab folder. Members are kept **hibernated** (≈0 RAM) and rendered in a
+    /// collapsible section above the footer, not in the strip. `None` = loose.
+    #[serde(default)]
+    pub folder: Option<u32>,
     /// Workspace this tab belongs to (BACKLOG #44). Defaults to workspace 1.
     #[serde(default = "default_workspace")]
     pub workspace: u32,
@@ -113,6 +117,17 @@ pub struct TabGroup {
     pub collapsed: bool,
 }
 
+/// A tab folder — a named bucket whose tabs are kept hibernated to save RAM.
+/// Distinct from [`TabGroup`] (inline, colored, strip-resident): folders live in
+/// a collapsible section above the footer and exist to park tabs out of memory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabFolder {
+    pub id: u32,
+    pub name: String,
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
 /// A semantic cluster: stable id + the display color the UI paints the tab.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ClusterTag {
@@ -171,6 +186,9 @@ pub struct FluxState {
     /// Manual tab groups (BACKLOG #56).
     groups: RwLock<Vec<TabGroup>>,
     next_group_id: AtomicU64,
+    /// Tab folders (hibernated parking buckets).
+    folders: RwLock<Vec<TabFolder>>,
+    next_folder_id: AtomicU64,
     /// Workspaces (BACKLOG #44) + the active one.
     workspaces: RwLock<Vec<Workspace>>,
     active_workspace: AtomicU64,
@@ -198,6 +216,8 @@ impl FluxState {
             order: RwLock::new(Vec::new()),
             groups: RwLock::new(Vec::new()),
             next_group_id: AtomicU64::new(1),
+            folders: RwLock::new(Vec::new()),
+            next_folder_id: AtomicU64::new(1),
             workspaces: RwLock::new(vec![Workspace { id: 1, name: "Personal".into(), color: 0x9d8df1 }]),
             active_workspace: AtomicU64::new(1),
             next_workspace_id: AtomicU64::new(2),
@@ -226,6 +246,7 @@ impl FluxState {
         // Only keep the active pointer if that tab actually came back.
         let active = if tabs.contains_key(&session.active) { session.active } else { 0 };
         let next_group = session.groups.iter().map(|g| g.id).max().unwrap_or(0) as u64 + 1;
+        let next_folder = session.folders.iter().map(|f| f.id).max().unwrap_or(0) as u64 + 1;
         // Workspaces: seed a default if the session had none (older files).
         let mut workspaces = session.workspaces;
         if workspaces.is_empty() {
@@ -248,6 +269,8 @@ impl FluxState {
             order: RwLock::new(order),
             groups: RwLock::new(session.groups),
             next_group_id: AtomicU64::new(next_group),
+            folders: RwLock::new(session.folders),
+            next_folder_id: AtomicU64::new(next_folder),
             workspaces: RwLock::new(workspaces),
             active_workspace: AtomicU64::new(active_ws as u64),
             next_workspace_id: AtomicU64::new(next_ws),
@@ -367,6 +390,51 @@ impl FluxState {
             }
         }
         moved
+    }
+
+    // ── Tab folders (hibernated parking buckets) ─────────────────────────────
+
+    pub fn folders_list(&self) -> Vec<TabFolder> {
+        self.folders.read().clone()
+    }
+
+    pub fn folder_create(&self, name: String) -> u32 {
+        let id = self.next_folder_id.fetch_add(1, Ordering::Relaxed) as u32;
+        let name = if name.trim().is_empty() { format!("Folder {id}") } else { name };
+        self.folders.write().push(TabFolder { id, name, collapsed: false });
+        id
+    }
+
+    pub fn folder_update(&self, id: u32, name: Option<String>, collapsed: Option<bool>) {
+        if let Some(f) = self.folders.write().iter_mut().find(|f| f.id == id) {
+            if let Some(n) = name {
+                f.name = n;
+            }
+            if let Some(c) = collapsed {
+                f.collapsed = c;
+            }
+        }
+    }
+
+    /// Delete a folder and detach its tabs (they return to the strip).
+    pub fn folder_delete(&self, id: u32) {
+        self.folders.write().retain(|f| f.id != id);
+        for mut t in self.tabs.iter_mut() {
+            if t.folder == Some(id) {
+                t.folder = None;
+            }
+        }
+    }
+
+    /// Move a tab into a folder (or out, with `None`). Leaving a folder also
+    /// drops any group membership (a folder tab isn't part of a strip group).
+    pub fn set_tab_folder(&self, tab_id: TabId, folder: Option<u32>) {
+        if let Some(mut t) = self.tabs.get_mut(&tab_id) {
+            t.folder = folder;
+            if folder.is_some() {
+                t.group = None;
+            }
+        }
     }
 
     /// "Group by topic": create a group per semantic cluster present on the
@@ -538,6 +606,7 @@ impl FluxState {
             active: self.active_tab.load(Ordering::Acquire),
             next_id: self.next_tab_id.load(Ordering::Acquire),
             groups: self.groups.read().clone(),
+            folders: self.folders.read().clone(),
             workspaces: self.workspaces.read().clone(),
             active_workspace: self.active_workspace.load(Ordering::Acquire) as u32,
             panels: self.panels.read().clone(),

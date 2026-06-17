@@ -50,6 +50,8 @@ export interface TabMeta {
   cluster: ClusterTag | null;
   /** Manual tab group id (BACKLOG #56), or null if ungrouped. */
   group: number | null;
+  /** Tab folder id — members are kept hibernated (≈0 RAM); null if loose. */
+  folder: number | null;
   /** Workspace this tab belongs to (BACKLOG #44). */
   workspace: number;
   /** Private/incognito tab (BACKLOG #59) — ephemeral session, not in history. */
@@ -72,6 +74,20 @@ export interface TabGroup {
   color: number;
   collapsed: boolean;
 }
+
+/** A tab folder — members are kept hibernated to save RAM (distinct from groups). */
+export interface TabFolder {
+  id: number;
+  name: string;
+  collapsed: boolean;
+}
+export const foldersList = () => invoke<TabFolder[]>("folders_list");
+export const folderCreate = (name: string) => invoke<number>("folder_create", { name });
+export const folderUpdate = (id: number, patch: { name?: string; collapsed?: boolean }) =>
+  invoke<void>("folder_update", { id, name: patch.name ?? null, collapsed: patch.collapsed ?? null });
+export const folderDelete = (id: number) => invoke<void>("folder_delete", { id });
+export const tabSetFolder = (tabId: number, folder: number | null) =>
+  invoke<void>("tab_set_folder", { tabId, folder });
 
 export interface LaunchIntent {
   urls: string[];

@@ -44,7 +44,7 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
             (start, title)
         }
     };
-    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None, workspace: state.active_workspace(), private: private.unwrap_or(false), container: container.unwrap_or(0) };
+    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None, folder: None, workspace: state.active_workspace(), private: private.unwrap_or(false), container: container.unwrap_or(0) };
     state.tabs.insert(id, meta.clone());
     state.order_push(id);
     state.set_active_tab(id);
@@ -184,6 +184,40 @@ pub fn group_delete(state: State<'_, FluxState>, id: u32) {
 #[tauri::command]
 pub fn tab_set_group(state: State<'_, FluxState>, tab_id: TabId, group: Option<u32>) {
     state.set_tab_group(tab_id, group);
+    state.persist();
+}
+
+// ─── Tab folders (hibernated parking buckets) ────────────────────────────────
+
+#[tauri::command]
+pub fn folders_list(state: State<'_, FluxState>) -> Vec<crate::state::TabFolder> {
+    state.folders_list()
+}
+
+#[tauri::command]
+pub fn folder_create(state: State<'_, FluxState>, name: String) -> u32 {
+    let id = state.folder_create(name);
+    state.persist();
+    id
+}
+
+#[tauri::command]
+pub fn folder_update(state: State<'_, FluxState>, id: u32, name: Option<String>, collapsed: Option<bool>) {
+    state.folder_update(id, name, collapsed);
+    state.persist();
+}
+
+#[tauri::command]
+pub fn folder_delete(state: State<'_, FluxState>, id: u32) {
+    state.folder_delete(id);
+    state.persist();
+}
+
+/// Move a tab into a folder (`folder = None` removes it). The shell hibernates
+/// folder members so they cost ≈0 RAM.
+#[tauri::command]
+pub fn tab_set_folder(state: State<'_, FluxState>, tab_id: TabId, folder: Option<u32>) {
+    state.set_tab_folder(tab_id, folder);
     state.persist();
 }
 

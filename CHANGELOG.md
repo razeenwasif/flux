@@ -7,6 +7,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Tab folders** (BACKLOG #111) — a collapsible **Folders** section above the
+  footer holds tabs that are kept **hibernated (≈0 RAM)**. Right-click a tab →
+  *Move to folder* (or *+ New folder with tab*) to park it; it drops out of the
+  strip and sleeps. Click a folder tab to wake + view it; switching away
+  re-sleeps it, so a folder of 50 tabs still costs almost nothing. Distinct from
+  tab groups (inline/colored/strip-resident) — folders are for getting tabs out
+  of memory. Persisted; *Take out of folder* / delete return tabs to the strip.
+
 ### Changed / Fixed
 - **Page-action icons moved below the address bar** — the ★ bookmark, 📖 reader,
   📸 capture, and ✦ save-to-Omni buttons now sit in their own row beneath the
