@@ -75,8 +75,8 @@ scripts/install-linux.sh
 
 ```powershell
 # from the repo root, in PowerShell
-scripts\install-windows.ps1            # reuses an existing apps\shell\dist
-scripts\install-windows.ps1 -Frontend  # force a fresh frontend build (needs Node)
+scripts\install-windows.ps1                # rebuilds the frontend + binary (default)
+scripts\install-windows.ps1 -SkipFrontend  # reuse an existing apps\shell\dist (e.g. built under WSL)
 ```
 
 The Windows script checks prerequisites first. The one most often missing is the

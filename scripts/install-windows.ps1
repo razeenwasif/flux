@@ -21,10 +21,11 @@
         winget install Microsoft.EdgeWebView2Runtime).
       * Node >= 20 + npm -only needed if the frontend must be (re)built.
 
-.PARAMETER Frontend
-    Force a fresh frontend build (npm ci + vite). Otherwise an existing
-    apps\shell\dist is reused -it's platform-neutral, so a dist built under
-    WSL/Linux embeds fine into the Windows binary.
+.PARAMETER SkipFrontend
+    Reuse the existing apps\shell\dist instead of rebuilding it (the dist is
+    platform-neutral, so one built under WSL embeds fine). By DEFAULT the frontend
+    is rebuilt, so the exe always embeds the latest UI — otherwise a stale dist
+    silently ships old UI even though cargo rebuilt the binary.
 
 .NOTES
     If the repo lives on the WSL filesystem (\\wsl.localhost\...), building over
@@ -32,7 +33,7 @@
     Windows path (e.g. C:\src\Flux) and run this from there.
 #>
 [CmdletBinding()]
-param([switch]$Frontend)
+param([switch]$SkipFrontend)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -68,14 +69,20 @@ Then re-run this script from a NEW terminal.
 }
 
 # --- Frontend (embedded into the exe at build time) ---------------------------
+# Rebuild by DEFAULT — a stale dist would silently ship old UI even though cargo
+# rebuilt the binary (the #1 "my change didn't show up" trap). -SkipFrontend opts
+# out (e.g. dist already built under WSL).
 $dist = Join-Path $root 'apps\shell\dist\index.html'
-if ($Frontend -or -not (Test-Path $dist)) {
-    Need npm "Install Node >= 20 (https://nodejs.org), or provide a prebuilt apps\shell\dist."
-    Write-Host "==> Building frontend (npm ci + vite)" -ForegroundColor Cyan
-    npm ci
-    npm run build --workspace apps/shell
+if ($SkipFrontend -and (Test-Path $dist)) {
+    Write-Host "==> Reusing existing apps\shell\dist (-SkipFrontend)" -ForegroundColor DarkYellow
 } else {
-    Write-Host "==> Reusing existing apps\shell\dist (pass -Frontend to rebuild)" -ForegroundColor DarkYellow
+    Need npm "Install Node >= 20 (https://nodejs.org), or pass -SkipFrontend with a prebuilt apps\shell\dist."
+    if (-not (Test-Path (Join-Path $root 'node_modules'))) {
+        Write-Host "==> npm ci (first run)" -ForegroundColor Cyan
+        npm ci
+    }
+    Write-Host "==> Building frontend (vite)" -ForegroundColor Cyan
+    npm run build --workspace apps/shell
 }
 
 # --- Release binary -----------------------------------------------------------
