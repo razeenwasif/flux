@@ -251,6 +251,26 @@ pub fn workspace_delete(state: State<'_, FluxState>, id: TabId) -> Vec<TabId> {
     closed
 }
 
+// ─── Web panels (BACKLOG #48) ────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn panels_list(state: State<'_, FluxState>) -> Vec<crate::state::WebPanel> {
+    state.panels_list()
+}
+
+#[tauri::command]
+pub fn panel_add(state: State<'_, FluxState>, url: String, title: String) -> crate::state::WebPanel {
+    let p = state.panel_add(url, title);
+    state.persist();
+    p
+}
+
+#[tauri::command]
+pub fn panel_remove(state: State<'_, FluxState>, id: u32) {
+    state.panel_remove(id);
+    state.persist();
+}
+
 // ─── DOM snapshot ingestion (tab webview → Rust) ────────────────────────────
 //
 // Plain JSON args, NOT a raw ArrayBuffer body. Real pages set restrictive CSPs

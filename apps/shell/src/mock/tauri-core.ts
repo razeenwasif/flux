@@ -124,6 +124,18 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "groups_from_clusters":
       return Promise.resolve(0 as T);
+    case "panels_list":
+      return Promise.resolve([] as T);
+    case "panel_add":
+      return Promise.resolve({ id: nextId++, url: String(args?.url ?? ""), title: String(args?.title ?? "") } as T);
+    case "panel_remove":
+    case "panel_open":
+    case "panel_set_bounds":
+    case "panel_show":
+    case "panel_hide":
+    case "panel_navigate":
+    case "panel_close":
+      return Promise.resolve(undefined as T);
     case "workspaces_list":
       return Promise.resolve(mockWorkspaces as T);
     case "workspace_active":

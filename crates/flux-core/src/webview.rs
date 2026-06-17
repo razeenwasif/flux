@@ -330,6 +330,98 @@ pub(crate) fn eval(app: &AppHandle, tab_id: TabId, js: &str) -> Result<(), Strin
     wv.eval(js).map_err(|e| e.to_string())
 }
 
+// ─── Web panels (BACKLOG #48) ────────────────────────────────────────────────
+// A panel is a child webview like a tab, but persistent (not driven by the tab
+// lifecycle) and deliberately WITHOUT capture.js — a pinned music/chat/docs panel
+// must not stream its DOM into history/clustering. It still gets dark mode + the
+// shortcut forwarder, content blocking, and rounded corners.
+
+fn panel_label(id: u32) -> String {
+    format!("panel-{id}")
+}
+
+#[tauri::command]
+pub async fn panel_open(
+    app: AppHandle,
+    panel_id: u32,
+    url: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if app.get_webview(&panel_label(panel_id)).is_some() {
+        return Ok(());
+    }
+    let window = app.get_window(CHROME_WINDOW).ok_or("chrome window missing")?;
+    let target = parse_url(&url)?;
+    let dark = app.try_state::<crate::darkmode::DarkState>().map(|s| s.is_on()).unwrap_or(false);
+    let dark_flag = if dark { "window.__FLUX_DARK__ = true;\n" } else { "" };
+    let init = format!("{dark_flag}{SHORTCUTS_JS}\n{DARKMODE_JS}");
+    let app_for_load = app.clone();
+    let builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target))
+        .initialization_script(&init)
+        .on_page_load(move |_wv, payload| {
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                let _ = app_for_load.emit("flux://panel-loaded", (panel_id, payload.url().to_string()));
+            }
+        });
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let child = window
+        .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(width.max(0.0), height.max(0.0)))
+        .map_err(|e| e.to_string())?;
+    let _ = child.set_position(LogicalPosition::new(x, y));
+    let _ = child.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)));
+    let _ = child.show();
+    round_webview(&child, width, height, scale);
+    crate::netfilter::install(&app, &child);
+    crate::tracking::install(&app, &child);
+    crate::permissions::install(&app, &child);
+    install_tab_accelerators(&app, &child);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn panel_set_bounds(app: AppHandle, panel_id: u32, x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&panel_label(panel_id)) {
+        wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+        wv.set_size(LogicalSize::new(width.max(0.0), height.max(0.0))).map_err(|e| e.to_string())?;
+        let scale = app.get_window(CHROME_WINDOW).and_then(|w| w.scale_factor().ok()).unwrap_or(1.0);
+        round_webview(&wv, width, height, scale);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn panel_show(app: AppHandle, panel_id: u32) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&panel_label(panel_id)) {
+        wv.show().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn panel_hide(app: AppHandle, panel_id: u32) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&panel_label(panel_id)) {
+        wv.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn panel_navigate(app: AppHandle, panel_id: u32, url: String) -> Result<(), String> {
+    let wv = app.get_webview(&panel_label(panel_id)).ok_or("no such panel webview")?;
+    wv.navigate(parse_url(&url)?).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn panel_close(app: AppHandle, panel_id: u32) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&panel_label(panel_id)) {
+        wv.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Forward Ctrl+Tab / Ctrl+Shift+Tab from a focused tab webview to the chrome
 /// as `next-tab` / `prev-tab` (#18). A focused native webview eats these chords
 /// before our injected `shortcuts.js` keydown listener runs, because WebView2

@@ -228,6 +228,28 @@ body.resizing .shell { transition: none !important; }
 }
 .pane-splitter:hover::after { background: rgba(47, 243, 255, 0.35); }
 
+/* Web panel (#48): DOM toolbar atop the right-side panel webview + its divider. */
+.panel-divider { left: auto; transform: translateX(50%); }
+.panel-toolbar {
+  position: absolute; top: 0; right: 0; z-index: 6;
+  height: 34px; display: flex; align-items: center; gap: 4px;
+  padding: 0 8px;
+  background: var(--flux-popover-fill);
+  border-bottom: 1px solid var(--glass-rim-soft);
+  border-top-right-radius: var(--flux-radius-card);
+}
+.panel-title { flex: 1; min-width: 0; font-size: 12px; color: var(--flux-text-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.panel-btn { flex: none; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 13px; color: var(--flux-text-dim); }
+.panel-btn:hover { color: var(--flux-text); background: var(--flux-surface-2); }
+/* Pinned-panel rows in the footer popover. */
+.panel-row { display: flex; align-items: center; gap: 4px; border-radius: 8px; }
+.panel-row.active { background: var(--flux-teal-dim); }
+.panel-row-open { flex: 1; min-width: 0; text-align: left; padding: 7px 10px; border-radius: 8px; color: var(--flux-text); }
+.panel-row-open:hover { background: var(--flux-surface-2); }
+.panel-row-title { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; }
+.panel-row-x { flex: none; width: 26px; height: 26px; border-radius: 7px; color: var(--flux-text-mute); }
+.panel-row-x:hover { color: #fff; background: #c0392b; }
+
 /* Split view (#43): the two tiled tabs shown as one bracketed unit in the strip
    (like Chrome's paired split tabs). A teal frame links them; the head carries a
    "merge" (un-split) button. */

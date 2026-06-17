@@ -61,6 +61,12 @@ import {
   webviewShow,
   webviewStop,
   webviewFind,
+  panelOpen,
+  panelSetBounds,
+  panelShow,
+  panelHide,
+  panelClose,
+  panelNavigate,
   workspaceActive,
   workspaceDelete,
   workspaceSwitch,
@@ -99,6 +105,17 @@ import {
   applyDarkMode,
   closeTab,
   createWorkspace,
+  panels,
+  activePanel,
+  activePanelId,
+  panelWidth,
+  setPanelWidth,
+  panelDragging,
+  setPanelDragging,
+  pinPanel,
+  unpinPanel,
+  togglePanel,
+  closePanel,
   darkMode,
   deleteGroup,
   ensureFavicon,
@@ -199,8 +216,27 @@ const App: Component = () => {
   // a split is active and one of the pair is focused, the two pair tabs tile
   // left | right at `splitRatio` with a small gap the DOM splitter sits in.
   const SPLIT_GAP = 8;
+  // Web panel (#48) geometry: when a panel is open it occupies a right strip of
+  // the card (`panelViewRect`, below a DOM toolbar), and the tabs tile in the
+  // remaining `mainRect` to its left.
+  const PANEL_GAP = 8;
+  const PANEL_TOOLBAR = 34; // DOM toolbar height atop the panel
+  const panelPx = (cardW: number) => Math.round(Math.max(280, Math.min(640, Math.min(cardW * 0.6, panelWidth()))));
+  const mainRect = (): Rect | null => {
+    const r = readRect();
+    if (!r) return null;
+    if (activePanelId() == null) return r;
+    const pw = panelPx(r.width);
+    return { x: r.x, y: r.y, width: Math.max(120, r.width - pw - PANEL_GAP), height: r.height };
+  };
+  const panelViewRect = (): Rect | null => {
+    const r = readRect();
+    if (!r || activePanelId() == null) return null;
+    const pw = panelPx(r.width);
+    return { x: r.x + r.width - pw, y: r.y + PANEL_TOOLBAR, width: pw, height: Math.max(0, r.height - PANEL_TOOLBAR) };
+  };
   const paneLayout = (): { tab: TabMeta; rect: Rect }[] => {
-    const rect = readRect();
+    const rect = mainRect();
     if (!rect) return [];
     const pair = splitPanes();
     if (pair) {
@@ -388,7 +424,8 @@ const App: Component = () => {
   createEffect(() => {
     contentRect(); // subscribe: re-run on any layout change
     splitRatio(); // subscribe: re-tile when the seam moves
-    const dragging = splitDragging();
+    panelWidth(); // subscribe: re-tile when the panel divider moves
+    const dragging = splitDragging() || panelDragging();
     const panes = paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
@@ -422,6 +459,35 @@ const App: Component = () => {
       }
     }
     if (needRelayout) scheduleRelayout();
+  });
+
+  // Web panel (#48): manage the single open panel's webview — positioned in the
+  // right strip, persistent across tab switches (it's not part of the tab
+  // lifecycle). Switching panels closes the old one; hidden mid-divider-drag.
+  let openedPanel: number | null = null;
+  createEffect(() => {
+    contentRect();
+    panelWidth(); // subscribe: re-position on resize / divider drag
+    const p = activePanel();
+    const dragging = panelDragging();
+    if (openedPanel != null && openedPanel !== (p?.id ?? null)) {
+      wv(panelClose(openedPanel));
+      openedPanel = null;
+    }
+    if (!p) return;
+    if (dragging) {
+      wv(panelHide(p.id));
+      return;
+    }
+    const rect = panelViewRect();
+    if (!rect) return;
+    if (openedPanel === p.id) {
+      wv(panelSetBounds(p.id, rect));
+      wv(panelShow(p.id));
+    } else {
+      openedPanel = p.id;
+      wv(panelOpen(p.id, p.url, rect).then(() => panelSetBounds(p.id, rect)));
+    }
   });
 
   // Capture a tab's scroll/form state the moment you switch away from it (#45),
@@ -879,7 +945,7 @@ interface SidebarProps {
   onSendGroupToWorkspace: (groupId: number, ws: number) => void;
 }
 
-type FooterPanel = "bookmarks" | "extensions" | "settings" | null;
+type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | null;
 /** An omnibox suggestion (#32): a local history hit (has `url`) or an engine suggestion. */
 type Suggestion = { kind: "history" | "search"; label: string; sub?: string; url?: string };
 
@@ -1587,6 +1653,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <Passwords />
         <Downloads />
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
+        <button classList={{ "icon-btn": true, active: panel() === "webpanels" || activePanelId() != null }} title="Web panels" onClick={() => openPanel("webpanels")}>🗔</button>
         <button classList={{ "icon-btn": true, active: panel() === "extensions" }} title="Extensions" onClick={() => openPanel("extensions")}>🧩</button>
         <button classList={{ "icon-btn": true, active: panel() === "settings" }} title="Settings" onClick={() => openPanel("settings")}>⚙</button>
 
@@ -1674,6 +1741,29 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 Import Chrome bookmarks and open folders as tab groups from the <b>All bookmarks</b> page.
               </div>
             </Show>
+            <Show when={panel() === "webpanels"}>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Web panels</div>
+              <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
+                <button class="shields-update" onClick={() => {
+                  const t = activeTab()!;
+                  void pinPanel(t.url, t.title || t.url);
+                  setPanel(null);
+                }}>＋ Pin this page as a panel</button>
+              </Show>
+              <Show when={panels().length > 0} fallback={<div class="start-empty" style={{ padding: "4px 10px 8px" }}>Pin a site (chat, docs, music) to keep it in a slim pane beside any tab.</div>}>
+                <div class="ctx-sep" />
+                <For each={panels()}>
+                  {(p) => (
+                    <div class="panel-row" classList={{ active: activePanelId() === p.id }}>
+                      <button class="panel-row-open" onClick={() => { togglePanel(p.id); setPanel(null); }}>
+                        <span class="panel-row-title">{p.title || p.url}</span>
+                      </button>
+                      <button class="panel-row-x" title="Unpin" onClick={(e) => { e.stopPropagation(); void unpinPanel(p.id); }}>✕</button>
+                    </div>
+                  )}
+                </For>
+              </Show>
+            </Show>
             <Show when={panel() === "extensions"}>
               <Suspense><Extensions /></Suspense>
             </Show>
@@ -1726,6 +1816,43 @@ const ContentArea: Component<{
             window.addEventListener("pointerup", up);
           }}
         />
+      </Show>
+      {/* Web panel (#48): a DOM toolbar in the top strip of the panel region (the
+          webview sits below it) + a divider to resize. Both are right-anchored so
+          they don't need the card width. */}
+      <Show when={activePanel()}>
+        {(p) => {
+          const pw = () => Math.max(280, Math.min(640, panelWidth()));
+          return (
+            <>
+              <div class="panel-toolbar" style={{ width: `${pw()}px` }}>
+                <span class="panel-title" title={p().url}>{p().title || p().url}</span>
+                <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p().id, p().url)}>⟳</button>
+                <button class="panel-btn" title="Close panel" onClick={() => closePanel()}>✕</button>
+              </div>
+              <div
+                class="pane-splitter panel-divider"
+                style={{ right: `${pw()}px` }}
+                title="Drag to resize the panel"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  const card = document.getElementById("flux-web-area");
+                  if (!card) return;
+                  const rect = card.getBoundingClientRect();
+                  setPanelDragging(true);
+                  const move = (ev: PointerEvent) => setPanelWidth(rect.right - ev.clientX);
+                  const up = () => {
+                    setPanelDragging(false);
+                    window.removeEventListener("pointermove", move);
+                    window.removeEventListener("pointerup", up);
+                  };
+                  window.addEventListener("pointermove", move);
+                  window.addEventListener("pointerup", up);
+                }}
+              />
+            </>
+          );
+        }}
       </Show>
       {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
           its PTY + scrollback survive tab switches; only the active one shows.

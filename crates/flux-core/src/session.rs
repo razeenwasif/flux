@@ -10,7 +10,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::state::{TabGroup, TabId, TabMeta, Workspace};
+use crate::state::{TabGroup, TabId, TabMeta, WebPanel, Workspace};
 
 /// The persisted shape. Every field is `#[serde(default)]` so an older/partial
 /// file (or a hand-edit) still loads.
@@ -32,6 +32,9 @@ pub struct Session {
     pub workspaces: Vec<Workspace>,
     #[serde(default)]
     pub active_workspace: u32,
+    /// Pinned web panels (BACKLOG #48).
+    #[serde(default)]
+    pub panels: Vec<WebPanel>,
 }
 
 pub fn load(path: &Path) -> Session {
@@ -62,7 +65,7 @@ mod tests {
     #[test]
     fn round_trips() {
         let path = std::env::temp_dir().join(format!("flux-sess-{}-a.json", std::process::id()));
-        save(&path, &Session { tabs: vec![tab(2, true), tab(5, false)], active: 5, next_id: 6, groups: vec![], workspaces: vec![], active_workspace: 1 });
+        save(&path, &Session { tabs: vec![tab(2, true), tab(5, false)], active: 5, next_id: 6, groups: vec![], workspaces: vec![], active_workspace: 1, panels: vec![] });
         let loaded = load(&path);
         assert_eq!(loaded.tabs.len(), 2);
         assert_eq!(loaded.active, 5);
@@ -80,7 +83,7 @@ mod tests {
     fn restore_repopulates_and_bumps_next_id() {
         let path = std::env::temp_dir().join(format!("flux-sess-{}-b.json", std::process::id()));
         // next_id is deliberately stale (2) behind the restored ids (max 7).
-        save(&path, &Session { tabs: vec![tab(7, true)], active: 7, next_id: 2, groups: vec![], workspaces: vec![], active_workspace: 1 });
+        save(&path, &Session { tabs: vec![tab(7, true)], active: 7, next_id: 2, groups: vec![], workspaces: vec![], active_workspace: 1, panels: vec![] });
         let state = FluxState::restore(path.clone());
         assert_eq!(state.active_tab(), Some(7));
         assert!(state.tabs.contains_key(&7));

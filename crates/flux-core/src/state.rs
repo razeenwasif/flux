@@ -70,6 +70,16 @@ pub struct Workspace {
     pub color: u32,
 }
 
+/// A pinned web panel (BACKLOG #48): a site (chat, docs, music, …) you can show
+/// in a slim pane beside any tab. Persists across restart; only the *open* panel
+/// holds a live webview (RAM-conscious — inactive pins are just metadata).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebPanel {
+    pub id: u32,
+    pub url: String,
+    pub title: String,
+}
+
 /// A manual, user-controlled tab group (BACKLOG #56) — named, colored,
 /// collapsible. Distinct from the auto semantic `cluster`, though "group by
 /// topic" can seed groups from clusters.
@@ -145,6 +155,9 @@ pub struct FluxState {
     workspaces: RwLock<Vec<Workspace>>,
     active_workspace: AtomicU64,
     next_workspace_id: AtomicU64,
+    /// Pinned web panels (BACKLOG #48).
+    panels: RwLock<Vec<WebPanel>>,
+    next_panel_id: AtomicU64,
     /// Where the session is persisted (BACKLOG #19). `None` → no persistence
     /// (tests / the `Default` impl).
     session_path: Option<std::path::PathBuf>,
@@ -165,6 +178,8 @@ impl FluxState {
             workspaces: RwLock::new(vec![Workspace { id: 1, name: "Personal".into(), color: 0x9d8df1 }]),
             active_workspace: AtomicU64::new(1),
             next_workspace_id: AtomicU64::new(2),
+            panels: RwLock::new(Vec::new()),
+            next_panel_id: AtomicU64::new(1),
             session_path: None,
         }
     }
@@ -197,6 +212,7 @@ impl FluxState {
         } else {
             workspaces[0].id
         };
+        let next_panel = session.panels.iter().map(|p| p.id).max().unwrap_or(0) as u64 + 1;
         Self {
             active_tab: AtomicU64::new(active),
             next_tab_id: AtomicU64::new(next),
@@ -209,6 +225,8 @@ impl FluxState {
             workspaces: RwLock::new(workspaces),
             active_workspace: AtomicU64::new(active_ws as u64),
             next_workspace_id: AtomicU64::new(next_ws),
+            panels: RwLock::new(session.panels),
+            next_panel_id: AtomicU64::new(next_panel),
             session_path: Some(session_path),
         }
     }
@@ -410,6 +428,37 @@ impl FluxState {
         closed
     }
 
+    // ── Web panels (BACKLOG #48) ──────────────────────────────────────────────
+
+    pub fn panels_list(&self) -> Vec<WebPanel> {
+        self.panels.read().clone()
+    }
+
+    /// Pin a site as a panel (de-duped by url). Returns the new (or existing) one.
+    pub fn panel_add(&self, url: String, title: String) -> WebPanel {
+        let mut panels = self.panels.write();
+        if let Some(p) = panels.iter().find(|p| p.url == url) {
+            return p.clone();
+        }
+        let id = self.next_panel_id.fetch_add(1, Ordering::Relaxed) as u32;
+        let p = WebPanel { id, url, title };
+        panels.push(p.clone());
+        p
+    }
+
+    pub fn panel_remove(&self, id: u32) {
+        self.panels.write().retain(|p| p.id != id);
+    }
+
+    /// Update a panel's title from its loaded page (best-effort).
+    pub fn panel_set_title(&self, id: u32, title: String) {
+        if let Some(p) = self.panels.write().iter_mut().find(|p| p.id == id) {
+            if !title.trim().is_empty() {
+                p.title = title;
+            }
+        }
+    }
+
     /// Write the current tabs to disk (no-op without a `session_path`). Cheap —
     /// the file is a few KB — and called after each tab mutation. Tabs are
     /// ordered by id (== creation order) so restore preserves the tab strip.
@@ -424,6 +473,7 @@ impl FluxState {
             groups: self.groups.read().clone(),
             workspaces: self.workspaces.read().clone(),
             active_workspace: self.active_workspace.load(Ordering::Acquire) as u32,
+            panels: self.panels.read().clone(),
         };
         crate::session::save(path, &session);
     }

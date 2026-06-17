@@ -138,6 +138,20 @@ export const workspaceUpdate = (id: number, patch: { name?: string; color?: numb
   invoke<void>("workspace_update", { id, name: patch.name ?? null, color: patch.color ?? null });
 /** Delete a workspace + its tabs; returns the closed tab ids. */
 export const workspaceDelete = (id: number) => invoke<number[]>("workspace_delete", { id });
+// ─── Web panels (BACKLOG #48) ────────────────────────────────────────────────
+export interface WebPanel { id: number; url: string; title: string }
+export const panelsList = () => invoke<WebPanel[]>("panels_list");
+export const panelAdd = (url: string, title: string) => invoke<WebPanel>("panel_add", { url, title });
+export const panelRemove = (id: number) => invoke<void>("panel_remove", { id });
+// Panel webview (its own native child webview; not part of the tab lifecycle).
+export const panelOpen = (panelId: number, url: string, r: Rect) =>
+  invoke<void>("panel_open", { panelId, url, x: r.x, y: r.y, width: r.width, height: r.height });
+export const panelSetBounds = (panelId: number, r: Rect) =>
+  invoke<void>("panel_set_bounds", { panelId, x: r.x, y: r.y, width: r.width, height: r.height });
+export const panelShow = (panelId: number) => invoke<void>("panel_show", { panelId });
+export const panelHide = (panelId: number) => invoke<void>("panel_hide", { panelId });
+export const panelNavigate = (panelId: number, url: string) => invoke<void>("panel_navigate", { panelId, url });
+export const panelClose = (panelId: number) => invoke<void>("panel_close", { panelId });
 /** Sync a tab's live url/title to the backend so the persisted session is current. */
 export const tabSetUrl = (id: number, url: string, title?: string) =>
   invoke<void>("tab_set_url", { id, url, title: title ?? null });

@@ -30,6 +30,10 @@ import {
   workspaceSwitch,
   workspaceUpdate,
   workspacesList,
+  panelsList,
+  panelAdd,
+  panelRemove,
+  type WebPanel,
   type TabGroup,
   type TabKind,
   type TabMeta,
@@ -103,6 +107,45 @@ export const splitPanes = (): [TabMeta, TabMeta] | null => {
     !!t && t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url);
   return ok(l) && ok(r) ? [l as TabMeta, r as TabMeta] : null;
 };
+
+// Web panels (BACKLOG #48): pinned sites shown in a slim pane beside any tab.
+// Only the *open* panel holds a live webview (RAM-conscious). `panelWidth` (px)
+// is the pane width; `panelDragging` hides the panel + tab webviews while the
+// divider is dragged so the DOM splitter can track the pointer.
+const [panels, setPanels] = createSignal<WebPanel[]>([]);
+const [activePanelId, setActivePanelId] = createSignal<number | null>(null);
+const [panelWidth, setPanelWidthSig] = createSignal(Number(localStorage.getItem("flux.panel.w")) || 380);
+const [panelDragging, setPanelDragging] = createSignal(false);
+export { panels, activePanelId, panelWidth, panelDragging, setPanelDragging };
+export const activePanel = (): WebPanel | null =>
+  panels().find((p) => p.id === activePanelId()) ?? null;
+export function setPanelWidth(px: number): void {
+  const w = Math.round(Math.max(280, Math.min(640, px)));
+  setPanelWidthSig(w);
+  localStorage.setItem("flux.panel.w", String(w));
+}
+async function refreshPanels(): Promise<void> {
+  setPanels(await panelsList().catch(() => []));
+}
+/** Pin a site as a panel and open it. */
+export async function pinPanel(url: string, title: string): Promise<void> {
+  const p = await panelAdd(url, title).catch(() => null);
+  await refreshPanels();
+  if (p) setActivePanelId(p.id);
+}
+/** Remove a pinned panel; closes it if it was open. */
+export async function unpinPanel(id: number): Promise<void> {
+  if (activePanelId() === id) setActivePanelId(null);
+  await panelRemove(id).catch(() => {});
+  await refreshPanels();
+}
+/** Toggle a panel open/closed (only one open at a time). */
+export function togglePanel(id: number): void {
+  setActivePanelId((cur) => (cur === id ? null : id));
+}
+export function closePanel(): void {
+  setActivePanelId(null);
+}
 
 // Manual tab groups (BACKLOG #56).
 const [groups, setGroups] = createSignal<TabGroup[]>([]);
@@ -347,6 +390,7 @@ export async function refreshTabs(): Promise<void> {
   }
   void refreshGroups();
   void refreshWorkspaces();
+  void refreshPanels();
 }
 
 export async function openTab(kind: TabKind, url?: string): Promise<TabMeta> {

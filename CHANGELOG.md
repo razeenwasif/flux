@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Web panels** (BACKLOG #48) — pin a site (chat, docs, music, claude.ai) to a
+  slim pane on the right of the content card that **persists across tab
+  switches**. Manage from the footer **🗔** popover: "Pin this page", toggle a
+  panel open/closed, unpin (all persisted across restart). Draggable divider to
+  resize; a small DOM toolbar (title / reload / close) sits above the pane. Each
+  panel is its own native webview, deliberately **without** the DOM-capture
+  script — a pinned panel never pollutes history or tab clustering — and only the
+  open panel holds a live webview (inactive pins are just metadata).
 - **Bookmarks** (BACKLOG #22) — a persisted, folder-aware bookmark store with a
   `flux://bookmarks` page (search, folder grouping, delete, clear), a footer 🔖
   popover (**★ Bookmark this page**, All bookmarks, History), and a ⌘K "Open
