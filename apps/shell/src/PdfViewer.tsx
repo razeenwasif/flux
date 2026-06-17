@@ -66,11 +66,10 @@ const PdfViewer: Component = () => {
       if (!b64) { setError("Couldn't load this PDF."); setLoading(false); return; }
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const pdfjs = await import("pdfjs-dist");
-      // Module worker, bundled by Vite — reliable in the Tauri webview.
-      pdfjs.GlobalWorkerOptions.workerPort = new Worker(
-        new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url),
-        { type: "module" },
-      );
+      // Vite's `?worker` import bundles the worker correctly (a bare specifier
+      // in `new URL(..., import.meta.url)` doesn't resolve to node_modules).
+      const PdfWorker = (await import("pdfjs-dist/build/pdf.worker.min.mjs?worker")).default;
+      pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
       pdfDoc = await pdfjs.getDocument({ data: bytes }).promise;
       setNumPages(pdfDoc.numPages);
       const id2 = activeId();
