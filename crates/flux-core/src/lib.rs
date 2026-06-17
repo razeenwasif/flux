@@ -11,6 +11,7 @@ pub mod commands;
 pub mod cookies;
 pub mod darkmode;
 pub mod downloads;
+pub mod embedding;
 pub mod extensions;
 pub mod favicon;
 pub mod files;

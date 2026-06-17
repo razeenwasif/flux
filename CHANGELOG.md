@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Real embeddings for search** (BACKLOG #11) — semantic search now prefers a
+  proper model (**EmbeddingGemma** via Ollama, `/api/embed`) instead of the
+  feature-hashing fallback, so it understands synonyms/paraphrase, not just
+  shared words. Wired into the **offline archive** (#69) first; falls back to the
+  hashing embedder automatically when Ollama is down or the model isn't pulled,
+  so search never breaks. Vectors are persisted + tagged with their embedder; if
+  you pull the model later, the archive **re-embeds itself in the background**.
+  Set up with `ollama pull embeddinggemma` (override via `FLUX_EMBED_MODEL`).
+  _Follow-up:_ Omni + tab clustering (they embed per-keystroke / constantly, so
+  they need a vector cache before moving off the instant hashing embedder).
 - **Rename tabs & folders** — double-click a tab's name (or right-click → *Rename
   tab*) to give it a **custom name** that sticks (survives page-title updates;
   clear it to revert). Folders get an explicit **✎ rename** button (plus

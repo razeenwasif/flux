@@ -11,15 +11,23 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use flux_embed::{embed, EMBED_DIM};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::embedding::{self, Embedder};
+
+fn default_embedder() -> Embedder {
+    Embedder::Hash
+}
+
 /// A saved page. `text` is the visible-text capture (no remote resources, so it
-/// renders offline). Persisted as-is; the embedding is recomputed, not stored.
+/// renders offline). The embedding is **persisted** (recomputing model
+/// embeddings on every load would mean N network calls) and tagged with the
+/// embedder that produced it (#11), so a corpus migrates if the embedder changes.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ArchiveEntry {
     pub id: u64,
@@ -27,6 +35,10 @@ pub struct ArchiveEntry {
     pub title: String,
     pub saved_ms: u64,
     pub text: String,
+    #[serde(default)]
+    embedding: Vec<f32>,
+    #[serde(default = "default_embedder")]
+    embedder: Embedder,
 }
 
 /// List/search row — metadata + a short snippet (the full text stays out of list
@@ -42,15 +54,14 @@ pub struct ArchiveMeta {
     pub score: u32,
 }
 
-struct Inner {
-    entries: Vec<ArchiveEntry>,
-    /// Parallel to `entries`; recomputed, never persisted.
-    vectors: Vec<[f32; EMBED_DIM]>,
-}
+type Entries = Arc<RwLock<Vec<ArchiveEntry>>>;
 
 pub struct ArchiveStore {
     path: Option<PathBuf>,
-    inner: RwLock<Inner>,
+    entries: Entries,
+    /// The embedder this store's vectors use (chosen at load; whole corpus stays
+    /// on one kind so cosine is meaningful).
+    embedder: Embedder,
     next_id: AtomicU64,
 }
 
@@ -67,77 +78,85 @@ fn meta(e: &ArchiveEntry, score: u32) -> ArchiveMeta {
     ArchiveMeta { id: e.id, url: e.url.clone(), title: e.title.clone(), saved_ms: e.saved_ms, snippet: snippet(&e.text), score }
 }
 
+fn write_json(path: &Option<PathBuf>, entries: &[ArchiveEntry]) {
+    if let Some(path) = path {
+        if let Ok(json) = serde_json::to_string(entries) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+}
+
 impl Default for ArchiveStore {
     fn default() -> Self {
-        Self { path: None, inner: RwLock::new(Inner { entries: Vec::new(), vectors: Vec::new() }), next_id: AtomicU64::new(1) }
+        Self { path: None, entries: Arc::new(RwLock::new(Vec::new())), embedder: Embedder::Hash, next_id: AtomicU64::new(1) }
     }
 }
 
 impl ArchiveStore {
-    /// Load from disk (missing/corrupt → empty), recomputing embeddings.
+    /// Load from disk (missing/corrupt → empty). Picks the embedder available
+    /// now; if the persisted vectors were made by a different one (e.g. the user
+    /// pulled the model since), re-embeds the corpus in the background so search
+    /// stays fast + consistent.
     pub fn restore(path: PathBuf) -> Self {
         let entries: Vec<ArchiveEntry> = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let vectors = entries.iter().map(|e| embed(&e.text)).collect();
         let next = entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
-        Self { path: Some(path), inner: RwLock::new(Inner { entries, vectors }), next_id: AtomicU64::new(next) }
+        let embedder = embedding::current();
+        let needs_migrate = entries.iter().any(|e| e.embedder != embedder || e.embedding.is_empty());
+        let store = Self { path: Some(path), entries: Arc::new(RwLock::new(entries)), embedder, next_id: AtomicU64::new(next) };
+        if needs_migrate {
+            let entries = Arc::clone(&store.entries);
+            let path = store.path.clone();
+            std::thread::spawn(move || migrate(entries, path, embedder));
+        }
+        store
     }
 
-    /// Save a page (or refresh it if the URL is already archived). Returns the
-    /// row. Empty text is rejected by the caller.
+    /// Save a page (or refresh it if the URL is already archived). Returns the row.
     pub fn save(&self, url: String, title: String, text: String) -> ArchiveMeta {
-        let vector = embed(&text);
-        let mut g = self.inner.write();
-        let result = if let Some(i) = g.entries.iter().position(|e| e.url == url) {
-            // Re-save → update in place, keep the id.
-            let e = &mut g.entries[i];
+        let embedding = embedding::embed_with(&text, self.embedder).unwrap_or_default();
+        let mut g = self.entries.write();
+        let result = if let Some(e) = g.iter_mut().find(|e| e.url == url) {
             e.title = title;
             e.text = text;
             e.saved_ms = now_ms();
-            g.vectors[i] = vector;
-            meta(&g.entries[i], 0)
+            e.embedding = embedding;
+            e.embedder = self.embedder;
+            meta(e, 0)
         } else {
-            let entry = ArchiveEntry { id: self.next_id.fetch_add(1, Ordering::Relaxed), url, title, saved_ms: now_ms(), text };
+            let entry = ArchiveEntry { id: self.next_id.fetch_add(1, Ordering::Relaxed), url, title, saved_ms: now_ms(), text, embedding, embedder: self.embedder };
             let m = meta(&entry, 0);
-            g.entries.push(entry);
-            g.vectors.push(vector);
+            g.push(entry);
             m
         };
-        drop(g);
-        self.persist();
+        write_json(&self.path, &g);
         result
     }
 
     /// Newest first.
     pub fn list(&self) -> Vec<ArchiveMeta> {
-        let g = self.inner.read();
-        let mut v: Vec<ArchiveMeta> = g.entries.iter().map(|e| meta(e, 0)).collect();
-        // Newest first; tiebreak by id (higher = saved later) so same-millisecond
-        // saves stay deterministically ordered.
+        let g = self.entries.read();
+        let mut v: Vec<ArchiveMeta> = g.iter().map(|e| meta(e, 0)).collect();
+        // Newest first; tiebreak by id (higher = saved later) for same-ms saves.
         v.sort_by(|a, b| b.saved_ms.cmp(&a.saved_ms).then(b.id.cmp(&a.id)));
         v
     }
 
     pub fn get(&self, id: u64) -> Option<ArchiveEntry> {
-        self.inner.read().entries.iter().find(|e| e.id == id).cloned()
+        self.entries.read().iter().find(|e| e.id == id).cloned()
     }
 
     pub fn delete(&self, id: u64) {
-        {
-            let mut g = self.inner.write();
-            if let Some(i) = g.entries.iter().position(|e| e.id == id) {
-                g.entries.remove(i);
-                g.vectors.remove(i);
-            }
-        }
-        self.persist();
+        let mut g = self.entries.write();
+        g.retain(|e| e.id != id);
+        write_json(&self.path, &g);
     }
 
-    /// Semantic search: cosine (= dot, since embeddings are L2-normalized)
-    /// against the query embedding, most-relevant first. Falls back to newest
-    /// when the query is empty.
+    /// Semantic search: cosine against the query embedding, most-relevant first.
+    /// Empty query → newest. Embeds the query with the store's embedder; if that
+    /// embedder is unavailable now (Model with Ollama down), falls back to newest.
     pub fn search(&self, query: &str, limit: usize) -> Vec<ArchiveMeta> {
         if query.trim().is_empty() {
             let mut v = self.list();
@@ -146,33 +165,48 @@ impl ArchiveStore {
             }
             return v;
         }
-        let q = embed(query);
-        let g = self.inner.read();
+        let Some(q) = embedding::embed_with(query, self.embedder) else {
+            return self.list().into_iter().take(if limit > 0 { limit } else { usize::MAX }).collect();
+        };
+        let g = self.entries.read();
         let mut scored: Vec<(usize, f32)> = g
-            .vectors
             .iter()
             .enumerate()
-            .map(|(i, v)| (i, v.iter().zip(q.iter()).map(|(a, b)| a * b).sum::<f32>()))
+            .map(|(i, e)| (i, embedding::cosine(&e.embedding, &q)))
             .filter(|(_, s)| *s > 0.02) // drop near-orthogonal noise
             .collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         if limit > 0 {
             scored.truncate(limit);
         }
-        scored.iter().map(|(i, s)| meta(&g.entries[*i], (s.clamp(0.0, 1.0) * 100.0).round() as u32)).collect()
+        scored.iter().map(|(i, s)| meta(&g[*i], (s.clamp(0.0, 1.0) * 100.0).round() as u32)).collect()
     }
 
     pub fn len(&self) -> usize {
-        self.inner.read().entries.len()
+        self.entries.read().len()
     }
+}
 
-    fn persist(&self) {
-        let Some(path) = &self.path else { return };
-        let g = self.inner.read();
-        if let Ok(json) = serde_json::to_string(&g.entries) {
-            let _ = std::fs::write(path, json);
+/// Re-embed every entry with `target` (background, on an embedder change) and
+/// persist. Runs once after a restore where the persisted vectors don't match
+/// the now-available embedder.
+fn migrate(entries: Entries, path: Option<PathBuf>, target: Embedder) {
+    // Snapshot the texts to embed without holding the lock during network calls.
+    let todo: Vec<(u64, String)> = entries
+        .read()
+        .iter()
+        .filter(|e| e.embedder != target || e.embedding.is_empty())
+        .map(|e| (e.id, e.text.clone()))
+        .collect();
+    for (id, text) in todo {
+        let Some(vec) = embedding::embed_with(&text, target) else { return }; // embedder vanished → abort
+        let mut g = entries.write();
+        if let Some(e) = g.iter_mut().find(|e| e.id == id) {
+            e.embedding = vec;
+            e.embedder = target;
         }
     }
+    write_json(&path, &entries.read());
 }
 
 // ─── Commands ────────────────────────────────────────────────────────────────
