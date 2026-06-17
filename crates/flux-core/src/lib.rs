@@ -16,6 +16,7 @@ pub mod hibernate;
 pub mod history;
 pub mod mem;
 pub mod nav;
+pub mod notes;
 pub mod https;
 pub mod netfilter;
 pub mod omni;
@@ -123,6 +124,13 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(darkmode::DarkState::new());
             // Navigation toggles (#51/#52) — vim link-hints + mouse gestures.
             app.manage(nav::NavState::new());
+            // Per-page notes (#53).
+            let notes_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("notes.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-notes.json"));
+            app.manage(notes::NoteStore::restore(notes_path));
             // Browsing history (#39) — recorded from dom_publish, persisted.
             let history_path = app
                 .path()
@@ -251,6 +259,9 @@ pub fn run(intent: cli::LaunchIntent) {
             darkmode::darkmode_set,
             nav::nav_status,
             nav::nav_set,
+            notes::note_get,
+            notes::note_set,
+            notes::notes_list,
             favicon::favicon,
             history::history_recent,
             history::history_search,

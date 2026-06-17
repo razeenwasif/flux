@@ -1424,6 +1424,15 @@ body.resizing .shell { transition: none !important; }
 .bm-flash { font-size: 12px; color: var(--flux-teal); padding: 2px 4px; }
 .bm-inline-flash { float: right; color: var(--flux-teal); font-size: 11px; }
 
+/* ── Per-page notes (#53) ── */
+.note-url { font-size: 10.5px; color: var(--flux-text-mute); padding: 2px 8px 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.note-area {
+  width: 100%; min-height: 150px; resize: vertical;
+  padding: 9px 10px; border-radius: 9px; font: inherit; font-size: 12.5px; line-height: 1.5;
+  color: var(--flux-text); background: var(--flux-surface); border: 1px solid var(--flux-border);
+}
+.note-area:focus { outline: none; border-color: var(--flux-teal); }
+
 /* ── Resource monitor (#70) ── */
 .res-mem { flex: 1; font-size: 11.5px; color: var(--flux-text-dim); }
 .res-note { font-size: 11.5px; color: var(--flux-text-mute); padding: 2px 4px 10px; line-height: 1.5; }

@@ -534,6 +534,10 @@ export const chromeFocus = () => invoke<void>("chrome_focus");
 export const navStatus = () => invoke<[boolean, boolean]>("nav_status");
 export const navSet = (hints: boolean, gestures: boolean) => invoke<void>("nav_set", { hints, gestures });
 
+// ─── Per-page notes (BACKLOG #53) ────────────────────────────────────────────
+export const noteGet = (url: string) => invoke<string>("note_get", { url });
+export const noteSet = (url: string, text: string) => invoke<void>("note_set", { url, text });
+
 /** A host's favicon as a data: URL (fetched cookielessly + cached), or null. #21 */
 export const faviconFetch = (host: string) => invoke<string | null>("favicon", { host });
 

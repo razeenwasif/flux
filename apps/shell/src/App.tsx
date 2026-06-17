@@ -32,6 +32,8 @@ import {
   agentExecute,
   agentPlan,
   agentRunAction,
+  noteGet,
+  noteSet,
   bookmarkAdd,
   chromeFocus,
   isStartUrl,
@@ -1085,7 +1087,7 @@ interface SidebarProps {
   onCapture: () => void;
 }
 
-type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | null;
+type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | "notes" | null;
 /** An omnibox suggestion (#32): a local history hit (has `url`) or an engine suggestion. */
 type Suggestion = { kind: "history" | "search"; label: string; sub?: string; url?: string };
 
@@ -1111,6 +1113,22 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [address, setAddress] = createSignal("");
   const [panel, setPanel] = createSignal<FooterPanel>(null);
   const [bmFlash, setBmFlash] = createSignal("");
+  // Per-page notes (#53): the popover edits the active page's note (auto-saved).
+  const [noteText, setNoteText] = createSignal("");
+  let noteTimer: number | undefined;
+  const loadNote = () => {
+    const t = activeTab();
+    if (t?.kind === "browser" && !isStartUrl(t.url)) void noteGet(t.url).then(setNoteText).catch(() => setNoteText(""));
+    else setNoteText("");
+  };
+  const saveNote = (text: string) => {
+    setNoteText(text);
+    const t = activeTab();
+    if (!t) return;
+    const url = t.url;
+    clearTimeout(noteTimer);
+    noteTimer = window.setTimeout(() => void noteSet(url, text).catch(() => {}), 400);
+  };
   // Active page's per-host zoom (#36), reactive via the zoom store.
   const activeZoom = (): number => {
     const t = activeTab();
@@ -1844,6 +1862,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <Passwords />
         <Downloads />
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
+        <button classList={{ "icon-btn": true, active: panel() === "notes" }} title="Note for this page" onClick={() => { openPanel("notes"); loadNote(); }}>📝</button>
         <button classList={{ "icon-btn": true, active: panel() === "webpanels" || activePanelId() != null }} title="Web panels — pin a site beside your tabs" onClick={() => openPanel("webpanels")}>◨</button>
         <button classList={{ "icon-btn": true, active: panel() === "extensions" }} title="Extensions" onClick={() => openPanel("extensions")}>🧩</button>
         <button classList={{ "icon-btn": true, active: panel() === "settings" }} title="Settings" onClick={() => openPanel("settings")}>⚙</button>
@@ -1983,6 +2002,18 @@ const Sidebar: Component<SidebarProps> = (props) => {
                     </div>
                   )}
                 </For>
+              </Show>
+            </Show>
+            <Show when={panel() === "notes"}>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Note for this page</div>
+              <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)} fallback={<div class="start-empty" style={{ padding: "4px 10px 8px" }}>Open a web page to jot a note.</div>}>
+                <div class="note-url">{activeTab()!.url}</div>
+                <textarea
+                  class="note-area"
+                  placeholder="Jot a note — saved locally for this page…"
+                  value={noteText()}
+                  onInput={(e) => saveNote(e.currentTarget.value)}
+                />
               </Show>
             </Show>
             <Show when={panel() === "extensions"}>

@@ -8,6 +8,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Per-page notes** (BACKLOG #53) — a footer **📝** popover holds a note tied to
+  the current page's URL, **auto-saved locally** and restored when you revisit
+  (clearing it deletes it). Nothing leaves your machine.
 - **Focus / compact mode** (BACKLOG #55) — **Ctrl+Shift+F** (or ⌘K "Focus mode")
   hides the sidebar, terminal, and agent for a content-only view; **Esc** or the
   chord exits (a toast reminds you).
