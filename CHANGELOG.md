@@ -17,6 +17,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   menus.
 
 ### Added
+- **Built-in PDF viewer** (BACKLOG #35) — PDFs open in a **Flux-owned viewer**
+  (`flux://pdf`) powered by PDF.js: continuous page scroll, zoom, page count, and
+  download. Works on both engines (WebKitGTK has no native PDF viewer), with
+  consistent chrome. Entering a `.pdf` address, ⌘K, a `target="_blank"` PDF
+  link, or **opening a PDF in the built-in file explorer** routes here; the
+  bytes are fetched by the Rust core (`pdf_fetch`, http(s) + local files) to
+  sidestep cross-origin CORS, and PDF.js is lazy-loaded so it never weighs down
+  the chrome bundle. _Follow-up:_ annotation + form-fill; intercepting in-page
+  link clicks (those still use the engine's native viewer on WebView2).
 - **New windows & "open in new tab"** (BACKLOG #109) — `window.open()`,
   `target="_blank"` links, and **middle-click / Ctrl-click (⌘-click)** on any
   link now open as **new Flux tabs**. Previously they silently did nothing —

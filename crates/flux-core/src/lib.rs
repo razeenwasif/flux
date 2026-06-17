@@ -23,6 +23,7 @@ pub mod notes;
 pub mod https;
 pub mod netfilter;
 pub mod omni;
+pub mod pdf;
 pub mod permissions;
 pub mod prefetch;
 pub mod screenshot;
@@ -380,6 +381,7 @@ pub fn run(intent: cli::LaunchIntent) {
             prefetch::prefetch_record,
             prefetch::prefetch_hints,
             prefetch::prefetch_set_pressure,
+            pdf::pdf_fetch,
             hibernate::hibernate_rank,
             leanmode::lean_status,
             leanmode::lean_set_enabled,

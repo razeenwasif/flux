@@ -222,7 +222,7 @@ mod win {
                 Ok(c) => c,
                 Err(_) => return,
             };
-            let handler = DownloadStartingEventHandler::create(Box::new(move |_sender, args| unsafe {
+            let handler = DownloadStartingEventHandler::create(Box::new(move |_sender, args| {
                 if let Some(args) = args {
                     on_starting(&app, &args);
                 }

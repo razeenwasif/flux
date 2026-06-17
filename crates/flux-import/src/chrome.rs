@@ -17,6 +17,8 @@ use crate::ImportError;
 /// Chrome user-data roots per platform, in priority order. Chromium and
 /// Brave/Edge variants are BACKLOG #25 — the formats are identical.
 fn user_data_roots() -> Vec<PathBuf> {
+    // Only the Linux/macOS roots use $HOME; Windows uses %LOCALAPPDATA%.
+    #[cfg(not(target_os = "windows"))]
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let mut roots = Vec::new();
     #[cfg(target_os = "linux")]

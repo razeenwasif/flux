@@ -238,7 +238,7 @@ mod win {
                 Ok(c) => c,
                 Err(_) => return,
             };
-            let handler = PermissionRequestedEventHandler::create(Box::new(move |_sender, args| unsafe {
+            let handler = PermissionRequestedEventHandler::create(Box::new(move |_sender, args| {
                 let Some(args) = args else { return Ok(()) };
                 let Some(state) = app.try_state::<PermState>() else { return Ok(()) };
 

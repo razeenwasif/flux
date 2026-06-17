@@ -29,6 +29,9 @@ import {
   TASKS_URL,
   SPEEDTEST_URL,
   PERMISSIONS_URL,
+  PDF_URL,
+  isPdfUrl,
+  pdfViewerUrl,
   PANE_SESSION,
   agentChat,
   agentChatTabs,
@@ -128,6 +131,7 @@ const ResourcesPage = lazy(() => import("./ResourcesPage"));
 const TasksPage = lazy(() => import("./TasksPage"));
 const SpeedtestPage = lazy(() => import("./SpeedtestPage"));
 const PermissionsPage = lazy(() => import("./PermissionsPage"));
+const PdfViewer = lazy(() => import("./PdfViewer"));
 import {
   activeId,
   activeTab,
@@ -405,7 +409,7 @@ const App: Component = () => {
     // Page-initiated new windows (window.open / target="_blank" / modified
     // click) → open as a Flux tab; background tabs don't steal focus.
     const unOpenUrl = await onOpenUrl((url, background) => {
-      void openTab("browser", url, false, background).catch(() => {});
+      void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {});
     });
     // Reader mode (#41): the injected extractor posts blocks back here.
     const unReader = await onReader((tabId, title, blocks) => openReader(tabId, title, blocks));
@@ -659,6 +663,8 @@ const App: Component = () => {
   // Start-page tabs have no webview yet, so the effect opens it once the url
   // becomes real; already-open tabs navigate in place.
   const go = (url: string) => {
+    // PDFs open in Flux's built-in viewer (#35) rather than the engine's.
+    if (isPdfUrl(url)) url = pdfViewerUrl(url);
     const tab = activeTab();
     if (tab?.kind !== "browser") {
       void openTab("browser", url);
@@ -2304,6 +2310,7 @@ const ContentArea: Component<{
                   updateTabUrl(id, p);
                   updateTabTitle(id, basename(p));
                 }}
+                onOpenInTab={props.onNavigate}
               />
             )}
           </Show>
@@ -2335,6 +2342,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === PERMISSIONS_URL}>
           <PermissionsPage />
+        </Match>
+        <Match when={activeTab()?.url?.startsWith(PDF_URL)}>
+          <PdfViewer />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage
