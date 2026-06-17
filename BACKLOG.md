@@ -183,6 +183,27 @@ further:
 | 87 | P2 | **Flux cross-links**: "Open terminal here" (new Terminal tab at cwd), "Open in browser", agent file actions (summarize/rename-by-content); preview pane (text/image/pdf) |
 | 88 | P2 | **Search within tree** (recursive, ranked by `flux-embed` #11) + fuzzy filename jump |
 
+## Epic: Research-driven optimization
+
+Top priorities distilled from a 40-paper survey of web-application + compiler
+optimization (synthesis in `research/RESEARCH.md`, index in
+`research/curated.json`). Framing constraint: Flux embeds the OS webview engine
+(V8 / JavaScriptCore) and **cannot patch its register allocator / JIT / GC**, so
+the shippable wins are at the network, blocking, caching, agent, and Rust-core
+layers — not inside the engine. Each item cites its paper(s) and the existing
+BACKLOG item it extends.
+
+| # | P | Item |
+|---|---|---|
+| 99 | P1 | **Hot/cold filter tiering** (extends #57): ~90% of EasyList rules never fire (arXiv 1810.09160). Split shields into a small **synchronous hot set** (rules observed to match) + an **async cold long-tail** checked off the request critical path; promote cold→hot on first match. Paper: ~62% lower per-request cost at >99% coverage — a direct latency + RAM win for the request-interception layer (#91). |
+| 100 | P1 | **HTTP/3 + QUIC + 0-RTT, fewer connections** (network): ensure webviews negotiate H3; prefer **DoQ over DoH** with **connection coalescing** (resolve + content on one QUIC connection) + 0-RTT to erase the encrypted-DNS latency tax (arXiv 2102.12358, 2306.11643: DoH adds >30% desktop / >50% mobile load time; coalescing recovers 1/3–1/2). Lands first on the Windows/WebView2 build (WebKitGTK H3 is weaker). Shields cutting third-party domains (#57) compound the win. |
+| 101 | P1 | **TTL/LRU cache for expensive recomputes** (core): in-memory TTL cache yields 90–95% response-time cuts on repeats (arXiv 2602.06074, 2104.15098). Cache compiled filter-rule sets, favicon/metadata, per-site settings, and repeated local-LLM prompt results in the Rust core; persist the durable ones to disk so they survive restart. |
+| 102 | P1 | **Speculative decoding for the local agent** (extends #82): draft-then-verify gives ~5× lossless LLM speedup (arXiv 2203.16487; relaxed top-β acceptance). Pair a tiny draft model with Gemma via Ollama/llama.cpp — trade a little RAM for big latency cuts on CPU / low-end GPU. Also: INT8/INT4 quantization (arXiv 2210.15016) for the low-RAM goal. |
+| 103 | P2 | **Confidence-gated predictive prefetch** (ties #70, #45): model next-navigation / next-resource as a **per-origin Markov chain with LFU-decayed counts** (arXiv 1906.00877); preconnect/prefetch only transitions above a probability threshold, scale depth by how often a link is actually followed (arXiv 1505.03899), and **back off under RAM/bandwidth pressure** (arXiv 2602.04100). Wire the back-off into the resource governor (#70). |
+| 104 | P2 | **Accessibility-tree-first agent + Rust safety guards** (extends #8, #82): use the webview **accessibility tree** as the agent's primary page representation (cheap, low-token) instead of screenshots; add **versioned element refs** (`snapshot_ver:elem_ref`) to fail safe on stale DOM; enforce **destructive-action guards in the Rust execution layer** (block "delete"/"refund" clicks — prompt injection is unsolved, so guards live in Rust, not the prompt); batch tool actions. Paper: ~85% task success vs ~50% (arXiv 2511.19477). |
+| 105 | P2 | **Per-site dead-JS "lean mode"** (perf): ~70% of page functions are never called (arXiv 2106.08948, 2308.16729). Optional mode that, via the webview DevTools/CDP protocol, trims/lazy-loads unused JS → ~60% smaller JS, ~30% faster load on low-end machines; conservative empty-body/lazy-load defaults with a **screenshot-diff correctness oracle** (arXiv 1803.01683). Higher effort / research-y. |
+| 106 | P2 | **Energy as a first-class metric + smarter hibernation eviction** (ties #45, #70): frame dark mode + shields + hibernation as **battery** features and measure energy per scenario (arXiv 2205.11399, 2304.01646 — blocking measurably cuts CPU/network energy). Rank hibernation candidates by **Belady / predicted-next-focus** (recency + Markov, arXiv 1202.5539) rather than plain LRU; consider **rematerialization** (discard a sleeping tab's cached render, recompute on wake) when RAM is tighter than recompute cost. |
+
 ## Decisions wanted (not yet scheduled)
 
 - ✅ **Search backend** (#68, done): `flux-search` ships a template-based engine

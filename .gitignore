@@ -50,3 +50,7 @@ flux-shell-default.png
 
 # Windows Mark-of-the-Web alternate-data-stream metadata (illegal paths on NTFS)
 *:Zone.Identifier
+
+# Research corpus: keep the synthesis (RESEARCH.md) + metadata in the repo,
+# but not the ~79 MB of downloaded PDFs (re-fetchable from arXiv via curated.json).
+/research/papers/

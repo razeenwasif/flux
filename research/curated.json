@@ -1,0 +1,322 @@
+[
+ {
+  "id": "2404.12621v2",
+  "base": "2404.12621",
+  "title": "Research on WebAssembly Runtimes: A Survey",
+  "summary": "WebAssembly (abbreviated as Wasm) was initially introduced for the Web but quickly extended its reach into various domains beyond the Web. To create Wasm applications, developers can compile high-level programming languages into Wasm binaries or manually convert equivalent textual formats into Wasm binaries. Regardless of whether it is utilized within or outside the Web, the execution of Wasm binaries is supported by the Wasm runtime. Such a runtime provides a secure, memory-efficient, and sandboxed execution environment designed explicitly for Wasm applications. This paper provides a comprehensive survey of research on WebAssembly runtimes. It covers 98 articles on WebAssembly runtimes and characterizes existing studies from two different angles, including the \"internal\" research of Wasm runtimes(Wasm runtime design, testing, and analysis) and the \"external\" research(applying Wasm runtimes to various domains). This paper also proposes future research directions about WebAssembly runtimes.",
+  "topic": "WebAssembly optimization runtime",
+  "file": "papers/2404.12621-research-on-webassembly-runtimes-a-survey.pdf"
+ },
+ {
+  "id": "1803.01683v1",
+  "base": "1803.01683",
+  "title": "Investigating the Evolvability of Web Page Load Time",
+  "summary": "Client-side Javascript execution environments (browsers) allow anonymous functions and event-based programming concepts such as callbacks. We investigate whether a mutate-and-test approach can be used to optimise web page load time in these environments. First, we characterise a web page load issue in a benchmark web page and derive performance metrics from page load event traces. We parse Javascript source code to an AST and make changes to method calls which appear in a web page load event trace. We present an operator based solely on code deletion and evaluate an existing \"community-contributed\" performance optimising code transform. By exploring Javascript code changes and exploiting combinations of non-destructive changes, we can optimise page load time by 41% in our benchmark web page.",
+  "topic": "web page load latency optimization",
+  "file": "papers/1803.01683-investigating-the-evolvability-of-web-page-load-ti.pdf"
+ },
+ {
+  "id": "2109.03032v2",
+  "base": "2109.03032",
+  "title": "A Just-In-Time Networking Framework for Minimizing Request-Response Latency of Wireless Time-Sensitive Applications",
+  "summary": "This paper puts forth a networking paradigm, referred to as just-in-time (JIT) communication, to support client-server applications with stringent request-response latency requirement. Of interest is not just the round-trip delay of the network, but the actual request-response latency experienced by the application. The JIT framework contains two salient features. At the client side, the communication layer will 'pull' a request from the client just when there is an upcoming transmission opportunity from the network. This ensures that the request contains information that is as fresh as possible (e.g., a sensor reading obtained just before the transmission opportunity). At the server side, the network ascertains that the server, after receiving and processing the request to generate a response (e.g., a control command to be sent to the client), will have a transmission opportunity at just this time. We realize the JIT system, including the protocol stack, over a Time-Division-Multiple-Access (TDMA) network implemented on a System-on-Chip (SoC) platform. We prove that a TDMA network with a power-of-2 time slots per superframe is optimal for realizing the server-side JIT function. Our experimental results validate that JIT networks can yield significantly lower request-response latency than networks without JIT support can.",
+  "topic": "just-in-time compilation speculative",
+  "file": "papers/2109.03032-a-just-in-time-networking-framework-for-minimizing.pdf"
+ },
+ {
+  "id": "2304.01646v3",
+  "base": "2304.01646",
+  "title": "Energy-Saving Strategies for Mobile Web Apps and their Measurement: Results from a Decade of Research",
+  "summary": "In 2022, over half of the web traffic was accessed through mobile devices. By reducing the energy consumption of mobile web apps, we can not only extend the battery life of our devices, but also make a significant contribution to energy conservation efforts. For example, if we could save only 5% of the energy used by web apps, we estimate that it would be enough to shut down one of the nuclear reactors in Fukushima. This paper presents a comprehensive overview of energy-saving experiments and related approaches for mobile web apps, relevant for researchers and practitioners. To achieve this objective, we conducted a systematic literature review and identified 44 primary studies for inclusion. Through the mapping and analysis of scientific papers, this work contributes: (1) an overview of the energy-draining aspects of mobile web apps, (2) a comprehensive description of the methodology used for the energy-saving experiments, and (3) a categorization and synthesis of various energy-saving approaches.",
+  "topic": "energy efficiency web browser mobile",
+  "file": "papers/2304.01646-energy-saving-strategies-for-mobile-web-apps-and-t.pdf"
+ },
+ {
+  "id": "2205.11399v1",
+  "base": "2205.11399",
+  "title": "Energy Efficiency of Web Browsers in the Android Ecosystem",
+  "summary": "This paper presents an empirical study regarding the energy consumption of the most used web browsers on the Android ecosystem. In order to properly compare the web browsers in terms of energy consumption, we defined a set of typical usage scenarios to be replicated in the different browsers, executed in the same testing environment and conditions. The results of our study show that there are significant differences in terms of energy consumption among the considered browsers. Furthermore, we conclude that some browsers are energy efficient in several user actions, but energy greedy in other ones, allowing us to conclude that no browser is universally more efficient for all usage scenarios.",
+  "topic": "energy efficiency web browser mobile",
+  "file": "papers/2205.11399-energy-efficiency-of-web-browsers-in-the-android-e.pdf"
+ },
+ {
+  "id": "2602.06074v1",
+  "base": "2602.06074",
+  "title": "Experimental Analysis of Server-Side Caching for Web Performance",
+  "summary": "Performance in web applications is a key aspect of user experience and system scalability. Among the different techniques used to improve web application performance, caching has been widely used. While caching has been widely explored in web performance optimization literature, there is a lack of experimental work that explores the effect of simple inmemory caching in small-scale web applications. This paper fills this research gap by experimentally comparing the performance of two server-side web application configurations: one without caching and another with in-memory caching and a fixed time-tolive. The performance evaluation was conducted using a lightweight web server framework, and response times were measured using repeated HTTP requests under identical environmental conditions. The results show a significant reduction in response time for cached requests, and the findings of this paper provide valuable insights into the effectiveness of simple server-side caching in improving web application performance making it suitable for educational environments and small-scale web applications where simplicity and reproducibility are critical.",
+  "topic": "service worker caching web",
+  "file": "papers/2602.06074-experimental-analysis-of-server-side-caching-for-w.pdf"
+ },
+ {
+  "id": "2308.16729v1",
+  "base": "2308.16729",
+  "title": "JavaScript Dead Code Identification, Elimination, and Empirical Assessment",
+  "summary": "Web apps are built by using a combination of HTML, CSS, and JavaScript. While building modern web apps, it is common practice to make use of third-party libraries and frameworks, as to improve developers' productivity and code quality. Alongside these benefits, the adoption of such libraries results in the introduction of JavaScript dead code, i.e., code implementing unused functionalities. The costs for downloading and parsing dead code can negatively contribute to the loading time and resource usage of web apps. The goal of our study is two-fold. First, we present Lacuna, an approach for automatically detecting and eliminating JavaScript dead code from web apps. The proposed approach supports both static and dynamic analyses, it is extensible and can be applied to any JavaScript code base, without imposing constraints on the coding style or on the use of specific JavaScript constructs. Secondly, by leveraging Lacuna we conduct an experiment to empirically evaluate the run-time overhead of JavaScript dead code in terms of energy consumption, performance, network usage, and resource usage in the context of mobile web apps. We applied Lacuna four times on 30 mobile web apps independently developed by third-party developers, each time eliminating dead code according to a different optimization level provided by Lacuna. Afterward, each different version of the web app is executed on an Android device, while collecting measures to assess the potential run-time overhead caused by dead code. Experimental results, among others, highlight that the removal of JavaScript dead code has a positive impact on the loading time of mobile web apps, while significantly reducing the number of bytes transferred over the network.",
+  "topic": "tree shaking dead code elimination JavaScript",
+  "file": "papers/2308.16729-javascript-dead-code-identification-elimination-an.pdf"
+ },
+ {
+  "id": "2106.08948v1",
+  "base": "2106.08948",
+  "title": "Muzeel: A Dynamic JavaScript Analyzer for Dead Code Elimination in Today's Web",
+  "summary": "JavaScript contributes to the increasing complexity of today's web. To support user interactivity and accelerate the development cycle, web developers heavily rely on large general-purpose third-party JavaScript libraries. This practice increases the size and the processing complexity of a web page by bringing additional functions that are not used by the page but unnecessarily downloaded and processed by the browser. In this paper, an analysis of around 40,000 web pages shows that 70% of JavaScript functions on the median page are unused, and the elimination of these functions would contribute to the reduction of the page size by 60%. Motivated by these findings, we propose Muzeel (which means eliminator in Arabic); a solution for eliminating JavaScript functions that are not used in a given web page (commonly referred to as dead code). Muzeel extracts all of the page event listeners upon page load, and emulates user interactions using a bot that triggers each of these events, in order to eliminate the dead code of functions that are not called by any of these events. Our evaluation results spanning several Android mobile phones and browsers show that Muzeel speeds up the page load by around 30% on low-end phones, and by 25% on high-end phones under 3G network. It also reduces the speed index (which is an important user experience metric) by 23% and 21% under the same network on low-end, and high-end phones, respectively. Additionally, Muzeel reduces the overall download size while maintaining the visual content and interactive functionality of the pages.",
+  "topic": "tree shaking dead code elimination JavaScript",
+  "file": "papers/2106.08948-muzeel-a-dynamic-javascript-analyzer-for-dead-code.pdf"
+ },
+ {
+  "id": "2506.11076v1",
+  "base": "2506.11076",
+  "title": "DCE-LLM: Dead Code Elimination with Large Language Models",
+  "summary": "Dead code introduces several challenges in software development, such as increased binary size and maintenance difficulties. It can also obscure logical errors and be exploited for obfuscation in malware. For LLM-based code-related tasks, dead code introduces vulnerabilities that can mislead these models, raising security concerns. Although modern compilers and IDEs offer dead code elimination, sophisticated patterns can bypass these tools. A universal approach that includes classification, location, explanation, and correction is needed, yet current tools often require significant manual effort. We present DCE-LLM, a framework for automated dead code elimination using a small CodeBERT model with an attribution-based line selector to efficiently locate suspect code. LLMs then generate judgments and explanations, fine-tuned on a large-scale, annotated dead code dataset to provide detailed explanations and patches. DCE-LLM outperforms existing tools, with advanced unreachability detection, automated correction, and support for multiple programming languages. Experimental results show DCE-LLM achieves over 94% F1 scores for unused and unreachable code, significantly surpassing GPT-4o by 30%.",
+  "topic": "tree shaking dead code elimination JavaScript",
+  "file": "papers/2506.11076-dce-llm-dead-code-elimination-with-large-language.pdf"
+ },
+ {
+  "id": "2202.08409v5",
+  "base": "2202.08409",
+  "title": "Million.js: A Fast Compiler-Augmented Virtual DOM for the Web",
+  "summary": "Interactive web applications created with declarative JavaScript User Interface (UI) libraries have increasingly dominated the modern internet. However, existing libraries are primarily made for run-time execution, and rely on the user to load and render web applications. This led us to create Million.js, a fast compiler-augmented virtual Document Object Model (DOM) for the web. Million.js reduces load time and time-to-interactive by creating a compiler to compute interactive regions of a web application before the user visits the page. The virtual DOM run-time optimizes interactive content through compiler flags, compute batching, scheduling, and reactive data primitives to achieve optimal performance. When benchmarked against the most popular virtual DOM libraries, Million.js resulted in 133% to 300% faster rendering and 2347\\% faster load. In a real-world web application with both comparative benchmarks and an informal user study, Million.js loaded 35.11% faster after migrating from React. The findings show that web applications have the potential to be orders of magnitude faster through JavaScript UI libraries that use Million.js.",
+  "topic": "incremental rendering virtual DOM",
+  "file": "papers/2202.08409-million-js-a-fast-compiler-augmented-virtual-dom-f.pdf"
+ },
+ {
+  "id": "2102.12358v2",
+  "base": "2102.12358",
+  "title": "Measuring HTTP/3: Adoption and Performance",
+  "summary": "The third version of the Hypertext Transfer Protocol (HTTP) is currently in its final standardization phase by the IETF. Besides better security and increased flexibility, it promises benefits in terms of performance. HTTP/3 adopts a more efficient header compression schema and replaces TCP with QUIC, a transport protocol carried over UDP, originally proposed by Google and currently under standardization too. Although HTTP/3 early implementations already exist and some websites announce its support, it has been subject to few studies. In this work, we provide a first measurement study on HTTP/3. We testify how, during 2020, it has been adopted by some of the leading Internet companies such as Google, Facebook and Cloudflare. We run a large-scale measurement campaign toward thousands of websites adopting HTTP/3, aiming at understanding to what extent it achieves better performance than HTTP/2. We find that adopting websites often host most web page objects on third-party servers, which support only HTTP/2 or even HTTP/1.1. Our experiments show that HTTP/3 provides sizable benefits only in scenarios with high latency or very poor bandwidth. Despite the adoption of QUIC, we do not find benefits in case of high packet loss, but we observe large diversity across website providers' infrastructures.",
+  "topic": "HTTP/2 HTTP/3 QUIC web latency",
+  "file": "papers/2102.12358-measuring-http-3-adoption-and-performance.pdf"
+ },
+ {
+  "id": "2306.11643v2",
+  "base": "2306.11643",
+  "title": "On Cross-Layer Interactions of QUIC, Encrypted DNS and HTTP/3: Design, Evaluation and Dataset",
+  "summary": "Every Web session involves a DNS resolution. While, in the last decade, we witnessed a promising trend towards an encrypted Web in general, DNS encryption has only recently gained traction with the standardisation of DNS over TLS (DoT) and DNS over HTTPS (DoH). Meanwhile, the rapid rise of QUIC deployment has now opened up an exciting opportunity to utilise the same protocol to not only encrypt Web communications, but also DNS. In this paper, we evaluate this benefit of using QUIC to coalesce name resolution via DNS over QUIC (DoQ), and Web content delivery via HTTP/3 (H3) with 0-RTT. We compare this scenario using several possible combinations where H3 is used in conjunction with DoH and DoQ, as well as the unencrypted DNS over UDP (DoUDP). We observe, that when using H3 1-RTT, page load times with DoH can get inflated by $>$30\\% over fixed-line and by $>$50\\% over mobile when compared to unencrypted DNS with DoUDP. However, this cost of encryption can be drastically reduced when encrypted connections are coalesced (DoQ + H3 0-RTT), thereby reducing the page load times by 1/3 over fixed-line and 1/2 over mobile, overall making connection coalescing with QUIC the best option for encrypted communication on the Internet.",
+  "topic": "HTTP/2 HTTP/3 QUIC web latency",
+  "file": "papers/2306.11643-on-cross-layer-interactions-of-quic-encrypted-dns.pdf"
+ },
+ {
+  "id": "2104.15098v2",
+  "base": "2104.15098",
+  "title": "Fast Compilation and Execution of SQL Queries with WebAssembly",
+  "summary": "Interpreted execution of queries, as in the vectorized model, suffers from interpretation overheads. By compiling queries this interpretation overhead is eliminated at the cost of a compilation phase that delays execution, sacrificing latency for throughput. For short-lived queries, minimizing latency is important, while for long-running queries throughput outweighs latency. Because neither a purely interpretive model nor a purely compiling model can provide low latency and high throughput, adaptive solutions emerged. Adaptive systems seamlessly transition from interpreted to compiled execution, achieving low latency for short-lived queries and high throughput for long-running queries. However, these adaptive systems pose an immense development effort and require expert knowledge in both interpreter and compiler design. In this work, we investigate query execution by compilation to WebAssembly. We are able to compile even complex queries in less than a millisecond to machine code with near-optimal performance. By delegating execution of WebAssembly to the V8 engine, we are able to seamlessly transition from rapidly compiled yet non-optimized code to thoroughly optimized code during execution. Our approach provides both low latency and high throughput, is adaptive out of the box, and is straight forward to implement. The drastically reduced compilation times even enable us to explore generative programming of library code, that is fully inlined by construction. Our experimental evaluation confirms that our approach yields competitive and sometimes superior performance.",
+  "topic": "ahead-of-time WebAssembly compilation",
+  "file": "papers/2104.15098-fast-compilation-and-execution-of-sql-queries-with.pdf"
+ },
+ {
+  "id": "2412.20258v1",
+  "base": "2412.20258",
+  "title": "Reusing Legacy Code in WebAssembly: Key Challenges of Cross-Compilation and Code Semantics Preservation",
+  "summary": "WebAssembly (Wasm) has emerged as a powerful technology for executing high-performance code and reusing legacy code in web browsers. With its increasing adoption, ensuring the reliability of WebAssembly code becomes paramount. In this paper, we investigate how well WebAssembly compilers fulfill code reusability. Specifically, we inquire (1) what challenges arise when cross-compiling a high-level language codebase into WebAssembly and (2) how faithfully WebAssembly compilers preserve code semantics in this new binary. Through a study on 115 open-source codebases, we identify the key challenges in cross-compiling legacy C/C++ code into WebAssembly, highlighting the risks of silent miscompilation and compile-time errors. We categorize these challenges based on their root causes and propose corresponding solutions. We then introduce a differential testing approach, implemented in a framework named WasmChecker, to investigate the semantics equivalency of code between native x86-64 and WebAssembly binaries. Using WasmChecker, we provide a witness that WebAssembly compilers do not necessarily preserve code semantics when cross-compiling high-level language code into WebAssembly due to different implementations of standard libraries, unsupported system calls/APIs, WebAssembly's unique features, and compiler bugs. Furthermore, we have identified 11 new bugs in the Emscripten compiler toolchain, all confirmed by Emscripten developers. As proof of concept, we make our framework and the collected dataset of open-source codebases publicly available.",
+  "topic": "ahead-of-time WebAssembly compilation",
+  "file": "papers/2412.20258-reusing-legacy-code-in-webassembly-key-challenges.pdf"
+ },
+ {
+  "id": "2506.16048v1",
+  "base": "2506.16048",
+  "title": "WAMI: Compilation to WebAssembly through MLIR without Losing Abstraction",
+  "summary": "WebAssembly (Wasm) is a portable bytecode format that serves as a compilation target for high-level languages, enabling their secure and efficient execution across diverse platforms, including web browsers and embedded systems. To improve support for high-level languages without incurring significant code size or performance overheads, Wasm continuously evolves by integrating high-level features such as Garbage Collection and Stack Switching. However, existing compilation approaches either lack reusable design -- requiring redundant implementation efforts for each language -- or lose abstraction by lowering high-level constructs into low-level shared representations like LLVM IR, which hinder the adoption of high-level features. MLIR compiler infrastructure provides the compilation pipeline with multiple levels of abstraction, preserving high-level abstractions throughout the compilation pipeline, yet the current MLIR pipeline relies on the LLVM backend for Wasm code generation, thereby inheriting LLVM's limitations. This paper presents a novel compilation pipeline for Wasm, featuring Wasm dialects explicitly designed to represent high-level Wasm constructs within MLIR. Our approach enables direct generation of high-level Wasm code from corresponding high-level MLIR dialects without losing abstraction, providing a modular and extensible way to incorporate high-level Wasm features. We illustrate this extensibility through a case study that leverages Stack Switching, a recently introduced high-level feature of Wasm. Performance evaluations on PolyBench benchmarks show that our pipeline, benefiting from optimizations within the MLIR and Wasm ecosystems, produces code with at most 7.7\\% slower, and faster in some execution environments, compared to LLVM-based compilers.",
+  "topic": "ahead-of-time WebAssembly compilation",
+  "file": "papers/2506.16048-wami-compilation-to-webassembly-through-mlir-witho.pdf"
+ },
+ {
+  "id": "2111.01421v1",
+  "base": "2111.01421",
+  "title": "The Security Risk of Lacking Compiler Protection in WebAssembly",
+  "summary": "WebAssembly is increasingly used as the compilation target for cross-platform applications. In this paper, we investigate whether one can rely on the security measures enforced by existing C compilers when compiling C programs to WebAssembly. We compiled 4,469 C programs with known buffer overflow vulnerabilities to x86 code and to WebAssembly, and observed the outcome of the execution of the generated code to differ for 1,088 programs. Through manual inspection, we identified that the root cause for these is the lack of security measures such as stack canaries in the generated WebAssembly: while x86 code crashes upon a stack-based buffer overflow, the corresponding WebAssembly continues to be executed. We conclude that compiling an existing C program to WebAssembly without additional precautions may hamper its security, and we encourage more research in this direction.",
+  "topic": "ahead-of-time WebAssembly compilation",
+  "file": "papers/2111.01421-the-security-risk-of-lacking-compiler-protection-i.pdf"
+ },
+ {
+  "id": "1810.09160v3",
+  "base": "1810.09160",
+  "title": "Who Filters the Filters: Understanding the Growth, Usefulness and Efficiency of Crowdsourced Ad Blocking",
+  "summary": "Ad and tracking blocking extensions are popular tools for improving web performance, privacy and aesthetics. Content blocking extensions typically rely on filter lists to decide whether a web request is associated with tracking or advertising, and so should be blocked. Millions of web users rely on filter lists to protect their privacy and improve their browsing experience. Despite their importance, the growth and health of filter lists are poorly understood. Filter lists are maintained by a small number of contributors, who use a variety of undocumented heuristics to determine what rules should be included. Lists quickly accumulate rules, and rules are rarely removed. As a result, users' browsing experiences are degraded as the number of stale, dead or otherwise not useful rules increasingly dwarf the number of useful rules, with no attenuating benefit. An accumulation of \"dead weight\" rules also makes it difficult to apply filter lists on resource-limited mobile devices. This paper improves the understanding of crowdsourced filter lists by studying EasyList, the most popular filter list. We find that EasyList has grown from several hundred rules, to well over 60,000 rules, during its 9-year history. We measure how EasyList affects web browsing by applying EasyList to a sample of 10,000 websites. We find that 90.16% of the resource blocking rules in EasyList provide no benefit to users in common browsing scenarios. We further use our changes in EasyList application rates to provide a taxonomy of the ways advertisers evade EasyList rules. Finally, we propose optimizations for popular ad-blocking tools, that allow EasyList to be applied on performance constrained mobile devices, and improve desktop performance by 62.5%, while preserving over 99% of blocking coverage.",
+  "topic": "content blocking ad filtering performance",
+  "file": "papers/1810.09160-who-filters-the-filters-understanding-the-growth-u.pdf"
+ },
+ {
+  "id": "2312.16457v2",
+  "base": "2312.16457",
+  "title": "City-on-Web: Real-time Neural Rendering of Large-scale Scenes on the Web",
+  "summary": "Existing neural radiance field-based methods can achieve real-time rendering of small scenes on the web platform. However, extending these methods to large-scale scenes still poses significant challenges due to limited resources in computation, memory, and bandwidth. In this paper, we propose City-on-Web, the first method for real-time rendering of large-scale scenes on the web. We propose a block-based volume rendering method to guarantee 3D consistency and correct occlusion between blocks, and introduce a Level-of-Detail strategy combined with dynamic loading/unloading of resources to significantly reduce memory demands. Our system achieves real-time rendering of large-scale scenes at approximately 32FPS with RTX 3060 GPU on the web and maintains rendering quality comparable to the current state-of-the-art novel view synthesis methods.",
+  "topic": "critical rendering path web performance",
+  "file": "papers/2312.16457-city-on-web-real-time-neural-rendering-of-large-sc.pdf"
+ },
+ {
+  "id": "2511.19477v1",
+  "base": "2511.19477",
+  "title": "Building Browser Agents: Architecture, Security, and Practical Solutions",
+  "summary": "Browser agents enable autonomous web interaction but face critical reliability and security challenges in production. This paper presents findings from building and operating a production browser agent. The analysis examines where current approaches fail and what prevents safe autonomous operation. The fundamental insight: model capability does not limit agent performance; architectural decisions determine success or failure. Security analysis of real-world incidents reveals prompt injection attacks make general-purpose autonomous operation fundamentally unsafe. The paper argues against developing general browsing intelligence in favor of specialized tools with programmatic constraints, where safety boundaries are enforced through code instead of large language model (LLM) reasoning. Through hybrid context management combining accessibility tree snapshots with selective vision, comprehensive browser tooling matching human interaction capabilities, and intelligent prompt engineering, the agent achieved approximately 85% success rate on the WebGames benchmark across 53 diverse challenges (compared to approximately 50% reported for prior browser agents and 95.7% human baseline).",
+  "topic": "browser performance optimization",
+  "file": "papers/2511.19477-building-browser-agents-architecture-security-and.pdf"
+ },
+ {
+  "id": "2011.05608v1",
+  "base": "2011.05608",
+  "title": "Efficient global register allocation",
+  "summary": "In a compiler, an essential component is the register allocator. Two main algorithms have dominated implementations, graph coloring and linear scan, differing in how live values are modeled. Graph coloring uses an edge in an `interference graph' to show that two values cannot reside in the same register. Linear scan numbers all values, creates intervals between definition and uses, and then intervals that do not overlap may be allocated to the same register. For both algorithms the liveness models are computed at considerable runtime and memory cost. Furthermore, these algorithms do little to improve code quality, where the target architecture and register coalescing are important concerns. We describe a new register allocation algorithm with lightweight implementation characteristics. The algorithm introduces a `future-active' set for values that will reside in a register later in the allocation. Registers are allocated and freed in the manner of linear scan, although other ordering heuristics could improve code quality or lower runtime cost. An advantageous property of the approach is an ability to make these trade-offs. A key result is the `future-active' set can remove any liveness model for over 90% of instructions and 80% of methods. The major contribution is the allocation algorithm that, for example, solves an inability of the similarly motivated Treescan register allocator to look ahead of the instruction being allocated - allowing an unconstrained allocation order, and an ability to better handle fixed registers and loop carried values. The approach also is not reliant on properties of SSA form, similar to the original linear scan work. An analysis is presented in a production compiler for Java code compiled through SSA form to Android dex files.",
+  "topic": "register allocation compiler",
+  "file": "papers/2011.05608-efficient-global-register-allocation.pdf"
+ },
+ {
+  "id": "1409.7628v3",
+  "base": "1409.7628",
+  "title": "Survey on Combinatorial Register Allocation and Instruction Scheduling",
+  "summary": "Register allocation (mapping variables to processor registers or memory) and instruction scheduling (reordering instructions to increase instruction-level parallelism) are essential tasks for generating efficient assembly code in a compiler. In the last three decades, combinatorial optimization has emerged as an alternative to traditional, heuristic algorithms for these two tasks. Combinatorial optimization approaches can deliver optimal solutions according to a model, can precisely capture trade-offs between conflicting decisions, and are more flexible at the expense of increased compilation time. This paper provides an exhaustive literature review and a classification of combinatorial optimization approaches to register allocation and instruction scheduling, with a focus on the techniques that are most applied in this context: integer programming, constraint programming, partitioned Boolean quadratic programming, and enumeration. Researchers in compilers and combinatorial optimization can benefit from identifying developments, trends, and challenges in the area; compiler practitioners may discern opportunities and grasp the potential benefit of applying combinatorial optimization.",
+  "topic": "register allocation compiler",
+  "file": "papers/1409.7628-survey-on-combinatorial-register-allocation-and-in.pdf"
+ },
+ {
+  "id": "1202.5539v1",
+  "base": "1202.5539",
+  "title": "Register Allocation By Model Transformer Semantics",
+  "summary": "Register allocation has long been formulated as a graph coloring problem, coloring the conflict graph with physical registers. Such a formulation does not fully capture the goal of the allocation, which is to minimize the traffic between registers and memory. Linear scan has been proposed as an alternative to graph coloring, but in essence, it can be viewed as a greedy algorithm for graph coloring: coloring the vertices not in the order of their degrees, but in the order of their occurence in the program. Thus it suffers from almost the same constraints as graph coloring. In this article, I propose a new method of register allocation based on the ideas of model transformer semantics (MTS) and static cache replacement (SCR). Model transformer semantics captures the semantics of registers and the stack. Static cache replacement relaxes the assumptions made by graph coloring and linear scan, aiming directly at reducing register-memory traffic. The method explores a much larger solution space than that of graph coloring and linear scan, thus providing more opportunities of optimization. It seamlessly performs live range splitting, an optimization found in extensions to graph coloring and linear scan. Also, it simplifies the compiler, and its semantics-based approach provides possibilities of simplifying the formal verification of compilers.",
+  "topic": "register allocation compiler",
+  "file": "papers/1202.5539-register-allocation-by-model-transformer-semantics.pdf"
+ },
+ {
+  "id": "2501.00655v1",
+  "base": "2501.00655",
+  "title": "Finding Missed Code Size Optimizations in Compilers using LLMs",
+  "summary": "Compilers are complex, and significant effort has been expended on testing them. Techniques such as random program generation and differential testing have proved highly effective and have uncovered thousands of bugs in production compilers. The majority of effort has been expended on validating that a compiler produces correct code for a given input, while less attention has been paid to ensuring that the compiler produces performant code. In this work we adapt differential testing to the task of identifying missed optimization opportunities in compilers. We develop a novel testing approach which combines large language models (LLMs) with a series of differential testing strategies and use them to find missing code size optimizations in C / C++ compilers. The advantage of our approach is its simplicity. We offload the complex task of generating random code to an off-the-shelf LLM, and use heuristics and analyses to identify anomalous compiler behavior. Our approach requires fewer than 150 lines of code to implement. This simplicity makes it extensible. By simply changing the target compiler and initial LLM prompt we port the approach from C / C++ to Rust and Swift, finding bugs in both. To date we have reported 24 confirmed bugs in production compilers, and conclude that LLM-assisted testing is a promising avenue for detecting optimization bugs in real world compilers.",
+  "topic": "loop optimization vectorization compiler",
+  "file": "papers/2501.00655-finding-missed-code-size-optimizations-in-compiler.pdf"
+ },
+ {
+  "id": "2407.03685v1",
+  "base": "2407.03685",
+  "title": "Verifying Peephole Rewriting In SSA Compiler IRs",
+  "summary": "There is an increasing need for domain-specific reasoning in modern compilers. This has fueled the use of tailored intermediate representations (IRs) based on static single assignment (SSA), like in the MLIR compiler framework. Interactive theorem provers (ITPs) provide strong guarantees for the end-to-end verification of compilers (e.g., CompCert). However, modern compilers and their IRs evolve at a rate that makes proof engineering alongside them prohibitively expensive. Nevertheless, well-scoped push-button automated verification tools such as the Alive peephole verifier for LLVM-IR gained recognition in domains where SMT solvers offer efficient (semi) decision procedures. In this paper, we aim to combine the convenience of automation with the versatility of ITPs for verifying peephole rewrites across domain-specific IRs. We formalize a core calculus for SSA-based IRs that is generic over the IR and covers so-called regions (nested scoping used by many domain-specific IRs in the MLIR ecosystem). Our mechanization in the Lean proof assistant provides a user-friendly frontend for translating MLIR syntax into our calculus. We provide scaffolding for defining and verifying peephole rewrites, offering tactics to eliminate the abstraction overhead of our SSA calculus. We prove correctness theorems about peephole rewriting, as well as two classical program transformations. To evaluate our framework, we consider three use cases from the MLIR ecosystem that cover different levels of abstractions: (1) bitvector rewrites from LLVM, (2) structured control flow, and (3) fully homomorphic encryption. We envision that our mechanization provides a foundation for formally verified rewrites on new domain-specific IRs.",
+  "topic": "superoptimization peephole compiler",
+  "file": "papers/2407.03685-verifying-peephole-rewriting-in-ssa-compiler-irs.pdf"
+ },
+ {
+  "id": "1611.05980v3",
+  "base": "1611.05980",
+  "title": "Precondition Inference for Peephole Optimizations in LLVM",
+  "summary": "Peephole optimizations are a common source of compiler bugs. Compiler developers typically transform an incorrect peephole optimization into a valid one by strengthening the precondition. This process is challenging and tedious. This paper proposes ALIVE-INFER, a data-driven approach that infers preconditions for peephole optimizations expressed in Alive. ALIVE-INFER generates positive and negative examples for an optimization, enumerates predicates on-demand, and learns a set of predicates that separate the positive and negative examples. ALIVE-INFER repeats this process until it finds a precondition that ensures the validity of the optimization. ALIVE-INFER reports both a weakest precondition and a set of succinct partial preconditions to the developer. Our prototype generates preconditions that are weaker than LLVM's preconditions for 73 optimizations in the Alive suite. We also demonstrate the applicability of this technique to generalize 54 optimization patterns generated by Souper, an LLVM~IR--based superoptimizer.",
+  "topic": "superoptimization peephole compiler",
+  "file": "papers/1611.05980-precondition-inference-for-peephole-optimizations.pdf"
+ },
+ {
+  "id": "2508.16125v2",
+  "base": "2508.16125",
+  "title": "LPO: Discovering Missed Peephole Optimizations with Large Language Models",
+  "summary": "Peephole optimization is an essential class of compiler optimizations that targets small, inefficient instruction sequences within programs. By replacing such suboptimal instructions with refined and more optimal sequences, these optimizations not only directly optimize code size and performance, but also enable more transformations in the subsequent optimization pipeline. Despite their importance, discovering new and effective peephole optimizations remains challenging due to the complexity and breadth of instruction sets. Prior approaches either lack scalability or have significant restrictions on the peephole optimizations that they can find. This paper introduces LPO, a novel automated framework to discover missed peephole optimizations. Our key insight is that, Large Language Models (LLMs) are effective at creative exploration but susceptible to hallucinations; conversely, formal verification techniques provide rigorous guarantees but struggle with creative discovery. By synergistically combining the strengths of LLMs and formal verifiers in a closed-loop feedback mechanism, LPO can effectively discover verified peephole optimizations that were previously missed. We comprehensively evaluated LPO within LLVM ecosystems. Our evaluation shows that LPO can successfully identify up to 22 out of 25 previously reported missed optimizations in LLVM. In contrast, the recently proposed superoptimizers for LLVM, Souper and Minotaur detected 15 and 3 of them, respectively. More importantly, within eleven months of development and intermittent testing, LPO found 62 missed peephole optimizations, of which 28 were confirmed and an additional 13 had already been fixed in LLVM. These results demonstrate LPO's strong potential to continuously uncover new optimizations as LLMs' reasoning improves.",
+  "topic": "superoptimization peephole compiler",
+  "file": "papers/2508.16125-lpo-discovering-missed-peephole-optimizations-with.pdf"
+ },
+ {
+  "id": "2101.01332v2",
+  "base": "2101.01332",
+  "title": "Equality Saturation for Tensor Graph Superoptimization",
+  "summary": "One of the major optimizations employed in deep learning frameworks is graph rewriting. Production frameworks rely on heuristics to decide if rewrite rules should be applied and in which order. Prior research has shown that one can discover more optimal tensor computation graphs if we search for a better sequence of substitutions instead of relying on heuristics. However, we observe that existing approaches for tensor graph superoptimization both in production and research frameworks apply substitutions in a sequential manner. Such sequential search methods are sensitive to the order in which the substitutions are applied and often only explore a small fragment of the exponential space of equivalent graphs. This paper presents a novel technique for tensor graph superoptimization that employs equality saturation to apply all possible substitutions at once. We show that our approach can find optimized graphs with up to 16% speedup over state-of-the-art, while spending on average 48x less time optimizing.",
+  "topic": "superoptimization equality saturation compiler",
+  "file": "papers/2101.01332-equality-saturation-for-tensor-graph-superoptimiza.pdf"
+ },
+ {
+  "id": "2505.09363v2",
+  "base": "2505.09363",
+  "title": "eqsat: An Equality Saturation Dialect for Non-destructive Rewriting",
+  "summary": "With recent algorithmic improvements and easy-to-use libraries, equality saturation is being picked up for hardware design, program synthesis, theorem proving, program optimization, and more. Existing work on using equality saturation for program optimization makes use of external equality saturation libraries such as egg, typically generating a single optimized expression. In the context of a compiler, such an approach uses equality saturation to replace a small number of passes. In this work, we propose an alternative approach that represents equality saturation natively in the compiler's intermediate representation, facilitating the application of constructive compiler passes that maintain the e-graph state throughout the compilation flow. We take LLVM's MLIR framework and propose a new MLIR dialect named eqsat that represents e-graphs in MLIR code. This not only provides opportunities to rethink e-matching and extraction techniques by orchestrating existing MLIR passes, such as common subexpression elimination, but also avoids translation overhead between the chosen e-graph library and MLIR. Our eqsat intermediate representation (IR) allows programmers to apply equality saturation on arbitrary domain-specific IRs using the same flow as other compiler transformations in MLIR.",
+  "topic": "superoptimization equality saturation compiler",
+  "file": "papers/2505.09363-eqsat-an-equality-saturation-dialect-for-non-destr.pdf"
+ },
+ {
+  "id": "2111.13040v2",
+  "base": "2111.13040",
+  "title": "Sketch-Guided Equality Saturation: Scaling Equality Saturation to Complex Optimizations of Functional Programs",
+  "summary": "Generating high-performance code for diverse hardware and application domains is challenging. Functional array programming languages with patterns like map and reduce have been successfully combined with term rewriting to define and explore optimization spaces. However, deciding what sequence of rewrites to apply is hard and has a huge impact on the performance of the rewritten program. Equality saturation avoids the issue by exploring many possible ways to apply rewrites, efficiently representing many equivalent programs in an e-graph data structure. Equality saturation has some limitations when rewriting functional language terms, as currently naive encodings of the lambda calculus are used. We present new techniques for encoding polymorphically typed lambda calculi, and show that the efficient encoding reduces the runtime and memory consumption of equality saturation by orders of magnitude. Moreover, equality saturation does not yet scale to complex compiler optimizations. These emerge from long rewrite sequences of thousands of rewrite steps, and may use pathological combinations of rewrite rules that cause the e-graph to quickly grow too large. This paper introduces \\emph{sketch-guided equality saturation}, a semi-automatic technique that allows programmers to provide program sketches to guide rewriting. Sketch-guided equality saturation is evaluated for seven complex matrix multiplication optimizations, including loop blocking, vectorization, and multi-threading. Even with efficient lambda calculus encoding, unguided equality saturation can locate only the two simplest of these optimizations, the remaining five are undiscovered even with an hour of compilation time and 60GB of RAM. By specifying three or fewer sketch guides all seven optimizations are found in seconds of compilation time, using under 1GB of RAM, and generating high performance code.",
+  "topic": "superoptimization equality saturation compiler",
+  "file": "papers/2111.13040-sketch-guided-equality-saturation-scaling-equality.pdf"
+ },
+ {
+  "id": "2411.09391v1",
+  "base": "2411.09391",
+  "title": "An Optimizing Just-In-Time Compiler for Rotor",
+  "summary": "The Shared Source CLI (SSCLI), also known as Rotor, is an implementation of the CLI released by Microsoft in source code. Rotor includes a single pass just-in-time compiler that generates non-optimized code for Intel IA-32 and IBM PowerPC processors. We extend Rotor with an optimizing just-in-time compiler for IA-32. This compiler has three passes: control flow graph generation, data dependence graph generation and final code generation. Dominance relations in the control flow graph are used to detect natural loops. A number of optimizations are performed during the generation of the data dependence graph. During native code generation, the rich address modes of IA-32 are used for instruction folding, reducing code size and usage of register names. Despite the overhead of three passes and optimizations, this compiler is only 1.4 to 1.9 times slower than the original SSCLI compiler and generates code that runs 6.4 to 10 times faster.",
+  "topic": "just-in-time compilation speculative",
+  "file": "papers/2411.09391-an-optimizing-just-in-time-compiler-for-rotor.pdf"
+ },
+ {
+  "id": "2202.13134v1",
+  "base": "2202.13134",
+  "title": "Preventing Timing Side-Channels via Security-Aware Just-In-Time Compilation",
+  "summary": "Recent work has shown that Just-In-Time (JIT) compilation can introduce timing side-channels to constant-time programs, which would otherwise be a principled and effective means to counter timing attacks. In this paper, we propose a novel approach to eliminate JIT-induced leaks from these programs. Specifically, we present an operational semantics and a formal definition of constant-time programs under JIT compilation, laying the foundation for reasoning about programs with JIT compilation. We then propose to eliminate JIT-induced leaks via a fine-grained JIT compilation for which we provide an automated approach to generate policies and a novel type system to show its soundness. We develop a tool DeJITLeak for Java based on our approach and implement the fine-grained JIT compilation in HotSpot. Experimental results show that DeJITLeak can effectively and efficiently eliminate JIT-induced leaks on three datasets used in side-channel detection",
+  "topic": "just-in-time compilation speculative",
+  "file": "papers/2202.13134-preventing-timing-side-channels-via-security-aware.pdf"
+ },
+ {
+  "id": "2210.15016v2",
+  "base": "2210.15016",
+  "title": "TPU-MLIR: A Compiler For TPU Using MLIR",
+  "summary": "Multi-level intermediate representations (MLIR) show great promise for reducing the cost of building domain-specific compilers by providing a reusable and extensible compiler infrastructure. This work presents TPU-MLIR, an end-to-end compiler based on MLIR that deploys pre-trained neural network (NN) models to a custom ASIC called a Tensor Processing Unit (TPU). TPU-MLIR defines two new dialects to implement its functionality: 1. a Tensor operation (TOP) dialect that encodes the deep learning graph semantics and independent of the deep learning framework and 2. a TPU kernel dialect to provide a standard kernel computation on TPU. A NN model is translated to the TOP dialect and then lowered to the TPU dialect for different TPUs according to the chip's configuration. We demonstrate how to use the MLIR pass pipeline to organize and perform optimization on TPU to generate machine code. The paper also presents a verification procedure to ensure the correctness of each transform stage.",
+  "topic": "superoptimization equality saturation compiler",
+  "file": "papers/2210.15016-tpu-mlir-a-compiler-for-tpu-using-mlir.pdf"
+ },
+ {
+  "id": "2602.04100v2",
+  "base": "2602.04100",
+  "title": "SPPAM: Signature Pattern Prediction and Access-Map Prefetcher",
+  "summary": "The discrepancy between processor speed and memory system performance continues to limit the performance of many workloads. To address the issue, one effective and well studied technique is cache prefetching. Many prefetching designs have been proposed, with varying approaches and effectiveness. For example, SPP is a popular prefetcher that leverages confidence throttled recursion to speculate on the future path of program's references, however it is very susceptible to the reference reordering of higher-level caches and the out-of-order core. Orthogonally, AMPM is another popular approach to prefetching which uses reordering-resistant access maps to identify patterns within a region, but is unable to speculate beyond that region. In this paper, we propose SPPAM, a new approach to prefetching, inspired by prior works such as SPP and AMPM, while addressing their limitations. SPPAM utilizes online-learning to build a set of access-map patterns. These patterns are used in a speculative lookahead which is throttled by a confidence metric. Targeting the second-level cache, SPPAM alongside state-of-the-art prefetchers Berti and Bingo improves system performance by 31.4% over no prefetching and 6.2% over the baseline of Berti and Pythia.",
+  "topic": "HTTP prefetching speculative loading",
+  "file": "papers/2602.04100-sppam-signature-pattern-prediction-and-access-map.pdf"
+ },
+ {
+  "id": "1505.03899v1",
+  "base": "1505.03899",
+  "title": "An Approach to Data Prefetching Using 2-Dimensional Selection Criteria",
+  "summary": "We propose an approach to data memory prefetching which augments the standard prefetch buffer with selection criteria based on performance and usage pattern of a given instruction. This approach is built on top of a pattern matching based prefetcher, specifically one which can choose between a stream, a stride, or a stream followed by a stride. We track the most recently called instructions to make a decision on the quantity of data to prefetch next. The decision is based on the frequency with which these instructions are called and the hit/miss rate of the prefetcher. In our approach, we separate the amount of data to prefetch into three categories: a high degree, a standard degree and a low degree. We ran tests on different values for the high prefetch degree, standard prefetch degree and low prefetch degree to determine that the most optimal combination was 1, 4, 8 lines respectively. The 2 dimensional selection criteria improved the performance of the prefetcher by up to 9.5% over the first data prefetching championship winner. Unfortunately performance also fell by as much as 14%, but remained similar on average across all of the benchmarks we tested.",
+  "topic": "HTTP prefetching speculative loading",
+  "file": "papers/1505.03899-an-approach-to-data-prefetching-using-2-dimensiona.pdf"
+ },
+ {
+  "id": "1906.00877v1",
+  "base": "1906.00877",
+  "title": "Pangloss: a novel Markov chain prefetcher",
+  "summary": "We present Pangloss, an efficient high-performance data prefetcher that approximates a Markov chain on delta transitions. With a limited information scope and space/logic complexity, it is able to reconstruct a variety of both simple and complex access patterns. This is achieved by a highly-efficient representation of the Markov chain to provide accurate values for transition probabilities. In addition, we have added a mechanism to reconstruct delta transitions originally obfuscated by the out-of-order execution or page transitions, such as when streaming data from multiple sources. Our single-level (L2) prefetcher achieves a geometric speedup of 1.7% and 3.2% over selected state-of-the-art baselines (KPCP and BOP). When combined with an equivalent for the L1 cache (L1 & L2), the speedups rise to 6.8% and 8.4%, and 40.4% over non-prefetch. In the multi-core evaluation, there seems to be a considerable performance improvement as well.",
+  "topic": "HTTP prefetching speculative loading",
+  "file": "papers/1906.00877-pangloss-a-novel-markov-chain-prefetcher.pdf"
+ },
+ {
+  "id": "2203.16487v6",
+  "base": "2203.16487",
+  "title": "Speculative Decoding: Exploiting Speculative Execution for Accelerating Seq2seq Generation",
+  "summary": "We propose Speculative Decoding (SpecDec), for the first time ever, to formally study exploiting the idea of speculative execution to accelerate autoregressive (AR) decoding. Speculative Decoding has two innovations: Spec-Drafter -- an independent model specially optimized for efficient and accurate drafting -- and Spec-Verification -- a reliable method for verifying the drafted tokens efficiently in the decoding paradigm. Experimental results on various seq2seq tasks including machine translation and abstractive summarization show our approach can achieve around $5\\times$ speedup for the popular Transformer architectures with comparable generation quality to beam search decoding, refreshing the impression that the draft-then-verify paradigm introduces only $1.4\\times$$\\sim$$2\\times$ speedup. In addition to the remarkable speedup, we also demonstrate 3 additional advantages of SpecDec, revealing its practical value for accelerating generative models in real-world applications. Our models and codes are available at https://github.com/hemingkx/SpecDec.",
+  "topic": "HTTP prefetching speculative loading",
+  "file": "papers/2203.16487-speculative-decoding-exploiting-speculative-execut.pdf"
+ },
+ {
+  "id": "2510.10302v2",
+  "base": "2510.10302",
+  "title": "SP-MoE: Speculative Decoding and Prefetching for Accelerating MoE-based Model Inference",
+  "summary": "The Mixture-of-Experts (MoE) architecture has been widely adopted in large language models (LLMs) to reduce computation cost through model sparsity. Employing speculative decoding (SD) can further accelerate MoE inference by drafting multiple tokens per step and verifying them in parallel. However, combining MoE with SD inflates GPU memory and aggravates CPU-GPU bandwidth contention during multi-token verification. Existing MoE offloading systems are SD-agnostic and do not address this bottleneck. We present SP-MoE, the first SD-aware expert-offloading and compute-communication pipelining framework. SP-MoE introduces: (1) speculative expert prefetching that exploits structural correspondence between the draft and target models to prefetch likely experts ahead of verification; (2) a cutoff-layer policy that bounds per-layer prefetch depth based on empirical profiles and an analytical latency model, guaranteeing just-in-time availability without overfetch; and (3) a pipelined runtime with asynchronous prefetch threads and batched I/O to hide loading latency. Extensive experiments demonstrate that SP-MoE achieves a 1.07-3.5 times TPOT speedup over state-of-the-art methods across diverse datasets, environments, and MoE-based models.",
+  "topic": "HTTP prefetching speculative loading",
+  "file": "papers/2510.10302-sp-moe-speculative-decoding-and-prefetching-for-ac.pdf"
+ },
+ {
+  "id": "2110.01098v2",
+  "base": "2110.01098",
+  "title": "Garbage Collection Makes Rust Easier to Use: A Randomized Controlled Trial of the Bronze Garbage Collector",
+  "summary": "Rust is a general-purpose programming language that is both type- and memory-safe. Rust does not use a garbage collector, but rather achieves these properties through a sophisticated, but complex, type system. Doing so makes Rust very efficient, but makes Rust relatively hard to learn and use. We designed Bronze, an optional, library-based garbage collector for Rust. To see whether Bronze could make Rust more usable, we conducted a randomized controlled trial with volunteers from a 633-person class, collecting data from 428 students in total. We found that for a task that required managing complex aliasing, Bronze users were more likely to complete the task in the time available, and those who did so required only about a third as much time (4 hours vs. 12 hours). We found no significant difference in total time, even though Bronze users re-did the task without Bronze afterward. Surveys indicated that ownership, borrowing, and lifetimes were primary causes of the challenges that users faced when using Rust.",
+  "topic": "garbage collection optimization runtime",
+  "file": "papers/2110.01098-garbage-collection-makes-rust-easier-to-use-a-rand.pdf"
+ },
+ {
+  "id": "2512.23768v2",
+  "base": "2512.23768",
+  "title": "Virtual Garbage Collector (VGC): A Zone-Based Garbage Collection Architecture for Python's Parallel Runtime",
+  "summary": "The Virtual Garbage Collector (VGC) proposes a zone-based memory management architecture aimed at improving execution predictability and memory behavior in Python runtimes. The design explores a dual-layer model consisting of an Active VGC, responsible for managing runtime object lifecycles, and a Passive VGC, intended as a compile-time optimization layer for static allocation planning. Rather than relying on traditional heap traversal or generational heuristics, VGC introduces memory zoning and checkpoint-based state evaluation to reduce allocation churn and constrain garbage collection scope. Execution partitioning is experimentally evaluated to isolate workloads and localize memory pressure, enabling more deterministic behavior under loop-intensive, recursive, and compute-heavy workloads. This work presents the architectural principles, execution model, and experimental observations of VGC within a partition-aware runtime context. While the full realization of the dual-layer design is an ongoing effort, the results indicate that zone-based allocation and partitioned execution provide a viable foundation for improving scalability and memory predictability in Python-oriented systems.",
+  "topic": "garbage collection optimization runtime",
+  "file": "papers/2512.23768-virtual-garbage-collector-vgc-a-zone-based-garbage.pdf"
+ },
+ {
+  "id": "1806.00834v2",
+  "base": "1806.00834",
+  "title": "Garbage Collection in Concurrent Sets",
+  "summary": "Garbage Collection in concurrent data structures, especially lock-free ones, pose multiple design and consistency challenges. In this instance, we consider the case of concurrent sets. A set is a collection of elements, where the elements are ordered and distinct. These two invariants are always maintained at every point in time. Currently, multiple implementations of concurrent sets already exist. LazyList, Hand-over-hand List and Harris List are some of the well-known implementations. However none of these implementations employ, or are concerned with garbage collection of deleted nodes. Instead each implementation ignores deleted nodes or depends on the garbage collector of the language to handle them. Additionally, Garbage collection in concurrent lists, that use optimistic traversals or that are lock-free, is not trivial. For example, in LazyList and Harris List, they allow a thread to traverse a node or a sequence of nodes after these nodes have already been removed from the list, and hence possibly deleted. If deleted nodes are to be reused, this will potentially lead to the ABA problem. Moreover, some languages like C++ do not have an inbuilt garbage collector. Some constructs like Shared Pointers provide a limited garbage collection facility, but it degrades performance by a large scale. Integrating Shared Pointers into a concurrent code is also not a trivial task. In this paper, we propose a new representation of a concurrent set, GCList, which employs inbuilt garbage collection. We propose a novel garbage collection scheme that implements in-built memory reclamation whereby it reuses deleted nodes from the list. We propose both lock-based and lock-free implementations of GCList. The garbage collection scheme works in parallel with the Set operations.",
+  "topic": "garbage collection optimization runtime",
+  "file": "papers/1806.00834-garbage-collection-in-concurrent-sets.pdf"
+ }
+]
