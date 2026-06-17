@@ -83,19 +83,25 @@ fn measure_ping(agent: &ureq::Agent) -> Result<(f64, f64), String> {
     Ok(ping_stats(&samples))
 }
 
-fn measure_download(agent: &ureq::Agent) -> Result<f64, String> {
+fn measure_download(agent: &ureq::Agent, progress: &impl Fn(&str, f64)) -> Result<f64, String> {
     let resp = agent.get(&format!("{DOWN_URL}?bytes={DOWN_BYTES}")).call().map_err(|e| e.to_string())?;
     let mut reader = resp.into_reader();
     let mut buf = [0u8; 65_536];
     let mut total = 0u64;
     let start = Instant::now();
+    let mut last_emit = 0.0;
     loop {
         let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 || start.elapsed().as_secs_f64() >= DOWN_MAX_SECS {
-            total += n as u64;
+        total += n as u64;
+        let elapsed = start.elapsed().as_secs_f64();
+        // Stream interim throughput ~4×/sec so the dial animates live.
+        if elapsed - last_emit >= 0.25 {
+            progress("download", mbps(total, elapsed));
+            last_emit = elapsed;
+        }
+        if n == 0 || elapsed >= DOWN_MAX_SECS {
             break;
         }
-        total += n as u64;
     }
     Ok(mbps(total, start.elapsed().as_secs_f64()))
 }
@@ -109,26 +115,34 @@ fn measure_upload(agent: &ureq::Agent) -> Result<f64, String> {
     Ok(mbps(UP_BYTES as u64, start.elapsed().as_secs_f64()))
 }
 
-/// Run the full test, calling `progress` with each phase name as it starts.
-fn run_test(agent: &ureq::Agent, progress: impl Fn(&str)) -> Result<SpeedResult, String> {
-    progress("ping");
+/// Live progress: the phase plus the instantaneous throughput (Mbps) where
+/// known (download), so the UI dial can animate. `mbps` is 0 for ping/upload.
+#[derive(Serialize, Clone, Debug)]
+pub struct Progress {
+    pub phase: String,
+    pub mbps: f64,
+}
+
+/// Run the full test, calling `progress(phase, mbps)` as it goes.
+fn run_test(agent: &ureq::Agent, progress: impl Fn(&str, f64)) -> Result<SpeedResult, String> {
+    progress("ping", 0.0);
     let (ping_ms, jitter_ms) = measure_ping(agent)?;
-    progress("download");
-    let download_mbps = measure_download(agent)?;
-    progress("upload");
+    progress("download", 0.0);
+    let download_mbps = measure_download(agent, &progress)?;
+    progress("upload", 0.0);
     let upload_mbps = measure_upload(agent)?;
-    progress("done");
+    progress("done", download_mbps);
     Ok(SpeedResult { ping_ms, jitter_ms, download_mbps, upload_mbps, server: SERVER.into() })
 }
 
 /// Run a speed test off the main thread, emitting `flux://netspeed-progress`
-/// (`"ping"` → `"download"` → `"upload"` → `"done"`) and returning the result.
+/// (`{phase, mbps}`: ping → download → upload → done) and returning the result.
 #[tauri::command]
 pub async fn netspeed_run(app: AppHandle) -> Result<SpeedResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let agent = build_agent();
-        run_test(&agent, |phase| {
-            let _ = app.emit("flux://netspeed-progress", phase);
+        run_test(&agent, |phase, mbps| {
+            let _ = app.emit("flux://netspeed-progress", Progress { phase: phase.into(), mbps });
         })
     })
     .await

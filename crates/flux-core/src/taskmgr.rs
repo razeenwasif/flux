@@ -85,6 +85,24 @@ impl TaskManager {
         out
     }
 
+    /// System-wide CPU + memory snapshot, for the live graphs. CPU% is the
+    /// delta since the previous call (0 on the very first call), averaged across
+    /// cores (0–100).
+    pub fn stats(&self) -> SysStats {
+        let mut sys = self.0.lock();
+        sys.refresh_cpu_usage();
+        sys.refresh_memory();
+        let total = sys.total_memory();
+        let used = total.saturating_sub(sys.available_memory());
+        SysStats {
+            cpu: sys.global_cpu_usage(),
+            mem_used_mb: used / 1_048_576,
+            mem_total_mb: total / 1_048_576,
+            mem_pct: if total > 0 { (used.saturating_mul(100) / total) as u32 } else { 0 },
+            cores: sys.cpus().len(),
+        }
+    }
+
     /// End a process by pid. Returns whether the signal was sent.
     pub fn kill(&self, pid: u32) -> bool {
         let mut sys = self.0.lock();
@@ -122,11 +140,27 @@ fn flux_tree(pairs: &[(u32, Option<u32>)], current: u32) -> HashSet<u32> {
     tree
 }
 
+/// System-wide CPU + memory, for the task-manager graphs.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct SysStats {
+    /// CPU usage % averaged across cores (0–100).
+    pub cpu: f32,
+    pub mem_used_mb: u64,
+    pub mem_total_mb: u64,
+    pub mem_pct: u32,
+    pub cores: usize,
+}
+
 // ─── Commands ────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn tasks_list(state: State<'_, TaskManager>) -> Vec<ProcInfo> {
     state.list()
+}
+
+#[tauri::command]
+pub fn tasks_stats(state: State<'_, TaskManager>) -> SysStats {
+    state.stats()
 }
 
 #[tauri::command]

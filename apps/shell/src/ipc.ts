@@ -544,6 +544,8 @@ export interface ProcInfo {
 }
 export const tasksList = () => invoke<ProcInfo[]>("tasks_list");
 export const tasksKill = (pid: number) => invoke<boolean>("tasks_kill", { pid });
+export interface SysStats { cpu: number; mem_used_mb: number; mem_total_mb: number; mem_pct: number; cores: number }
+export const tasksStats = () => invoke<SysStats>("tasks_stats");
 
 // ─── Network speed test (BACKLOG #108) ───────────────────────────────────────
 export const SPEEDTEST_URL = "flux://speedtest";
@@ -555,9 +557,11 @@ export interface SpeedResult {
   server: string;
 }
 export const netspeedRun = () => invoke<SpeedResult>("netspeed_run");
-/** Phase progress: "ping" → "download" → "upload" → "done". */
-export const onNetspeedProgress = (cb: (phase: string) => void): Promise<UnlistenFn> =>
-  listen<string>("flux://netspeed-progress", (e) => cb(e.payload));
+/** Live progress: phase ("ping"→"download"→"upload"→"done") + instantaneous
+ *  Mbps (0 for ping/upload) so the dial can animate during download. */
+export interface NetProgress { phase: string; mbps: number }
+export const onNetspeedProgress = (cb: (p: NetProgress) => void): Promise<UnlistenFn> =>
+  listen<NetProgress>("flux://netspeed-progress", (e) => cb(e.payload));
 
 // ─── Predictive prefetch (BACKLOG #103) ──────────────────────────────────────
 export interface PrefetchHint { host: string; confidence: number }
@@ -572,6 +576,8 @@ export const prefetchSetPressure = (on: boolean) => invoke<void>("prefetch_set_p
 /** Inject `<link rel=preconnect>` for predicted next hosts into the active page. */
 export const webviewPreconnect = (tabId: number, hosts: string[]) =>
   invoke<void>("webview_preconnect", { tabId, hosts });
+/** Open the devtools inspector for a tab's webview (F12). */
+export const webviewDevtools = (tabId: number) => invoke<void>("webview_devtools", { tabId });
 
 // ─── Belady/Markov hibernation ranking (BACKLOG #106) ────────────────────────
 export interface HibernateCandidate { tab_id: number; url: string; idle_secs: number }

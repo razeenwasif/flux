@@ -26,16 +26,24 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   leaves the engine's own prompt. The global "block camera/mic/geo" switch (#58)
   still overrides everything. _Follow-up:_ a Flux-styled prompt for the Ask case
   (needs a WebView2 deferral) + the WebKitGTK signal on the Linux backend.
+- **Devtools (F12)** — press **F12** (chrome- or page-focused) to open the
+  inspector for the active tab's webview. (Tauri `devtools` feature + a
+  `webview_devtools` command; forwarded from focused pages via `shortcuts.js`.)
+- **Quick bookmark** (BACKLOG #22) — a **★ star in the address bar** and
+  **Ctrl/⌘+D** bookmark (or un-bookmark) the current page; the star reflects
+  whether it's already saved. (Previously bookmarking was buried in the 🔖
+  Library popover.)
 - **Built-in task manager** (BACKLOG #107) — **`flux://tasks`** (⌘K "Open Task
-  manager"): a system-wide process monitor — name / CPU% / resident memory,
-  sortable, with one-click **end task**. **Flux's own process tree** (engine +
-  helper processes) is flagged by walking parent pids, and ending the main Flux
-  process asks for confirmation. Gives real per-process CPU/RAM, which the
-  per-tab resource monitor (#70) can't (engines share processes).
+  manager"): a system-wide process monitor with **live CPU & memory graphs** up
+  top and a sortable list (name / CPU% / resident memory) with one-click **end
+  task**. **Flux's own process tree** (engine + helper processes) is flagged by
+  walking parent pids, and ending the main Flux process asks for confirmation.
+  Gives real per-process CPU/RAM, which the per-tab resource monitor (#70) can't
+  (engines share processes).
 - **Network speed test** (BACKLOG #108) — **`flux://speedtest`** (⌘K "Network
-  speed test"): an Ookla-style download / upload / latency + jitter test against
-  Cloudflare's public speedtest backend (no API key). Shows live phase progress
-  (latency → download → upload) and the four metrics on completion.
+  speed test"): an Ookla-style test against Cloudflare's public speedtest backend
+  (no API key) with **animated dial gauges** for download / upload — the download
+  dial tracks live throughput as it streams — plus ping + jitter.
 - **Research-driven optimization pass** (BACKLOG #99–#106) — eight techniques
   distilled from the 40-paper survey (`research/RESEARCH.md`), implemented in the
   Rust core with unit tests (cache 7 · shields 5 · prefetch 6 · agent guard 4 ·

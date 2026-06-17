@@ -243,6 +243,16 @@ pub async fn webview_hide(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     Ok(())
 }
 
+/// Open the devtools inspector for a tab's webview (F12). Requires Tauri's
+/// `devtools` feature (enabled in Cargo.toml) so it works in release too.
+#[tauri::command]
+pub async fn webview_devtools(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&label(tab_id)) {
+        wv.open_devtools();
+    }
+    Ok(())
+}
+
 /// Speculative preconnect (BACKLOG #103): inject `<link rel="preconnect">` tags
 /// for the predicted next hosts into the active page, so the engine's own
 /// network stack opens DNS+TCP+TLS to them ahead of the likely next navigation.

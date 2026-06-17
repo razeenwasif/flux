@@ -500,6 +500,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       ] as T);
     case "tasks_kill":
       return Promise.resolve(true as T);
+    case "tasks_stats":
+      return Promise.resolve({ cpu: 23.5, mem_used_mb: 9800, mem_total_mb: 16384, mem_pct: 60, cores: 8 } as T);
     case "netspeed_run":
       return Promise.resolve({
         ping_ms: 14, jitter_ms: 3, download_mbps: 187.4, upload_mbps: 42.1, server: "speed.cloudflare.com",
