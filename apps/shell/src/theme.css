@@ -406,6 +406,9 @@ body.resizing .shell { transition: none !important; }
 /* Omnibox row: security badge + address pill + loading bar (BACKLOG #31). */
 .address-row { position: relative; display: flex; align-items: center; gap: 6px; }
 .address-row .address { flex: 1; min-width: 0; }
+/* Page-actions row beneath the address bar (bookmark / reader / capture / Omni). */
+.page-actions { display: flex; align-items: center; gap: 2px; margin-top: 5px; }
+.page-actions .icon-btn { font-size: 14px; }
 .sec { flex: none; font-size: 12px; line-height: 1; cursor: default; user-select: none; }
 /* Per-site zoom pill (#36) — shown in the address row when zoom ≠ 100%. */
 .zoom-pill {

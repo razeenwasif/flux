@@ -7,6 +7,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Changed / Fixed
+- **Page-action icons moved below the address bar** — the ★ bookmark, 📖 reader,
+  📸 capture, and ✦ save-to-Omni buttons now sit in their own row beneath the
+  address bar instead of inside the address pill.
+- **Tab right-click menu no longer clipped** — the context menu is clamped to the
+  chrome (left of the content card) so it can't spill under the native tab
+  webview (an OS layer the DOM can't z-index over). Applies to the tab and group
+  menus.
+
 ### Added
 - **New windows & "open in new tab"** (BACKLOG #109) — `window.open()`,
   `target="_blank"` links, and **middle-click / Ctrl-click (⌘-click)** on any

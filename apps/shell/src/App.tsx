@@ -1253,7 +1253,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
       const r = el.getBoundingClientRect();
       const pad = 8;
       let { x, y } = ctxPos();
-      if (x + r.width > window.innerWidth - pad) x = window.innerWidth - r.width - pad;
+      // The native tab webview is an OS layer ON TOP of the content card, so a
+      // DOM menu (any z-index) that spills over it gets covered — that's the
+      // "clipping". Keep the menu left of the content area so it stays within
+      // the chrome, where the DOM actually renders on top.
+      const webArea = document.getElementById("flux-web-area");
+      const rightBound = (webArea ? webArea.getBoundingClientRect().left : window.innerWidth) - pad;
+      if (x + r.width > rightBound) x = rightBound - r.width;
       if (y + r.height > window.innerHeight - pad) y = window.innerHeight - r.height - pad;
       el.style.left = `${Math.max(pad, x)}px`;
       el.style.top = `${Math.max(pad, y)}px`;
@@ -1585,28 +1591,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
               {Math.round(activeZoom() * 100)}%
             </button>
           </Show>
-          {/* Reader mode (#41) + capture (#54) — for real pages only. */}
-          <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
-            <button
-              type="button"
-              classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
-              title={props.isBookmarked() ? "Bookmarked — click to remove (Ctrl+D)" : "Bookmark this page (Ctrl+D)"}
-              onClick={() => props.onToggleBookmark()}
-            >
-              {props.isBookmarked() ? "★" : "☆"}
-            </button>
-            <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
-            <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
-          </Show>
-          {/* Save the current page into the Omni index (also Ctrl+Shift+O). */}
-          <button
-            type="button"
-            class="icon-btn"
-            title="Save this page to Omni (Ctrl+Shift+O)"
-            onClick={() => props.onSaveToOmni()}
-          >
-            ✦
-          </button>
           {/* Loading bar: lives in the sidebar, never under the native webview. */}
           <Show when={isLoading(activeId())}>
             <div class="addr-progress" />
@@ -1699,6 +1683,24 @@ const Sidebar: Component<SidebarProps> = (props) => {
             </div>
           </Show>
         </form>
+
+        {/* Page actions row — bookmark / reader / capture / save-to-Omni, below
+            the address bar (only for real web pages). */}
+        <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
+          <div class="page-actions">
+            <button
+              type="button"
+              classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
+              title={props.isBookmarked() ? "Bookmarked — click to remove (Ctrl+D)" : "Bookmark this page (Ctrl+D)"}
+              onClick={() => props.onToggleBookmark()}
+            >
+              {props.isBookmarked() ? "★" : "☆"}
+            </button>
+            <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
+            <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
+            <button type="button" class="icon-btn" title="Save this page to Omni (Ctrl+Shift+O)" onClick={() => props.onSaveToOmni()}>✦</button>
+          </div>
+        </Show>
 
         {/* Find-in-page (#33) — also sidebar-resident, for the same reason. */}
         <Show when={findOpen()}>
