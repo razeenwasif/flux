@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Agent model picker** (BACKLOG #81) — the Flux Agent header now shows the
+  active model and opens a dropdown of your locally-pulled **Ollama models**;
+  pick one to switch the agent **live** (no restart) — the choice persists. (Was
+  fixed to the `FLUX_MODEL` env var.)
 - **Per-page notes** (BACKLOG #53) — a footer **📝** popover holds a note tied to
   the current page's URL, **auto-saved locally** and restored when you revisit
   (clearing it deletes it). Nothing leaves your machine.

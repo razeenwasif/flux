@@ -467,6 +467,12 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(
         `(mock) Answering "${String(args?.prompt ?? "")}" across ${(args?.tabIds as number[] | undefined)?.length ?? 0} tabs.` as T,
       );
+    case "agent_models":
+      return Promise.resolve(["gemma4:12b-it-qat", "llama3.2:3b", "qwen2.5:7b"] as T);
+    case "agent_model":
+      return Promise.resolve("gemma4:12b-it-qat" as T);
+    case "agent_set_model":
+      return Promise.resolve(undefined as T);
     case "omni_search": {
       const q = String(args?.query ?? "");
       return Promise.resolve([

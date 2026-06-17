@@ -8,6 +8,7 @@
 //!
 //! Config (env): `FLUX_MODEL` (default `gemma4:12b-it-qat`), `FLUX_OLLAMA_URL`.
 
+use std::sync::RwLock;
 use std::time::Duration;
 
 use crate::{AgentError, Inference};
@@ -15,10 +16,47 @@ use crate::{AgentError, Inference};
 pub const DEFAULT_MODEL: &str = "gemma4:12b-it-qat";
 pub const DEFAULT_URL: &str = "http://localhost:11434";
 
+/// Runtime model override (BACKLOG #81). `None` → env `FLUX_MODEL` / the default.
+/// Set from Settings so the user can switch Ollama models without a restart.
+static MODEL: RwLock<Option<String>> = RwLock::new(None);
+
+fn endpoint() -> String {
+    std::env::var("FLUX_OLLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.into())
+}
+
+/// The model the agent will use right now.
+pub fn active_model() -> String {
+    MODEL
+        .read()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(|| std::env::var("FLUX_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.into()))
+}
+
+/// Switch the agent's model (empty → revert to the env/default).
+pub fn set_model(name: &str) {
+    if let Ok(mut g) = MODEL.write() {
+        *g = if name.trim().is_empty() { None } else { Some(name.to_string()) };
+    }
+}
+
+/// List models the local Ollama server has pulled (`/api/tags`). Empty if the
+/// server isn't reachable.
+pub fn list_models() -> Vec<String> {
+    let url = format!("{}/api/tags", endpoint());
+    let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(3)).build();
+    let Ok(resp) = agent.get(&url).call() else { return Vec::new() };
+    let Ok(value) = resp.into_json::<serde_json::Value>() else { return Vec::new() };
+    value
+        .get("models")
+        .and_then(|m| m.as_array())
+        .map(|arr| arr.iter().filter_map(|x| x.get("name").and_then(|n| n.as_str()).map(String::from)).collect())
+        .unwrap_or_default()
+}
+
 pub struct OllamaBackend {
     agent: ureq::Agent,
     endpoint: String,
-    model: String,
 }
 
 impl OllamaBackend {
@@ -31,13 +69,12 @@ impl OllamaBackend {
                 // …but allow many seconds for the model to actually generate.
                 .timeout_read(Duration::from_secs(180))
                 .build(),
-            endpoint: std::env::var("FLUX_OLLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.into()),
-            model: std::env::var("FLUX_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.into()),
+            endpoint: endpoint(),
         }
     }
 
-    pub fn model(&self) -> &str {
-        &self.model
+    pub fn model(&self) -> String {
+        active_model()
     }
 }
 
@@ -72,7 +109,7 @@ impl OllamaBackend {
         let resp = self
             .agent
             .post(&url)
-            .send_json(generate_body(&self.model, prompt, json))
+            .send_json(generate_body(&active_model(), prompt, json))
             .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
 
         let value: serde_json::Value = resp

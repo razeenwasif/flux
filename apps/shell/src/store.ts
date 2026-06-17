@@ -8,6 +8,8 @@ import { createStore } from "solid-js/store";
 import {
   darkmodeSet,
   navSet,
+  agentSetModel,
+  agentModel,
   faviconFetch,
   isStartUrl,
   groupCreate,
@@ -442,6 +444,21 @@ export function setMouseGestures(on: boolean): void {
 /** Apply the persisted nav toggles (call once on boot). */
 export function applyNav(): void {
   void navSet(vimHints(), mouseGestures()).catch(() => {});
+}
+
+// Agent model (#81): the chosen Ollama model, persisted; "" = env/default.
+const [agentModelName, setAgentModelRaw] = createSignal(localStorage.getItem("flux.model") || "");
+export { agentModelName };
+export function setAgentModel(name: string): void {
+  setAgentModelRaw(name);
+  localStorage.setItem("flux.model", name);
+  void agentSetModel(name).catch(() => {});
+}
+/** Apply the persisted model choice + sync the label with the live default. */
+export function applyAgentModel(): void {
+  const saved = agentModelName();
+  if (saved) void agentSetModel(saved).catch(() => {});
+  else void agentModel().then((m) => setAgentModelRaw(m)).catch(() => {});
 }
 
 // Omnibox search suggestions (#32). On by default; gating it off keeps your

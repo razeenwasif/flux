@@ -42,7 +42,7 @@ grid/damage/renderer spine; these make it competitive with kitty/ghostty:
 | # | P | Item |
 |---|---|---|
 | 1 | P2 | (Optional) in-process `llama-cpp-2` path for a single self-contained binary — the agent ships via Ollama now (ADR 0005), so this is no longer P0; GGUF load + GBNF sampler behind the `llama` feature |
-| 81 | P1 | Agent model picker in Settings (currently `FLUX_MODEL` env); persist choice + show which model is active in the agent sidebar |
+| 81 | ✅ | **Agent model picker** (done): the agent-sidebar header shows the active model and opens a dropdown of locally-pulled Ollama models (`/api/tags`); picking one switches the agent live (runtime override over `FLUX_MODEL`) and persists. _Follow-up:_ show which model is active in the sidebar per-message; per-task model routing. |
 | 82 | P2 | Agent: schema-constrained output via Ollama `format` = JSON schema (vs current `format:"json"` + prompt) and multi-step plans (#8); stream tokens to the sidebar |
 | 8 | ✅ | **Agent action confirmation** (done): `/act` now **plans then previews** the action (agent_plan) and waits for **Approve / Skip** before anything touches the page (agent_run_action injects the magenta-highlight + action). Refusals show as a note. _Follow-up:_ autonomous **multi-action sequences** from one prompt need structured multi-step output (#82); today you confirm each `/act` step. |
 | 11 | P2 | Replace hashing embedder with EmbeddingGemma int8 behind `flux-embed/model` |

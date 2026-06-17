@@ -32,6 +32,7 @@ import {
   agentExecute,
   agentPlan,
   agentRunAction,
+  agentModels,
   noteGet,
   noteSet,
   bookmarkAdd,
@@ -119,6 +120,9 @@ import {
   aiAnswersOn,
   applyDarkMode,
   applyNav,
+  applyAgentModel,
+  agentModelName,
+  setAgentModel,
   vimHints,
   mouseGestures,
   setVimHints,
@@ -322,6 +326,7 @@ const App: Component = () => {
     if (tabs().length === 0) await openTab("browser");
     applyDarkMode(); // re-apply the persisted dark-mode preference (#40)
     applyNav(); // re-apply vim-hints / mouse-gestures toggles (#51/#52)
+    applyAgentModel(); // re-apply the chosen agent model (#81)
     const unClusters = await onClustersUpdated(refreshTabs);
     // An extension called flux.tabs.open (#94) — the shell owns webview
     // geometry, so the broker emits an intent and we open the tab here.
@@ -2264,6 +2269,18 @@ const AgentPanel: Component = () => {
   // Chat-with-page/tabs (#34): "page" grounds in the active tab; "tabs" grounds
   // in every open browser tab in the active workspace.
   const [scope, setScope] = createSignal<"page" | "tabs">("page");
+  // Model picker (#81): the dropdown of locally-pulled Ollama models.
+  const [models, setModels] = createSignal<string[]>([]);
+  const [modelMenu, setModelMenu] = createSignal(false);
+  const toggleModelMenu = () => {
+    const open = !modelMenu();
+    setModelMenu(open);
+    if (open) void agentModels().then(setModels).catch(() => setModels([]));
+  };
+  const shortModel = () => {
+    const m = agentModelName();
+    return m ? m.split(":")[0]! : "gemma";
+  };
   let feedEl: HTMLDivElement | undefined;
 
   const browserTabIds = () =>
@@ -2365,7 +2382,24 @@ const AgentPanel: Component = () => {
             }}
           />
           <strong>Flux Agent</strong>
-          <span style={{ "font-size": "11px", color: "var(--flux-text-dim)" }}>gemma · local</span>
+          <div class="agent-model">
+            <button class="agent-model-btn" title="Pick the local model (Ollama)" onClick={toggleModelMenu}>
+              {shortModel()} · local ▾
+            </button>
+            <Show when={modelMenu()}>
+              <div class="agent-model-menu glass">
+                <Show when={models().length > 0} fallback={<div class="agent-model-empty">No Ollama models found (is it running?)</div>}>
+                  <For each={models()}>
+                    {(m) => (
+                      <button classList={{ "agent-model-item": true, on: agentModelName() === m }} onClick={() => { setAgentModel(m); setModelMenu(false); }}>
+                        {m}
+                      </button>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </Show>
+          </div>
         </header>
 
         <div class="agent-feed" ref={feedEl}>

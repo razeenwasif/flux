@@ -181,6 +181,10 @@ export const agentPlan = (prompt: string) => invoke<AgentAction>("agent_plan", {
 export const agentRunAction = (action: AgentAction) => invoke<AgentAction>("agent_run_action", { action });
 /** Free-form chat with the local model (no page required). Returns the reply. */
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
+// ─── Agent model picker (BACKLOG #81) ────────────────────────────────────────
+export const agentModels = () => invoke<string[]>("agent_models");
+export const agentModel = () => invoke<string>("agent_model");
+export const agentSetModel = (name: string) => invoke<void>("agent_set_model", { name });
 /** Chat grounded in the captured text of several tabs (chat-with-tabs). */
 export const agentChatTabs = (prompt: string, tabIds: number[]) =>
   invoke<string>("agent_chat_tabs", { prompt, tabIds });

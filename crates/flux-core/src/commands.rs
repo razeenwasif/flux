@@ -503,6 +503,24 @@ pub async fn agent_chat(state: State<'_, FluxState>, prompt: String) -> Result<S
     .map_err(|e| e.to_string())
 }
 
+/// List the models the local Ollama server has pulled (#81).
+#[tauri::command]
+pub async fn agent_models() -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(flux_agent::ollama::list_models).await.unwrap_or_default()
+}
+
+/// The model the agent is currently using (#81).
+#[tauri::command]
+pub fn agent_model() -> String {
+    flux_agent::ollama::active_model()
+}
+
+/// Switch the agent's model (#81); empty reverts to the env/default.
+#[tauri::command]
+pub fn agent_set_model(name: String) {
+    flux_agent::ollama::set_model(&name);
+}
+
 /// Chat grounded in the captured text of several tabs (chat-with-tabs). Gathers
 /// each tab's cached DOM text (capped per tab), labels it, and asks the local
 /// model. Tabs without a snapshot yet are skipped.
