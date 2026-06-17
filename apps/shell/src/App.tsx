@@ -61,6 +61,8 @@ import {
   webviewZoom,
   webviewExtractReader,
   onReader,
+  webviewCapture,
+  onScreenshot,
   type ReaderBlock,
   omniIngestActive,
   omniAnswer,
@@ -364,6 +366,12 @@ const App: Component = () => {
     // Reader mode (#41): the injected extractor posts blocks back here.
     const unReader = await onReader((tabId, title, blocks) => openReader(tabId, title, blocks));
     onCleanup(unReader);
+    // Web capture (#54): a screenshot finished writing.
+    const unShot = await onScreenshot(() => {
+      setOmniToast("📸 Screenshot saved");
+      window.setTimeout(() => setOmniToast(null), 2600);
+    });
+    onCleanup(unShot);
     // Tab hibernation (#45): every 30s, keep the active tab fresh and destroy
     // the webviews of browser tabs that are idle past the timeout — or, under
     // genuine memory pressure, the least-recently-used ones. Freed tabs stay in
@@ -608,6 +616,13 @@ const App: Component = () => {
     void webviewZoom(t.id, f).catch(() => {});
   };
 
+  // Web capture (#54): screenshot the visible page (async; toast on completion).
+  const capturePage = () => {
+    const t = activeTab();
+    if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
+    void webviewCapture(t.id).catch((e) => { setOmniToast(`Capture: ${String(e)}`); window.setTimeout(() => setOmniToast(null), 3000); });
+  };
+
   // Reader mode (#41): inject the extractor (result arrives via onReader → opens
   // the reader view), or close it if already open.
   const toggleReader = () => {
@@ -771,6 +786,7 @@ const App: Component = () => {
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
+    { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
     { id: "zoom-reset", label: "Reset zoom", icon: "🔍", run: () => dispatch("zoom-reset") },
@@ -884,6 +900,7 @@ const App: Component = () => {
         onSendGroupToWorkspace={sendGroupToWs}
         onZoomReset={() => zoom("reset")}
         onToggleReader={toggleReader}
+        onCapture={capturePage}
       />
       <ContentArea
         onNavigate={go}
@@ -1021,6 +1038,7 @@ interface SidebarProps {
   onSendGroupToWorkspace: (groupId: number, ws: number) => void;
   onZoomReset: () => void;
   onToggleReader: () => void;
+  onCapture: () => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | null;
@@ -1391,9 +1409,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
               {Math.round(activeZoom() * 100)}%
             </button>
           </Show>
-          {/* Reader mode (#41): declutter the current article. */}
+          {/* Reader mode (#41) + capture (#54) — for real pages only. */}
           <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
             <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
+            <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
           </Show>
           {/* Save the current page into the Omni index (also Ctrl+Shift+O). */}
           <button

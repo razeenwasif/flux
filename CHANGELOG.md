@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Web capture / screenshot** (BACKLOG #54) — **📸** in the address row (or ⌘K
+  "Capture page") saves the visible page to a PNG in the app's `screenshots`
+  folder, with a toast on completion. (WebView2 `CapturePreview`, COM-verified vs
+  msvc; Windows for now. Full-scrolling-page, region select, and annotation are
+  follow-ups.)
 - **Named multi-account containers** (BACKLOG #59) — create containers in Settings
   (name + color); **"Open in container ▸"** in the new-tab picker opens a tab with
   an **isolated cookie/storage jar** (a per-webview `data_directory`), so you can

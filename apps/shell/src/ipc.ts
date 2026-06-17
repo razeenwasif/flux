@@ -492,6 +492,10 @@ export const webviewZoom = (tabId: number, factor: number) => invoke<void>("webv
 // ─── Reader mode (BACKLOG #41) ───────────────────────────────────────────────
 export interface ReaderBlock { kind: string; text: string; level: number; src: string }
 export const webviewExtractReader = (tabId: number) => invoke<void>("webview_extract_reader", { tabId });
+// ─── Web capture (BACKLOG #54) ───────────────────────────────────────────────
+export const webviewCapture = (tabId: number) => invoke<string>("webview_capture", { tabId });
+export const onScreenshot = (cb: (path: string) => void): Promise<UnlistenFn> =>
+  listen<string>("flux://screenshot", (e) => cb(e.payload));
 export const onReader = (cb: (tabId: number, title: string, blocks: ReaderBlock[]) => void): Promise<UnlistenFn> =>
   listen<[number, string, ReaderBlock[]]>("flux://reader", (e) => cb(e.payload[0], e.payload[1], e.payload[2]));
 export const webviewBack = (tabId: number) => invoke<void>("webview_back", { tabId });

@@ -19,6 +19,7 @@ pub mod https;
 pub mod netfilter;
 pub mod omni;
 pub mod permissions;
+pub mod screenshot;
 pub mod search;
 pub mod session;
 pub mod sessions;
@@ -274,6 +275,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_reload,
             webview::webview_zoom,
             webview::webview_extract_reader,
+            screenshot::webview_capture,
             webview::webview_close,
             webview::webview_debug,
             webview::panel_open,
