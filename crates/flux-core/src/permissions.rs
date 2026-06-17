@@ -211,10 +211,10 @@ mod win {
     use tauri::webview::Webview;
     use tauri::{AppHandle, Manager};
     use webview2_com::Microsoft::Web::WebView2::Win32::{
-        COREWEBVIEW2_PERMISSION_KIND_CAMERA, COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ,
-        COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
-        COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
-        COREWEBVIEW2_PERMISSION_STATE_DENY,
+        COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CAMERA,
+        COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ, COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION,
+        COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
+        COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DENY,
     };
     use webview2_com::PermissionRequestedEventHandler;
     use windows::core::PWSTR;
@@ -249,7 +249,14 @@ mod win {
                 } else {
                     String::new()
                 };
-                let kind = args.PermissionKind().map(|k| map_kind(k.0)).unwrap_or(PermKind::Other);
+                // `PermissionKind` is an out-param getter (like `Uri`) in
+                // webview2-com 0.38 — write into a local, then map.
+                let mut kind_raw = COREWEBVIEW2_PERMISSION_KIND(0);
+                let kind = if args.PermissionKind(&mut kind_raw).is_ok() {
+                    map_kind(kind_raw.0)
+                } else {
+                    PermKind::Other
+                };
 
                 // Allow/Deny per the store; leave default so WebView2 prompts on Ask.
                 match state.effective(&host, kind) {
