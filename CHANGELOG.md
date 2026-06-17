@@ -17,6 +17,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   menus.
 
 ### Added
+- **DOM-aware terminal** (BACKLOG #65/#4) — the `flux` CLI, run **inside Flux's
+  terminal**, reads the **active page**: `flux url`, `flux title`, `flux dom`
+  (visible text), `flux links`, and `flux extract-json` (pipe to `jq`). Flux
+  writes the active browser tab's context to a file the shell points at via
+  `FLUX_RPC_DIR` — a *file*, not a socket, so it works across the WSL↔Windows
+  boundary (`WSLENV /p` translates the path into WSL). Private tabs expose
+  nothing. _Setup:_ the `flux` binary must be on the terminal's PATH — in a WSL
+  terminal that means the Linux build; native consoles can call `flux.exe`.
+  _Follow-up:_ agent-driven terminal control; native-Windows-console stdout
+  (`windows_subsystem`) needs an AttachConsole shim.
 - **Picture-in-picture** (BACKLOG #37) — pop a video into a floating always-on-top
   window: hover any sizable video for a **⧉ PiP** button, or press **Alt+P**
   (press again or use the OS control to exit). Flux also **auto-PiPs a playing
