@@ -28,6 +28,7 @@ import {
   RESOURCES_URL,
   TASKS_URL,
   SPEEDTEST_URL,
+  PERMISSIONS_URL,
   PANE_SESSION,
   agentChat,
   agentChatTabs,
@@ -122,6 +123,7 @@ const SessionsPage = lazy(() => import("./SessionsPage"));
 const ResourcesPage = lazy(() => import("./ResourcesPage"));
 const TasksPage = lazy(() => import("./TasksPage"));
 const SpeedtestPage = lazy(() => import("./SpeedtestPage"));
+const PermissionsPage = lazy(() => import("./PermissionsPage"));
 import {
   activeId,
   activeTab,
@@ -873,6 +875,7 @@ const App: Component = () => {
     { id: "resources", label: "Open Resource monitor", icon: "📊", run: () => go(RESOURCES_URL) },
     { id: "tasks", label: "Open Task manager", icon: "🗂️", run: () => go(TASKS_URL) },
     { id: "speedtest", label: "Network speed test", icon: "⚡", run: () => go(SPEEDTEST_URL) },
+    { id: "permissions", label: "Site permissions", icon: "🔐", run: () => go(PERMISSIONS_URL) },
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
@@ -1908,7 +1911,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
       >
         <button classList={{ "icon-btn": true, active: props.terminalOpen }} title="Terminal (Ctrl+`)" onClick={props.onToggleTerminal}>⌨</button>
         <button classList={{ "icon-btn": true, active: props.agentOpen }} title="Flux Agent (Ctrl+Shift+A)" onClick={props.onToggleAgent}>✦</button>
-        <Shields />
+        <Shields onNavigate={props.onNavigate} />
         <Passwords />
         <Downloads />
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
@@ -2277,6 +2280,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === SPEEDTEST_URL}>
           <SpeedtestPage />
+        </Match>
+        <Match when={activeTab()?.url === PERMISSIONS_URL}>
+          <PermissionsPage />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage

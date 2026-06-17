@@ -512,6 +512,12 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       ] as T);
     case "lean_status":
       return Promise.resolve({ enabled: true, sites_on: [] } as T);
+    case "permissions_list":
+      return Promise.resolve([
+        { host: "meet.google.com", kind: "camera", decision: "allow" },
+        { host: "meet.google.com", kind: "microphone", decision: "allow" },
+        { host: "ads.example.com", kind: "notifications", decision: "deny" },
+      ] as T);
     case "prefetch_hints":
       return Promise.resolve([] as T);
     case "hibernate_rank":
