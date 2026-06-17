@@ -111,7 +111,7 @@ The features that make Arc/Vivaldi/Zen users evangelical.
 | 52 | ✅ | **Vim link-hints + scroll** (done): `f` labels clickable elements (type the label to click), `j`/`k` scroll, `gg`/`G` top/bottom; never fires while typing in a field. Injected `nav.js` gated by a Settings toggle (off by default). _Follow-up:_ `F` open-in-new-tab, visual-mode, more motions. | Vimium users |
 | 53 | P2 | **Notes / easels / annotations** tied to pages, local-first | Arc, Vivaldi |
 | 54 | ✅ | **Web capture** (done): 📸 in the address row (+ ⌘K "Capture page") saves the visible page to a PNG in `app_data/screenshots` via WebView2 `CapturePreview` (COM verified vs msvc); a toast confirms when written. _Remaining:_ full-scrolling-page stitch, region select, annotation, and a WebKitGTK snapshot path (Windows/WebView2 only today). | Edge, Firefox |
-| 55 | P2 | **Compact / focus mode**: hide all chrome, content-only | Zen, Arc |
+| 55 | ✅ | **Focus / compact mode** (done): `Ctrl+Shift+F` (or ⌘K "Focus mode") hides the sidebar, terminal, and agent — content only. `Esc` or the chord exits (a toast reminds you on enter). | Zen, Arc |
 | 56 | ✅ | **Tab groups** (done): named/colored/collapsible groups in the strip. Right-click → pin / new group / add-to / remove / close; headers collapse, rename (dblclick), recolor (dot), ungroup (✕). **"⊞ Group"** = group-by-topic, seeded from the semantic clusters (#14). Persisted (`TabGroup` model + commands). _Follow-up:_ drag tabs between groups (today grouping is via the menu; drag only reorders). | Vivaldi, Chrome groups |
 
 ## Epic: Privacy, security & data

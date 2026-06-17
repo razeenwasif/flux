@@ -8,6 +8,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Focus / compact mode** (BACKLOG #55) — **Ctrl+Shift+F** (or ⌘K "Focus mode")
+  hides the sidebar, terminal, and agent for a content-only view; **Esc** or the
+  chord exits (a toast reminds you).
 - **Vim link-hints + mouse gestures** (BACKLOG #52 / #51) — opt-in Settings
   toggles (under **Navigation**). With hints on, **`f`** labels every clickable
   element (type the label to click); **`j`/`k`** scroll, **`gg`/`G`** jump

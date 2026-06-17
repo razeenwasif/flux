@@ -217,6 +217,8 @@ const App: Component = () => {
   const [terminalOpen, setTerminalOpen] = createSignal(localStorage.getItem("flux.term.open") !== "0");
   createEffect(() => localStorage.setItem("flux.term.open", terminalOpen() ? "1" : "0"));
   const [agentOpen, setAgentOpen] = createSignal(true);
+  // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
+  const [focusMode, setFocusMode] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
 
   // Resizable pane widths (px), persisted across sessions (BACKLOG #27).
@@ -345,6 +347,10 @@ const App: Component = () => {
       // Handled outside the chord table so it isn't forwarded from focused pages
       // (they use Esc themselves).
       if (e.key === "Escape" && !inTerminal()) {
+        if (focusMode()) {
+          setFocusMode(false);
+          return;
+        }
         if (readerOpen()) {
           closeReader();
           return;
@@ -812,6 +818,7 @@ const App: Component = () => {
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
+    { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
     { id: "resources", label: "Open Resource monitor", icon: "📊", run: () => go(RESOURCES_URL) },
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
@@ -847,6 +854,12 @@ const App: Component = () => {
       case "zoom-in": zoom("in"); return true;
       case "zoom-out": zoom("out"); return true;
       case "zoom-reset": zoom("reset"); return true;
+      case "focus-mode": {
+        const on = !focusMode();
+        setFocusMode(on);
+        if (on) { setOmniToast("Focus mode — Esc or Ctrl+Shift+F to exit"); window.setTimeout(() => setOmniToast(null), 2600); }
+        return true;
+      }
       default:
         if (action.startsWith("tab-")) {
           const n = Number(action.slice(4));
@@ -862,15 +875,17 @@ const App: Component = () => {
 
   // The vertical terminal column only shows for browser tabs — a terminal
   // *tab* already fills the content card with a shell.
-  const termColVisible = () => terminalOpen() && activeTab()?.kind !== "terminal";
+  const termColVisible = () => terminalOpen() && !focusMode() && activeTab()?.kind !== "terminal";
 
   const columns = () =>
-    [
-      sidebarOpen() ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
-      "1fr",
-      termColVisible() ? `${terminalW()}px` : "0px",
-      agentOpen() ? `${agentW()}px` : "0px",
-    ].join(" ");
+    focusMode()
+      ? "0px 1fr 0px 0px" // focus/compact mode (#55): content only
+      : [
+          sidebarOpen() ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
+          "1fr",
+          termColVisible() ? `${terminalW()}px` : "0px",
+          agentOpen() ? `${agentW()}px` : "0px",
+        ].join(" ");
 
   // Drag a pane's splitter. `sign` is +1 when dragging right grows the pane
   // (sidebar), −1 when dragging left grows it (terminal / agent).
@@ -939,7 +954,7 @@ const App: Component = () => {
       <Show when={termColVisible()}>
         <TerminalColumn />
       </Show>
-      <Show when={agentOpen()}>
+      <Show when={agentOpen() && !focusMode()}>
         <AgentPanel />
       </Show>
 
