@@ -529,6 +529,17 @@ export const RESOURCES_URL = "flux://resources";
 /** Per-tab captured-DOM payload size in bytes (proxy for page weight). */
 export const tabDomSizes = () => invoke<[number, number][]>("tab_dom_sizes");
 
+// ─── Built-in PDF viewer (BACKLOG #35) ───────────────────────────────────────
+export const PDF_URL = "flux://pdf";
+/** Is this URL/path a PDF? (extension check, ignoring query/hash) */
+export const isPdfUrl = (url: string) =>
+  (url.split(/[?#]/)[0] ?? "").toLowerCase().endsWith(".pdf");
+/** Route a PDF URL through the Flux viewer (no-op if it already is one). */
+export const pdfViewerUrl = (src: string) =>
+  src.startsWith(PDF_URL) ? src : `${PDF_URL}?src=${encodeURIComponent(src)}`;
+/** Fetch a PDF's bytes server-side (CORS-free), base64-encoded. */
+export const pdfFetch = (url: string) => invoke<string>("pdf_fetch", { url });
+
 // ─── Task manager (BACKLOG #107) ─────────────────────────────────────────────
 export const TASKS_URL = "flux://tasks";
 export interface ProcInfo {
