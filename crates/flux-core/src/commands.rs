@@ -320,6 +320,15 @@ pub fn dom_publish(
         state.tabs.get(&tab_id).map(|t| t.title.clone()).unwrap_or_default()
     });
 
+    // Keep the tab's stored title fresh (so omni_search + the session show the
+    // live title, not the creation-time one). In-memory only — not worth a disk
+    // write every capture.
+    if let Some(mut t) = state.tabs.get_mut(&tab_id) {
+        if !title.trim().is_empty() && t.title != title {
+            t.title = title.clone();
+        }
+    }
+
     // Record the visit in browsing history (#39); skips non-http(s) internally.
     if let Some(h) = app.try_state::<crate::history::HistoryStore>() {
         h.record(&url, &title);
@@ -455,6 +464,116 @@ pub async fn agent_chat_tabs(state: State<'_, FluxState>, prompt: String, tab_id
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
+}
+
+/// One unified search result (BACKLOG #66): an open tab, a bookmark, or a
+/// history entry, ranked together by embedding similarity to the query.
+#[derive(serde::Serialize)]
+pub struct OmniHit {
+    pub kind: String, // "tab" | "bookmark" | "history"
+    pub tab_id: Option<TabId>,
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+    pub score: f32,
+}
+
+/// Cosine of two L2-normalized embeddings (flux_embed vectors are unit length).
+fn cos(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+}
+
+/// A short context snippet around the first query token in `text`.
+fn snippet(text: &str, toks: &[&str]) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    let lower = text.to_lowercase();
+    match toks.iter().filter_map(|t| lower.find(t)).min() {
+        Some(p) => {
+            let start = text[..p].char_indices().rev().nth(40).map(|(i, _)| i).unwrap_or(0);
+            let end = text[p..].char_indices().nth(120).map(|(i, _)| p + i).unwrap_or(text.len());
+            format!("…{}…", text[start..end].split_whitespace().collect::<Vec<_>>().join(" "))
+        }
+        None => text.split_whitespace().take(18).collect::<Vec<_>>().join(" "),
+    }
+}
+
+/// Semantic everything-search (BACKLOG #66): one query ranked across open tabs
+/// (by title + captured page CONTENT), bookmarks, and history, using the local
+/// embedder (#11 will swap in a stronger model). Large corpora (history,
+/// bookmarks) are lexically pre-filtered before embedding so this stays cheap
+/// per keystroke. NB: the hashing embedder ranks by lexical/topical overlap, not
+/// true synonymy — that arrives with #11.
+#[tauri::command]
+pub fn omni_search(
+    state: State<'_, FluxState>,
+    history: State<'_, crate::history::HistoryStore>,
+    bookmarks: State<'_, crate::bookmarks::BookmarkStore>,
+    query: String,
+    limit: Option<usize>,
+) -> Vec<OmniHit> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let qe = flux_embed::embed(q);
+    let ql = q.to_lowercase();
+    let toks: Vec<&str> = ql.split(|c: char| !c.is_alphanumeric()).filter(|t| t.len() >= 2).collect();
+    let lex = |s: &str| {
+        let s = s.to_lowercase();
+        toks.iter().any(|t| s.contains(t))
+    };
+    let mut hits: Vec<OmniHit> = Vec::new();
+
+    // Open tabs — embed title + cached page text (this is the page-CONTENT search
+    // that's weak in other browsers). A title/url lexical hit gets a boost.
+    for t in state.tabs.iter() {
+        if !matches!(t.kind, TabKind::Browser) {
+            continue;
+        }
+        let text = state.dom_cache.get(&t.id).map(|s| s.text.to_string()).unwrap_or_default();
+        let e = flux_embed::embed(&format!("{} {}", t.title, text));
+        let mut score = cos(&qe, &e);
+        if lex(&t.title) || lex(&t.url) {
+            score += 0.3;
+        }
+        // Skip near-zero matches so the list isn't padded with every open tab.
+        if score < 0.08 {
+            continue;
+        }
+        hits.push(OmniHit {
+            kind: "tab".into(),
+            tab_id: Some(t.id),
+            title: t.title.clone(),
+            url: t.url.clone(),
+            snippet: snippet(&text, &toks),
+            score,
+        });
+    }
+
+    // Bookmarks — lexical pre-filter, then embed (user-curated, lightly favored).
+    for b in bookmarks.list() {
+        if !lex(&b.title) && !lex(&b.url) && !lex(&b.folder) {
+            continue;
+        }
+        let e = flux_embed::embed(&format!("{} {} {}", b.title, b.folder, b.url));
+        let mut score = cos(&qe, &e) + 0.12;
+        if lex(&b.title) {
+            score += 0.2;
+        }
+        hits.push(OmniHit { kind: "bookmark".into(), tab_id: None, title: b.title, url: b.url, snippet: b.folder, score });
+    }
+
+    // History — `search` already lexical-filters + frecency-ranks; embed the top.
+    for h in history.search(q, 60) {
+        let e = flux_embed::embed(&format!("{} {}", h.title, h.url));
+        hits.push(OmniHit { kind: "history".into(), tab_id: None, title: h.title, url: h.url, snippet: String::new(), score: cos(&qe, &e) });
+    }
+
+    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.truncate(limit.unwrap_or(14));
+    hits
 }
 
 /// Natural language → planned DOM action → JS injected into the active tab's

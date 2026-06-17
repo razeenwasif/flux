@@ -169,6 +169,17 @@ export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prom
 /** Chat grounded in the captured text of several tabs (chat-with-tabs). */
 export const agentChatTabs = (prompt: string, tabIds: number[]) =>
   invoke<string>("agent_chat_tabs", { prompt, tabIds });
+// ─── Semantic everything-search (BACKLOG #66) ────────────────────────────────
+export interface OmniHit {
+  kind: "tab" | "bookmark" | "history";
+  tab_id: number | null;
+  title: string;
+  url: string;
+  snippet: string;
+  score: number;
+}
+export const omniSearch = (query: string, limit?: number) =>
+  invoke<OmniHit[]>("omni_search", { query, limit: limit ?? null });
 export const tabsRecluster = () => invoke<void>("tabs_recluster");
 
 /**

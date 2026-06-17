@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Semantic everything-search** (BACKLOG #66) — ⌘K now searches *everything* in
+  one ranked list: open tabs **by page content** (not just title), bookmarks, and
+  history, scored by the local embedder (`omni_search`). Large corpora are
+  lexically pre-filtered then embedding-reranked, so it stays fast per keystroke;
+  an empty query still browses your open tabs. (Searching open-tab *contents* is
+  the part that's weak in other browsers; true synonym-level semantics arrive
+  with the stronger embedder, #11.)
 - **Chat with this page / your tabs** — the Flux Agent now has a **scope toggle**
   (📄 This page · 🗂 All tabs) and one-tap prompts (**Summarize · Key points ·
   Explain**). "This page" grounds the local Gemma in the active tab's captured

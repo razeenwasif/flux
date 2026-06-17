@@ -423,6 +423,14 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(
         `(mock) Answering "${String(args?.prompt ?? "")}" across ${(args?.tabIds as number[] | undefined)?.length ?? 0} tabs.` as T,
       );
+    case "omni_search": {
+      const q = String(args?.query ?? "");
+      return Promise.resolve([
+        { kind: "tab", tab_id: tabs[0]?.id ?? 1, title: "Hacker News", url: "https://news.ycombinator.com", snippet: `…mentions ${q}…`, score: 0.9 },
+        { kind: "bookmark", tab_id: null, title: "Rust", url: "https://rust-lang.org", snippet: "Imported", score: 0.7 },
+        { kind: "history", tab_id: null, title: "flux-browser/flux", url: "https://github.com/flux-browser/flux", snippet: "", score: 0.5 },
+      ] as T);
+    }
     case "agent_execute":
       return Promise.resolve({
         action: "click",

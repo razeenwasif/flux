@@ -157,7 +157,7 @@ beyond "another Chromium skin."
 | # | P | Item | The gap |
 |---|---|---|---|
 | 65 | P0 | **DOM-aware integrated terminal**: a real dev terminal that can read the active page (`flux extract-json`, `cd $FLUX_TAB_DIR`) and that the agent can drive. Nobody ships this | core |
-| 66 | P1 | **Semantic everything-search**: one box over open tabs + history + bookmarks + page contents, ranked by local embeddings (#11) — not just title substring | weak everywhere |
+| 66 | ✅ | **Semantic everything-search** (done): ⌘K now ranks one list across open tabs (by title **+ captured page content**), bookmarks, and history via the local embedder (`omni_search`); large corpora are lexically pre-filtered then embedding-reranked so it's cheap per keystroke. Empty query = browse open tabs. _Follow-up:_ true synonymy needs the stronger embedder (#11); index history page text for offline content search (#69). | weak everywhere |
 | 97 | P2 | **`flux://omni` follow-up** (dashboard + live `/sites` grid shipped): a compact "Omni index" glance widget on the start page (key stats at a glance, link into the full dashboard) | search |
 | 67 | P1 | **Scriptable automation / macros**: record-and-replay browsing flows, schedulable, agent-authored. Power users beg for this; only flaky extensions exist | under-served |
 | 69 | P2 | **True offline archiving / read-later**: save the *rendered* page (MHTML/SingleFile), full-text indexed, available offline | weak everywhere |

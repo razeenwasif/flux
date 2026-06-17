@@ -5,7 +5,7 @@
  * layer over the content card, App hides the active webview while it's open.
  */
 import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
-import { historySearch, type HistoryEntry } from "./ipc";
+import { omniSearch, type OmniHit } from "./ipc";
 import { activeId, focusTab, tabs } from "./store";
 
 export type PaletteAction = { id: string; label: string; icon: string; run: () => void };
@@ -17,7 +17,9 @@ const CommandPalette: Component<{
   onNavigate: (url: string) => void;
 }> = (props) => {
   const [query, setQuery] = createSignal("");
-  const [hist, setHist] = createSignal<HistoryEntry[]>([]);
+  // Unified semantic results (#66): tabs by content + bookmarks + history, ranked
+  // together by the local embedder. Fetched (debounced) only when searching.
+  const [results, setResults] = createSignal<OmniHit[]>([]);
   const [sel, setSel] = createSignal(0);
   let debounce: number | undefined;
 
@@ -28,18 +30,23 @@ const CommandPalette: Component<{
     setSel(0);
     clearTimeout(debounce);
     const q = v.trim();
-    if (!q) { setHist([]); return; }
-    debounce = window.setTimeout(() => void historySearch(q, 6).then(setHist).catch(() => setHist([])), 120);
+    if (!q) { setResults([]); return; }
+    debounce = window.setTimeout(() => void omniSearch(q, 14).then(setResults).catch(() => setResults([])), 120);
   };
 
   const items = createMemo<Item[]>(() => {
     const q = query().trim().toLowerCase();
-    const hit = (s: string) => !q || s.toLowerCase().includes(q);
     const out: Item[] = [];
-    // Switch to an open tab.
-    for (const t of tabs()) {
-      if (t.id === activeId()) continue;
-      if (hit(t.title || t.url) || hit(t.url)) {
+    // Actions (lexical, local) always come first — they're commands, not content.
+    for (const a of props.actions) {
+      if (!q || a.label.toLowerCase().includes(q)) {
+        out.push({ key: `act-${a.id}`, icon: a.icon, label: a.label, sub: "Action", run: a.run });
+      }
+    }
+    if (!q) {
+      // Browse mode: list open tabs to switch to.
+      for (const t of tabs()) {
+        if (t.id === activeId()) continue;
         out.push({
           key: `tab-${t.id}`,
           icon: t.kind === "terminal" ? "⌨" : t.kind === "files" ? "📁" : "🗗",
@@ -48,14 +55,19 @@ const CommandPalette: Component<{
           run: () => void focusTab(t.id),
         });
       }
+      return out;
     }
-    // Actions.
-    for (const a of props.actions) {
-      if (hit(a.label)) out.push({ key: `act-${a.id}`, icon: a.icon, label: a.label, sub: "Action", run: a.run });
-    }
-    // History (only when searching).
-    for (const h of hist()) {
-      out.push({ key: `hist-${h.url}`, icon: "🕘", label: h.title || h.url, sub: h.url, run: () => props.onNavigate(h.url) });
+    // Search mode: one ranked list across tabs (by content), bookmarks, history.
+    for (const h of results()) {
+      const icon = h.kind === "tab" ? "🗗" : h.kind === "bookmark" ? "🔖" : "🕘";
+      const sub = h.snippet || (h.kind === "tab" ? "Switch to tab" : h.kind === "bookmark" ? "Bookmark" : h.url);
+      out.push({
+        key: `${h.kind}-${h.tab_id ?? h.url}`,
+        icon,
+        label: h.title || h.url,
+        sub,
+        run: h.kind === "tab" && h.tab_id != null ? () => void focusTab(h.tab_id!) : () => props.onNavigate(h.url),
+      });
     }
     return out;
   });
@@ -76,7 +88,7 @@ const CommandPalette: Component<{
         <input
           id="flux-palette-input"
           class="palette-input"
-          placeholder="Search tabs, actions, history…"
+          placeholder="Search everything — tabs, page text, bookmarks, history…"
           value={query()}
           onInput={(e) => onInput(e.currentTarget.value)}
           onKeyDown={onKey}
