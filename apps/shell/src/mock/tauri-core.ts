@@ -490,6 +490,32 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       } as T);
     case "agent_run_action":
       return Promise.resolve((args?.action ?? { action: "refuse", reason: "n/a" }) as T);
+    case "tasks_list":
+      return Promise.resolve([
+        { pid: 4201, name: "flux", cpu: 6.4, mem_mb: 312, is_flux: true, current: true },
+        { pid: 4218, name: "msedgewebview2", cpu: 18.2, mem_mb: 540, is_flux: true, current: false },
+        { pid: 4219, name: "msedgewebview2 (gpu)", cpu: 3.1, mem_mb: 180, is_flux: true, current: false },
+        { pid: 990, name: "node", cpu: 1.0, mem_mb: 142, is_flux: false, current: false },
+        { pid: 712, name: "systemd", cpu: 0.0, mem_mb: 12, is_flux: false, current: false },
+      ] as T);
+    case "tasks_kill":
+      return Promise.resolve(true as T);
+    case "netspeed_run":
+      return Promise.resolve({
+        ping_ms: 14, jitter_ms: 3, download_mbps: 187.4, upload_mbps: 42.1, server: "speed.cloudflare.com",
+      } as T);
+    case "shields_hot_rules":
+      return Promise.resolve([
+        { rule: "||doubleclick.net^", hits: 42 },
+        { rule: "||google-analytics.com^", hits: 31 },
+        { rule: "/ads/*", hits: 17 },
+      ] as T);
+    case "lean_status":
+      return Promise.resolve({ enabled: true, sites_on: [] } as T);
+    case "prefetch_hints":
+      return Promise.resolve([] as T);
+    case "hibernate_rank":
+      return Promise.resolve([] as T);
     default:
       return Promise.resolve(undefined as T);
   }

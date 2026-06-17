@@ -12,6 +12,8 @@ import {
   httpsAllowSite,
   httpsSetEnabled,
   httpsStatus,
+  leanSetSite,
+  leanStatus,
   permissionsSetBlock,
   permissionsStatus,
   shieldsRefresh,
@@ -22,6 +24,7 @@ import {
   trackingStatus,
   type CookieStatus,
   type HttpsStatus,
+  type LeanStatus,
   type ShieldsStatus,
 } from "./ipc";
 import { activeTab } from "./store";
@@ -40,6 +43,7 @@ const Shields: Component = () => {
   const [tracking, setTracking] = createSignal(2);
   const [cookies, setCookies] = createSignal<CookieStatus | null>(null);
   const [blockPerms, setBlockPerms] = createSignal(false);
+  const [lean, setLean] = createSignal<LeanStatus | null>(null);
   const [open, setOpen] = createSignal(false);
   // Just the blocked-count for the icon badge (cheap, refreshed on navigation).
   const pollBadge = () => void shieldsStatus().then(setStatus).catch(() => {});
@@ -49,6 +53,7 @@ const Shields: Component = () => {
     void trackingStatus().then(setTracking).catch(() => {});
     void cookiesStatus().then(setCookies).catch(() => {});
     void permissionsStatus().then(setBlockPerms).catch(() => {});
+    void leanStatus().then(setLean).catch(() => {});
   };
 
   const togglePerms = () => void permissionsSetBlock(!blockPerms()).then(poll);
@@ -97,6 +102,17 @@ const Shields: Component = () => {
   const toggleSiteHttp = () => {
     const h = host();
     if (h) void httpsAllowSite(h, !siteAllowsHttp()).then(poll);
+  };
+
+  // Lean mode (#105): block heavy non-essential third-party scripts for this site.
+  const leanOn = () => {
+    const h = host();
+    const l = lean();
+    return !!(h && l && l.sites_on.includes(h));
+  };
+  const toggleLean = () => {
+    const h = host();
+    if (h) void leanSetSite(h, !leanOn()).then(poll);
   };
 
   const clearOnClose = () => {
@@ -170,7 +186,23 @@ const Shields: Component = () => {
               {blockPerms() ? "On" : "Off"}
             </button>
           </div>
-          <div class="shields-stat">{status()?.blocked ?? 0} blocked this session</div>
+          <Show when={host()}>
+            <div class="shields-row">
+              <span class="shields-host" title="Block heavy third-party scripts (analytics, A/B, chat widgets) on this site. May break live chat / logins.">
+                Lean mode here
+              </span>
+              <button classList={{ "shields-toggle": true, on: leanOn() }} onClick={toggleLean}>
+                {leanOn() ? "On" : "Off"}
+              </button>
+            </div>
+          </Show>
+          <div class="shields-stat">
+            {status()?.blocked ?? 0} blocked this session
+            <Show when={status()}>
+              {" · "}
+              {status()!.rules_fired} rules active · {status()!.cache_hit_pct}% cache hits
+            </Show>
+          </div>
           <button class="shields-update" onClick={() => void shieldsRefresh()}>Update filter lists</button>
           <div class="shields-sep" />
           <Show when={host()}>

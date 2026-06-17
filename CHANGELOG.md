@@ -8,34 +8,31 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
-- **Built-in task manager** (BACKLOG #107) — a system-wide process monitor in
-  the Rust core: `tasks_list` (pid / name / CPU% / resident memory, heaviest
-  first) and `tasks_kill` (end a process), with **Flux's own process tree**
-  flagged by walking parent pids (so the webview engine/helper processes are
-  identified accurately, and the main process is guarded). Gives real per-process
-  CPU/RAM, which the per-tab resource monitor (#70) can't (engines share
-  processes). _Follow-up:_ the `flux://tasks` page.
-- **Network speed test** (BACKLOG #108) — an Ookla-style download / upload /
-  latency + jitter test against Cloudflare's public speedtest backend (no API
-  key); `netspeed_run` streams phase progress (`ping → download → upload → done`)
-  over `flux://netspeed-progress` and returns Mbps + ms. _Follow-up:_ the
-  `flux://speedtest` page with the live gauge.
+- **Built-in task manager** (BACKLOG #107) — **`flux://tasks`** (⌘K "Open Task
+  manager"): a system-wide process monitor — name / CPU% / resident memory,
+  sortable, with one-click **end task**. **Flux's own process tree** (engine +
+  helper processes) is flagged by walking parent pids, and ending the main Flux
+  process asks for confirmation. Gives real per-process CPU/RAM, which the
+  per-tab resource monitor (#70) can't (engines share processes).
+- **Network speed test** (BACKLOG #108) — **`flux://speedtest`** (⌘K "Network
+  speed test"): an Ookla-style download / upload / latency + jitter test against
+  Cloudflare's public speedtest backend (no API key). Shows live phase progress
+  (latency → download → upload) and the four metrics on completion.
 - **Research-driven optimization pass** (BACKLOG #99–#106) — eight techniques
   distilled from the 40-paper survey (`research/RESEARCH.md`), implemented in the
   Rust core with unit tests (cache 7 · shields 5 · prefetch 6 · agent guard 4 ·
   hibernation rank 3 · ollama 4 · lean mode 4):
   - **Shields decision cache + hot-rule observation** (#99, arXiv 1810.09160) —
     block/allow verdicts are memoized per `(url, source-host, type)` so repeated
-    tracker/CDN/beacon requests skip the engine entirely; the shields status now
-    reports cache hit-rate and the **live hot rule set** (the ~10% of loaded
-    rules actually firing on your traffic). _Follow-up:_ surface the hot set in
-    the shields UI.
+    tracker/CDN/beacon requests skip the engine entirely; the **Shields popover**
+    now shows the cache hit-rate and the **live hot rule set** (the ~10% of
+    loaded rules actually firing on your traffic).
   - **TTL/LRU cache utility** (#101, arXiv 2602.06074) — a bounded `TtlCache`
     in the core, reused by shields (and available for favicon/metadata/settings).
-  - **Predictive prefetch model** (#103, arXiv 1906.00877) — a per-origin Markov
-    chain (LFU-decayed) predicts the likely next host; `prefetch_hints` returns
-    confidence-gated preconnect targets, silenced under memory pressure.
-    _Follow-up:_ chrome issues the preconnect from the hints.
+  - **Predictive prefetch** (#103, arXiv 1906.00877) — a per-origin Markov chain
+    (LFU-decayed) learns navigation transitions and, on each page load, the
+    chrome **preconnects** (`<link rel=preconnect>`) to the hosts the model
+    expects next — confidence-gated and silenced under memory pressure.
   - **Agent destructive-action guard** (#104, arXiv 2511.19477) — every
     agent-driven click is gated in the **execution layer**: the injected JS reads
     the element's *real* accessible name and aborts on a destructive deny-list
@@ -43,21 +40,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
     (defense against prompt injection). Read-only actions and the headline
     "unsubscribe" task are unaffected. _Follow-up:_ a11y-tree primary context +
     versioned element refs (ties into the agent epic).
-  - **Belady/Markov hibernation ranking** (#106, arXiv 1202.5539) —
-    `hibernate_rank` orders sleep candidates by *least likely to be needed next*
-    (discounting idle time by the #103 prediction) instead of plain LRU.
-    _Follow-up:_ the memory-pressure path calls it.
+  - **Belady/Markov hibernation ranking** (#106, arXiv 1202.5539) — the
+    memory-pressure eviction now sleeps the tabs *least likely to be needed next*
+    (discounting idle time by the #103 prediction, keeping predicted-return
+    tabs) instead of plain LRU.
   - **Agent latency levers** (#102, arXiv 2203.16487) — the model is kept warm
     (`keep_alive`) to drop per-call reload latency, context is capped
     (`num_ctx`), and an options passthrough (`FLUX_OLLAMA_OPTIONS`) is the hook
     for enabling speculative decoding when the local Ollama build supports it.
   - **HTTP/3 / QUIC** (#100, arXiv 2102.12358) — Flux makes the WebView2 engine
     negotiate QUIC explicitly (`--enable-quic`); no-op on WebKitGTK (limited H3).
-  - **Per-site lean mode** (#105, arXiv 2106.08948) — an opt-in toggle that, for
-    sites you turn it on for, blocks heavy non-essential third-party scripts
-    (tag managers, analytics, A/B, session replay, chat/social widgets) on top of
-    shields, via the request interceptor. _Follow-up:_ dynamic per-function dead-JS
-    elimination needs a webview coverage trace the engines don't yet expose.
+  - **Per-site lean mode** (#105, arXiv 2106.08948) — a **Shields-popover toggle**
+    ("Lean mode here") that, for sites you turn it on for, blocks heavy
+    non-essential third-party scripts (tag managers, analytics, A/B, session
+    replay, chat/social widgets) on top of shields, via the request interceptor.
+    _Follow-up:_ dynamic per-function dead-JS elimination needs a webview
+    coverage trace the engines don't yet expose.
 - **Agent model picker** (BACKLOG #81) — the Flux Agent header now shows the
   active model and opens a dropdown of your locally-pulled **Ollama models**;
   pick one to switch the agent **live** (no restart) — the choice persists. (Was

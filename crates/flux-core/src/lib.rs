@@ -301,6 +301,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_set_bounds,
             webview::webview_show,
             webview::webview_hide,
+            webview::webview_preconnect,
             webview::webview_hibernate,
             webview::webview_capture_state,
             mem::mem_status,
