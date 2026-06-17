@@ -58,6 +58,7 @@ import {
   webviewNavigate,
   webviewOpen,
   webviewReload,
+  webviewZoom,
   omniIngestActive,
   omniAnswer,
   type OmniAnswerSource,
@@ -150,6 +151,8 @@ import {
   setActiveWorkspace,
   setDarkMode,
   setTabGroup,
+  zoomFor,
+  nudgeZoom,
   startSplit,
   clearSplit,
   splitPair,
@@ -395,6 +398,9 @@ const App: Component = () => {
         // in its pane even if the initial position didn't stick). Pane-aware so a
         // split pane lands in its half, not the full card.
         if (paneLayout().some((p) => p.tab.id === tabId)) scheduleRelayout();
+        // Re-apply this host's saved zoom (#36).
+        const z = zoomFor(hostOfUrl(url));
+        if (z !== 1) void webviewZoom(tabId, z).catch(() => {});
       }
     });
     onCleanup(() => {
@@ -557,6 +563,19 @@ const App: Component = () => {
     if (t?.kind === "browser") void fn(t.id).catch(() => {});
   };
 
+  // Per-site zoom (#36). Ctrl +/-/0 step the active page's zoom, persisted per host.
+  const hostOfUrl = (url: string): string | null => {
+    try { return new URL(url).hostname.replace(/^www\./, "") || null; } catch { return null; }
+  };
+  const zoom = (dir: "in" | "out" | "reset") => {
+    const t = activeTab();
+    if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
+    const host = hostOfUrl(t.url);
+    if (!host) return;
+    const f = nudgeZoom(host, dir);
+    void webviewZoom(t.id, f).catch(() => {});
+  };
+
   // Cycle through the non-pinned tabs of the active workspace (Ctrl+Tab /
   // Ctrl+Shift+Tab). Pinned tabs aren't part of the cycle; if a pinned tab is
   // active, we enter the loop at the first (forward) or last (backward) tab.
@@ -710,6 +729,9 @@ const App: Component = () => {
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
+    { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
+    { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
+    { id: "zoom-reset", label: "Reset zoom", icon: "🔍", run: () => dispatch("zoom-reset") },
     { id: "reload", label: "Reload page", icon: "⟳", run: () => navActive(webviewReload) },
     { id: "tog-term", label: "Toggle terminal", icon: "⌨", run: () => setTerminalOpen((v) => !v) },
     { id: "tog-agent", label: "Toggle agent", icon: "✦", run: () => setAgentOpen((v) => !v) },
@@ -736,6 +758,9 @@ const App: Component = () => {
       case "back": navActive(webviewBack); return true;
       case "forward": navActive(webviewForward); return true;
       case "save-to-omni": void saveToOmni(); return true;
+      case "zoom-in": zoom("in"); return true;
+      case "zoom-out": zoom("out"); return true;
+      case "zoom-reset": zoom("reset"); return true;
       default:
         if (action.startsWith("tab-")) {
           const n = Number(action.slice(4));
@@ -815,6 +840,7 @@ const App: Component = () => {
         onDeleteWorkspace={removeWorkspace}
         onSendTabToWorkspace={sendTabToWs}
         onSendGroupToWorkspace={sendGroupToWs}
+        onZoomReset={() => zoom("reset")}
       />
       <ContentArea
         onNavigate={go}
@@ -950,6 +976,7 @@ interface SidebarProps {
   onDeleteWorkspace: (id: number) => void;
   onSendTabToWorkspace: (tabId: number, ws: number) => void;
   onSendGroupToWorkspace: (groupId: number, ws: number) => void;
+  onZoomReset: () => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | null;
@@ -978,6 +1005,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [address, setAddress] = createSignal("");
   const [panel, setPanel] = createSignal<FooterPanel>(null);
   const [bmFlash, setBmFlash] = createSignal("");
+  // Active page's per-host zoom (#36), reactive via the zoom store.
+  const activeZoom = (): number => {
+    const t = activeTab();
+    if (!t || t.kind !== "browser") return 1;
+    try { return zoomFor(new URL(t.url).hostname.replace(/^www\./, "")); } catch { return 1; }
+  };
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
   const [defaultEngine, setDefaultEngine] = createSignal("");
   const [mem, setMem] = createSignal<MemInfo | null>(null);
@@ -1307,6 +1340,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
             spellcheck={false}
             autocomplete="off"
           />
+          {/* Per-site zoom (#36): shown only when ≠ 100%; click to reset. */}
+          <Show when={activeZoom() !== 1}>
+            <button type="button" class="zoom-pill" title="Reset zoom (Ctrl+0)" onClick={() => props.onZoomReset()}>
+              {Math.round(activeZoom() * 100)}%
+            </button>
+          </Show>
           {/* Save the current page into the Omni index (also Ctrl+Shift+O). */}
           <button
             type="button"

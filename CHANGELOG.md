@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Per-site zoom** (BACKLOG #36) — **Ctrl +/−/0** zoom the active page; the level
+  is **remembered per site** and re-applied automatically on every visit. A `%`
+  pill appears in the address row when zoom ≠ 100% (click to reset), and zoom
+  in/out/reset are in ⌘K. (`webview.set_zoom`; persisted in the shell.)
 - **Private tabs** (BACKLOG #59) — "🕶 Private tab" (new-tab picker + ⌘K "New
   private tab") opens a tab on an **in-memory session** (`incognito` webview): no
   cookies/storage persisted, wiped on close, **never recorded in history or

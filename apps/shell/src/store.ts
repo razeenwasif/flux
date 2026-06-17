@@ -148,6 +148,35 @@ export function closePanel(): void {
   setActivePanelId(null);
 }
 
+// Per-site zoom (BACKLOG #36): factor per host, persisted in localStorage and
+// re-applied on each load. 1.0 = 100% (not stored).
+const ZOOM_STEPS = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const loadZoom = (): Record<string, number> => {
+  try { return JSON.parse(localStorage.getItem("flux.zoom") || "{}"); } catch { return {}; }
+};
+const [zoomMap, setZoomMap] = createSignal<Record<string, number>>(loadZoom());
+export const zoomFor = (host: string | null): number => (host ? zoomMap()[host] ?? 1 : 1);
+function setZoomFor(host: string, factor: number): void {
+  setZoomMap((m) => {
+    const next = { ...m };
+    if (Math.abs(factor - 1) < 0.001) delete next[host];
+    else next[host] = factor;
+    localStorage.setItem("flux.zoom", JSON.stringify(next));
+    return next;
+  });
+}
+/** Step the zoom for `host` (in/out/reset), persist, and return the new factor. */
+export function nudgeZoom(host: string, dir: "in" | "out" | "reset"): number {
+  if (dir === "reset") { setZoomFor(host, 1); return 1; }
+  const cur = zoomFor(host);
+  let i = 0, best = Infinity;
+  ZOOM_STEPS.forEach((s, idx) => { const d = Math.abs(s - cur); if (d < best) { best = d; i = idx; } });
+  const ni = dir === "in" ? Math.min(ZOOM_STEPS.length - 1, i + 1) : Math.max(0, i - 1);
+  const next = ZOOM_STEPS[ni]!;
+  setZoomFor(host, next);
+  return next;
+}
+
 // Manual tab groups (BACKLOG #56).
 const [groups, setGroups] = createSignal<TabGroup[]>([]);
 export { groups };

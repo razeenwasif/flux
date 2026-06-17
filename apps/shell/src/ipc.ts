@@ -479,6 +479,7 @@ export const webviewShow = (tabId: number) => invoke<void>("webview_show", { tab
 export const webviewHide = (tabId: number) => invoke<void>("webview_hide", { tabId });
 export const webviewNavigate = (tabId: number, url: string) =>
   invoke<void>("webview_navigate", { tabId, url });
+export const webviewZoom = (tabId: number, factor: number) => invoke<void>("webview_zoom", { tabId, factor });
 export const webviewBack = (tabId: number) => invoke<void>("webview_back", { tabId });
 export const webviewForward = (tabId: number) => invoke<void>("webview_forward", { tabId });
 export const webviewReload = (tabId: number) => invoke<void>("webview_reload", { tabId });

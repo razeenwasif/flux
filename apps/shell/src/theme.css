@@ -355,6 +355,13 @@ body.resizing .shell { transition: none !important; }
 .address-row { position: relative; display: flex; align-items: center; gap: 6px; }
 .address-row .address { flex: 1; min-width: 0; }
 .sec { flex: none; font-size: 12px; line-height: 1; cursor: default; user-select: none; }
+/* Per-site zoom pill (#36) — shown in the address row when zoom ≠ 100%. */
+.zoom-pill {
+  flex: none; font-size: 11px; padding: 2px 7px; border-radius: 999px;
+  color: var(--flux-teal); border: 1px solid rgba(47, 243, 255, 0.3);
+  background: rgba(47, 243, 255, 0.08);
+}
+.zoom-pill:hover { background: rgba(47, 243, 255, 0.18); }
 .sec-secure { filter: grayscale(0.2); opacity: 0.85; }
 .sec-insecure { color: #ffcc66; }
 /* Omnibox live suggestions (BACKLOG #32) — drops below the address pill, within

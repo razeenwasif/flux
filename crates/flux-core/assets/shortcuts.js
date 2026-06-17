@@ -22,6 +22,9 @@
         case "f": return "find";
         case "r": return "reload";
         case "`": return "toggle-terminal";
+        case "=": case "+": return "zoom-in";
+        case "-": return "zoom-out";
+        case "0": return "zoom-reset";
       }
       if (e.key === "Tab") return "next-tab";
       if (k >= "1" && k <= "9") return "tab-" + k;
@@ -30,6 +33,7 @@
       if (k === "t") return "new-terminal";
       if (k === "a") return "toggle-agent";
       if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
+      if (k === "+") return "zoom-in";
       if (e.key === "Tab") return "prev-tab";
     }
     if (e.altKey && !mod) {

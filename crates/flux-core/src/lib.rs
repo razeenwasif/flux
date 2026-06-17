@@ -267,6 +267,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_back,
             webview::webview_forward,
             webview::webview_reload,
+            webview::webview_zoom,
             webview::webview_close,
             webview::webview_debug,
             webview::panel_open,

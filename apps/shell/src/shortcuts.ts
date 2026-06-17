@@ -24,6 +24,9 @@ export type ShortcutAction =
   | "back"
   | "forward"
   | "save-to-omni"
+  | "zoom-in"
+  | "zoom-out"
+  | "zoom-reset"
   | `tab-${number}`;
 
 export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
@@ -40,6 +43,9 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
       case "f": return "find";
       case "r": return "reload";
       case "`": return "toggle-terminal";
+      case "=": case "+": return "zoom-in"; // Ctrl+= / numpad +
+      case "-": return "zoom-out";
+      case "0": return "zoom-reset";
     }
     if (e.key === "Tab") return "next-tab";
     if (k >= "1" && k <= "9") return `tab-${Number(k)}`;
@@ -48,6 +54,7 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
     if (k === "t") return "new-terminal";
     if (k === "a") return "toggle-agent";
     if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
+    if (k === "+") return "zoom-in"; // Ctrl+Shift+= (a.k.a. Ctrl++)
     if (e.key === "Tab") return "prev-tab";
   }
   if (e.altKey && !mod) {

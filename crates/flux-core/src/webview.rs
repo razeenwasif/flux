@@ -306,6 +306,15 @@ pub async fn webview_reload(app: AppHandle, tab_id: TabId) -> Result<(), String>
     eval(&app, tab_id, "location.reload()")
 }
 
+/// Set the zoom factor of a tab's webview (per-site zoom, #36). 1.0 = 100%.
+#[tauri::command]
+pub async fn webview_zoom(app: AppHandle, tab_id: TabId, factor: f64) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&label(tab_id)) {
+        wv.set_zoom(factor.clamp(0.25, 5.0)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     // Clear-on-close (#58): if this tab's host is flagged, wipe its cookies
