@@ -42,6 +42,11 @@ const NAV_JS: &str = include_str!("../assets/nav.js");
 /// chrome so they open as real Flux tabs (native webviews ignore them otherwise).
 const NEWTAB_JS: &str = include_str!("../assets/newtab.js");
 
+/// pip.js: video picture-in-picture — a hover button + Alt+P (page-side gestures,
+/// since requestPictureInPicture needs in-page user activation) + auto-PiP on
+/// tab background (#37).
+const PIP_JS: &str = include_str!("../assets/pip.js");
+
 /// darkmode.js: `__fluxDark(on)` force-dark for all sites (#40); applied at
 /// document_start via the `window.__FLUX_DARK__` flag the init script stamps.
 pub(crate) const DARKMODE_JS: &str = include_str!("../assets/darkmode.js");
@@ -83,7 +88,7 @@ pub async fn webview_open(
         .map(|s| format!("window.__FLUX_NAV__ = {{hints:{},gestures:{}}};\n", s.hints(), s.gestures()))
         .unwrap_or_default();
     let init = format!(
-        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}\n{NAV_JS}\n{NEWTAB_JS}"
+        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}\n{NAV_JS}\n{NEWTAB_JS}\n{PIP_JS}"
     );
 
     // Private tabs (#59) use an in-memory session; container tabs (#59) use a

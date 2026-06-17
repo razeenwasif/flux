@@ -17,6 +17,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   menus.
 
 ### Added
+- **Picture-in-picture** (BACKLOG #37) — pop a video into a floating always-on-top
+  window: hover any sizable video for a **⧉ PiP** button, or press **Alt+P**
+  (press again or use the OS control to exit). Flux also **auto-PiPs a playing
+  video when you switch away from its tab** (best-effort). Implemented as an
+  injected page script (`pip.js`) so the trigger carries the in-page user
+  activation the PiP API requires — a chrome button/eval can't. (WebView2; older
+  WebKitGTK may lack PiP support.) _Follow-up:_ a Settings toggle.
 - **Built-in PDF viewer** (BACKLOG #35) — PDFs open in a **Flux-owned viewer**
   (`flux://pdf`) powered by PDF.js: continuous page scroll, zoom, page count, and
   download. Works on both engines (WebKitGTK has no native PDF viewer), with
