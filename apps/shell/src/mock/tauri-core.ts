@@ -130,6 +130,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "groups_from_clusters":
       return Promise.resolve(0 as T);
+    case "tab_dom_sizes":
+      return Promise.resolve(tabs.filter((t) => t.kind === "browser").map((t) => [t.id, 120_000 + t.id * 40_000]) as T);
     case "containers_list":
       return Promise.resolve(mockContainers as T);
     case "container_create": {

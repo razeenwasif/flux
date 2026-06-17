@@ -492,6 +492,11 @@ export const webviewZoom = (tabId: number, factor: number) => invoke<void>("webv
 // ─── Reader mode (BACKLOG #41) ───────────────────────────────────────────────
 export interface ReaderBlock { kind: string; text: string; level: number; src: string }
 export const webviewExtractReader = (tabId: number) => invoke<void>("webview_extract_reader", { tabId });
+// ─── Resource monitor (BACKLOG #70) ─────────────────────────────────────────
+export const RESOURCES_URL = "flux://resources";
+/** Per-tab captured-DOM payload size in bytes (proxy for page weight). */
+export const tabDomSizes = () => invoke<[number, number][]>("tab_dom_sizes");
+
 // ─── Web capture (BACKLOG #54) ───────────────────────────────────────────────
 export const webviewCapture = (tabId: number) => invoke<string>("webview_capture", { tabId });
 export const onScreenshot = (cb: (path: string) => void): Promise<UnlistenFn> =>

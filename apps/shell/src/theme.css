@@ -1371,6 +1371,13 @@ body.resizing .shell { transition: none !important; }
 .bm-flash { font-size: 12px; color: var(--flux-teal); padding: 2px 4px; }
 .bm-inline-flash { float: right; color: var(--flux-teal); font-size: 11px; }
 
+/* ── Resource monitor (#70) ── */
+.res-mem { flex: 1; font-size: 11.5px; color: var(--flux-text-dim); }
+.res-note { font-size: 11.5px; color: var(--flux-text-mute); padding: 2px 4px 10px; line-height: 1.5; }
+.res-badge { flex: none; width: 18px; text-align: center; color: var(--flux-teal); font-size: 11px; }
+.res-badge.sleeping { color: var(--flux-text-mute); }
+.res-size { flex: none; font-size: 11.5px; color: var(--flux-text-dim); font-variant-numeric: tabular-nums; }
+
 /* ── Reader mode (#41) — decluttered article over the hidden webview ── */
 .reader {
   position: absolute; inset: 0; z-index: 7;

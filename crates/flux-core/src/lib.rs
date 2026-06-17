@@ -223,6 +223,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::chrome_import_preview,
             commands::chrome_import_bookmarks,
             commands::dom_active_bytes,
+            commands::tab_dom_sizes,
             commands::terminal_env,
             commands::agent_status,
             commands::agent_execute,

@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Resource monitor** (BACKLOG #70, partial) — **📊** `flux://resources` (+ ⌘K)
+  shows overall Flux/free RAM and a per-tab list (captured-page weight + live /
+  💤 sleeping), with one-click **💤 Sleep background tabs** to reclaim RAM. (True
+  per-tab CPU isn't shown — browser engines share processes across tabs, so it
+  isn't cleanly attributable; payload weight + sleep is what's actionable.)
 - **Web capture / screenshot** (BACKLOG #54) — **📸** in the address row (or ⌘K
   "Capture page") saves the visible page to a PNG in the app's `screenshots`
   folder, with a toast on completion. (WebView2 `CapturePreview`, COM-verified vs

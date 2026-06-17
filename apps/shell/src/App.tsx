@@ -25,6 +25,7 @@ import {
   HISTORY_URL,
   BOOKMARKS_URL,
   SESSIONS_URL,
+  RESOURCES_URL,
   PANE_SESSION,
   agentChat,
   agentChatTabs,
@@ -108,6 +109,7 @@ const VaultPage = lazy(() => import("./VaultPage"));
 const HistoryPage = lazy(() => import("./HistoryPage"));
 const BookmarksPage = lazy(() => import("./BookmarksPage"));
 const SessionsPage = lazy(() => import("./SessionsPage"));
+const ResourcesPage = lazy(() => import("./ResourcesPage"));
 import {
   activeId,
   activeTab,
@@ -616,6 +618,24 @@ const App: Component = () => {
     void webviewZoom(t.id, f).catch(() => {});
   };
 
+  // Resource governor (#70): hibernate every live background tab now, freeing
+  // their webviews (RAM). Mirrors the idle-sweep but on demand.
+  const sleepBackgroundTabs = () => {
+    const visible = new Set(paneLayout().map((p) => p.tab.id));
+    let n = 0;
+    for (const t of tabs()) {
+      if (t.kind === "browser" && !visible.has(t.id) && !isStartUrl(t.url) && openedWebviews.has(t.id)) {
+        openedWebviews.delete(t.id);
+        shown.delete(t.id);
+        setHibernated(t.id, true);
+        wv(webviewHibernate(t.id));
+        n++;
+      }
+    }
+    setOmniToast(n ? `💤 Slept ${n} background tab${n === 1 ? "" : "s"}` : "No background tabs to sleep");
+    window.setTimeout(() => setOmniToast(null), 2600);
+  };
+
   // Web capture (#54): screenshot the visible page (async; toast on completion).
   const capturePage = () => {
     const t = activeTab();
@@ -787,6 +807,8 @@ const App: Component = () => {
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
+    { id: "resources", label: "Open Resource monitor", icon: "📊", run: () => go(RESOURCES_URL) },
+    { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
     { id: "zoom-reset", label: "Reset zoom", icon: "🔍", run: () => dispatch("zoom-reset") },
@@ -906,6 +928,7 @@ const App: Component = () => {
         onNavigate={go}
         onNewTerminal={() => void openTab("terminal")}
         onToggleAgent={() => setAgentOpen(true)}
+        onSleepBackground={sleepBackgroundTabs}
       />
       <Show when={termColVisible()}>
         <TerminalColumn />
@@ -1981,6 +2004,7 @@ const ContentArea: Component<{
   onNavigate: (url: string) => void;
   onNewTerminal: () => void;
   onToggleAgent: () => void;
+  onSleepBackground: () => void;
 }> = (props) => {
   // Keyed by id (primitive) so the list is stable across unrelated tab updates.
   const terminalIds = createMemo(() => tabs().filter((t) => t.kind === "terminal").map((t) => t.id));
@@ -2113,6 +2137,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === SESSIONS_URL}>
           <SessionsPage onNavigate={props.onNavigate} />
+        </Match>
+        <Match when={activeTab()?.url === RESOURCES_URL}>
+          <ResourcesPage onNavigate={props.onNavigate} onSleepBackground={props.onSleepBackground} />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage

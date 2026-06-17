@@ -432,6 +432,14 @@ pub fn reader_publish(app: AppHandle, tab_id: TabId, title: String, blocks: Vec<
     app.emit("flux://reader", (tab_id, title, blocks)).map_err(|e| e.to_string())
 }
 
+/// Per-tab captured-DOM payload size in bytes (BACKLOG #70) — html + text of the
+/// cached snapshot, a proxy for page weight in the resource view. Tabs without a
+/// snapshot (never loaded / hibernated) are omitted.
+#[tauri::command]
+pub fn tab_dom_sizes(state: State<'_, FluxState>) -> Vec<(TabId, usize)> {
+    state.dom_cache.iter().map(|e| (*e.key(), e.html.len() + e.text.len())).collect()
+}
+
 /// Hand the active tab's DOM to the frontend (e.g. terminal running
 /// `flux extract-json`) as an ArrayBuffer — `Response` skips JSON entirely.
 #[tauri::command]
