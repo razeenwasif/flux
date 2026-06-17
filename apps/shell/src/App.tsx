@@ -114,6 +114,14 @@ import {
   applyDarkMode,
   closeTab,
   createWorkspace,
+  containers,
+  containerColor,
+  containerById,
+  createContainer,
+  renameContainer,
+  recolorContainer,
+  deleteContainer,
+  openTabInContainer,
   panels,
   activePanel,
   activePanelId,
@@ -1060,6 +1068,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Inline rename (window.prompt is a no-op in the webview, so edit in place).
   const [editGroup, setEditGroup] = createSignal<number | null>(null);
   const [editWs, setEditWs] = createSignal<number | null>(null);
+  const [editContainer, setEditContainer] = createSignal<number | null>(null);
   const openCtx = (e: MouseEvent, tab: TabMeta) => { e.preventDefault(); setCtxTab(tab); setCtxPos({ x: e.clientX, y: e.clientY }); };
   const closeCtx = () => setCtxTab(null);
   // Keep a context menu fully on-screen: after it renders, nudge it left/up if it
@@ -1106,7 +1115,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const TabRow: Component<{ tab: TabMeta }> = (p) => (
     <div
       classList={{ "tab-row": true, active: activeId() === p.tab.id, sleeping: isHibernated(p.tab.id), private: p.tab.private, dragging: dragId() === p.tab.id, "drag-over": dropId() === p.tab.id }}
-      style={{ "border-left-color": clusterColor(p.tab) }}
+      style={{ "border-left-color": p.tab.container && containerById(p.tab.container) ? containerColor(containerById(p.tab.container)!) : clusterColor(p.tab) }}
       draggable={true}
       onClick={() => focusTab(p.tab.id)}
       onContextMenu={(e) => openCtx(e, p.tab)}
@@ -1542,6 +1551,17 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <button onClick={() => create("files")}>
                 📁 Files tab
               </button>
+              <Show when={containers().length > 0}>
+                <div class="ctx-sep" />
+                <div class="ctx-label">Open in container</div>
+                <For each={containers()}>
+                  {(c) => (
+                    <button onClick={() => { setPicker(false); void openTabInContainer(c.id); }}>
+                      <span class="ws-dot" style={{ background: containerColor(c) }} /> {c.name}
+                    </button>
+                  )}
+                </For>
+              </Show>
             </div>
           </Show>
         </div>
@@ -1749,6 +1769,25 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <Show when={panel()}>
           <div class="glass popover footer-pop">
             <Show when={panel() === "settings"}>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Containers <span style={{ color: "var(--flux-text-mute)", "font-weight": 400 }}>· isolated logins</span></div>
+              <For each={containers()}>
+                {(c) => (
+                  <div class="panel-row">
+                    <span class="ws-dot" title="Recolor" style={{ background: containerColor(c), "margin-left": "8px", cursor: "pointer" }} onClick={() => void recolorContainer(c.id)} />
+                    <Show when={editContainer() === c.id} fallback={
+                      <span class="panel-row-open" onDblClick={() => setEditContainer(c.id)} title="Double-click to rename">{c.name}</span>
+                    }>
+                      <input class="inline-edit" value={c.name} autofocus
+                        onClick={(e) => e.stopPropagation()}
+                        onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameContainer(c.id, v); setEditContainer(null); }}
+                        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditContainer(null); }} />
+                    </Show>
+                    <button class="panel-row-x" title="Delete container" onClick={() => void deleteContainer(c.id)}>✕</button>
+                  </div>
+                )}
+              </For>
+              <button class="shields-update" onClick={() => void createContainer().then((id) => id && setEditContainer(id))}>＋ New container</button>
+              <div class="ctx-sep" />
               <div class="sidebar-section" style={{ padding: "4px 8px" }}>Default search engine</div>
               <For each={engines()}>
                 {(e) => (

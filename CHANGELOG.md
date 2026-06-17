@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Named multi-account containers** (BACKLOG #59) — create containers in Settings
+  (name + color); **"Open in container ▸"** in the new-tab picker opens a tab with
+  an **isolated cookie/storage jar** (a per-webview `data_directory`), so you can
+  be logged into two accounts of the same site at once. The container's color
+  marks the tab's rail; containers persist. (Completes #59 alongside the earlier
+  private/incognito tabs.)
 - **Reader mode + text-to-speech** (BACKLOG #41) — **📖** in the address row (or
   ⌘K "Reader mode") declutters the current article into a clean, typographic view
   over the page, and **🔊 Listen** reads it aloud (Web Speech API). The article is

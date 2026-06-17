@@ -54,6 +54,8 @@ export interface TabMeta {
   workspace: number;
   /** Private/incognito tab (BACKLOG #59) — ephemeral session, not in history. */
   private: boolean;
+  /** Multi-account container (BACKLOG #59). 0 = Default (shared jar). */
+  container: number;
 }
 
 export interface Workspace {
@@ -105,8 +107,15 @@ export type AgentAction =
 
 // ─── Commands ────────────────────────────────────────────────────────────
 
-export const tabCreate = (kind: TabKind, url?: string, isPrivate?: boolean) =>
-  invoke<TabMeta>("tab_create", { kind, url: url ?? null, private: isPrivate ?? null });
+export const tabCreate = (kind: TabKind, url?: string, isPrivate?: boolean, container?: number) =>
+  invoke<TabMeta>("tab_create", { kind, url: url ?? null, private: isPrivate ?? null, container: container ?? null });
+// ─── Multi-account containers (BACKLOG #59) ──────────────────────────────────
+export interface Container { id: number; name: string; color: number }
+export const containersList = () => invoke<Container[]>("containers_list");
+export const containerCreate = (name: string, color: number) => invoke<number>("container_create", { name, color });
+export const containerUpdate = (id: number, patch: { name?: string; color?: number }) =>
+  invoke<void>("container_update", { id, name: patch.name ?? null, color: patch.color ?? null });
+export const containerDelete = (id: number) => invoke<void>("container_delete", { id });
 export const tabFocus = (id: number) => invoke<void>("tab_focus", { id });
 export const tabClose = (id: number) => invoke<void>("tab_close", { id });
 export const tabList = () => invoke<TabMeta[]>("tab_list");

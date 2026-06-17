@@ -46,13 +46,13 @@ let mockVault: { id: string; name: string; urls: string[]; username: string; pas
 ];
 const mockNow = () => T0 + DAY; // "just now" relative to the fixed dates above
 const tabs: TabMeta[] = [
-  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null, group: null, workspace: 1, private: false },
-  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null, group: null, workspace: 1, private: false },
-  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, workspace: 1, private: false },
-  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null, group: null, workspace: 1, private: false },
-  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, workspace: 1, private: false },
-  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null, group: null, workspace: 1, private: false },
-  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null, group: null, workspace: 1, private: false },
+  { id: 1, kind: "browser", url: "https://news.ycombinator.com", title: "Hacker News", pinned: true, cluster: null, group: null, workspace: 1, private: false, container: 0 },
+  { id: 2, kind: "browser", url: "https://github.com/flux-browser/flux", title: "flux-browser/flux", pinned: true, cluster: null, group: null, workspace: 1, private: false, container: 0 },
+  { id: 3, kind: "browser", url: "https://rust-lang.org", title: "Rust Programming Language", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, workspace: 1, private: false, container: 0 },
+  { id: 5, kind: "terminal", url: "~/Flux", title: "term #5", pinned: false, cluster: null, group: null, workspace: 1, private: false, container: 0 },
+  { id: 4, kind: "browser", url: "https://docs.rs/tauri", title: "tauri - Rust docs", pinned: false, cluster: { id: 0, color: 0x5bc0eb }, group: null, workspace: 1, private: false, container: 0 },
+  { id: 7, kind: "browser", url: "flux://start", title: "New Tab", pinned: false, cluster: null, group: null, workspace: 1, private: false, container: 0 },
+  { id: 8, kind: "files", url: "/home/amaterasu", title: "amaterasu", pinned: false, cluster: null, group: null, workspace: 1, private: false, container: 0 },
 ];
 // Tab groups (BACKLOG #56).
 let mockGroups: { id: number; name: string; color: number; collapsed: boolean }[] = [];
@@ -62,6 +62,10 @@ let mockWorkspaces: { id: number; name: string; color: number }[] = [
   { id: 2, name: "Work", color: 0x5bc0eb },
 ];
 let mockActiveWs = 1;
+// Multi-account containers (BACKLOG #59).
+let mockContainers: { id: number; name: string; color: number }[] = [
+  { id: 1, name: "Work", color: 0x7cf5b0 },
+];
 
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   switch (cmd) {
@@ -81,6 +85,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         group: null,
         workspace: mockActiveWs,
         private: Boolean(args?.private),
+        container: Number(args?.container ?? 0),
       };
       tabs.push(tab);
       return Promise.resolve(tab as T);
@@ -125,6 +130,23 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "groups_from_clusters":
       return Promise.resolve(0 as T);
+    case "containers_list":
+      return Promise.resolve(mockContainers as T);
+    case "container_create": {
+      const id = nextId++;
+      mockContainers.push({ id, name: String(args?.name ?? "Container"), color: Number(args?.color ?? 0xff8a8a) });
+      return Promise.resolve(id as T);
+    }
+    case "container_update": {
+      const c = mockContainers.find((x) => x.id === args?.id);
+      if (c) { if (args?.name != null) c.name = String(args.name); if (args?.color != null) c.color = Number(args.color); }
+      return Promise.resolve(undefined as T);
+    }
+    case "container_delete": {
+      mockContainers = mockContainers.filter((c) => c.id !== args?.id);
+      for (const t of tabs) if (t.container === args?.id) t.container = 0;
+      return Promise.resolve(undefined as T);
+    }
     case "panels_list":
       return Promise.resolve([] as T);
     case "panel_add":

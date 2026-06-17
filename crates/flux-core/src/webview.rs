@@ -74,16 +74,22 @@ pub async fn webview_open(
         "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}"
     );
 
-    // Private tabs (#59) use an in-memory session — no cookies/storage persisted,
-    // wiped when the webview closes.
-    let private = app
+    // Private tabs (#59) use an in-memory session; container tabs (#59) use a
+    // per-container on-disk data dir → an isolated cookie/storage jar.
+    let (private, container) = app
         .try_state::<crate::state::FluxState>()
-        .and_then(|s| s.tabs.get(&tab_id).map(|t| t.private))
-        .unwrap_or(false);
+        .and_then(|s| s.tabs.get(&tab_id).map(|t| (t.private, t.container)))
+        .unwrap_or((false, 0));
     let app_for_load = app.clone();
-    let builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
+    let mut builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
         .incognito(private)
-        .initialization_script(&init)
+        .initialization_script(&init);
+    if !private && container != 0 {
+        if let Ok(dir) = app.path().app_data_dir() {
+            builder = builder.data_directory(dir.join("containers").join(container.to_string()));
+        }
+    }
+    let builder = builder
         .on_page_load(move |webview, payload| {
             let phase = match payload.event() {
                 PageLoadEvent::Started => "started",

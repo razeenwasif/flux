@@ -26,7 +26,7 @@ fn now_ms() -> u64 {
 /// the child webview (labelled `tab-{id}`) once this returns; for Terminal
 /// tabs flux-core spawns a PTY session (BACKLOG #3) with `terminal_env`.
 #[tauri::command]
-pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String>, private: Option<bool>) -> TabMeta {
+pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String>, private: Option<bool>, container: Option<u32>) -> TabMeta {
     let id = state.alloc_tab_id();
     let (url, title) = match kind {
         // No url → the Flux start page (the frontend renders the dashboard and
@@ -44,7 +44,7 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
             (start, title)
         }
     };
-    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None, workspace: state.active_workspace(), private: private.unwrap_or(false) };
+    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None, workspace: state.active_workspace(), private: private.unwrap_or(false), container: container.unwrap_or(0) };
     state.tabs.insert(id, meta.clone());
     state.order_push(id);
     state.set_active_tab(id);
@@ -249,6 +249,32 @@ pub fn workspace_delete(state: State<'_, FluxState>, id: TabId) -> Vec<TabId> {
     let closed = state.workspace_delete(id as u32);
     state.persist();
     closed
+}
+
+// ─── Multi-account containers (BACKLOG #59) ──────────────────────────────────
+
+#[tauri::command]
+pub fn containers_list(state: State<'_, FluxState>) -> Vec<crate::state::Container> {
+    state.containers_list()
+}
+
+#[tauri::command]
+pub fn container_create(state: State<'_, FluxState>, name: String, color: u32) -> u32 {
+    let id = state.container_create(name, color);
+    state.persist();
+    id
+}
+
+#[tauri::command]
+pub fn container_update(state: State<'_, FluxState>, id: u32, name: Option<String>, color: Option<u32>) {
+    state.container_update(id, name, color);
+    state.persist();
+}
+
+#[tauri::command]
+pub fn container_delete(state: State<'_, FluxState>, id: u32) {
+    state.container_delete(id);
+    state.persist();
 }
 
 // ─── Web panels (BACKLOG #48) ────────────────────────────────────────────────

@@ -58,6 +58,9 @@ pub struct TabMeta {
     /// history. Not persisted across restart (ephemeral by definition).
     #[serde(default)]
     pub private: bool,
+    /// Multi-account container (BACKLOG #59). 0 = Default (shared jar).
+    #[serde(default)]
+    pub container: u32,
 }
 
 fn default_workspace() -> u32 {
@@ -69,6 +72,18 @@ fn default_workspace() -> u32 {
 /// (kilobytes), so switching is cheap.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workspace {
+    pub id: u32,
+    pub name: String,
+    /// 0xRRGGBB accent.
+    pub color: u32,
+}
+
+/// A multi-account container (BACKLOG #59): tabs in a container share an isolated
+/// cookie/storage jar (a per-webview `data_directory`), so you can be logged into
+/// two accounts of the same site at once. Container 0 = "Default" (implicit, no
+/// isolation) and is never stored here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Container {
     pub id: u32,
     pub name: String,
     /// 0xRRGGBB accent.
@@ -163,6 +178,9 @@ pub struct FluxState {
     /// Pinned web panels (BACKLOG #48).
     panels: RwLock<Vec<WebPanel>>,
     next_panel_id: AtomicU64,
+    /// Multi-account containers (BACKLOG #59).
+    containers: RwLock<Vec<Container>>,
+    next_container_id: AtomicU64,
     /// Where the session is persisted (BACKLOG #19). `None` → no persistence
     /// (tests / the `Default` impl).
     session_path: Option<std::path::PathBuf>,
@@ -185,6 +203,8 @@ impl FluxState {
             next_workspace_id: AtomicU64::new(2),
             panels: RwLock::new(Vec::new()),
             next_panel_id: AtomicU64::new(1),
+            containers: RwLock::new(Vec::new()),
+            next_container_id: AtomicU64::new(1),
             session_path: None,
         }
     }
@@ -218,6 +238,7 @@ impl FluxState {
             workspaces[0].id
         };
         let next_panel = session.panels.iter().map(|p| p.id).max().unwrap_or(0) as u64 + 1;
+        let next_container = session.containers.iter().map(|c| c.id).max().unwrap_or(0) as u64 + 1;
         Self {
             active_tab: AtomicU64::new(active),
             next_tab_id: AtomicU64::new(next),
@@ -232,6 +253,8 @@ impl FluxState {
             next_workspace_id: AtomicU64::new(next_ws),
             panels: RwLock::new(session.panels),
             next_panel_id: AtomicU64::new(next_panel),
+            containers: RwLock::new(session.containers),
+            next_container_id: AtomicU64::new(next_container),
             session_path: Some(session_path),
         }
     }
@@ -464,6 +487,44 @@ impl FluxState {
         }
     }
 
+    // ── Multi-account containers (BACKLOG #59) ────────────────────────────────
+
+    pub fn containers_list(&self) -> Vec<Container> {
+        self.containers.read().clone()
+    }
+
+    pub fn container_create(&self, name: String, color: u32) -> u32 {
+        let id = self.next_container_id.fetch_add(1, Ordering::Relaxed) as u32;
+        self.containers.write().push(Container { id, name, color });
+        id
+    }
+
+    pub fn container_update(&self, id: u32, name: Option<String>, color: Option<u32>) {
+        if let Some(c) = self.containers.write().iter_mut().find(|c| c.id == id) {
+            if let Some(n) = name {
+                c.name = n;
+            }
+            if let Some(col) = color {
+                c.color = col;
+            }
+        }
+    }
+
+    /// Delete a container; its tabs fall back to the Default jar (container 0).
+    pub fn container_delete(&self, id: u32) {
+        self.containers.write().retain(|c| c.id != id);
+        for mut t in self.tabs.iter_mut() {
+            if t.container == id {
+                t.container = 0;
+            }
+        }
+    }
+
+    /// The container of a tab (0 = Default).
+    pub fn tab_container(&self, tab_id: TabId) -> u32 {
+        self.tabs.get(&tab_id).map(|t| t.container).unwrap_or(0)
+    }
+
     /// Write the current tabs to disk (no-op without a `session_path`). Cheap —
     /// the file is a few KB — and called after each tab mutation. Tabs are
     /// ordered by id (== creation order) so restore preserves the tab strip.
@@ -480,6 +541,7 @@ impl FluxState {
             workspaces: self.workspaces.read().clone(),
             active_workspace: self.active_workspace.load(Ordering::Acquire) as u32,
             panels: self.panels.read().clone(),
+            containers: self.containers.read().clone(),
         };
         crate::session::save(path, &session);
     }

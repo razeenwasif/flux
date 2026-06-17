@@ -33,6 +33,11 @@ import {
   panelsList,
   panelAdd,
   panelRemove,
+  containersList,
+  containerCreate,
+  containerUpdate,
+  containerDelete,
+  type Container,
   sessionRestore,
   type WebPanel,
   type ReaderBlock,
@@ -205,6 +210,44 @@ export function openReader(tab: number, title: string, blocks: ReaderBlock[]): v
 export function closeReader(): void {
   setReaderOpen(false);
   setReaderBlocks([]);
+}
+
+// Multi-account containers (BACKLOG #59): isolated cookie/storage jars.
+const [containers, setContainers] = createSignal<Container[]>([]);
+export { containers };
+export const containerColor = (c: Container): string => `#${(c.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
+export const containerById = (id: number): Container | null => containers().find((c) => c.id === id) ?? null;
+async function refreshContainers(): Promise<void> {
+  setContainers(await containersList().catch(() => []));
+}
+const C_PALETTE = [0xff8a8a, 0x7cf5b0, 0xffcc66, 0x5bc0eb, 0xec4be0, 0x9d8df1];
+export async function createContainer(name?: string): Promise<number> {
+  const color = C_PALETTE[containers().length % C_PALETTE.length]!;
+  const id = await containerCreate(name || `Container ${containers().length + 1}`, color).catch(() => 0);
+  await refreshContainers();
+  return id;
+}
+export async function renameContainer(id: number, name: string): Promise<void> {
+  await containerUpdate(id, { name }).catch(() => {});
+  await refreshContainers();
+}
+export async function recolorContainer(id: number): Promise<void> {
+  const c = containerById(id);
+  if (!c) return;
+  const i = C_PALETTE.indexOf(c.color);
+  await containerUpdate(id, { color: C_PALETTE[(i + 1) % C_PALETTE.length]! }).catch(() => {});
+  await refreshContainers();
+}
+export async function deleteContainer(id: number): Promise<void> {
+  await containerDelete(id).catch(() => {});
+  await Promise.all([refreshContainers(), refreshTabs()]);
+}
+/** Open a new tab in a container (#59) — isolated cookie/storage jar. */
+export async function openTabInContainer(containerId: number, url?: string): Promise<TabMeta> {
+  const tab = await tabCreate("browser", url, false, containerId);
+  setActiveId(tab.id);
+  await refreshTabs();
+  return tab;
 }
 
 // Manual tab groups (BACKLOG #56).
@@ -457,6 +500,7 @@ export async function refreshTabs(): Promise<void> {
   void refreshGroups();
   void refreshWorkspaces();
   void refreshPanels();
+  void refreshContainers();
 }
 
 export async function openTab(kind: TabKind, url?: string, isPrivate?: boolean): Promise<TabMeta> {
