@@ -77,8 +77,20 @@ if ($SkipFrontend -and (Test-Path $dist)) {
     Write-Host "==> Reusing existing apps\shell\dist (-SkipFrontend)" -ForegroundColor DarkYellow
 } else {
     Need npm "Install Node >= 20 (https://nodejs.org), or pass -SkipFrontend with a prebuilt apps\shell\dist."
-    if (-not (Test-Path (Join-Path $root 'node_modules'))) {
-        Write-Host "==> npm ci (first run)" -ForegroundColor Cyan
+    # Install deps on first run AND whenever the lockfile changed since the last
+    # install (e.g. a git pull that added a dependency) — npm writes
+    # node_modules\.package-lock.json after each install, so compare mtimes.
+    # Without this, a newly-added dep (e.g. pdfjs-dist) is missing and the vite
+    # build fails to resolve it.
+    $needInstall = -not (Test-Path (Join-Path $root 'node_modules'))
+    $lock = Join-Path $root 'package-lock.json'
+    $marker = Join-Path $root 'node_modules\.package-lock.json'
+    if (-not $needInstall -and (Test-Path $lock) -and (Test-Path $marker) `
+        -and (Get-Item $lock).LastWriteTimeUtc -gt (Get-Item $marker).LastWriteTimeUtc) {
+        $needInstall = $true
+    }
+    if ($needInstall) {
+        Write-Host "==> npm ci (installing/updating dependencies)" -ForegroundColor Cyan
         npm ci
     }
     Write-Host "==> Building frontend (vite)" -ForegroundColor Cyan
