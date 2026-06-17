@@ -17,6 +17,7 @@ pub mod hibernate;
 pub mod history;
 pub mod leanmode;
 pub mod mem;
+pub mod netspeed;
 pub mod nav;
 pub mod notes;
 pub mod https;
@@ -29,6 +30,7 @@ pub mod search;
 pub mod session;
 pub mod sessions;
 pub mod shields;
+pub mod taskmgr;
 pub mod tracking;
 pub mod state;
 pub mod terminal;
@@ -143,6 +145,8 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(prefetch::PrefetchModel::new());
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
+            // Built-in task manager (#107) — system process monitor.
+            app.manage(taskmgr::TaskManager::new());
             // Favicon cache (#21) — fetched cookielessly, cached per host on disk.
             let fav_dir = app.path().app_data_dir().ok().map(|d| d.join("favicons"));
             app.manage(favicon::FaviconCache::new(fav_dir));
@@ -373,6 +377,9 @@ pub fn run(intent: cli::LaunchIntent) {
             leanmode::lean_set_enabled,
             leanmode::lean_set_site,
             leanmode::lean_active_for,
+            taskmgr::tasks_list,
+            taskmgr::tasks_kill,
+            netspeed::netspeed_run,
             https::https_status,
             https::https_set_enabled,
             https::https_allow_site,

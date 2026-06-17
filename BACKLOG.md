@@ -166,6 +166,8 @@ beyond "another Chromium skin."
 | 77 | P2 | Richer home-page motion: interactive/audio-reactive wave, parallax, per-time-of-day palette — beyond the current subtle SMIL wave |
 | 78 | P2 | Real bookmarks UI (#22) + settings panel (appearance, engines, privacy) + extensions/equivalents view behind the new footer icons (currently a search-engine picker + roadmap notes) |
 | 72 | P2 | **Native RSS / feed reader** in a web panel | Vivaldi only |
+| 107 | ◐ | **Built-in task manager** (complements #70). _Done:_ `taskmgr.rs` — a system-wide process monitor (`tasks_list`: pid / name / CPU% / resident MiB, heaviest first; `tasks_kill`: end a process), marking **Flux's own process tree** by walking parent pids to our own (accurate, not name-matched) and flagging the main process so the UI can guard it. Unlike #70's per-tab weight (engines share processes, so per-tab CPU isn't attributable), this gives real per-*process* CPU/RAM. _Remaining:_ a `flux://tasks` page (+ ⌘K, Shift+Esc) and a kill-confirm for the main process. | Chrome task mgr |
+| 108 | ◐ | **Network speed test** (Ookla-style). _Done:_ `netspeed.rs` — download / upload / latency + jitter against Cloudflare's public speedtest backend (`speed.cloudflare.com`, no API key); `netspeed_run` streams phase progress over `flux://netspeed-progress` and returns Mbps + ms; throughput math unit-tested. _Remaining:_ a `flux://speedtest` page (+ ⌘K) with the gauge/animation; optional history of past runs. | under-served |
 
 ## Epic: Files explorer
 

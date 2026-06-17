@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Built-in task manager** (BACKLOG #107) — a system-wide process monitor in
+  the Rust core: `tasks_list` (pid / name / CPU% / resident memory, heaviest
+  first) and `tasks_kill` (end a process), with **Flux's own process tree**
+  flagged by walking parent pids (so the webview engine/helper processes are
+  identified accurately, and the main process is guarded). Gives real per-process
+  CPU/RAM, which the per-tab resource monitor (#70) can't (engines share
+  processes). _Follow-up:_ the `flux://tasks` page.
+- **Network speed test** (BACKLOG #108) — an Ookla-style download / upload /
+  latency + jitter test against Cloudflare's public speedtest backend (no API
+  key); `netspeed_run` streams phase progress (`ping → download → upload → done`)
+  over `flux://netspeed-progress` and returns Mbps + ms. _Follow-up:_ the
+  `flux://speedtest` page with the live gauge.
 - **Research-driven optimization pass** (BACKLOG #99–#106) — eight techniques
   distilled from the 40-paper survey (`research/RESEARCH.md`), implemented in the
   Rust core with unit tests (cache 7 · shields 5 · prefetch 6 · agent guard 4 ·
