@@ -26,6 +26,7 @@ import {
   BOOKMARKS_URL,
   PANE_SESSION,
   agentChat,
+  agentChatTabs,
   agentExecute,
   bookmarkAdd,
   chromeFocus,
@@ -1948,7 +1949,13 @@ const AgentPanel: Component = () => {
   const [prompt, setPrompt] = createSignal("");
   const [feed, setFeed] = createSignal<FeedItem[]>([]);
   const [busy, setBusy] = createSignal(false);
+  // Chat-with-page/tabs (#34): "page" grounds in the active tab; "tabs" grounds
+  // in every open browser tab in the active workspace.
+  const [scope, setScope] = createSignal<"page" | "tabs">("page");
   let feedEl: HTMLDivElement | undefined;
+
+  const browserTabIds = () =>
+    tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url)).map((t) => t.id);
 
   onMount(async () => {
     const unlisten = await onAgentStatus(setStatus);
@@ -1987,21 +1994,20 @@ const AgentPanel: Component = () => {
     }
   });
 
-  const run = async (e: SubmitEvent) => {
-    e.preventDefault();
-    const p = prompt().trim();
+  const send = async (p: string) => {
     if (!p || working()) return;
     setPrompt("");
     setFeed((f) => [...f, { role: "user", text: p }]);
     setBusy(true);
     try {
-      // "/act <…>" (or /do) drives a page action; everything else is chat.
+      // "/act <…>" (or /do) drives a page action; everything else is chat,
+      // grounded in the active page or all open tabs per the scope toggle.
       const act = p.match(/^\/(?:act|do)\s+([\s\S]+)/i);
       if (act?.[1]) {
         const action = await agentExecute(act[1].trim());
         setFeed((f) => [...f, { role: "action", text: describeAction(action) }]);
       } else {
-        const reply = await agentChat(p);
+        const reply = scope() === "tabs" ? await agentChatTabs(p, browserTabIds()) : await agentChat(p);
         setFeed((f) => [...f, { role: "assistant", text: reply.trim() }]);
       }
     } catch (err) {
@@ -2010,6 +2016,7 @@ const AgentPanel: Component = () => {
       setBusy(false);
     }
   };
+  const run = (e: SubmitEvent) => { e.preventDefault(); void send(prompt().trim()); };
 
   return (
     <aside class="agent">
@@ -2049,11 +2056,22 @@ const AgentPanel: Component = () => {
           </Show>
         </div>
 
+        {/* Chat-with-page/tabs (#34): scope toggle + one-tap prompts grounded in
+            the captured DOM (the agent already receives the page/tab text). */}
+        <div class="agent-context">
+          <button classList={{ "agent-scope": true, on: scope() === "page" }} title="Answer using the current page" onClick={() => setScope("page")}>📄 This page</button>
+          <button classList={{ "agent-scope": true, on: scope() === "tabs" }} title="Answer across all open tabs in this space" onClick={() => setScope("tabs")}>🗂 All tabs <Show when={scope() === "tabs"}><span class="agent-scope-n">{browserTabIds().length}</span></Show></button>
+        </div>
+        <div class="agent-chips">
+          <button class="agent-chip" disabled={working()} onClick={() => void send("Summarize this in a few clear bullet points.")}>Summarize</button>
+          <button class="agent-chip" disabled={working()} onClick={() => void send("What are the key points and any action items?")}>Key points</button>
+          <button class="agent-chip" disabled={working()} onClick={() => void send("Explain this like I'm new to the topic.")}>Explain</button>
+        </div>
         <form onSubmit={run} classList={{ "ai-thinking-border": working() }}>
           <input
             value={prompt()}
             onInput={(e) => setPrompt(e.currentTarget.value)}
-            placeholder={working() ? "thinking…" : "Ask anything · /act to control the page"}
+            placeholder={working() ? "thinking…" : scope() === "tabs" ? "Ask across your open tabs · /act for the page" : "Ask about this page · /act to control it"}
             disabled={working()}
             style={{ width: "100%", padding: "10px 12px", border: working() ? "none" : undefined }}
           />

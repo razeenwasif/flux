@@ -650,6 +650,23 @@ body.resizing .shell { transition: none !important; }
 .agent-empty { color: var(--flux-text-mute); line-height: 1.7; }
 .agent-empty kbd { font: inherit; font-size: 11px; background: var(--flux-surface); border: 1px solid var(--flux-border); border-radius: 4px; padding: 0 5px; color: var(--flux-text-dim); }
 
+/* Chat-with-page/tabs (#34): scope toggle + quick-prompt chips above the input. */
+.agent-context { display: flex; gap: 6px; margin-bottom: 6px; }
+.agent-scope {
+  flex: 1; font-size: 11.5px; padding: 5px 8px; border-radius: 8px;
+  border: 1px solid var(--flux-border); background: var(--flux-surface); color: var(--flux-text-dim);
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.agent-scope.on { border-color: var(--flux-violet); color: var(--flux-text); background: linear-gradient(160deg, rgba(123,97,255,0.18), var(--flux-surface)); }
+.agent-scope-n { font-size: 10px; background: var(--flux-violet); color: #fff; border-radius: 999px; padding: 0 6px; }
+.agent-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.agent-chip {
+  font-size: 11.5px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--flux-border); background: var(--flux-surface); color: var(--flux-text-dim);
+}
+.agent-chip:hover:not(:disabled) { border-color: var(--flux-violet); color: var(--flux-text); }
+.agent-chip:disabled { opacity: 0.5; }
+
 /* Chat bubbles — user right, assistant/agent left; replies keep newlines. */
 .agent-msg { max-width: 92%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
 .agent-user { align-self: flex-end; background: var(--flux-teal-dim); border: 1px solid rgba(47, 243, 255, 0.22); color: var(--flux-text); }

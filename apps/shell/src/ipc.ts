@@ -166,6 +166,9 @@ export const terminalEnv = () => invoke<Record<string, string>>("terminal_env");
 export const agentExecute = (prompt: string) => invoke<AgentAction>("agent_execute", { prompt });
 /** Free-form chat with the local model (no page required). Returns the reply. */
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
+/** Chat grounded in the captured text of several tabs (chat-with-tabs). */
+export const agentChatTabs = (prompt: string, tabIds: number[]) =>
+  invoke<string>("agent_chat_tabs", { prompt, tabIds });
 export const tabsRecluster = () => invoke<void>("tabs_recluster");
 
 /**

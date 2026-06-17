@@ -168,6 +168,24 @@ impl AgentPlanner {
         };
         self.backend.chat(&prompt)
     }
+
+    /// Chat grounded in the text of several open tabs (BACKLOG: chat-with-tabs).
+    /// `pages` is the pre-joined, per-tab-labelled text; here we just frame it and
+    /// cap the total.
+    pub fn chat_pages(&self, user_prompt: &str, pages: &str) -> Result<String, AgentError> {
+        const PAGES_BUDGET: usize = 12 * 1024;
+        if pages.trim().is_empty() {
+            return self.chat(user_prompt, None);
+        }
+        let prompt = format!(
+            "You are Flux, a helpful AI assistant built into a web browser. The user \
+             is asking about several open tabs; each tab's visible text is provided \
+             below. Answer using this context and say which tab when it matters.\n\n\
+             {}\n\nUSER: {user_prompt}",
+            truncate_utf8(pages, PAGES_BUDGET)
+        );
+        self.backend.chat(&prompt)
+    }
 }
 
 /// Last-line policy gate, applied AFTER parsing — defense in depth even

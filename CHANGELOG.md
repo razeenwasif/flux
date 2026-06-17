@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Chat with this page / your tabs** — the Flux Agent now has a **scope toggle**
+  (📄 This page · 🗂 All tabs) and one-tap prompts (**Summarize · Key points ·
+  Explain**). "This page" grounds the local Gemma in the active tab's captured
+  text (already the default); "All tabs" feeds it every open browser tab in the
+  workspace (`agent_chat_tabs`, per-tab-capped). Fully local — no page text
+  leaves the machine.
 - **Web panels** (BACKLOG #48) — pin a site (chat, docs, music, claude.ai) to a
   slim pane on the right of the content card that **persists across tab
   switches**. Manage from the footer **🗔** popover: "Pin this page", toggle a

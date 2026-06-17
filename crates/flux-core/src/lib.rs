@@ -213,6 +213,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::agent_status,
             commands::agent_execute,
             commands::agent_chat,
+            commands::agent_chat_tabs,
             commands::tabs_recluster,
             terminal::terminal_spawn,
             terminal::terminal_write,

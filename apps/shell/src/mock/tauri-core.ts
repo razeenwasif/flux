@@ -419,6 +419,10 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(
         "I'm Flux, your local assistant. Ask me anything — or use /act to control the page." as T,
       );
+    case "agent_chat_tabs":
+      return Promise.resolve(
+        `(mock) Answering "${String(args?.prompt ?? "")}" across ${(args?.tabIds as number[] | undefined)?.length ?? 0} tabs.` as T,
+      );
     case "agent_execute":
       return Promise.resolve({
         action: "click",

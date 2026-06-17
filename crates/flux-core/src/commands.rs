@@ -434,6 +434,29 @@ pub async fn agent_chat(state: State<'_, FluxState>, prompt: String) -> Result<S
     .map_err(|e| e.to_string())
 }
 
+/// Chat grounded in the captured text of several tabs (chat-with-tabs). Gathers
+/// each tab's cached DOM text (capped per tab), labels it, and asks the local
+/// model. Tabs without a snapshot yet are skipped.
+#[tauri::command]
+pub async fn agent_chat_tabs(state: State<'_, FluxState>, prompt: String, tab_ids: Vec<TabId>) -> Result<String, String> {
+    const PER_TAB: usize = 4 * 1024;
+    let mut combined = String::new();
+    for id in tab_ids {
+        let Some(snap) = state.dom_cache.get(&id) else { continue };
+        let title = state.tabs.get(&id).map(|t| t.title.clone()).filter(|t| !t.trim().is_empty());
+        let label = title.unwrap_or_else(|| snap.url.to_string());
+        combined.push_str(&format!("--- TAB: {label} ({}) ---\n", snap.url));
+        combined.push_str(&cap_utf8(snap.text.to_string(), PER_TAB));
+        combined.push_str("\n\n");
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().chat_pages(&prompt, &combined)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
 /// Natural language → planned DOM action → JS injected into the active tab's
 /// webview. Async so a 12B model's planning latency never blocks the IPC pool.
 #[tauri::command]
