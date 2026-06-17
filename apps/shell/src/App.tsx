@@ -2310,6 +2310,7 @@ const ContentArea: Component<{
                   updateTabUrl(id, p);
                   updateTabTitle(id, basename(p));
                 }}
+                onOpenInTab={props.onNavigate}
               />
             )}
           </Show>

@@ -36,7 +36,9 @@ import {
   fsUndo,
   fsUnwatch,
   fsWatch,
+  isPdfUrl,
   onFsChanged,
+  pdfViewerUrl,
   type DirListing,
   type FileEntry,
   type QuickLocation,
@@ -50,7 +52,7 @@ type Menu = { x: number; y: number; entry: FileEntry | null } | null;
 type Creating = { kind: "dir" | "file"; value: string } | null;
 type Confirm = { title: string; body: string; danger: boolean; onYes: () => void } | null;
 
-const FilesView: Component<{ id: number; path: string; onPathChange: (p: string) => void }> = (props) => {
+const FilesView: Component<{ id: number; path: string; onPathChange: (p: string) => void; onOpenInTab: (url: string) => void }> = (props) => {
   const [cwd, setCwd] = createSignal(props.path);
   const [listing, setListing] = createSignal<DirListing | null>(null);
   const [loading, setLoading] = createSignal(true);
@@ -197,6 +199,8 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const openEntry = (e: FileEntry) => {
     const p = joinPath(cwd(), e.name);
     if (e.is_dir) navigate(p);
+    // PDFs open in Flux's built-in viewer (#35), in a new tab.
+    else if (isPdfUrl(e.name)) props.onOpenInTab(pdfViewerUrl(p));
     else void fsOpen(p).catch((err) => toast(String(err), "err"));
   };
 
