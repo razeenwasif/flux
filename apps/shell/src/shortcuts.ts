@@ -28,6 +28,8 @@ export type ShortcutAction =
   | "zoom-out"
   | "zoom-reset"
   | "focus-mode"
+  | "bookmark-page"
+  | "devtools"
   | `tab-${number}`;
 
 export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
@@ -47,6 +49,7 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
       case "=": case "+": return "zoom-in"; // Ctrl+= / numpad +
       case "-": return "zoom-out";
       case "0": return "zoom-reset";
+      case "d": return "bookmark-page"; // Ctrl/Cmd+D → bookmark this page
     }
     if (e.key === "Tab") return "next-tab";
     if (k >= "1" && k <= "9") return `tab-${Number(k)}`;
@@ -64,5 +67,6 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
     if (e.key === "ArrowRight") return "forward";
   }
   if (e.key === "F5") return "reload";
+  if (e.key === "F12") return "devtools";
   return null;
 }

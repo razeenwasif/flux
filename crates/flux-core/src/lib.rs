@@ -242,6 +242,7 @@ pub fn run(intent: cli::LaunchIntent) {
             tauri::plugin::Builder::<tauri::Wry>::new("fluxtab")
                 .invoke_handler(tauri::generate_handler![
                     commands::dom_publish,
+                    commands::chrome_open_url,
                     broker::ext_broker_call,
                     commands::chrome_key,
                     commands::find_result,
@@ -307,6 +308,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_show,
             webview::webview_hide,
             webview::webview_preconnect,
+            webview::webview_devtools,
             webview::webview_hibernate,
             webview::webview_capture_state,
             mem::mem_status,
@@ -385,6 +387,7 @@ pub fn run(intent: cli::LaunchIntent) {
             leanmode::lean_active_for,
             taskmgr::tasks_list,
             taskmgr::tasks_kill,
+            taskmgr::tasks_stats,
             netspeed::netspeed_run,
             https::https_status,
             https::https_set_enabled,

@@ -541,9 +541,9 @@ export async function refreshTabs(): Promise<void> {
   void refreshContainers();
 }
 
-export async function openTab(kind: TabKind, url?: string, isPrivate?: boolean): Promise<TabMeta> {
+export async function openTab(kind: TabKind, url?: string, isPrivate?: boolean, background?: boolean): Promise<TabMeta> {
   const tab = await tabCreate(kind, url, isPrivate);
-  setActiveId(tab.id);
+  if (!background) setActiveId(tab.id); // background tabs (middle/Ctrl-click) don't steal focus
   await refreshTabs();
   return tab;
 }

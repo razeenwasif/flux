@@ -25,6 +25,7 @@
         case "=": case "+": return "zoom-in";
         case "-": return "zoom-out";
         case "0": return "zoom-reset";
+        case "d": return "bookmark-page";
       }
       if (e.key === "Tab") return "next-tab";
       if (k >= "1" && k <= "9") return "tab-" + k;
@@ -42,6 +43,7 @@
       if (e.key === "ArrowRight") return "forward";
     }
     if (e.key === "F5") return "reload";
+    if (e.key === "F12") return "devtools";
     return null;
   }
 

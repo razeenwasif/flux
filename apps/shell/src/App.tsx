@@ -39,6 +39,9 @@ import {
   noteGet,
   noteSet,
   bookmarkAdd,
+  bookmarkRemove,
+  bookmarksList,
+  webviewDevtools,
   chromeFocus,
   isStartUrl,
   launchIntent,
@@ -47,6 +50,7 @@ import {
   onExtOpenTab,
   onFindResult,
   onShortcut,
+  onOpenUrl,
   onTabLoaded,
   historySearch,
   searchDefault,
@@ -398,6 +402,11 @@ const App: Component = () => {
     window.addEventListener("keydown", onKey, true);
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     const unShortcut = await onShortcut((a) => dispatch(a));
+    // Page-initiated new windows (window.open / target="_blank" / modified
+    // click) → open as a Flux tab; background tabs don't steal focus.
+    const unOpenUrl = await onOpenUrl((url, background) => {
+      void openTab("browser", url, false, background).catch(() => {});
+    });
     // Reader mode (#41): the injected extractor posts blocks back here.
     const unReader = await onReader((tabId, title, blocks) => openReader(tabId, title, blocks));
     onCleanup(unReader);
@@ -508,6 +517,7 @@ const App: Component = () => {
       unClusters();
       unExtOpen();
       unShortcut();
+      unOpenUrl();
       unFind();
       unLoaded();
     });
@@ -667,6 +677,32 @@ const App: Component = () => {
   const navActive = (fn: (id: number) => Promise<unknown>) => {
     const t = activeTab();
     if (t?.kind === "browser") void fn(t.id).catch(() => {});
+  };
+
+  // Bookmark state for the active page — drives the address-bar star + Ctrl+D.
+  const [bookmarkedId, setBookmarkedId] = createSignal<number | null>(null);
+  const bookmarkableUrl = () => {
+    const t = activeTab();
+    return t?.kind === "browser" && !isStartUrl(t.url) ? t.url : null;
+  };
+  createEffect(() => {
+    const url = bookmarkableUrl();
+    if (!url) { setBookmarkedId(null); return; }
+    void bookmarksList()
+      .then((bms) => setBookmarkedId(bms.find((b) => b.url === url)?.id ?? null))
+      .catch(() => setBookmarkedId(null));
+  });
+  const toggleBookmark = () => {
+    const t = activeTab();
+    const url = bookmarkableUrl();
+    if (!t || !url) return;
+    const flash = (m: string) => { setOmniToast(m); window.setTimeout(() => setOmniToast(null), 1800); };
+    const existing = bookmarkedId();
+    if (existing != null) {
+      void bookmarkRemove(existing).then(() => { setBookmarkedId(null); flash("Bookmark removed"); }).catch(() => {});
+    } else {
+      void bookmarkAdd(t.title || url, url).then((b) => { setBookmarkedId(b?.id ?? null); flash("★ Bookmarked"); }).catch(() => {});
+    }
   };
 
   // Per-site zoom (#36). Ctrl +/-/0 step the active page's zoom, persisted per host.
@@ -909,6 +945,8 @@ const App: Component = () => {
       case "zoom-in": zoom("in"); return true;
       case "zoom-out": zoom("out"); return true;
       case "zoom-reset": zoom("reset"); return true;
+      case "bookmark-page": toggleBookmark(); return true;
+      case "devtools": navActive((id) => webviewDevtools(id)); return true;
       case "focus-mode": {
         const on = !focusMode();
         setFocusMode(on);
@@ -999,6 +1037,8 @@ const App: Component = () => {
         onZoomReset={() => zoom("reset")}
         onToggleReader={toggleReader}
         onCapture={capturePage}
+        onToggleBookmark={toggleBookmark}
+        isBookmarked={() => bookmarkedId() != null}
       />
       <ContentArea
         onNavigate={go}
@@ -1138,6 +1178,8 @@ interface SidebarProps {
   onZoomReset: () => void;
   onToggleReader: () => void;
   onCapture: () => void;
+  onToggleBookmark: () => void;
+  isBookmarked: () => boolean;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | "notes" | null;
@@ -1545,6 +1587,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Show>
           {/* Reader mode (#41) + capture (#54) — for real pages only. */}
           <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
+            <button
+              type="button"
+              classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
+              title={props.isBookmarked() ? "Bookmarked — click to remove (Ctrl+D)" : "Bookmark this page (Ctrl+D)"}
+              onClick={() => props.onToggleBookmark()}
+            >
+              {props.isBookmarked() ? "★" : "☆"}
+            </button>
             <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
             <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
           </Show>

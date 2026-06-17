@@ -392,6 +392,16 @@ pub fn chrome_key(app: AppHandle, action: String) -> Result<(), String> {
     app.emit("flux://shortcut", action).map_err(|e| e.to_string())
 }
 
+/// A page-initiated new window (window.open / target="_blank" / modified click),
+/// forwarded by the injected `newtab.js`. Native child webviews ignore these, so
+/// the page asks the chrome to open a real Flux tab. `background` keeps focus on
+/// the current tab (middle-click / Ctrl-click). Like `chrome_key`, this is a
+/// `fluxtab` plugin command so remote pages may call it.
+#[tauri::command]
+pub fn chrome_open_url(app: AppHandle, url: String, background: bool) -> Result<(), String> {
+    app.emit("flux://open-url", (url, background)).map_err(|e| e.to_string())
+}
+
 /// Pull OS keyboard focus back to the chrome window. A focused native tab
 /// webview is a separate OS child window that holds the keyboard, so focusing a
 /// chrome DOM element (e.g. the omnibox on Ctrl+T / Ctrl+L) does nothing until
