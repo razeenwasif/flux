@@ -701,6 +701,7 @@ const App: Component = () => {
   // Actions offered by the palette (tab-switching + history are built in).
   const paletteActions = (): PaletteAction[] => [
     { id: "new-tab", label: "New browser tab", icon: "🌐", run: () => void openTab("browser") },
+    { id: "new-private", label: "New private tab", icon: "🕶", run: () => void openTab("browser", undefined, true) },
     { id: "new-term", label: "New terminal tab", icon: "⌨", run: () => void openTab("terminal").then(() => setTerminalOpen(true)) },
     { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
     { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
@@ -1035,7 +1036,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // One tab row — reused for grouped + ungrouped lists.
   const TabRow: Component<{ tab: TabMeta }> = (p) => (
     <div
-      classList={{ "tab-row": true, active: activeId() === p.tab.id, sleeping: isHibernated(p.tab.id), dragging: dragId() === p.tab.id, "drag-over": dropId() === p.tab.id }}
+      classList={{ "tab-row": true, active: activeId() === p.tab.id, sleeping: isHibernated(p.tab.id), private: p.tab.private, dragging: dragId() === p.tab.id, "drag-over": dropId() === p.tab.id }}
       style={{ "border-left-color": clusterColor(p.tab) }}
       draggable={true}
       onClick={() => focusTab(p.tab.id)}
@@ -1062,7 +1063,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
       onDragEnd={() => { setDragId(null); setDropId(null); }}
       title={isHibernated(p.tab.id) ? "sleeping — click to wake" : "drag: top/bottom reorder · middle group · right edge split · right-click for menu"}
     >
-      <span class="tab-favicon">{isHibernated(p.tab.id) ? "💤" : <Favicon tab={p.tab} />}</span>
+      <span class="tab-favicon">{p.tab.private ? "🕶" : isHibernated(p.tab.id) ? "💤" : <Favicon tab={p.tab} />}</span>
       <span class="title">{p.tab.title || p.tab.url}</span>
       <button class="close" title="Close tab" onClick={(e) => { e.stopPropagation(); void closeTab(p.tab.id); }}>✕</button>
     </div>
@@ -1452,6 +1453,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <div class="glass popover" style={{ top: "calc(100% + 6px)", left: 0 }}>
               <button onClick={() => create("browser")}>
                 🌐 Browser tab <kbd>Ctrl+T</kbd>
+              </button>
+              <button onClick={() => { setPicker(false); void openTab("browser", undefined, true); }}>
+                🕶 Private tab
               </button>
               <button onClick={() => create("terminal")}>
                 ⌨ Terminal tab <kbd>Ctrl+Shift+T</kbd>

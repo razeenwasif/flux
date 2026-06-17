@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Private tabs** (BACKLOG #59) — "🕶 Private tab" (new-tab picker + ⌘K "New
+  private tab") opens a tab on an **in-memory session** (`incognito` webview): no
+  cookies/storage persisted, wiped on close, **never recorded in history or
+  Omni**, and never restored across restart. A violet rail/tint marks it. (The
+  ephemeral half of multi-account containers; named persistent containers via
+  per-webview `data_directory` are the documented follow-up.)
 - **Agent actions are now preview-and-approve** (BACKLOG #8) — `/act` plans the
   action and shows it as a **preview with Approve / Skip** instead of touching the
   page immediately. Approve runs it (with the magenta highlight); Skip discards it;

@@ -26,7 +26,7 @@ fn now_ms() -> u64 {
 /// the child webview (labelled `tab-{id}`) once this returns; for Terminal
 /// tabs flux-core spawns a PTY session (BACKLOG #3) with `terminal_env`.
 #[tauri::command]
-pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String>) -> TabMeta {
+pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String>, private: Option<bool>) -> TabMeta {
     let id = state.alloc_tab_id();
     let (url, title) = match kind {
         // No url → the Flux start page (the frontend renders the dashboard and
@@ -44,7 +44,7 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
             (start, title)
         }
     };
-    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None, workspace: state.active_workspace() };
+    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None, workspace: state.active_workspace(), private: private.unwrap_or(false) };
     state.tabs.insert(id, meta.clone());
     state.order_push(id);
     state.set_active_tab(id);
@@ -320,6 +320,10 @@ pub fn dom_publish(
         state.tabs.get(&tab_id).map(|t| t.title.clone()).unwrap_or_default()
     });
 
+    // Private tabs (#59) leave no trace: keep the live snapshot in RAM (for the
+    // agent on the active tab) but never record history or ingest into Omni.
+    let private = state.tabs.get(&tab_id).map(|t| t.private).unwrap_or(false);
+
     // Keep the tab's stored title fresh (so omni_search + the session show the
     // live title, not the creation-time one). In-memory only — not worth a disk
     // write every capture.
@@ -329,14 +333,15 @@ pub fn dom_publish(
         }
     }
 
-    // Record the visit in browsing history (#39); skips non-http(s) internally.
-    if let Some(h) = app.try_state::<crate::history::HistoryStore>() {
-        h.record(&url, &title);
+    if !private {
+        // Record the visit in browsing history (#39); skips non-http(s) internally.
+        if let Some(h) = app.try_state::<crate::history::HistoryStore>() {
+            h.record(&url, &title);
+        }
+        // Live ingest into Omni (no-op unless the user enabled auto-ingest). Done
+        // before the snapshot is built so the page text is still owned here.
+        crate::omni::maybe_auto_ingest(&app, &url, &title, &text);
     }
-
-    // Live ingest into Omni (no-op unless the user enabled auto-ingest). Done
-    // before the snapshot is built so the page text is still owned here.
-    crate::omni::maybe_auto_ingest(&app, &url, &title, &text);
 
     let snapshot = Arc::new(DomSnapshot {
         tab: tab_id,

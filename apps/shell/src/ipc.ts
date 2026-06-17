@@ -52,6 +52,8 @@ export interface TabMeta {
   group: number | null;
   /** Workspace this tab belongs to (BACKLOG #44). */
   workspace: number;
+  /** Private/incognito tab (BACKLOG #59) — ephemeral session, not in history. */
+  private: boolean;
 }
 
 export interface Workspace {
@@ -103,8 +105,8 @@ export type AgentAction =
 
 // ─── Commands ────────────────────────────────────────────────────────────
 
-export const tabCreate = (kind: TabKind, url?: string) =>
-  invoke<TabMeta>("tab_create", { kind, url: url ?? null });
+export const tabCreate = (kind: TabKind, url?: string, isPrivate?: boolean) =>
+  invoke<TabMeta>("tab_create", { kind, url: url ?? null, private: isPrivate ?? null });
 export const tabFocus = (id: number) => invoke<void>("tab_focus", { id });
 export const tabClose = (id: number) => invoke<void>("tab_close", { id });
 export const tabList = () => invoke<TabMeta[]>("tab_list");

@@ -70,8 +70,15 @@ pub async fn webview_open(
         "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}"
     );
 
+    // Private tabs (#59) use an in-memory session — no cookies/storage persisted,
+    // wiped when the webview closes.
+    let private = app
+        .try_state::<crate::state::FluxState>()
+        .and_then(|s| s.tabs.get(&tab_id).map(|t| t.private))
+        .unwrap_or(false);
     let app_for_load = app.clone();
     let builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
+        .incognito(private)
         .initialization_script(&init)
         .on_page_load(move |webview, payload| {
             let phase = match payload.event() {

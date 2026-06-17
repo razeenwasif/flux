@@ -53,6 +53,11 @@ pub struct TabMeta {
     /// Workspace this tab belongs to (BACKLOG #44). Defaults to workspace 1.
     #[serde(default = "default_workspace")]
     pub workspace: u32,
+    /// Private/incognito tab (BACKLOG #59): its webview uses an in-memory session
+    /// (no persisted cookies/storage, wiped on close) and it's never recorded in
+    /// history. Not persisted across restart (ephemeral by definition).
+    #[serde(default)]
+    pub private: bool,
 }
 
 fn default_workspace() -> u32 {
@@ -467,7 +472,8 @@ impl FluxState {
         let session = crate::session::Session {
             // Saved in display order, so a restart preserves the drag-reordered
             // strip (#30) — `restore` reads the sequence back as the order.
-            tabs: self.ordered_tabs(),
+            // Private tabs (#59) are ephemeral — never written to disk.
+            tabs: self.ordered_tabs().into_iter().filter(|t| !t.private).collect(),
             active: self.active_tab.load(Ordering::Acquire),
             next_id: self.next_tab_id.load(Ordering::Acquire),
             groups: self.groups.read().clone(),

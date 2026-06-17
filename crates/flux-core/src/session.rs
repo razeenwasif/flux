@@ -59,7 +59,7 @@ mod tests {
     use crate::state::{FluxState, TabKind, TabMeta};
 
     fn tab(id: TabId, pinned: bool) -> TabMeta {
-        TabMeta { id, kind: TabKind::Browser, url: format!("https://{id}.test"), title: String::new(), pinned, cluster: None, group: None, workspace: 1 }
+        TabMeta { id, kind: TabKind::Browser, url: format!("https://{id}.test"), title: String::new(), pinned, cluster: None, group: None, workspace: 1, private: false }
     }
 
     #[test]

@@ -400,8 +400,8 @@ export async function refreshTabs(): Promise<void> {
   void refreshPanels();
 }
 
-export async function openTab(kind: TabKind, url?: string): Promise<TabMeta> {
-  const tab = await tabCreate(kind, url);
+export async function openTab(kind: TabKind, url?: string, isPrivate?: boolean): Promise<TabMeta> {
+  const tab = await tabCreate(kind, url, isPrivate);
   setActiveId(tab.id);
   await refreshTabs();
   return tab;
