@@ -33,6 +33,8 @@ interface Dims { w: number; h: number } // PDF points
 type FieldType = "text" | "checkbox" | "radio" | "dropdown";
 interface FormField { name: string; type: FieldType; options?: string[] }
 type FieldValue = string | boolean;
+/** A form widget's on-page box (PDF.js geometry), for in-place editing. */
+interface WidgetBox { id: number; page: number; name: string; x: number; y: number; w: number; h: number; exportValue?: string }
 
 const PALETTE = ["#ffd60a", "#ff453a", "#32d74b", "#0a84ff", "#bf5af2", "#1c1c1e"];
 const TOOLS: { id: Tool; icon: string; label: string }[] = [
@@ -84,6 +86,7 @@ const PdfViewer: Component = () => {
   const [formValues, setFormValues] = createSignal<Record<string, FieldValue>>({});
   const [formMsg, setFormMsg] = createSignal("");
   const [flattenOnSave, setFlattenOnSave] = createSignal(false);
+  const [widgets, setWidgets] = createSignal<WidgetBox[]>([]);
 
   let working: Uint8Array = new Uint8Array();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -454,6 +457,57 @@ const PdfViewer: Component = () => {
     return new Uint8Array(await doc.save());
   };
 
+  /** Collect every form widget's on-page box (PDF.js) for in-place editing.
+   *  PDF.js gives us per-widget geometry (incl. rotation) + the radio export
+   *  value; the field *type* comes from the pdf-lib pass (`formFields`). */
+  const gatherWidgets = async () => {
+    if (!pdfDoc) { setWidgets([]); return; }
+    const out: WidgetBox[] = [];
+    try {
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const vp1 = page.getViewport({ scale: 1 });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const anns: any[] = await page.getAnnotations({ intent: "display" });
+        for (const a of anns) {
+          if (a.subtype !== "Widget" || !a.fieldName || a.fieldType === "Sig" || a.pushButton) continue;
+          const r = vp1.convertToViewportRectangle(a.rect) as number[];
+          const x = Math.min(r[0]!, r[2]!), y = Math.min(r[1]!, r[3]!);
+          out.push({ id: out.length, page: i, name: a.fieldName, x, y, w: Math.abs(r[2]! - r[0]!), h: Math.abs(r[3]! - r[1]!), exportValue: a.buttonValue ?? undefined });
+        }
+      }
+    } catch { /* leave whatever we gathered */ }
+    setWidgets(out);
+  };
+
+  const widgetsForPage = (pageNo: number) => widgets().filter((w) => w.page === pageNo);
+  const fieldType = (name: string): FieldType | undefined => formFields().find((f) => f.name === name)?.type;
+
+  /** Render one in-place form widget, positioned over its page box. */
+  const fieldWidget = (wd: WidgetBox) => {
+    const s = () => scale();
+    const pos = () => ({ left: `${wd.x * s()}px`, top: `${wd.y * s()}px`, width: `${wd.w * s()}px`, height: `${wd.h * s()}px` });
+    const t = fieldType(wd.name);
+    const font = () => `${Math.max(8, Math.min(16, wd.h * s() * 0.62))}px`;
+    if (t === "checkbox") {
+      return <input type="checkbox" class="pdf-fw" style={pos()} checked={Boolean(formValues()[wd.name])} onChange={(e) => setFieldValue(wd.name, e.currentTarget.checked)} />;
+    }
+    if (t === "radio") {
+      return <input type="radio" class="pdf-fw" style={pos()} checked={String(formValues()[wd.name] ?? "") === wd.exportValue} onChange={() => setFieldValue(wd.name, wd.exportValue ?? "")} />;
+    }
+    if (t === "dropdown") {
+      const ff = formFields().find((f) => f.name === wd.name);
+      return (
+        <select class="pdf-fw pdf-fw-text" style={{ ...pos(), "font-size": font() }} value={String(formValues()[wd.name] ?? "")} onChange={(e) => setFieldValue(wd.name, e.currentTarget.value)}>
+          <option value="">—</option>
+          <For each={ff?.options ?? []}>{(o) => <option value={o}>{o}</option>}</For>
+        </select>
+      );
+    }
+    // default: text
+    return <input type="text" class="pdf-fw pdf-fw-text" style={{ ...pos(), "font-size": font() }} value={String(formValues()[wd.name] ?? "")} onInput={(e) => setFieldValue(wd.name, e.currentTarget.value)} />;
+  };
+
   const setFieldValue = (name: string, v: FieldValue) => {
     setFormValues((prev) => ({ ...prev, [name]: v }));
     setDirty(true);
@@ -471,11 +525,11 @@ const PdfViewer: Component = () => {
     }
   };
 
-  // (Re)read fields when entering Forms mode or after the doc changes.
+  // (Re)read fields + widget boxes when entering Forms mode or after a change.
   createEffect(() => {
     if (mode() === "forms" && ready()) {
       docVersion();
-      void loadFields();
+      void (async () => { await loadFields(); await gatherWidgets(); })();
     }
   });
 
@@ -603,6 +657,9 @@ const PdfViewer: Component = () => {
             return (
               <div class="pdf-page-wrap" style={{ width: `${cssW()}px`, height: `${cssH()}px` }}>
                 <canvas class="pdf-page" ref={(el) => (canvases[p - 1] = el)} />
+                <Show when={mode() === "forms"}>
+                  <For each={widgetsForPage(p)}>{(wd) => fieldWidget(wd)}</For>
+                </Show>
                 <Show when={mode() === "edit"}>
                   <svg
                     class="pdf-annot-layer"

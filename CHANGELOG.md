@@ -15,14 +15,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ### Added
 - **PDF form fill** (BACKLOG #113) — the PDF editor (#112) gains a **🖊 Forms**
-  mode: a side panel lists the document's fillable AcroForm fields (text,
-  checkbox, radio, dropdown/list) with their current values. Fill them in,
-  **Apply to document** to see the values rendered on the page, and **Save** to
-  write a filled copy to Downloads — with an optional **Flatten on save** that
-  bakes the values in so they're no longer editable. Field reading/writing uses
-  `pdf-lib`'s typed form API via `instanceof` (survives minification). Form
-  values and drawn annotations are both burned into the saved copy. _Follow-up
-  (#113):_ in-place WYSIWYG field widgets, true text editing, OCR, signatures.
+  mode. Fillable AcroForm fields (text, checkbox, radio, dropdown/list) become
+  editable **in place, directly on the page** — interactive widgets positioned
+  over each field via PDF.js geometry (rotation-aware) — and a side panel lists
+  every field for quick navigation; the two stay in sync. **Apply to document**
+  renders the values onto the page, **Save** writes a filled copy to Downloads,
+  and an optional **Flatten on save** bakes the values in so they're no longer
+  editable. Field reading/writing uses `pdf-lib`'s typed form API via
+  `instanceof` (survives minification); form values and drawn annotations are
+  both burned into the saved copy. _Follow-up (#113):_ true text editing, OCR,
+  digital signatures.
 - **PDF editor** (BACKLOG #112) — the built-in PDF viewer (#35) gains **Edit** and
   **Pages** modes, all on-device (no Acrobat, no cloud round-trip). _Edit:_ markup
   with highlight, pen/ink, text, rectangle, and arrow tools, a colour palette,
