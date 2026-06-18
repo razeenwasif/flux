@@ -14,6 +14,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (persisted, on by default). It's a sibling *below* the card (not an overlay), so
   it never collides with the native tab webview — the card shrinks and the webview
   relayout follows. Stays in sync with the address-bar star / Ctrl+D.
+  **Rename** a bookmark by double-clicking its chip (or the **✎** button on
+  `flux://bookmarks`) — inline edit, Enter saves / Esc cancels, blank → host
+  fallback (`bookmark_rename`).
 - **Generated TypeScript bindings** (BACKLOG #12) — the frontend's `ipc.ts` no
   longer hand-mirrors the Rust IPC structs (which had drifted). `specta::Type` is
   derived on the `state.rs` types and emitted to `apps/shell/src/bindings.gen.ts`

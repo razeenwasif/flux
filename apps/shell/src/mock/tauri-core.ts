@@ -286,6 +286,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "bookmark_add":
       return Promise.resolve({ id: 99, title: String(args?.title ?? ""), url: String(args?.url ?? ""), folder: String(args?.folder ?? ""), added_ms: T0 } as T);
     case "bookmark_remove":
+    case "bookmark_rename":
     case "bookmarks_clear":
       return Promise.resolve(undefined as T);
     case "bookmarks_import_chrome":

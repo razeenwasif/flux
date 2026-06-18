@@ -752,6 +752,9 @@ export const bookmarkFolders = () => invoke<string[]>("bookmark_folders");
 export const bookmarkAdd = (title: string, url: string, folder?: string) =>
   invoke<Bookmark>("bookmark_add", { title, url, folder: folder ?? null });
 export const bookmarkRemove = (id: number) => invoke<void>("bookmark_remove", { id });
+/** Rename a bookmark's display title (blank → host fallback). */
+export const bookmarkRename = (id: number, title: string) =>
+  invoke<void>("bookmark_rename", { id, title });
 export const bookmarksClear = () => invoke<void>("bookmarks_clear");
 /** Import every bookmark from a Chrome profile; returns the count added. */
 export const bookmarksImportChrome = (profileDir: string) =>

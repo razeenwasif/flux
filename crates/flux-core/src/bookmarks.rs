@@ -20,6 +20,13 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Best-effort hostname (sans scheme / `www.`) for a fallback bookmark label.
+fn host_of(url: &str) -> String {
+    let after = url.split("://").nth(1).unwrap_or(url);
+    let host = after.split('/').next().unwrap_or(after);
+    host.trim_start_matches("www.").to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Bookmark {
     pub id: u64,
@@ -110,6 +117,18 @@ impl BookmarkStore {
         self.save();
     }
 
+    /// Rename a bookmark's display title. A blank title falls back to the host so
+    /// a bookmark is never left label-less. Returns true if the id existed.
+    pub fn rename(&self, id: u64, title: &str) -> bool {
+        let mut items = self.items.write();
+        let Some(b) = items.iter_mut().find(|b| b.id == id) else { return false };
+        let trimmed = title.trim();
+        b.title = if trimmed.is_empty() { host_of(&b.url) } else { trimmed.to_string() };
+        drop(items);
+        self.save();
+        true
+    }
+
     pub fn clear(&self) {
         self.items.write().clear();
         self.save();
@@ -190,6 +209,11 @@ pub fn bookmark_remove(store: State<'_, BookmarkStore>, id: u64) {
 }
 
 #[tauri::command]
+pub fn bookmark_rename(store: State<'_, BookmarkStore>, id: u64, title: String) {
+    store.rename(id, &title);
+}
+
+#[tauri::command]
 pub fn bookmarks_clear(store: State<'_, BookmarkStore>) {
     store.clear();
 }
@@ -234,5 +258,16 @@ mod tests {
         assert_eq!(store.list().len(), 1);
         store.clear();
         assert!(store.list().is_empty());
+    }
+
+    #[test]
+    fn rename_updates_title_and_blank_falls_back_to_host() {
+        let store = BookmarkStore::default();
+        let a = store.add("Old".into(), "https://www.example.com/x".into(), "".into());
+        assert!(store.rename(a.id, "  My Site  "));
+        assert_eq!(store.list()[0].title, "My Site"); // trimmed
+        store.rename(a.id, "   "); // blank → host fallback
+        assert_eq!(store.list()[0].title, "example.com");
+        assert!(!store.rename(9999, "nope")); // unknown id
     }
 }

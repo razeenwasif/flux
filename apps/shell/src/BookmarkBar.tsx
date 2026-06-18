@@ -6,7 +6,7 @@
  * webview relayout follows.
  */
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
-import { bookmarkRemove, bookmarksList, type Bookmark } from "./ipc";
+import { bookmarkRemove, bookmarkRename, bookmarksList, type Bookmark } from "./ipc";
 
 function hostOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -18,6 +18,8 @@ function letter(b: Bookmark): string {
 
 const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const [bookmarks, setBookmarks] = createSignal<Bookmark[]>([]);
+  const [editing, setEditing] = createSignal<number | null>(null);
+  const [draft, setDraft] = createSignal("");
   const refresh = () => void bookmarksList().then((b) => setBookmarks(b ?? [])).catch(() => {});
 
   onMount(() => {
@@ -35,6 +37,21 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
       .catch(() => {});
   };
 
+  const startEdit = (b: Bookmark, e: MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setDraft(b.title || hostOf(b.url));
+    setEditing(b.id);
+  };
+  const commitEdit = (id: number) => {
+    if (editing() !== id) return; // already committed/cancelled
+    const title = draft();
+    setEditing(null);
+    void bookmarkRename(id, title)
+      .then(() => { refresh(); window.dispatchEvent(new Event("flux:bookmarks-changed")); })
+      .catch(() => {});
+  };
+
   return (
     <div class="bookmark-bar">
       <Show
@@ -43,11 +60,33 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
       >
         <For each={bookmarks()}>
           {(b) => (
-            <button class="bookmark-chip" title={b.url} onClick={() => props.onNavigate(b.url)}>
-              <span class="bookmark-chip-ico">{letter(b)}</span>
-              <span class="bookmark-chip-label">{b.title || hostOf(b.url)}</span>
-              <span class="bookmark-chip-x" title="Remove bookmark" onClick={(e) => remove(b.id, e)}>×</span>
-            </button>
+            <Show
+              when={editing() === b.id}
+              fallback={
+                <button
+                  class="bookmark-chip"
+                  title={`${b.url}\n(double-click to rename)`}
+                  onClick={() => props.onNavigate(b.url)}
+                  onDblClick={(e) => startEdit(b, e)}
+                >
+                  <span class="bookmark-chip-ico">{letter(b)}</span>
+                  <span class="bookmark-chip-label">{b.title || hostOf(b.url)}</span>
+                  <span class="bookmark-chip-x" title="Remove bookmark" onClick={(e) => remove(b.id, e)}>×</span>
+                </button>
+              }
+            >
+              <input
+                class="bookmark-chip-edit"
+                autofocus
+                value={draft()}
+                onInput={(e) => setDraft(e.currentTarget.value)}
+                onBlur={() => commitEdit(b.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  else if (e.key === "Escape") setEditing(null);
+                }}
+              />
+            </Show>
           )}
         </For>
       </Show>

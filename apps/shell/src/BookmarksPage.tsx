@@ -8,6 +8,7 @@
 import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
   bookmarkRemove,
+  bookmarkRename,
   bookmarksClear,
   bookmarksImportChrome,
   bookmarksList,
@@ -70,6 +71,21 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
 
   const open = (b: Bookmark) => props.onNavigate(b.url);
   const remove = (b: Bookmark) => void bookmarkRemove(b.id).then(load);
+
+  // Inline rename (#22): a ✎ per row turns the name into an input.
+  const [editId, setEditId] = createSignal<number | null>(null);
+  const [draft, setDraft] = createSignal("");
+  const startEdit = (b: Bookmark, ev: MouseEvent) => {
+    ev.stopPropagation();
+    setDraft(b.title || b.url);
+    setEditId(b.id);
+  };
+  const commitEdit = (id: number) => {
+    if (editId() !== id) return;
+    const title = draft();
+    setEditId(null);
+    void bookmarkRename(id, title).then(() => { load(); window.dispatchEvent(new Event("flux:bookmarks-changed")); });
+  };
   const clearAll = () => {
     if (confirm("Remove all bookmarks?")) void bookmarksClear().then(load);
   };
@@ -127,12 +143,26 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
                 </div>
                 <For each={rows}>
                   {(b) => (
-                    <div class="hist-row" onClick={() => open(b)}>
+                    <div class="hist-row" onClick={() => editId() === b.id ? undefined : open(b)}>
                       <RowIcon url={b.url} />
                       <span class="hist-text">
-                        <span class="hist-name">{b.title || b.url}</span>
+                        <Show
+                          when={editId() === b.id}
+                          fallback={<span class="hist-name">{b.title || b.url}</span>}
+                        >
+                          <input
+                            class="bm-rename"
+                            autofocus
+                            value={draft()}
+                            onClick={(ev) => ev.stopPropagation()}
+                            onInput={(ev) => setDraft(ev.currentTarget.value)}
+                            onBlur={() => commitEdit(b.id)}
+                            onKeyDown={(ev) => { if (ev.key === "Enter") ev.currentTarget.blur(); else if (ev.key === "Escape") setEditId(null); }}
+                          />
+                        </Show>
                         <span class="hist-url">{b.url}</span>
                       </span>
+                      <button class="hist-forget" title="Rename" onClick={(ev) => startEdit(b, ev)}>✎</button>
                       <button class="hist-forget" title="Remove" onClick={(ev) => { ev.stopPropagation(); remove(b); }}>✕</button>
                     </div>
                   )}

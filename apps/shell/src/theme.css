@@ -706,6 +706,14 @@ body.resizing, body.busy { --glass-blur: none; }
 .bookmark-chip-x { flex: none; opacity: 0; font-size: 14px; line-height: 1; color: var(--flux-text-mute); padding: 0 2px; }
 .bookmark-chip:hover .bookmark-chip-x { opacity: 1; }
 .bookmark-chip-x:hover { color: #fff; }
+.bookmark-chip-edit {
+  flex: none; max-width: 200px; padding: 3px 8px; border-radius: 7px;
+  border: 1px solid var(--flux-teal); background: var(--flux-surface);
+  color: var(--flux-text); font-size: 12px; font-family: inherit;
+}
+.bookmark-chip-edit:focus { outline: none; }
+.bm-rename { width: 100%; max-width: 360px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--flux-teal); background: var(--flux-surface); color: var(--flux-text); font-size: 13px; font-family: inherit; }
+.bm-rename:focus { outline: none; }
 
 /* ── Vertical terminal column ── */
 /* Keep-alive terminal layer (#73): each Terminal tab's xterm stays mounted,

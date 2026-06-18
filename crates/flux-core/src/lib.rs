@@ -405,6 +405,7 @@ pub fn run(intent: cli::LaunchIntent) {
             bookmarks::bookmark_folders,
             bookmarks::bookmark_add,
             bookmarks::bookmark_remove,
+            bookmarks::bookmark_rename,
             bookmarks::bookmarks_clear,
             bookmarks::bookmarks_import_chrome,
             sessions::sessions_list,
