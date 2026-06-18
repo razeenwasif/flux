@@ -549,6 +549,13 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve({ id: 3, url: "https://example.com/new", title: "Saved page", saved_ms: Date.now(), snippet: "", score: 0 } as T);
     case "archive_delete":
       return Promise.resolve(undefined as T);
+    case "boosts_for_host":
+      return Promise.resolve([{ id: 1, host: String(args?.host ?? ""), name: "Widen the article", css: "main{max-width:90%}", js: "", enabled: true }] as T);
+    case "boost_author":
+      return Promise.resolve({ id: 2, host: "example.com", name: String(args?.instruction ?? "boost"), css: ".ad{display:none}", js: "", enabled: true } as T);
+    case "boost_set_enabled":
+    case "boost_delete":
+      return Promise.resolve(undefined as T);
     case "permissions_list":
       return Promise.resolve([
         { host: "meet.google.com", kind: "camera", decision: "allow" },

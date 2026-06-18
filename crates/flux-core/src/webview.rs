@@ -129,6 +129,24 @@ pub async fn webview_open(
                     ));
                 }
             }
+            // Per-site boosts (#49): the user's saved CSS (and any hand-added JS)
+            // for this host. CSS re-applies on every page-load event (idempotent);
+            // JS runs once, on finish.
+            if let Some(bs) = app_for_load.try_state::<crate::boosts::BoostStore>() {
+                let (bcss, bjs) = bs.injection_for(&crate::boosts::host_of(&url));
+                if !bcss.is_empty() {
+                    if let Ok(lit) = serde_json::to_string(&bcss) {
+                        let _ = webview.eval(&format!(
+                            "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-boost');\
+                             if(!s){{s=d.createElement('style');s.id='flux-boost';}}s.textContent=c;\
+                             var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
+                        ));
+                    }
+                }
+                if !bjs.is_empty() && matches!(payload.event(), PageLoadEvent::Finished) {
+                    let _ = webview.eval(&bjs);
+                }
+            }
             // Extension content scripts (#93/#94): inject the CSS + JS of every
             // enabled extension whose @match patterns hit this URL, at the right
             // phase (document_start vs document_end/idle). With the broker present
