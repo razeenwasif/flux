@@ -14,6 +14,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   jank; it snaps back the instant you let go.
 
 ### Added
+- **Install site as app / PWAs** (BACKLOG #42) — ⌘K "Install this site as app"
+  opens the current site in its **own window** (just the page, no Flux chrome) —
+  Discord, WhatsApp, Figma, etc. feel like native apps. Installed apps persist
+  and live at **`flux://apps`** (⌘K "Open installed apps") to relaunch or remove;
+  relaunching focuses the existing window instead of duplicating it.
 - **E2E-encrypted sync** (BACKLOG #62) — **`flux://sync`** (⌘K "Sync"): bookmarks
   + sessions follow you across devices, **account-optional and local-first**.
   No Flux server — point it at a folder your devices already sync (Dropbox,

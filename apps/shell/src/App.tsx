@@ -35,6 +35,8 @@ import {
   ARCHIVE_URL,
   archiveSave,
   SYNC_URL,
+  APPS_URL,
+  pwaInstall,
   PANE_SESSION,
   agentChat,
   agentChatTabs,
@@ -139,6 +141,7 @@ const PermissionsPage = lazy(() => import("./PermissionsPage"));
 const PdfViewer = lazy(() => import("./PdfViewer"));
 const ArchivePage = lazy(() => import("./ArchivePage"));
 const SyncPage = lazy(() => import("./SyncPage"));
+const AppsPage = lazy(() => import("./AppsPage"));
 import {
   activeId,
   activeTab,
@@ -792,6 +795,15 @@ const App: Component = () => {
     void webviewCapture(t.id).catch((e) => { setOmniToast(`Capture: ${String(e)}`); window.setTimeout(() => setOmniToast(null), 3000); });
   };
 
+  // Install-site-as-app (#42): open the active site in its own window + save it.
+  const installApp = () => {
+    const t = activeTab();
+    if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
+    void pwaInstall(t.url, t.title || t.url)
+      .then(() => { setOmniToast("🧩 Installed as app"); window.setTimeout(() => setOmniToast(null), 2400); })
+      .catch((e) => { setOmniToast(`Install: ${String(e)}`); window.setTimeout(() => setOmniToast(null), 3000); });
+  };
+
   // Offline archive / read-later (#69): save the active page's text for offline
   // reading + semantic search.
   const saveToArchive = () => {
@@ -975,6 +987,8 @@ const App: Component = () => {
     { id: "archive-save", label: "Save page for offline (read later)", icon: "📚", run: () => saveToArchive() },
     { id: "archive", label: "Open Archive", icon: "📚", run: () => go(ARCHIVE_URL) },
     { id: "sync", label: "Sync (encrypted, across devices)", icon: "🔄", run: () => go(SYNC_URL) },
+    { id: "install-app", label: "Install this site as app", icon: "🧩", run: () => installApp() },
+    { id: "apps", label: "Open installed apps", icon: "🧩", run: () => go(APPS_URL) },
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
@@ -2489,6 +2503,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === SYNC_URL}>
           <SyncPage />
+        </Match>
+        <Match when={activeTab()?.url === APPS_URL}>
+          <AppsPage />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage

@@ -560,6 +560,14 @@ export const syncUnlock = (passphrase: string) => invoke<void>("sync_unlock", { 
 export const syncLock = () => invoke<void>("sync_lock");
 export const syncNow = () => invoke<SyncReport>("sync_now");
 
+// ─── Install-site-as-app / PWAs (BACKLOG #42) ────────────────────────────────
+export const APPS_URL = "flux://apps";
+export interface PwaApp { id: number; name: string; url: string }
+export const pwaList = () => invoke<PwaApp[]>("pwa_list");
+export const pwaInstall = (url: string, name: string) => invoke<PwaApp>("pwa_install", { url, name });
+export const pwaLaunch = (id: number) => invoke<void>("pwa_launch", { id });
+export const pwaRemove = (id: number) => invoke<void>("pwa_remove", { id });
+
 // ─── Scriptable macros (BACKLOG #67) ─────────────────────────────────────────
 export type MacroStep =
   | { kind: "navigate"; url: string }
