@@ -320,7 +320,7 @@ const App: Component = () => {
     return { x: r.x + r.width - pw, y: r.y + PANEL_TOOLBAR, width: pw, height: Math.max(0, r.height - PANEL_TOOLBAR) };
   };
   const paneLayout = (): { tab: TabMeta; rect: Rect }[] => {
-    if (readerOpen() || filesPanelOpen()) return []; // reader / files panel covers the card; hide the page
+    if (readerOpen()) return []; // reader view covers the card; hide the page
     const rect = mainRect();
     if (!rect) return [];
     const pair = splitPanes();
@@ -395,7 +395,7 @@ const App: Component = () => {
       // (they use Esc themselves).
       if (e.key === "Escape" && !inTerminal()) {
         if (filesPanelOpen()) {
-          setFilesPanelOpen(false);
+          closeFilesPanel();
           return;
         }
         if (focusMode()) {
@@ -611,7 +611,7 @@ const App: Component = () => {
     for (const p of panes) {
       const id = p.tab.id;
       if (openedWebviews.has(id)) {
-        if (!shown.has(id)) {
+        if (!shown.has(id) && !filesPanelOpen()) {
           wv(webviewShow(id)); // only on transition into view
           shown.add(id);
         }
@@ -998,7 +998,22 @@ const App: Component = () => {
   const closePalette = () => {
     setPaletteOpen(false);
     const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url)) wv(webviewShow(t.id));
+    // Don't re-show the webview if the files panel is still covering it.
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !filesPanelOpen()) wv(webviewShow(t.id));
+  };
+
+  // Files panel — imperative show/hide, matching the palette pattern exactly.
+  // The native webview is a separate OS layer; we must hide it when the panel
+  // opens and re-show it when the panel closes so it doesn't eat all clicks.
+  const openFilesPanel = () => {
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
+    setFilesPanelOpen(true);
+  };
+  const closeFilesPanel = () => {
+    setFilesPanelOpen(false);
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen()) wv(webviewShow(t.id));
   };
   // Actions offered by the palette (tab-switching + history are built in).
   const paletteActions = (): PaletteAction[] => [
@@ -1159,6 +1174,7 @@ const App: Component = () => {
         onTranslate={() => void translatePage(myLang)}
         onToggleBookmark={toggleBookmark}
         isBookmarked={() => bookmarkedId() != null}
+        onToggleFilesPanel={() => filesPanelOpen() ? closeFilesPanel() : openFilesPanel()}
       />
       <ContentArea
         onNavigate={go}
@@ -1231,11 +1247,11 @@ const App: Component = () => {
       {/* Files popout panel — a DOM file explorer over the (hidden) webview; its
           cwd persists so it reopens where you left off. Click outside to close. */}
       <Show when={filesPanelOpen()}>
-        <div class="files-panel-backdrop" onClick={() => setFilesPanelOpen(false)}>
+        <div class="files-panel-backdrop" onClick={() => closeFilesPanel()}>
           <div class="files-panel glass" onClick={(e) => e.stopPropagation()}>
             <div class="files-panel-head">
               <span class="files-panel-title">🗁 Files</span>
-              <button class="files-panel-x" title="Close (Esc)" onClick={() => setFilesPanelOpen(false)}>✕</button>
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => closeFilesPanel()}>✕</button>
             </div>
             <div class="files-panel-body">
               <Suspense>
@@ -1243,7 +1259,7 @@ const App: Component = () => {
                   id={FILES_PANEL_ID}
                   path={filesPanelPath() || ""}
                   onPathChange={setFilesPanelPath}
-                  onOpenInTab={(url) => { setFilesPanelOpen(false); go(url); }}
+                  onOpenInTab={(url) => { closeFilesPanel(); go(url); }}
                 />
               </Suspense>
             </div>
@@ -1330,6 +1346,7 @@ interface SidebarProps {
   onTranslate: () => void;
   onToggleBookmark: () => void;
   isBookmarked: () => boolean;
+  onToggleFilesPanel: () => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | "notes" | null;
@@ -1724,7 +1741,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <button class="icon-btn" title="Stop (Esc)" onClick={() => navActive(webviewStop)}>✕</button>
           </Show>
           <button class="icon-btn" title="Home (new tab page)" onClick={() => props.onNavigate("flux://start")}>⌂</button>
-          <button classList={{ "icon-btn": true, active: filesPanelOpen() }} title="File explorer" onClick={() => setFilesPanelOpen(!filesPanelOpen())}>🗁</button>
+          <button classList={{ "icon-btn": true, active: filesPanelOpen() }} title="File explorer" onClick={props.onToggleFilesPanel}>🗁</button>
           <span style={{ flex: 1 }} />
         </Show>
       </div>
