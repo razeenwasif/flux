@@ -594,6 +594,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         { host: "meet.google.com", kind: "microphone", decision: "allow" },
         { host: "ads.example.com", kind: "notifications", decision: "deny" },
       ] as T);
+    case "pdf_save":
+      return Promise.resolve(`~/Downloads/${String(args?.filename ?? "edited.pdf")}` as T);
     case "feeds_list":
       return Promise.resolve([
         { id: 1, url: "https://blog.rust-lang.org/feed.xml", title: "Rust Blog" },

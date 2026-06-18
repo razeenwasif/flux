@@ -38,6 +38,70 @@ fn fetch(url: &str) -> Result<String, String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(&buf))
 }
 
+/// Save edited PDF bytes (base64) to the Downloads folder (BACKLOG #112). The
+/// editor burns annotations / page-ops in the page (pdf-lib) and hands us the
+/// finished bytes; we just write them, de-duplicating the filename so we never
+/// clobber an existing file. Returns the absolute path written.
+#[tauri::command]
+pub async fn pdf_save(app: tauri::AppHandle, data_b64: String, filename: String) -> Result<String, String> {
+    use tauri::Manager;
+    // Resolve a target directory on the async side (cheap), then write off-thread.
+    let dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || save_bytes(&dir, &data_b64, &filename))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn save_bytes(dir: &std::path::Path, data_b64: &str, filename: &str) -> Result<String, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_b64.as_bytes())
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_PDF_BYTES {
+        return Err("edited PDF too large to save".into());
+    }
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let path = dedup_path(dir, &sanitize(filename));
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Keep a filename to a single safe path component ending in `.pdf`.
+fn sanitize(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let mut s: String = base
+        .chars()
+        .map(|c| if c.is_control() || "<>:\"|?*".contains(c) { '_' } else { c })
+        .collect();
+    s = s.trim().trim_matches('.').to_string();
+    if s.is_empty() {
+        s = "edited".into();
+    }
+    if !s.to_ascii_lowercase().ends_with(".pdf") {
+        s.push_str(".pdf");
+    }
+    s
+}
+
+/// `name.pdf` → `name.pdf`, or `name (1).pdf`, `name (2).pdf`, … if taken.
+fn dedup_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let candidate = dir.join(name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let stem = name.strip_suffix(".pdf").unwrap_or(name);
+    for n in 1..10_000 {
+        let p = dir.join(format!("{stem} ({n}).pdf"));
+        if !p.exists() {
+            return p;
+        }
+    }
+    candidate
+}
+
 fn fetch_http(url: &str) -> Result<Vec<u8>, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
@@ -79,6 +143,27 @@ fn file_url_to_path(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sanitize_filenames() {
+        assert_eq!(sanitize("report.pdf"), "report.pdf");
+        assert_eq!(sanitize("report"), "report.pdf");
+        assert_eq!(sanitize("../../etc/passwd"), "passwd.pdf");
+        assert_eq!(sanitize("a:b*c?.pdf"), "a_b_c_.pdf");
+        assert_eq!(sanitize("   "), "edited.pdf");
+        assert_eq!(sanitize("notes.PDF"), "notes.PDF");
+    }
+
+    #[test]
+    fn dedup_avoids_clobber() {
+        let dir = std::env::temp_dir().join(format!("flux-pdf-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let p1 = dedup_path(&dir, "x.pdf");
+        std::fs::write(&p1, b"a").unwrap();
+        let p2 = dedup_path(&dir, "x.pdf");
+        assert_eq!(p2.file_name().unwrap().to_str().unwrap(), "x (1).pdf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn file_url_parsing() {

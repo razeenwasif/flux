@@ -638,6 +638,9 @@ export const pdfViewerUrl = (src: string) =>
   src.startsWith(PDF_URL) ? src : `${PDF_URL}?src=${encodeURIComponent(src)}`;
 /** Fetch a PDF's bytes server-side (CORS-free), base64-encoded. */
 export const pdfFetch = (url: string) => invoke<string>("pdf_fetch", { url });
+/** Save edited PDF bytes (base64) to Downloads (BACKLOG #112); returns the path. */
+export const pdfSave = (dataB64: string, filename: string) =>
+  invoke<string>("pdf_save", { dataB64, filename });
 
 // ─── Task manager (BACKLOG #107) ─────────────────────────────────────────────
 export const TASKS_URL = "flux://tasks";

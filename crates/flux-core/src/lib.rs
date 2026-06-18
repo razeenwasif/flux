@@ -456,6 +456,7 @@ pub fn run(intent: cli::LaunchIntent) {
             prefetch::prefetch_hints,
             prefetch::prefetch_set_pressure,
             pdf::pdf_fetch,
+            pdf::pdf_save,
             archive::archive_save,
             archive::archive_list,
             archive::archive_get,

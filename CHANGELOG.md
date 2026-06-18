@@ -14,6 +14,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   jank; it snaps back the instant you let go.
 
 ### Added
+- **PDF editor** (BACKLOG #112) — the built-in PDF viewer (#35) gains **Edit** and
+  **Pages** modes, all on-device (no Acrobat, no cloud round-trip). _Edit:_ markup
+  with highlight, pen/ink, text, rectangle, and arrow tools, a colour palette,
+  eraser, and undo. _Pages:_ a thumbnail panel to **reorder (drag), rotate, delete,
+  extract** a page, or **merge** another PDF. **Save** burns the edits into the
+  page bytes with `pdf-lib` and writes the result to your Downloads folder
+  (`pdf_save`, de-duplicating the filename). Annotations are stored in PDF-point
+  space (survive zoom) and are always flattened before a page-op, so annotation→
+  page mapping never drifts. `pdf-lib` loads lazily, so the editor adds nothing to
+  the chrome bundle until you open a PDF. _Follow-up:_ AcroForm fill/save, true
+  in-place text editing, OCR for scanned PDFs, digital signatures.
 - **Translate page** (BACKLOG #40) — **🌐** in the page-actions row (or ⌘K
   "Translate page → …") translates the current page with your **local Gemma
   model** — private, no cloud translation service — and shows it in the reader
