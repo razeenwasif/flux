@@ -573,6 +573,21 @@ pub async fn agent_chat(state: State<'_, FluxState>, prompt: String) -> Result<S
     .map_err(|e| e.to_string())
 }
 
+/// Translate the active page's visible text to `target` with the local model
+/// (BACKLOG #40). Private — no cloud translation service.
+#[tauri::command]
+pub async fn agent_translate(state: State<'_, FluxState>, target: String) -> Result<String, String> {
+    let page = state.active_snapshot().ok_or("open a page to translate")?;
+    if page.text.trim().is_empty() {
+        return Err("this page has no readable text".into());
+    }
+    let text = Arc::clone(&page.text);
+    tauri::async_runtime::spawn_blocking(move || crate::agent_bridge::planner().translate(&target, &text))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
 /// List the models the local Ollama server has pulled (#81).
 #[tauri::command]
 pub async fn agent_models() -> Vec<String> {

@@ -247,6 +247,22 @@ impl AgentPlanner {
     }
 }
 
+impl AgentPlanner {
+    /// Translate a page's visible text to `target` (a language name) with the
+    /// local model (BACKLOG #40) — private, no cloud translation service. Text is
+    /// capped, so long pages translate their leading content (a v1 limitation).
+    pub fn translate(&self, target: &str, page_text: &str) -> Result<String, AgentError> {
+        const PAGE_BUDGET: usize = 8 * 1024;
+        let prompt = format!(
+            "Translate the following web page text into {target}. Preserve paragraph \
+             breaks. Output ONLY the translation — no preamble, no notes, no \
+             transliteration.\n\n{}",
+            truncate_utf8(page_text, PAGE_BUDGET)
+        );
+        self.backend.chat(&prompt)
+    }
+}
+
 /// Strip markdown code fences and `<style>` wrappers an LLM may add around CSS.
 fn strip_css(raw: &str) -> String {
     let mut s = raw.trim();

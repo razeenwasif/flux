@@ -202,6 +202,8 @@ export const agentPlan = (prompt: string) => invoke<AgentAction>("agent_plan", {
 export const agentRunAction = (action: AgentAction) => invoke<AgentAction>("agent_run_action", { action });
 /** Free-form chat with the local model (no page required). Returns the reply. */
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
+/** Translate the active page's text to `target` (a language name) via the local model (#40). */
+export const agentTranslate = (target: string) => invoke<string>("agent_translate", { target });
 // ─── Agent model picker (BACKLOG #81) ────────────────────────────────────────
 export const agentModels = () => invoke<string[]>("agent_models");
 export const agentModel = () => invoke<string>("agent_model");

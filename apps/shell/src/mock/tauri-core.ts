@@ -576,6 +576,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "sync_unlock":
     case "sync_lock":
       return Promise.resolve(undefined as T);
+    case "agent_translate":
+      return Promise.resolve(`(mock translation → ${String(args?.target ?? "?")})\n\nThis is where the translated page text would appear, paragraph by paragraph.` as T);
     case "permissions_list":
       return Promise.resolve([
         { host: "meet.google.com", kind: "camera", decision: "allow" },

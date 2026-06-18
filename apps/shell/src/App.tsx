@@ -37,6 +37,7 @@ import {
   SYNC_URL,
   PANE_SESSION,
   agentChat,
+  agentTranslate,
   agentChatTabs,
   agentExecute,
   agentPlan,
@@ -785,6 +786,35 @@ const App: Component = () => {
     window.setTimeout(() => setOmniToast(null), 2600);
   };
 
+  // Translate page (#40): translate the active page's text with the local model
+  // and show it in the reader overlay (which already hides the webview + handles
+  // Esc/close), rendered as paragraph blocks.
+  const translatePage = async (lang: string) => {
+    const t = activeTab();
+    if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
+    setOmniToast(`🌐 Translating to ${lang}…`);
+    try {
+      const text = await agentTranslate(lang);
+      const blocks = text
+        .split(/\n{2,}/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((p) => ({ kind: "p", text: p, level: 0, src: "" }));
+      openReader(t.id, `Translated · ${lang}`, blocks.length ? blocks : [{ kind: "p", text, level: 0, src: "" }]);
+      setOmniToast(null);
+    } catch (e) {
+      setOmniToast(`Translate: ${String(e)}`);
+      window.setTimeout(() => setOmniToast(null), 3000);
+    }
+  };
+  // The user's own language name, for the one-click "Translate to <lang>" action.
+  const myLang = (() => {
+    try {
+      const base = (navigator.language || "en").split("-")[0]!;
+      return new Intl.DisplayNames([navigator.language], { type: "language" }).of(base) || "English";
+    } catch { return "English"; }
+  })();
+
   // Web capture (#54): screenshot the visible page (async; toast on completion).
   const capturePage = () => {
     const t = activeTab();
@@ -975,6 +1005,10 @@ const App: Component = () => {
     { id: "archive-save", label: "Save page for offline (read later)", icon: "📚", run: () => saveToArchive() },
     { id: "archive", label: "Open Archive", icon: "📚", run: () => go(ARCHIVE_URL) },
     { id: "sync", label: "Sync (encrypted, across devices)", icon: "🔄", run: () => go(SYNC_URL) },
+    { id: "translate", label: `Translate page → ${myLang}`, icon: "🌐", run: () => void translatePage(myLang) },
+    ...["English", "Spanish", "French", "German", "Japanese", "Chinese", "Arabic", "Hindi"]
+      .filter((l) => l !== myLang)
+      .map((l) => ({ id: `translate-${l}`, label: `Translate page → ${l}`, icon: "🌐", run: () => void translatePage(l) })),
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
@@ -1101,6 +1135,7 @@ const App: Component = () => {
         onToggleReader={toggleReader}
         onCapture={capturePage}
         onArchive={saveToArchive}
+        onTranslate={() => void translatePage(myLang)}
         onToggleBookmark={toggleBookmark}
         isBookmarked={() => bookmarkedId() != null}
       />
@@ -1243,6 +1278,7 @@ interface SidebarProps {
   onToggleReader: () => void;
   onCapture: () => void;
   onArchive: () => void;
+  onTranslate: () => void;
   onToggleBookmark: () => void;
   isBookmarked: () => boolean;
 }
@@ -1774,6 +1810,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             </button>
             <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
             <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
+            <button type="button" class="icon-btn" title="Translate this page" onClick={() => props.onTranslate()}>🌐</button>
             <button type="button" class="icon-btn" title="Save for offline (read later)" onClick={() => props.onArchive()}>📚</button>
             <button type="button" class="icon-btn" title="Save this page to Omni (Ctrl+Shift+O)" onClick={() => props.onSaveToOmni()}>✦</button>
           </div>

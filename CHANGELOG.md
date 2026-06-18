@@ -14,6 +14,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   jank; it snaps back the instant you let go.
 
 ### Added
+- **Translate page** (BACKLOG #40) — **🌐** in the page-actions row (or ⌘K
+  "Translate page → …") translates the current page with your **local Gemma
+  model** — private, no cloud translation service — and shows it in the reader
+  view. The 🌐 button translates to your own language; ⌘K offers common targets.
+  _Limitation:_ translates the leading visible text (model context cap), and
+  renders as clean text (not layout-preserving).
 - **E2E-encrypted sync** (BACKLOG #62) — **`flux://sync`** (⌘K "Sync"): bookmarks
   + sessions follow you across devices, **account-optional and local-first**.
   No Flux server — point it at a folder your devices already sync (Dropbox,
