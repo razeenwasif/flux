@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Multi-step agent tasks** (BACKLOG #8/#82) — the local agent can now carry out
+  a *goal*, not just one action. **`/task <goal>`** in the agent sidebar runs an
+  iterative loop: it plans the single next step from the **live** page + the steps
+  done so far, you **Approve / Skip / Stop** each one (or tick **Run all** to
+  auto-approve), it executes, then re-plans from the updated page — across
+  navigations — until it declares the goal `finish`ed, `refuse`s, or hits an
+  8-step cap. Re-planning per step (vs. a fixed up-front plan) is what lets a task
+  cross pages, since page-2 selectors aren't knowable on page 1. Every step still
+  goes through the closed `AgentAction` vocabulary → audited JS compiler, and
+  destructive clicks stay blocked at click-time (#104) even in Run-all. _Follow-up
+  (#82):_ schema-constrained Ollama `format` output, token streaming to the sidebar.
 - **Performance-budget gates** (BACKLOG #10, ADR 0001) — the low-RAM wedge is now
   measured and protected. `npm run perf` (and CI, `.github/workflows/perf.yml`)
   hard-gates **chrome JS ≤ 50 KB gzip** (the eager shell bundle, computed from the
