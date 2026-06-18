@@ -19,12 +19,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   fallback (`bookmark_rename`).
 - **Generated TypeScript bindings** (BACKLOG #12) — the frontend's `ipc.ts` no
   longer hand-mirrors the Rust IPC structs (which had drifted). `specta::Type` is
-  derived on the `state.rs` types and emitted to `apps/shell/src/bindings.gen.ts`
+  derived on **21 IPC structs** and emitted to `apps/shell/src/bindings.gen.ts`
   (`FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`), with a **drift test
-  gated in CI** so the two can't diverge. `ipc.ts` now re-exports the generated
-  `TabKind`, `ClusterTag`, `Workspace`, `Container`, and `AgentStatus`. _Follow-up:_
-  migrate `TabMeta`/`TabGroup`/`TabFolder` (serde-default optionals need
-  reconciling) and command signatures (tauri-specta).
+  gated in CI** so the two can't diverge. `ipc.ts` re-exports them all — the
+  `state.rs` types plus `Bookmark`, `Feed`, `FeedItem`, `PwaApp`, `HistoryEntry`,
+  `SavedTab`, `SavedSession`, `ProcInfo`, `SysStats`, `SpeedResult`, and
+  `ArchiveMeta`. _Follow-up:_ the remaining misc structs; full command-wrapper
+  codegen (tauri-specta) is deferred — it requires the pre-release specta v2 /
+  tauri-specta v2 stack (incompatible with the stable specta v1 in use).
 - **Multi-step agent tasks** (BACKLOG #8/#82) — the local agent can now carry out
   a *goal*, not just one action. **`/task <goal>`** in the agent sidebar runs an
   iterative loop: it plans the single next step from the **live** page + the steps

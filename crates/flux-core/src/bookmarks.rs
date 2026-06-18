@@ -27,7 +27,7 @@ fn host_of(url: &str) -> String {
     host.trim_start_matches("www.").to_string()
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
 pub struct Bookmark {
     pub id: u64,
     pub title: String,

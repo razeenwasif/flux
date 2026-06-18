@@ -24,7 +24,7 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
 pub struct HistoryEntry {
     pub url: String,
     pub title: String,

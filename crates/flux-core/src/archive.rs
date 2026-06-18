@@ -43,7 +43,7 @@ pub struct ArchiveEntry {
 
 /// List/search row — metadata + a short snippet (the full text stays out of list
 /// payloads; fetch it with `archive_get`).
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, specta::Type)]
 pub struct ArchiveMeta {
     pub id: u64,
     pub url: String,

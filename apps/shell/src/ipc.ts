@@ -38,16 +38,27 @@ export const isStartUrl = (url: string) => url === START_URL || url.startsWith("
 
 // Types generated from the Rust structs (BACKLOG #12) — re-exported so callers
 // keep importing them from "./ipc". Regenerate via
-// `FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`. Migrating the rest
-// (TabMeta/TabGroup/TabFolder have serde(default) optionals) is the next step.
+// `FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`.
 import type {
   AgentStatus as GenAgentStatus,
+  ArchiveMeta as GenArchiveMeta,
+  Bookmark as GenBookmark,
   ClusterTag as GenClusterTag,
   Container as GenContainer,
+  Feed as GenFeed,
+  FeedItem as GenFeedItem,
+  HistoryEntry as GenHistoryEntry,
+  ProcInfo as GenProcInfo,
+  PwaApp as GenPwaApp,
+  SavedSession as GenSavedSession,
+  SavedTab as GenSavedTab,
+  SpeedResult as GenSpeedResult,
+  SysStats as GenSysStats,
   TabFolder as GenTabFolder,
   TabGroup as GenTabGroup,
   TabKind as GenTabKind,
   TabMeta as GenTabMeta,
+  WebPanel as GenWebPanel,
   Workspace as GenWorkspace,
 } from "./bindings.gen";
 export type ClusterTag = GenClusterTag;
@@ -58,6 +69,18 @@ export type AgentStatus = GenAgentStatus;
 export type TabMeta = GenTabMeta;
 export type TabGroup = GenTabGroup;
 export type TabFolder = GenTabFolder;
+export type WebPanel = GenWebPanel;
+export type Bookmark = GenBookmark;
+export type Feed = GenFeed;
+export type FeedItem = GenFeedItem;
+export type PwaApp = GenPwaApp;
+export type HistoryEntry = GenHistoryEntry;
+export type SavedTab = GenSavedTab;
+export type SavedSession = GenSavedSession;
+export type ProcInfo = GenProcInfo;
+export type SysStats = GenSysStats;
+export type SpeedResult = GenSpeedResult;
+export type ArchiveMeta = GenArchiveMeta;
 
 export const foldersList = () => invoke<TabFolder[]>("folders_list");
 export const folderCreate = (name: string) => invoke<number>("folder_create", { name });
@@ -140,8 +163,7 @@ export const workspaceUpdate = (id: number, patch: { name?: string; color?: numb
   invoke<void>("workspace_update", { id, name: patch.name ?? null, color: patch.color ?? null });
 /** Delete a workspace + its tabs; returns the closed tab ids. */
 export const workspaceDelete = (id: number) => invoke<number[]>("workspace_delete", { id });
-// ─── Web panels (BACKLOG #48) ────────────────────────────────────────────────
-export interface WebPanel { id: number; url: string; title: string }
+// ─── Web panels (BACKLOG #48) — WebPanel type from bindings.gen ───────────────
 export const panelsList = () => invoke<WebPanel[]>("panels_list");
 export const panelAdd = (url: string, title: string) => invoke<WebPanel>("panel_add", { url, title });
 export const panelRemove = (id: number) => invoke<void>("panel_remove", { id });
@@ -537,7 +559,6 @@ export const syncNow = () => invoke<SyncReport>("sync_now");
 
 // ─── Install-site-as-app / PWAs (BACKLOG #42) ────────────────────────────────
 export const APPS_URL = "flux://apps";
-export interface PwaApp { id: number; name: string; url: string }
 export const pwaList = () => invoke<PwaApp[]>("pwa_list");
 export const pwaInstall = (url: string, name: string) => invoke<PwaApp>("pwa_install", { url, name });
 export const pwaLaunch = (id: number) => invoke<void>("pwa_launch", { id });
@@ -571,7 +592,8 @@ export const boostAuthor = (instruction: string) => invoke<Boost>("boost_author"
 
 // ─── Offline archive / read-later (BACKLOG #69) ──────────────────────────────
 export const ARCHIVE_URL = "flux://archive";
-export interface ArchiveMeta { id: number; url: string; title: string; saved_ms: number; snippet: string; score: number }
+// ArchiveMeta from bindings.gen; ArchiveEntry stays hand-written (its Rust struct
+// carries persisted embedding/embedder fields not sent in the wire shape).
 export interface ArchiveEntry { id: number; url: string; title: string; saved_ms: number; text: string }
 /** Save the active page for offline reading + semantic search. */
 export const archiveSave = () => invoke<ArchiveMeta>("archive_save");
@@ -584,16 +606,6 @@ export const archiveSearch = (query: string, limit: number) =>
 
 // ─── Native RSS / Atom reader (BACKLOG #72) ──────────────────────────────────
 export const FEEDS_URL = "flux://feeds";
-export interface Feed { id: number; url: string; title: string }
-export interface FeedItem {
-  feed_id: number;
-  feed_title: string;
-  title: string;
-  link: string;
-  summary: string;
-  /** Raw published/updated string from the feed (display-only). */
-  published: string;
-}
 export const feedsList = () => invoke<Feed[]>("feeds_list");
 /** Subscribe to a feed URL (deduped). Fetches + parses to derive the title. */
 export const feedAdd = (url: string) => invoke<Feed>("feed_add", { url });
@@ -617,31 +629,13 @@ export const pdfSave = (dataB64: string, filename: string) =>
 
 // ─── Task manager (BACKLOG #107) ─────────────────────────────────────────────
 export const TASKS_URL = "flux://tasks";
-export interface ProcInfo {
-  pid: number;
-  name: string;
-  /** CPU %, summed across cores (may exceed 100). */
-  cpu: number;
-  mem_mb: number;
-  /** Part of Flux's process tree (engine/helper processes). */
-  is_flux: boolean;
-  /** The main Flux process — ending it quits the browser. */
-  current: boolean;
-}
+// ProcInfo + SysStats from bindings.gen.
 export const tasksList = () => invoke<ProcInfo[]>("tasks_list");
 export const tasksKill = (pid: number) => invoke<boolean>("tasks_kill", { pid });
-export interface SysStats { cpu: number; mem_used_mb: number; mem_total_mb: number; mem_pct: number; cores: number }
 export const tasksStats = () => invoke<SysStats>("tasks_stats");
 
 // ─── Network speed test (BACKLOG #108) ───────────────────────────────────────
 export const SPEEDTEST_URL = "flux://speedtest";
-export interface SpeedResult {
-  ping_ms: number;
-  jitter_ms: number;
-  download_mbps: number;
-  upload_mbps: number;
-  server: string;
-}
 export const netspeedRun = () => invoke<SpeedResult>("netspeed_run");
 /** Live progress: phase ("ping"→"download"→"upload"→"done") + instantaneous
  *  Mbps (0 for ping/upload) so the dial can animate during download. */
@@ -725,12 +719,6 @@ export const faviconFetch = (host: string) => invoke<string | null>("favicon", {
 // ─── Browsing history (BACKLOG #39) ──────────────────────────────────────────
 /** Sentinel url for the full-page history view (DOM-rendered, no webview). */
 export const HISTORY_URL = "flux://history";
-export interface HistoryEntry {
-  url: string;
-  title: string;
-  last_visit_ms: number;
-  visits: number;
-}
 export const historyRecent = (limit?: number) =>
   invoke<HistoryEntry[]>("history_recent", { limit: limit ?? null });
 export const historySearch = (query: string, limit?: number) =>
@@ -740,13 +728,6 @@ export const historyDelete = (url: string) => invoke<void>("history_delete", { u
 // ─── Bookmarks (BACKLOG #22) ─────────────────────────────────────────────────
 /** Sentinel url for the full-page bookmarks view (DOM-rendered, no webview). */
 export const BOOKMARKS_URL = "flux://bookmarks";
-export interface Bookmark {
-  id: number;
-  title: string;
-  url: string;
-  folder: string;
-  added_ms: number;
-}
 export const bookmarksList = () => invoke<Bookmark[]>("bookmarks_list");
 export const bookmarkFolders = () => invoke<string[]>("bookmark_folders");
 export const bookmarkAdd = (title: string, url: string, folder?: string) =>
@@ -762,8 +743,6 @@ export const bookmarksImportChrome = (profileDir: string) =>
 
 // ─── Named sessions (BACKLOG #47) ────────────────────────────────────────────
 export const SESSIONS_URL = "flux://sessions";
-export interface SavedTab { url: string; title: string; pinned: boolean }
-export interface SavedSession { id: number; name: string; created_ms: number; tabs: SavedTab[] }
 export const sessionsList = () => invoke<SavedSession[]>("sessions_list");
 export const sessionSave = (name: string) => invoke<SavedSession>("session_save", { name });
 export const sessionDelete = (id: number) => invoke<void>("session_delete", { id });

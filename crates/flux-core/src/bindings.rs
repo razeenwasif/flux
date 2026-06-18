@@ -11,9 +11,17 @@
 //! Scope today: the `state.rs` IPC types (the largest hand-mirrored surface).
 //! Remaining types + command signatures migrate incrementally (still #12).
 
+use crate::archive::ArchiveMeta;
+use crate::bookmarks::Bookmark;
+use crate::feeds::{Feed, FeedItem};
+use crate::history::HistoryEntry;
+use crate::netspeed::SpeedResult;
+use crate::pwa::PwaApp;
+use crate::sessions::{SavedSession, SavedTab};
 use crate::state::{
     AgentStatus, ClusterTag, Container, TabFolder, TabGroup, TabKind, TabMeta, WebPanel, Workspace,
 };
+use crate::taskmgr::{ProcInfo, SysStats};
 
 /// Path to the generated bindings, relative to the crate root (= CWD under
 /// `cargo test`/`cargo run`).
@@ -38,6 +46,18 @@ pub fn generate_ts() -> String {
         specta::ts::export::<Container>(&c),
         specta::ts::export::<WebPanel>(&c),
         specta::ts::export::<AgentStatus>(&c),
+        // Command return/arg structs (BACKLOG #12, batch 2).
+        specta::ts::export::<Bookmark>(&c),
+        specta::ts::export::<Feed>(&c),
+        specta::ts::export::<FeedItem>(&c),
+        specta::ts::export::<PwaApp>(&c),
+        specta::ts::export::<HistoryEntry>(&c),
+        specta::ts::export::<SavedTab>(&c),
+        specta::ts::export::<SavedSession>(&c),
+        specta::ts::export::<ProcInfo>(&c),
+        specta::ts::export::<SysStats>(&c),
+        specta::ts::export::<SpeedResult>(&c),
+        specta::ts::export::<ArchiveMeta>(&c),
     ];
     let mut out = String::from(HEADER);
     for p in parts {

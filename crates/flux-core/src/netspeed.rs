@@ -31,7 +31,7 @@ const DOWN_MAX_SECS: f64 = 8.0;
 /// Upload payload size.
 const UP_BYTES: usize = 10_000_000;
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Clone, Debug, PartialEq, specta::Type)]
 pub struct SpeedResult {
     pub ping_ms: f64,
     pub jitter_ms: f64,

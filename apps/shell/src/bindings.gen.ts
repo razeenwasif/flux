@@ -53,3 +53,30 @@ export type WebPanel = { id: number; url: string; title: string }
  * magenta/violet "Liquid AI" visual states.
  */
 export type AgentStatus = { state: "idle" } | { state: "thinking"; prompt: string } | { state: "acting"; description: string; selector: string } | { state: "error"; message: string }
+export type Bookmark = { id: number; title: string; url: string; folder: string; added_ms: number }
+/**
+ * A subscribed feed. Only the subscription is persisted (id, url, title).
+ */
+export type Feed = { id: number; url: string; title: string }
+/**
+ * One entry of a feed — fetched live, never persisted.
+ */
+export type FeedItem = { feed_id: number; feed_title: string; title: string; link: string; summary: string; published: string }
+export type PwaApp = { id: number; name: string; url: string }
+export type HistoryEntry = { url: string; title: string; last_visit_ms: number; visits: number }
+export type SavedTab = { url: string; title: string; pinned: boolean }
+export type SavedSession = { id: number; name: string; created_ms: number; tabs: SavedTab[] }
+/**
+ * One running process, as shown in the task manager.
+ */
+export type ProcInfo = { pid: number; name: string; cpu: number; mem_mb: number; is_flux: boolean; current: boolean }
+/**
+ * System-wide CPU + memory, for the task-manager graphs.
+ */
+export type SysStats = { cpu: number; mem_used_mb: number; mem_total_mb: number; mem_pct: number; cores: number }
+export type SpeedResult = { ping_ms: number; jitter_ms: number; download_mbps: number; upload_mbps: number; server: string }
+/**
+ * List/search row — metadata + a short snippet (the full text stays out of list
+ * payloads; fetch it with `archive_get`).
+ */
+export type ArchiveMeta = { id: number; url: string; title: string; saved_ms: number; snippet: string; score: number }

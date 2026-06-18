@@ -19,14 +19,14 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
 pub struct SavedTab {
     pub url: String,
     pub title: String,
     pub pinned: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
 pub struct SavedSession {
     pub id: u64,
     pub name: String,

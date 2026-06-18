@@ -24,7 +24,7 @@ const MAX_FEED_BYTES: u64 = 4 * 1024 * 1024;
 const SNIPPET_MAX: usize = 280;
 
 /// A subscribed feed. Only the subscription is persisted (id, url, title).
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
 pub struct Feed {
     pub id: u64,
     pub url: String,
@@ -32,7 +32,7 @@ pub struct Feed {
 }
 
 /// One entry of a feed — fetched live, never persisted.
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, specta::Type)]
 pub struct FeedItem {
     pub feed_id: u64,
     pub feed_title: String,

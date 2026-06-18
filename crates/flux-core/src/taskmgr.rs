@@ -34,7 +34,7 @@ impl Default for TaskManager {
 }
 
 /// One running process, as shown in the task manager.
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq, specta::Type)]
 pub struct ProcInfo {
     pub pid: u32,
     pub name: String,
@@ -141,7 +141,7 @@ fn flux_tree(pairs: &[(u32, Option<u32>)], current: u32) -> HashSet<u32> {
 }
 
 /// System-wide CPU + memory, for the task-manager graphs.
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq, specta::Type)]
 pub struct SysStats {
     /// CPU usage % averaged across cores (0–100).
     pub cpu: f32,
