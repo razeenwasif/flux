@@ -8,8 +8,38 @@
  * actions; and a subtle flowing wave for the "flux" feel.
  */
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
-import { HISTORY_URL, OMNI_URL, searchDefault, searchEngines, searchResolve } from "./ipc";
+import {
+  FEEDS_URL,
+  HISTORY_URL,
+  OMNI_URL,
+  feedItems,
+  historyRecent,
+  noteGet,
+  noteSet,
+  searchDefault,
+  searchEngines,
+  searchResolve,
+  type FeedItem,
+} from "./ipc";
 import { activeId, focusTab, tabs } from "./store";
+
+/** Hostname without `www.`, best-effort. */
+function hostOf(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url.split("/")[2] ?? url; }
+}
+
+interface TopSite { url: string; title: string; host: string }
+
+/** Persisted home-page scratchpad note (reuses the notes store, #53). */
+const SCRATCH_KEY = "flux://start#scratchpad";
+
+/** Extra clocks shown beside the local time. */
+const WORLD_ZONES: { label: string; tz: string }[] = [
+  { label: "New York", tz: "America/New_York" },
+  { label: "London", tz: "Europe/London" },
+  { label: "Tokyo", tz: "Asia/Tokyo" },
+];
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 interface Shortcut {
   label: string;
@@ -48,6 +78,10 @@ const StartPage: Component<{
   const [engineName, setEngineName] = createSignal("");
   const [now, setNow] = createSignal(new Date());
   const [weather, setWeather] = createSignal<{ temp: number; code: number; city: string } | null>(null);
+  const [headlines, setHeadlines] = createSignal<FeedItem[]>([]);
+  const [topSites, setTopSites] = createSignal<TopSite[]>([]);
+  const [scratch, setScratch] = createSignal("");
+  let scratchTimer: number | undefined;
 
   const loadShortcuts = (): Shortcut[] => {
     try {
@@ -88,7 +122,46 @@ const StartPage: Component<{
     } catch {
       /* offline — the widget just omits weather */
     }
+
+    // Feed headlines (#72) — aggregate of all subscribed feeds, newest-ish first.
+    feedItems(0).then((items) => setHeadlines((items ?? []).slice(0, 6))).catch(() => {});
+
+    // Top sites — most-visited hosts from history, deduped by host.
+    historyRecent(250)
+      .then((rows) => {
+        const byHost = new Map<string, TopSite>();
+        for (const h of rows ?? []) {
+          if (h.url.startsWith("flux://")) continue;
+          const host = hostOf(h.url);
+          if (!byHost.has(host)) byHost.set(host, { url: h.url, title: h.title || host, host });
+        }
+        setTopSites([...byHost.values()].slice(0, 8));
+      })
+      .catch(() => {});
+
+    // Scratchpad — persisted via the notes store.
+    noteGet(SCRATCH_KEY).then((t) => setScratch(t ?? "")).catch(() => {});
   });
+
+  const onScratch = (text: string) => {
+    setScratch(text);
+    clearTimeout(scratchTimer);
+    scratchTimer = window.setTimeout(() => void noteSet(SCRATCH_KEY, text).catch(() => {}), 400);
+  };
+  onCleanup(() => clearTimeout(scratchTimer));
+
+  const monthLabel = () => now().toLocaleDateString([], { month: "long", year: "numeric" });
+  const monthCells = (): (number | null)[] => {
+    const d = now();
+    const first = new Date(d.getFullYear(), d.getMonth(), 1).getDay();
+    const days = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const cells: (number | null)[] = Array.from({ length: first }, () => null);
+    for (let day = 1; day <= days; day++) cells.push(day);
+    return cells;
+  };
+  const zoneTime = (tz: string) => {
+    try { return now().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: tz }); } catch { return ""; }
+  };
 
   const greeting = () => {
     const h = now().getHours();
@@ -214,6 +287,89 @@ const StartPage: Component<{
               <button type="submit">Add</button>
             </form>
           </Show>
+        </div>
+
+        {/* Top sites */}
+        <Show when={topSites().length > 0}>
+          <div class="glass start-card">
+            <div class="start-card-title">Top sites</div>
+            <div class="start-dial">
+              <For each={topSites()}>
+                {(s, i) => (
+                  <div class="start-tile-wrap">
+                    <button
+                      class="start-tile"
+                      style={{ "--tint": TINTS[i() % TINTS.length] }}
+                      onClick={() => props.onNavigate(s.url)}
+                      title={s.title}
+                    >
+                      {(s.host[0] ?? "?").toUpperCase()}
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        {/* Feed headlines (#72) */}
+        <div class="glass start-card">
+          <div class="start-card-title">
+            Headlines
+            <button class="start-card-link" onClick={() => props.onNavigate(FEEDS_URL)}>Feeds →</button>
+          </div>
+          <Show
+            when={headlines().length > 0}
+            fallback={<div class="start-empty">Subscribe to feeds in <b>Feeds</b> and the latest items show here.</div>}
+          >
+            <div class="start-list">
+              <For each={headlines()}>
+                {(it) => (
+                  <button class="start-row" onClick={() => props.onNavigate(it.link)} title={`${it.feed_title} — ${it.title}`}>
+                    <span class="start-fav">📰</span>
+                    <span class="start-row-label">{it.title}</span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
+
+        {/* Scratchpad */}
+        <div class="glass start-card">
+          <div class="start-card-title">Scratchpad</div>
+          <textarea
+            class="start-scratch"
+            value={scratch()}
+            onInput={(e) => onScratch(e.currentTarget.value)}
+            placeholder="Jot a quick note, todo, or link… saved automatically."
+            spellcheck={false}
+          />
+        </div>
+
+        {/* Calendar + world clocks */}
+        <div class="glass start-card">
+          <div class="start-card-title">{monthLabel()}</div>
+          <div class="start-cal">
+            <For each={WEEKDAYS}>{(w) => <span class="start-cal-wd">{w}</span>}</For>
+            <For each={monthCells()}>
+              {(c) => (
+                <span classList={{ "start-cal-day": true, today: c === now().getDate(), blank: c === null }}>
+                  {c ?? ""}
+                </span>
+              )}
+            </For>
+          </div>
+          <div class="start-zones">
+            <For each={WORLD_ZONES}>
+              {(z) => (
+                <div class="start-zone">
+                  <span class="start-zone-label">{z.label}</span>
+                  <span class="start-zone-time">{zoneTime(z.tz)}</span>
+                </div>
+              )}
+            </For>
+          </div>
         </div>
 
         {/* Quick actions */}

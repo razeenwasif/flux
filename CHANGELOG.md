@@ -14,6 +14,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   jank; it snaps back the instant you let go.
 
 ### Added
+- **More home-page widgets** (BACKLOG #71) — the start page gains four cards on
+  top of the existing clock/weather/recent/speed-dial: **Headlines** (latest items
+  across your subscribed feeds #72, click to open; links to Feeds), **Top sites**
+  (most-visited hosts auto-derived from history, vs. the manual speed dial),
+  **Scratchpad** (a persistent home note, auto-saved via the notes store), and a
+  **Calendar + world clocks** card (current-month grid with today highlighted,
+  plus New York / London / Tokyo times beside the local clock). _Follow-up:_
+  drag-reorder + show/hide widgets, agent summaries, custom backgrounds.
 - **PDF form fill** (BACKLOG #113) — the PDF editor (#112) gains a **🖊 Forms**
   mode. Fillable AcroForm fields (text, checkbox, radio, dropdown/list) become
   editable **in place, directly on the page** — interactive widgets positioned
