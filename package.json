@@ -11,7 +11,8 @@
     "build": "tauri build",
     "shell:dev": "npm run dev --workspace apps/shell",
     "shell:build": "npm run build --workspace apps/shell",
-    "check": "cargo check --workspace && npm run typecheck --workspace apps/shell"
+    "check": "cargo check --workspace && npm run typecheck --workspace apps/shell",
+    "perf": "npm run shell:build && node scripts/perf-budget.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0"

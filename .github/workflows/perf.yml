@@ -1,0 +1,70 @@
+name: perf-budgets
+
+# Enforce the ADR 0001 performance budgets. The artifact-measurable budgets
+# (chrome JS gzip, binary size) hard-fail the build; the latency benches
+# (ipc_roundtrip, dom_snapshot) are compiled + run for signal. Budgets that need
+# a display/webview (idle RAM, cold start, terminal/agent latency) are measured
+# on a self-hosted runner / by hand — see docs/perf/memory-benchmark.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Fast, dependency-light gate: the chrome JS budget (≤ 50 KB gzip). Blocks merge.
+  chrome-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run shell:build
+      - name: Check JS + binary budgets (ADR 0001)
+        run: node scripts/perf-budget.mjs
+
+  # Compile + run the criterion IPC benches so they can't bit-rot. Latency is
+  # reported, not hard-gated (shared CI runners are too noisy for a p99 gate).
+  benches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri/WebKitGTK build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run perf benches
+        run: cargo bench -p flux-core --bench ipc -- --warm-up-time 1 --measurement-time 3
+
+  # Release binary size budget (≤ 25 MB). Heavier (full LTO build), so it's its
+  # own job and only on main / when manually triggered.
+  binary-size:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri/WebKitGTK build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run shell:build
+      - name: Build release binary
+        run: cargo build --release -p flux-core --features custom-protocol
+      - name: Check binary size budget (ADR 0001)
+        run: node scripts/perf-budget.mjs --binary target/release/flux

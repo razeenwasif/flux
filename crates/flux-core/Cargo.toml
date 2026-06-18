@@ -85,6 +85,14 @@ windows-sys = { version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Found
 webview2-com = "0.38"
 windows = { version = "0.61", features = ["Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell"] }
 
+[dev-dependencies]
+# Perf-budget benches (ADR 0001): ipc_roundtrip, dom_snapshot.
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "ipc"
+harness = false
+
 [features]
 default = []
 # Production asset serving (DO NOT REMOVE). Without this, even a release build

@@ -7,6 +7,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Performance-budget gates** (BACKLOG #10, ADR 0001) — the low-RAM wedge is now
+  measured and protected. `npm run perf` (and CI, `.github/workflows/perf.yml`)
+  hard-gates **chrome JS ≤ 50 KB gzip** (the eager shell bundle, computed from the
+  Vite manifest so lazy route chunks don't count — currently **48.9 KB**, 1 KB of
+  headroom) and **release binary ≤ 25 MB** (currently ~13.6 MB). `criterion`
+  benches `ipc_roundtrip` and `dom_snapshot` (`crates/flux-core/benches/ipc.rs`)
+  cover the IPC hot paths. A repeatable **Flux-vs-Chrome memory methodology** lives
+  in `docs/perf/memory-benchmark.md` (idle / 10 / 30 tabs; the display-dependent
+  budgets are a self-hosted/manual gate).
+
 ### Changed / Fixed
 - **Smoother resizing** (BACKLOG #79) — the glass backdrop-blur is now dropped
   while you resize a pane, resize the window, or drag a split/panel divider. The

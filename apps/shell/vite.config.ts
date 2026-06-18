@@ -11,6 +11,9 @@ export default defineConfig({
     minify: "esbuild",
     sourcemap: false,
     reportCompressedSize: true,
+    // Emit a build manifest so the perf-budget gate (ADR 0001: chrome JS ≤ 50 KB
+    // gzip) can separate eagerly-loaded chrome JS from lazy route chunks.
+    manifest: true,
   },
   clearScreen: false,
 });
