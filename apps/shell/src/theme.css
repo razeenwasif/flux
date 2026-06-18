@@ -890,7 +890,31 @@ body.resizing, body.busy { --glass-blur: none; }
 .start-card-title {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
   color: var(--flux-text-mute); font-weight: 600;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
 }
+.start-card-link { font-size: 10.5px; letter-spacing: .04em; color: var(--flux-teal); background: none; border: none; cursor: pointer; padding: 0; text-transform: none; }
+.start-card-link:hover { color: var(--flux-text); }
+
+/* Scratchpad widget */
+.start-scratch {
+  width: 100%; min-height: 92px; resize: vertical; border-radius: 9px;
+  background: var(--flux-surface); border: 1px solid var(--flux-border);
+  color: var(--flux-text); font-size: 12.5px; line-height: 1.5; padding: 9px 11px;
+  font-family: inherit;
+}
+.start-scratch:focus { outline: none; border-color: var(--flux-teal); }
+.start-scratch::placeholder { color: var(--flux-text-mute); }
+
+/* Calendar + world clocks widget */
+.start-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.start-cal-wd { font-size: 9.5px; color: var(--flux-text-mute); text-align: center; padding-bottom: 2px; }
+.start-cal-day { font-size: 11px; color: var(--flux-text-dim); text-align: center; padding: 4px 0; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.start-cal-day.today { background: var(--flux-teal); color: #06121b; font-weight: 700; }
+.start-cal-day.blank { visibility: hidden; }
+.start-zones { display: flex; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--glass-rim-soft); }
+.start-zone { display: flex; flex-direction: column; gap: 1px; flex: 1; }
+.start-zone-label { font-size: 10px; color: var(--flux-text-mute); }
+.start-zone-time { font-size: 13px; color: var(--flux-text); font-variant-numeric: tabular-nums; }
 
 .start-clock { justify-content: center; align-items: flex-start; gap: 4px;
   background: linear-gradient(150deg, rgba(123,97,255,0.20), var(--glass-fill)); }
