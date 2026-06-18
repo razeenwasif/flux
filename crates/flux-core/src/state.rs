@@ -24,7 +24,7 @@ pub type TabId = u64;
 /// terminal sessions — a Terminal tab hosts a flux-term surface where a
 /// Browser tab hosts a webview, and everything else (pinning, clustering,
 /// focus) treats them identically.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum TabKind {
     Browser,
@@ -35,7 +35,7 @@ pub enum TabKind {
 
 /// Metadata for one open tab. Small (~100 B) and `Clone` — cheap to hand to
 /// the frontend wholesale on every mutation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct TabMeta {
     pub id: TabId,
     pub kind: TabKind,
@@ -78,7 +78,7 @@ fn default_workspace() -> u32 {
 /// An Arc-style workspace (BACKLOG #44): a named, colored set of tabs. Only the
 /// active workspace's tabs hold live webviews — inactive ones are pure metadata
 /// (kilobytes), so switching is cheap.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct Workspace {
     pub id: u32,
     pub name: String,
@@ -90,7 +90,7 @@ pub struct Workspace {
 /// cookie/storage jar (a per-webview `data_directory`), so you can be logged into
 /// two accounts of the same site at once. Container 0 = "Default" (implicit, no
 /// isolation) and is never stored here.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct Container {
     pub id: u32,
     pub name: String,
@@ -101,7 +101,7 @@ pub struct Container {
 /// A pinned web panel (BACKLOG #48): a site (chat, docs, music, …) you can show
 /// in a slim pane beside any tab. Persists across restart; only the *open* panel
 /// holds a live webview (RAM-conscious — inactive pins are just metadata).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct WebPanel {
     pub id: u32,
     pub url: String,
@@ -111,7 +111,7 @@ pub struct WebPanel {
 /// A manual, user-controlled tab group (BACKLOG #56) — named, colored,
 /// collapsible. Distinct from the auto semantic `cluster`, though "group by
 /// topic" can seed groups from clusters.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct TabGroup {
     pub id: u32,
     pub name: String,
@@ -124,7 +124,7 @@ pub struct TabGroup {
 /// A tab folder — a named bucket whose tabs are kept hibernated to save RAM.
 /// Distinct from [`TabGroup`] (inline, colored, strip-resident): folders live in
 /// a collapsible section above the footer and exist to park tabs out of memory.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct TabFolder {
     pub id: u32,
     pub name: String,
@@ -133,7 +133,7 @@ pub struct TabFolder {
 }
 
 /// A semantic cluster: stable id + the display color the UI paints the tab.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type)]
 pub struct ClusterTag {
     pub id: u32,
     /// 0xRRGGBB, picked from the Flux palette by flux-embed.
@@ -158,7 +158,7 @@ pub struct DomSnapshot {
 
 /// What the Flux Agent is currently doing. The UI maps this 1:1 to the
 /// magenta/violet "Liquid AI" visual states.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum AgentStatus {
     #[default]

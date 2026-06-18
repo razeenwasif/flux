@@ -40,6 +40,8 @@ jobs:
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Check TS bindings are in sync (BACKLOG #12)
+        run: cargo test -p flux-core --lib bindings
       - name: Run perf benches
         run: cargo bench -p flux-core --bench ipc -- --warm-up-time 1 --measurement-time 3
 

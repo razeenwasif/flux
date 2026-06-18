@@ -12,7 +12,7 @@ Priorities: **P0** = blocks the core demo loop · **P1** = v0.1 release · **P2*
 | # | P | Item |
 |---|---|---|
 | 10 | ◐ | CI perf-budget gates per ADR 0001 (done): `scripts/perf-budget.mjs` gates **chrome JS ≤ 50 KB gzip** (eager bundle via the Vite manifest — currently 48.9 KB) + **binary ≤ 25 MB**; `criterion` benches `ipc_roundtrip`/`dom_snapshot` (`benches/ipc.rs`); `.github/workflows/perf.yml` runs all three on PRs (`npm run perf`). _Remaining:_ **idle-RSS / cold-start** gates need a display+webview → self-hosted runner (methodology + Flux-vs-Chrome table in `docs/perf/memory-benchmark.md`); wire those numbers back once recorded. |
-| 12 | P1 | Generate TS types from Rust structs via `specta` (kill the manual `ipc.ts` mirror — it has already drifted once this week) |
+| 12 | ◐ | Generate TS types from Rust structs via `specta` (kill the manual `ipc.ts` mirror). _Done:_ `specta::Type` on the `state.rs` IPC structs → `bindings.gen.ts` (`bindings.rs::generate_ts`, regen `FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`), drift-gated in CI; `ipc.ts` now re-exports the exact-match types (TabKind, ClusterTag, Workspace, Container, AgentStatus). _Remaining:_ migrate TabMeta/TabGroup/TabFolder (their `#[serde(default)]` fields generate looser `?` optionals — reconcile the received-vs-input contract), feed/PWA/etc. structs, and command signatures (tauri-specta). |
 | 20 | P1 | Single-instance forwarding: second `flux <url>` invocation opens a tab in the running window (`tauri-plugin-single-instance`) instead of a second process |
 | 26 | P2 | Packaging: `.desktop` entry + icon on Linux, PATH shim on Windows/macOS, auto-update channel |
 

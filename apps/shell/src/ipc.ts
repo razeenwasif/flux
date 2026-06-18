@@ -36,9 +36,22 @@ export const PANE_SESSION = 0;
 export const START_URL = "flux://start";
 export const isStartUrl = (url: string) => url === START_URL || url.startsWith("flux://");
 
-export interface ClusterTag { id: number; color: number }
-
-export type TabKind = "browser" | "terminal" | "files";
+// Types generated from the Rust structs (BACKLOG #12) — re-exported so callers
+// keep importing them from "./ipc". Regenerate via
+// `FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`. Migrating the rest
+// (TabMeta/TabGroup/TabFolder have serde(default) optionals) is the next step.
+import type {
+  AgentStatus as GenAgentStatus,
+  ClusterTag as GenClusterTag,
+  Container as GenContainer,
+  TabKind as GenTabKind,
+  Workspace as GenWorkspace,
+} from "./bindings.gen";
+export type ClusterTag = GenClusterTag;
+export type TabKind = GenTabKind;
+export type Workspace = GenWorkspace;
+export type Container = GenContainer;
+export type AgentStatus = GenAgentStatus;
 
 export interface TabMeta {
   id: number;
@@ -60,13 +73,6 @@ export interface TabMeta {
   private: boolean;
   /** Multi-account container (BACKLOG #59). 0 = Default (shared jar). */
   container: number;
-}
-
-export interface Workspace {
-  id: number;
-  name: string;
-  /** 0xRRGGBB. */
-  color: number;
 }
 
 export interface TabGroup {
@@ -113,12 +119,6 @@ export interface ChromeBookmark {
   folder: string;
 }
 
-export type AgentStatus =
-  | { state: "idle" }
-  | { state: "thinking"; prompt: string }
-  | { state: "acting"; description: string; selector: string }
-  | { state: "error"; message: string };
-
 export type AgentAction =
   | { action: "click"; selector: string; reason: string }
   | { action: "extract_table"; selector: string; format: "csv" | "json" }
@@ -131,8 +131,7 @@ export type AgentAction =
 
 export const tabCreate = (kind: TabKind, url?: string, isPrivate?: boolean, container?: number) =>
   invoke<TabMeta>("tab_create", { kind, url: url ?? null, private: isPrivate ?? null, container: container ?? null });
-// ─── Multi-account containers (BACKLOG #59) ──────────────────────────────────
-export interface Container { id: number; name: string; color: number }
+// ─── Multi-account containers (BACKLOG #59) — Container type from bindings.gen ──
 export const containersList = () => invoke<Container[]>("containers_list");
 export const containerCreate = (name: string, color: number) => invoke<number>("container_create", { name, color });
 export const containerUpdate = (id: number, patch: { name?: string; color?: number }) =>

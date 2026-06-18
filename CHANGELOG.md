@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Generated TypeScript bindings** (BACKLOG #12) — the frontend's `ipc.ts` no
+  longer hand-mirrors the Rust IPC structs (which had drifted). `specta::Type` is
+  derived on the `state.rs` types and emitted to `apps/shell/src/bindings.gen.ts`
+  (`FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`), with a **drift test
+  gated in CI** so the two can't diverge. `ipc.ts` now re-exports the generated
+  `TabKind`, `ClusterTag`, `Workspace`, `Container`, and `AgentStatus`. _Follow-up:_
+  migrate `TabMeta`/`TabGroup`/`TabFolder` (serde-default optionals need
+  reconciling) and command signatures (tauri-specta).
 - **Multi-step agent tasks** (BACKLOG #8/#82) — the local agent can now carry out
   a *goal*, not just one action. **`/task <goal>`** in the agent sidebar runs an
   iterative loop: it plans the single next step from the **live** page + the steps

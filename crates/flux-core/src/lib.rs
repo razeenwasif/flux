@@ -3,6 +3,7 @@
 
 pub mod agent_bridge;
 pub mod archive;
+pub mod bindings;
 pub mod bookmarks;
 pub mod boosts;
 pub mod broker;
