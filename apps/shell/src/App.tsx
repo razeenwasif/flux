@@ -644,8 +644,10 @@ const App: Component = () => {
       openedPanel = null;
     }
     if (!p) return;
-    if (dragging || readerOpen()) {
-      wv(panelHide(p.id)); // reader covers the card
+    if (dragging || readerOpen() || filesPanelOpen() || paletteOpen()) {
+      // Reader / Files popout / command palette are full overlays that must sit
+      // above everything — including the web panel's own native webview layer.
+      wv(panelHide(p.id));
       return;
     }
     const rect = panelViewRect();
