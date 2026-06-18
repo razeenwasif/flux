@@ -67,6 +67,30 @@ impl SessionStore {
         s
     }
 
+    /// Merge in remote sessions (E2E sync, #62): add any whose name isn't already
+    /// present (additive union; fresh local id). Returns the count added.
+    pub fn merge(&self, remote: Vec<SavedSession>) -> usize {
+        let mut items = self.items.write();
+        let mut added = 0;
+        for r in remote {
+            if items.iter().any(|s| s.name == r.name) {
+                continue;
+            }
+            items.push(SavedSession {
+                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                name: r.name,
+                created_ms: r.created_ms,
+                tabs: r.tabs,
+            });
+            added += 1;
+        }
+        drop(items);
+        if added > 0 {
+            self.save_disk();
+        }
+        added
+    }
+
     pub fn delete(&self, id: u64) {
         self.items.write().retain(|s| s.id != id);
         self.save_disk();

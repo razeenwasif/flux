@@ -79,6 +79,32 @@ impl BookmarkStore {
         bm
     }
 
+    /// Merge in remote bookmarks (E2E sync, #62): add any whose (url, folder)
+    /// isn't already present, keeping their original timestamp but a fresh local
+    /// id. Additive union — deletions don't propagate (v1). Returns the count added.
+    pub fn merge(&self, remote: Vec<Bookmark>) -> usize {
+        let mut items = self.items.write();
+        let mut added = 0;
+        for r in remote {
+            if items.iter().any(|b| b.url == r.url && b.folder == r.folder) {
+                continue;
+            }
+            items.push(Bookmark {
+                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                title: r.title,
+                url: r.url,
+                folder: r.folder,
+                added_ms: r.added_ms,
+            });
+            added += 1;
+        }
+        drop(items);
+        if added > 0 {
+            self.save();
+        }
+        added
+    }
+
     pub fn remove(&self, id: u64) {
         self.items.write().retain(|b| b.id != id);
         self.save();

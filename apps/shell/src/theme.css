@@ -1509,6 +1509,23 @@ body.resizing .shell { transition: none !important; }
 /* Address-bar bookmark star (#22 quick-bookmark) */
 .bm-star.active { color: #ffd166; }
 
+/* ── E2E sync page (#62) ── */
+.sync-body { max-width: 620px; }
+.sync-intro { font-size: 13px; line-height: 1.6; color: var(--flux-text-dim); margin: 0 0 18px; }
+.sync-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--flux-text-mute); margin: 14px 0 5px; }
+.sync-row { display: flex; gap: 8px; align-items: center; }
+.sync-input { flex: 1; min-width: 0; padding: 8px 11px; border-radius: 8px; font-size: 13px; color: var(--flux-text); background: var(--flux-surface); border: 1px solid var(--flux-border); }
+.sync-input::placeholder { color: var(--flux-text-mute); }
+.sync-btn { flex: none; padding: 8px 16px; border-radius: 8px; font-size: 12.5px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); cursor: pointer; }
+.sync-btn:hover:not(:disabled) { color: #fff; }
+.sync-btn:disabled { opacity: .5; cursor: default; }
+.sync-unlocked { flex: 1; font-size: 13px; color: var(--flux-teal); }
+.sync-now { margin-top: 20px; padding: 11px 24px; border-radius: 999px; font-size: 14px; font-weight: 600; color: #06121b; background: var(--flux-teal); border: none; cursor: pointer; }
+.sync-now:disabled { background: var(--flux-surface-2); color: var(--flux-text-dim); cursor: default; }
+.sync-msg { margin-top: 12px; font-size: 13px; color: var(--flux-teal); }
+.sync-err { margin-top: 12px; font-size: 13px; color: #e8643c; }
+.sync-note { margin-top: 22px; font-size: 11.5px; line-height: 1.6; color: var(--flux-text-mute); border-top: 1px solid var(--flux-border); padding-top: 14px; }
+
 /* ── Macros popover (#67) ── */
 .icon-btn.rec-pulse { color: #e8643c; animation: rec-pulse 1.2s ease-in-out infinite; }
 @keyframes rec-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }

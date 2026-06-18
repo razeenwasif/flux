@@ -36,6 +36,7 @@ pub mod search;
 pub mod session;
 pub mod sessions;
 pub mod shields;
+pub mod sync;
 pub mod taskmgr;
 pub mod tracking;
 pub mod state;
@@ -187,6 +188,13 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("macros.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-macros.json"));
             app.manage(macros::MacroState::restore(macros_path));
+            // E2E sync (#62) — encrypted bookmarks/sessions via a BYO folder.
+            let sync_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("sync.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-sync-config.json"));
+            app.manage(sync::SyncState::restore(sync_path));
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -446,6 +454,11 @@ pub fn run(intent: cli::LaunchIntent) {
             macros::macro_delete,
             macros::macro_rename,
             macros::macro_run,
+            sync::sync_status,
+            sync::sync_set_folder,
+            sync::sync_unlock,
+            sync::sync_lock,
+            sync::sync_now,
             hibernate::hibernate_rank,
             leanmode::lean_status,
             leanmode::lean_set_enabled,
