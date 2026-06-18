@@ -19,6 +19,7 @@ pub mod files;
 pub mod hibernate;
 pub mod history;
 pub mod leanmode;
+pub mod macros;
 pub mod mem;
 pub mod netspeed;
 pub mod nav;
@@ -179,6 +180,13 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("boosts.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-boosts.json"));
             app.manage(boosts::BoostStore::restore(boosts_path));
+            // Scriptable macros (#67) — record/replay browsing flows.
+            let macros_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("macros.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-macros.json"));
+            app.manage(macros::MacroState::restore(macros_path));
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -274,6 +282,7 @@ pub fn run(intent: cli::LaunchIntent) {
                 .invoke_handler(tauri::generate_handler![
                     commands::dom_publish,
                     commands::chrome_open_url,
+                    macros::macro_record_step,
                     broker::ext_broker_call,
                     commands::chrome_key,
                     commands::find_result,
@@ -429,6 +438,14 @@ pub fn run(intent: cli::LaunchIntent) {
             boosts::boost_delete,
             boosts::boost_set_enabled,
             boosts::boost_author,
+            macros::macros_list,
+            macros::macros_status,
+            macros::macro_start_record,
+            macros::macro_stop_record,
+            macros::macro_cancel_record,
+            macros::macro_delete,
+            macros::macro_rename,
+            macros::macro_run,
             hibernate::hibernate_rank,
             leanmode::lean_status,
             leanmode::lean_set_enabled,

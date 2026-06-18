@@ -47,6 +47,10 @@ const NEWTAB_JS: &str = include_str!("../assets/newtab.js");
 /// tab background (#37).
 const PIP_JS: &str = include_str!("../assets/pip.js");
 
+/// macro-record.js: records clicks/inputs while a macro recording is active,
+/// gated by the `__FLUX_MACRO_REC__` flag stamped below (#67).
+const MACRO_REC_JS: &str = include_str!("../assets/macro-record.js");
+
 /// darkmode.js: `__fluxDark(on)` force-dark for all sites (#40); applied at
 /// document_start via the `window.__FLUX_DARK__` flag the init script stamps.
 pub(crate) const DARKMODE_JS: &str = include_str!("../assets/darkmode.js");
@@ -87,8 +91,13 @@ pub async fn webview_open(
         .try_state::<crate::nav::NavState>()
         .map(|s| format!("window.__FLUX_NAV__ = {{hints:{},gestures:{}}};\n", s.hints(), s.gestures()))
         .unwrap_or_default();
+    let macro_flag = if app.try_state::<crate::macros::MacroState>().map(|s| s.is_recording()).unwrap_or(false) {
+        "window.__FLUX_MACRO_REC__ = true;\n"
+    } else {
+        ""
+    };
     let init = format!(
-        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}\n{NAV_JS}\n{NEWTAB_JS}\n{PIP_JS}"
+        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{macro_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}\n{NAV_JS}\n{NEWTAB_JS}\n{PIP_JS}\n{MACRO_REC_JS}"
     );
 
     // Private tabs (#59) use an in-memory session; container tabs (#59) use a

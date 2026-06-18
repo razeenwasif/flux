@@ -550,6 +550,23 @@ export const RESOURCES_URL = "flux://resources";
 /** Per-tab captured-DOM payload size in bytes (proxy for page weight). */
 export const tabDomSizes = () => invoke<[number, number][]>("tab_dom_sizes");
 
+// ─── Scriptable macros (BACKLOG #67) ─────────────────────────────────────────
+export type MacroStep =
+  | { kind: "navigate"; url: string }
+  | { kind: "click"; selector: string }
+  | { kind: "type"; selector: string; text: string }
+  | { kind: "wait"; ms: number };
+export interface Macro { id: number; name: string; steps: MacroStep[] }
+export interface MacroStatus { recording: boolean; step_count: number }
+export const macrosList = () => invoke<Macro[]>("macros_list");
+export const macrosStatus = () => invoke<MacroStatus>("macros_status");
+export const macroStartRecord = () => invoke<void>("macro_start_record");
+export const macroStopRecord = (name: string) => invoke<Macro | null>("macro_stop_record", { name });
+export const macroCancelRecord = () => invoke<void>("macro_cancel_record");
+export const macroDelete = (id: number) => invoke<void>("macro_delete", { id });
+export const macroRename = (id: number, name: string) => invoke<void>("macro_rename", { id, name });
+export const macroRun = (id: number) => invoke<void>("macro_run", { id });
+
 // ─── Per-site boosts (BACKLOG #49) ───────────────────────────────────────────
 export interface Boost { id: number; host: string; name: string; css: string; js: string; enabled: boolean }
 export const boostsForHost = (host: string) => invoke<Boost[]>("boosts_for_host", { host });

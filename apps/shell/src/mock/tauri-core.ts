@@ -556,6 +556,18 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "boost_set_enabled":
     case "boost_delete":
       return Promise.resolve(undefined as T);
+    case "macros_list":
+      return Promise.resolve([{ id: 1, name: "HN front page → first comment", steps: [{ kind: "navigate", url: "https://news.ycombinator.com" }, { kind: "click", selector: ".titleline > a" }] }] as T);
+    case "macros_status":
+      return Promise.resolve({ recording: false, step_count: 0 } as T);
+    case "macro_start_record":
+    case "macro_cancel_record":
+    case "macro_delete":
+    case "macro_rename":
+    case "macro_run":
+      return Promise.resolve(undefined as T);
+    case "macro_stop_record":
+      return Promise.resolve(null as T);
     case "permissions_list":
       return Promise.resolve([
         { host: "meet.google.com", kind: "camera", decision: "allow" },
