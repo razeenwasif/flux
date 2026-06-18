@@ -44,6 +44,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   budgets are a self-hosted/manual gate).
 
 ### Changed / Fixed
+- **Leaner chrome bundle** (BACKLOG #79/#10) — the agent sidebar (`AgentPanel`) is
+  now its own lazy chunk (loads when first opened), pulling ~3 KB gzip off the
+  eager chrome bundle. Back to **47.0 KB / 50 KB** budget headroom after the recent
+  agent-task + bookmark-bar work crept it to 49.8.
 - **Smoother resizing** (BACKLOG #79) — the glass backdrop-blur is now dropped
   while you resize a pane, resize the window, or drag a split/panel divider. The
   blur re-samples + repaints every frame, which was the main source of resize
