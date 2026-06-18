@@ -14,7 +14,7 @@
  *    writes the result to Downloads (`pdf_save`). Page-ops always burn the
  *    current annotations first, so annotation→page indices never drift.
  */
-import { For, Show, createEffect, createSignal, onMount, type Component } from "solid-js";
+import { For, Match, Show, Switch, createEffect, createSignal, onMount, type Component } from "solid-js";
 import { pdfFetch, pdfSave } from "./ipc";
 import { activeId, activeTab, updateTabTitle } from "./store";
 
@@ -28,6 +28,11 @@ interface TextAnnot extends Base { kind: "text"; x: number; y: number; text: str
 type Annot = RectAnnot | InkAnnot | LineAnnot | TextAnnot;
 
 interface Dims { w: number; h: number } // PDF points
+
+// ─── AcroForm fields (BACKLOG #113) ──────────────────────────────────────────
+type FieldType = "text" | "checkbox" | "radio" | "dropdown";
+interface FormField { name: string; type: FieldType; options?: string[] }
+type FieldValue = string | boolean;
 
 const PALETTE = ["#ffd60a", "#ff453a", "#32d74b", "#0a84ff", "#bf5af2", "#1c1c1e"];
 const TOOLS: { id: Tool; icon: string; label: string }[] = [
@@ -65,7 +70,7 @@ const PdfViewer: Component = () => {
   const [src, setSrc] = createSignal("");
   const [docVersion, setDocVersion] = createSignal(0); // bump → re-render pages
 
-  const [mode, setMode] = createSignal<"view" | "edit" | "pages">("view");
+  const [mode, setMode] = createSignal<"view" | "edit" | "pages" | "forms">("view");
   const [tool, setTool] = createSignal<Tool>("pan");
   const [color, setColor] = createSignal(PALETTE[0]!);
   const [annots, setAnnots] = createSignal<Annot[]>([]);
@@ -74,6 +79,11 @@ const PdfViewer: Component = () => {
   const [dirty, setDirty] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [toast, setToast] = createSignal("");
+
+  const [formFields, setFormFields] = createSignal<FormField[]>([]);
+  const [formValues, setFormValues] = createSignal<Record<string, FieldValue>>({});
+  const [formMsg, setFormMsg] = createSignal("");
+  const [flattenOnSave, setFlattenOnSave] = createSignal(false);
 
   let working: Uint8Array = new Uint8Array();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -385,11 +395,97 @@ const PdfViewer: Component = () => {
     });
   };
 
+  // ── AcroForm form fill (#113) ──────────────────────────────────────────────
+  /** Enumerate the PDF's fillable fields + current values (uses `instanceof`,
+   *  which survives minification — `constructor.name` would not). */
+  const loadFields = async () => {
+    setFormMsg("");
+    try {
+      const lib = await import("pdf-lib");
+      const doc = await lib.PDFDocument.load(working.slice());
+      const fields = doc.getForm().getFields();
+      const out: FormField[] = [];
+      const vals: Record<string, FieldValue> = {};
+      for (const f of fields) {
+        const name = f.getName();
+        if (f instanceof lib.PDFTextField) {
+          out.push({ name, type: "text" });
+          vals[name] = f.getText() ?? "";
+        } else if (f instanceof lib.PDFCheckBox) {
+          out.push({ name, type: "checkbox" });
+          vals[name] = f.isChecked();
+        } else if (f instanceof lib.PDFRadioGroup) {
+          out.push({ name, type: "radio", options: f.getOptions() });
+          vals[name] = f.getSelected() ?? "";
+        } else if (f instanceof lib.PDFDropdown) {
+          out.push({ name, type: "dropdown", options: f.getOptions() });
+          vals[name] = f.getSelected()?.[0] ?? "";
+        } else if (f instanceof lib.PDFOptionList) {
+          out.push({ name, type: "dropdown", options: f.getOptions() });
+          vals[name] = f.getSelected()?.[0] ?? "";
+        }
+        // Buttons + signature fields aren't fillable here — skipped.
+      }
+      setFormFields(out);
+      setFormValues(vals);
+      if (out.length === 0) setFormMsg("This PDF has no fillable form fields.");
+    } catch (e) {
+      setFormFields([]);
+      setFormMsg(`Couldn't read the form: ${String(e)}`);
+    }
+  };
+
+  /** Write the current panel values into a byte buffer (optionally flatten). */
+  const writeForm = async (bytes: Uint8Array, flatten: boolean): Promise<Uint8Array> => {
+    if (formFields().length === 0) return bytes;
+    const lib = await import("pdf-lib");
+    const doc = await lib.PDFDocument.load(bytes.slice());
+    const form = doc.getForm();
+    const vals = formValues();
+    for (const ff of formFields()) {
+      try {
+        if (ff.type === "text") form.getTextField(ff.name).setText(String(vals[ff.name] ?? ""));
+        else if (ff.type === "checkbox") { const cb = form.getCheckBox(ff.name); vals[ff.name] ? cb.check() : cb.uncheck(); }
+        else if (ff.type === "radio") { const v = String(vals[ff.name] ?? ""); if (v) form.getRadioGroup(ff.name).select(v); }
+        else if (ff.type === "dropdown") { const v = String(vals[ff.name] ?? ""); if (v) form.getDropdown(ff.name).select(v); }
+      } catch { /* a field that won't take the value is skipped, not fatal */ }
+    }
+    if (flatten) form.flatten();
+    return new Uint8Array(await doc.save());
+  };
+
+  const setFieldValue = (name: string, v: FieldValue) => {
+    setFormValues((prev) => ({ ...prev, [name]: v }));
+    setDirty(true);
+  };
+
+  /** Burn the filled values into the working doc so they show on the page. */
+  const applyForm = async () => {
+    try {
+      const next = await writeForm(working, false);
+      await loadBytes(next);
+      setDirty(true);
+      flash("Form values applied to the document.");
+    } catch (e) {
+      flash(`Apply failed: ${String(e)}`);
+    }
+  };
+
+  // (Re)read fields when entering Forms mode or after the doc changes.
+  createEffect(() => {
+    if (mode() === "forms" && ready()) {
+      docVersion();
+      void loadFields();
+    }
+  });
+
   const save = async () => {
     if (saving()) return;
     setSaving(true);
     try {
-      const bytes = await burnAnnots(working);
+      // Form values + drawn annotations both burned into the saved copy.
+      const withForm = await writeForm(working, flattenOnSave());
+      const bytes = await burnAnnots(withForm);
       const path = await pdfSave(bytesToB64(bytes), saveName());
       setDirty(false);
       flash(`Saved → ${path}`);
@@ -424,6 +520,7 @@ const PdfViewer: Component = () => {
           <button classList={{ "pdf-mode": true, active: mode() === "view" }} onClick={() => setMode("view")} disabled={!ready()}>View</button>
           <button classList={{ "pdf-mode": true, active: mode() === "edit" }} onClick={() => setMode("edit")} disabled={!ready()}>✎ Edit</button>
           <button classList={{ "pdf-mode": true, active: mode() === "pages" }} onClick={() => setMode("pages")} disabled={!ready()}>▦ Pages</button>
+          <button classList={{ "pdf-mode": true, active: mode() === "forms" }} onClick={() => setMode("forms")} disabled={!ready()}>🖊 Forms</button>
         </div>
         <button class="pdf-btn" onClick={() => zoom(-0.2)} title="Zoom out" disabled={!ready()}>−</button>
         <span class="pdf-zoom">{Math.round(scale() * 100)}%</span>
@@ -495,8 +592,9 @@ const PdfViewer: Component = () => {
         </div>
       </Show>
 
-      {/* Page render + annotation overlay */}
-      <div class="pdf-pages-wrap" classList={{ "mode-edit": mode() === "edit", hidden: mode() === "pages" }}>
+      {/* Page render + annotation overlay (+ Forms side panel) */}
+      <div class="pdf-body" classList={{ hidden: mode() === "pages" }}>
+      <div class="pdf-pages-wrap" classList={{ "mode-edit": mode() === "edit" }}>
         <For each={pages()}>
           {(p) => {
             const d = () => dims()[p - 1] ?? { w: 600, h: 800 };
@@ -579,6 +677,61 @@ const PdfViewer: Component = () => {
             );
           }}
         </For>
+      </div>
+
+      {/* Forms panel */}
+      <Show when={mode() === "forms"}>
+        <div class="pdf-forms-panel">
+          <div class="pdf-forms-head">
+            <span class="pdf-forms-title">Form fields</span>
+            <label class="pdf-forms-flatten">
+              <input type="checkbox" checked={flattenOnSave()} onChange={(e) => setFlattenOnSave(e.currentTarget.checked)} />
+              Flatten on save
+            </label>
+          </div>
+          <Show when={formMsg()}><div class="pdf-edit-hint">{formMsg()}</div></Show>
+          <div class="pdf-fields">
+            <For each={formFields()}>
+              {(ff) => (
+                <label class="pdf-field">
+                  <span class="pdf-field-name" title={ff.name}>{ff.name}</span>
+                  <Switch>
+                    <Match when={ff.type === "checkbox"}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formValues()[ff.name])}
+                        onChange={(e) => setFieldValue(ff.name, e.currentTarget.checked)}
+                      />
+                    </Match>
+                    <Match when={ff.type === "radio" || ff.type === "dropdown"}>
+                      <select
+                        class="pdf-field-input"
+                        value={String(formValues()[ff.name] ?? "")}
+                        onChange={(e) => setFieldValue(ff.name, e.currentTarget.value)}
+                      >
+                        <option value="">—</option>
+                        <For each={ff.options ?? []}>{(o) => <option value={o}>{o}</option>}</For>
+                      </select>
+                    </Match>
+                    <Match when={ff.type === "text"}>
+                      <input
+                        class="pdf-field-input"
+                        type="text"
+                        value={String(formValues()[ff.name] ?? "")}
+                        onInput={(e) => setFieldValue(ff.name, e.currentTarget.value)}
+                      />
+                    </Match>
+                  </Switch>
+                </label>
+              )}
+            </For>
+          </div>
+          <Show when={formFields().length > 0}>
+            <button class="pdf-btn pdf-forms-apply" onClick={() => void applyForm()}>Apply to document</button>
+            <span class="pdf-edit-hint">Apply fills the values into the page. Save writes a copy to Downloads (Flatten = no longer editable).</span>
+          </Show>
+        </div>
+      </Show>
       </div>
 
       <Show when={toast()}><div class="pdf-toast">{toast()}</div></Show>

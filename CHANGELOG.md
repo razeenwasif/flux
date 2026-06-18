@@ -14,6 +14,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   jank; it snaps back the instant you let go.
 
 ### Added
+- **PDF form fill** (BACKLOG #113) — the PDF editor (#112) gains a **🖊 Forms**
+  mode: a side panel lists the document's fillable AcroForm fields (text,
+  checkbox, radio, dropdown/list) with their current values. Fill them in,
+  **Apply to document** to see the values rendered on the page, and **Save** to
+  write a filled copy to Downloads — with an optional **Flatten on save** that
+  bakes the values in so they're no longer editable. Field reading/writing uses
+  `pdf-lib`'s typed form API via `instanceof` (survives minification). Form
+  values and drawn annotations are both burned into the saved copy. _Follow-up
+  (#113):_ in-place WYSIWYG field widgets, true text editing, OCR, signatures.
 - **PDF editor** (BACKLOG #112) — the built-in PDF viewer (#35) gains **Edit** and
   **Pages** modes, all on-device (no Acrobat, no cloud round-trip). _Edit:_ markup
   with highlight, pen/ink, text, rectangle, and arrow tools, a colour palette,
