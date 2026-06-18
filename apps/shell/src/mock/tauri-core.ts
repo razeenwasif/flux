@@ -556,6 +556,16 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "boost_set_enabled":
     case "boost_delete":
       return Promise.resolve(undefined as T);
+    case "pwa_list":
+      return Promise.resolve([
+        { id: 1, name: "Discord", url: "https://discord.com/app" },
+        { id: 2, name: "WhatsApp", url: "https://web.whatsapp.com" },
+      ] as T);
+    case "pwa_install":
+      return Promise.resolve({ id: 3, name: String(args?.name ?? "App"), url: String(args?.url ?? "") } as T);
+    case "pwa_launch":
+    case "pwa_remove":
+      return Promise.resolve(undefined as T);
     case "macros_list":
       return Promise.resolve([{ id: 1, name: "HN front page → first comment", steps: [{ kind: "navigate", url: "https://news.ycombinator.com" }, { kind: "click", selector: ".titleline > a" }] }] as T);
     case "macros_status":

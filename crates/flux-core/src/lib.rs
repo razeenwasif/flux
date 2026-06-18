@@ -30,6 +30,7 @@ pub mod omni;
 pub mod pdf;
 pub mod permissions;
 pub mod prefetch;
+pub mod pwa;
 pub mod rpc;
 pub mod screenshot;
 pub mod search;
@@ -195,6 +196,13 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("sync.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-sync-config.json"));
             app.manage(sync::SyncState::restore(sync_path));
+            // Install-site-as-app / PWAs (#42).
+            let pwa_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("pwas.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-pwas.json"));
+            app.manage(pwa::PwaStore::restore(pwa_path));
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -460,6 +468,10 @@ pub fn run(intent: cli::LaunchIntent) {
             sync::sync_unlock,
             sync::sync_lock,
             sync::sync_now,
+            pwa::pwa_list,
+            pwa::pwa_install,
+            pwa::pwa_launch,
+            pwa::pwa_remove,
             hibernate::hibernate_rank,
             leanmode::lean_status,
             leanmode::lean_set_enabled,
