@@ -427,6 +427,17 @@ pub fn dom_publish(
         crate::rpc::publish_active(&app);
     }
 
+    // Capture navigations into an in-progress macro recording (#67).
+    if let Some(m) = app.try_state::<crate::macros::MacroState>() {
+        if m.is_recording() {
+            if let Some(snap) = state.dom_cache.get(&tab_id) {
+                if snap.url.starts_with("http") {
+                    m.push(crate::macros::Step::Navigate { url: snap.url.clone() });
+                }
+            }
+        }
+    }
+
     // Nudge interested panes (terminal env bar, agent sidebar).
     app.emit("flux://dom-updated", tab_id).map_err(|e| e.to_string())
 }

@@ -33,6 +33,8 @@ zeroize = "1"
 tauri-plugin-window-state = "2"
 # System + process memory readout, for memory-pressure tab eviction (#45).
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+# Async waits between macro-replay steps (#67). `time` only; Tauri already pulls tokio.
+tokio = { version = "1", features = ["time"] }
 # Favicons (#21): encode fetched icon bytes into a data: URL.
 base64 = "0.22"
 # Transcode ICO favicons → PNG so every engine (incl. WebKitGTK, which doesn't

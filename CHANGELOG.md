@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Scriptable macros** (BACKLOG #67) — a footer **⏺ Macros** popover to record
+  a browsing flow (navigations + clicks + typing) into a named macro, then
+  **replay** it with one click. Recording captures your actions live across page
+  navigations; replay walks them against the active tab with waits between steps.
+  Passwords are never recorded; macros persist. _Follow-up:_ agent-authored
+  macros, scheduling, and the inherently brittle-selector cases.
 - **Agent boosts** (BACKLOG #49) — a footer **✨ Boosts** popover to *make this
   site better*: describe a change in plain language ("hide the cookie banner",
   "dark mode", "widen the article") and the **local agent writes the CSS**, saved
