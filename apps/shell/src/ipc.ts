@@ -43,6 +43,9 @@ import type {
   AgentStatus as GenAgentStatus,
   ArchiveMeta as GenArchiveMeta,
   Bookmark as GenBookmark,
+  CalEvent as GenCalEvent,
+  CalFeed as GenCalFeed,
+  Todo as GenTodo,
   ClusterTag as GenClusterTag,
   Container as GenContainer,
   Feed as GenFeed,
@@ -81,6 +84,9 @@ export type ProcInfo = GenProcInfo;
 export type SysStats = GenSysStats;
 export type SpeedResult = GenSpeedResult;
 export type ArchiveMeta = GenArchiveMeta;
+export type CalFeed = GenCalFeed;
+export type CalEvent = GenCalEvent;
+export type Todo = GenTodo;
 
 export const foldersList = () => invoke<TabFolder[]>("folders_list");
 export const folderCreate = (name: string) => invoke<number>("folder_create", { name });
@@ -612,6 +618,21 @@ export const feedAdd = (url: string) => invoke<Feed>("feed_add", { url });
 export const feedRemove = (id: number) => invoke<void>("feed_remove", { id });
 /** Fetch + parse a feed's items live. id 0/undefined → all feeds aggregated. */
 export const feedItems = (id?: number) => invoke<FeedItem[]>("feed_items", { id: id ?? null });
+
+// ─── Calendar via ICS (BACKLOG #114) — read-only, no OAuth ───────────────────
+export const calList = () => invoke<CalFeed[]>("cal_list");
+/** Subscribe to a calendar's secret ICS URL (validated on add). */
+export const calAdd = (url: string, name?: string) => invoke<CalFeed>("cal_add", { url, name: name ?? null });
+export const calRemove = (id: number) => invoke<void>("cal_remove", { id });
+/** Fetch + parse all subscribed calendars; events sorted by date. */
+export const calEvents = () => invoke<CalEvent[]>("cal_events");
+
+// ─── Local tasks / to-dos (BACKLOG #114) ─────────────────────────────────────
+export const todosList = () => invoke<Todo[]>("todos_list");
+export const todoAdd = (title: string, due?: string) => invoke<Todo | null>("todo_add", { title, due: due ?? null });
+export const todoToggle = (id: number) => invoke<void>("todo_toggle", { id });
+export const todoRemove = (id: number) => invoke<void>("todo_remove", { id });
+export const todosClearDone = () => invoke<number>("todos_clear_done");
 
 // ─── Built-in PDF viewer (BACKLOG #35) ───────────────────────────────────────
 export const PDF_URL = "flux://pdf";

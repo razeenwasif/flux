@@ -12,6 +12,8 @@ import {
   FEEDS_URL,
   HISTORY_URL,
   OMNI_URL,
+  calAdd,
+  calEvents,
   feedItems,
   historyRecent,
   noteGet,
@@ -19,7 +21,14 @@ import {
   searchDefault,
   searchEngines,
   searchResolve,
+  todoAdd,
+  todoRemove,
+  todoToggle,
+  todosClearDone,
+  todosList,
+  type CalEvent,
   type FeedItem,
+  type Todo,
 } from "./ipc";
 import { activeId, focusTab, tabs } from "./store";
 
@@ -82,6 +91,11 @@ const StartPage: Component<{
   const [topSites, setTopSites] = createSignal<TopSite[]>([]);
   const [scratch, setScratch] = createSignal("");
   let scratchTimer: number | undefined;
+  const [events, setEvents] = createSignal<CalEvent[]>([]);
+  const [addingCal, setAddingCal] = createSignal(false);
+  const [newCalUrl, setNewCalUrl] = createSignal("");
+  const [todos, setTodos] = createSignal<Todo[]>([]);
+  const [newTodo, setNewTodo] = createSignal("");
 
   const loadShortcuts = (): Shortcut[] => {
     try {
@@ -141,7 +155,14 @@ const StartPage: Component<{
 
     // Scratchpad — persisted via the notes store.
     noteGet(SCRATCH_KEY).then((t) => setScratch(t ?? "")).catch(() => {});
+
+    // Calendar events (#114) from subscribed ICS feeds + local tasks.
+    loadEvents();
+    refreshTodos();
   });
+
+  const loadEvents = () => void calEvents().then((e) => setEvents(e ?? [])).catch(() => {});
+  const refreshTodos = () => void todosList().then((t) => setTodos(t ?? [])).catch(() => {});
 
   const onScratch = (text: string) => {
     setScratch(text);
@@ -162,6 +183,43 @@ const StartPage: Component<{
   const zoneTime = (tz: string) => {
     try { return now().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: tz }); } catch { return ""; }
   };
+
+  // ── Calendar (#114) ──────────────────────────────────────────────────────
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const dateStrOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const todayStr = () => dateStrOf(now());
+  const monthPrefix = () => `${now().getFullYear()}-${pad2(now().getMonth() + 1)}-`;
+  /** Set of day-of-month numbers in the visible month that have ≥1 event. */
+  const eventDays = (): Set<number> => {
+    const p = monthPrefix();
+    const s = new Set<number>();
+    for (const e of events()) if (e.date.startsWith(p)) s.add(Number(e.date.slice(8, 10)));
+    return s;
+  };
+  /** Next few events from today onward, for the list under the grid. */
+  const upcoming = () => events().filter((e) => e.date >= todayStr()).slice(0, 4);
+  const whenLabel = (e: CalEvent) => {
+    const d = e.date === todayStr() ? "Today" : new Date(`${e.date}T00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    return e.time ? `${d} · ${e.time}` : d;
+  };
+  const addCalendar = (ev: SubmitEvent) => {
+    ev.preventDefault();
+    const url = newCalUrl().trim();
+    if (!url) return;
+    void calAdd(url).then(() => { setNewCalUrl(""); setAddingCal(false); loadEvents(); }).catch(() => {});
+  };
+
+  // ── Tasks (#114) ───────────────────────────────────────────────────────────
+  const addTodo = (ev: SubmitEvent) => {
+    ev.preventDefault();
+    const title = newTodo().trim();
+    if (!title) return;
+    void todoAdd(title).then(() => { setNewTodo(""); refreshTodos(); }).catch(() => {});
+  };
+  const toggleTodo = (id: number) => void todoToggle(id).then(refreshTodos).catch(() => {});
+  const removeTodo = (id: number) => void todoRemove(id).then(refreshTodos).catch(() => {});
+  const clearDoneTodos = () => void todosClearDone().then(refreshTodos).catch(() => {});
+  const openTodos = () => todos().filter((t) => !t.done).length;
 
   const greeting = () => {
     const h = now().getHours();
@@ -347,19 +405,46 @@ const StartPage: Component<{
           />
         </div>
 
-        {/* Calendar + world clocks */}
+        {/* Calendar (Google via ICS, #114) + world clocks */}
         <div class="glass start-card">
-          <div class="start-card-title">{monthLabel()}</div>
+          <div class="start-card-title">
+            {monthLabel()}
+            <button class="start-card-link" title="Subscribe to a calendar's secret ICS URL" onClick={() => setAddingCal((v) => !v)}>＋ Calendar</button>
+          </div>
+          <Show when={addingCal()}>
+            <form class="start-add" onSubmit={addCalendar}>
+              <input
+                value={newCalUrl()}
+                onInput={(e) => setNewCalUrl(e.currentTarget.value)}
+                placeholder="Paste your calendar's secret .ics URL"
+                spellcheck={false}
+                autofocus
+              />
+              <button type="submit">Add</button>
+            </form>
+          </Show>
           <div class="start-cal">
             <For each={WEEKDAYS}>{(w) => <span class="start-cal-wd">{w}</span>}</For>
             <For each={monthCells()}>
               {(c) => (
-                <span classList={{ "start-cal-day": true, today: c === now().getDate(), blank: c === null }}>
+                <span classList={{ "start-cal-day": true, today: c === now().getDate(), blank: c === null, "has-event": c !== null && eventDays().has(c) }}>
                   {c ?? ""}
                 </span>
               )}
             </For>
           </div>
+          <Show when={upcoming().length > 0}>
+            <div class="start-events">
+              <For each={upcoming()}>
+                {(e) => (
+                  <div class="start-event" title={e.location ? `${e.summary} · ${e.location}` : e.summary}>
+                    <span class="start-event-when">{whenLabel(e)}</span>
+                    <span class="start-event-title">{e.summary}</span>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
           <div class="start-zones">
             <For each={WORLD_ZONES}>
               {(z) => (
@@ -370,6 +455,42 @@ const StartPage: Component<{
               )}
             </For>
           </div>
+        </div>
+
+        {/* Tasks (#114) — local, on-device */}
+        <div class="glass start-card">
+          <div class="start-card-title">
+            Tasks
+            <Show when={todos().some((t) => t.done)}>
+              <button class="start-card-link" onClick={clearDoneTodos}>Clear done</button>
+            </Show>
+          </div>
+          <form class="start-todo-add" onSubmit={addTodo}>
+            <input
+              value={newTodo()}
+              onInput={(e) => setNewTodo(e.currentTarget.value)}
+              placeholder="Add a task…"
+              spellcheck={false}
+            />
+          </form>
+          <Show
+            when={todos().length > 0}
+            fallback={<div class="start-empty">Nothing yet — add a task above. Stored on your device.</div>}
+          >
+            <div class="start-todos">
+              <For each={[...todos()].sort((a, b) => Number(a.done) - Number(b.done))}>
+                {(t) => (
+                  <div classList={{ "start-todo": true, done: t.done }}>
+                    <button class="start-todo-check" title={t.done ? "Mark not done" : "Mark done"} onClick={() => toggleTodo(t.id)}>{t.done ? "☑" : "☐"}</button>
+                    <span class="start-todo-title">{t.title}</span>
+                    <Show when={t.due}><span class="start-todo-due">{t.due}</span></Show>
+                    <button class="start-todo-x" title="Remove" onClick={() => removeTodo(t.id)}>×</button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+          <Show when={openTodos() > 0}><div class="start-todo-count">{openTodos()} open</div></Show>
         </div>
 
         {/* Quick actions */}

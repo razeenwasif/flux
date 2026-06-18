@@ -80,3 +80,12 @@ export type SpeedResult = { ping_ms: number; jitter_ms: number; download_mbps: n
  * payloads; fetch it with `archive_get`).
  */
 export type ArchiveMeta = { id: number; url: string; title: string; saved_ms: number; snippet: string; score: number }
+/**
+ * A subscribed calendar (its ICS URL). Only this is persisted.
+ */
+export type CalFeed = { id: number; url: string; name: string }
+/**
+ * One event, in the feed's own calendar terms (no tz conversion).
+ */
+export type CalEvent = { calendar: string; summary: string; date: string; time: string; location: string; sort_key: number }
+export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string }

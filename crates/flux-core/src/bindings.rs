@@ -13,6 +13,8 @@
 
 use crate::archive::ArchiveMeta;
 use crate::bookmarks::Bookmark;
+use crate::calendar::{CalEvent, CalFeed};
+use crate::todos::Todo;
 use crate::feeds::{Feed, FeedItem};
 use crate::history::HistoryEntry;
 use crate::netspeed::SpeedResult;
@@ -58,6 +60,10 @@ pub fn generate_ts() -> String {
         specta::ts::export::<SysStats>(&c),
         specta::ts::export::<SpeedResult>(&c),
         specta::ts::export::<ArchiveMeta>(&c),
+        // Calendar + tasks (BACKLOG #114).
+        specta::ts::export::<CalFeed>(&c),
+        specta::ts::export::<CalEvent>(&c),
+        specta::ts::export::<Todo>(&c),
     ];
     let mut out = String::from(HEADER);
     for p in parts {

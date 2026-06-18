@@ -6,6 +6,7 @@ pub mod archive;
 pub mod bindings;
 pub mod bookmarks;
 pub mod boosts;
+pub mod calendar;
 pub mod broker;
 pub mod cache;
 pub mod cli;
@@ -44,6 +45,7 @@ pub mod taskmgr;
 pub mod tracking;
 pub mod state;
 pub mod terminal;
+pub mod todos;
 pub mod vault;
 pub mod webview;
 
@@ -212,6 +214,20 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("feeds.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-feeds.json"));
             app.manage(feeds::FeedStore::restore(feeds_path));
+            // Calendar (#114) — subscribed ICS feed URLs; events fetched live.
+            let cal_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("calendars.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-calendars.json"));
+            app.manage(calendar::CalStore::restore(cal_path));
+            // Local tasks / to-dos (#114) — on-device task list.
+            let todos_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("todos.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-todos.json"));
+            app.manage(todos::TodoStore::restore(todos_path));
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -396,6 +412,15 @@ pub fn run(intent: cli::LaunchIntent) {
             feeds::feed_add,
             feeds::feed_remove,
             feeds::feed_items,
+            calendar::cal_list,
+            calendar::cal_add,
+            calendar::cal_remove,
+            calendar::cal_events,
+            todos::todos_list,
+            todos::todo_add,
+            todos::todo_toggle,
+            todos::todo_remove,
+            todos::todos_clear_done,
             favicon::favicon,
             history::history_recent,
             history::history_search,

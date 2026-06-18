@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Calendar sync + Tasks widgets** (BACKLOG #114) — the home page calendar now
+  shows your **real Google Calendar** (or any calendar) events, synced read-only
+  via its **secret ICS feed URL** — no Google login, no OAuth, nothing phones home
+  to an account (just an HTTP GET of a feed you control). Add one with "＋ Calendar"
+  on the widget; days with events get a dot and the next few events list under the
+  grid. ICS parsing is a lean hand-rolled scanner (VEVENT, line-unfolding, DATE vs
+  DATE-TIME), kept in the feed's own calendar terms to stay timezone-bug-free. A new
+  **Tasks** card adds an on-device to-do list (add / check / remove / clear-done,
+  persisted). _Note:_ Google Tasks two-way sync needs OAuth and is deferred (#114);
+  the tasks widget is local-only for now.
 - **Bookmark bar** (BACKLOG #22) — a chip row docked under the content card for
   one-click access to your bookmarks, no need to open `flux://bookmarks`. Click a
   chip to open it; hover to remove. Toggle with ⌘K "Show/Hide bookmark bar"

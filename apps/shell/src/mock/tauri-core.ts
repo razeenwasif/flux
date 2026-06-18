@@ -618,6 +618,33 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         { feed_id: 1, feed_title: "Rust Blog", title: "Announcing Rust 1.99", link: "https://blog.rust-lang.org/2026/01/01/Rust-1.99.html", summary: "The Rust team is happy to announce a new version of Rust.", published: "Thu, 01 Jan 2026 00:00:00 GMT" },
         { feed_id: 2, feed_title: "Hacker News: Front Page", title: "Show HN: Flux, an AI-native browser", link: "https://news.ycombinator.com/item?id=1", summary: "A small, fast browser with a local agent and a terminal.", published: "2026-01-02T08:30:00Z" },
       ] as T);
+    case "cal_list":
+      return Promise.resolve([{ id: 1, url: "https://calendar.google.com/calendar/ical/x/private/basic.ics", name: "Personal" }] as T);
+    case "cal_add":
+      return Promise.resolve({ id: 2, url: String(args?.url ?? ""), name: String(args?.name ?? "Calendar") } as T);
+    case "cal_remove":
+      return Promise.resolve(undefined as T);
+    case "cal_events": {
+      const d = new Date(mockNow());
+      const iso = (off: number) => { const x = new Date(d.getTime() + off * DAY); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
+      return Promise.resolve([
+        { calendar: "Personal", summary: "Team sync", date: iso(0), time: "10:00", location: "Room 4", sort_key: 0 },
+        { calendar: "Personal", summary: "Dentist", date: iso(2), time: "14:30", location: "", sort_key: 1 },
+        { calendar: "Personal", summary: "Long weekend", date: iso(5), time: "", location: "", sort_key: 2 },
+      ] as T);
+    }
+    case "todos_list":
+      return Promise.resolve([
+        { id: 1, title: "Ship the calendar widget", done: false, created_ms: T0, due: "" },
+        { id: 2, title: "Reply to Alice", done: true, created_ms: T0, due: "" },
+      ] as T);
+    case "todo_add":
+      return Promise.resolve({ id: 9, title: String(args?.title ?? ""), done: false, created_ms: mockNow(), due: String(args?.due ?? "") } as T);
+    case "todo_toggle":
+    case "todo_remove":
+      return Promise.resolve(undefined as T);
+    case "todos_clear_done":
+      return Promise.resolve(1 as T);
     case "prefetch_hints":
       return Promise.resolve([] as T);
     case "hibernate_rank":

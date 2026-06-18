@@ -947,9 +947,32 @@ body.resizing, body.busy { --glass-blur: none; }
 /* Calendar + world clocks widget */
 .start-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .start-cal-wd { font-size: 9.5px; color: var(--flux-text-mute); text-align: center; padding-bottom: 2px; }
-.start-cal-day { font-size: 11px; color: var(--flux-text-dim); text-align: center; padding: 4px 0; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.start-cal-day { position: relative; font-size: 11px; color: var(--flux-text-dim); text-align: center; padding: 4px 0; border-radius: 6px; font-variant-numeric: tabular-nums; }
 .start-cal-day.today { background: var(--flux-teal); color: #06121b; font-weight: 700; }
 .start-cal-day.blank { visibility: hidden; }
+.start-cal-day.has-event::after { content: ""; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: var(--flux-violet, #9d8df1); }
+.start-cal-day.today.has-event::after { background: #06121b; }
+/* Calendar upcoming-events list (#114) */
+.start-events { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--glass-rim-soft); }
+.start-event { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.start-event-when { flex: none; min-width: 92px; color: var(--flux-text-mute); font-size: 11px; }
+.start-event-title { color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Tasks widget (#114) */
+.start-todo-add { margin-bottom: 8px; }
+.start-todo-add input { width: 100%; padding: 7px 10px; border-radius: 8px; background: var(--flux-surface); border: 1px solid var(--flux-border); color: var(--flux-text); font-size: 12.5px; }
+.start-todo-add input:focus { outline: none; border-color: var(--flux-teal); }
+.start-todos { display: flex; flex-direction: column; gap: 1px; }
+.start-todo { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 7px; }
+.start-todo:hover { background: var(--flux-surface); }
+.start-todo-check { flex: none; background: none; border: none; cursor: pointer; font-size: 15px; color: var(--flux-text-dim); padding: 0; }
+.start-todo.done .start-todo-check { color: var(--flux-teal); }
+.start-todo-title { flex: 1; font-size: 12.5px; color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.start-todo.done .start-todo-title { text-decoration: line-through; color: var(--flux-text-mute); }
+.start-todo-due { flex: none; font-size: 10.5px; color: var(--flux-text-mute); }
+.start-todo-x { flex: none; opacity: 0; background: none; border: none; cursor: pointer; color: var(--flux-text-mute); font-size: 15px; padding: 0 2px; }
+.start-todo:hover .start-todo-x { opacity: 1; }
+.start-todo-x:hover { color: #e06b5a; }
+.start-todo-count { font-size: 10.5px; color: var(--flux-text-mute); margin-top: 6px; }
 .start-zones { display: flex; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--glass-rim-soft); }
 .start-zone { display: flex; flex-direction: column; gap: 1px; flex: 1; }
 .start-zone-label { font-size: 10px; color: var(--flux-text-mute); }
