@@ -550,6 +550,16 @@ export const RESOURCES_URL = "flux://resources";
 /** Per-tab captured-DOM payload size in bytes (proxy for page weight). */
 export const tabDomSizes = () => invoke<[number, number][]>("tab_dom_sizes");
 
+// ─── E2E-encrypted sync (BACKLOG #62) ────────────────────────────────────────
+export const SYNC_URL = "flux://sync";
+export interface SyncStatus { folder: string | null; unlocked: boolean; last_ms: number }
+export interface SyncReport { bookmarks_added: number; sessions_added: number }
+export const syncStatus = () => invoke<SyncStatus>("sync_status");
+export const syncSetFolder = (path: string) => invoke<void>("sync_set_folder", { path });
+export const syncUnlock = (passphrase: string) => invoke<void>("sync_unlock", { passphrase });
+export const syncLock = () => invoke<void>("sync_lock");
+export const syncNow = () => invoke<SyncReport>("sync_now");
+
 // ─── Scriptable macros (BACKLOG #67) ─────────────────────────────────────────
 export type MacroStep =
   | { kind: "navigate"; url: string }

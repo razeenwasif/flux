@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **E2E-encrypted sync** (BACKLOG #62) — **`flux://sync`** (⌘K "Sync"): bookmarks
+  + sessions follow you across devices, **account-optional and local-first**.
+  No Flux server — point it at a folder your devices already sync (Dropbox,
+  Syncthing, iCloud Drive, a USB stick) and Flux writes **one end-to-end
+  encrypted file** there (AES-256-GCM, key derived from a passphrase via
+  Argon2id; the salt lives in the blob so every device with the same passphrase
+  derives the same key). The sync service only ever sees ciphertext; the
+  passphrase never leaves your machine. Merge is an additive union (bookmarks by
+  url+folder, sessions by name). _Follow-up:_ history/tabs, deletion propagation,
+  auto-sync on a timer.
 - **Scriptable macros** (BACKLOG #67) — a footer **⏺ Macros** popover to record
   a browsing flow (navigations + clicks + typing) into a named macro, then
   **replay** it with one click. Recording captures your actions live across page

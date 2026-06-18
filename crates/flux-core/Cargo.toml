@@ -35,6 +35,10 @@ tauri-plugin-window-state = "2"
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 # Async waits between macro-replay steps (#67). `time` only; Tauri already pulls tokio.
 tokio = { version = "1", features = ["time"] }
+# E2E sync (#62): AES-256-GCM seal + Argon2id KDF over a bring-your-own folder.
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
 # Favicons (#21): encode fetched icon bytes into a data: URL.
 base64 = "0.22"
 # Transcode ICO favicons → PNG so every engine (incl. WebKitGTK, which doesn't

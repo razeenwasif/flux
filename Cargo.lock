@@ -1760,7 +1760,9 @@ dependencies = [
 name = "flux-core"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
+ "argon2",
  "base64 0.22.1",
  "dashmap",
  "flux-agent",
@@ -1775,6 +1777,7 @@ dependencies = [
  "open",
  "parking_lot",
  "portable-pty",
+ "rand",
  "serde",
  "serde_json",
  "sysinfo",

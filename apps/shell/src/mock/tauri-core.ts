@@ -568,6 +568,14 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(undefined as T);
     case "macro_stop_record":
       return Promise.resolve(null as T);
+    case "sync_status":
+      return Promise.resolve({ folder: "~/Dropbox/Flux", unlocked: false, last_ms: 0 } as T);
+    case "sync_now":
+      return Promise.resolve({ bookmarks_added: 3, sessions_added: 1 } as T);
+    case "sync_set_folder":
+    case "sync_unlock":
+    case "sync_lock":
+      return Promise.resolve(undefined as T);
     case "permissions_list":
       return Promise.resolve([
         { host: "meet.google.com", kind: "camera", decision: "allow" },
