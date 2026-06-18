@@ -118,6 +118,7 @@ import FindBar from "./FindBar";
 import Passwords from "./Passwords";
 import Downloads from "./Downloads";
 import Shields from "./Shields";
+import Boosts from "./Boosts";
 import type { PaletteAction } from "./CommandPalette";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
 // and load on first use (instant — assets are local/embedded). #startup
@@ -2085,6 +2086,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <button classList={{ "icon-btn": true, active: props.terminalOpen }} title="Terminal (Ctrl+`)" onClick={props.onToggleTerminal}>⌨</button>
         <button classList={{ "icon-btn": true, active: props.agentOpen }} title="Flux Agent (Ctrl+Shift+A)" onClick={props.onToggleAgent}>✦</button>
         <Shields onNavigate={props.onNavigate} />
+        <Boosts />
         <Passwords />
         <Downloads />
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>

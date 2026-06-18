@@ -550,6 +550,15 @@ export const RESOURCES_URL = "flux://resources";
 /** Per-tab captured-DOM payload size in bytes (proxy for page weight). */
 export const tabDomSizes = () => invoke<[number, number][]>("tab_dom_sizes");
 
+// ─── Per-site boosts (BACKLOG #49) ───────────────────────────────────────────
+export interface Boost { id: number; host: string; name: string; css: string; js: string; enabled: boolean }
+export const boostsForHost = (host: string) => invoke<Boost[]>("boosts_for_host", { host });
+export const boostSetEnabled = (id: number, host: string, enabled: boolean) =>
+  invoke<void>("boost_set_enabled", { id, host, enabled });
+export const boostDelete = (id: number, host: string) => invoke<void>("boost_delete", { id, host });
+/** Ask the local agent to write + apply a CSS boost for the active page. */
+export const boostAuthor = (instruction: string) => invoke<Boost>("boost_author", { instruction });
+
 // ─── Offline archive / read-later (BACKLOG #69) ──────────────────────────────
 export const ARCHIVE_URL = "flux://archive";
 export interface ArchiveMeta { id: number; url: string; title: string; saved_ms: number; snippet: string; score: number }

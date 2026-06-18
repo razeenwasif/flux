@@ -225,6 +225,43 @@ impl AgentPlanner {
         );
         self.backend.chat(&prompt)
     }
+
+    /// Author a CSS "boost" for the current site from a natural-language request
+    /// (BACKLOG #49) — e.g. "hide the cookie banner", "dark mode", "widen the
+    /// article". Returns raw CSS (markdown fences / `<style>` wrappers stripped).
+    /// CSS only by design: it's injected into the page and CSS can't execute or
+    /// exfiltrate, so an LLM (potentially prompt-injected by page text) can't do
+    /// harm — unlike generated JS.
+    pub fn author_css(&self, instruction: &str, page_text: &str) -> Result<String, AgentError> {
+        const PAGE_BUDGET: usize = 6 * 1024;
+        let prompt = format!(
+            "You are a CSS expert customizing a web page in the Flux browser. The user \
+             wants: \"{instruction}\". Using the page's visible text for context, write \
+             a concise CSS snippet that achieves it (hiding elements, recoloring, \
+             widening content, dark mode, etc). Output ONLY raw CSS — no prose, no \
+             markdown code fences, no <style> tags. Prefer robust, specific selectors.\
+             \n\nPAGE:\n{}",
+            truncate_utf8(page_text, PAGE_BUDGET)
+        );
+        Ok(strip_css(&self.backend.chat(&prompt)?))
+    }
+}
+
+/// Strip markdown code fences and `<style>` wrappers an LLM may add around CSS.
+fn strip_css(raw: &str) -> String {
+    let mut s = raw.trim();
+    // Pull out the body of a ``` fenced block if present.
+    if let Some(start) = s.find("```") {
+        let after = &s[start + 3..];
+        let after = after.strip_prefix("css").unwrap_or(after);
+        let after = after.trim_start_matches('\n');
+        s = after.split("```").next().unwrap_or(after);
+    }
+    s.trim()
+        .replace("<style>", "")
+        .replace("</style>", "")
+        .trim()
+        .to_string()
 }
 
 /// Last-line policy gate, applied AFTER parsing — defense in depth even

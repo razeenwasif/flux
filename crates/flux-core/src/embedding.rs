@@ -63,20 +63,29 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 mod tests {
     use super::*;
 
+    // These assert env-independent invariants (whether or not Ollama is up). The
+    // Model path is exercised at runtime, not in unit tests.
+
     #[test]
-    fn falls_back_to_hash_without_ollama() {
-        // No Ollama in tests → hashing fallback, 256-dim (flux-embed::EMBED_DIM).
-        let (v, kind) = embed("rust ownership and borrowing");
-        assert_eq!(kind, Embedder::Hash);
+    fn hash_embedder_is_always_available_and_256_dim() {
+        let v = embed_with("rust ownership and borrowing", Embedder::Hash).unwrap();
         assert_eq!(v.len(), flux_embed::EMBED_DIM);
     }
 
     #[test]
-    fn cosine_basics() {
-        let (a, _) = embed("memory safety in rust");
-        let (b, _) = embed("rust borrow checker and lifetimes");
-        let (c, _) = embed("tomato basil pasta recipe");
-        // Same-topic vectors should be more similar than cross-topic.
+    fn embed_returns_a_nonempty_vector() {
+        // Whichever embedder is used, the vector is non-empty and its kind is
+        // self-consistent with embed_with.
+        let (v, kind) = embed("hello world content");
+        assert!(!v.is_empty());
+        assert_eq!(embed_with("hello world content", kind).map(|x| x.len()), Some(v.len()));
+    }
+
+    #[test]
+    fn cosine_ranks_related_higher_on_the_hash_embedder() {
+        let a = embed_with("memory safety in rust", Embedder::Hash).unwrap();
+        let b = embed_with("rust borrow checker and lifetimes", Embedder::Hash).unwrap();
+        let c = embed_with("tomato basil pasta recipe", Embedder::Hash).unwrap();
         assert!(cosine(&a, &b) > cosine(&a, &c));
         assert_eq!(cosine(&a, &[0.1, 0.2]), 0.0); // length mismatch → 0
     }

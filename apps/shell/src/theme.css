@@ -1509,6 +1509,21 @@ body.resizing .shell { transition: none !important; }
 /* Address-bar bookmark star (#22 quick-bookmark) */
 .bm-star.active { color: #ffd166; }
 
+/* ── Boosts popover (#49) ── */
+.boost-empty { padding: 12px; font-size: 12.5px; color: var(--flux-text-mute); text-align: center; }
+.boost-input { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.4; color: var(--flux-text); background: var(--flux-surface); border: 1px solid var(--flux-border); resize: vertical; font-family: inherit; }
+.boost-input::placeholder { color: var(--flux-text-mute); }
+.boost-apply { width: 100%; padding: 8px; border-radius: 8px; font-size: 12.5px; font-weight: 600; color: #06121b; background: var(--flux-teal); border: none; cursor: pointer; }
+.boost-apply:disabled { background: var(--flux-surface-2); color: var(--flux-text-dim); cursor: default; }
+.boost-error { color: #e8643c; font-size: 11.5px; padding: 6px 2px 0; }
+.boost-row { display: flex; align-items: center; gap: 8px; padding: 5px 4px; }
+.boost-toggle { flex: none; width: 20px; height: 20px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; font-size: 12px; }
+.boost-toggle.on { color: var(--flux-teal); }
+.boost-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--flux-text); }
+.boost-del { flex: none; width: 20px; height: 20px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; border-radius: 5px; font-size: 11px; }
+.boost-del:hover { background: #c0392b; color: #fff; }
+.boost-note { font-size: 10.5px; color: var(--flux-text-mute); padding: 6px 4px 2px; line-height: 1.4; }
+
 /* ── Tab folders (hibernated parking buckets) ── */
 .folders { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px 4px; border-top: 1px solid var(--flux-border); max-height: 38vh; overflow-y: auto; }
 .folder-head { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 7px; cursor: pointer; font-size: 12.5px; color: var(--flux-text-dim); }

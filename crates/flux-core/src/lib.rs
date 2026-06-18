@@ -4,6 +4,7 @@
 pub mod agent_bridge;
 pub mod archive;
 pub mod bookmarks;
+pub mod boosts;
 pub mod broker;
 pub mod cache;
 pub mod cli;
@@ -171,6 +172,13 @@ pub fn run(intent: cli::LaunchIntent) {
                 let _ = std::fs::create_dir_all(parent);
             }
             app.manage(archive::ArchiveStore::restore(archive_path));
+            // Per-site boosts (#49) — agent-authored CSS/JS injected per host.
+            let boosts_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("boosts.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-boosts.json"));
+            app.manage(boosts::BoostStore::restore(boosts_path));
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -415,6 +423,12 @@ pub fn run(intent: cli::LaunchIntent) {
             archive::archive_get,
             archive::archive_delete,
             archive::archive_search,
+            boosts::boosts_list,
+            boosts::boosts_for_host,
+            boosts::boost_save,
+            boosts::boost_delete,
+            boosts::boost_set_enabled,
+            boosts::boost_author,
             hibernate::hibernate_rank,
             leanmode::lean_status,
             leanmode::lean_set_enabled,

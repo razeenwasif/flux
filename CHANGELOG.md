@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Agent boosts** (BACKLOG #49) — a footer **✨ Boosts** popover to *make this
+  site better*: describe a change in plain language ("hide the cookie banner",
+  "dark mode", "widen the article") and the **local agent writes the CSS**, saved
+  per host and re-applied on every visit (toggle / delete per site, applies
+  live). CSS-only by design — it's injected into the page and CSS can't
+  execute/exfiltrate, so a prompt-injected model can't do harm (unlike generated
+  JS). _Follow-up:_ hand-edited JS boosts; a manage-all page.
 - **Real embeddings for search** (BACKLOG #11) — semantic search now prefers a
   proper model (**EmbeddingGemma** via Ollama, `/api/embed`) instead of the
   feature-hashing fallback, so it understands synonyms/paraphrase, not just
