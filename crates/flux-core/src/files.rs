@@ -197,6 +197,9 @@ pub async fn fs_list(path: String) -> Result<DirListing, String> {
 }
 
 fn list_dir(path: &str) -> Result<DirListing, String> {
+    // Empty / "~" → home (the Files popout panel opens with no path on first use).
+    let path = if path.is_empty() || path == "~" { home_dir() } else { path.to_string() };
+    let path = path.as_str();
     // Canonicalize → absolute, `..`-resolved, existing. (Errors if it doesn't
     // exist, which is the right behavior.)
     let canon = std::fs::canonicalize(path).map_err(|e| format!("{path}: {e}"))?;

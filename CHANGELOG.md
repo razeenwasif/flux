@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Files popout panel** (BACKLOG #6) — a 🗁 button in the sidebar controls opens
+  the file explorer as a medium-large floating panel over the page (no need for a
+  dedicated Files tab). Its current directory **persists** — close it from
+  `Documents/Books/` and it reopens right there. Click outside or Esc to close.
+  Built on the DOM `FilesView`; opening the panel hides the active tab's native
+  webview (the same overlay trick the command palette uses), so it's never
+  occluded by the OS webview layer.
 - **Calendar sync + Tasks widgets** (BACKLOG #114) — the home page calendar now
   shows your **real Google Calendar** (or any calendar) events, synced read-only
   via its **secret ICS feed URL** — no Google login, no OAuth, nothing phones home
@@ -59,6 +66,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   budgets are a self-hosted/manual gate).
 
 ### Changed / Fixed
+- **Closing a tab always leaves a start page** — closing a browser tab when no
+  other **flux://start** tab is open now converts it into a fresh start tab instead
+  of removing it, so there's always a new tab to start from (close the last tab and
+  you land on the dashboard, not an empty window).
 - **Leaner chrome bundle** (BACKLOG #79/#10) — the agent sidebar (`AgentPanel`) is
   now its own lazy chunk (loads when first opened), pulling ~3 KB gzip off the
   eager chrome bundle. Back to **47.0 KB / 50 KB** budget headroom after the recent

@@ -148,6 +148,10 @@ import {
   applyAgentModel,
   bookmarkBarOpen,
   setBookmarkBarOpen,
+  filesPanelOpen,
+  setFilesPanelOpen,
+  filesPanelPath,
+  setFilesPanelPath,
   vimHints,
   mouseGestures,
   setVimHints,
@@ -316,7 +320,7 @@ const App: Component = () => {
     return { x: r.x + r.width - pw, y: r.y + PANEL_TOOLBAR, width: pw, height: Math.max(0, r.height - PANEL_TOOLBAR) };
   };
   const paneLayout = (): { tab: TabMeta; rect: Rect }[] => {
-    if (readerOpen()) return []; // reader view covers the card; hide the page
+    if (readerOpen() || filesPanelOpen()) return []; // reader / files panel covers the card; hide the page
     const rect = mainRect();
     if (!rect) return [];
     const pair = splitPanes();
@@ -390,6 +394,10 @@ const App: Component = () => {
       // Handled outside the chord table so it isn't forwarded from focused pages
       // (they use Esc themselves).
       if (e.key === "Escape" && !inTerminal()) {
+        if (filesPanelOpen()) {
+          setFilesPanelOpen(false);
+          return;
+        }
         if (focusMode()) {
           setFocusMode(false);
           return;
@@ -1217,9 +1225,35 @@ const App: Component = () => {
       <Show when={paletteOpen()}>
         <Suspense><CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} /></Suspense>
       </Show>
+
+      {/* Files popout panel — a DOM file explorer over the (hidden) webview; its
+          cwd persists so it reopens where you left off. Click outside to close. */}
+      <Show when={filesPanelOpen()}>
+        <div class="files-panel-backdrop" onClick={() => setFilesPanelOpen(false)}>
+          <div class="files-panel glass" onClick={(e) => e.stopPropagation()}>
+            <div class="files-panel-head" data-tauri-drag-region="deep">
+              <span class="files-panel-title">🗁 Files</span>
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => setFilesPanelOpen(false)}>✕</button>
+            </div>
+            <div class="files-panel-body">
+              <Suspense>
+                <FilesView
+                  id={FILES_PANEL_ID}
+                  path={filesPanelPath() || ""}
+                  onPathChange={setFilesPanelPath}
+                  onOpenInTab={(url) => { setFilesPanelOpen(false); go(url); }}
+                />
+              </Suspense>
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 };
+
+/** Synthetic FilesView id for the popout panel (distinct from real tab ids). */
+const FILES_PANEL_ID = -1;
 
 // ─── Window chrome (custom — decorations are off) ───────────────────────────
 
@@ -1686,6 +1720,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <button class="icon-btn" title="Stop (Esc)" onClick={() => navActive(webviewStop)}>✕</button>
           </Show>
           <button class="icon-btn" title="Home (new tab page)" onClick={() => props.onNavigate("flux://start")}>⌂</button>
+          <button classList={{ "icon-btn": true, active: filesPanelOpen() }} title="File explorer" onClick={() => setFilesPanelOpen(!filesPanelOpen())}>🗁</button>
           <span style={{ flex: 1 }} />
         </Show>
       </div>

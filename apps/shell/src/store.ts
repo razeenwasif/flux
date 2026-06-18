@@ -12,6 +12,8 @@ import {
   agentModel,
   faviconFetch,
   isStartUrl,
+  START_URL,
+  tabSetUrl,
   groupCreate,
   groupDelete,
   groupUpdate,
@@ -467,6 +469,17 @@ export function setBookmarkBarOpen(on: boolean): void {
   localStorage.setItem("flux.bookmarkbar", on ? "1" : "0");
 }
 
+// Files popout panel (#6 file explorer): a DOM file-explorer overlay toggled
+// from the toolbar, separate from Files *tabs*. Its cwd persists (localStorage)
+// so it reopens where you left off.
+const [filesPanelOpen, setFilesPanelOpen] = createSignal(false);
+const [filesPanelPath, setFilesPanelPathRaw] = createSignal(localStorage.getItem("flux.filespanel.path") ?? "");
+export { filesPanelOpen, setFilesPanelOpen, filesPanelPath };
+export function setFilesPanelPath(p: string): void {
+  setFilesPanelPathRaw(p);
+  localStorage.setItem("flux.filespanel.path", p);
+}
+
 // Native dark mode (#40) — WebView2 preferred-color-scheme. Persisted; applied
 // on boot + on toggle.
 const [darkMode, setDarkRaw] = createSignal(localStorage.getItem("flux.dark") === "1");
@@ -620,6 +633,22 @@ export async function togglePin(tab: TabMeta): Promise<void> {
 }
 
 export async function closeTab(id: number): Promise<void> {
+  // QoL: always keep a start tab around. Closing a browser tab when no *other*
+  // flux://start tab is open converts this one into a fresh start tab instead of
+  // removing it — so there's always a new tab to start from.
+  const all = tabs();
+  const closing = all.find((t) => t.id === id);
+  const otherStart = all.some((t) => t.id !== id && t.url === START_URL);
+  if (closing && closing.kind === "browser" && closing.url !== START_URL && !otherStart) {
+    if (splitPair()?.includes(id)) clearSplit();
+    setTabLoading(id, false);
+    setHibernated(id, false);
+    await webviewClose(id); // drop the page webview; start tabs have none
+    updateTabUrl(id, START_URL);
+    await tabSetUrl(id, START_URL, "New Tab").catch(() => {});
+    await refreshTabs();
+    return;
+  }
   if (splitPair()?.includes(id)) clearSplit(); // a tiled tab is gone → drop the split
   setTabLoading(id, false);
   setHibernated(id, false);
