@@ -594,6 +594,20 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         { host: "meet.google.com", kind: "microphone", decision: "allow" },
         { host: "ads.example.com", kind: "notifications", decision: "deny" },
       ] as T);
+    case "feeds_list":
+      return Promise.resolve([
+        { id: 1, url: "https://blog.rust-lang.org/feed.xml", title: "Rust Blog" },
+        { id: 2, url: "https://hnrss.org/frontpage", title: "Hacker News: Front Page" },
+      ] as T);
+    case "feed_add":
+      return Promise.resolve({ id: 3, url: String(args?.url ?? ""), title: "New Feed" } as T);
+    case "feed_remove":
+      return Promise.resolve(undefined as T);
+    case "feed_items":
+      return Promise.resolve([
+        { feed_id: 1, feed_title: "Rust Blog", title: "Announcing Rust 1.99", link: "https://blog.rust-lang.org/2026/01/01/Rust-1.99.html", summary: "The Rust team is happy to announce a new version of Rust.", published: "Thu, 01 Jan 2026 00:00:00 GMT" },
+        { feed_id: 2, feed_title: "Hacker News: Front Page", title: "Show HN: Flux, an AI-native browser", link: "https://news.ycombinator.com/item?id=1", summary: "A small, fast browser with a local agent and a terminal.", published: "2026-01-02T08:30:00Z" },
+      ] as T);
     case "prefetch_hints":
       return Promise.resolve([] as T);
     case "hibernate_rank":

@@ -1626,6 +1626,30 @@ body.resizing, body.busy { --glass-blur: none; }
 .arch-art-link { background: none; border: none; color: var(--flux-teal); cursor: pointer; padding: 0; font-size: 12px; }
 .arch-art-p { font-size: 15px; line-height: 1.7; color: var(--flux-text-dim); margin: 0 0 14px; }
 
+/* ── Native RSS / Atom reader (#72) ── */
+.feeds-add { display: flex; gap: 8px; align-items: center; flex: 1; max-width: 480px; }
+.feeds-add-btn { flex: none; padding: 7px 14px; border-radius: 8px; font-size: 12.5px; color: #06121b; background: var(--flux-teal); border: none; cursor: pointer; }
+.feeds-add-btn:disabled { opacity: .45; cursor: default; }
+.feed-row { position: relative; padding: 9px 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; display: flex; flex-direction: column; gap: 1px; }
+.feed-row:hover { background: var(--flux-surface); }
+.feed-row.active { background: var(--flux-surface-2); border-color: var(--flux-teal-dim); }
+.feed-row-title { font-size: 13px; font-weight: 600; color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 20px; }
+.feed-row-host { font-size: 11px; color: var(--flux-text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feeds-hint { text-align: left; padding: 14px 12px; }
+.feeds-items-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; position: sticky; top: 0; }
+.feeds-items-title { font-size: 15px; font-weight: 700; color: var(--flux-text); }
+.feeds-refresh { flex: none; width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--flux-border); background: var(--flux-surface); color: var(--flux-text); cursor: pointer; }
+.feeds-refresh:hover { background: var(--flux-surface-2); }
+.feeds-refresh:disabled { opacity: .5; cursor: default; }
+.feeds-error { font-size: 12.5px; color: #e07a6b; background: rgba(192, 57, 43, .12); border: 1px solid rgba(192, 57, 43, .3); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.feed-item { padding: 11px 13px; border-radius: 11px; border: 1px solid var(--flux-border); margin-bottom: 9px; cursor: pointer; }
+.feed-item:hover { background: var(--flux-surface); border-color: var(--flux-teal-dim); }
+.feed-item-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.feed-item-title { font-size: 14px; font-weight: 600; color: var(--flux-text); }
+.feed-item-date { flex: none; font-size: 11px; color: var(--flux-text-mute); white-space: nowrap; }
+.feed-item-src { font-size: 11px; color: var(--flux-teal); margin-top: 2px; }
+.feed-item-snip { font-size: 12.5px; line-height: 1.55; color: var(--flux-text-dim); margin-top: 5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
 /* ── Built-in PDF viewer (#35) ── */
 .pdf-view { height: 100%; display: flex; flex-direction: column; color: var(--flux-text); }
 .pdf-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--flux-border); background: var(--flux-bg-raise); }

@@ -609,6 +609,25 @@ export const archiveDelete = (id: number) => invoke<void>("archive_delete", { id
 export const archiveSearch = (query: string, limit: number) =>
   invoke<ArchiveMeta[]>("archive_search", { query, limit });
 
+// ─── Native RSS / Atom reader (BACKLOG #72) ──────────────────────────────────
+export const FEEDS_URL = "flux://feeds";
+export interface Feed { id: number; url: string; title: string }
+export interface FeedItem {
+  feed_id: number;
+  feed_title: string;
+  title: string;
+  link: string;
+  summary: string;
+  /** Raw published/updated string from the feed (display-only). */
+  published: string;
+}
+export const feedsList = () => invoke<Feed[]>("feeds_list");
+/** Subscribe to a feed URL (deduped). Fetches + parses to derive the title. */
+export const feedAdd = (url: string) => invoke<Feed>("feed_add", { url });
+export const feedRemove = (id: number) => invoke<void>("feed_remove", { id });
+/** Fetch + parse a feed's items live. id 0/undefined → all feeds aggregated. */
+export const feedItems = (id?: number) => invoke<FeedItem[]>("feed_items", { id: id ?? null });
+
 // ─── Built-in PDF viewer (BACKLOG #35) ───────────────────────────────────────
 export const PDF_URL = "flux://pdf";
 /** Is this URL/path a PDF? (extension check, ignoring query/hash) */

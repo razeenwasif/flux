@@ -15,6 +15,7 @@ pub mod downloads;
 pub mod embedding;
 pub mod extensions;
 pub mod favicon;
+pub mod feeds;
 pub mod files;
 pub mod hibernate;
 pub mod history;
@@ -203,6 +204,13 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("pwas.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-pwas.json"));
             app.manage(pwa::PwaStore::restore(pwa_path));
+            // Native RSS / Atom reader (#72) — subscriptions persisted; items fetched live.
+            let feeds_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("feeds.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-feeds.json"));
+            app.manage(feeds::FeedStore::restore(feeds_path));
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -382,6 +390,10 @@ pub fn run(intent: cli::LaunchIntent) {
             notes::note_get,
             notes::note_set,
             notes::notes_list,
+            feeds::feeds_list,
+            feeds::feed_add,
+            feeds::feed_remove,
+            feeds::feed_items,
             favicon::favicon,
             history::history_recent,
             history::history_search,

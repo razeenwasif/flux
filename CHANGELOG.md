@@ -25,6 +25,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   Discord, WhatsApp, Figma, etc. feel like native apps. Installed apps persist
   and live at **`flux://apps`** (⌘K "Open installed apps") to relaunch or remove;
   relaunching focuses the existing window instead of duplicating it.
+- **Native RSS / Atom reader** (BACKLOG #72) — **`flux://feeds`** (⌘K "Open Feeds"):
+  subscribe to feeds and read them inside Flux, no extension. Subscriptions
+  persist (`feeds.rs`); items are fetched **live** on open (always fresh, nothing
+  cached to go stale). Master-detail UI — a feed list plus an **All feeds**
+  aggregate on the left, the selected feed's items on the right; clicking an item
+  opens it in a new browser tab. Parsing is a lean hand-rolled RSS 2.0 / Atom 1.0
+  scanner (CDATA, common entities, tag-stripped snippets) rather than an XML
+  dependency, to keep the binary small. A dead feed is skipped in the aggregate
+  view so one bad URL doesn't blank the page. _Follow-up:_ unread/read state,
+  OPML import/export, auto-refresh on a timer, fold feeds into Omni search.
 - **E2E-encrypted sync** (BACKLOG #62) — **`flux://sync`** (⌘K "Sync"): bookmarks
   + sessions follow you across devices, **account-optional and local-first**.
   No Flux server — point it at a folder your devices already sync (Dropbox,
