@@ -513,6 +513,13 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       } as T);
     case "agent_run_action":
       return Promise.resolve((args?.action ?? { action: "refuse", reason: "n/a" }) as T);
+    case "agent_task_step": {
+      // First call (no history) does a step; the next one finishes — a 2-step demo.
+      const hist = (args?.history as string[]) ?? [];
+      return Promise.resolve((hist.length === 0
+        ? { action: "reveal", selector: "main" }
+        : { action: "finish", summary: `(mock) completed: ${String(args?.goal ?? "task")}` }) as T);
+    }
     case "tasks_list":
       return Promise.resolve([
         { pid: 4201, name: "flux", cpu: 6.4, mem_mb: 312, is_flux: true, current: true },

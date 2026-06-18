@@ -45,6 +45,7 @@ import {
   agentExecute,
   agentPlan,
   agentRunAction,
+  agentTaskStep,
   agentModels,
   noteGet,
   noteSet,
@@ -2582,7 +2583,7 @@ const TerminalColumn: Component = () => (
 
 /** The "Liquid AI" surface. Status drives the visual state machine: idle →
  *  violet dot, thinking → kinetic gradient border, acting → magenta line. */
-type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan"; text: string; action?: AgentAction; pending?: boolean };
+type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task"; text: string; action?: AgentAction; pending?: boolean };
 
 const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
@@ -2592,6 +2593,13 @@ const AgentPanel: Component = () => {
   // Chat-with-page/tabs (#34): "page" grounds in the active tab; "tabs" grounds
   // in every open browser tab in the active workspace.
   const [scope, setScope] = createSignal<"page" | "tabs">("page");
+  // Multi-step tasks (#A): the iterative agent loop. `taskRunning` gates input;
+  // `taskAuto` = "run all" (auto-approve non-stop steps); `taskStep` holds the
+  // step currently awaiting Approve/Skip/Stop in step-through mode.
+  const [taskRunning, setTaskRunning] = createSignal(false);
+  const [taskAuto, setTaskAuto] = createSignal(false);
+  const [taskStep, setTaskStep] = createSignal<{ action: AgentAction; n: number } | null>(null);
+  let stepResolver: ((d: "approve" | "skip" | "stop") => void) | null = null;
   // Model picker (#81): the dropdown of locally-pulled Ollama models.
   const [models, setModels] = createSignal<string[]>([]);
   const [modelMenu, setModelMenu] = createSignal(false);
@@ -2647,7 +2655,14 @@ const AgentPanel: Component = () => {
   });
 
   const send = async (p: string) => {
-    if (!p || working()) return;
+    if (!p || working() || taskRunning()) return;
+    // "/task <goal>" runs the multi-step agent loop (#A) instead of one action.
+    const task = p.match(/^\/task\s+([\s\S]+)/i);
+    if (task?.[1]) {
+      setPrompt("");
+      void runTask(task[1].trim());
+      return;
+    }
     setPrompt("");
     setFeed((f) => [...f, { role: "user", text: p }]);
     setBusy(true);
@@ -2691,6 +2706,82 @@ const AgentPanel: Component = () => {
   const cancelPlan = (idx: number) =>
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `Skipped: ${it.text}` } : it)));
 
+  // ── Multi-step task loop (#A) ──────────────────────────────────────────────
+  const MAX_TASK_STEPS = 8;
+  // Step-through gate: resolve when the user clicks Approve / Skip / Stop.
+  const awaitDecision = (action: AgentAction, n: number) =>
+    new Promise<"approve" | "skip" | "stop">((resolve) => {
+      stepResolver = resolve;
+      setTaskStep({ action, n });
+    });
+  const decideStep = (d: "approve" | "skip" | "stop") => {
+    const r = stepResolver;
+    stepResolver = null;
+    setTaskStep(null);
+    r?.(d);
+  };
+
+  const runTask = async (goal: string) => {
+    if (taskRunning()) return;
+    setTaskRunning(true);
+    setFeed((f) => [...f, { role: "user", text: `/task ${goal}` }, { role: "task", text: `▶ Task: ${goal}` }]);
+    const history: string[] = [];
+    try {
+      for (let i = 0; i < MAX_TASK_STEPS; i++) {
+        // Plan the next step from the LIVE page + what's been done.
+        setBusy(true);
+        let action: AgentAction;
+        try {
+          action = await agentTaskStep(goal, history);
+        } finally {
+          setBusy(false);
+        }
+        if (action.action === "finish") {
+          setFeed((f) => [...f, { role: "task", text: `✓ ${action.summary}` }]);
+          return;
+        }
+        if (action.action === "refuse") {
+          setFeed((f) => [...f, { role: "assistant", text: `✕ ${action.reason}` }]);
+          return;
+        }
+
+        // Decide: step-through awaits a click; "run all" auto-approves.
+        let decision: "approve" | "skip" | "stop" = "approve";
+        if (taskAuto()) {
+          setFeed((f) => [...f, { role: "plan", text: `→ ${describeAction(action)}` }]);
+        } else {
+          decision = await awaitDecision(action, i + 1);
+        }
+        if (decision === "stop") {
+          setFeed((f) => [...f, { role: "task", text: "⏹ Task stopped." }]);
+          return;
+        }
+        if (decision === "skip") {
+          history.push(`(skipped) ${describeAction(action)}`);
+          continue;
+        }
+
+        // Run the approved step, record it, let the page settle before re-planning.
+        setBusy(true);
+        try {
+          await agentRunAction(action);
+          setFeed((f) => [...f, { role: "action", text: describeAction(action) }]);
+          history.push(describeAction(action));
+        } finally {
+          setBusy(false);
+        }
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+      setFeed((f) => [...f, { role: "task", text: `Reached the ${MAX_TASK_STEPS}-step limit — stopping.` }]);
+    } catch (err) {
+      setFeed((f) => [...f, { role: "error", text: String(err) }]);
+    } finally {
+      stepResolver = null;
+      setTaskStep(null);
+      setTaskRunning(false);
+    }
+  };
+
   return (
     <aside class="agent">
       <div class="agent-inner">
@@ -2730,9 +2821,10 @@ const AgentPanel: Component = () => {
             when={feed().length > 0}
             fallback={
               <div class="agent-empty">
-                Chat with your local Gemma — ask anything. Use <kbd>/act</kbd> to control
-                the page (e.g. <em>/act click the login button</em>) — you'll preview and
-                approve each action before it runs.
+                Chat with your local Gemma — ask anything. Use <kbd>/act</kbd> for a
+                single page action, or <kbd>/task</kbd> for a multi-step goal
+                (e.g. <em>/task find the cheapest listing and open it</em>) — the agent
+                plans one step at a time and you approve each (or tick “Run all”).
               </div>
             }
           >
@@ -2757,6 +2849,30 @@ const AgentPanel: Component = () => {
           </Show>
         </div>
 
+        {/* Multi-step task controls (#A): the step awaiting approval + run-all/stop. */}
+        <Show when={taskRunning()}>
+          <div class="agent-task-bar">
+            <Show
+              when={taskStep()}
+              fallback={<span class="agent-task-status">{working() ? "planning next step…" : "working…"}</span>}
+            >
+              {(s) => (
+                <div class="agent-task-step">
+                  <div class="agent-task-step-label">Step {s().n}: {describeAction(s().action)}</div>
+                  <div class="agent-approve">
+                    <button class="agent-approve-yes" onClick={() => decideStep("approve")}>✓ Run</button>
+                    <button class="agent-approve-no" onClick={() => decideStep("skip")}>Skip</button>
+                    <button class="agent-approve-no" onClick={() => decideStep("stop")}>⏹ Stop</button>
+                  </div>
+                </div>
+              )}
+            </Show>
+            <label class="agent-task-auto" title="Auto-approve each step (destructive clicks are still blocked at click time)">
+              <input type="checkbox" checked={taskAuto()} onChange={(e) => setTaskAuto(e.currentTarget.checked)} /> Run all
+            </label>
+          </div>
+        </Show>
+
         {/* Chat-with-page/tabs (#34): scope toggle + one-tap prompts grounded in
             the captured DOM (the agent already receives the page/tab text). */}
         <div class="agent-context">
@@ -2772,8 +2888,8 @@ const AgentPanel: Component = () => {
           <input
             value={prompt()}
             onInput={(e) => setPrompt(e.currentTarget.value)}
-            placeholder={working() ? "thinking…" : scope() === "tabs" ? "Ask across your open tabs · /act for the page" : "Ask about this page · /act to control it"}
-            disabled={working()}
+            placeholder={taskRunning() ? "task running…" : working() ? "thinking…" : scope() === "tabs" ? "Ask across tabs · /act · /task" : "Ask · /act page action · /task multi-step"}
+            disabled={working() || taskRunning()}
             style={{ width: "100%", padding: "10px 12px", border: working() ? "none" : undefined }}
           />
         </form>
@@ -2849,6 +2965,8 @@ function describeAction(a: AgentAction): string {
       return `✓ revealed ${a.selector}`;
     case "refuse":
       return `— ${a.reason}`;
+    case "finish":
+      return `✓ ${a.summary}`;
   }
 }
 

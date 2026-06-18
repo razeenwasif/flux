@@ -124,7 +124,8 @@ export type AgentAction =
   | { action: "extract_table"; selector: string; format: "csv" | "json" }
   | { action: "type"; selector: string; text: string }
   | { action: "reveal"; selector: string }
-  | { action: "refuse"; reason: string };
+  | { action: "refuse"; reason: string }
+  | { action: "finish"; summary: string };
 
 // ─── Commands ────────────────────────────────────────────────────────────
 
@@ -200,6 +201,9 @@ export const agentExecute = (prompt: string) => invoke<AgentAction>("agent_execu
 export const agentPlan = (prompt: string) => invoke<AgentAction>("agent_plan", { prompt });
 /** Execute a user-approved planned action (#8). */
 export const agentRunAction = (action: AgentAction) => invoke<AgentAction>("agent_run_action", { action });
+/** Plan the next step of a multi-step task given the goal + steps done so far (#A). */
+export const agentTaskStep = (goal: string, history: string[]) =>
+  invoke<AgentAction>("agent_task_step", { goal, history });
 /** Free-form chat with the local model (no page required). Returns the reply. */
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
 /** Translate the active page's text to `target` (a language name) via the local model (#40). */
