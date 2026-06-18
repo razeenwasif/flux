@@ -361,6 +361,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::agent_status,
             commands::agent_execute,
             commands::agent_plan,
+            commands::agent_task_step,
             commands::agent_run_action,
             commands::agent_chat,
             commands::agent_translate,

@@ -810,6 +810,40 @@ pub async fn agent_plan(app: AppHandle, state: State<'_, FluxState>, prompt: Str
     Ok(action)
 }
 
+/// Plan the **next step** of a multi-step task (BACKLOG #A). The frontend agent
+/// loop drives this: it passes the high-level `goal` and the list of steps
+/// already taken (`history`), and gets back the single next `AgentAction` —
+/// `finish` when done, `refuse` if stuck. Like `agent_plan`, this does NOT touch
+/// the page; the frontend previews the step and runs it via `agent_run_action`
+/// only after the user approves (or in "run all" mode, after the destructive
+/// guard clears). Reads the **live** active-tab snapshot every call, so cross-
+/// page tasks work as navigation republishes the DOM.
+#[tauri::command]
+pub async fn agent_task_step(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    goal: String,
+    history: Vec<String>,
+) -> Result<flux_agent::AgentAction, String> {
+    let snap = state.active_snapshot().ok_or("no page context — open a tab first")?;
+    *state.agent.write() = AgentStatus::Thinking { prompt: goal.clone() };
+    let _ = app.emit("flux://agent-status", state.agent.read().clone());
+    let page_text = Arc::clone(&snap.text);
+    let action = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().plan_step(&goal, &page_text, &history)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| {
+        *state.agent.write() = AgentStatus::Error { message: e.to_string() };
+        let _ = app.emit("flux://agent-status", state.agent.read().clone());
+        e.to_string()
+    })?;
+    *state.agent.write() = AgentStatus::Idle;
+    let _ = app.emit("flux://agent-status", state.agent.read().clone());
+    Ok(action)
+}
+
 /// Execute a previously-planned action that the user approved (BACKLOG #8).
 /// Compiles it to JS (the script paints the magenta highlight, then acts) and
 /// injects it into the active tab's webview.

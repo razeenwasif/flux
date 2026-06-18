@@ -41,6 +41,9 @@ pub enum AgentAction {
     Reveal { selector: String },
     /// The model judged the request unfulfillable on this page.
     Refuse { reason: String },
+    /// Multi-step task complete (BACKLOG #A / #82) — the agent declares the goal
+    /// satisfied and the loop stops. Never touches the page.
+    Finish { summary: String },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -59,7 +62,7 @@ impl AgentAction {
             | Self::ExtractTable { selector, .. }
             | Self::Type { selector, .. }
             | Self::Reveal { selector } => Some(selector),
-            Self::Refuse { .. } => None,
+            Self::Refuse { .. } | Self::Finish { .. } => None,
         }
     }
 
@@ -73,6 +76,7 @@ impl AgentAction {
             Self::Type { selector, .. } => format!("Type into `{selector}`"),
             Self::Reveal { selector } => format!("Scroll `{selector}` into view"),
             Self::Refuse { reason } => format!("Refused: {reason}"),
+            Self::Finish { summary } => format!("Finished: {summary}"),
         }
     }
 
@@ -136,12 +140,13 @@ pub trait Inference: Send + Sync {
 /// anything that doesn't parse into `AgentAction`.
 pub const ACTION_GRAMMAR: &str = r#"
 root        ::= "{" ws "\"action\"" ws ":" ws action-body "}"
-action-body ::= click | extract | type-act | reveal | refuse
+action-body ::= click | extract | type-act | reveal | refuse | finish
 click       ::= "\"click\"" ws "," ws "\"selector\"" ws ":" ws string ws "," ws "\"reason\"" ws ":" ws string ws
 extract     ::= "\"extract_table\"" ws "," ws "\"selector\"" ws ":" ws string ws "," ws "\"format\"" ws ":" ws ("\"csv\"" | "\"json\"") ws
 type-act    ::= "\"type\"" ws "," ws "\"selector\"" ws ":" ws string ws "," ws "\"text\"" ws ":" ws string ws
 reveal      ::= "\"reveal\"" ws "," ws "\"selector\"" ws ":" ws string ws
 refuse      ::= "\"refuse\"" ws "," ws "\"reason\"" ws ":" ws string ws
+finish      ::= "\"finish\"" ws "," ws "\"summary\"" ws ":" ws string ws
 string      ::= "\"" ([^"\\] | "\\" .)* "\""
 ws          ::= [ \t\n]*
 "#;
@@ -184,6 +189,43 @@ impl AgentPlanner {
         let action: AgentAction = serde_json::from_str(raw.trim())?;
         policy_check(&action)?;
         tracing::info!(target: "flux::agent", action = %action.describe(), "planned");
+        Ok(action)
+    }
+
+    /// Plan the **single next step** of a multi-step task (BACKLOG #A). The agent
+    /// loop calls this repeatedly: each call sees the *live* page and the steps
+    /// already taken, and returns one `AgentAction` — or `Finish` when the goal is
+    /// met, or `Refuse` if it can't proceed. Re-planning per step (rather than
+    /// emitting a fixed N-step plan up front) is what lets a task cross pages:
+    /// the selectors for page 2 aren't knowable while still on page 1.
+    pub fn plan_step(&self, goal: &str, page_text: &str, history: &[String]) -> Result<AgentAction, AgentError> {
+        const PAGE_BUDGET: usize = 6 * 1024;
+        let page = truncate_utf8(page_text, PAGE_BUDGET);
+        let steps = if history.is_empty() {
+            "(none yet)".to_string()
+        } else {
+            history.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n")
+        };
+        let prompt = format!(
+            "You are the Flux browser agent executing a MULTI-STEP task. Look at the \
+             current page and the steps already done, then respond with EXACTLY ONE \
+             JSON object — the SINGLE NEXT action — and nothing else. Shapes:\n\
+             {{\"action\":\"click\",\"selector\":\"<css>\",\"reason\":\"<why>\"}}\n\
+             {{\"action\":\"type\",\"selector\":\"<css>\",\"text\":\"<text>\"}}\n\
+             {{\"action\":\"extract_table\",\"selector\":\"<css>\",\"format\":\"csv\"}}\n\
+             {{\"action\":\"reveal\",\"selector\":\"<css>\"}}\n\
+             {{\"action\":\"finish\",\"summary\":\"<what was accomplished>\"}}\n\
+             {{\"action\":\"refuse\",\"reason\":\"<why impossible>\"}}\n\
+             Do ONE concrete step that makes progress; you'll be called again with \
+             the updated page. Use \"finish\" when the goal is already satisfied, and \
+             \"refuse\" if it cannot be done here. Don't repeat a step already done. \
+             Prefer stable selectors (ids, aria-labels, data attributes).\n\n\
+             TASK GOAL: {goal}\n\nSTEPS DONE:\n{steps}\n\nPAGE:\n{page}"
+        );
+        let raw = self.backend.complete(&prompt, Some(ACTION_GRAMMAR))?;
+        let action: AgentAction = serde_json::from_str(raw.trim())?;
+        policy_check(&action)?;
+        tracing::info!(target: "flux::agent", step = %action.describe(), "task step planned");
         Ok(action)
     }
 
@@ -317,6 +359,17 @@ pub struct MockBackend;
 impl Inference for MockBackend {
     fn complete(&self, prompt: &str, _grammar: Option<&str>) -> Result<String, AgentError> {
         let p = prompt.to_ascii_lowercase();
+        // Multi-step task loop (plan_step): do one step, then finish on the next
+        // call (once a step appears under "STEPS DONE:"). Keeps the dev/CI loop
+        // terminating without a model.
+        if p.contains("task goal:") {
+            let json = if p.contains("steps done:\n-") {
+                r#"{"action":"finish","summary":"mock task complete"}"#
+            } else {
+                r#"{"action":"reveal","selector":"body"}"#
+            };
+            return Ok(json.to_owned());
+        }
         let json = if p.contains("unsubscribe") {
             r#"{"action":"click","selector":"a[href*='unsubscribe']","reason":"unsubscribe link"}"#
         } else if p.contains("csv") || p.contains("table") || p.contains("pricing") {
@@ -348,6 +401,22 @@ mod tests {
         assert!(js.contains("querySelector"));
         // The compiled JS must embed the selector as JSON, never raw.
         assert!(js.contains(r#""a[href*='unsubscribe']""#));
+    }
+
+    #[test]
+    fn task_loop_steps_then_finishes() {
+        let planner = AgentPlanner::new(Box::new(MockBackend));
+        // First call (no history) → a concrete step.
+        let s1 = planner.plan_step("download the report", "…page…", &[]).unwrap();
+        assert!(matches!(s1, AgentAction::Reveal { .. }));
+        // Once a step is in the history, the loop terminates with Finish.
+        let s2 = planner
+            .plan_step("download the report", "…page…", &[s1.describe()])
+            .unwrap();
+        assert!(matches!(s2, AgentAction::Finish { .. }));
+        // Finish never targets the page.
+        assert_eq!(s2.selector(), None);
+        assert!(s2.is_destructive().is_none());
     }
 
     #[test]

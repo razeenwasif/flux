@@ -122,6 +122,12 @@ pub fn to_js(action: &AgentAction) -> String {
             "window.__FLUX__?.report('refused', {});",
             js_str(reason)
         ),
+
+        // Task completion — purely a signal back to the chrome; no page effect.
+        AgentAction::Finish { summary } => format!(
+            "window.__FLUX__?.report('finished', {});",
+            js_str(summary)
+        ),
     }
 }
 
