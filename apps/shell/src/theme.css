@@ -664,10 +664,10 @@ body.resizing, body.busy { --glass-blur: none; }
 /* `min-height: 0` so the `1fr` content row stays bounded — without it the row's
    automatic minimum is the card's content height (a long file list), the row
    overflows the fixed-height shell, and nothing inside can scroll. */
-.content { grid-area: content; min-width: 0; min-height: 0; padding: var(--flux-frame-pad); }
+.content { grid-area: content; min-width: 0; min-height: 0; padding: var(--flux-frame-pad); display: flex; flex-direction: column; }
 .card {
   position: relative; /* anchor for the absolute keep-alive terminal layer */
-  width: 100%; height: 100%;
+  width: 100%; flex: 1 1 auto; min-height: 0;
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
   border: 1px solid var(--glass-rim-soft);
   border-radius: var(--flux-radius-card);
@@ -682,6 +682,30 @@ body.resizing, body.busy { --glass-blur: none; }
   color: var(--flux-text-dim);
   box-shadow: var(--glass-shadow), var(--glass-inset);
 }
+
+/* ── Bookmark bar (#22): chip row docked under the card ── */
+.bookmark-bar {
+  flex: none; height: 32px; margin-top: 6px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 8px; overflow-x: auto; overflow-y: hidden;
+  border: 1px solid var(--glass-rim-soft); border-radius: 10px;
+  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+  scrollbar-width: thin;
+}
+.bookmark-bar::-webkit-scrollbar { height: 0; }
+.bookmark-bar-empty { font-size: 11.5px; color: var(--flux-text-mute); white-space: nowrap; padding-left: 4px; }
+.bookmark-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  max-width: 200px; padding: 3px 8px 3px 4px; border-radius: 7px;
+  border: 1px solid transparent; background: none; cursor: pointer;
+  color: var(--flux-text-dim); font-size: 12px;
+}
+.bookmark-chip:hover { background: var(--flux-surface); color: var(--flux-text); }
+.bookmark-chip-ico { flex: none; width: 18px; height: 18px; display: grid; place-items: center; font-size: 10px; font-weight: 650; border-radius: 5px; background: rgba(255,255,255,0.07); color: var(--flux-text-dim); }
+.bookmark-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bookmark-chip-x { flex: none; opacity: 0; font-size: 14px; line-height: 1; color: var(--flux-text-mute); padding: 0 2px; }
+.bookmark-chip:hover .bookmark-chip-x { opacity: 1; }
+.bookmark-chip-x:hover { color: #fff; }
 
 /* ── Vertical terminal column ── */
 /* Keep-alive terminal layer (#73): each Terminal tab's xterm stays mounted,

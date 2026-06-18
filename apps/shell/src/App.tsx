@@ -144,6 +144,7 @@ const PermissionsPage = lazy(() => import("./PermissionsPage"));
 const PdfViewer = lazy(() => import("./PdfViewer"));
 const ArchivePage = lazy(() => import("./ArchivePage"));
 const FeedsPage = lazy(() => import("./FeedsPage"));
+const BookmarkBar = lazy(() => import("./BookmarkBar"));
 const SyncPage = lazy(() => import("./SyncPage"));
 const AppsPage = lazy(() => import("./AppsPage"));
 import {
@@ -154,6 +155,8 @@ import {
   applyDarkMode,
   applyNav,
   applyAgentModel,
+  bookmarkBarOpen,
+  setBookmarkBarOpen,
   agentModelName,
   setAgentModel,
   vimHints,
@@ -754,10 +757,11 @@ const App: Component = () => {
     if (!t || !url) return;
     const flash = (m: string) => { setOmniToast(m); window.setTimeout(() => setOmniToast(null), 1800); };
     const existing = bookmarkedId();
+    const notify = () => window.dispatchEvent(new Event("flux:bookmarks-changed"));
     if (existing != null) {
-      void bookmarkRemove(existing).then(() => { setBookmarkedId(null); flash("Bookmark removed"); }).catch(() => {});
+      void bookmarkRemove(existing).then(() => { setBookmarkedId(null); flash("Bookmark removed"); notify(); }).catch(() => {});
     } else {
-      void bookmarkAdd(t.title || url, url).then((b) => { setBookmarkedId(b?.id ?? null); flash("★ Bookmarked"); }).catch(() => {});
+      void bookmarkAdd(t.title || url, url).then((b) => { setBookmarkedId(b?.id ?? null); flash("★ Bookmarked"); notify(); }).catch(() => {});
     }
   };
 
@@ -1006,6 +1010,7 @@ const App: Component = () => {
     { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
     { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
     { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
+    { id: "bookmark-bar", label: bookmarkBarOpen() ? "Hide bookmark bar" : "Show bookmark bar", icon: "🔖", run: () => setBookmarkBarOpen(!bookmarkBarOpen()) },
     { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
@@ -2562,6 +2567,11 @@ const ContentArea: Component<{
       </Suspense>
       </Show>
     </div>
+    {/* Bookmark bar (#22): docked under the card. A sibling (not an overlay), so
+        the card shrinks and the native webview relayout follows it. */}
+    <Show when={bookmarkBarOpen()}>
+      <Suspense><BookmarkBar onNavigate={props.onNavigate} /></Suspense>
+    </Show>
   </main>
   );
 };

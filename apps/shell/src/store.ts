@@ -458,6 +458,15 @@ export function setAiAnswersOn(on: boolean): void {
 const [pendingAsk, setPendingAsk] = createSignal<string | null>(null);
 export { pendingAsk, setPendingAsk };
 
+// Bookmark bar (#22): a chip row docked under the content card. Persisted,
+// default on. Toggling resizes the card → the webview relayout follows.
+const [bookmarkBarOpen, setBookmarkBarRaw] = createSignal(localStorage.getItem("flux.bookmarkbar") !== "0");
+export { bookmarkBarOpen };
+export function setBookmarkBarOpen(on: boolean): void {
+  setBookmarkBarRaw(on);
+  localStorage.setItem("flux.bookmarkbar", on ? "1" : "0");
+}
+
 // Native dark mode (#40) — WebView2 preferred-color-scheme. Persisted; applied
 // on boot + on toggle.
 const [darkMode, setDarkRaw] = createSignal(localStorage.getItem("flux.dark") === "1");

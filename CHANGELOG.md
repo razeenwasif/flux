@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Bookmark bar** (BACKLOG #22) — a chip row docked under the content card for
+  one-click access to your bookmarks, no need to open `flux://bookmarks`. Click a
+  chip to open it; hover to remove. Toggle with ⌘K "Show/Hide bookmark bar"
+  (persisted, on by default). It's a sibling *below* the card (not an overlay), so
+  it never collides with the native tab webview — the card shrinks and the webview
+  relayout follows. Stays in sync with the address-bar star / Ctrl+D.
 - **Generated TypeScript bindings** (BACKLOG #12) — the frontend's `ipc.ts` no
   longer hand-mirrors the Rust IPC structs (which had drifted). `specta::Type` is
   derived on the `state.rs` types and emitted to `apps/shell/src/bindings.gen.ts`
