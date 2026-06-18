@@ -1233,7 +1233,7 @@ const App: Component = () => {
       <Show when={filesPanelOpen()}>
         <div class="files-panel-backdrop" onClick={() => setFilesPanelOpen(false)}>
           <div class="files-panel glass" onClick={(e) => e.stopPropagation()}>
-            <div class="files-panel-head" data-tauri-drag-region="deep">
+            <div class="files-panel-head">
               <span class="files-panel-title">🗁 Files</span>
               <button class="files-panel-x" title="Close (Esc)" onClick={() => setFilesPanelOpen(false)}>✕</button>
             </div>
@@ -1254,8 +1254,10 @@ const App: Component = () => {
   );
 };
 
-/** Synthetic FilesView id for the popout panel (distinct from real tab ids). */
-const FILES_PANEL_ID = -1;
+/** Synthetic FilesView id for the popout panel — a large valid u64 that won't
+ *  collide with real tab ids (which start at 1). Must be ≥ 0: the fs-watch
+ *  command's id param is u64, so a negative sentinel fails deserialization. */
+const FILES_PANEL_ID = 2_000_000_000;
 
 // ─── Window chrome (custom — decorations are off) ───────────────────────────
 
