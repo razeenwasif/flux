@@ -420,6 +420,16 @@ const App: Component = () => {
       }
     };
     window.addEventListener("keydown", onKey, true);
+    // #79: drop glass blur during window resize too — repaints are GPU-heavy.
+    // Add `busy` on each resize event, remove shortly after the last one.
+    let busyTimer: number | undefined;
+    const onWinResize = () => {
+      document.body.classList.add("busy");
+      clearTimeout(busyTimer);
+      busyTimer = window.setTimeout(() => document.body.classList.remove("busy"), 160);
+    };
+    window.addEventListener("resize", onWinResize);
+    onCleanup(() => { window.removeEventListener("resize", onWinResize); clearTimeout(busyTimer); });
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     const unShortcut = await onShortcut((a) => dispatch(a));
     // Page-initiated new windows (window.open / target="_blank" / modified
@@ -711,6 +721,12 @@ const App: Component = () => {
     const t = activeTab();
     if (t?.kind === "browser") void fn(t.id).catch(() => {});
   };
+
+  // #79: drop the GPU-heavy glass blur while dragging a split seam or panel
+  // divider (continuous repaints). `body.busy` overrides --glass-blur to none.
+  createEffect(() => {
+    document.body.classList.toggle("busy", splitDragging() || panelDragging());
+  });
 
   // Bookmark state for the active page — drives the address-bar star + Ctrl+D.
   const [bookmarkedId, setBookmarkedId] = createSignal<number | null>(null);

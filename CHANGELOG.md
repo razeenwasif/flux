@@ -7,6 +7,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Changed / Fixed
+- **Smoother resizing** (BACKLOG #79) — the glass backdrop-blur is now dropped
+  while you resize a pane, resize the window, or drag a split/panel divider. The
+  blur re-samples + repaints every frame, which was the main source of resize
+  jank; it snaps back the instant you let go.
+
 ### Added
 - **E2E-encrypted sync** (BACKLOG #62) — **`flux://sync`** (⌘K "Sync"): bookmarks
   + sessions follow you across devices, **account-optional and local-first**.

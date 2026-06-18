@@ -187,6 +187,11 @@ input::placeholder { color: var(--flux-text-mute); }
    cursor and text selection across the whole window. */
 body.resizing { cursor: col-resize; user-select: none; }
 body.resizing .shell { transition: none !important; }
+/* Drop the GPU-heavy backdrop blur while resizing/dragging (#79): the glass
+   would re-sample + repaint every frame. Overriding the var cascades to every
+   `.glass` using `var(--glass-blur)`. `.busy` is the window-resize variant
+   (same effect, without the col-resize cursor). */
+body.resizing, body.busy { --glass-blur: none; }
 
 /* Title bar — a generous, always-draggable strip across the top. It sits in
    its own grid row so a tab's webview starts BELOW it and can never cover it;
