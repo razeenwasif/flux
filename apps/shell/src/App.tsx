@@ -34,6 +34,7 @@ import {
   pdfViewerUrl,
   ARCHIVE_URL,
   archiveSave,
+  FEEDS_URL,
   SYNC_URL,
   PANE_SESSION,
   agentChat,
@@ -138,6 +139,7 @@ const SpeedtestPage = lazy(() => import("./SpeedtestPage"));
 const PermissionsPage = lazy(() => import("./PermissionsPage"));
 const PdfViewer = lazy(() => import("./PdfViewer"));
 const ArchivePage = lazy(() => import("./ArchivePage"));
+const FeedsPage = lazy(() => import("./FeedsPage"));
 const SyncPage = lazy(() => import("./SyncPage"));
 import {
   activeId,
@@ -974,6 +976,7 @@ const App: Component = () => {
     { id: "permissions", label: "Site permissions", icon: "🔐", run: () => go(PERMISSIONS_URL) },
     { id: "archive-save", label: "Save page for offline (read later)", icon: "📚", run: () => saveToArchive() },
     { id: "archive", label: "Open Archive", icon: "📚", run: () => go(ARCHIVE_URL) },
+    { id: "feeds", label: "Open Feeds (RSS reader)", icon: "📰", run: () => go(FEEDS_URL) },
     { id: "sync", label: "Sync (encrypted, across devices)", icon: "🔄", run: () => go(SYNC_URL) },
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
@@ -2486,6 +2489,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === ARCHIVE_URL}>
           <ArchivePage onNavigate={props.onNavigate} />
+        </Match>
+        <Match when={activeTab()?.url === FEEDS_URL}>
+          <FeedsPage />
         </Match>
         <Match when={activeTab()?.url === SYNC_URL}>
           <SyncPage />
