@@ -12,8 +12,8 @@ function hostOf(url: string): string | null {
   try { return new URL(url).hostname.replace(/^www\./, "") || null; } catch { return null; }
 }
 
-const Boosts: Component = () => {
-  const [open, setOpen] = createSignal(false);
+const Boosts: Component<{ initialOpen?: boolean }> = (props) => {
+  const [open, setOpen] = createSignal(!!props.initialOpen);
   const [list, setList] = createSignal<Boost[]>([]);
   const [instruction, setInstruction] = createSignal("");
   const [busy, setBusy] = createSignal(false);

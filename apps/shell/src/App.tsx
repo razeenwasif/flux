@@ -111,11 +111,8 @@ import {
 import TerminalView from "./TerminalView";
 import { keyToAction } from "./shortcuts";
 import FindBar from "./FindBar";
-import Passwords from "./Passwords";
 import Downloads from "./Downloads";
 import Shields from "./Shields";
-import Boosts from "./Boosts";
-import Macros from "./Macros";
 import type { PaletteAction } from "./CommandPalette";
 import { LinkMenu } from "./linkMenu";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
@@ -141,6 +138,9 @@ const AgentPanel = lazy(() => import("./AgentPanel"));
 const SyncPage = lazy(() => import("./SyncPage"));
 const AppsPage = lazy(() => import("./AppsPage"));
 const SettingsPage = lazy(() => import("./SettingsPage"));
+const Boosts = lazy(() => import("./Boosts"));
+const Macros = lazy(() => import("./Macros"));
+const Passwords = lazy(() => import("./Passwords"));
 import {
   activeId,
   activeTab,
@@ -1439,6 +1439,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [address, setAddress] = createSignal("");
   const [panel, setPanel] = createSignal<FooterPanel>(null);
   const [bmFlash, setBmFlash] = createSignal("");
+  const [boostsLoaded, setBoostsLoaded] = createSignal(false);
+  const [macrosLoaded, setMacrosLoaded] = createSignal(false);
+  const [passwordsLoaded, setPasswordsLoaded] = createSignal(false);
   // Per-page notes (#53): the popover edits the active page's note (auto-saved).
   const [noteText, setNoteText] = createSignal("");
   let noteTimer: number | undefined;
@@ -2274,9 +2277,27 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <button classList={{ "icon-btn": true, active: props.terminalOpen }} title="Terminal (Ctrl+`)" onClick={props.onToggleTerminal}>⌨</button>
         <button classList={{ "icon-btn": true, active: props.agentOpen }} title="Flux Agent (Ctrl+Shift+A)" onClick={props.onToggleAgent}>✦</button>
         <Shields onNavigate={props.onNavigate} />
-        <Boosts />
-        <Macros />
-        <Passwords />
+        <Show when={boostsLoaded()} fallback={
+          <button class="icon-btn" title="Boosts — customize this site with AI" onClick={() => setBoostsLoaded(true)}>✨</button>
+        }>
+          <Suspense fallback={<button class="icon-btn active" title="Boosts — customize this site with AI">✨</button>}>
+            <Boosts initialOpen />
+          </Suspense>
+        </Show>
+        <Show when={macrosLoaded()} fallback={
+          <button class="icon-btn" title="Macros — record & replay flows" onClick={() => setMacrosLoaded(true)}>⏺</button>
+        }>
+          <Suspense fallback={<button class="icon-btn active" title="Macros — record & replay flows">⏺</button>}>
+            <Macros initialOpen />
+          </Suspense>
+        </Show>
+        <Show when={passwordsLoaded()} fallback={
+          <button class="icon-btn" title="Passwords" onClick={() => setPasswordsLoaded(true)}>🔑</button>
+        }>
+          <Suspense fallback={<button class="icon-btn active" title="Passwords">🔑</button>}>
+            <Passwords initialOpen />
+          </Suspense>
+        </Show>
         <Downloads />
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
         <button classList={{ "icon-btn": true, active: panel() === "notes" }} title="Note for this page" onClick={() => { openPanel("notes"); loadNote(); }}>📝</button>

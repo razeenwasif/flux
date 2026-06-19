@@ -27,8 +27,8 @@ function hostOf(url: string): string | null {
   }
 }
 
-const Passwords: Component = () => {
-  const [open, setOpen] = createSignal(false);
+const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
+  const [open, setOpen] = createSignal(!!props.initialOpen);
   const [status, setStatus] = createSignal<VaultStatus | null>(null);
   const [matches, setMatches] = createSignal<CredentialMeta[]>([]);
   const [unlockPw, setUnlockPw] = createSignal("");

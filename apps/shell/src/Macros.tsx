@@ -18,8 +18,8 @@ import {
   type Macro,
 } from "./ipc";
 
-const Macros: Component = () => {
-  const [open, setOpen] = createSignal(false);
+const Macros: Component<{ initialOpen?: boolean }> = (props) => {
+  const [open, setOpen] = createSignal(!!props.initialOpen);
   const [list, setList] = createSignal<Macro[]>([]);
   const [recording, setRecording] = createSignal(false);
   const [steps, setSteps] = createSignal(0);

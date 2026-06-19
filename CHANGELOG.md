@@ -36,6 +36,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   preserving immediately saved pages if hydration finishes afterward. This removes
   archive disk I/O and embedding-migration checks from the critical window-show path
   while keeping archive search/list behavior intact once hydration completes.
+- **Footer tool popovers split on first use** — Boosts, Macros, and Passwords now
+  stay out of the initial shell chunk and load the first time their footer buttons
+  are clicked. Shields and Downloads remain eager so their live badges/events are
+  still available immediately.
 - **Generated TS bindings — batch 3** (BACKLOG #12) — 28 more IPC types are now
   derived from their Rust definitions (`specta::Type` → `bindings.gen.ts`, drift-
   gated in CI) instead of hand-mirrored in `ipc.ts`: shields/privacy
