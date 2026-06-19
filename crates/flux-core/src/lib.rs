@@ -42,6 +42,7 @@ pub mod sessions;
 pub mod shields;
 pub mod sync;
 pub mod taskmgr;
+pub mod tombstone;
 pub mod tracking;
 pub mod state;
 pub mod terminal;
@@ -226,6 +227,9 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("sync.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-sync-config.json"));
             app.manage(boot_phase("sync.restore", boot_started, || sync::SyncState::restore(sync_path)));
+            // Auto-sync timer (#62): quietly re-syncs every few minutes when on +
+            // unlocked. No-op until the user enables it + unlocks.
+            sync::spawn_auto(app.handle().clone());
             // Install-site-as-app / PWAs (#42).
             let pwa_path = app
                 .path()
@@ -552,6 +556,7 @@ pub fn run(intent: cli::LaunchIntent) {
             sync::sync_unlock,
             sync::sync_lock,
             sync::sync_now,
+            sync::sync_set_auto,
             pwa::pwa_list,
             pwa::pwa_install,
             pwa::pwa_launch,

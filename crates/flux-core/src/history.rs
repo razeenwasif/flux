@@ -170,6 +170,59 @@ impl HistoryStore {
         self.dirty.store(true, Ordering::Relaxed);
     }
 
+    /// Snapshot for the sync push (#62), capped to the most-frecent `limit` so the
+    /// encrypted blob stays bounded even with a large local history.
+    pub fn export_for_sync(&self, limit: usize) -> Vec<HistoryEntry> {
+        let mut v: Vec<HistoryEntry> = self.entries.read().values().cloned().collect();
+        v.sort_unstable_by(|a, b| b.score().cmp(&a.score()));
+        v.truncate(limit);
+        v
+    }
+
+    /// Merge remote history (#62): additive union by URL. A URL we already have
+    /// keeps the higher visit count + the later visit time (and a non-empty newer
+    /// title); a URL we don't have is inserted. Returns how many URLs were new.
+    /// No tombstones — history is append-mostly and deletes are a local/privacy
+    /// action that shouldn't ride the sync blob to other devices.
+    pub fn merge_remote(&self, remote: Vec<HistoryEntry>) -> usize {
+        let mut e = self.entries.write();
+        let mut added = 0;
+        for r in remote {
+            if !(r.url.starts_with("http://") || r.url.starts_with("https://")) {
+                continue;
+            }
+            match e.get_mut(&r.url) {
+                Some(en) => {
+                    en.visits = en.visits.max(r.visits);
+                    if r.last_visit_ms > en.last_visit_ms {
+                        en.last_visit_ms = r.last_visit_ms;
+                        if !r.title.trim().is_empty() {
+                            en.title = r.title.clone();
+                            en.key = search_key(&en.url, &en.title);
+                        }
+                    }
+                }
+                None => {
+                    let key = search_key(&r.url, &r.title);
+                    e.insert(r.url.clone(), HistoryEntry { url: r.url, title: r.title, last_visit_ms: r.last_visit_ms, visits: r.visits.max(1), key });
+                    added += 1;
+                }
+            }
+        }
+        // Respect the cap after a merge.
+        while e.len() > MAX_ENTRIES {
+            if let Some(oldest) = e.values().min_by_key(|x| x.last_visit_ms).map(|x| x.url.clone()) {
+                e.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        if added > 0 {
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+        added
+    }
+
     /// Persist to disk if anything changed since the last save (called on a timer).
     pub fn persist_if_dirty(&self) {
         if !self.dirty.swap(false, Ordering::Relaxed) {
@@ -258,5 +311,24 @@ mod tests {
         assert_eq!(b.search("gamma", 10).len(), 1, "search must work on loaded entries");
         assert_eq!(b.search("example.com", 10).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merge_remote_unions_and_keeps_higher_counts() {
+        let h = HistoryStore::default();
+        h.record("https://a.dev", "A");
+        let remote = vec![
+            HistoryEntry { url: "https://a.dev".into(), title: "A".into(), last_visit_ms: u64::MAX, visits: 9, key: String::new() },
+            HistoryEntry { url: "https://b.dev".into(), title: "B".into(), last_visit_ms: 5, visits: 1, key: String::new() },
+            HistoryEntry { url: "flux://x".into(), title: "skip".into(), last_visit_ms: 1, visits: 1, key: String::new() },
+        ];
+        let added = h.merge_remote(remote);
+        assert_eq!(added, 1, "only b.dev is new (a.dev merges, flux:// is skipped)");
+        let entries = h.recent(10);
+        let a = entries.iter().find(|e| e.url == "https://a.dev").unwrap();
+        assert_eq!(a.visits, 9, "kept the higher remote visit count");
+        assert!(entries.iter().any(|e| e.url == "https://b.dev"));
+        // The merged entry must be searchable (key recomputed on insert).
+        assert_eq!(h.search("b.dev", 10).len(), 1);
     }
 }

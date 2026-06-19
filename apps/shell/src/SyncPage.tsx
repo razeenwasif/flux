@@ -1,13 +1,30 @@
 /**
  * flux://sync — E2E-encrypted sync (BACKLOG #62). Account-optional, local-first:
  * point Flux at a folder your devices already sync (Dropbox / Syncthing / iCloud
- * / a USB stick) and it writes ONE end-to-end-encrypted file there. Bookmarks +
- * sessions merge across devices; the passphrase never leaves your machine, and
- * whatever syncs the folder only ever sees ciphertext.
+ * / a USB stick) and it writes ONE end-to-end-encrypted file there. Bookmarks,
+ * sessions, and browsing history merge across devices, deletions propagate via
+ * tombstones, and an optional timer keeps it hands-off; the passphrase never
+ * leaves your machine, and whatever syncs the folder only ever sees ciphertext.
  */
-import { Show, createSignal, onMount, type Component } from "solid-js";
-import { syncLock, syncNow, syncSetFolder, syncStatus, syncUnlock, type SyncStatus } from "./ipc";
+import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import {
+  onSyncDone,
+  onSyncError,
+  syncLock,
+  syncNow,
+  syncSetAuto,
+  syncSetFolder,
+  syncStatus,
+  syncUnlock,
+  type SyncReport,
+  type SyncStatus,
+} from "./ipc";
 import { activeId, updateTabTitle } from "./store";
+
+const summary = (r: SyncReport) => {
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  return `merged ${plural(r.bookmarks_added, "bookmark")}, ${plural(r.sessions_added, "session")}, ${plural(r.history_added, "history entry").replace("entrys", "entries")}`;
+};
 
 const SyncPage: Component = () => {
   const [status, setStatus] = createSignal<SyncStatus | null>(null);
@@ -19,10 +36,14 @@ const SyncPage: Component = () => {
 
   const refresh = () =>
     void syncStatus().then((s) => { setStatus(s); setFolder(s.folder ?? ""); }).catch(() => {});
-  onMount(() => {
+  onMount(async () => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Sync");
     refresh();
+    // Reflect background (auto) syncs live.
+    const offDone = await onSyncDone((r) => { setErr(null); setMsg(`Auto-synced — ${summary(r)}.`); refresh(); });
+    const offErr = await onSyncError((e) => setErr(`Auto-sync: ${e}`));
+    onCleanup(() => { offDone(); offErr(); });
   });
 
   const saveFolder = async () => { await syncSetFolder(folder().trim()); setErr(null); setMsg(null); refresh(); };
@@ -36,10 +57,15 @@ const SyncPage: Component = () => {
     setBusy(true); setErr(null); setMsg(null);
     try {
       const r = await syncNow();
-      setMsg(`Synced — merged ${r.bookmarks_added} bookmark${r.bookmarks_added === 1 ? "" : "s"} and ${r.sessions_added} session${r.sessions_added === 1 ? "" : "s"}.`);
+      setMsg(`Synced — ${summary(r)}.`);
       refresh();
     } catch (e) { setErr(String(e)); }
     finally { setBusy(false); }
+  };
+  const toggleAuto = async () => {
+    const next = !status()?.auto;
+    await syncSetAuto(next).catch(() => {});
+    refresh();
   };
   const lastSync = () => {
     const ms = status()?.last_ms ?? 0;
@@ -58,7 +84,8 @@ const SyncPage: Component = () => {
           End-to-end encrypted, no account. Point Flux at a folder your devices already
           sync (Dropbox, Syncthing, iCloud Drive, a USB stick…). Flux writes one encrypted
           file there; your passphrase never leaves this device, and the sync service only
-          ever sees ciphertext. <b>Bookmarks and saved sessions</b> merge across devices.
+          ever sees ciphertext. <b>Bookmarks, saved sessions, and browsing history</b> merge
+          across devices, and deletions propagate.
         </p>
 
         <label class="sync-label">Sync folder</label>
@@ -88,13 +115,25 @@ const SyncPage: Component = () => {
           {busy() ? "Syncing…" : "🔄 Sync now"}
         </button>
 
+        <Show when={status()?.unlocked}>
+          <div class="sync-row sync-auto">
+            <span class="sync-auto-label">Auto-sync
+              <span class="sync-auto-hint">re-sync every few minutes while unlocked</span>
+            </span>
+            <button classList={{ "shields-toggle": true, on: !!status()?.auto }} onClick={() => void toggleAuto()}>
+              {status()?.auto ? "On" : "Off"}
+            </button>
+          </div>
+        </Show>
+
         <Show when={msg()}><div class="sync-msg">{msg()}</div></Show>
         <Show when={err()}><div class="sync-err">{err()}</div></Show>
 
         <p class="sync-note">
           Same passphrase + same folder on each device = your data follows you. Lose the
           passphrase and the data can't be recovered (that's the point — it's end-to-end
-          encrypted). Merge is additive in v1: new items sync, deletions don't propagate.
+          encrypted). Deletions propagate via tombstones; history syncs your most-frequent
+          pages (capped so the encrypted file stays small).
         </p>
       </div>
     </div>
