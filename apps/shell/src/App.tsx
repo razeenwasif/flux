@@ -274,6 +274,7 @@ const App: Component = () => {
   // Native tab webviews are positioned to match it (BACKLOG #2).
   const [contentRect, setContentRect] = createSignal<Rect | null>(null);
   const openedWebviews = new Set<number>();
+  const openingWebviews = new Set<number>();
   // Webview ids currently shown (visible panes). Lets the layout effect issue
   // show/hide IPC only on transitions, not once per tab on every resize frame.
   const shown = new Set<number>();
@@ -286,6 +287,11 @@ const App: Component = () => {
   // Fire-and-forget a webview command, surfacing failures (the search/position
   // bug is hard to see otherwise — check the devtools console).
   const wv = (p: Promise<unknown>) => void p.catch((e) => console.error("[flux webview]", e));
+  const forgetWebview = (id: number) => {
+    openedWebviews.delete(id);
+    openingWebviews.delete(id);
+    shown.delete(id);
+  };
 
   // Read the content-card rect fresh from the DOM (never a stale signal).
   const readRect = (): Rect | null => {
@@ -346,7 +352,7 @@ const App: Component = () => {
     if (boundsRaf) return;
     boundsRaf = requestAnimationFrame(() => {
       boundsRaf = 0;
-      if (splitDragging()) return; // panes are hidden mid-drag
+      if (splitDragging() || panelDragging() || readerOpen() || filesPanelOpen() || paletteOpen()) return;
       for (const p of paneLayout()) wv(webviewSetBounds(p.tab.id, p.rect));
     });
   };
@@ -458,7 +464,7 @@ const App: Component = () => {
     // the strip and reload when re-activated (the effect above re-opens any tab
     // not in `openedWebviews`).
     const hibernateTab = (id: number) => {
-      openedWebviews.delete(id);
+      forgetWebview(id);
       setHibernated(id, true);
       wv(webviewHibernate(id));
     };
@@ -468,7 +474,7 @@ const App: Component = () => {
     createEffect(() => {
       const act = activeId();
       for (const t of tabs()) {
-        if (t.folder != null && t.id !== act && openedWebviews.has(t.id)) {
+        if (t.folder != null && t.id !== act && (openedWebviews.has(t.id) || openingWebviews.has(t.id))) {
           hibernateTab(t.id);
         }
       }
@@ -477,7 +483,12 @@ const App: Component = () => {
     // (In split view both panes are visible, so neither is hibernatable.)
     const liveBackground = (_act: number | null) => {
       const visible = new Set(paneLayout().map((p) => p.tab.id));
-      return tabs().filter((t) => t.kind === "browser" && !visible.has(t.id) && !isStartUrl(t.url) && openedWebviews.has(t.id));
+      return tabs().filter((t) =>
+        t.kind === "browser" &&
+        !visible.has(t.id) &&
+        !isStartUrl(t.url) &&
+        (openedWebviews.has(t.id) || openingWebviews.has(t.id))
+      );
     };
     const hibTimer = window.setInterval(async () => {
       const now = Date.now();
@@ -595,7 +606,8 @@ const App: Component = () => {
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = splitDragging() || panelDragging();
-    const panes = paneLayout();
+    const overlay = readerOpen() || filesPanelOpen() || paletteOpen();
+    const panes = overlay ? [] : paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
     // Crucially this issues NO hide IPC on a pure resize — `shown` already matches
@@ -606,25 +618,45 @@ const App: Component = () => {
         shown.delete(id);
       }
     }
-    if (dragging) return; // panes re-show when the drag ends
+    if (dragging || overlay) return; // panes re-show when the drag/overlay ends
     let needRelayout = false;
     for (const p of panes) {
       const id = p.tab.id;
       if (openedWebviews.has(id)) {
-        if (!shown.has(id) && !filesPanelOpen()) {
+        if (!shown.has(id)) {
           wv(webviewShow(id)); // only on transition into view
           shown.add(id);
         }
         needRelayout = true; // throttled bounds for resize/seam follow
-      } else {
-        openedWebviews.add(id);
-        shown.add(id);
+      } else if (!openingWebviews.has(id)) {
+        openingWebviews.add(id);
         setHibernated(id, false); // (re)opening = waking from sleep (#45)
         lastActive.set(id, Date.now());
         const r = p.rect;
         webviewOpen(id, p.tab.url, r)
-          .then(() => webviewSetBounds(id, r))
-          .catch((e) => console.error("[flux webview] open failed:", e));
+          .then(async () => {
+            if (!openingWebviews.has(id)) {
+              shown.delete(id);
+              await webviewHibernate(id);
+              return;
+            }
+            await webviewSetBounds(id, r);
+            openingWebviews.delete(id);
+            openedWebviews.add(id);
+            if (readerOpen() || filesPanelOpen() || paletteOpen() || splitDragging() || panelDragging()) {
+              shown.delete(id);
+              await webviewHide(id);
+              return;
+            }
+            shown.add(id);
+            await webviewShow(id);
+          })
+          .catch((e) => {
+            openingWebviews.delete(id);
+            openedWebviews.delete(id);
+            shown.delete(id);
+            console.error("[flux webview] open failed:", e);
+          });
       }
     }
     if (needRelayout) scheduleRelayout();
@@ -782,9 +814,8 @@ const App: Component = () => {
     const visible = new Set(paneLayout().map((p) => p.tab.id));
     let n = 0;
     for (const t of tabs()) {
-      if (t.kind === "browser" && !visible.has(t.id) && !isStartUrl(t.url) && openedWebviews.has(t.id)) {
-        openedWebviews.delete(t.id);
-        shown.delete(t.id);
+      if (t.kind === "browser" && !visible.has(t.id) && !isStartUrl(t.url) && (openedWebviews.has(t.id) || openingWebviews.has(t.id))) {
+        forgetWebview(t.id);
         setHibernated(t.id, true);
         wv(webviewHibernate(t.id));
         n++;
@@ -925,8 +956,8 @@ const App: Component = () => {
     const cur = activeId();
     if (cur != null) wsLastTab.set(activeWorkspace(), cur);
     for (const t of tabs()) {
-      if (t.workspace !== id && openedWebviews.has(t.id)) {
-        openedWebviews.delete(t.id);
+      if (t.workspace !== id && (openedWebviews.has(t.id) || openingWebviews.has(t.id))) {
+        forgetWebview(t.id);
         setHibernated(t.id, true);
         wv(webviewHibernate(t.id));
       }
@@ -948,7 +979,7 @@ const App: Component = () => {
     if (!confirm("Delete this workspace and all its tabs?")) return;
     const closed = await workspaceDelete(id).catch(() => [] as number[]);
     for (const tid of closed) {
-      openedWebviews.delete(tid);
+      forgetWebview(tid);
       wv(webviewHibernate(tid));
     }
     await refreshTabs();
@@ -964,8 +995,8 @@ const App: Component = () => {
   const teardownMoved = (ids: number[]) => {
     const act = activeId();
     for (const id of ids) {
-      if (openedWebviews.has(id)) {
-        openedWebviews.delete(id);
+      if (openedWebviews.has(id) || openingWebviews.has(id)) {
+        forgetWebview(id);
         setHibernated(id, true);
         wv(webviewHibernate(id));
       }
