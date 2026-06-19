@@ -761,6 +761,9 @@ export const bookmarksClear = () => invoke<void>("bookmarks_clear");
 export const bookmarksImportChrome = (profileDir: string) =>
   invoke<number>("bookmarks_import_chrome", { profileDir });
 
+// ─── Settings page (BACKLOG #78) ─────────────────────────────────────────────
+export const SETTINGS_URL = "flux://settings";
+
 // ─── Named sessions (BACKLOG #47) ────────────────────────────────────────────
 export const SESSIONS_URL = "flux://sessions";
 export const sessionsList = () => invoke<SavedSession[]>("sessions_list");

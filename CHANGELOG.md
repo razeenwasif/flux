@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Settings page** (BACKLOG #78) — a real `flux://settings` page (⌘K "Open
+  Settings", or "⚙ Open full Settings ↗" from the footer popover) that gathers the
+  toggles previously scattered across the footer ⚙ popover and the Shields popover
+  into one organized, full-width place: **Appearance** (website dark mode, bookmark
+  bar), **Search** (default engine, suggestions, AI answers, Omni-answer-on-search),
+  **Privacy & security** (shields + session blocked count, HTTPS-only, tracking-
+  prevention level, global block of camera/mic/location, clear-all-cookies, link to
+  per-site permissions), **Navigation** (vim hints, mouse gestures), **Memory**
+  (sleep-inactive-tabs + timeout, memory-pressure eviction, live RAM readout +
+  links to the Resource monitor / Task manager), and **Data** (quick links to Sync,
+  Sessions, History, Bookmarks, Archive). Backed by the existing store signals +
+  flux-core commands; lazy-loaded so the eager chrome bundle is unaffected.
 - **Right-click "open in new tab" on web pages** (BACKLOG #109) — right-clicking a
   link on any normal page now shows a small Flux menu (open in new tab / new
   background tab / copy link) and actually opens a Flux tab. The native WebView2

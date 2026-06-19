@@ -1559,6 +1559,23 @@ body.resizing, body.busy { --glass-blur: none; }
 
 /* ── Full-page history (flux://history, BACKLOG #39) ── */
 .hist-page { height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; overflow: hidden; color: var(--flux-text); }
+
+/* Settings page (#78) */
+.set-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; max-width: 720px; width: 100%; margin: 0 auto; padding-bottom: 40px; scrollbar-width: thin; }
+.set-section-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px 2px; }
+.set-section-head h2 { font-size: 13px; font-weight: 650; letter-spacing: 0.02em; text-transform: uppercase; color: var(--flux-text-mute); margin: 0; }
+.set-section-sub { font-size: 12px; color: var(--flux-text-mute); }
+.set-card { background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); border-radius: 14px; overflow: hidden; }
+.set-row { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--glass-rim-soft); }
+.set-row:last-child { border-bottom: 0; }
+.set-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.set-row-label { font-size: 13.5px; font-weight: 550; }
+.set-row-hint { font-size: 12px; color: var(--flux-text-mute); line-height: 1.35; }
+.set-row-control { flex: none; }
+.set-link-btn { padding: 6px 12px; border-radius: 8px; font-size: 12.5px; color: var(--flux-text); background: var(--flux-surface-3, rgba(255,255,255,0.05)); border: 1px solid var(--glass-rim-soft); cursor: pointer; white-space: nowrap; }
+.set-link-btn:hover { color: var(--flux-teal); border-color: var(--flux-teal); }
+.set-link-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px; }
+.set-mem-stat { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; font-size: 12.5px; color: var(--flux-text-mute); }
 .hist-head { display: flex; align-items: center; gap: 12px; flex: none; }
 .hist-title { font-size: 18px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
 .hist-search { flex: 1; max-width: 460px; padding: 8px 14px; font-size: 13px; border-radius: 999px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); }

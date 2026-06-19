@@ -196,7 +196,15 @@ pub fn run(intent: cli::LaunchIntent) {
             if let Some(parent) = archive_path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            app.manage(boot_phase("archive.restore", boot_started, || archive::ArchiveStore::restore(archive_path)));
+            app.manage(boot_phase("archive.empty", boot_started, || archive::ArchiveStore::empty(archive_path)));
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    if let Some(a) = handle.try_state::<archive::ArchiveStore>() {
+                        boot_phase("archive.hydrate", boot_started, || a.hydrate());
+                    }
+                });
+            }
             // Per-site boosts (#49) — agent-authored CSS/JS injected per host.
             let boosts_path = app
                 .path()

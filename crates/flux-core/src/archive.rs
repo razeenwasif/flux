@@ -10,6 +10,7 @@
 //! it with no remote resources.
 
 use std::path::PathBuf;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -125,20 +126,64 @@ impl ArchiveStore {
     /// pulled the model since), re-embeds the corpus in the background so search
     /// stays fast + consistent.
     pub fn restore(path: PathBuf) -> Self {
-        let entries: Vec<ArchiveEntry> = std::fs::read_to_string(&path)
+        let store = Self::empty(path);
+        store.hydrate();
+        store
+    }
+
+    /// Create a store bound to `path` without touching disk. Pair with
+    /// `hydrate()` on a background thread when startup latency matters.
+    pub fn empty(path: PathBuf) -> Self {
+        let embedder = embedding::current();
+        Self { path: Some(path), entries: Arc::new(RwLock::new(Vec::new())), embedder, next_id: AtomicU64::new(1) }
+    }
+
+    /// Load archived pages from disk into a live store. This is merge-based, not a
+    /// replacement, so a page saved immediately after boot is kept even if hydrate
+    /// completes afterward.
+    pub fn hydrate(&self) {
+        let Some(path) = &self.path else { return };
+        let loaded: Vec<ArchiveEntry> = std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let next = entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
-        let embedder = embedding::current();
-        let needs_migrate = entries.iter().any(|e| e.embedder != embedder || e.embedding.is_empty());
-        let store = Self { path: Some(path), entries: Arc::new(RwLock::new(entries)), embedder, next_id: AtomicU64::new(next) };
+        if loaded.is_empty() {
+            return;
+        }
+
+        let needs_migrate;
+        {
+            let mut g = self.entries.write();
+            let mut next_merge_id = g.iter().chain(loaded.iter()).map(|e| e.id).max().unwrap_or(0) + 1;
+            if g.is_empty() {
+                *g = loaded;
+            } else {
+                let mut ids: HashSet<u64> = g.iter().map(|e| e.id).collect();
+                let mut urls: HashSet<String> = g.iter().map(|e| e.url.clone()).collect();
+                for mut entry in loaded {
+                    if urls.contains(&entry.url) {
+                        continue;
+                    }
+                    if ids.contains(&entry.id) {
+                        entry.id = next_merge_id;
+                        next_merge_id += 1;
+                    }
+                    ids.insert(entry.id);
+                    urls.insert(entry.url.clone());
+                    g.push(entry);
+                }
+            }
+            next_merge_id = g.iter().map(|e| e.id).max().unwrap_or(0) + 1;
+            self.next_id.store(next_merge_id, Ordering::Relaxed);
+            needs_migrate = g.iter().any(|e| e.embedder != self.embedder || e.embedding.is_empty());
+        }
+
         if needs_migrate {
-            let entries = Arc::clone(&store.entries);
-            let path = store.path.clone();
+            let entries = Arc::clone(&self.entries);
+            let path = self.path.clone();
+            let embedder = self.embedder;
             std::thread::spawn(move || migrate(entries, path, embedder));
         }
-        store
     }
 
     /// Save a page (or refresh it if the URL is already archived). Returns the row.
@@ -318,5 +363,65 @@ mod tests {
         a.save("https://b".into(), "Second".into(), "beta".into());
         let hits = a.search("", 10);
         assert_eq!(hits[0].title, "Second");
+    }
+
+    #[test]
+    fn hydrate_merges_disk_entries_without_clobbering_live_saves() {
+        let dir = std::env::temp_dir().join(format!("flux-archive-merge-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("archive.json");
+        let disk = vec![ArchiveEntry {
+            id: 1,
+            url: "https://disk.example".into(),
+            title: "Disk".into(),
+            saved_ms: now_ms(),
+            text: "disk text".into(),
+            embedding: vec![1.0],
+            embedder: Embedder::Hash,
+        }];
+        std::fs::write(&path, serde_json::to_string(&disk).unwrap()).unwrap();
+
+        let a = ArchiveStore::empty(path);
+        let live = a.save("https://live.example".into(), "Live".into(), "live text".into());
+        assert_eq!(live.id, 1);
+
+        a.hydrate();
+        let rows = a.list();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().any(|r| r.url == "https://live.example"));
+        assert!(rows.iter().any(|r| r.url == "https://disk.example"));
+        let mut ids: Vec<u64> = rows.iter().map(|r| r.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 2, "hydration must not introduce duplicate ids");
+
+        let next = a.save("https://next.example".into(), "Next".into(), "next text".into());
+        assert!(next.id > 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hydrate_keeps_live_update_for_same_url() {
+        let dir = std::env::temp_dir().join(format!("flux-archive-same-url-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("archive.json");
+        let disk = vec![ArchiveEntry {
+            id: 7,
+            url: "https://same.example".into(),
+            title: "Old".into(),
+            saved_ms: now_ms(),
+            text: "old text".into(),
+            embedding: vec![1.0],
+            embedder: Embedder::Hash,
+        }];
+        std::fs::write(&path, serde_json::to_string(&disk).unwrap()).unwrap();
+
+        let a = ArchiveStore::empty(path);
+        let live = a.save("https://same.example".into(), "New".into(), "new text".into());
+        a.hydrate();
+
+        assert_eq!(a.len(), 1);
+        assert_eq!(a.get(live.id).unwrap().title, "New");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
