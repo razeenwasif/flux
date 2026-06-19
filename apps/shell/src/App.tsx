@@ -37,6 +37,7 @@ import {
   FEEDS_URL,
   SYNC_URL,
   APPS_URL,
+  SETTINGS_URL,
   pwaInstall,
   PANE_SESSION,
   agentTranslate,
@@ -139,6 +140,7 @@ const BookmarkBar = lazy(() => import("./BookmarkBar"));
 const AgentPanel = lazy(() => import("./AgentPanel"));
 const SyncPage = lazy(() => import("./SyncPage"));
 const AppsPage = lazy(() => import("./AppsPage"));
+const SettingsPage = lazy(() => import("./SettingsPage"));
 import {
   activeId,
   activeTab,
@@ -1075,6 +1077,7 @@ const App: Component = () => {
       .map((l) => ({ id: `translate-${l}`, label: `Translate page → ${l}`, icon: "🌐", run: () => void translatePage(l) })),
     { id: "install-app", label: "Install this site as app", icon: "🧩", run: () => installApp() },
     { id: "apps", label: "Open installed apps", icon: "🧩", run: () => go(APPS_URL) },
+    { id: "settings", label: "Open Settings", icon: "⚙", run: () => go(SETTINGS_URL) },
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
     { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
@@ -2284,6 +2287,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <Show when={panel()}>
           <div class="glass popover footer-pop">
             <Show when={panel() === "settings"}>
+              <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(SETTINGS_URL); }}>⚙ Open full Settings ↗</button>
+              <div class="ctx-sep" />
               <div class="sidebar-section" style={{ padding: "4px 8px" }}>Containers <span style={{ color: "var(--flux-text-mute)", "font-weight": 400 }}>· isolated logins</span></div>
               <For each={containers()}>
                 {(c) => (
@@ -2623,6 +2628,9 @@ const ContentArea: Component<{
         </Match>
         <Match when={activeTab()?.url === APPS_URL}>
           <AppsPage />
+        </Match>
+        <Match when={activeTab()?.url === SETTINGS_URL}>
+          <SettingsPage onNavigate={props.onNavigate} />
         </Match>
         <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
           <StartPage
