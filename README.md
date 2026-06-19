@@ -184,10 +184,13 @@ ollama serve                    # http://localhost:11434
 
 The sidebar is **chat-first**: talk to Gemma about anything, with no page
 required (if a page is open, its text is added as context so you can ask about
-it). To make it **act on the page**, prefix with **`/act`** — e.g. *"/act find
-the unsubscribe link and click it"*: the agent reads the page DOM, the model
-returns a structured action, and Flux compiles it to injection-safe JS run in
-the tab. Config via env: `FLUX_MODEL` (default `gemma4:12b-it-qat`),
+it). Replies **stream in token-by-token** as the model generates them. To make
+it **act on the page**, prefix with **`/act`** — e.g. *"/act find the
+unsubscribe link and click it"*: the agent reads the page DOM, the model returns
+a **JSON-Schema-constrained** structured action, and Flux compiles it to
+injection-safe JS run in the tab. (**`/task <goal>`** runs the multi-step loop:
+plan → approve → execute → re-plan across pages.) Config via env: `FLUX_MODEL`
+(default `gemma4:12b-it-qat`),
 `FLUX_OLLAMA_URL` (default `http://localhost:11434`), or
 `FLUX_AGENT_BACKEND=mock` to run the pipeline without a model.
 

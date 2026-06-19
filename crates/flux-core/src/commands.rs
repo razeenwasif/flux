@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tauri::ipc::Response;
+use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::cli::LaunchIntent;
@@ -573,6 +573,29 @@ pub async fn agent_chat(state: State<'_, FluxState>, prompt: String) -> Result<S
     .map_err(|e| e.to_string())
 }
 
+/// Streaming chat (BACKLOG #82): same as [`agent_chat`] but relays each token to
+/// the frontend over `on_token` as the model generates it, so the sidebar renders
+/// the reply live. Resolves when the completion ends.
+#[tauri::command]
+pub async fn agent_chat_stream(
+    state: State<'_, FluxState>,
+    prompt: String,
+    on_token: Channel<String>,
+) -> Result<(), String> {
+    let page = state.active_snapshot().map(|s| Arc::clone(&s.text));
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let mut sink = |tok: &str| {
+            let _ = on_token.send(tok.to_string()); // ignore if the frontend dropped it
+        };
+        crate::agent_bridge::planner()
+            .chat_stream(&prompt, page.as_deref(), &mut sink)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Translate the active page's visible text to `target` with the local model
 /// (BACKLOG #40). Private — no cloud translation service.
 #[tauri::command]
@@ -627,6 +650,38 @@ pub async fn agent_chat_tabs(state: State<'_, FluxState>, prompt: String, tab_id
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
+}
+
+/// Streaming counterpart of [`agent_chat_tabs`] (BACKLOG #82) — gathers the same
+/// per-tab context, then relays the model's tokens live over `on_token`.
+#[tauri::command]
+pub async fn agent_chat_tabs_stream(
+    state: State<'_, FluxState>,
+    prompt: String,
+    tab_ids: Vec<TabId>,
+    on_token: Channel<String>,
+) -> Result<(), String> {
+    const PER_TAB: usize = 4 * 1024;
+    let mut combined = String::new();
+    for id in tab_ids {
+        let Some(snap) = state.dom_cache.get(&id) else { continue };
+        let title = state.tabs.get(&id).map(|t| t.title.clone()).filter(|t| !t.trim().is_empty());
+        let label = title.unwrap_or_else(|| snap.url.to_string());
+        combined.push_str(&format!("--- TAB: {label} ({}) ---\n", snap.url));
+        combined.push_str(&cap_utf8(snap.text.to_string(), PER_TAB));
+        combined.push_str("\n\n");
+    }
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let mut sink = |tok: &str| {
+            let _ = on_token.send(tok.to_string());
+        };
+        crate::agent_bridge::planner()
+            .chat_pages_stream(&prompt, &combined, &mut sink)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// One unified search result (BACKLOG #66): an open tab, a bookmark, or a

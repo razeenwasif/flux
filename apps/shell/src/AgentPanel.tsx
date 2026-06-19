@@ -7,7 +7,8 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
   agentChat,
-  agentChatTabs,
+  agentChatStream,
+  agentChatTabsStream,
   agentModels,
   agentPlan,
   agentRunAction,
@@ -115,8 +116,18 @@ const AgentPanel: Component = () => {
           setFeed((f) => [...f, { role: "plan", text: describeAction(action), action, pending: true }]);
         }
       } else {
-        const reply = scope() === "tabs" ? await agentChatTabs(p, browserTabIds()) : await agentChat(p);
-        setFeed((f) => [...f, { role: "assistant", text: reply.trim() }]);
+        // Stream the reply token-by-token into one assistant bubble (#82) so the
+        // answer renders live. Nothing else appends to the feed during the await,
+        // so the captured index stays valid.
+        const idx = feed().length;
+        setFeed((f) => [...f, { role: "assistant", text: "" }]);
+        const append = (chunk: string) =>
+          setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + chunk } : it)));
+        if (scope() === "tabs") await agentChatTabsStream(p, browserTabIds(), append);
+        else await agentChatStream(p, append);
+        setFeed((f) =>
+          f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)),
+        );
       }
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
