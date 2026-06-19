@@ -17,6 +17,7 @@ import {
   type ChromeProfilePreview,
 } from "./ipc";
 import { activeId, ensureFavicon, faviconFor, openUrlsAsGroup, updateTabTitle } from "./store";
+import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string | null {
   try {
@@ -143,7 +144,7 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
                 </div>
                 <For each={rows}>
                   {(b) => (
-                    <div class="hist-row" onClick={() => editId() === b.id ? undefined : open(b)}>
+                    <div class="hist-row" onClick={() => editId() === b.id ? undefined : open(b)} onContextMenu={(ev) => openLinkMenu(ev, b.url)}>
                       <RowIcon url={b.url} />
                       <span class="hist-text">
                         <Show

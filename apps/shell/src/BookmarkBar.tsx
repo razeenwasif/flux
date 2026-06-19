@@ -7,6 +7,7 @@
  */
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import { bookmarkRemove, bookmarkRename, bookmarksList, type Bookmark } from "./ipc";
+import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -68,6 +69,7 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
                   title={`${b.url}\n(double-click to rename)`}
                   onClick={() => props.onNavigate(b.url)}
                   onDblClick={(e) => startEdit(b, e)}
+                  onContextMenu={(e) => openLinkMenu(e, b.url)}
                 >
                   <span class="bookmark-chip-ico">{letter(b)}</span>
                   <span class="bookmark-chip-label">{b.title || hostOf(b.url)}</span>

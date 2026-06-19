@@ -16,6 +16,7 @@ import {
   type FeedItem,
 } from "./ipc";
 import { activeId, updateTabTitle } from "./store";
+import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -157,7 +158,7 @@ const FeedsPage: Component = () => {
             >
               <For each={items()}>
                 {(it) => (
-                  <article class="feed-item" onClick={() => open(it.link)}>
+                  <article class="feed-item" onClick={() => open(it.link)} onContextMenu={(e) => openLinkMenu(e, it.link)}>
                     <div class="feed-item-top">
                       <span class="feed-item-title">{it.title || it.link}</span>
                       <Show when={it.published}><span class="feed-item-date">{it.published}</span></Show>

@@ -94,6 +94,7 @@ const StartPage: Component<{
   const [events, setEvents] = createSignal<CalEvent[]>([]);
   const [addingCal, setAddingCal] = createSignal(false);
   const [newCalUrl, setNewCalUrl] = createSignal("");
+  const [calExpanded, setCalExpanded] = createSignal(false);
   const [todos, setTodos] = createSignal<Todo[]>([]);
   const [newTodo, setNewTodo] = createSignal("");
 
@@ -201,6 +202,18 @@ const StartPage: Component<{
   const whenLabel = (e: CalEvent) => {
     const d = e.date === todayStr() ? "Today" : new Date(`${e.date}T00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
     return e.time ? `${d} · ${e.time}` : d;
+  };
+  const dayLabel = (date: string) =>
+    date === todayStr() ? "Today" : new Date(`${date}T00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+  /** All events from today onward, grouped by date, for the expanded view. */
+  const groupedEvents = (): { date: string; items: CalEvent[] }[] => {
+    const groups: { date: string; items: CalEvent[] }[] = [];
+    for (const e of events().filter((ev) => ev.date >= todayStr())) {
+      const g = groups.at(-1);
+      if (g && g.date === e.date) g.items.push(e);
+      else groups.push({ date: e.date, items: [e] });
+    }
+    return groups;
   };
   const addCalendar = (ev: SubmitEvent) => {
     ev.preventDefault();
@@ -409,7 +422,12 @@ const StartPage: Component<{
         <div class="glass start-card">
           <div class="start-card-title">
             {monthLabel()}
-            <button class="start-card-link" title="Subscribe to a calendar's secret ICS URL" onClick={() => setAddingCal((v) => !v)}>＋ Calendar</button>
+            <span class="start-card-actions">
+              <Show when={events().length > 0}>
+                <button class="start-card-link" title="Expand — see all events" onClick={() => setCalExpanded(true)}>⤢ Expand</button>
+              </Show>
+              <button class="start-card-link" title="Subscribe to a calendar's secret ICS URL" onClick={() => setAddingCal((v) => !v)}>＋ Calendar</button>
+            </span>
           </div>
           <Show when={addingCal()}>
             <form class="start-add" onSubmit={addCalendar}>
@@ -512,6 +530,58 @@ const StartPage: Component<{
           </div>
         </div>
       </section>
+
+      {/* Expanded calendar — a larger view with the month grid + every upcoming
+          event grouped by day (#114). The start page is DOM (no webview), so a
+          plain modal overlay works. Click outside / Esc / ✕ to close. */}
+      <Show when={calExpanded()}>
+        <div class="cal-modal-backdrop" onClick={() => setCalExpanded(false)} onKeyDown={(e) => { if (e.key === "Escape") setCalExpanded(false); }}>
+          <div class="cal-modal glass" onClick={(e) => e.stopPropagation()}>
+            <div class="cal-modal-head">
+              <span class="cal-modal-title">{monthLabel()}</span>
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => setCalExpanded(false)}>✕</button>
+            </div>
+            <div class="cal-modal-body">
+              <div class="cal-modal-grid">
+                <div class="start-cal cal-modal-cal">
+                  <For each={WEEKDAYS}>{(w) => <span class="start-cal-wd">{w}</span>}</For>
+                  <For each={monthCells()}>
+                    {(c) => (
+                      <span classList={{ "start-cal-day": true, today: c === now().getDate(), blank: c === null, "has-event": c !== null && eventDays().has(c) }}>
+                        {c ?? ""}
+                      </span>
+                    )}
+                  </For>
+                </div>
+              </div>
+              <div class="cal-modal-events">
+                <Show when={groupedEvents().length > 0} fallback={<div class="start-empty">No upcoming events.</div>}>
+                  <For each={groupedEvents()}>
+                    {(g) => (
+                      <div class="cal-day-group">
+                        <div class="cal-day-header">{dayLabel(g.date)}</div>
+                        <For each={g.items}>
+                          {(e) => (
+                            <div class="cal-day-event">
+                              <span class="cal-event-time">{e.time || "all-day"}</span>
+                              <div class="cal-event-main">
+                                <span class="cal-event-title">{e.summary}</span>
+                                <Show when={e.location || e.calendar}>
+                                  <span class="cal-event-sub">{[e.calendar, e.location].filter(Boolean).join(" · ")}</span>
+                                </Show>
+                              </div>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Show>
 
       {/* Subtle flowing wave — the "flux" feel. Paths span wider than the
           viewBox so the SMIL translate loops seamlessly. (Richer motion is

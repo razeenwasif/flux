@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Open links in a new tab from internal pages** — right-clicking a link in Flux's
+  own DOM pages (Archive, Feeds, History, Bookmarks, the bookmark bar) now shows an
+  **Open in new tab / Open in new background tab / Copy link** menu — previously
+  those pages had no context menu (real web pages still get WebView2's native one).
+- **Expandable calendar** (BACKLOG #114) — an **⤢ Expand** button on the home
+  calendar opens a larger view: the month grid beside **every upcoming event grouped
+  by day**, scrollable, so a busy schedule is readable at a glance. Click outside /
+  Esc / ✕ to close.
 - **Files popout panel** (BACKLOG #6) — a 🗁 button in the sidebar controls opens
   the file explorer as a medium-large floating panel over the page (no need for a
   dedicated Files tab). Its current directory **persists** — close it from
@@ -66,6 +74,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   budgets are a self-hosted/manual gate).
 
 ### Changed / Fixed
+- **Leaner chrome bundle, round 2** (BACKLOG #79/#10) — the start page (`StartPage`)
+  is now lazy-loaded too, pulling its ~16 KB chunk off the eager bundle (down to
+  **44.6 KB / 50 KB**) — comfortable headroom as more home widgets get added. It
+  already loads its data async, so the new-tab page is unaffected in practice.
 - **Web panels now open as a separate pane** — opening a pinned web panel adds a
   real grid column beside the main page instead of overlaying a strip inside the
   content card. The main page pane resizes and recenters to the left, while the

@@ -13,6 +13,7 @@ import {
   type HistoryEntry,
 } from "./ipc";
 import { activeId, ensureFavicon, faviconFor, updateTabTitle } from "./store";
+import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string | null {
   try {
@@ -100,7 +101,7 @@ const HistoryPage: Component<{ onNavigate: (url: string) => void }> = (props) =>
                 <div class="hist-day">{label}</div>
                 <For each={rows}>
                   {(e) => (
-                    <div class="hist-row" onClick={() => open(e)}>
+                    <div class="hist-row" onClick={() => open(e)} onContextMenu={(ev) => openLinkMenu(ev, e.url)}>
                       <span class="hist-time">{timeLabel(e.last_visit_ms)}</span>
                       <RowIcon url={e.url} />
                       <span class="hist-text">

@@ -108,7 +108,6 @@ import {
   type Workspace,
 } from "./ipc";
 import TerminalView from "./TerminalView";
-import StartPage from "./StartPage";
 import { keyToAction } from "./shortcuts";
 import FindBar from "./FindBar";
 import Passwords from "./Passwords";
@@ -117,9 +116,11 @@ import Shields from "./Shields";
 import Boosts from "./Boosts";
 import Macros from "./Macros";
 import type { PaletteAction } from "./CommandPalette";
+import { LinkMenu } from "./linkMenu";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
 // and load on first use (instant — assets are local/embedded). #startup
 const CommandPalette = lazy(() => import("./CommandPalette"));
+const StartPage = lazy(() => import("./StartPage"));
 const Extensions = lazy(() => import("./Extensions"));
 const FilesView = lazy(() => import("./FilesView"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
@@ -1300,6 +1301,9 @@ const App: Component = () => {
       <Show when={paletteOpen()}>
         <Suspense><CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} /></Suspense>
       </Show>
+
+      {/* Right-click "open in new tab" menu for links in internal DOM pages. */}
+      <LinkMenu />
 
       {/* Files popout panel — a DOM file explorer over the (hidden) webview; its
           cwd persists so it reopens where you left off. Click outside to close. */}

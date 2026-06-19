@@ -7,6 +7,7 @@
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import { archiveDelete, archiveGet, archiveList, archiveSearch, type ArchiveEntry, type ArchiveMeta } from "./ipc";
 import { activeId, updateTabTitle } from "./store";
+import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -65,7 +66,7 @@ const ArchivePage: Component<{ onNavigate: (url: string) => void }> = (props) =>
           <Show when={rows().length > 0} fallback={<div class="hist-empty">{query() ? "No matches." : "No saved pages yet. Use “Save page for offline” (⌘K) on any article."}</div>}>
             <For each={rows()}>
               {(r) => (
-                <div classList={{ "arch-row": true, active: open()?.id === r.id }} onClick={() => read(r.id)}>
+                <div classList={{ "arch-row": true, active: open()?.id === r.id }} onClick={() => read(r.id)} onContextMenu={(e) => openLinkMenu(e, r.url)} title="Right-click to open the original in a new tab">
                   <div class="arch-row-top">
                     <span class="arch-row-title">{r.title || hostOf(r.url)}</span>
                     <Show when={query() && r.score > 0}><span class="arch-score">{r.score}%</span></Show>
@@ -85,7 +86,7 @@ const ArchivePage: Component<{ onNavigate: (url: string) => void }> = (props) =>
               <article class="arch-article">
                 <h1 class="arch-art-title">{e().title || hostOf(e().url)}</h1>
                 <div class="arch-art-meta">
-                  <button class="arch-art-link" onClick={() => props.onNavigate(e().url)} title={e().url}>{hostOf(e().url)} ↗</button>
+                  <button class="arch-art-link" onClick={() => props.onNavigate(e().url)} onContextMenu={(ev) => openLinkMenu(ev, e().url)} title={e().url}>{hostOf(e().url)} ↗</button>
                   <span>· saved {when(e().saved_ms)}</span>
                 </div>
                 <For each={paragraphs(e().text)}>{(p) => <p class="arch-art-p">{p}</p>}</For>

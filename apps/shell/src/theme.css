@@ -876,7 +876,7 @@ body.resizing, body.busy { --glass-blur: none; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 7vh 24px 40px;
+  padding: 7vh 24px 96px; /* roomy bottom so cards clear the decorative wave as widgets grow */
   gap: 32px;
   background:
     radial-gradient(80% 50% at 50% -8%, rgba(123, 97, 255, 0.22), transparent 60%),
@@ -972,7 +972,28 @@ body.resizing, body.busy { --glass-blur: none; }
 .start-cal-day.has-event::after { content: ""; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: var(--flux-violet, #9d8df1); }
 .start-cal-day.today.has-event::after { background: #06121b; }
 /* Calendar upcoming-events list (#114) */
+.start-card-actions { display: inline-flex; gap: 10px; align-items: center; }
 .start-events { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--glass-rim-soft); }
+
+/* Expanded calendar modal (#114) */
+.cal-modal-backdrop { position: fixed; inset: 0; z-index: 65; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; padding: 5vh 5vw; }
+.cal-modal { width: min(760px, 94vw); max-height: 86vh; display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; border: 1px solid var(--glass-rim-soft); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55); }
+.cal-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--glass-rim-soft); flex: none; }
+.cal-modal-title { font-size: 16px; font-weight: 700; color: var(--flux-text); }
+.cal-modal-body { display: grid; grid-template-columns: 280px 1fr; gap: 18px; padding: 16px; overflow: hidden; min-height: 0; }
+@media (max-width: 640px) { .cal-modal-body { grid-template-columns: 1fr; } }
+.cal-modal-cal { gap: 4px; }
+.cal-modal-cal .start-cal-day { font-size: 13px; padding: 8px 0; }
+.cal-modal-cal .start-cal-wd { font-size: 11px; }
+.cal-modal-events { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding-right: 4px; }
+.cal-day-group { display: flex; flex-direction: column; gap: 4px; }
+.cal-day-header { font-size: 12px; font-weight: 700; color: var(--flux-teal); text-transform: uppercase; letter-spacing: .04em; }
+.cal-day-event { display: flex; gap: 12px; padding: 6px 8px; border-radius: 8px; }
+.cal-day-event:hover { background: var(--flux-surface); }
+.cal-event-time { flex: none; min-width: 64px; font-size: 12px; color: var(--flux-text-mute); font-variant-numeric: tabular-nums; }
+.cal-event-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cal-event-title { font-size: 13px; color: var(--flux-text); }
+.cal-event-sub { font-size: 11px; color: var(--flux-text-mute); }
 .start-event { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .start-event-when { flex: none; min-width: 92px; color: var(--flux-text-mute); font-size: 11px; }
 .start-event-title { color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1882,6 +1903,11 @@ input[type="checkbox"].pdf-fw, input[type="radio"].pdf-fw { accent-color: var(--
 
 /* ── Command palette (⌘K, BACKLOG #6) ── */
 .palette-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.4); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
+
+/* Right-click "open in new tab" menu for internal-page links. */
+.link-menu { position: fixed; z-index: 70; min-width: 190px; padding: 5px; border-radius: 10px; border: 1px solid var(--glass-rim-soft); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; }
+.link-menu-item { text-align: left; padding: 7px 10px; border-radius: 7px; border: none; background: none; color: var(--flux-text); font-size: 12.5px; cursor: pointer; }
+.link-menu-item:hover { background: var(--flux-surface-2); }
 
 /* Files popout panel (#6) — DOM file explorer over the (hidden) webview. */
 .files-panel-backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, 0.38); display: flex; justify-content: center; align-items: center; padding: 4vh 4vw; }
