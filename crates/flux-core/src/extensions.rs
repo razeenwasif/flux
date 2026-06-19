@@ -18,7 +18,7 @@ const KNOWN_PERMISSIONS: &[&str] =
 
 const MANIFEST_FILE: &str = "flux.extension.json";
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
 pub struct ContentScript {
     pub matches: Vec<String>,
     #[serde(default)]
@@ -33,7 +33,7 @@ fn default_run_at() -> String {
     "document_idle".into()
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, specta::Type)]
 pub struct UiContrib {
     #[serde(default)]
     pub toolbar_button: Option<ToolbarButton>,
@@ -41,14 +41,14 @@ pub struct UiContrib {
     pub panel: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
 pub struct ToolbarButton {
     pub title: String,
     #[serde(default)]
     pub icon: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
 pub struct Manifest {
     pub id: String,
     pub name: String,
@@ -95,7 +95,7 @@ impl Manifest {
 
 /// One installed extension: its manifest, where it lives on disk, and whether
 /// it's enabled.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
 pub struct InstalledExt {
     pub manifest: Manifest,
     pub dir: String,

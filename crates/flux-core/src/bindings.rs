@@ -11,9 +11,21 @@
 //! Scope today: the `state.rs` IPC types (the largest hand-mirrored surface).
 //! Remaining types + command signatures migrate incrementally (still #12).
 
-use crate::archive::ArchiveMeta;
+use crate::archive::{ArchiveEntryWire, ArchiveMeta};
 use crate::bookmarks::Bookmark;
+use crate::boosts::Boost;
 use crate::calendar::{CalEvent, CalFeed};
+use crate::commands::{OmniHit, ReaderBlock};
+use crate::cookies::CookieStatus;
+use crate::downloads::DownloadItem;
+use crate::extensions::{ContentScript, InstalledExt, Manifest, ToolbarButton, UiContrib};
+use crate::files::{DirListing, FileEntry, QuickLocation};
+use crate::https::HttpsStatus;
+use crate::leanmode::LeanStatus;
+use crate::macros::{Macro, MacroStatus, Step};
+use crate::permissions::{PermDecision, PermKind, SitePerm};
+use crate::shields::{HotRule, ShieldsStatus};
+use crate::sync::{SyncReport, SyncStatus};
 use crate::todos::Todo;
 use crate::feeds::{Feed, FeedItem};
 use crate::history::HistoryEntry;
@@ -24,6 +36,7 @@ use crate::state::{
     AgentStatus, ClusterTag, Container, TabFolder, TabGroup, TabKind, TabMeta, WebPanel, Workspace,
 };
 use crate::taskmgr::{ProcInfo, SysStats};
+use crate::vault::{CredentialMeta, VaultStatus};
 
 /// Path to the generated bindings, relative to the crate root (= CWD under
 /// `cargo test`/`cargo run`).
@@ -64,6 +77,37 @@ pub fn generate_ts() -> String {
         specta::ts::export::<CalFeed>(&c),
         specta::ts::export::<CalEvent>(&c),
         specta::ts::export::<Todo>(&c),
+        // Misc command structs (BACKLOG #12, batch 3): shields/privacy,
+        // permissions, vault, extensions, macros, boosts, downloads, files,
+        // sync, omni/reader, and the wire shape of a full archive entry.
+        specta::ts::export::<OmniHit>(&c),
+        specta::ts::export::<ReaderBlock>(&c),
+        specta::ts::export::<ShieldsStatus>(&c),
+        specta::ts::export::<HotRule>(&c),
+        specta::ts::export::<LeanStatus>(&c),
+        specta::ts::export::<HttpsStatus>(&c),
+        specta::ts::export::<CookieStatus>(&c),
+        specta::ts::export::<PermKind>(&c),
+        specta::ts::export::<PermDecision>(&c),
+        specta::ts::export::<SitePerm>(&c),
+        specta::ts::export::<CredentialMeta>(&c),
+        specta::ts::export::<VaultStatus>(&c),
+        specta::ts::export::<ContentScript>(&c),
+        specta::ts::export::<ToolbarButton>(&c),
+        specta::ts::export::<UiContrib>(&c),
+        specta::ts::export::<Manifest>(&c),
+        specta::ts::export::<InstalledExt>(&c),
+        specta::ts::export::<Step>(&c),
+        specta::ts::export::<Macro>(&c),
+        specta::ts::export::<MacroStatus>(&c),
+        specta::ts::export::<Boost>(&c),
+        specta::ts::export::<DownloadItem>(&c),
+        specta::ts::export::<FileEntry>(&c),
+        specta::ts::export::<DirListing>(&c),
+        specta::ts::export::<QuickLocation>(&c),
+        specta::ts::export::<SyncStatus>(&c),
+        specta::ts::export::<SyncReport>(&c),
+        specta::ts::export::<ArchiveEntryWire>(&c),
     ];
     let mut out = String::from(HEADER);
     for p in parts {

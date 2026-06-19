@@ -99,14 +99,14 @@ pub struct SyncState {
     last_ms: RwLock<u64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct SyncStatus {
     pub folder: Option<String>,
     pub unlocked: bool,
     pub last_ms: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct SyncReport {
     pub bookmarks_added: usize,
     pub sessions_added: usize,

@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 /// One recorded action. Tagged enum → clean JSON for the UI + persistence.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Step {
     Navigate { url: String },
@@ -25,7 +25,7 @@ pub enum Step {
     Wait { ms: u64 },
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
 pub struct Macro {
     pub id: u64,
     pub name: String,
@@ -42,7 +42,7 @@ pub struct MacroState {
     active: AtomicBool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct MacroStatus {
     pub recording: bool,
     pub step_count: usize,

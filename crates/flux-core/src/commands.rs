@@ -483,7 +483,7 @@ pub fn find_result(app: AppHandle, tab_id: TabId, count: usize, found: bool) -> 
 
 /// One structured block of a reader-mode extraction (#41): a heading, paragraph,
 /// list item, quote, preformatted block, image caption, or image.
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, specta::Type)]
 pub struct ReaderBlock {
     pub kind: String,
     #[serde(default)]
@@ -686,7 +686,7 @@ pub async fn agent_chat_tabs_stream(
 
 /// One unified search result (BACKLOG #66): an open tab, a bookmark, or a
 /// history entry, ranked together by embedding similarity to the query.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 pub struct OmniHit {
     pub kind: String, // "tab" | "bookmark" | "history"
     pub tab_id: Option<TabId>,

@@ -50,7 +50,7 @@ impl HttpsState {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct HttpsStatus {
     pub enabled: bool,
     /// Hosts allowlisted to stay on HTTP.

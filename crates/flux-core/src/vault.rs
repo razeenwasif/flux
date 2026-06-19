@@ -292,7 +292,7 @@ fn read_keywrap(dir: &Path) -> Result<KeyWrap, String> {
 
 // ─── serializable views ──────────────────────────────────────────────────────
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct CredentialMeta {
     pub id: String,
     pub name: String,
@@ -313,7 +313,7 @@ impl From<&Credential> for CredentialMeta {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct VaultStatus {
     pub available: bool,
     pub locked: bool,

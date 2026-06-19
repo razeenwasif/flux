@@ -80,7 +80,7 @@ impl LeanState {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct LeanStatus {
     pub enabled: bool,
     /// Hosts with lean mode turned on.

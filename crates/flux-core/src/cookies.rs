@@ -29,7 +29,7 @@ impl CookieState {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct CookieStatus {
     pub clear_on_close: Vec<String>,
 }

@@ -196,7 +196,7 @@ impl ShieldsState {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct ShieldsStatus {
     /// Global shields on/off.
     pub enabled: bool,
@@ -215,7 +215,7 @@ pub struct ShieldsStatus {
     pub rules_fired: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct HotRule {
     pub rule: String,
     pub hits: u64,

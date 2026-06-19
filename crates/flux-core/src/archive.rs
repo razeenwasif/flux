@@ -41,6 +41,33 @@ pub struct ArchiveEntry {
     embedder: Embedder,
 }
 
+/// The wire shape of a full archived page (BACKLOG #12): the reader-facing fields
+/// only. The persisted [`ArchiveEntry`] also carries the embedding vector +
+/// embedder tag, which are an on-disk concern the frontend never needs — keeping
+/// them off the wire is the persist/wire split, and lets this be the
+/// specta-generated type (`ArchiveEntry` can't derive `Type` cleanly with the
+/// private embedding fields).
+#[derive(Serialize, Clone, specta::Type)]
+pub struct ArchiveEntryWire {
+    pub id: u64,
+    pub url: String,
+    pub title: String,
+    pub saved_ms: u64,
+    pub text: String,
+}
+
+impl ArchiveEntry {
+    fn to_wire(&self) -> ArchiveEntryWire {
+        ArchiveEntryWire {
+            id: self.id,
+            url: self.url.clone(),
+            title: self.title.clone(),
+            saved_ms: self.saved_ms,
+            text: self.text.clone(),
+        }
+    }
+}
+
 /// List/search row — metadata + a short snippet (the full text stays out of list
 /// payloads; fetch it with `archive_get`).
 #[derive(Serialize, Clone, specta::Type)]
@@ -235,8 +262,8 @@ pub fn archive_list(archive: State<'_, ArchiveStore>) -> Vec<ArchiveMeta> {
 }
 
 #[tauri::command]
-pub fn archive_get(archive: State<'_, ArchiveStore>, id: u64) -> Option<ArchiveEntry> {
-    archive.get(id)
+pub fn archive_get(archive: State<'_, ArchiveStore>, id: u64) -> Option<ArchiveEntryWire> {
+    archive.get(id).map(|e| e.to_wire())
 }
 
 #[tauri::command]

@@ -63,9 +63,9 @@ const Extensions: Component = () => {
                   <button class="ext-remove" title="Remove" onClick={() => remove(e)}>✕</button>
                 </span>
               </div>
-              <Show when={e.manifest.permissions.length > 0}>
+              <Show when={(e.manifest.permissions ?? []).length > 0}>
                 <div class="ext-perms">
-                  <For each={e.manifest.permissions}>{(p) => <span class="ext-chip">{p}</span>}</For>
+                  <For each={e.manifest.permissions ?? []}>{(p) => <span class="ext-chip">{p}</span>}</For>
                 </div>
               </Show>
             </div>
