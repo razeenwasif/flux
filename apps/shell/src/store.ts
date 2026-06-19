@@ -50,6 +50,7 @@ import {
   containerDelete,
   type Container,
   sessionRestore,
+  snapshotRestore,
   type WebPanel,
   type ReaderBlock,
   type TabGroup,
@@ -374,6 +375,12 @@ export async function renameTab(id: number, name: string): Promise<void> {
 /** Restore a named session (#47): open each of its tabs. Returns the count. */
 export async function restoreSession(id: number): Promise<number> {
   const tabs = await sessionRestore(id).catch(() => []);
+  for (const t of tabs) await openTab("browser", t.url).catch(() => {});
+  return tabs.length;
+}
+/** Reopen a daily auto-snapshot (#47): open each tab captured that day. */
+export async function restoreSnapshot(day: number): Promise<number> {
+  const tabs = await snapshotRestore(day).catch(() => []);
   for (const t of tabs) await openTab("browser", t.url).catch(() => {});
   return tabs.length;
 }

@@ -150,13 +150,85 @@ impl SessionStore {
 }
 
 /// Snapshot the current real web tabs (skips terminal/files + flux:// pages).
-fn snapshot(state: &FluxState) -> Vec<SavedTab> {
+pub(crate) fn snapshot(state: &FluxState) -> Vec<SavedTab> {
     state
         .ordered_tabs()
         .into_iter()
         .filter(|t| matches!(t.kind, TabKind::Browser) && t.url.starts_with("http"))
         .map(|t| SavedTab { url: t.url, title: t.title, pinned: t.pinned })
         .collect()
+}
+
+// ─── Daily auto-snapshots (BACKLOG #47) ──────────────────────────────────────
+//
+// Distinct from named sessions: Flux quietly snapshots your open tabs into a
+// per-day bucket on a timer, keeping the last week, so you can "reopen yesterday"
+// without having saved anything. One bucket per UTC day, refreshed in place, so a
+// day's entry holds that day's most recent tab set.
+
+const SNAPSHOT_DAYS: usize = 7;
+const DAY_MS: u64 = 86_400_000;
+
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
+pub struct DaySnapshot {
+    /// UTC day index (epoch ms / 86_400_000) — this snapshot's bucket + key.
+    pub day: u64,
+    /// When the bucket was last refreshed (ms) — the label the UI renders.
+    pub captured_ms: u64,
+    pub tabs: Vec<SavedTab>,
+}
+
+#[derive(Default)]
+pub struct SnapshotStore {
+    snaps: RwLock<Vec<DaySnapshot>>,
+    path: Option<PathBuf>,
+}
+
+impl SnapshotStore {
+    pub fn restore(path: PathBuf) -> Self {
+        let snaps = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        Self { snaps: RwLock::new(snaps), path: Some(path) }
+    }
+
+    /// Newest day first.
+    pub fn list(&self) -> Vec<DaySnapshot> {
+        let mut v = self.snaps.read().clone();
+        v.sort_unstable_by(|a, b| b.day.cmp(&a.day));
+        v
+    }
+
+    pub fn tabs_of(&self, day: u64) -> Vec<SavedTab> {
+        self.snaps.read().iter().find(|s| s.day == day).map(|s| s.tabs.clone()).unwrap_or_default()
+    }
+
+    /// Record the current tabs into today's bucket (create or refresh), keeping
+    /// the last `SNAPSHOT_DAYS` days. No-op for an empty set so a freshly-started
+    /// or all-`flux://` session never clobbers a real day's snapshot.
+    pub fn capture(&self, tabs: Vec<SavedTab>) {
+        if tabs.is_empty() {
+            return;
+        }
+        let now = now_ms();
+        let day = now / DAY_MS;
+        let mut snaps = self.snaps.write();
+        match snaps.iter_mut().find(|s| s.day == day) {
+            Some(s) => {
+                s.tabs = tabs;
+                s.captured_ms = now;
+            }
+            None => snaps.push(DaySnapshot { day, captured_ms: now, tabs }),
+        }
+        snaps.sort_unstable_by(|a, b| b.day.cmp(&a.day));
+        snaps.truncate(SNAPSHOT_DAYS);
+        let json = serde_json::to_string(&*snaps).ok();
+        drop(snaps);
+        if let (Some(path), Some(json)) = (&self.path, json) {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(path, json);
+        }
+    }
 }
 
 // ─── commands ────────────────────────────────────────────────────────────────
@@ -181,6 +253,18 @@ pub fn session_delete(store: State<'_, SessionStore>, id: u64) {
 #[tauri::command]
 pub fn session_restore(store: State<'_, SessionStore>, id: u64) -> Vec<SavedTab> {
     store.tabs_of(id)
+}
+
+/// The daily auto-snapshots, newest day first (#47).
+#[tauri::command]
+pub fn snapshots_list(store: State<'_, SnapshotStore>) -> Vec<DaySnapshot> {
+    store.list()
+}
+
+/// The tabs captured for a given day (#47) — the shell reopens them.
+#[tauri::command]
+pub fn snapshot_restore(store: State<'_, SnapshotStore>, day: u64) -> Vec<SavedTab> {
+    store.tabs_of(day)
 }
 
 #[cfg(test)]

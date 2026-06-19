@@ -28,7 +28,7 @@ use crate::macros::{Macro, MacroStatus, Step};
 use crate::netspeed::SpeedResult;
 use crate::permissions::{PermDecision, PermKind, SitePerm};
 use crate::pwa::PwaApp;
-use crate::sessions::{SavedSession, SavedTab};
+use crate::sessions::{DaySnapshot, SavedSession, SavedTab};
 use crate::shields::{HotRule, ShieldsStatus};
 use crate::state::{
     AgentStatus, ClusterTag, Container, TabFolder, TabGroup, TabKind, TabMeta, WebPanel, Workspace,
@@ -70,6 +70,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<HistoryEntry>(&c),
         specta::ts::export::<SavedTab>(&c),
         specta::ts::export::<SavedSession>(&c),
+        specta::ts::export::<DaySnapshot>(&c),
         specta::ts::export::<ProcInfo>(&c),
         specta::ts::export::<SysStats>(&c),
         specta::ts::export::<SpeedResult>(&c),
