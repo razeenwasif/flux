@@ -83,6 +83,23 @@ fn enable_http3() {
     tracing::info!(target: "flux::net", args = %args, "HTTP/3: WebView2 browser args set");
 }
 
+fn boot_phase<T>(
+    phase: &'static str,
+    boot_started: std::time::Instant,
+    f: impl FnOnce() -> T,
+) -> T {
+    let phase_started = std::time::Instant::now();
+    let out = f();
+    tracing::info!(
+        target: "flux::boot",
+        phase,
+        elapsed_ms = phase_started.elapsed().as_millis(),
+        total_ms = boot_started.elapsed().as_millis(),
+        "setup phase"
+    );
+    out
+}
+
 /// Build the Tauri application. Split from `main` for testability.
 pub fn run(intent: cli::LaunchIntent) {
     tracing_subscriber::fmt()
@@ -98,6 +115,7 @@ pub fn run(intent: cli::LaunchIntent) {
         // Persist + restore window size/position across launches (open as closed).
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(move |app| {
+            let boot_started = std::time::Instant::now();
             // Single source of truth, injected into every command. Restored
             // from the persisted session so tabs survive a restart (#19).
             let session_path = app
@@ -105,20 +123,20 @@ pub fn run(intent: cli::LaunchIntent) {
                 .app_data_dir()
                 .map(|d| d.join("session.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-session.json"));
-            app.manage(state::FluxState::restore(session_path));
+            app.manage(boot_phase("session.restore", boot_started, || state::FluxState::restore(session_path)));
             // CLI launch intent — consumed once by the shell on mount.
             app.manage(intent);
             // Live PTY sessions for the embedded terminal.
             app.manage(terminal::TerminalManager::new());
             // Pluggable search config (persisted to the app config dir).
-            app.manage(search::SearchState::load(app.handle()));
+            app.manage(boot_phase("search.load", boot_started, || search::SearchState::load(app.handle())));
             app.manage(omni::IngestState::new());
             // Files tab: live directory watchers + the file-op undo stack.
             app.manage(files::FsWatchers::default());
             app.manage(files::UndoStack::default());
             // Content-blocker shields: the filter engine + per-site policy (#57).
             let filters_dir = app.path().app_data_dir().ok().map(|d| d.join("filters"));
-            app.manage(shields::ShieldsState::new(filters_dir));
+            app.manage(boot_phase("shields.init", boot_started, || shields::ShieldsState::new(filters_dir)));
             // Fetch/refresh the big filter lists (EasyList/EasyPrivacy) off the
             // main thread — parsing tens of thousands of rules is heavy.
             {
@@ -137,14 +155,14 @@ pub fn run(intent: cli::LaunchIntent) {
                 .app_data_dir()
                 .map(|d| d.join("permissions.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-permissions.json"));
-            app.manage(permissions::PermState::restore(perms_path));
+            app.manage(boot_phase("permissions.restore", boot_started, || permissions::PermState::restore(perms_path)));
             // Mini-extension registry (#92) — installed extensions + enabled state.
             let ext_path = app
                 .path()
                 .app_data_dir()
                 .map(|d| d.join("extensions").join("registry.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-extensions.json"));
-            app.manage(extensions::ExtRegistry::restore(ext_path));
+            app.manage(boot_phase("extensions.restore", boot_started, || extensions::ExtRegistry::restore(ext_path)));
             // Extension broker (#94) — capability tokens + grant-checked flux.*
             // API + per-extension persisted storage.
             let storage_path = app
@@ -152,7 +170,7 @@ pub fn run(intent: cli::LaunchIntent) {
                 .app_data_dir()
                 .map(|d| d.join("extensions").join("storage.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-ext-storage.json"));
-            app.manage(broker::BrokerState::restore(storage_path));
+            app.manage(boot_phase("broker.restore", boot_started, || broker::BrokerState::restore(storage_path)));
             // Per-tab scroll/form state for hibernation wake (#45) — RAM only.
             app.manage(hibernate::HibernateStore::new());
             // System memory monitor for memory-pressure eviction (#45).
@@ -178,60 +196,60 @@ pub fn run(intent: cli::LaunchIntent) {
             if let Some(parent) = archive_path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            app.manage(archive::ArchiveStore::restore(archive_path));
+            app.manage(boot_phase("archive.restore", boot_started, || archive::ArchiveStore::restore(archive_path)));
             // Per-site boosts (#49) — agent-authored CSS/JS injected per host.
             let boosts_path = app
                 .path()
                 .app_data_dir()
                 .map(|d| d.join("boosts.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-boosts.json"));
-            app.manage(boosts::BoostStore::restore(boosts_path));
+            app.manage(boot_phase("boosts.restore", boot_started, || boosts::BoostStore::restore(boosts_path)));
             // Scriptable macros (#67) — record/replay browsing flows.
             let macros_path = app
                 .path()
                 .app_data_dir()
                 .map(|d| d.join("macros.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-macros.json"));
-            app.manage(macros::MacroState::restore(macros_path));
+            app.manage(boot_phase("macros.restore", boot_started, || macros::MacroState::restore(macros_path)));
             // E2E sync (#62) — encrypted bookmarks/sessions via a BYO folder.
             let sync_path = app
                 .path()
                 .app_data_dir()
                 .map(|d| d.join("sync.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-sync-config.json"));
-            app.manage(sync::SyncState::restore(sync_path));
+            app.manage(boot_phase("sync.restore", boot_started, || sync::SyncState::restore(sync_path)));
             // Install-site-as-app / PWAs (#42).
             let pwa_path = app
                 .path()
                 .app_data_dir()
                 .map(|d| d.join("pwas.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-pwas.json"));
-            app.manage(pwa::PwaStore::restore(pwa_path));
+            app.manage(boot_phase("pwa.restore", boot_started, || pwa::PwaStore::restore(pwa_path)));
             // Native RSS / Atom reader (#72) — subscriptions persisted; items fetched live.
             let feeds_path = app
                 .path()
                 .app_data_dir()
                 .map(|d| d.join("feeds.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-feeds.json"));
-            app.manage(feeds::FeedStore::restore(feeds_path));
+            app.manage(boot_phase("feeds.restore", boot_started, || feeds::FeedStore::restore(feeds_path)));
             // Calendar (#114) — subscribed ICS feed URLs; events fetched live.
             let cal_path = app
                 .path()
                 .app_data_dir()
                 .map(|d| d.join("calendars.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-calendars.json"));
-            app.manage(calendar::CalStore::restore(cal_path));
+            app.manage(boot_phase("calendar.restore", boot_started, || calendar::CalStore::restore(cal_path)));
             // Local tasks / to-dos (#114) — on-device task list.
             let todos_path = app
                 .path()
                 .app_data_dir()
                 .map(|d| d.join("todos.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-todos.json"));
-            app.manage(todos::TodoStore::restore(todos_path));
+            app.manage(boot_phase("todos.restore", boot_started, || todos::TodoStore::restore(todos_path)));
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
-            app.manage(taskmgr::TaskManager::new());
+            app.manage(boot_phase("taskmgr.init", boot_started, taskmgr::TaskManager::new));
             // Favicon cache (#21) — fetched cookielessly, cached per host on disk.
             let fav_dir = app.path().app_data_dir().ok().map(|d| d.join("favicons"));
             app.manage(favicon::FaviconCache::new(fav_dir));
@@ -241,14 +259,14 @@ pub fn run(intent: cli::LaunchIntent) {
                 .app_data_dir()
                 .map(|d| d.join("bookmarks.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-bookmarks.json"));
-            app.manage(bookmarks::BookmarkStore::restore(bm_path));
+            app.manage(boot_phase("bookmarks.restore", boot_started, || bookmarks::BookmarkStore::restore(bm_path)));
             // Named sessions (#47) — save/restore bundles of tabs.
             let sessions_path = app
                 .path()
                 .app_data_dir()
                 .map(|d| d.join("sessions.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-sessions.json"));
-            app.manage(sessions::SessionStore::restore(sessions_path));
+            app.manage(boot_phase("sessions.restore", boot_started, || sessions::SessionStore::restore(sessions_path)));
             // Download manager (#34) — WebView2 DownloadStarting + progress.
             app.manage(downloads::DownloadState::new());
             // Native dark mode (#40) — WebView2 PreferredColorScheme.
@@ -261,7 +279,7 @@ pub fn run(intent: cli::LaunchIntent) {
                 .app_data_dir()
                 .map(|d| d.join("notes.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-notes.json"));
-            app.manage(notes::NoteStore::restore(notes_path));
+            app.manage(boot_phase("notes.restore", boot_started, || notes::NoteStore::restore(notes_path)));
             // Browsing history (#39) — recorded from dom_publish, persisted.
             let history_path = app
                 .path()
@@ -290,7 +308,7 @@ pub fn run(intent: cli::LaunchIntent) {
             }
             // Password vault (#61) — OS-keychain data key + decrypted-in-memory
             // for autofill; persists to app_data/vault/vault.bin.
-            app.manage(vault::VaultState::load(app.handle()));
+            app.manage(boot_phase("vault.load", boot_started, || vault::VaultState::load(app.handle())));
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
@@ -315,13 +333,15 @@ pub fn run(intent: cli::LaunchIntent) {
             }
             // Native rounded corners (Win11) — the window is opaque, so CSS
             // can't round it.
-            if let Some(win) = app.get_webview_window("main") {
-                webview::round_window_corners(&win);
-            }
+            boot_phase("window.decorate", boot_started, || {
+                if let Some(win) = app.get_webview_window("main") {
+                    webview::round_window_corners(&win);
+                }
+            });
             // dev=false means the embedded frontend is served (custom-protocol);
             // dev=true means it's loading devUrl (localhost:1420) — a release
             // binary must show dev=false or it'll ERR_CONNECTION_REFUSED.
-            tracing::info!(target: "flux::boot", dev = tauri::is_dev(), "state managed, window up");
+            tracing::info!(target: "flux::boot", dev = tauri::is_dev(), total_ms = boot_started.elapsed().as_millis(), "state managed, window up");
             Ok(())
         })
         // `dom_publish` lives in the `fluxtab` inlined plugin (see build.rs):

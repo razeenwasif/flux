@@ -114,6 +114,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   budgets are a self-hosted/manual gate).
 
 ### Changed / Fixed
+- **Boot timing instrumentation** — startup setup now logs `flux::boot` phases with
+  per-phase and cumulative milliseconds for session restore, store hydration,
+  vault load, and window decoration. This gives the Windows build a concrete launch
+  latency profile before moving more work off the startup path.
 - **Right-click link menus now actually open tabs** — the injected link menu inside
   real web pages no longer closes itself during capture before the menu item click
   runs, and Flux's internal DOM-page link menu routes through the app-level opener
