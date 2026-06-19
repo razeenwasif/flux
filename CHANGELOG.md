@@ -31,6 +31,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   right-clicking anywhere that isn't a link still gets the native menu.
 
 ### Changed
+- **Archive startup hydration moved off the boot path** — Flux now registers an
+  empty archive store during setup and loads `archive.json` on a background thread,
+  preserving immediately saved pages if hydration finishes afterward. This removes
+  archive disk I/O and embedding-migration checks from the critical window-show path
+  while keeping archive search/list behavior intact once hydration completes.
 - **Generated TS bindings — batch 3** (BACKLOG #12) — 28 more IPC types are now
   derived from their Rust definitions (`specta::Type` → `bindings.gen.ts`, drift-
   gated in CI) instead of hand-mirrored in `ipc.ts`: shields/privacy

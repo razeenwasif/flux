@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -91,6 +91,8 @@ pub struct ArchiveStore {
     /// on one kind so cosine is meaningful).
     embedder: Embedder,
     next_id: AtomicU64,
+    hydrated: AtomicBool,
+    dirty: AtomicBool,
 }
 
 fn now_ms() -> u64 {
@@ -116,7 +118,14 @@ fn write_json(path: &Option<PathBuf>, entries: &[ArchiveEntry]) {
 
 impl Default for ArchiveStore {
     fn default() -> Self {
-        Self { path: None, entries: Arc::new(RwLock::new(Vec::new())), embedder: Embedder::Hash, next_id: AtomicU64::new(1) }
+        Self {
+            path: None,
+            entries: Arc::new(RwLock::new(Vec::new())),
+            embedder: Embedder::Hash,
+            next_id: AtomicU64::new(1),
+            hydrated: AtomicBool::new(true),
+            dirty: AtomicBool::new(false),
+        }
     }
 }
 
@@ -135,7 +144,14 @@ impl ArchiveStore {
     /// `hydrate()` on a background thread when startup latency matters.
     pub fn empty(path: PathBuf) -> Self {
         let embedder = embedding::current();
-        Self { path: Some(path), entries: Arc::new(RwLock::new(Vec::new())), embedder, next_id: AtomicU64::new(1) }
+        Self {
+            path: Some(path),
+            entries: Arc::new(RwLock::new(Vec::new())),
+            embedder,
+            next_id: AtomicU64::new(1),
+            hydrated: AtomicBool::new(false),
+            dirty: AtomicBool::new(false),
+        }
     }
 
     /// Load archived pages from disk into a live store. This is merge-based, not a
@@ -147,9 +163,6 @@ impl ArchiveStore {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        if loaded.is_empty() {
-            return;
-        }
 
         let needs_migrate;
         {
@@ -176,6 +189,10 @@ impl ArchiveStore {
             next_merge_id = g.iter().map(|e| e.id).max().unwrap_or(0) + 1;
             self.next_id.store(next_merge_id, Ordering::Relaxed);
             needs_migrate = g.iter().any(|e| e.embedder != self.embedder || e.embedding.is_empty());
+            self.hydrated.store(true, Ordering::Release);
+            if self.dirty.swap(false, Ordering::AcqRel) {
+                write_json(&self.path, &g);
+            }
         }
 
         if needs_migrate {
@@ -203,7 +220,7 @@ impl ArchiveStore {
             g.push(entry);
             m
         };
-        write_json(&self.path, &g);
+        self.persist_after_mutation(&g);
         result
     }
 
@@ -223,7 +240,7 @@ impl ArchiveStore {
     pub fn delete(&self, id: u64) {
         let mut g = self.entries.write();
         g.retain(|e| e.id != id);
-        write_json(&self.path, &g);
+        self.persist_after_mutation(&g);
     }
 
     /// Semantic search: cosine against the query embedding, most-relevant first.
@@ -256,6 +273,14 @@ impl ArchiveStore {
 
     pub fn len(&self) -> usize {
         self.entries.read().len()
+    }
+
+    fn persist_after_mutation(&self, entries: &[ArchiveEntry]) {
+        if self.hydrated.load(Ordering::Acquire) {
+            write_json(&self.path, entries);
+        } else {
+            self.dirty.store(true, Ordering::Release);
+        }
     }
 }
 
