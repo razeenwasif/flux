@@ -8,7 +8,6 @@
  * and render <LinkMenu/> once at the app root.
  */
 import { For, Show, createSignal, onCleanup, type Component } from "solid-js";
-import { openTab } from "./store";
 
 interface MenuState { x: number; y: number; url: string }
 const [menu, setMenu] = createSignal<MenuState | null>(null);
@@ -22,7 +21,9 @@ export function openLinkMenu(e: MouseEvent, url: string): void {
 }
 export const closeLinkMenu = () => setMenu(null);
 
-export const LinkMenu: Component = () => {
+export const LinkMenu: Component<{
+  onOpen: (url: string, background?: boolean) => void;
+}> = (props) => {
   // Close on any *outside* interaction. This listener is capture-phase (it must
   // beat Solid's delegated bubble-phase onClick to catch clicks elsewhere), so a
   // click on a menu item would otherwise close the menu — unmounting the button —
@@ -44,8 +45,8 @@ export const LinkMenu: Component = () => {
   });
 
   const items = (m: MenuState) => [
-    { label: "Open in new tab", run: () => void openTab("browser", m.url) },
-    { label: "Open in new background tab", run: () => void openTab("browser", m.url, false, true) },
+    { label: "Open in new tab", run: () => props.onOpen(m.url, false) },
+    { label: "Open in new background tab", run: () => props.onOpen(m.url, true) },
     { label: "Copy link", run: () => void navigator.clipboard?.writeText(m.url).catch(() => {}) },
   ];
 

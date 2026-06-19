@@ -143,7 +143,10 @@
   // Dismiss on an outside click (capture-phase, so it must skip clicks that land
   // on the menu — else it would close before the item handler runs) or Esc.
   document.addEventListener("click", function (e) {
-    if (menuHost && e.target !== menuHost) closeMenu();
+    if (!menuHost) return;
+    var path = typeof e.composedPath === "function" ? e.composedPath() : [];
+    if (e.target === menuHost || path.indexOf(menuHost) !== -1) return;
+    closeMenu();
   }, true);
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeMenu(); }, true);
 })();

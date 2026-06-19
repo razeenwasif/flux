@@ -114,6 +114,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   budgets are a self-hosted/manual gate).
 
 ### Changed / Fixed
+- **Right-click link menus now actually open tabs** — the injected link menu inside
+  real web pages no longer closes itself during capture before the menu item click
+  runs, and Flux's internal DOM-page link menu routes through the app-level opener
+  so PDFs and foreground/background tab behavior match normal navigation.
 - **Home widgets scroll in their own box** — the start page no longer scrolls as a
   whole (which pushed the bottom wave animation out of view); the widget cards now
   live in a contained scroll area under the fixed search hero, and the wave stays

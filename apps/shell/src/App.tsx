@@ -1303,7 +1303,7 @@ const App: Component = () => {
       </Show>
 
       {/* Right-click "open in new tab" menu for links in internal DOM pages. */}
-      <LinkMenu />
+      <LinkMenu onOpen={(url, background) => void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {})} />
 
       {/* Files popout panel — a DOM file explorer over the (hidden) webview; its
           cwd persists so it reopens where you left off. Click outside to close. */}
