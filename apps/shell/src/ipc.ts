@@ -81,6 +81,7 @@ import type {
   SavedSession as GenSavedSession,
   SavedTab as GenSavedTab,
   SpeedResult as GenSpeedResult,
+  ShellSnapshot as GenShellSnapshot,
   SysStats as GenSysStats,
   TabFolder as GenTabFolder,
   TabGroup as GenTabGroup,
@@ -95,6 +96,7 @@ export type TabKind = GenTabKind;
 export type Workspace = GenWorkspace;
 export type Container = GenContainer;
 export type AgentStatus = GenAgentStatus;
+export type ShellSnapshot = GenShellSnapshot;
 export type TabMeta = GenTabMeta;
 export type TabGroup = GenTabGroup;
 export type TabFolder = GenTabFolder;
@@ -185,6 +187,7 @@ export type AgentAction =
 
 export const tabCreate = (kind: TabKind, url?: string, isPrivate?: boolean, container?: number) =>
   invoke<TabMeta>("tab_create", { kind, url: url ?? null, private: isPrivate ?? null, container: container ?? null });
+export const shellSnapshot = () => invoke<ShellSnapshot>("shell_snapshot");
 // ─── Multi-account containers (BACKLOG #59) — Container type from bindings.gen ──
 export const containersList = () => invoke<Container[]>("containers_list");
 export const containerCreate = (name: string, color: number) => invoke<number>("container_create", { name, color });

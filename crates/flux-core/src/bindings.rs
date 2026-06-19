@@ -15,27 +15,27 @@ use crate::archive::{ArchiveEntryWire, ArchiveMeta};
 use crate::bookmarks::Bookmark;
 use crate::boosts::Boost;
 use crate::calendar::{CalEvent, CalFeed};
-use crate::commands::{OmniHit, ReaderBlock};
+use crate::commands::{OmniHit, ReaderBlock, ShellSnapshot};
 use crate::cookies::CookieStatus;
 use crate::downloads::DownloadItem;
 use crate::extensions::{ContentScript, InstalledExt, Manifest, ToolbarButton, UiContrib};
+use crate::feeds::{Feed, FeedItem};
 use crate::files::{DirListing, FileEntry, QuickLocation};
+use crate::history::HistoryEntry;
 use crate::https::HttpsStatus;
 use crate::leanmode::LeanStatus;
 use crate::macros::{Macro, MacroStatus, Step};
-use crate::permissions::{PermDecision, PermKind, SitePerm};
-use crate::shields::{HotRule, ShieldsStatus};
-use crate::sync::{SyncReport, SyncStatus};
-use crate::todos::Todo;
-use crate::feeds::{Feed, FeedItem};
-use crate::history::HistoryEntry;
 use crate::netspeed::SpeedResult;
+use crate::permissions::{PermDecision, PermKind, SitePerm};
 use crate::pwa::PwaApp;
 use crate::sessions::{SavedSession, SavedTab};
+use crate::shields::{HotRule, ShieldsStatus};
 use crate::state::{
     AgentStatus, ClusterTag, Container, TabFolder, TabGroup, TabKind, TabMeta, WebPanel, Workspace,
 };
+use crate::sync::{SyncReport, SyncStatus};
 use crate::taskmgr::{ProcInfo, SysStats};
+use crate::todos::Todo;
 use crate::vault::{CredentialMeta, VaultStatus};
 
 /// Path to the generated bindings, relative to the crate root (= CWD under
@@ -49,12 +49,13 @@ const HEADER: &str = "// AUTO-GENERATED from crates/flux-core/src/state.rs (BACK
 pub fn generate_ts() -> String {
     // u64 ids (TabId) → `number`, matching the existing wire contract (JS has no
     // u64; ids never approach 2^53, so this is safe and what ipc.ts already used).
-    let c = specta::ts::ExportConfiguration::default()
-        .bigint(specta::ts::BigIntExportBehavior::Number);
+    let c =
+        specta::ts::ExportConfiguration::default().bigint(specta::ts::BigIntExportBehavior::Number);
     let parts = [
         specta::ts::export::<TabKind>(&c),
         specta::ts::export::<ClusterTag>(&c),
         specta::ts::export::<TabMeta>(&c),
+        specta::ts::export::<ShellSnapshot>(&c),
         specta::ts::export::<Workspace>(&c),
         specta::ts::export::<TabGroup>(&c),
         specta::ts::export::<TabFolder>(&c),

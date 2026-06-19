@@ -12,7 +12,10 @@ use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::cli::LaunchIntent;
-use crate::state::{AgentStatus, DomSnapshot, FluxState, TabId, TabKind, TabMeta};
+use crate::state::{
+    AgentStatus, Container, DomSnapshot, FluxState, TabFolder, TabGroup, TabId, TabKind, TabMeta,
+    WebPanel, Workspace,
+};
 
 /// Process-wide monotonic clock origin for snapshot staleness stamps.
 static BOOT: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
@@ -21,6 +24,34 @@ fn now_ms() -> u64 {
 }
 
 // ─── Tab lifecycle ───────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, Clone, specta::Type)]
+pub struct ShellSnapshot {
+    pub tabs: Vec<TabMeta>,
+    pub active_tab: Option<TabId>,
+    pub groups: Vec<TabGroup>,
+    pub folders: Vec<TabFolder>,
+    pub workspaces: Vec<Workspace>,
+    pub active_workspace: u32,
+    pub panels: Vec<WebPanel>,
+    pub containers: Vec<Container>,
+}
+
+/// One startup/refresh payload for the shell chrome. This replaces the previous
+/// fanout of tab_list + tab_active + groups/folders/workspaces/panels/containers.
+#[tauri::command]
+pub fn shell_snapshot(state: State<'_, FluxState>) -> ShellSnapshot {
+    ShellSnapshot {
+        tabs: state.ordered_tabs(),
+        active_tab: state.active_tab(),
+        groups: state.groups_list(),
+        folders: state.folders_list(),
+        workspaces: state.workspaces_list(),
+        active_workspace: state.active_workspace(),
+        panels: state.panels_list(),
+        containers: state.containers_list(),
+    }
+}
 
 /// Register a new tab of either kind. For Browser tabs the frontend creates
 /// the child webview (labelled `tab-{id}`) once this returns; for Terminal

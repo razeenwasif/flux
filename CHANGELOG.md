@@ -40,6 +40,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   stay out of the initial shell chunk and load the first time their footer buttons
   are clicked. Shields and Downloads remain eager so their live badges/events are
   still available immediately.
+- **Shell chrome refresh batched into one IPC snapshot** — startup and tab
+  mutations now fetch tabs, active tab, groups, folders, workspaces, panels, and
+  containers with `shell_snapshot` instead of fanning out through separate invokes.
+  The frontend still preserves live tab URLs/titles while applying structural state.
 - **Generated TS bindings — batch 3** (BACKLOG #12) — 28 more IPC types are now
   derived from their Rust definitions (`specta::Type` → `bindings.gen.ts`, drift-
   gated in CI) instead of hand-mirrored in `ipc.ts`: shields/privacy

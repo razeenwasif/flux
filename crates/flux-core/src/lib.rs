@@ -370,6 +370,7 @@ pub fn run(intent: cli::LaunchIntent) {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            commands::shell_snapshot,
             commands::tab_create,
             commands::tab_focus,
             commands::tab_close,

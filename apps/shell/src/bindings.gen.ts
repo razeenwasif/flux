@@ -17,6 +17,7 @@ export type ClusterTag = { id: number; color: number }
  * the frontend wholesale on every mutation.
  */
 export type TabMeta = { id: number; kind: TabKind; url: string; title: string; pinned: boolean; cluster: ClusterTag | null; group?: number | null; folder?: number | null; custom_title?: string | null; workspace?: number; private?: boolean; container?: number }
+export type ShellSnapshot = { tabs: TabMeta[]; active_tab: number | null; groups: TabGroup[]; folders: TabFolder[]; workspaces: Workspace[]; active_workspace: number; panels: WebPanel[]; containers: Container[] }
 /**
  * An Arc-style workspace (BACKLOG #44): a named, colored set of tabs. Only the
  * active workspace's tabs hold live webviews — inactive ones are pure metadata

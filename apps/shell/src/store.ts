@@ -26,11 +26,10 @@ import {
   tabSetFolder,
   tabRename,
   type TabFolder,
-  tabActive,
   tabClose,
   tabCreate,
   tabFocus,
-  tabList,
+  shellSnapshot,
   tabReorder,
   tabSetGroup,
   tabSetWorkspace,
@@ -148,13 +147,16 @@ export function setPanelWidth(px: number): void {
   setPanelWidthSig(w);
   localStorage.setItem("flux.panel.w", String(w));
 }
-async function refreshPanels(): Promise<void> {
-  const list = await panelsList().catch(() => []);
+function applyPanels(list: WebPanel[]): void {
   setPanels(list);
   // On boot, reopen the last-open panel (panel "on by default"); drop a stale one.
   const saved = Number(localStorage.getItem("flux.panel.active") || "0");
   if (activePanelId() == null && saved && list.some((p) => p.id === saved)) setActivePanelIdRaw(saved);
   else if (activePanelId() != null && !list.some((p) => p.id === activePanelId())) setActivePanelIdRaw(null);
+}
+async function refreshPanels(): Promise<void> {
+  const list = await panelsList().catch(() => []);
+  applyPanels(list);
 }
 /** Pin a site as a panel and open it. */
 export async function pinPanel(url: string, title: string): Promise<void> {
@@ -252,7 +254,7 @@ export async function recolorContainer(id: number): Promise<void> {
 }
 export async function deleteContainer(id: number): Promise<void> {
   await containerDelete(id).catch(() => {});
-  await Promise.all([refreshContainers(), refreshTabs()]);
+  await refreshTabs();
 }
 /** Open a new tab in a container (#59) — isolated cookie/storage jar. */
 export async function openTabInContainer(containerId: number, url?: string): Promise<TabMeta> {
@@ -588,7 +590,8 @@ export const folderTabs = (folderId: number) =>
   tabs().filter((t) => t.folder === folderId && t.workspace === activeWorkspace());
 
 export async function refreshTabs(): Promise<void> {
-  const list = await tabList();
+  const snapshot = await shellSnapshot();
+  const list = snapshot.tabs;
   // The backend only knows each tab's *creation* url/title — it does NOT track
   // in-webview navigation (that's frontend state, via updateTabUrl/onTabLoaded).
   // So preserve the live url/title for tabs we already hold, and take only
@@ -605,14 +608,15 @@ export async function refreshTabs(): Promise<void> {
   // Seed selection on first load so a tab is always active. Prefer the backend's
   // restored active tab (session restore, #19); fall back to the last tab.
   if (activeId() === null && list.length > 0) {
-    const restored = await tabActive().catch(() => null);
+    const restored = snapshot.active_tab;
     setActiveId(restored && list.some((t) => t.id === restored) ? restored : list.at(-1)!.id);
   }
-  void refreshGroups();
-  void refreshFolders();
-  void refreshWorkspaces();
-  void refreshPanels();
-  void refreshContainers();
+  setGroups(snapshot.groups);
+  setFolders(snapshot.folders);
+  setWorkspaces(snapshot.workspaces);
+  setActiveWorkspaceSig(snapshot.active_workspace);
+  applyPanels(snapshot.panels);
+  setContainers(snapshot.containers);
 }
 
 export async function openTab(kind: TabKind, url?: string, isPrivate?: boolean, background?: boolean): Promise<TabMeta> {
