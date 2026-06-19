@@ -44,6 +44,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   mutations now fetch tabs, active tab, groups, folders, workspaces, panels, and
   containers with `shell_snapshot` instead of fanning out through separate invokes.
   The frontend still preserves live tab URLs/titles while applying structural state.
+- **Vault auto-lock watchdog backs off when idle** — the background vault thread now
+  keeps the 20s check only while a password-protected, unlocked vault has auto-lock
+  enabled; otherwise it sleeps for 60s to reduce default/keychain-mode wakeups.
 - **Generated TS bindings — batch 3** (BACKLOG #12) — 28 more IPC types are now
   derived from their Rust definitions (`specta::Type` → `bindings.gen.ts`, drift-
   gated in CI) instead of hand-mirrored in `ipc.ts`: shields/privacy

@@ -331,12 +331,15 @@ pub fn run(intent: cli::LaunchIntent) {
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_secs(20));
-                    if let Some(v) = handle.try_state::<vault::VaultState>() {
+                    let sleep = if let Some(v) = handle.try_state::<vault::VaultState>() {
                         if v.maybe_autolock() {
                             let _ = handle.emit("flux://vault-locked", ());
                         }
-                    }
+                        v.autolock_watch_interval()
+                    } else {
+                        std::time::Duration::from_secs(60)
+                    };
+                    std::thread::sleep(sleep);
                 });
             }
             // Native rounded corners (Win11) — the window is opaque, so CSS

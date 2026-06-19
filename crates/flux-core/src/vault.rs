@@ -17,7 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -142,6 +142,18 @@ impl VaultState {
             return true;
         }
         false
+    }
+
+    /// How often the background watchdog should wake. The common/default
+    /// keychain mode has no auto-lock work, so avoid a permanent 20s idle wakeup.
+    pub fn autolock_watch_interval(&self) -> Duration {
+        if *self.protection.read() != Protection::Password
+            || self.autolock_min.load(Ordering::Relaxed) == 0
+            || self.open.read().is_none()
+        {
+            return Duration::from_secs(60);
+        }
+        Duration::from_secs(20)
     }
 
     /// Re-seal the decrypted vault to disk (must be unlocked).
