@@ -70,8 +70,10 @@ struct Meta {
 }
 
 impl VaultState {
-    /// Boot: read mode, then (keychain mode) auto-unlock, or (password mode)
-    /// stay locked until `vault_unlock`.
+    /// Boot-critical constructor: read only small metadata and defer keychain
+    /// access/decryption. Windows Credential Manager can take noticeable time
+    /// on cold start, so keychain-mode auto-unlock happens in `hydrate_keychain`
+    /// after the shell is already launching.
     pub fn load(app: &AppHandle) -> Self {
         let dir = app
             .path()
@@ -82,37 +84,41 @@ impl VaultState {
         let meta = read_meta(&dir);
         let password_mode = meta.protection == "password" && dir.join("keywrap.json").is_file();
 
-        let (open, source) = if password_mode {
-            (None, "password")
-        } else {
-            match obtain_key(&dir) {
-                (Some(dk), src) => {
-                    let vault = match std::fs::read(&path) {
-                        Ok(blob) if !blob.is_empty() => Vault::decrypt(&dk, &blob).unwrap_or_else(|e| {
-                            tracing::error!(target: "flux::vault", "vault decrypt failed: {e}");
-                            Vault::default()
-                        }),
-                        _ => Vault::default(),
-                    };
-                    (Some(Unlocked { vault, dk: Zeroizing::new(dk) }), src)
-                }
-                (None, _) => (None, "none"),
+        Self {
+            open: RwLock::new(None),
+            dir,
+            path,
+            protection: RwLock::new(if password_mode { Protection::Password } else { Protection::Keychain }),
+            source: RwLock::new(if password_mode { "password" } else { "loading" }),
+            autolock_min: AtomicU64::new(meta.autolock_minutes),
+            last_activity: AtomicU64::new(now_ms()),
+        }
+    }
+
+    /// Finish keychain-mode auto-unlock off the Tauri setup path.
+    pub fn hydrate_keychain(&self) {
+        if *self.protection.read() == Protection::Password || self.open.read().is_some() {
+            return;
+        }
+        let (open, source) = match obtain_key(&self.dir) {
+            (Some(dk), src) => {
+                let vault = match std::fs::read(&self.path) {
+                    Ok(blob) if !blob.is_empty() => Vault::decrypt(&dk, &blob).unwrap_or_else(|e| {
+                        tracing::error!(target: "flux::vault", "vault decrypt failed: {e}");
+                        Vault::default()
+                    }),
+                    _ => Vault::default(),
+                };
+                (Some(Unlocked { vault, dk: Zeroizing::new(dk) }), src)
             }
+            (None, _) => (None, "none"),
         };
         if source == "file" {
             tracing::warn!(target: "flux::vault", "no OS keychain; vault key is file-backed (less secure)");
         }
-
-        let state = Self {
-            open: RwLock::new(open),
-            dir,
-            path,
-            protection: RwLock::new(if password_mode { Protection::Password } else { Protection::Keychain }),
-            source: RwLock::new(source),
-            autolock_min: AtomicU64::new(meta.autolock_minutes),
-            last_activity: AtomicU64::new(now_ms()),
-        };
-        state
+        *self.open.write() = open;
+        *self.source.write() = source;
+        self.touch();
     }
 
     fn touch(&self) {

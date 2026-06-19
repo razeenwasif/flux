@@ -1,5 +1,59 @@
 # Flux Progress
 
+## 2026-06-19: Fix file explorer hangs from blocking filesystem work
+
+### Problem
+Opening the built-in file explorer could still hang the app on Windows even
+after the native-webview overlay fix. The symptom was not only click occlusion:
+the app could stall while the Files view mounted.
+
+### Root Cause
+The Files mount path immediately did several filesystem operations that are
+risky on Windows:
+
+1. `fs_list` called `metadata()` for every directory entry, creating a per-entry
+   stat storm. Cloud, shell, network, removable, or OneDrive-backed folders can
+   block on those stats.
+2. `fs_quick_locations` synchronously probed common folders, every drive letter,
+   and WSL distributions.
+3. `fs_watch` synchronously created and registered a native directory watcher.
+
+### Fix
+- Made the initial directory listing fast name/type data only. File size and
+  modified time are now `null` until a future background metadata pass exists.
+- Moved quick-location discovery onto the blocking runtime.
+- Moved directory watcher creation onto the blocking runtime.
+- Updated the frontend file-entry type and size rendering so unknown sizes show
+  as `—` instead of fake `0 B`.
+
+### Files Changed
+- `crates/flux-core/src/files.rs`
+- `apps/shell/src/FilesView.tsx`
+- `apps/shell/src/ipc.ts`
+
+## 2026-06-19: Move vault auto-unlock off the startup path
+
+### Problem
+Launching the Windows executable had noticeable startup latency.
+
+### Root Cause
+The password vault initialization synchronously contacted the OS keychain and
+decrypted the vault during Tauri setup. On Windows this means Credential Manager
+latency can delay the app becoming usable.
+
+### Fix
+- `VaultState::load` now reads only small metadata during setup.
+- Keychain-mode auto-unlock and vault decrypt now run on a background thread.
+- The backend emits `flux://vault-ready` when hydration finishes.
+- Password UI surfaces refresh when the ready event arrives.
+
+### Files Changed
+- `crates/flux-core/src/vault.rs`
+- `crates/flux-core/src/lib.rs`
+- `apps/shell/src/ipc.ts`
+- `apps/shell/src/Passwords.tsx`
+- `apps/shell/src/VaultPage.tsx`
+
 ## 2025-06-19: Fix frozen file explorer panel
 
 ### Problem

@@ -468,7 +468,7 @@ export interface VaultStatus {
   locked: boolean;
   /** "keychain" | "password" */
   protection: string;
-  /** "keychain" | "file" | "password" | "none" */
+  /** "loading" | "keychain" | "file" | "password" | "none" */
   source: string;
   count: number;
   autolock_minutes: number;
@@ -490,6 +490,9 @@ export const vaultSetAutolock = (minutes: number) => invoke<void>("vault_set_aut
 /** Fires when the vault auto-locks after idle. */
 export const onVaultLocked = (cb: () => void): Promise<UnlistenFn> =>
   listen("flux://vault-locked", () => cb());
+/** Fires when keychain-mode vault hydration finishes after startup. */
+export const onVaultReady = (cb: () => void): Promise<UnlistenFn> =>
+  listen("flux://vault-ready", () => cb());
 export const vaultList = () => invoke<CredentialMeta[]>("vault_list");
 export const vaultForHost = (host: string) => invoke<CredentialMeta[]>("vault_for_host", { host });
 /** Reveal one password (explicit user action). */
@@ -813,7 +816,7 @@ export interface FileEntry {
   name: string;
   is_dir: boolean;
   symlink: boolean;
-  size: number;
+  size: number | null;
   modified: number | null;
 }
 export interface DirListing {

@@ -8,6 +8,7 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount, type Compone
 import {
   VAULT_URL,
   onVaultLocked,
+  onVaultReady,
   vaultFill,
   vaultForHost,
   vaultLock,
@@ -46,8 +47,9 @@ const Passwords: Component = () => {
     else setMatches([]);
   };
   onMount(async () => {
-    const un = await onVaultLocked(() => refresh());
-    onCleanup(un);
+    const unLocked = await onVaultLocked(() => refresh());
+    const unReady = await onVaultReady(() => refresh());
+    onCleanup(() => { unLocked(); unReady(); });
   });
   // Poll for host matches only while the popover is open (was an always-on 2.5s
   // timer). The locked-state badge stays fresh via the onVaultLocked event.

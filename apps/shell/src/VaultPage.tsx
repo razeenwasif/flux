@@ -21,6 +21,7 @@ import {
   vaultStatus,
   vaultUnlock,
   onVaultLocked,
+  onVaultReady,
   type CredentialMeta,
   type VaultStatus,
 } from "./ipc";
@@ -70,8 +71,9 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     if (id != null) updateTabTitle(id, "Passwords");
     refresh();
     const t = window.setInterval(refresh, 4000);
-    const un = await onVaultLocked(() => { setPw(null); refresh(); });
-    onCleanup(() => { clearInterval(t); un(); });
+    const unLocked = await onVaultLocked(() => { setPw(null); refresh(); });
+    const unReady = await onVaultReady(() => refresh());
+    onCleanup(() => { clearInterval(t); unLocked(); unReady(); });
   });
 
   const filtered = createMemo(() => {

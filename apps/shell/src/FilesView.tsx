@@ -187,7 +187,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
       if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
       let c = 0;
       if (key === "name") c = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
-      else if (key === "size") c = a.size - b.size;
+      else if (key === "size") c = (a.size ?? -1) - (b.size ?? -1);
       else c = (a.modified ?? 0) - (b.modified ?? 0);
       return c * dir;
     });
@@ -880,8 +880,8 @@ function crumbs(path: string): { name: string; path: string }[] {
   return out;
 }
 
-function fmtSize(n: number, isDir: boolean): string {
-  if (isDir) return "—";
+function fmtSize(n: number | null, isDir: boolean): string {
+  if (isDir || n == null) return "—";
   if (n < 1024) return `${n} B`;
   const u = ["KB", "MB", "GB", "TB"];
   let v = n;

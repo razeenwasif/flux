@@ -66,6 +66,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   budgets are a self-hosted/manual gate).
 
 ### Changed / Fixed
+- **Files explorer no longer hangs on Windows-backed folders** — the initial
+  listing no longer stats every entry before painting, quick-location discovery
+  runs off the IPC/UI path, and live watcher setup is moved to a blocking worker.
+  Size/modified columns show `—` when metadata has not been hydrated yet.
+- **Faster app startup with the password vault enabled** — keychain-mode vault
+  auto-unlock and decrypt now happen after Tauri setup on a background thread;
+  password UI surfaces refresh on the new `flux://vault-ready` event.
 - **Closing a tab always leaves a start page** — closing a browser tab when no
   other **flux://start** tab is open now converts it into a fresh start tab instead
   of removing it, so there's always a new tab to start from (close the last tab and

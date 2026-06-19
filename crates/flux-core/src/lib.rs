@@ -291,6 +291,15 @@ pub fn run(intent: cli::LaunchIntent) {
             // Password vault (#61) — OS-keychain data key + decrypted-in-memory
             // for autofill; persists to app_data/vault/vault.bin.
             app.manage(vault::VaultState::load(app.handle()));
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    if let Some(v) = handle.try_state::<vault::VaultState>() {
+                        v.hydrate_keychain();
+                        let _ = handle.emit("flux://vault-ready", ());
+                    }
+                });
+            }
             // Idle auto-lock watchdog (master-password mode): clears the
             // decrypted vault from memory after the configured idle timeout.
             {
