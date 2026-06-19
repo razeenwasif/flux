@@ -18,6 +18,7 @@ fn main() {
                     "chrome_open_url",
                     "chrome_peek_url",
                     "peek_promote",
+                    "peek_pin",
                     "peek_close",
                     "find_result",
                     "hibernate_capture",
