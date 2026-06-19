@@ -13,7 +13,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 /// One directory entry. Compact on purpose — see module docs.
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct FileEntry {
     pub name: String,
     pub is_dir: bool,
@@ -25,7 +25,7 @@ pub struct FileEntry {
 }
 
 /// A directory's contents plus where it sits.
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct DirListing {
     /// Canonical, display-clean directory path.
     pub path: String,
@@ -35,7 +35,7 @@ pub struct DirListing {
 }
 
 /// A pinned spot in the left rail.
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct QuickLocation {
     pub name: String,
     pub path: String,

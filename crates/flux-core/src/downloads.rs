@@ -15,7 +15,7 @@ use serde::Serialize;
 use tauri::webview::Webview;
 use tauri::{AppHandle, State};
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, specta::Type)]
 pub struct DownloadItem {
     pub id: u64,
     pub url: String,

@@ -7,6 +7,21 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Changed
+- **Generated TS bindings — batch 3** (BACKLOG #12) — 28 more IPC types are now
+  derived from their Rust definitions (`specta::Type` → `bindings.gen.ts`, drift-
+  gated in CI) instead of hand-mirrored in `ipc.ts`: shields/privacy
+  (ShieldsStatus, HotRule, LeanStatus, HttpsStatus, CookieStatus), permissions
+  (PermKind, PermDecision, SitePerm), vault (CredentialMeta, VaultStatus),
+  extensions (Manifest, ContentScript, UiContrib, ToolbarButton, InstalledExt),
+  macros (Step, Macro, MacroStatus), Boost, DownloadItem, files (FileEntry,
+  DirListing, QuickLocation), sync (SyncStatus, SyncReport), OmniHit, ReaderBlock.
+  Removes the corresponding hand-written interfaces (~51 IPC types now generated).
+- **Archive wire/persist split** (BACKLOG #12) — `archive_get` now returns
+  `ArchiveEntryWire` (id/url/title/saved_ms/text), keeping the persisted entry's
+  embedding vector + embedder tag off the wire (they're an on-disk concern the
+  reader never needs); this also lets the wire shape be specta-generated.
+
 ### Added
 - **Streaming agent replies + schema-constrained actions** (BACKLOG #82, closes it)
   — the agent sidebar now renders chat answers **token-by-token as the model

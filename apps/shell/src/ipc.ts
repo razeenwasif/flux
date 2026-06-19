@@ -41,10 +41,35 @@ export const isStartUrl = (url: string) => url === START_URL || url.startsWith("
 // `FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`.
 import type {
   AgentStatus as GenAgentStatus,
+  ArchiveEntryWire as GenArchiveEntryWire,
   ArchiveMeta as GenArchiveMeta,
   Bookmark as GenBookmark,
+  Boost as GenBoost,
   CalEvent as GenCalEvent,
   CalFeed as GenCalFeed,
+  ContentScript as GenContentScript,
+  CookieStatus as GenCookieStatus,
+  CredentialMeta as GenCredentialMeta,
+  DirListing as GenDirListing,
+  DownloadItem as GenDownloadItem,
+  FileEntry as GenFileEntry,
+  HotRule as GenHotRule,
+  HttpsStatus as GenHttpsStatus,
+  InstalledExt as GenInstalledExt,
+  LeanStatus as GenLeanStatus,
+  Macro as GenMacro,
+  MacroStatus as GenMacroStatus,
+  Manifest as GenManifest,
+  OmniHit as GenOmniHit,
+  PermDecision as GenPermDecision,
+  PermKind as GenPermKind,
+  QuickLocation as GenQuickLocation,
+  ReaderBlock as GenReaderBlock,
+  ShieldsStatus as GenShieldsStatus,
+  SitePerm as GenSitePerm,
+  Step as GenStep,
+  SyncReport as GenSyncReport,
+  SyncStatus as GenSyncStatus,
   Todo as GenTodo,
   ClusterTag as GenClusterTag,
   Container as GenContainer,
@@ -61,6 +86,7 @@ import type {
   TabGroup as GenTabGroup,
   TabKind as GenTabKind,
   TabMeta as GenTabMeta,
+  VaultStatus as GenVaultStatus,
   WebPanel as GenWebPanel,
   Workspace as GenWorkspace,
 } from "./bindings.gen";
@@ -87,6 +113,35 @@ export type ArchiveMeta = GenArchiveMeta;
 export type CalFeed = GenCalFeed;
 export type CalEvent = GenCalEvent;
 export type Todo = GenTodo;
+// Batch 3 (BACKLOG #12): misc command structs. `MacroStep`/`ExtManifest`/
+// `ExtContentScript`/`ArchiveEntry` keep their established frontend names as
+// aliases over the generated types.
+export type OmniHit = GenOmniHit;
+export type ReaderBlock = GenReaderBlock;
+export type ShieldsStatus = GenShieldsStatus;
+export type HotRule = GenHotRule;
+export type LeanStatus = GenLeanStatus;
+export type HttpsStatus = GenHttpsStatus;
+export type CookieStatus = GenCookieStatus;
+export type PermKind = GenPermKind;
+export type PermDecision = GenPermDecision;
+export type SitePerm = GenSitePerm;
+export type CredentialMeta = GenCredentialMeta;
+export type VaultStatus = GenVaultStatus;
+export type ExtContentScript = GenContentScript;
+export type ExtManifest = GenManifest;
+export type InstalledExt = GenInstalledExt;
+export type MacroStep = GenStep;
+export type Macro = GenMacro;
+export type MacroStatus = GenMacroStatus;
+export type Boost = GenBoost;
+export type DownloadItem = GenDownloadItem;
+export type FileEntry = GenFileEntry;
+export type DirListing = GenDirListing;
+export type QuickLocation = GenQuickLocation;
+export type SyncStatus = GenSyncStatus;
+export type SyncReport = GenSyncReport;
+export type ArchiveEntry = GenArchiveEntryWire;
 
 export const foldersList = () => invoke<TabFolder[]>("folders_list");
 export const folderCreate = (name: string) => invoke<number>("folder_create", { name });
@@ -233,14 +288,7 @@ export const agentSetModel = (name: string) => invoke<void>("agent_set_model", {
 export const agentChatTabs = (prompt: string, tabIds: number[]) =>
   invoke<string>("agent_chat_tabs", { prompt, tabIds });
 // ─── Semantic everything-search (BACKLOG #66) ────────────────────────────────
-export interface OmniHit {
-  kind: "tab" | "bookmark" | "history";
-  tab_id: number | null;
-  title: string;
-  url: string;
-  snippet: string;
-  score: number;
-}
+// OmniHit type is generated (bindings.gen) and aliased above.
 export const omniSearch = (query: string, limit?: number) =>
   invoke<OmniHit[]>("omni_search", { query, limit: limit ?? null });
 export const tabsRecluster = () => invoke<void>("tabs_recluster");
@@ -388,21 +436,7 @@ export const omniIngestActive = async (): Promise<{ added: number; skipped: numb
   JSON.parse(await invoke<string>("omni_ingest_active"));
 
 // ─── Content blocker / shields (BACKLOG #57) ────────────────────────────────
-
-export interface ShieldsStatus {
-  enabled: boolean;
-  /** Requests blocked this session. */
-  blocked: number;
-  /** Hosts the user has allowlisted (shields off). */
-  sites_off: string[];
-  /** Decision-cache hit ratio % — verdicts served without re-running the engine (#99). */
-  cache_hit_pct: number;
-  /** Live entries in the decision cache (#99). */
-  cache_len: number;
-  /** Distinct rules observed firing this session — the live hot set (#99). */
-  rules_fired: number;
-}
-
+// ShieldsStatus / HotRule types are generated (bindings.gen) and aliased above.
 export const shieldsStatus = () => invoke<ShieldsStatus>("shields_status");
 export const shieldsSetEnabled = (on: boolean) => invoke<void>("shields_set_enabled", { on });
 /** Turn shields on/off for one site (`on = false` allowlists it). */
@@ -412,24 +446,15 @@ export const shieldsSetSite = (host: string, on: boolean) =>
 export const shieldsRefresh = () => invoke<void>("shields_refresh");
 
 /** The session's hot rule set — filters that actually fired, busiest first (#99). */
-export interface HotRule { rule: string; hits: number }
 export const shieldsHotRules = (limit: number) =>
   invoke<HotRule[]>("shields_hot_rules", { limit });
 
 // ─── Per-site lean mode (BACKLOG #105) ───────────────────────────────────────
-export interface LeanStatus { enabled: boolean; sites_on: string[] }
 export const leanStatus = () => invoke<LeanStatus>("lean_status");
 export const leanSetEnabled = (on: boolean) => invoke<void>("lean_set_enabled", { on });
 export const leanSetSite = (host: string, on: boolean) => invoke<void>("lean_set_site", { host, on });
 
 // ─── HTTPS-only mode (BACKLOG #58) ──────────────────────────────────────────
-
-export interface HttpsStatus {
-  enabled: boolean;
-  /** Hosts allowlisted to stay on HTTP. */
-  sites_allow_http: string[];
-}
-
 export const httpsStatus = () => invoke<HttpsStatus>("https_status");
 export const httpsSetEnabled = (on: boolean) => invoke<void>("https_set_enabled", { on });
 /** Allow (or stop allowing) a host to stay on plain HTTP under HTTPS-only. */
@@ -443,10 +468,6 @@ export const cookiesClearSite = (host: string) => invoke<void>("cookies_clear_si
 /** Clear every cookie in the store. */
 export const cookiesClearAll = () => invoke<void>("cookies_clear_all");
 
-export interface CookieStatus {
-  /** Hosts whose cookies are wiped when their tab closes. */
-  clear_on_close: string[];
-}
 export const cookiesStatus = () => invoke<CookieStatus>("cookies_status");
 /** Flag (or unflag) a host to clear its cookies when its tab closes. */
 export const cookiesSetClearOnClose = (host: string, on: boolean) =>
@@ -464,9 +485,7 @@ export const permissionsSetBlock = (on: boolean) => invoke<void>("permissions_se
 
 /** Per-site permission manager (#38). */
 export const PERMISSIONS_URL = "flux://permissions";
-export type PermKind = "camera" | "microphone" | "geolocation" | "notifications" | "clipboard_read" | "other";
-export type PermDecision = "ask" | "allow" | "deny";
-export interface SitePerm { host: string; kind: PermKind; decision: PermDecision }
+// PermKind / PermDecision / SitePerm are generated (bindings.gen) and aliased above.
 export const permissionsList = () => invoke<SitePerm[]>("permissions_list");
 export const permissionsSet = (host: string, kind: PermKind, decision: PermDecision) =>
   invoke<void>("permissions_set", { host, kind, decision });
@@ -476,23 +495,7 @@ export const permissionsClearAll = () => invoke<void>("permissions_clear_all");
 // ─── Password vault (BACKLOG #61, ADR 0009) ──────────────────────────────────
 // Metadata only — passwords never come to the chrome except via vault_reveal
 // (explicit) or are injected straight into the page by vault_fill.
-export interface CredentialMeta {
-  id: string;
-  name: string;
-  urls: string[];
-  username: string;
-  has_totp: boolean;
-}
-export interface VaultStatus {
-  available: boolean;
-  locked: boolean;
-  /** "keychain" | "password" */
-  protection: string;
-  /** "loading" | "keychain" | "file" | "password" | "none" */
-  source: string;
-  count: number;
-  autolock_minutes: number;
-}
+// CredentialMeta / VaultStatus are generated (bindings.gen) and aliased above.
 /** Sentinel url for the full-page vault manager (DOM-rendered, no webview). */
 export const VAULT_URL = "flux://passwords";
 export const vaultStatus = () => invoke<VaultStatus>("vault_status");
@@ -528,27 +531,8 @@ export const vaultImportProton = (path: string, passphrase?: string) =>
 export const vaultFill = (tabId: number, id: string) => invoke<void>("vault_fill", { tabId, id });
 
 // ─── Extensions (BACKLOG #92, ADR 0008) ──────────────────────────────────────
-// Shapes mirror crates/flux-core/src/extensions.rs.
-export interface ExtContentScript {
-  matches: string[];
-  js: string[];
-  css: string[];
-  run_at: string;
-}
-export interface ExtManifest {
-  id: string;
-  name: string;
-  version: string;
-  permissions: string[];
-  content_scripts: ExtContentScript[];
-  background: string | null;
-  ui: { toolbar_button: { title: string; icon: string | null } | null; panel: boolean | null } | null;
-}
-export interface InstalledExt {
-  manifest: ExtManifest;
-  dir: string;
-  enabled: boolean;
-}
+// ExtContentScript / ExtManifest / InstalledExt are generated (bindings.gen,
+// from extensions.rs Manifest/ContentScript/InstalledExt) and aliased above.
 /** Install the extension whose folder is `dir` (must hold flux.extension.json). */
 export const extInstall = (dir: string) => invoke<ExtManifest>("ext_install", { dir });
 export const extList = () => invoke<InstalledExt[]>("ext_list");
@@ -569,7 +553,7 @@ export const webviewNavigate = (tabId: number, url: string) =>
   invoke<void>("webview_navigate", { tabId, url });
 export const webviewZoom = (tabId: number, factor: number) => invoke<void>("webview_zoom", { tabId, factor });
 // ─── Reader mode (BACKLOG #41) ───────────────────────────────────────────────
-export interface ReaderBlock { kind: string; text: string; level: number; src: string }
+// ReaderBlock type is generated (bindings.gen) and aliased above.
 export const webviewExtractReader = (tabId: number) => invoke<void>("webview_extract_reader", { tabId });
 // ─── Resource monitor (BACKLOG #70) ─────────────────────────────────────────
 export const RESOURCES_URL = "flux://resources";
@@ -578,8 +562,7 @@ export const tabDomSizes = () => invoke<[number, number][]>("tab_dom_sizes");
 
 // ─── E2E-encrypted sync (BACKLOG #62) ────────────────────────────────────────
 export const SYNC_URL = "flux://sync";
-export interface SyncStatus { folder: string | null; unlocked: boolean; last_ms: number }
-export interface SyncReport { bookmarks_added: number; sessions_added: number }
+// SyncStatus / SyncReport are generated (bindings.gen) and aliased above.
 export const syncStatus = () => invoke<SyncStatus>("sync_status");
 export const syncSetFolder = (path: string) => invoke<void>("sync_set_folder", { path });
 export const syncUnlock = (passphrase: string) => invoke<void>("sync_unlock", { passphrase });
@@ -594,13 +577,7 @@ export const pwaLaunch = (id: number) => invoke<void>("pwa_launch", { id });
 export const pwaRemove = (id: number) => invoke<void>("pwa_remove", { id });
 
 // ─── Scriptable macros (BACKLOG #67) ─────────────────────────────────────────
-export type MacroStep =
-  | { kind: "navigate"; url: string }
-  | { kind: "click"; selector: string }
-  | { kind: "type"; selector: string; text: string }
-  | { kind: "wait"; ms: number };
-export interface Macro { id: number; name: string; steps: MacroStep[] }
-export interface MacroStatus { recording: boolean; step_count: number }
+// MacroStep (Rust `Step`) / Macro / MacroStatus are generated and aliased above.
 export const macrosList = () => invoke<Macro[]>("macros_list");
 export const macrosStatus = () => invoke<MacroStatus>("macros_status");
 export const macroStartRecord = () => invoke<void>("macro_start_record");
@@ -611,7 +588,7 @@ export const macroRename = (id: number, name: string) => invoke<void>("macro_ren
 export const macroRun = (id: number) => invoke<void>("macro_run", { id });
 
 // ─── Per-site boosts (BACKLOG #49) ───────────────────────────────────────────
-export interface Boost { id: number; host: string; name: string; css: string; js: string; enabled: boolean }
+// Boost type is generated (bindings.gen) and aliased above.
 export const boostsForHost = (host: string) => invoke<Boost[]>("boosts_for_host", { host });
 export const boostSetEnabled = (id: number, host: string, enabled: boolean) =>
   invoke<void>("boost_set_enabled", { id, host, enabled });
@@ -621,9 +598,8 @@ export const boostAuthor = (instruction: string) => invoke<Boost>("boost_author"
 
 // ─── Offline archive / read-later (BACKLOG #69) ──────────────────────────────
 export const ARCHIVE_URL = "flux://archive";
-// ArchiveMeta from bindings.gen; ArchiveEntry stays hand-written (its Rust struct
-// carries persisted embedding/embedder fields not sent in the wire shape).
-export interface ArchiveEntry { id: number; url: string; title: string; saved_ms: number; text: string }
+// ArchiveMeta + ArchiveEntry (the wire shape, `ArchiveEntryWire`) are generated:
+// the Rust persist struct carries embedding/embedder fields kept off the wire (#12).
 /** Save the active page for offline reading + semantic search. */
 export const archiveSave = () => invoke<ArchiveMeta>("archive_save");
 export const archiveList = () => invoke<ArchiveMeta[]>("archive_list");
@@ -794,17 +770,7 @@ export const sessionRestore = (id: number) => invoke<SavedTab[]>("session_restor
 export const historyClear = () => invoke<void>("history_clear");
 
 // ─── Downloads (BACKLOG #34) ─────────────────────────────────────────────────
-export interface DownloadItem {
-  id: number;
-  url: string;
-  filename: string;
-  path: string;
-  received: number;
-  total: number;
-  /** "in_progress" | "paused" | "completed" | "interrupted" */
-  state: string;
-  started_ms: number;
-}
+// DownloadItem type is generated (bindings.gen) and aliased above.
 export const downloadsList = () => invoke<DownloadItem[]>("downloads_list");
 export const downloadsClear = () => invoke<void>("downloads_clear");
 export const downloadOpen = (id: number) => invoke<void>("download_open", { id });
@@ -831,25 +797,7 @@ export const onTabLoaded = (
   );
 
 // ─── Filesystem explorer (Files tab) ────────────────────────────────────────
-
-export interface FileEntry {
-  name: string;
-  is_dir: boolean;
-  symlink: boolean;
-  size: number | null;
-  modified: number | null;
-}
-export interface DirListing {
-  path: string;
-  parent: string | null;
-  entries: FileEntry[];
-}
-export interface QuickLocation {
-  name: string;
-  path: string;
-  kind: "home" | "folder" | "drive" | "linux";
-}
-
+// FileEntry / DirListing / QuickLocation are generated (bindings.gen) and aliased above.
 export const fsList = (path: string) => invoke<DirListing>("fs_list", { path });
 export const fsHome = () => invoke<string>("fs_home");
 export const fsQuickLocations = () => invoke<QuickLocation[]>("fs_quick_locations");

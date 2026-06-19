@@ -22,7 +22,7 @@ use tauri::{AppHandle, State};
 
 /// The permission kinds Flux surfaces. Anything else from the engine maps to
 /// [`PermKind::Other`].
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum PermKind {
     Camera,
@@ -35,7 +35,7 @@ pub enum PermKind {
 
 /// What the user decided for a (site, kind). `Ask` = no remembered decision, so
 /// the engine's own prompt is shown.
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug, Default, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum PermDecision {
     #[default]
@@ -54,7 +54,7 @@ pub enum Effective {
 }
 
 /// One remembered decision, for the manager UI + persistence.
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, specta::Type)]
 pub struct SitePerm {
     pub host: String,
     pub kind: PermKind,
