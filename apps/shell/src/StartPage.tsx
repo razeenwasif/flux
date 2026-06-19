@@ -295,6 +295,7 @@ const StartPage: Component<{
         </div>
       </header>
 
+      <div class="start-scroll">
       <section class="start-cards">
         {/* Clock + weather */}
         <div class="glass start-card start-clock">
@@ -530,6 +531,7 @@ const StartPage: Component<{
           </div>
         </div>
       </section>
+      </div>
 
       {/* Expanded calendar — a larger view with the month grid + every upcoming
           event grouped by day (#114). The start page is DOM (no webview), so a

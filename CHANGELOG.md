@@ -74,6 +74,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   budgets are a self-hosted/manual gate).
 
 ### Changed / Fixed
+- **Home widgets scroll in their own box** — the start page no longer scrolls as a
+  whole (which pushed the bottom wave animation out of view); the widget cards now
+  live in a contained scroll area under the fixed search hero, and the wave stays
+  pinned to the bottom. Add as many widgets as you like — only the card area scrolls.
 - **Leaner chrome bundle, round 2** (BACKLOG #79/#10) — the start page (`StartPage`)
   is now lazy-loaded too, pulling its ~16 KB chunk off the eager bundle (down to
   **44.6 KB / 50 KB**) — comfortable headroom as more home widgets get added. It
