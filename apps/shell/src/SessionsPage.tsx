@@ -4,17 +4,33 @@
  * content card like flux://history. Distinct from the always-on session restore.
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
-import { sessionDelete, sessionSave, sessionsList, type SavedSession } from "./ipc";
-import { activeId, restoreSession, updateTabTitle } from "./store";
+import { sessionDelete, sessionSave, sessionsList, snapshotsList, type DaySnapshot, type SavedSession } from "./ipc";
+import { activeId, restoreSession, restoreSnapshot, updateTabTitle } from "./store";
 
 const when = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
+// A friendly label for an auto-snapshot day relative to today.
+const dayLabel = (ms: number) => {
+  const d = new Date(ms);
+  const today = new Date();
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((startOf(today) - startOf(d)) / 86_400_000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return d.toLocaleDateString(undefined, { weekday: "long" });
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
 const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
   const [sessions, setSessions] = createSignal<SavedSession[]>([]);
+  const [snaps, setSnaps] = createSignal<DaySnapshot[]>([]);
   const [name, setName] = createSignal("");
   const [note, setNote] = createSignal("");
 
-  const load = () => void sessionsList().then(setSessions).catch(() => setSessions([]));
+  const load = () => {
+    void sessionsList().then(setSessions).catch(() => setSessions([]));
+    void snapshotsList().then(setSnaps).catch(() => setSnaps([]));
+  };
   onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Sessions");
@@ -32,6 +48,10 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
     setNote(`Reopened ${n} tab${n === 1 ? "" : "s"} from “${s.name}”`);
   };
   const remove = (s: SavedSession) => void sessionDelete(s.id).then(load);
+  const reopenDay = async (snap: DaySnapshot) => {
+    const n = await restoreSnapshot(snap.day);
+    setNote(`Reopened ${n} tab${n === 1 ? "" : "s"} from ${dayLabel(snap.captured_ms)}`);
+  };
 
   return (
     <div class="hist-page">
@@ -50,6 +70,20 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
       <Show when={note()}>{(n) => <div class="bm-flash">{n()}</div>}</Show>
 
       <div class="hist-body">
+        <Show when={snaps().length > 0}>
+          <div class="hist-group">
+            <div class="hist-day">Recent days · auto-saved, reopen where you left off</div>
+            <For each={snaps()}>
+              {(snap) => (
+                <div class="bm-folder">
+                  <span class="bm-folder-name">🕒 {dayLabel(snap.captured_ms)}</span>
+                  <span class="hist-day" style={{ "margin-left": "auto" }}>{snap.tabs.length} tab{snap.tabs.length === 1 ? "" : "s"} · {when(snap.captured_ms)}</span>
+                  <button class="bm-open-group" disabled={snap.tabs.length === 0} onClick={() => void reopenDay(snap)}>↺ Reopen</button>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
         <Show when={sessions().length > 0} fallback={<div class="hist-empty">No saved sessions yet — name your current set of tabs and save it.</div>}>
           <For each={sessions()}>
             {(s) => (

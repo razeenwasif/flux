@@ -67,6 +67,7 @@ export type PwaApp = { id: number; name: string; url: string }
 export type HistoryEntry = { url: string; title: string; last_visit_ms: number; visits: number }
 export type SavedTab = { url: string; title: string; pinned: boolean }
 export type SavedSession = { id: number; name: string; created_ms: number; tabs: SavedTab[] }
+export type DaySnapshot = { day: number; captured_ms: number; tabs: SavedTab[] }
 /**
  * One running process, as shown in the task manager.
  */

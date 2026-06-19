@@ -15,6 +15,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   middle-click, and modifier-click new-tab requests.
 
 ### Added
+- **Daily session auto-snapshots** (BACKLOG #47) — Flux now quietly snapshots your
+  open tabs into a per-day bucket on a background timer (keeps the last week), so
+  you can **"reopen yesterday"** without ever having saved a session. The Sessions
+  page shows a "Recent days" list (Today / Yesterday / weekday) with one-click
+  Reopen, above your named sessions. Stored locally in `snapshots.json`.
+- **Editable per-site privacy exceptions** (BACKLOG #78) — the Settings page's
+  Privacy section now lists every host you've made an exception for — shields
+  turned off, HTTP allowed under HTTPS-only, or lean mode on — each with a
+  one-click ✕ to restore the default. Previously these could only be toggled from
+  the Shields popover while on the site itself.
 - **Sync expansion: history, deletion propagation, auto-sync** (BACKLOG #62) — E2E
   sync now also carries **browsing history** (merged by URL, keeping the higher
   visit count; capped to the most-frecent ~4000 so the encrypted blob stays
@@ -50,6 +60,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   right-clicking anywhere that isn't a link still gets the native menu.
 
 ### Changed
+- **Home widgets use fixed cards with expandable detail views** — Start-page
+  widgets now keep a consistent dashboard footprint and expose an Expand action
+  for full lists/details, so longer recent tabs, feeds, tasks, shortcuts,
+  calendar events, and scratchpad content no longer resize the widget grid.
 - **Archive startup hydration moved off the boot path** — Flux now registers an
   empty archive store during setup and loads `archive.json` on a background thread,
   preserving immediately saved pages if hydration finishes afterward. This removes

@@ -279,6 +279,26 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("sessions.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-sessions.json"));
             app.manage(boot_phase("sessions.restore", boot_started, || sessions::SessionStore::restore(sessions_path)));
+            // Daily auto-snapshots (#47): quietly snapshot the open tabs into a
+            // per-day bucket every few minutes (keeps a week), so "reopen yesterday"
+            // works without having saved anything.
+            let snaps_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("snapshots.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-snapshots.json"));
+            app.manage(boot_phase("snapshots.restore", boot_started, || sessions::SnapshotStore::restore(snaps_path)));
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(300));
+                    if let (Some(snaps), Some(st)) =
+                        (handle.try_state::<sessions::SnapshotStore>(), handle.try_state::<state::FluxState>())
+                    {
+                        snaps.capture(sessions::snapshot(&st));
+                    }
+                });
+            }
             // Download manager (#34) — WebView2 DownloadStarting + progress.
             app.manage(downloads::DownloadState::new());
             // Native dark mode (#40) — WebView2 PreferredColorScheme.
@@ -484,6 +504,8 @@ pub fn run(intent: cli::LaunchIntent) {
             sessions::session_save,
             sessions::session_delete,
             sessions::session_restore,
+            sessions::snapshots_list,
+            sessions::snapshot_restore,
             downloads::downloads_list,
             downloads::downloads_clear,
             downloads::download_open,

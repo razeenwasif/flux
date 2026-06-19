@@ -12,8 +12,11 @@ import {
   BOOKMARKS_URL,
   cookiesClearAll,
   HISTORY_URL,
+  httpsAllowSite,
   httpsSetEnabled,
   httpsStatus,
+  leanSetSite,
+  leanStatus,
   memStatus,
   PERMISSIONS_URL,
   permissionsSetBlock,
@@ -24,6 +27,7 @@ import {
   searchSetDefault,
   SESSIONS_URL,
   shieldsSetEnabled,
+  shieldsSetSite,
   shieldsStatus,
   SYNC_URL,
   TASKS_URL,
@@ -97,14 +101,23 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [blockPerms, setBlockPerms] = createSignal(false);
   const [cookieFlash, setCookieFlash] = createSignal("");
   const [mem, setMem] = createSignal<MemInfo | null>(null);
+  // Per-site privacy exceptions (#78): hosts the user opted out per feature.
+  const [sitesOff, setSitesOff] = createSignal<string[]>([]); // shields disabled
+  const [httpAllow, setHttpAllow] = createSignal<string[]>([]); // HTTPS-only exempt
+  const [leanOn, setLeanOn] = createSignal<string[]>([]); // lean mode on
+
+  const loadShields = () => void shieldsStatus().then((s) => { setShieldsOn(s.enabled); setBlocked(s.blocked); setSitesOff(s.sites_off); }).catch(() => {});
+  const loadHttps = () => void httpsStatus().then((s) => { setHttpsOn(s.enabled); setHttpAllow(s.sites_allow_http); }).catch(() => {});
+  const loadLean = () => void leanStatus().then((s) => setLeanOn(s.sites_on)).catch(() => {});
 
   onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Settings");
     void searchEngines().then(setEngines).catch(() => {});
     void searchDefault().then(setDefaultEngine).catch(() => {});
-    void shieldsStatus().then((s) => { setShieldsOn(s.enabled); setBlocked(s.blocked); }).catch(() => {});
-    void httpsStatus().then((s) => setHttpsOn(s.enabled)).catch(() => {});
+    loadShields();
+    loadHttps();
+    loadLean();
     void trackingStatus().then(setTracking).catch(() => {});
     void permissionsStatus().then(setBlockPerms).catch(() => {});
     const pollMem = () => void memStatus().then(setMem).catch(() => {});
@@ -121,6 +134,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const clearCookies = () => {
     void cookiesClearAll().then(() => { setCookieFlash("✓ cleared"); window.setTimeout(() => setCookieFlash(""), 2000); }).catch(() => {});
   };
+  // Clear an exception → re-enable the default for that host.
+  const reenableShields = (host: string) => void shieldsSetSite(host, true).then(loadShields).catch(() => {});
+  const disallowHttp = (host: string) => void httpsAllowSite(host, false).then(loadHttps).catch(() => {});
+  const leanOff = (host: string) => void leanSetSite(host, false).then(loadLean).catch(() => {});
+
+  const hasExceptions = () => sitesOff().length + httpAllow().length + leanOn().length > 0;
 
   return (
     <div class="hist-page set-page">
@@ -176,6 +195,38 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           <Row label="Cookies" hint="Clear every cookie in the store.">
             <button class="set-link-btn" onClick={clearCookies}>{cookieFlash() || "Clear all"}</button>
           </Row>
+          <Show when={hasExceptions()}>
+            <div class="set-exceptions">
+              <div class="set-exc-head">Per-site exceptions</div>
+              <For each={sitesOff()}>
+                {(host) => (
+                  <div class="set-exc-row">
+                    <span class="set-exc-tag">shields off</span>
+                    <span class="set-exc-host">{host}</span>
+                    <button class="set-exc-x" title="Re-enable shields here" onClick={() => reenableShields(host)}>✕</button>
+                  </div>
+                )}
+              </For>
+              <For each={httpAllow()}>
+                {(host) => (
+                  <div class="set-exc-row">
+                    <span class="set-exc-tag">HTTP allowed</span>
+                    <span class="set-exc-host">{host}</span>
+                    <button class="set-exc-x" title="Require HTTPS here again" onClick={() => disallowHttp(host)}>✕</button>
+                  </div>
+                )}
+              </For>
+              <For each={leanOn()}>
+                {(host) => (
+                  <div class="set-exc-row">
+                    <span class="set-exc-tag">lean mode</span>
+                    <span class="set-exc-host">{host}</span>
+                    <button class="set-exc-x" title="Turn lean mode off here" onClick={() => leanOff(host)}>✕</button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
         </Section>
 
         <Section title="Navigation">

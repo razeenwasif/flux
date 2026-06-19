@@ -80,6 +80,7 @@ import type {
   PwaApp as GenPwaApp,
   SavedSession as GenSavedSession,
   SavedTab as GenSavedTab,
+  DaySnapshot as GenDaySnapshot,
   SpeedResult as GenSpeedResult,
   ShellSnapshot as GenShellSnapshot,
   SysStats as GenSysStats,
@@ -108,6 +109,7 @@ export type PwaApp = GenPwaApp;
 export type HistoryEntry = GenHistoryEntry;
 export type SavedTab = GenSavedTab;
 export type SavedSession = GenSavedSession;
+export type DaySnapshot = GenDaySnapshot;
 export type ProcInfo = GenProcInfo;
 export type SysStats = GenSysStats;
 export type SpeedResult = GenSpeedResult;
@@ -781,6 +783,10 @@ export const sessionsList = () => invoke<SavedSession[]>("sessions_list");
 export const sessionSave = (name: string) => invoke<SavedSession>("session_save", { name });
 export const sessionDelete = (id: number) => invoke<void>("session_delete", { id });
 export const sessionRestore = (id: number) => invoke<SavedTab[]>("session_restore", { id });
+/** Daily auto-snapshots (#47), newest day first. */
+export const snapshotsList = () => invoke<DaySnapshot[]>("snapshots_list");
+/** Tabs captured for a given day index (#47). */
+export const snapshotRestore = (day: number) => invoke<SavedTab[]>("snapshot_restore", { day });
 export const historyClear = () => invoke<void>("history_clear");
 
 // ─── Downloads (BACKLOG #34) ─────────────────────────────────────────────────
