@@ -7,6 +7,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Peek / glance windows** (BACKLOG #50) — open a link in a transient,
+  always-on-top **floating window** without committing it to a tab (Arc's "Little
+  Arc"). **Alt-click** a link or right-click → **Peek** on any page, or **Peek**
+  from the internal-page link menu. The peek shows an **⊕ Open as tab** pill that
+  promotes the page (wherever you've browsed to inside the peek) to a real focused
+  tab, and **Esc** dismisses it. Built as its own `WebviewWindow` (the right model
+  under Flux's native-webview overlay constraint) with only the `fluxtab` bridge,
+  Rust-guarded so a peek can self-close/promote but a normal page can't.
+
 ### Fixed
 - **Page link "open in new tab" bridge grant** (BACKLOG #109) — `newtab.js`
   correctly called `plugin:fluxtab|chrome_open_url`, but that command was missing

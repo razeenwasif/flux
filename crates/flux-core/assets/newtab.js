@@ -23,6 +23,18 @@
     }
   }
 
+  // Ask Flux to peek `url` in a transient floating window (#50).
+  function fluxPeek(url) {
+    try {
+      var abs = new URL(url, document.baseURI).href;
+      if (!/^https?:/i.test(abs)) return false;
+      inv("plugin:fluxtab|chrome_peek_url", { url: abs });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // 1) window.open(url, …) → new tab. Return a minimal stub window so callers
   //    don't mistake the handoff for a blocked popup. (Real popup semantics —
   //    a live opener for OAuth handshakes — are out of scope here.)
@@ -61,6 +73,15 @@
     if (e.defaultPrevented) return;
     var a = anchorFrom(e.target);
     if (!a || !/^https?:/i.test(a.href)) return;
+
+    // Alt + left-click → peek the link in a floating glance window (#50).
+    if (e.type === "click" && e.button === 0 && e.altKey && !e.ctrlKey && !e.metaKey) {
+      if (fluxPeek(a.href)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      return;
+    }
 
     var open = false;
     var background = false;
@@ -111,6 +132,7 @@
     [
       ["Open in new tab", function () { fluxOpen(href, false); }],
       ["Open in new background tab", function () { fluxOpen(href, true); }],
+      ["Peek (glance window)", function () { fluxPeek(href); }],
       ["Copy link", function () { try { navigator.clipboard && navigator.clipboard.writeText(href); } catch (e) {} }],
     ].forEach(function (it) {
       var b = document.createElement("button");
