@@ -95,6 +95,7 @@ const StartPage: Component<{
   const [addingCal, setAddingCal] = createSignal(false);
   const [newCalUrl, setNewCalUrl] = createSignal("");
   const [calExpanded, setCalExpanded] = createSignal(false);
+  const [selectedCalDate, setSelectedCalDate] = createSignal<string | null>(null);
   const [todos, setTodos] = createSignal<Todo[]>([]);
   const [newTodo, setNewTodo] = createSignal("");
 
@@ -190,6 +191,12 @@ const StartPage: Component<{
   const dateStrOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   const todayStr = () => dateStrOf(now());
   const monthPrefix = () => `${now().getFullYear()}-${pad2(now().getMonth() + 1)}-`;
+  const dateForDay = (day: number) => `${monthPrefix()}${pad2(day)}`;
+  const isTodayDay = (day: number | null) => day !== null && dateForDay(day) === todayStr();
+  const selectedDayNum = () => {
+    const date = selectedCalDate();
+    return date?.startsWith(monthPrefix()) ? Number(date.slice(8, 10)) : null;
+  };
   /** Set of day-of-month numbers in the visible month that have ≥1 event. */
   const eventDays = (): Set<number> => {
     const p = monthPrefix();
@@ -197,14 +204,18 @@ const StartPage: Component<{
     for (const e of events()) if (e.date.startsWith(p)) s.add(Number(e.date.slice(8, 10)));
     return s;
   };
+  const eventsForDate = (date: string | null): CalEvent[] =>
+    date ? events().filter((e) => e.date === date) : [];
   /** Next few events from today onward, for the list under the grid. */
   const upcoming = () => events().filter((e) => e.date >= todayStr()).slice(0, 4);
+  const visibleCardEvents = () => selectedCalDate() ? eventsForDate(selectedCalDate()) : upcoming();
   const whenLabel = (e: CalEvent) => {
     const d = e.date === todayStr() ? "Today" : new Date(`${e.date}T00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
     return e.time ? `${d} · ${e.time}` : d;
   };
   const dayLabel = (date: string) =>
     date === todayStr() ? "Today" : new Date(`${date}T00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+  const eventListTitle = () => selectedCalDate() ? dayLabel(selectedCalDate()!) : "Upcoming";
   /** All events from today onward, grouped by date, for the expanded view. */
   const groupedEvents = (): { date: string; items: CalEvent[] }[] => {
     const groups: { date: string; items: CalEvent[] }[] = [];
@@ -215,6 +226,43 @@ const StartPage: Component<{
     }
     return groups;
   };
+  const visibleEventGroups = (): { date: string; items: CalEvent[] }[] => {
+    const selected = selectedCalDate();
+    if (!selected) return groupedEvents();
+    return [{ date: selected, items: eventsForDate(selected) }];
+  };
+  const selectCalDay = (day: number) => {
+    const date = dateForDay(day);
+    setSelectedCalDate((cur) => cur === date ? null : date);
+  };
+  const CalendarGrid: Component<{ modal?: boolean }> = (gridProps) => (
+    <div classList={{ "start-cal": true, "cal-modal-cal": !!gridProps.modal }}>
+      <For each={WEEKDAYS}>{(w) => <span class="start-cal-wd">{w}</span>}</For>
+      <For each={monthCells()}>
+        {(c) => (
+          <Show
+            when={c !== null}
+            fallback={<span class="start-cal-day blank" />}
+          >
+            <button
+              type="button"
+              classList={{
+                "start-cal-day": true,
+                today: isTodayDay(c),
+                selected: selectedDayNum() === c,
+                "has-event": eventDays().has(c!),
+              }}
+              aria-pressed={selectedDayNum() === c ? "true" : "false"}
+              title={`Show events for ${dayLabel(dateForDay(c!))}`}
+              onClick={() => selectCalDay(c!)}
+            >
+              {c}
+            </button>
+          </Show>
+        )}
+      </For>
+    </div>
+  );
   const addCalendar = (ev: SubmitEvent) => {
     ev.preventDefault();
     const url = newCalUrl().trim();
@@ -442,19 +490,11 @@ const StartPage: Component<{
               <button type="submit">Add</button>
             </form>
           </Show>
-          <div class="start-cal">
-            <For each={WEEKDAYS}>{(w) => <span class="start-cal-wd">{w}</span>}</For>
-            <For each={monthCells()}>
-              {(c) => (
-                <span classList={{ "start-cal-day": true, today: c === now().getDate(), blank: c === null, "has-event": c !== null && eventDays().has(c) }}>
-                  {c ?? ""}
-                </span>
-              )}
-            </For>
-          </div>
-          <Show when={upcoming().length > 0}>
+          <CalendarGrid />
+          <Show when={visibleCardEvents().length > 0}>
             <div class="start-events">
-              <For each={upcoming()}>
+              <div class="start-event-list-title">{eventListTitle()}</div>
+              <For each={visibleCardEvents()}>
                 {(e) => (
                   <div class="start-event" title={e.location ? `${e.summary} · ${e.location}` : e.summary}>
                     <span class="start-event-when">{whenLabel(e)}</span>
@@ -462,6 +502,12 @@ const StartPage: Component<{
                   </div>
                 )}
               </For>
+            </div>
+          </Show>
+          <Show when={selectedCalDate() && visibleCardEvents().length === 0}>
+            <div class="start-events">
+              <div class="start-event-list-title">{eventListTitle()}</div>
+              <div class="start-empty">No events for this day.</div>
             </div>
           </Show>
           <div class="start-zones">
@@ -545,20 +591,11 @@ const StartPage: Component<{
             </div>
             <div class="cal-modal-body">
               <div class="cal-modal-grid">
-                <div class="start-cal cal-modal-cal">
-                  <For each={WEEKDAYS}>{(w) => <span class="start-cal-wd">{w}</span>}</For>
-                  <For each={monthCells()}>
-                    {(c) => (
-                      <span classList={{ "start-cal-day": true, today: c === now().getDate(), blank: c === null, "has-event": c !== null && eventDays().has(c) }}>
-                        {c ?? ""}
-                      </span>
-                    )}
-                  </For>
-                </div>
+                <CalendarGrid modal />
               </div>
               <div class="cal-modal-events">
-                <Show when={groupedEvents().length > 0} fallback={<div class="start-empty">No upcoming events.</div>}>
-                  <For each={groupedEvents()}>
+                <Show when={visibleEventGroups().some((g) => g.items.length > 0)} fallback={<div class="start-empty">{selectedCalDate() ? "No events for this day." : "No upcoming events."}</div>}>
+                  <For each={visibleEventGroups().filter((g) => g.items.length > 0)}>
                     {(g) => (
                       <div class="cal-day-group">
                         <div class="cal-day-header">{dayLabel(g.date)}</div>

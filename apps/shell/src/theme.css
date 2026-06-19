@@ -975,14 +975,33 @@ body.resizing, body.busy { --glass-blur: none; }
 /* Calendar + world clocks widget */
 .start-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .start-cal-wd { font-size: 9.5px; color: var(--flux-text-mute); text-align: center; padding-bottom: 2px; }
-.start-cal-day { position: relative; font-size: 11px; color: var(--flux-text-dim); text-align: center; padding: 4px 0; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.start-cal-day {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 22px;
+  font-size: 11px;
+  color: var(--flux-text-dim);
+  text-align: center;
+  padding: 4px 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.start-cal-day:hover { background: var(--flux-surface); color: var(--flux-text); }
+.start-cal-day.selected { border-color: rgba(123, 97, 255, 0.7); background: rgba(123, 97, 255, 0.16); color: var(--flux-text); }
 .start-cal-day.today { background: var(--flux-teal); color: #06121b; font-weight: 700; }
+.start-cal-day.today.selected { border-color: rgba(255, 255, 255, 0.58); box-shadow: 0 0 0 2px rgba(47, 243, 255, 0.16); }
 .start-cal-day.blank { visibility: hidden; }
 .start-cal-day.has-event::after { content: ""; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: var(--flux-violet, #9d8df1); }
 .start-cal-day.today.has-event::after { background: #06121b; }
 /* Calendar upcoming-events list (#114) */
 .start-card-actions { display: inline-flex; gap: 10px; align-items: center; }
 .start-events { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--glass-rim-soft); }
+.start-event-list-title { font-size: 10.5px; font-weight: 700; color: var(--flux-teal); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
 
 /* Expanded calendar modal (#114) */
 .cal-modal-backdrop { position: fixed; inset: 0; z-index: 65; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; padding: 5vh 5vw; }

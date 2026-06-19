@@ -12,6 +12,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   own DOM pages (Archive, Feeds, History, Bookmarks, the bookmark bar) now shows an
   **Open in new tab / Open in new background tab / Copy link** menu — previously
   those pages had no context menu (real web pages still get WebView2's native one).
+- **Clickable calendar days** (BACKLOG #114) — date cells in the home calendar now
+  select that day and show only its events in the widget; the expanded calendar uses
+  the same selection, including an empty state when the chosen day has no events.
 - **Expandable calendar** (BACKLOG #114) — an **⤢ Expand** button on the home
   calendar opens a larger view: the month grid beside **every upcoming event grouped
   by day**, scrollable, so a busy schedule is readable at a glance. Click outside /
