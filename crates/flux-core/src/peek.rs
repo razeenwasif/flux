@@ -11,7 +11,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use tauri::{AppHandle, Emitter, WebviewUrl, WebviewWindowBuilder, Window};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window};
 
 const PEEK_JS: &str = include_str!("../assets/peek.js");
 
@@ -75,8 +75,22 @@ pub fn peek_promote(app: AppHandle, window: Window, url: String) -> Result<(), S
         return Err("not a peek window".into());
     }
     app.emit("flux://open-url", (url, false)).map_err(|e| e.to_string())?;
+    // Surface the main window so the freshly-promoted tab is actually seen — the
+    // peek was always-on-top, so without this the new tab lands behind it.
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.set_focus();
+    }
     let _ = window.close();
     Ok(())
+}
+
+/// "Keep" a peek: drop always-on-top so it stops floating over everything and
+/// behaves like a normal window you can leave open alongside the main one.
+#[tauri::command]
+pub fn peek_pin(window: Window) {
+    if is_peek(&window) {
+        let _ = window.set_always_on_top(false);
+    }
 }
 
 /// Dismiss the peek. Guarded so only a peek window can close itself.

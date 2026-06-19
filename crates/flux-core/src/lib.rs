@@ -391,6 +391,7 @@ pub fn run(intent: cli::LaunchIntent) {
                     peek::peek_open,
                     peek::chrome_peek_url,
                     peek::peek_promote,
+                    peek::peek_pin,
                     peek::peek_close,
                     macros::macro_record_step,
                     broker::ext_broker_call,
