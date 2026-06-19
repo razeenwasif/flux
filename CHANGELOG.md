@@ -7,6 +7,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Right-click "open in new tab" on web pages** (BACKLOG #109) — right-clicking a
+  link on any normal page now shows a small Flux menu (open in new tab / new
+  background tab / copy link) and actually opens a Flux tab. The native WebView2
+  menu's "open link in new tab" fires a new-window request Flux doesn't host, so
+  it was a silent no-op; `newtab.js` now intercepts `contextmenu` on links and
+  routes through the same `chrome_open_url` path as the other new-tab gestures.
+  The menu is rendered in a shadow root inside the page (isolated from page CSS,
+  and the page's own layer — so it doesn't fight the native-webview overlay);
+  right-clicking anywhere that isn't a link still gets the native menu.
+
 ### Changed
 - **Generated TS bindings — batch 3** (BACKLOG #12) — 28 more IPC types are now
   derived from their Rust definitions (`specta::Type` → `bindings.gen.ts`, drift-
