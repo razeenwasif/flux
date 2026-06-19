@@ -198,6 +198,8 @@ export const containerUpdate = (id: number, patch: { name?: string; color?: numb
 export const containerDelete = (id: number) => invoke<void>("container_delete", { id });
 export const tabFocus = (id: number) => invoke<void>("tab_focus", { id });
 export const tabClose = (id: number) => invoke<void>("tab_close", { id });
+/** Peek / glance (#50): open a link in a transient floating window, not a tab. */
+export const peekOpen = (url: string) => invoke<void>("peek_open", { url });
 export const tabList = () => invoke<TabMeta[]>("tab_list");
 export const tabSetPinned = (id: number, pinned: boolean) =>
   invoke<void>("tab_set_pinned", { id, pinned });

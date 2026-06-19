@@ -8,6 +8,7 @@
  * and render <LinkMenu/> once at the app root.
  */
 import { For, Show, createSignal, onCleanup, type Component } from "solid-js";
+import { peekOpen } from "./ipc";
 
 interface MenuState { x: number; y: number; url: string }
 const [menu, setMenu] = createSignal<MenuState | null>(null);
@@ -47,6 +48,7 @@ export const LinkMenu: Component<{
   const items = (m: MenuState) => [
     { label: "Open in new tab", run: () => props.onOpen(m.url, false) },
     { label: "Open in new background tab", run: () => props.onOpen(m.url, true) },
+    { label: "Peek (glance window)", run: () => void peekOpen(m.url).catch(() => {}) },
     { label: "Copy link", run: () => void navigator.clipboard?.writeText(m.url).catch(() => {}) },
   ];
 

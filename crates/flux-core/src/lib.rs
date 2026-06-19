@@ -31,6 +31,7 @@ pub mod https;
 pub mod netfilter;
 pub mod omni;
 pub mod pdf;
+pub mod peek;
 pub mod permissions;
 pub mod prefetch;
 pub mod pwa;
@@ -387,6 +388,10 @@ pub fn run(intent: cli::LaunchIntent) {
                 .invoke_handler(tauri::generate_handler![
                     commands::dom_publish,
                     commands::chrome_open_url,
+                    peek::peek_open,
+                    peek::chrome_peek_url,
+                    peek::peek_promote,
+                    peek::peek_close,
                     macros::macro_record_step,
                     broker::ext_broker_call,
                     commands::chrome_key,
