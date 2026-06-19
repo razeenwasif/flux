@@ -240,12 +240,7 @@ fn quick_locations() -> Vec<QuickLocation> {
     }
     #[cfg(windows)]
     {
-        for letter in b'A'..=b'Z' {
-            let p = format!("{}:\\", letter as char);
-            if Path::new(&p).is_dir() {
-                out.push(QuickLocation { name: format!("{}:", letter as char), path: p, kind: "drive" });
-            }
-        }
+        out.extend(windows_drives());
         out.extend(wsl_distros());
     }
     #[cfg(not(windows))]
@@ -255,14 +250,73 @@ fn quick_locations() -> Vec<QuickLocation> {
     out
 }
 
+/// Mounted Windows drive letters. Uses Win32's logical-drive bitmask rather than
+/// probing every `A:\`..`Z:\` path with filesystem metadata calls.
+#[cfg(windows)]
+fn windows_drives() -> Vec<QuickLocation> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetDriveTypeW, GetLogicalDrives, DRIVE_CDROM, DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_REMOTE,
+        DRIVE_REMOVABLE,
+    };
+
+    let mut out = Vec::new();
+    let mask = unsafe { GetLogicalDrives() };
+    for i in 0..26 {
+        if mask & (1 << i) == 0 {
+            continue;
+        }
+        let letter = (b'A' + i as u8) as char;
+        let path = format!("{letter}:\\");
+        let wide: Vec<u16> = OsStr::new(&path).encode_wide().chain(Some(0)).collect();
+        let drive_type = unsafe { GetDriveTypeW(wide.as_ptr()) };
+        let label = match drive_type {
+            DRIVE_REMOVABLE => format!("{}: Removable", letter),
+            DRIVE_REMOTE => format!("{}: Network", letter),
+            DRIVE_CDROM => format!("{}: Disc", letter),
+            DRIVE_RAMDISK => format!("{}: RAM disk", letter),
+            DRIVE_FIXED => format!("{}:", letter),
+            _ => continue,
+        };
+        out.push(QuickLocation { name: label, path, kind: "drive" });
+    }
+    out
+}
+
 /// Installed WSL distributions, reachable from Windows at
-/// `\\wsl.localhost\<distro>`. Listed via `wsl.exe -l -q` (metadata only — does
-/// not start a distro); resilient to the UTF-16LE/UTF-8 output quirk and any
-/// BOM/NUL noise. Best-effort: any failure yields an empty list.
+/// `\\wsl.localhost\<distro>`. Prefer Explorer's UNC provider, then fall back to
+/// `wsl.exe -l -q`; resilient to UTF-16LE/UTF-8 output and BOM/NUL noise.
 #[cfg(windows)]
 fn wsl_distros() -> Vec<QuickLocation> {
     use std::os::windows::process::CommandExt;
+    use std::collections::HashSet;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000; // no flash of a console window
+
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+
+    // Prefer the UNC provider because it matches what Explorer exposes and
+    // works even when `wsl.exe` is unavailable from PATH. `wsl$` is the older
+    // alias, kept as a fallback for older Windows installs.
+    for root in [r"\\wsl.localhost\", r"\\wsl$\"] {
+        if let Ok(read) = std::fs::read_dir(root) {
+            for ent in read.flatten() {
+                let name = ent.file_name().to_string_lossy().into_owned();
+                if name.is_empty() || !seen.insert(name.to_ascii_lowercase()) {
+                    continue;
+                }
+                out.push(QuickLocation {
+                    name,
+                    path: clean(&ent.path()),
+                    kind: "linux",
+                });
+            }
+        }
+    }
+    if !out.is_empty() {
+        return out;
+    }
 
     let output = match std::process::Command::new("wsl.exe")
         .args(["-l", "-q"])
@@ -270,7 +324,12 @@ fn wsl_distros() -> Vec<QuickLocation> {
         .output()
     {
         Ok(o) if o.status.success() => o.stdout,
-        _ => return Vec::new(),
+        _ => {
+            return vec![
+                QuickLocation { name: "WSL".into(), path: r"\\wsl.localhost\".into(), kind: "linux" },
+                QuickLocation { name: "WSL (legacy)".into(), path: r"\\wsl$\".into(), kind: "linux" },
+            ];
+        }
     };
 
     // wsl.exe historically emits UTF-16LE; newer builds emit UTF-8. Detect by
@@ -288,17 +347,22 @@ fn wsl_distros() -> Vec<QuickLocation> {
         }
     };
 
-    text.replace('\0', "")
+    out.extend(text.replace('\0', "")
         .trim_start_matches('\u{feff}')
         .lines()
         .map(str::trim)
         .filter(|name| !name.is_empty())
+        .filter(|name| seen.insert(name.to_ascii_lowercase()))
         .map(|name| QuickLocation {
             name: name.to_string(),
             path: format!(r"\\wsl.localhost\{name}"),
             kind: "linux",
         })
-        .collect()
+    );
+    if out.is_empty() {
+        out.push(QuickLocation { name: "WSL".into(), path: r"\\wsl.localhost\".into(), kind: "linux" });
+    }
+    out
 }
 
 /// Open a file with the OS default application (read-only — launches, never
