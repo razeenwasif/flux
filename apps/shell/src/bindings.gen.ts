@@ -150,8 +150,8 @@ export type DirListing = { path: string; parent: string | null; entries: FileEnt
  * A pinned spot in the left rail.
  */
 export type QuickLocation = { name: string; path: string; kind: string }
-export type SyncStatus = { folder: string | null; unlocked: boolean; last_ms: number }
-export type SyncReport = { bookmarks_added: number; sessions_added: number }
+export type SyncStatus = { folder: string | null; unlocked: boolean; last_ms: number; auto: boolean }
+export type SyncReport = { bookmarks_added: number; sessions_added: number; history_added: number }
 /**
  * The wire shape of a full archived page (BACKLOG #12): the reader-facing fields
  * only. The persisted [`ArchiveEntry`] also carries the embedding vector +

@@ -73,12 +73,22 @@ fn sealed_part(blob: &[u8]) -> &[u8] {
     &blob[MAGIC.len() + SALT_LEN..]
 }
 
+/// Most history to ship in the blob (bounded so a big local history doesn't bloat
+/// the encrypted file). The most-frecent entries win the cap.
+const HISTORY_SYNC_CAP: usize = 4000;
+
 #[derive(Serialize, Deserialize, Default)]
 struct Payload {
     #[serde(default)]
     bookmarks: Vec<crate::bookmarks::Bookmark>,
     #[serde(default)]
+    bookmark_tombstones: crate::tombstone::Tombstones,
+    #[serde(default)]
     sessions: Vec<crate::sessions::SavedSession>,
+    #[serde(default)]
+    session_tombstones: crate::tombstone::Tombstones,
+    #[serde(default)]
+    history: Vec<crate::history::HistoryEntry>,
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -89,6 +99,8 @@ struct Config {
     folder: Option<String>,
     #[serde(default)]
     last_ms: u64,
+    #[serde(default)]
+    auto: bool,
 }
 
 pub struct SyncState {
@@ -97,6 +109,7 @@ pub struct SyncState {
     key: RwLock<Option<[u8; 32]>>,
     salt: RwLock<Option<[u8; SALT_LEN]>>,
     last_ms: RwLock<u64>,
+    auto: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Serialize, specta::Type)]
@@ -104,12 +117,15 @@ pub struct SyncStatus {
     pub folder: Option<String>,
     pub unlocked: bool,
     pub last_ms: u64,
+    /// Periodic background sync is on (#62).
+    pub auto: bool,
 }
 
-#[derive(Serialize, specta::Type)]
+#[derive(Serialize, Clone, specta::Type)]
 pub struct SyncReport {
     pub bookmarks_added: usize,
     pub sessions_added: usize,
+    pub history_added: usize,
 }
 
 impl SyncState {
@@ -124,15 +140,27 @@ impl SyncState {
             key: RwLock::new(None),
             salt: RwLock::new(None),
             last_ms: RwLock::new(cfg.last_ms),
+            auto: std::sync::atomic::AtomicBool::new(cfg.auto),
         }
     }
 
     fn blob_path(&self) -> Option<PathBuf> {
         self.folder.read().as_ref().map(|d| d.join(BLOB_NAME))
     }
+    fn auto(&self) -> bool {
+        self.auto.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    /// Ready to run unattended: a folder is set and the key is unlocked.
+    fn ready(&self) -> bool {
+        self.key.read().is_some() && self.folder.read().is_some()
+    }
     fn persist_config(&self) {
         let Some(path) = &self.config_path else { return };
-        let cfg = Config { folder: self.folder.read().as_ref().map(|p| p.to_string_lossy().into_owned()), last_ms: *self.last_ms.read() };
+        let cfg = Config {
+            folder: self.folder.read().as_ref().map(|p| p.to_string_lossy().into_owned()),
+            last_ms: *self.last_ms.read(),
+            auto: self.auto(),
+        };
         if let Ok(json) = serde_json::to_string_pretty(&cfg) {
             let _ = std::fs::write(path, json);
         }
@@ -143,6 +171,7 @@ impl SyncState {
             folder: self.folder.read().as_ref().map(|p| p.to_string_lossy().into_owned()),
             unlocked: self.key.read().is_some(),
             last_ms: *self.last_ms.read(),
+            auto: self.auto(),
         }
     }
 }
@@ -177,7 +206,7 @@ pub fn sync_lock(state: State<'_, SyncState>) {
 /// (so every device agrees) or a fresh one for a first device. Verifies by
 /// decrypting if a blob exists — a wrong passphrase fails here, not silently.
 #[tauri::command]
-pub fn sync_unlock(state: State<'_, SyncState>, passphrase: String) -> Result<(), String> {
+pub fn sync_unlock(app: AppHandle, state: State<'_, SyncState>, passphrase: String) -> Result<(), String> {
     if passphrase.is_empty() {
         return Err("enter a passphrase".into());
     }
@@ -194,31 +223,45 @@ pub fn sync_unlock(state: State<'_, SyncState>, passphrase: String) -> Result<()
     }
     *state.salt.write() = Some(salt);
     *state.key.write() = Some(key);
+    // With auto on, pull right away so unlocking a device catches it up.
+    if state.auto() {
+        let app = app.clone();
+        std::thread::spawn(move || emit_sync(&app, run_sync(&app)));
+    }
     Ok(())
 }
 
 /// Pull (decrypt + merge) then push (collect + encrypt + write). Returns how many
-/// items were newly merged in.
-#[tauri::command]
-pub fn sync_now(app: AppHandle, state: State<'_, SyncState>) -> Result<SyncReport, String> {
+/// items were newly merged in. Pure of Tauri command glue so the auto-sync timer
+/// can call it too — both resolve the stores off the `app` handle.
+fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
+    let state = app.state::<SyncState>();
     let key = state.key.read().ok_or("unlock sync with your passphrase first")?;
     let salt = state.salt.read().ok_or("unlock first")?;
     let blob_path = state.blob_path().ok_or("set a sync folder first")?;
 
     let bookmarks = app.state::<crate::bookmarks::BookmarkStore>();
     let sessions = app.state::<crate::sessions::SessionStore>();
+    let history = app.state::<crate::history::HistoryStore>();
 
-    // ── Pull: merge any remote payload into the local stores. ──
-    let mut report = SyncReport { bookmarks_added: 0, sessions_added: 0 };
+    // ── Pull: merge any remote payload into the local stores (tombstones first). ──
+    let mut report = SyncReport { bookmarks_added: 0, sessions_added: 0, history_added: 0 };
     if let Ok(blob) = std::fs::read(&blob_path) {
         let plain = open(&key, sealed_part(&blob))?;
         let remote: Payload = serde_json::from_slice(&plain).map_err(|e| format!("bad sync payload: {e}"))?;
-        report.bookmarks_added = bookmarks.merge(remote.bookmarks);
-        report.sessions_added = sessions.merge(remote.sessions);
+        report.bookmarks_added = bookmarks.merge(remote.bookmarks, &remote.bookmark_tombstones);
+        report.sessions_added = sessions.merge(remote.sessions, &remote.session_tombstones);
+        report.history_added = history.merge_remote(remote.history);
     }
 
-    // ── Push: write the merged local state back, sealed. ──
-    let payload = Payload { bookmarks: bookmarks.list(), sessions: sessions.list() };
+    // ── Push: write the merged local state back (items + tombstones), sealed. ──
+    let payload = Payload {
+        bookmarks: bookmarks.list(),
+        bookmark_tombstones: bookmarks.tombstones(),
+        sessions: sessions.list(),
+        session_tombstones: sessions.tombstones(),
+        history: history.export_for_sync(HISTORY_SYNC_CAP),
+    };
     let plain = serde_json::to_vec(&payload).map_err(|e| e.to_string())?;
     let sealed = seal(&key, &plain)?;
     let mut out = Vec::with_capacity(MAGIC.len() + SALT_LEN + sealed.len());
@@ -235,6 +278,54 @@ pub fn sync_now(app: AppHandle, state: State<'_, SyncState>) -> Result<SyncRepor
     *state.last_ms.write() = now_ms();
     state.persist_config();
     Ok(report)
+}
+
+#[tauri::command]
+pub fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
+    run_sync(&app)
+}
+
+/// Turn the periodic background sync on/off (#62). When on, Flux re-syncs every
+/// few minutes while the folder is set + unlocked, and once right after unlock.
+#[tauri::command]
+pub fn sync_set_auto(app: AppHandle, state: State<'_, SyncState>, enabled: bool) {
+    state.auto.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    state.persist_config();
+    // Sync immediately so toggling on doesn't wait a full interval.
+    if enabled && state.ready() {
+        let app = app.clone();
+        std::thread::spawn(move || emit_sync(&app, run_sync(&app)));
+    }
+}
+
+/// How often the auto-sync timer fires (#62). The folder syncs the blob itself;
+/// this just bounds how stale a device gets between manual syncs.
+const AUTO_INTERVAL_SECS: u64 = 180;
+
+/// Emit the outcome of a background sync so the UI can refresh `sync_status` and
+/// any open page reflecting bookmarks/sessions/history.
+fn emit_sync(app: &AppHandle, result: Result<SyncReport, String>) {
+    use tauri::Emitter;
+    match result {
+        Ok(report) => {
+            let _ = app.emit("flux://sync-done", report);
+        }
+        Err(e) => {
+            let _ = app.emit("flux://sync-error", e);
+        }
+    }
+}
+
+/// Spawn the auto-sync timer (call once from setup). Sleeps, then syncs whenever
+/// auto is on and the store is unlocked + has a folder — quietly skipping when not.
+pub fn spawn_auto(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(AUTO_INTERVAL_SECS));
+        let Some(state) = app.try_state::<SyncState>() else { continue };
+        if state.auto() && state.ready() {
+            emit_sync(&app, run_sync(&app));
+        }
+    });
 }
 
 #[cfg(test)]

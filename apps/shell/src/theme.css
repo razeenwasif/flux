@@ -1711,6 +1711,9 @@ body.resizing, body.busy { --glass-blur: none; }
 .sync-now:disabled { background: var(--flux-surface-2); color: var(--flux-text-dim); cursor: default; }
 .sync-msg { margin-top: 12px; font-size: 13px; color: var(--flux-teal); }
 .sync-err { margin-top: 12px; font-size: 13px; color: #e8643c; }
+.sync-auto { justify-content: space-between; margin-top: 16px; padding: 10px 14px; background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); border-radius: 10px; }
+.sync-auto-label { display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 550; }
+.sync-auto-hint { font-size: 11.5px; font-weight: 400; color: var(--flux-text-mute); }
 .sync-note { margin-top: 22px; font-size: 11.5px; line-height: 1.6; color: var(--flux-text-mute); border-top: 1px solid var(--flux-border); padding-top: 14px; }
 
 /* ── Macros popover (#67) ── */

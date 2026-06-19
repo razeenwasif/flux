@@ -34,25 +34,49 @@ pub struct SavedSession {
     pub tabs: Vec<SavedTab>,
 }
 
+/// On-disk shape: items + deletion tombstones (#62), keyed by session name.
+#[derive(Serialize, Deserialize, Default)]
+struct Persisted {
+    items: Vec<SavedSession>,
+    #[serde(default)]
+    tombstones: crate::tombstone::Tombstones,
+}
+
 #[derive(Default)]
 pub struct SessionStore {
     items: RwLock<Vec<SavedSession>>,
+    /// Deletion tombstones keyed by session name (#62).
+    tombstones: RwLock<crate::tombstone::Tombstones>,
     next_id: AtomicU64,
     path: Option<PathBuf>,
 }
 
 impl SessionStore {
     pub fn restore(path: PathBuf) -> Self {
-        let items: Vec<SavedSession> = std::fs::read_to_string(&path)
+        // Tolerant load: `{items,tombstones}` envelope or a legacy bare array.
+        let (items, tombstones) = std::fs::read_to_string(&path)
             .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
+            .map(|s| match serde_json::from_str::<Persisted>(&s) {
+                Ok(p) => (p.items, p.tombstones),
+                Err(_) => (serde_json::from_str::<Vec<SavedSession>>(&s).unwrap_or_default(), Default::default()),
+            })
             .unwrap_or_default();
         let next = items.iter().map(|s| s.id).max().map(|m| m + 1).unwrap_or(1);
-        Self { items: RwLock::new(items), next_id: AtomicU64::new(next), path: Some(path) }
+        Self {
+            items: RwLock::new(items),
+            tombstones: RwLock::new(tombstones),
+            next_id: AtomicU64::new(next),
+            path: Some(path),
+        }
     }
 
     pub fn list(&self) -> Vec<SavedSession> {
         self.items.read().clone()
+    }
+
+    /// Deletion tombstones, for the sync push payload (#62).
+    pub fn tombstones(&self) -> crate::tombstone::Tombstones {
+        self.tombstones.read().clone()
     }
 
     pub fn save(&self, name: String, tabs: Vec<SavedTab>) -> SavedSession {
@@ -62,17 +86,26 @@ impl SessionStore {
             created_ms: now_ms(),
             tabs,
         };
+        self.tombstones.write().remove(&s.name); // re-saving a name clears its tombstone
         self.items.write().push(s.clone());
         self.save_disk();
         s
     }
 
-    /// Merge in remote sessions (E2E sync, #62): add any whose name isn't already
-    /// present (additive union; fresh local id). Returns the count added.
-    pub fn merge(&self, remote: Vec<SavedSession>) -> usize {
+    /// Merge in a remote payload (E2E sync, #62): union tombstones (newest wins),
+    /// drop locally-buried sessions, then add remote sessions whose name isn't
+    /// present and isn't suppressed. Returns how many were newly added.
+    pub fn merge(&self, remote: Vec<SavedSession>, remote_tombs: &crate::tombstone::Tombstones) -> usize {
+        use crate::tombstone::{merge_into, suppressed};
+        let mut tombs = self.tombstones.write();
+        merge_into(&mut tombs, remote_tombs);
         let mut items = self.items.write();
+        items.retain(|s| !suppressed(&tombs, &s.name, s.created_ms));
         let mut added = 0;
         for r in remote {
+            if suppressed(&tombs, &r.name, r.created_ms) {
+                continue;
+            }
             if items.iter().any(|s| s.name == r.name) {
                 continue;
             }
@@ -85,14 +118,18 @@ impl SessionStore {
             added += 1;
         }
         drop(items);
-        if added > 0 {
-            self.save_disk();
-        }
+        drop(tombs);
+        self.save_disk();
         added
     }
 
     pub fn delete(&self, id: u64) {
-        self.items.write().retain(|s| s.id != id);
+        let mut items = self.items.write();
+        if let Some(s) = items.iter().find(|s| s.id == id) {
+            self.tombstones.write().insert(s.name.clone(), now_ms());
+        }
+        items.retain(|s| s.id != id);
+        drop(items);
         self.save_disk();
     }
 
@@ -105,7 +142,8 @@ impl SessionStore {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Ok(json) = serde_json::to_string(&*self.items.read()) {
+        let snapshot = Persisted { items: self.items.read().clone(), tombstones: self.tombstones.read().clone() };
+        if let Ok(json) = serde_json::to_string(&snapshot) {
             let _ = std::fs::write(path, json);
         }
     }
@@ -165,5 +203,30 @@ mod tests {
         let store = SessionStore::default();
         let s = store.save("  ".into(), vec![]);
         assert_eq!(s.name, "Untitled");
+    }
+
+    #[test]
+    fn delete_records_tombstone() {
+        let store = SessionStore::default();
+        let s = store.save("Research".into(), vec![]);
+        store.delete(s.id);
+        assert!(store.tombstones().contains_key("Research"));
+    }
+
+    #[test]
+    fn merge_tombstone_propagates_session_deletion() {
+        use crate::tombstone::Tombstones;
+        let b = SessionStore::default();
+        {
+            let mut it = b.items.write();
+            it.push(SavedSession { id: 1, name: "Research".into(), created_ms: 100, tabs: vec![] });
+        }
+        let mut tombs = Tombstones::new();
+        tombs.insert("Research".into(), 200); // deleted remotely
+        let added = b.merge(vec![SavedSession { id: 9, name: "Trip".into(), created_ms: 100, tabs: vec![] }], &tombs);
+        assert_eq!(added, 1); // Trip is new
+        let names: Vec<_> = b.list().iter().map(|x| x.name.clone()).collect();
+        assert!(names.contains(&"Trip".to_string()));
+        assert!(!names.contains(&"Research".to_string()), "remote delete propagated");
     }
 }

@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Sync expansion: history, deletion propagation, auto-sync** (BACKLOG #62) — E2E
+  sync now also carries **browsing history** (merged by URL, keeping the higher
+  visit count; capped to the most-frecent ~4000 so the encrypted blob stays
+  small), **propagates deletions** via tombstones (a new `tombstone.rs` deletion
+  ledger per store, synced in the blob, newest-wins — so deleting a bookmark or
+  session on one device removes it on the others instead of it resurrecting on the
+  next merge; a re-add with a newer timestamp still wins), and gains an opt-in
+  **auto-sync** toggle that re-syncs every ~3 minutes while unlocked (and once
+  right after unlock), emitting `flux://sync-done` so open pages refresh live. The
+  on-disk bookmark/session format migrated to an `{items, tombstones}` envelope
+  (still reads the legacy bare-array). The Sync page shows the auto toggle and a
+  per-type merge summary.
 - **Settings page** (BACKLOG #78) — a real `flux://settings` page (⌘K "Open
   Settings", or "⚙ Open full Settings ↗" from the footer popover) that gathers the
   toggles previously scattered across the footer ⚙ popover and the Shields popover

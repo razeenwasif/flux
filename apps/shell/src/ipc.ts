@@ -571,6 +571,14 @@ export const syncSetFolder = (path: string) => invoke<void>("sync_set_folder", {
 export const syncUnlock = (passphrase: string) => invoke<void>("sync_unlock", { passphrase });
 export const syncLock = () => invoke<void>("sync_lock");
 export const syncNow = () => invoke<SyncReport>("sync_now");
+/** Turn periodic background auto-sync on/off (#62). */
+export const syncSetAuto = (enabled: boolean) => invoke<void>("sync_set_auto", { enabled });
+/** Fires after a background (auto) sync completes, with what it merged. */
+export const onSyncDone = (cb: (r: SyncReport) => void): Promise<UnlistenFn> =>
+  listen<SyncReport>("flux://sync-done", (e) => cb(e.payload));
+/** Fires when a background sync fails (e.g. locked, folder gone). */
+export const onSyncError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
+  listen<string>("flux://sync-error", (e) => cb(e.payload));
 
 // ─── Install-site-as-app / PWAs (BACKLOG #42) ────────────────────────────────
 export const APPS_URL = "flux://apps";
