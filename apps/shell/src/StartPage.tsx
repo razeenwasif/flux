@@ -56,6 +56,8 @@ interface Shortcut {
   tint: string;
 }
 
+type ExpandedWidget = "recent" | "shortcuts" | "topSites" | "headlines" | "scratch" | "calendar" | "tasks" | "actions" | null;
+
 const TINTS = ["#7b61ff", "#ec4be0", "#2ff3ff", "#ff9f45", "#ff6b4a", "#9d8df1", "#5bc0eb", "#7cf5b0"];
 
 const DEFAULT_SHORTCUTS: Shortcut[] = [
@@ -94,7 +96,7 @@ const StartPage: Component<{
   const [events, setEvents] = createSignal<CalEvent[]>([]);
   const [addingCal, setAddingCal] = createSignal(false);
   const [newCalUrl, setNewCalUrl] = createSignal("");
-  const [calExpanded, setCalExpanded] = createSignal(false);
+  const [expandedWidget, setExpandedWidget] = createSignal<ExpandedWidget>(null);
   const [selectedCalDate, setSelectedCalDate] = createSignal<string | null>(null);
   const [todos, setTodos] = createSignal<Todo[]>([]);
   const [newTodo, setNewTodo] = createSignal("");
@@ -109,7 +111,6 @@ const StartPage: Component<{
     return DEFAULT_SHORTCUTS;
   };
   const [shortcuts, setShortcuts] = createSignal<Shortcut[]>(loadShortcuts());
-  const [adding, setAdding] = createSignal(false);
   const [newUrl, setNewUrl] = createSignal("");
 
   const persist = (list: Shortcut[]) => {
@@ -140,7 +141,7 @@ const StartPage: Component<{
     }
 
     // Feed headlines (#72) — aggregate of all subscribed feeds, newest-ish first.
-    feedItems(0).then((items) => setHeadlines((items ?? []).slice(0, 6))).catch(() => {});
+    feedItems(0).then((items) => setHeadlines(items ?? [])).catch(() => {});
 
     // Top sites — most-visited hosts from history, deduped by host.
     historyRecent(250)
@@ -151,7 +152,7 @@ const StartPage: Component<{
           const host = hostOf(h.url);
           if (!byHost.has(host)) byHost.set(host, { url: h.url, title: h.title || host, host });
         }
-        setTopSites([...byHost.values()].slice(0, 8));
+        setTopSites([...byHost.values()].slice(0, 24));
       })
       .catch(() => {});
 
@@ -281,6 +282,7 @@ const StartPage: Component<{
   const removeTodo = (id: number) => void todoRemove(id).then(refreshTodos).catch(() => {});
   const clearDoneTodos = () => void todosClearDone().then(refreshTodos).catch(() => {});
   const openTodos = () => todos().filter((t) => !t.done).length;
+  const sortedTodos = () => [...todos()].sort((a, b) => Number(a.done) - Number(b.done));
 
   const greeting = () => {
     const h = now().getHours();
@@ -308,7 +310,6 @@ const StartPage: Component<{
     const tint = TINTS[shortcuts().length % TINTS.length] ?? "#7b61ff";
     persist([...shortcuts(), { label, url, tint }]);
     setNewUrl("");
-    setAdding(false);
   };
   const removeShortcut = (i: number) => persist(shortcuts().filter((_, j) => j !== i));
 
@@ -361,12 +362,15 @@ const StartPage: Component<{
 
         {/* Recent tabs */}
         <div class="glass start-card">
-          <div class="start-card-title">Recent</div>
+          <div class="start-card-title">
+            Recent
+            <button class="start-card-link" title="Expand recent tabs" onClick={() => setExpandedWidget("recent")}>⤢ Expand</button>
+          </div>
           <Show
             when={recent().length > 0}
             fallback={<div class="start-empty">Open a few tabs and they'll show up here.</div>}
           >
-            <div class="start-list">
+            <div class="start-list start-card-body">
               <For each={recent().slice(0, 6)}>
                 {(t) => (
                   <button class="start-row" onClick={() => focusTab(t.id)} title={t.url}>
@@ -381,40 +385,36 @@ const StartPage: Component<{
 
         {/* Editable speed dial */}
         <div class="glass start-card">
-          <div class="start-card-title">Shortcuts</div>
-          <div class="start-dial">
-            <For each={shortcuts()}>
-              {(s, i) => (
-                <div class="start-tile-wrap">
-                  <button class="start-tile" style={{ "--tint": s.tint }} onClick={() => props.onNavigate(s.url)} title={s.url}>
-                    {s.label}
-                  </button>
-                  <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>×</button>
-                </div>
-              )}
-            </For>
-            <button class="start-tile start-tile-add" title="Add shortcut" onClick={() => setAdding((v) => !v)}>+</button>
+          <div class="start-card-title">
+            Shortcuts
+            <button class="start-card-link" title="Expand shortcuts" onClick={() => setExpandedWidget("shortcuts")}>⤢ Expand</button>
           </div>
-          <Show when={adding()}>
-            <form class="start-add" onSubmit={addShortcut}>
-              <input
-                value={newUrl()}
-                onInput={(e) => setNewUrl(e.currentTarget.value)}
-                placeholder="example.com"
-                spellcheck={false}
-                autofocus
-              />
-              <button type="submit">Add</button>
-            </form>
-          </Show>
+          <div class="start-card-body">
+            <div class="start-dial">
+              <For each={shortcuts().slice(0, 5)}>
+                {(s, i) => (
+                  <div class="start-tile-wrap">
+                    <button class="start-tile" style={{ "--tint": s.tint }} onClick={() => props.onNavigate(s.url)} title={s.url}>
+                      {s.label}
+                    </button>
+                    <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>×</button>
+                  </div>
+                )}
+              </For>
+              <button class="start-tile start-tile-add" title="Add shortcut" onClick={() => setExpandedWidget("shortcuts")}>+</button>
+            </div>
+          </div>
         </div>
 
         {/* Top sites */}
         <Show when={topSites().length > 0}>
           <div class="glass start-card">
-            <div class="start-card-title">Top sites</div>
-            <div class="start-dial">
-              <For each={topSites()}>
+            <div class="start-card-title">
+              Top sites
+              <button class="start-card-link" title="Expand top sites" onClick={() => setExpandedWidget("topSites")}>⤢ Expand</button>
+            </div>
+            <div class="start-dial start-card-body">
+              <For each={topSites().slice(0, 6)}>
                 {(s, i) => (
                   <div class="start-tile-wrap">
                     <button
@@ -436,14 +436,17 @@ const StartPage: Component<{
         <div class="glass start-card">
           <div class="start-card-title">
             Headlines
-            <button class="start-card-link" onClick={() => props.onNavigate(FEEDS_URL)}>Feeds →</button>
+            <span class="start-card-actions">
+              <button class="start-card-link" title="Expand headlines" onClick={() => setExpandedWidget("headlines")}>⤢ Expand</button>
+              <button class="start-card-link" onClick={() => props.onNavigate(FEEDS_URL)}>Feeds →</button>
+            </span>
           </div>
           <Show
             when={headlines().length > 0}
             fallback={<div class="start-empty">Subscribe to feeds in <b>Feeds</b> and the latest items show here.</div>}
           >
-            <div class="start-list">
-              <For each={headlines()}>
+            <div class="start-list start-card-body">
+              <For each={headlines().slice(0, 6)}>
                 {(it) => (
                   <button class="start-row" onClick={() => props.onNavigate(it.link)} title={`${it.feed_title} — ${it.title}`}>
                     <span class="start-fav">📰</span>
@@ -457,7 +460,10 @@ const StartPage: Component<{
 
         {/* Scratchpad */}
         <div class="glass start-card">
-          <div class="start-card-title">Scratchpad</div>
+          <div class="start-card-title">
+            Scratchpad
+            <button class="start-card-link" title="Expand scratchpad" onClick={() => setExpandedWidget("scratch")}>⤢ Expand</button>
+          </div>
           <textarea
             class="start-scratch"
             value={scratch()}
@@ -473,7 +479,7 @@ const StartPage: Component<{
             {monthLabel()}
             <span class="start-card-actions">
               <Show when={events().length > 0}>
-                <button class="start-card-link" title="Expand — see all events" onClick={() => setCalExpanded(true)}>⤢ Expand</button>
+                <button class="start-card-link" title="Expand — see all events" onClick={() => setExpandedWidget("calendar")}>⤢ Expand</button>
               </Show>
               <button class="start-card-link" title="Subscribe to a calendar's secret ICS URL" onClick={() => setAddingCal((v) => !v)}>＋ Calendar</button>
             </span>
@@ -494,7 +500,7 @@ const StartPage: Component<{
           <Show when={visibleCardEvents().length > 0}>
             <div class="start-events">
               <div class="start-event-list-title">{eventListTitle()}</div>
-              <For each={visibleCardEvents()}>
+              <For each={visibleCardEvents().slice(0, 2)}>
                 {(e) => (
                   <div class="start-event" title={e.location ? `${e.summary} · ${e.location}` : e.summary}>
                     <span class="start-event-when">{whenLabel(e)}</span>
@@ -526,9 +532,12 @@ const StartPage: Component<{
         <div class="glass start-card">
           <div class="start-card-title">
             Tasks
-            <Show when={todos().some((t) => t.done)}>
-              <button class="start-card-link" onClick={clearDoneTodos}>Clear done</button>
-            </Show>
+            <span class="start-card-actions">
+              <button class="start-card-link" title="Expand tasks" onClick={() => setExpandedWidget("tasks")}>⤢ Expand</button>
+              <Show when={todos().some((t) => t.done)}>
+                <button class="start-card-link" onClick={clearDoneTodos}>Clear done</button>
+              </Show>
+            </span>
           </div>
           <form class="start-todo-add" onSubmit={addTodo}>
             <input
@@ -542,8 +551,8 @@ const StartPage: Component<{
             when={todos().length > 0}
             fallback={<div class="start-empty">Nothing yet — add a task above. Stored on your device.</div>}
           >
-            <div class="start-todos">
-              <For each={[...todos()].sort((a, b) => Number(a.done) - Number(b.done))}>
+            <div class="start-todos start-card-body">
+              <For each={sortedTodos().slice(0, 5)}>
                 {(t) => (
                   <div classList={{ "start-todo": true, done: t.done }}>
                     <button class="start-todo-check" title={t.done ? "Mark not done" : "Mark done"} onClick={() => toggleTodo(t.id)}>{t.done ? "☑" : "☐"}</button>
@@ -560,7 +569,10 @@ const StartPage: Component<{
 
         {/* Quick actions */}
         <div class="glass start-card">
-          <div class="start-card-title">Quick actions</div>
+          <div class="start-card-title">
+            Quick actions
+            <button class="start-card-link" title="Expand quick actions" onClick={() => setExpandedWidget("actions")}>⤢ Expand</button>
+          </div>
           <div class="start-actions">
             <button class="start-action" onClick={props.onNewTerminal}>
               <span class="start-action-icon">⌨</span> New terminal
@@ -579,45 +591,120 @@ const StartPage: Component<{
       </section>
       </div>
 
-      {/* Expanded calendar — a larger view with the month grid + every upcoming
-          event grouped by day (#114). The start page is DOM (no webview), so a
-          plain modal overlay works. Click outside / Esc / ✕ to close. */}
-      <Show when={calExpanded()}>
-        <div class="cal-modal-backdrop" onClick={() => setCalExpanded(false)} onKeyDown={(e) => { if (e.key === "Escape") setCalExpanded(false); }}>
+      {/* Expanded widgets — dashboard cards keep a fixed footprint; dense content
+          opens here instead of resizing the grid. */}
+      <Show when={expandedWidget()}>
+        <div class="cal-modal-backdrop" onClick={() => setExpandedWidget(null)} onKeyDown={(e) => { if (e.key === "Escape") setExpandedWidget(null); }}>
           <div class="cal-modal glass" onClick={(e) => e.stopPropagation()}>
             <div class="cal-modal-head">
-              <span class="cal-modal-title">{monthLabel()}</span>
-              <button class="files-panel-x" title="Close (Esc)" onClick={() => setCalExpanded(false)}>✕</button>
+              <span class="cal-modal-title">
+                {expandedWidget() === "recent" ? "Recent tabs"
+                  : expandedWidget() === "shortcuts" ? "Shortcuts"
+                  : expandedWidget() === "topSites" ? "Top sites"
+                  : expandedWidget() === "headlines" ? "Headlines"
+                  : expandedWidget() === "scratch" ? "Scratchpad"
+                  : expandedWidget() === "tasks" ? "Tasks"
+                  : expandedWidget() === "actions" ? "Quick actions"
+                  : monthLabel()}
+              </span>
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => setExpandedWidget(null)}>✕</button>
             </div>
-            <div class="cal-modal-body">
-              <div class="cal-modal-grid">
-                <CalendarGrid modal />
-              </div>
-              <div class="cal-modal-events">
-                <Show when={visibleEventGroups().some((g) => g.items.length > 0)} fallback={<div class="start-empty">{selectedCalDate() ? "No events for this day." : "No upcoming events."}</div>}>
-                  <For each={visibleEventGroups().filter((g) => g.items.length > 0)}>
-                    {(g) => (
-                      <div class="cal-day-group">
-                        <div class="cal-day-header">{dayLabel(g.date)}</div>
-                        <For each={g.items}>
-                          {(e) => (
-                            <div class="cal-day-event">
-                              <span class="cal-event-time">{e.time || "all-day"}</span>
-                              <div class="cal-event-main">
-                                <span class="cal-event-title">{e.summary}</span>
-                                <Show when={e.location || e.calendar}>
-                                  <span class="cal-event-sub">{[e.calendar, e.location].filter(Boolean).join(" · ")}</span>
-                                </Show>
+            <Show when={expandedWidget() === "calendar"}>
+              <div class="cal-modal-body">
+                <div class="cal-modal-grid">
+                  <CalendarGrid modal />
+                </div>
+                <div class="cal-modal-events">
+                  <Show when={visibleEventGroups().some((g) => g.items.length > 0)} fallback={<div class="start-empty">{selectedCalDate() ? "No events for this day." : "No upcoming events."}</div>}>
+                    <For each={visibleEventGroups().filter((g) => g.items.length > 0)}>
+                      {(g) => (
+                        <div class="cal-day-group">
+                          <div class="cal-day-header">{dayLabel(g.date)}</div>
+                          <For each={g.items}>
+                            {(e) => (
+                              <div class="cal-day-event">
+                                <span class="cal-event-time">{e.time || "all-day"}</span>
+                                <div class="cal-event-main">
+                                  <span class="cal-event-title">{e.summary}</span>
+                                  <Show when={e.location || e.calendar}>
+                                    <span class="cal-event-sub">{[e.calendar, e.location].filter(Boolean).join(" · ")}</span>
+                                  </Show>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    )}
-                  </For>
+                            )}
+                          </For>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
+                </div>
+              </div>
+            </Show>
+            <Show when={expandedWidget() !== "calendar"}>
+              <div class="widget-modal-body">
+                <Show when={expandedWidget() === "recent"}>
+                  <div class="start-list">
+                    <For each={recent()}>{(t) => <button class="start-row" onClick={() => { setExpandedWidget(null); focusTab(t.id); }} title={t.url}><span class="start-fav">{favicon(t.url)}</span><span class="start-row-label">{t.title || t.url}</span></button>}</For>
+                  </div>
+                </Show>
+                <Show when={expandedWidget() === "shortcuts"}>
+                  <div class="start-dial widget-modal-dial">
+                    <For each={shortcuts()}>
+                      {(s, i) => (
+                        <div class="start-tile-wrap">
+                          <button class="start-tile" style={{ "--tint": s.tint }} onClick={() => { setExpandedWidget(null); props.onNavigate(s.url); }} title={s.url}>{s.label}</button>
+                          <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>×</button>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                  <form class="start-add" onSubmit={addShortcut}>
+                    <input value={newUrl()} onInput={(e) => setNewUrl(e.currentTarget.value)} placeholder="example.com" spellcheck={false} />
+                    <button type="submit">Add</button>
+                  </form>
+                </Show>
+                <Show when={expandedWidget() === "topSites"}>
+                  <div class="start-dial widget-modal-dial">
+                    <For each={topSites()}>
+                      {(s, i) => <button class="start-tile" style={{ "--tint": TINTS[i() % TINTS.length] }} onClick={() => { setExpandedWidget(null); props.onNavigate(s.url); }} title={s.title}>{(s.host[0] ?? "?").toUpperCase()}</button>}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={expandedWidget() === "headlines"}>
+                  <div class="start-list">
+                    <For each={headlines()}>{(it) => <button class="start-row" onClick={() => { setExpandedWidget(null); props.onNavigate(it.link); }} title={`${it.feed_title} — ${it.title}`}><span class="start-fav">📰</span><span class="start-row-label">{it.title}</span></button>}</For>
+                  </div>
+                </Show>
+                <Show when={expandedWidget() === "scratch"}>
+                  <textarea class="start-scratch widget-modal-scratch" value={scratch()} onInput={(e) => onScratch(e.currentTarget.value)} spellcheck={false} />
+                </Show>
+                <Show when={expandedWidget() === "tasks"}>
+                  <form class="start-todo-add" onSubmit={addTodo}>
+                    <input value={newTodo()} onInput={(e) => setNewTodo(e.currentTarget.value)} placeholder="Add a task…" spellcheck={false} />
+                  </form>
+                  <div class="start-todos">
+                    <For each={sortedTodos()}>
+                      {(t) => (
+                        <div classList={{ "start-todo": true, done: t.done }}>
+                          <button class="start-todo-check" title={t.done ? "Mark not done" : "Mark done"} onClick={() => toggleTodo(t.id)}>{t.done ? "☑" : "☐"}</button>
+                          <span class="start-todo-title">{t.title}</span>
+                          <Show when={t.due}><span class="start-todo-due">{t.due}</span></Show>
+                          <button class="start-todo-x" title="Remove" onClick={() => removeTodo(t.id)}>×</button>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={expandedWidget() === "actions"}>
+                  <div class="start-actions widget-modal-actions">
+                    <button class="start-action" onClick={() => { setExpandedWidget(null); props.onNewTerminal(); }}><span class="start-action-icon">⌨</span> New terminal</button>
+                    <button class="start-action" onClick={() => { setExpandedWidget(null); props.onToggleAgent(); }}><span class="start-action-icon" style={{ color: "var(--flux-violet)" }}>✦</span> Ask Flux Agent</button>
+                    <button class="start-action" onClick={() => { setExpandedWidget(null); props.onNavigate(OMNI_URL); }}><span class="start-action-icon" style={{ color: "var(--flux-teal)" }}>✦</span> Omni index</button>
+                    <button class="start-action" onClick={() => { setExpandedWidget(null); props.onNavigate(HISTORY_URL); }}><span class="start-action-icon">🕘</span> History</button>
+                  </div>
                 </Show>
               </div>
-            </div>
+            </Show>
           </div>
         </div>
       </Show>

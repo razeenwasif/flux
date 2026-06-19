@@ -15,6 +15,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   middle-click, and modifier-click new-tab requests.
 
 ### Added
+- **Expandable home widgets** (BACKLOG #71) — every start-page widget (recent tabs,
+  shortcuts, top sites, headlines, scratchpad, tasks, quick actions, calendar) now
+  has a **⤢ Expand** button that opens its full content in a modal, so the
+  dashboard cards keep a compact fixed footprint while still giving you the whole
+  list on demand (Esc / click-outside to close).
 - **Daily session auto-snapshots** (BACKLOG #47) — Flux now quietly snapshots your
   open tabs into a per-day bucket on a background timer (keeps the last week), so
   you can **"reopen yesterday"** without ever having saved a session. The Sessions
