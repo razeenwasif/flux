@@ -47,6 +47,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - **Vault auto-lock watchdog backs off when idle** — the background vault thread now
   keeps the 20s check only while a password-protected, unlocked vault has auto-lock
   enabled; otherwise it sleeps for 60s to reduce default/keychain-mode wakeups.
+- **Windows startup profiling guide** — `docs/perf/startup-profiling.md` documents
+  native Windows boot-phase logging (`flux::boot`) plus ETW/WPR capture steps for
+  diagnosing launch latency beyond Rust setup.
 - **Generated TS bindings — batch 3** (BACKLOG #12) — 28 more IPC types are now
   derived from their Rust definitions (`specta::Type` → `bindings.gen.ts`, drift-
   gated in CI) instead of hand-mirrored in `ipc.ts`: shields/privacy
