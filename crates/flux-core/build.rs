@@ -1,16 +1,25 @@
 fn main() {
     // Declare an inlined plugin `fluxtab` for the commands a REMOTE tab page may
-    // call: `dom_publish` (DOM capture) and `ext_broker_call` (the extension
-    // broker, #94). Tauri blocks remote origins from app commands, but a plugin
-    // command can be granted to `tab-*` webviews via capabilities/tab.json
-    // (`fluxtab:default`). Keeping these in a plugin (not app commands) means the
-    // other ~26 app commands stay unreachable from page/extension content — the
-    // broker is the one authorized door, and it enforces per-call grants itself.
+    // call: DOM capture, app shortcut forwarding, page-initiated new tabs, reader
+    // extraction, hibernation capture, and the extension broker (#94). Tauri blocks
+    // remote origins from app commands, but plugin commands can be granted to
+    // `tab-*` webviews via capabilities/tab.json (`fluxtab:default`). Keeping these
+    // in a plugin (not app commands) means the other app commands stay unreachable
+    // from page/extension content — the broker is the one authorized door, and it
+    // enforces per-call grants itself.
     tauri_build::try_build(
         tauri_build::Attributes::new().plugin(
             "fluxtab",
             tauri_build::InlinedPlugin::new()
-                .commands(&["dom_publish", "ext_broker_call", "chrome_key", "find_result", "hibernate_capture", "reader_publish"])
+                .commands(&[
+                    "dom_publish",
+                    "ext_broker_call",
+                    "chrome_key",
+                    "chrome_open_url",
+                    "find_result",
+                    "hibernate_capture",
+                    "reader_publish",
+                ])
                 .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands),
         ),
     )

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "flux-tab",
-  "description": "Tab webviews host REMOTE page content. They are granted NO core/window/webview APIs — only `fluxtab:dom_publish`, so a page can publish its own DOM back to Flux and nothing else.",
+  "description": "Tab webviews host REMOTE page content. They are granted NO core/window/webview APIs — only the inlined `fluxtab` bridge for DOM capture, Flux shortcuts, page-initiated new-tab requests, reader/hibernate helpers, and the permission-checked extension broker.",
   "webviews": ["tab-*"],
   "remote": { "urls": ["http://*:*", "https://*:*"] },
   "permissions": ["fluxtab:default"]

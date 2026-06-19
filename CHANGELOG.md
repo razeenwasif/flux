@@ -7,6 +7,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Fixed
+- **Page link "open in new tab" bridge grant** (BACKLOG #109) — `newtab.js`
+  correctly called `plugin:fluxtab|chrome_open_url`, but that command was missing
+  from the inlined `fluxtab` plugin declaration used to generate remote-page
+  permissions. Remote pages can now invoke the bridge for right-click, `_blank`,
+  middle-click, and modifier-click new-tab requests.
+
 ### Added
 - **Sync expansion: history, deletion propagation, auto-sync** (BACKLOG #62) — E2E
   sync now also carries **browsing history** (merged by URL, keeping the higher
