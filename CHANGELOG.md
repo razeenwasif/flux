@@ -66,6 +66,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   budgets are a self-hosted/manual gate).
 
 ### Changed / Fixed
+- **Web panels now open as a separate pane** — opening a pinned web panel adds a
+  real grid column beside the main page instead of overlaying a strip inside the
+  content card. The main page pane resizes and recenters to the left, while the
+  panel's native webview is bounded to its own framed surface below the panel
+  toolbar. Focus mode and full-window overlays hide the panel webview cleanly.
 - **Files explorer no longer hangs on Windows-backed folders** — the initial
   listing no longer stats every entry before painting, quick-location discovery
   runs off the IPC/UI path, and live watcher setup is moved to a blocking worker.

@@ -306,24 +306,19 @@ const App: Component = () => {
   // a split is active and one of the pair is focused, the two pair tabs tile
   // left | right at `splitRatio` with a small gap the DOM splitter sits in.
   const SPLIT_GAP = 8;
-  // Web panel (#48) geometry: when a panel is open it occupies a right strip of
-  // the card (`panelViewRect`, below a DOM toolbar), and the tabs tile in the
-  // remaining `mainRect` to its left.
-  const PANEL_GAP = 8;
+  // Web panel (#48) geometry: the panel is its own grid pane beside the content
+  // card; its native webview sits below a DOM toolbar.
   const PANEL_TOOLBAR = 34; // DOM toolbar height atop the panel
-  const panelPx = (cardW: number) => Math.round(Math.max(280, Math.min(640, Math.min(cardW * 0.6, panelWidth()))));
   const mainRect = (): Rect | null => {
-    const r = readRect();
-    if (!r) return null;
-    if (activePanelId() == null) return r;
-    const pw = panelPx(r.width);
-    return { x: r.x, y: r.y, width: Math.max(120, r.width - pw - PANEL_GAP), height: r.height };
+    return readRect();
   };
   const panelViewRect = (): Rect | null => {
-    const r = readRect();
+    const el = document.getElementById("flux-panel-area");
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
     if (!r || activePanelId() == null) return null;
-    const pw = panelPx(r.width);
-    return { x: r.x + r.width - pw, y: r.y + PANEL_TOOLBAR, width: pw, height: Math.max(0, r.height - PANEL_TOOLBAR) };
+    if (r.width < 1 || r.height < PANEL_TOOLBAR + 1) return null;
+    return { x: r.x, y: r.y + PANEL_TOOLBAR, width: r.width, height: Math.max(0, r.height - PANEL_TOOLBAR) };
   };
   const paneLayout = (): { tab: TabMeta; rect: Rect }[] => {
     if (readerOpen()) return []; // reader view covers the card; hide the page
@@ -662,9 +657,9 @@ const App: Component = () => {
     if (needRelayout) scheduleRelayout();
   });
 
-  // Web panel (#48): manage the single open panel's webview — positioned in the
-  // right strip, persistent across tab switches (it's not part of the tab
-  // lifecycle). Switching panels closes the old one; hidden mid-divider-drag.
+  // Web panel (#48): manage the single open panel's webview — positioned in its
+  // own grid pane beside the content card. Switching panels closes the old one;
+  // hidden mid-divider-drag.
   let openedPanel: number | null = null;
   createEffect(() => {
     contentRect();
@@ -676,14 +671,17 @@ const App: Component = () => {
       openedPanel = null;
     }
     if (!p) return;
-    if (dragging || readerOpen() || filesPanelOpen() || paletteOpen()) {
+    if (dragging || focusMode() || readerOpen() || filesPanelOpen() || paletteOpen()) {
       // Reader / Files popout / command palette are full overlays that must sit
       // above everything — including the web panel's own native webview layer.
       wv(panelHide(p.id));
       return;
     }
     const rect = panelViewRect();
-    if (!rect) return;
+    if (!rect) {
+      wv(panelHide(p.id));
+      return;
+    }
     if (openedPanel === p.id) {
       wv(panelSetBounds(p.id, rect));
       wv(panelShow(p.id));
@@ -1133,13 +1131,15 @@ const App: Component = () => {
   // The vertical terminal column only shows for browser tabs — a terminal
   // *tab* already fills the content card with a shell.
   const termColVisible = () => terminalOpen() && !focusMode() && activeTab()?.kind !== "terminal";
+  const panelColVisible = () => !focusMode() && activePanel() != null;
 
   const columns = () =>
     focusMode()
-      ? "0px 1fr 0px 0px" // focus/compact mode (#55): content only
+      ? "0px 1fr 0px 0px 0px" // focus/compact mode (#55): content only
       : [
           sidebarOpen() ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
           "1fr",
+          panelColVisible() ? `${panelWidth()}px` : "0px",
           termColVisible() ? `${terminalW()}px` : "0px",
           agentOpen() ? `${agentW()}px` : "0px",
         ].join(" ");
@@ -1179,7 +1179,7 @@ const App: Component = () => {
       style={{
         "grid-template-columns": columns(),
         "grid-template-rows": "var(--flux-titlebar-h) 1fr",
-        "grid-template-areas": `"title title title title" "side content term agent"`,
+        "grid-template-areas": `"title title title title title" "side content webpanel term agent"`,
       }}
     >
       <TitleBar />
@@ -1213,6 +1213,32 @@ const App: Component = () => {
         onToggleAgent={() => setAgentOpen(true)}
         onSleepBackground={sleepBackgroundTabs}
       />
+      <Show when={panelColVisible()}>
+        <WebPanelPane />
+      </Show>
+      <Show when={panelColVisible()}>
+        <div
+          class="pane-splitter panel-divider"
+          style={{ right: `${(agentOpen() ? agentW() : 0) + (termColVisible() ? terminalW() : 0) + panelWidth()}px` }}
+          title="Drag to resize the web panel"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            document.body.classList.add("resizing");
+            setPanelDragging(true);
+            const startX = e.clientX;
+            const startW = panelWidth();
+            const move = (ev: PointerEvent) => setPanelWidth(startW - (ev.clientX - startX));
+            const up = () => {
+              setPanelDragging(false);
+              document.body.classList.remove("resizing");
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", up);
+            };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", up);
+          }}
+        />
+      </Show>
       <Show when={termColVisible()}>
         <TerminalColumn />
       </Show>
@@ -2508,43 +2534,6 @@ const ContentArea: Component<{
           }}
         />
       </Show>
-      {/* Web panel (#48): a DOM toolbar in the top strip of the panel region (the
-          webview sits below it) + a divider to resize. Both are right-anchored so
-          they don't need the card width. */}
-      <Show when={activePanel()}>
-        {(p) => {
-          const pw = () => Math.max(280, Math.min(640, panelWidth()));
-          return (
-            <>
-              <div class="panel-toolbar" style={{ width: `${pw()}px` }}>
-                <span class="panel-title" title={p().url}>{p().title || p().url}</span>
-                <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p().id, p().url)}>⟳</button>
-                <button class="panel-btn" title="Close panel" onClick={() => closePanel()}>✕</button>
-              </div>
-              <div
-                class="pane-splitter panel-divider"
-                style={{ right: `${pw()}px` }}
-                title="Drag to resize the panel"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  const card = document.getElementById("flux-web-area");
-                  if (!card) return;
-                  const rect = card.getBoundingClientRect();
-                  setPanelDragging(true);
-                  const move = (ev: PointerEvent) => setPanelWidth(rect.right - ev.clientX);
-                  const up = () => {
-                    setPanelDragging(false);
-                    window.removeEventListener("pointermove", move);
-                    window.removeEventListener("pointerup", up);
-                  };
-                  window.addEventListener("pointermove", move);
-                  window.addEventListener("pointerup", up);
-                }}
-              />
-            </>
-          );
-        }}
-      </Show>
       {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
           its PTY + scrollback survive tab switches; only the active one shows.
           (TerminalView only unmounts — and kills its PTY — when the tab closes,
@@ -2650,6 +2639,27 @@ const ContentArea: Component<{
   </main>
   );
 };
+
+// ─── Web panel column ────────────────────────────────────────────────────────
+
+const WebPanelPane: Component = () => (
+  <aside class="webpanel-pane">
+    <div class="webpanel-surface" id="flux-panel-area">
+      <Show when={activePanel()}>
+        {(p) => (
+          <>
+            <div class="panel-toolbar">
+              <span class="panel-title" title={p().url}>{p().title || p().url}</span>
+              <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p().id, p().url)}>⟳</button>
+              <button class="panel-btn" title="Close panel" onClick={() => closePanel()}>✕</button>
+            </div>
+            <div class="panel-placeholder" />
+          </>
+        )}
+      </Show>
+    </div>
+  </aside>
+);
 
 // ─── Vertical terminal column ───────────────────────────────────────────────
 

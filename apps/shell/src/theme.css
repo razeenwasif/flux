@@ -233,16 +233,35 @@ body.resizing, body.busy { --glass-blur: none; }
 }
 .pane-splitter:hover::after { background: rgba(47, 243, 255, 0.35); }
 
-/* Web panel (#48): DOM toolbar atop the right-side panel webview + its divider. */
+/* Web panel (#48): its own grid pane beside the main content card. */
+.webpanel-pane {
+  grid-area: webpanel;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--flux-frame-pad);
+  padding-left: 0;
+}
+.webpanel-surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--glass-rim-soft);
+  border-radius: var(--flux-radius-card);
+  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+}
 .panel-divider { left: auto; transform: translateX(50%); }
 .panel-toolbar {
-  position: absolute; top: 0; right: 0; z-index: 6;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 6;
   height: 34px; display: flex; align-items: center; gap: 4px;
   padding: 0 8px;
   background: var(--flux-popover-fill);
   border-bottom: 1px solid var(--glass-rim-soft);
-  border-top-right-radius: var(--flux-radius-card);
 }
+.panel-placeholder { position: absolute; inset: 34px 0 0; }
 .panel-title { flex: 1; min-width: 0; font-size: 12px; color: var(--flux-text-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .panel-btn { flex: none; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 13px; color: var(--flux-text-dim); }
 .panel-btn:hover { color: var(--flux-text); background: var(--flux-surface-2); }
