@@ -30,10 +30,12 @@ impl LlamaBackend {
 }
 
 impl Inference for LlamaBackend {
-    fn complete(&self, _prompt: &str, _grammar: Option<&str>) -> Result<String, AgentError> {
-        // Real impl: build a sampler chain with LlamaGrammar::from_str(grammar)
-        // so decoding is constrained at the logit level, temp 0.1, then decode
-        // until <end_of_turn>.
+    fn complete(&self, _prompt: &str, _schema: Option<&serde_json::Value>) -> Result<String, AgentError> {
+        // Real impl: convert the JSON Schema to GBNF (llama.cpp's
+        // `json_schema_to_grammar`) and build a sampler chain from it so decoding
+        // is constrained at the logit level, temp 0.1, then decode until
+        // <end_of_turn>. `chat_stream` will decode token-by-token here; the trait
+        // default (one chunk via `chat`) holds until then.
         Err(AgentError::Inference("not yet wired".into()))
     }
 

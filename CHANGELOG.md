@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Streaming agent replies + schema-constrained actions** (BACKLOG #82, closes it)
+  — the agent sidebar now renders chat answers **token-by-token as the model
+  generates them** (both the active-page and all-tabs scopes), instead of waiting
+  for the whole completion: a Tauri `Channel<String>` relays each Ollama chunk
+  (`/api/generate` `stream:true`) straight into the reply bubble. And page actions
+  are now constrained by the **`AgentAction` JSON Schema** passed as Ollama's
+  `format` (`flux_agent::action_schema` — a `oneOf` of tagged variants, with
+  `finish` only in the multi-step loop) — strictly stronger than the old
+  `format:"json"`, which only guaranteed *valid* JSON and leaned on the prompt to
+  describe the fields. Non-streaming backends (the mock, the llama scaffold) keep
+  working via a one-chunk trait default.
 - **Open links in a new tab from internal pages** — right-clicking a link in Flux's
   own DOM pages (Archive, Feeds, History, Bookmarks, the bookmark bar) now shows an
   **Open in new tab / Open in new background tab / Copy link** menu — previously

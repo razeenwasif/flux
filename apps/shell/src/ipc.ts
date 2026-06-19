@@ -203,6 +203,26 @@ export const agentTaskStep = (goal: string, history: string[]) =>
   invoke<AgentAction>("agent_task_step", { goal, history });
 /** Free-form chat with the local model (no page required). Returns the reply. */
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
+/**
+ * Streaming chat (BACKLOG #82): calls `onToken` for each chunk as the model
+ * generates it, resolving with the full reply when done. The sidebar renders
+ * the answer live instead of waiting for the whole completion.
+ */
+export const agentChatStream = (prompt: string, onToken: (chunk: string) => void): Promise<void> => {
+  const ch = new Channel<string>();
+  ch.onmessage = onToken;
+  return invoke<void>("agent_chat_stream", { prompt, onToken: ch });
+};
+/** Streaming counterpart of {@link agentChatTabs} (BACKLOG #82). */
+export const agentChatTabsStream = (
+  prompt: string,
+  tabIds: number[],
+  onToken: (chunk: string) => void,
+): Promise<void> => {
+  const ch = new Channel<string>();
+  ch.onmessage = onToken;
+  return invoke<void>("agent_chat_tabs_stream", { prompt, tabIds, onToken: ch });
+};
 /** Translate the active page's text to `target` (a language name) via the local model (#40). */
 export const agentTranslate = (target: string) => invoke<string>("agent_translate", { target });
 // ─── Agent model picker (BACKLOG #81) ────────────────────────────────────────

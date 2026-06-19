@@ -127,17 +127,79 @@ pub const DESTRUCTIVE_TERMS: &[&str] = &[
 
 /// Backend abstraction: Ollama today, llama.cpp behind a feature, mock in CI.
 pub trait Inference: Send + Sync {
-    /// Structured completion for DOM actions (`grammar` is GBNF for the llama
-    /// path; Ollama uses JSON-format constraints instead).
-    fn complete(&self, prompt: &str, grammar: Option<&str>) -> Result<String, AgentError>;
+    /// Structured completion for DOM actions. `schema` is the JSON Schema the
+    /// output must satisfy: Ollama passes it straight to `/api/generate`'s
+    /// `format` (token-level grammar), and the llama path converts it to GBNF.
+    /// `None` falls back to free JSON.
+    fn complete(&self, prompt: &str, schema: Option<&serde_json::Value>) -> Result<String, AgentError>;
 
     /// Plain conversational completion — no structured-output constraint.
     fn chat(&self, prompt: &str) -> Result<String, AgentError>;
+
+    /// Streaming chat (BACKLOG #82): invoke `on_token` for each chunk as it's
+    /// generated, returning the full text. The default forwards to `chat` and
+    /// emits the whole reply as one chunk — so non-streaming backends (mock,
+    /// the llama scaffold) keep working transparently.
+    fn chat_stream(&self, prompt: &str, on_token: &mut dyn FnMut(&str)) -> Result<String, AgentError> {
+        let full = self.chat(prompt)?;
+        on_token(&full);
+        Ok(full)
+    }
 }
 
-/// GBNF grammar pinning generation to the AgentAction schema.
-/// llama.cpp applies this at the logit level: the model *cannot* emit
-/// anything that doesn't parse into `AgentAction`.
+/// JSON Schema for the `AgentAction` vocabulary, as the `oneOf`-of-tagged-objects
+/// shape Ollama (and llama.cpp under the hood) compile to a token-level grammar.
+/// Passed as `/api/generate`'s `format` so the model is constrained to emit a
+/// *well-shaped* action — strictly stronger than the old `format:"json"` (which
+/// only guaranteed valid JSON, leaning on the prompt to describe the fields).
+/// `include_finish` adds the multi-step `finish` terminal (used by `plan_step`;
+/// omitted by single-shot `plan`, which has nothing to finish).
+pub fn action_schema(include_finish: bool) -> serde_json::Value {
+    use serde_json::json;
+    let s = || json!({ "type": "string" });
+    let variant = |props: serde_json::Value, required: &[&str]| {
+        json!({
+            "type": "object",
+            "properties": props,
+            "required": required,
+            "additionalProperties": false,
+        })
+    };
+    let mut variants = vec![
+        variant(
+            json!({ "action": { "const": "click" }, "selector": s(), "reason": s() }),
+            &["action", "selector", "reason"],
+        ),
+        variant(
+            json!({ "action": { "const": "extract_table" }, "selector": s(), "format": { "enum": ["csv", "json"] } }),
+            &["action", "selector", "format"],
+        ),
+        variant(
+            json!({ "action": { "const": "type" }, "selector": s(), "text": s() }),
+            &["action", "selector", "text"],
+        ),
+        variant(
+            json!({ "action": { "const": "reveal" }, "selector": s() }),
+            &["action", "selector"],
+        ),
+        variant(
+            json!({ "action": { "const": "refuse" }, "reason": s() }),
+            &["action", "reason"],
+        ),
+    ];
+    if include_finish {
+        variants.push(variant(
+            json!({ "action": { "const": "finish" }, "summary": s() }),
+            &["action", "summary"],
+        ));
+    }
+    json!({ "oneOf": variants })
+}
+
+/// GBNF grammar pinning generation to the AgentAction schema — the equivalent of
+/// [`action_schema`] for the llama.cpp logit-level sampler (the Ollama path uses
+/// the JSON Schema instead). The model *cannot* emit anything that doesn't parse
+/// into `AgentAction`.
 pub const ACTION_GRAMMAR: &str = r#"
 root        ::= "{" ws "\"action\"" ws ":" ws action-body "}"
 action-body ::= click | extract | type-act | reveal | refuse | finish
@@ -185,7 +247,8 @@ impl AgentPlanner {
              PAGE:\n{page}\n\nREQUEST: {user_prompt}"
         );
 
-        let raw = self.backend.complete(&prompt, Some(ACTION_GRAMMAR))?;
+        // Single-shot plan: no `finish` (there's no multi-step task to conclude).
+        let raw = self.backend.complete(&prompt, Some(&action_schema(false)))?;
         let action: AgentAction = serde_json::from_str(raw.trim())?;
         policy_check(&action)?;
         tracing::info!(target: "flux::agent", action = %action.describe(), "planned");
@@ -222,19 +285,19 @@ impl AgentPlanner {
              Prefer stable selectors (ids, aria-labels, data attributes).\n\n\
              TASK GOAL: {goal}\n\nSTEPS DONE:\n{steps}\n\nPAGE:\n{page}"
         );
-        let raw = self.backend.complete(&prompt, Some(ACTION_GRAMMAR))?;
+        // Multi-step: `finish` is allowed so the loop can declare the goal met.
+        let raw = self.backend.complete(&prompt, Some(&action_schema(true)))?;
         let action: AgentAction = serde_json::from_str(raw.trim())?;
         policy_check(&action)?;
         tracing::info!(target: "flux::agent", step = %action.describe(), "task step planned");
         Ok(action)
     }
 
-    /// Free-form chat. If `page_text` is given, it's included as context so the
-    /// user can ask *about* the current page (summaries, questions) without the
-    /// agent trying to act on it.
-    pub fn chat(&self, user_prompt: &str, page_text: Option<&str>) -> Result<String, AgentError> {
+    /// Build the chat prompt (active-page context optional). Shared by the
+    /// blocking and streaming chat paths so they never drift.
+    fn chat_prompt(user_prompt: &str, page_text: Option<&str>) -> String {
         const PAGE_BUDGET: usize = 6 * 1024;
-        let prompt = match page_text {
+        match page_text {
             Some(p) if !p.trim().is_empty() => format!(
                 "You are Flux, a helpful AI assistant built into a web browser. The \
                  user is viewing a page; its visible text is provided for context. \
@@ -246,26 +309,65 @@ impl AgentPlanner {
                 "You are Flux, a helpful AI assistant built into a web browser. \
                  Answer the user's message conversationally.\n\nUSER: {user_prompt}"
             ),
-        };
-        self.backend.chat(&prompt)
+        }
+    }
+
+    /// Build the multi-tab chat prompt; `None` when `pages` is empty (caller
+    /// should fall back to plain chat).
+    fn chat_pages_prompt(user_prompt: &str, pages: &str) -> Option<String> {
+        const PAGES_BUDGET: usize = 12 * 1024;
+        if pages.trim().is_empty() {
+            return None;
+        }
+        Some(format!(
+            "You are Flux, a helpful AI assistant built into a web browser. The user \
+             is asking about several open tabs; each tab's visible text is provided \
+             below. Answer using this context and say which tab when it matters.\n\n\
+             {}\n\nUSER: {user_prompt}",
+            truncate_utf8(pages, PAGES_BUDGET)
+        ))
+    }
+
+    /// Free-form chat. If `page_text` is given, it's included as context so the
+    /// user can ask *about* the current page (summaries, questions) without the
+    /// agent trying to act on it.
+    pub fn chat(&self, user_prompt: &str, page_text: Option<&str>) -> Result<String, AgentError> {
+        self.backend.chat(&Self::chat_prompt(user_prompt, page_text))
+    }
+
+    /// Streaming counterpart of [`chat`](Self::chat) (BACKLOG #82) — relays each
+    /// token to `on_token` as the model generates it, so the sidebar renders the
+    /// reply live instead of waiting for the whole completion.
+    pub fn chat_stream(
+        &self,
+        user_prompt: &str,
+        page_text: Option<&str>,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<String, AgentError> {
+        self.backend.chat_stream(&Self::chat_prompt(user_prompt, page_text), on_token)
     }
 
     /// Chat grounded in the text of several open tabs (BACKLOG: chat-with-tabs).
     /// `pages` is the pre-joined, per-tab-labelled text; here we just frame it and
     /// cap the total.
     pub fn chat_pages(&self, user_prompt: &str, pages: &str) -> Result<String, AgentError> {
-        const PAGES_BUDGET: usize = 12 * 1024;
-        if pages.trim().is_empty() {
-            return self.chat(user_prompt, None);
+        match Self::chat_pages_prompt(user_prompt, pages) {
+            Some(prompt) => self.backend.chat(&prompt),
+            None => self.chat(user_prompt, None),
         }
-        let prompt = format!(
-            "You are Flux, a helpful AI assistant built into a web browser. The user \
-             is asking about several open tabs; each tab's visible text is provided \
-             below. Answer using this context and say which tab when it matters.\n\n\
-             {}\n\nUSER: {user_prompt}",
-            truncate_utf8(pages, PAGES_BUDGET)
-        );
-        self.backend.chat(&prompt)
+    }
+
+    /// Streaming counterpart of [`chat_pages`](Self::chat_pages) (BACKLOG #82).
+    pub fn chat_pages_stream(
+        &self,
+        user_prompt: &str,
+        pages: &str,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<String, AgentError> {
+        match Self::chat_pages_prompt(user_prompt, pages) {
+            Some(prompt) => self.backend.chat_stream(&prompt, on_token),
+            None => self.chat_stream(user_prompt, None, on_token),
+        }
     }
 
     /// Author a CSS "boost" for the current site from a natural-language request
@@ -357,7 +459,7 @@ fn truncate_utf8(s: &str, max: usize) -> &str {
 pub struct MockBackend;
 
 impl Inference for MockBackend {
-    fn complete(&self, prompt: &str, _grammar: Option<&str>) -> Result<String, AgentError> {
+    fn complete(&self, prompt: &str, _schema: Option<&serde_json::Value>) -> Result<String, AgentError> {
         let p = prompt.to_ascii_lowercase();
         // Multi-step task loop (plan_step): do one step, then finish on the next
         // call (once a step appears under "STEPS DONE:"). Keeps the dev/CI loop
@@ -417,6 +519,40 @@ mod tests {
         // Finish never targets the page.
         assert_eq!(s2.selector(), None);
         assert!(s2.is_destructive().is_none());
+    }
+
+    #[test]
+    fn action_schema_includes_finish_only_when_asked() {
+        let plan = action_schema(false);
+        let step = action_schema(true);
+        let plan_variants = plan["oneOf"].as_array().unwrap();
+        let step_variants = step["oneOf"].as_array().unwrap();
+        assert_eq!(plan_variants.len(), 5, "single-shot plan has no finish");
+        assert_eq!(step_variants.len(), 6, "multi-step adds finish");
+        // Every variant pins the tag with a const/enum and forbids stray keys.
+        for v in step_variants {
+            assert!(v["properties"]["action"].get("const").is_some());
+            assert_eq!(v["additionalProperties"], false);
+        }
+        let has_finish = |vs: &[serde_json::Value]| {
+            vs.iter().any(|v| v["properties"]["action"]["const"] == "finish")
+        };
+        assert!(!has_finish(plan_variants));
+        assert!(has_finish(step_variants));
+    }
+
+    #[test]
+    fn default_chat_stream_emits_full_reply_once() {
+        // Backends without native streaming (mock, llama scaffold) fall back to
+        // one chunk via the trait default — the sidebar still works.
+        let planner = AgentPlanner::new(Box::new(MockBackend));
+        let mut chunks: Vec<String> = Vec::new();
+        let full = planner
+            .chat_stream("hello there", None, &mut |t| chunks.push(t.to_string()))
+            .unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], full);
+        assert!(full.contains("hello there"));
     }
 
     #[test]

@@ -3,8 +3,9 @@
 //! Talks to a local Ollama server (`http://localhost:11434`) over HTTP rather
 //! than embedding llama.cpp: Ollama owns model loading + GPU offload, the user
 //! already has the Gemma models pulled, and this is pure Rust (no FFI/build
-//! toolchain). `format: "json"` forces the model to emit valid JSON, which the
-//! planner parses into an `AgentAction`.
+//! toolchain). For DOM actions the planner passes the `AgentAction` JSON Schema
+//! as `format` (`crate::action_schema`), so the model is constrained to the exact
+//! shape; chat streams free text token-by-token (`stream:true`).
 //!
 //! Config (env): `FLUX_MODEL` (default `gemma4:12b-it-qat`), `FLUX_OLLAMA_URL`.
 
@@ -154,14 +155,17 @@ fn merge_options(mut base: serde_json::Value, extra: Option<serde_json::Map<Stri
     base
 }
 
-/// Build a `/api/generate` body. `json` forces structured JSON output (DOM
-/// actions); plain text + a warmer temperature is used for chat. Split out so
-/// it's unit-testable without a live server.
-fn generate_body(model: &str, prompt: &str, json: bool) -> serde_json::Value {
+/// Build a `/api/generate` body. A `format` (a JSON Schema, or the bare string
+/// `"json"`) constrains structured output for DOM actions and gets the cooler
+/// temperature; `None` is free-text chat with a warmer one. `stream` toggles
+/// newline-delimited chunked responses. Split out so it's unit-testable without
+/// a live server.
+fn generate_body(model: &str, prompt: &str, format: Option<serde_json::Value>, stream: bool) -> serde_json::Value {
+    let structured = format.is_some();
     let options = merge_options(
         serde_json::json!({
-            "temperature": if json { 0.1 } else { 0.6 },
-            "num_predict": if json { 512 } else { 1024 },
+            "temperature": if structured { 0.1 } else { 0.6 },
+            "num_predict": if structured { 512 } else { 1024 },
             "num_ctx": num_ctx(),
         }),
         extra_options(),
@@ -169,23 +173,23 @@ fn generate_body(model: &str, prompt: &str, json: bool) -> serde_json::Value {
     let mut body = serde_json::json!({
         "model": model,
         "prompt": prompt,
-        "stream": false,
+        "stream": stream,
         "keep_alive": keep_alive(),
         "options": options,
     });
-    if json {
-        body["format"] = serde_json::Value::String("json".into());
+    if let Some(f) = format {
+        body["format"] = f;
     }
     body
 }
 
 impl OllamaBackend {
-    fn generate(&self, prompt: &str, json: bool) -> Result<String, AgentError> {
+    fn generate(&self, prompt: &str, format: Option<serde_json::Value>) -> Result<String, AgentError> {
         let url = format!("{}/api/generate", self.endpoint);
         let resp = self
             .agent
             .post(&url)
-            .send_json(generate_body(&active_model(), prompt, json))
+            .send_json(generate_body(&active_model(), prompt, format, false))
             .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
 
         let value: serde_json::Value = resp
@@ -198,15 +202,62 @@ impl OllamaBackend {
             .map(str::to_owned)
             .ok_or_else(|| AgentError::Inference(format!("ollama: no `response` field in {value}")))
     }
+
+    /// Stream a free-text completion: `/api/generate` with `stream:true` returns
+    /// newline-delimited JSON objects, each `{ "response": "<chunk>", "done": … }`.
+    /// We relay each chunk to `on_token` and accumulate the full text (BACKLOG #82).
+    fn generate_stream(&self, prompt: &str, on_token: &mut dyn FnMut(&str)) -> Result<String, AgentError> {
+        use std::io::BufRead;
+        let url = format!("{}/api/generate", self.endpoint);
+        let resp = self
+            .agent
+            .post(&url)
+            .send_json(generate_body(&active_model(), prompt, None, true))
+            .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
+
+        let mut reader = std::io::BufReader::new(resp.into_reader());
+        let mut full = String::new();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => break, // stream closed
+                Ok(_) => {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    // A malformed chunk shouldn't abort a good stream; skip it.
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else { continue };
+                    if let Some(tok) = value.get("response").and_then(|v| v.as_str()) {
+                        if !tok.is_empty() {
+                            full.push_str(tok);
+                            on_token(tok);
+                        }
+                    }
+                    if value.get("done").and_then(|d| d.as_bool()).unwrap_or(false) {
+                        break;
+                    }
+                }
+                Err(e) => return Err(AgentError::Inference(format!("ollama stream read: {e}"))),
+            }
+        }
+        Ok(full)
+    }
 }
 
 impl Inference for OllamaBackend {
-    fn complete(&self, prompt: &str, _grammar: Option<&str>) -> Result<String, AgentError> {
-        self.generate(prompt, true)
+    fn complete(&self, prompt: &str, schema: Option<&serde_json::Value>) -> Result<String, AgentError> {
+        // A schema constrains the shape; with none, fall back to free JSON.
+        self.generate(prompt, Some(schema.cloned().unwrap_or_else(|| serde_json::Value::String("json".into()))))
     }
 
     fn chat(&self, prompt: &str) -> Result<String, AgentError> {
-        self.generate(prompt, false)
+        self.generate(prompt, None)
+    }
+
+    fn chat_stream(&self, prompt: &str, on_token: &mut dyn FnMut(&str)) -> Result<String, AgentError> {
+        self.generate_stream(prompt, on_token)
     }
 }
 
@@ -215,16 +266,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn action_body_is_json_constrained() {
-        let b = generate_body("gemma4:12b-it-qat", "find the link", true);
+    fn action_body_is_schema_constrained() {
+        // Actions pass the AgentAction JSON Schema as `format` (BACKLOG #82) —
+        // stronger than the old bare `format:"json"`.
+        let schema = crate::action_schema(true);
+        let b = generate_body("gemma4:12b-it-qat", "find the link", Some(schema), false);
         assert_eq!(b["model"], "gemma4:12b-it-qat");
         assert_eq!(b["prompt"], "find the link");
         assert_eq!(b["stream"], false);
-        assert_eq!(b["format"], "json");
+        assert!(b["format"]["oneOf"].is_array(), "format is the action schema, not just \"json\"");
         assert_eq!(b["options"]["temperature"], 0.1);
         // Latency levers (#102): model kept warm + context capped.
         assert!(b.get("keep_alive").is_some());
         assert!(b["options"]["num_ctx"].is_number());
+    }
+
+    #[test]
+    fn stream_flag_threads_through() {
+        let b = generate_body("m", "hi", None, true);
+        assert_eq!(b["stream"], true);
+        assert!(b.get("format").is_none()); // streaming chat is free-text
     }
 
     #[test]
@@ -243,7 +304,7 @@ mod tests {
 
     #[test]
     fn chat_body_is_plain_text() {
-        let b = generate_body("gemma4:12b-it-qat", "hello", false);
+        let b = generate_body("gemma4:12b-it-qat", "hello", None, false);
         assert!(b.get("format").is_none()); // no JSON constraint for chat
         assert_eq!(b["options"]["temperature"], 0.6);
     }
