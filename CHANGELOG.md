@@ -18,7 +18,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   surfaces the main window so the new tab is actually seen. Built as its own
   `WebviewWindow` (the right model under Flux's native-webview overlay constraint)
   with only the `fluxtab` bridge, Rust-guarded so a peek can self-close/promote/pin
-  but a normal page can't.
+  but a normal page can't. **Shields apply to peeks** — the same content-blocker /
+  HTTPS-only / lean request interceptor and cosmetic element-hiding that protect
+  tabs are wired into peek windows too.
 
 ### Fixed
 - **Page link "open in new tab" bridge grant** (BACKLOG #109) — `newtab.js`

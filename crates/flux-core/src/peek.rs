@@ -34,15 +34,38 @@ fn open_peek(app: &AppHandle, url: &str) -> Result<(), String> {
     let parsed: tauri::Url = url.parse().map_err(|_| format!("invalid URL: {url}"))?;
     let n = PEEK_SEQ.fetch_add(1, Ordering::Relaxed);
     let label = format!("peek-{n}");
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
+    // Cosmetic element-hiding (#57): inject the per-page shields CSS so a blocked
+    // ad slot doesn't leave a gap — the network-level block is the interceptor
+    // installed below. Mirrors the tab webview path.
+    let app_for_load = app.clone();
+    let win = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
         .title(format!("Peek · {}", host_of(url)))
         .inner_size(960.0, 680.0)
         .min_inner_size(420.0, 360.0)
         .center()
         .always_on_top(true)
         .initialization_script(PEEK_JS)
+        .on_page_load(move |webview, payload| {
+            let css = app_for_load
+                .try_state::<crate::shields::ShieldsState>()
+                .map(|s| s.cosmetic_css(&payload.url().to_string()))
+                .unwrap_or_default();
+            if !css.is_empty() {
+                if let Ok(lit) = serde_json::to_string(&css) {
+                    let _ = webview.eval(&format!(
+                        "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-cosmetic');\
+                         if(!s){{s=d.createElement('style');s.id='flux-cosmetic';}}s.textContent=c;\
+                         var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
+                    ));
+                }
+            }
+        })
         .build()
         .map_err(|e| format!("open peek: {e}"))?;
+    // Network-level content blocking + HTTPS-only + lean (#57/#91/#105), same
+    // policy as tab webviews — peeks are a separate window so they need it wired
+    // explicitly (Windows/WebView2; no-op elsewhere).
+    crate::netfilter::install_on_window(app, &win);
     Ok(())
 }
 

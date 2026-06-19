@@ -17,58 +17,78 @@ use tauri::AppHandle;
 /// Install the content-blocker interceptor on a freshly-created tab webview.
 pub fn install(app: &AppHandle, webview: &Webview) {
     #[cfg(windows)]
-    install_windows(app.clone(), webview);
+    {
+        let app = app.clone();
+        let r = webview.with_webview(move |platform| wire(&app, platform));
+        if let Err(e) = r {
+            tracing::warn!(target: "flux::netfilter", "with_webview failed: {e}");
+        }
+    }
     #[cfg(not(windows))]
     {
         let _ = (app, webview);
     }
 }
 
-#[cfg(windows)]
-fn install_windows(app: AppHandle, webview: &Webview) {
-    use tauri::Manager;
-    let r = webview.with_webview(move |platform| {
-        // `with_webview` runs on the webview's UI thread — where the WebView2
-        // event handler must also live.
-        let controller = platform.controller();
-        unsafe {
-            let core = match controller.CoreWebView2() {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!(target: "flux::netfilter", "CoreWebView2() failed: {e}");
-                    return;
-                }
-            };
-            let policy_app = app.clone();
-            // Per request: block trackers/ads (shields), else upgrade http→https
-            // (HTTPS-only), else allow.
-            let verdict = move |url: &str, source: &str, ty: &str| -> win::Decision {
-                if let Some(s) = policy_app.try_state::<crate::shields::ShieldsState>() {
-                    if s.should_block(url, source, ty) {
-                        return win::Decision::Block;
-                    }
-                }
-                // Lean mode (#105): extra heavy-script blocking for opted-in sites.
-                if let Some(l) = policy_app.try_state::<crate::leanmode::LeanState>() {
-                    if l.should_block(url, source, ty) {
-                        return win::Decision::Block;
-                    }
-                }
-                if let Some(h) = policy_app.try_state::<crate::https::HttpsState>() {
-                    if let Some(secure) = h.upgrade(url) {
-                        return win::Decision::Redirect(secure);
-                    }
-                }
-                win::Decision::Allow
-            };
-            match win::install_interceptor(&core, verdict) {
-                Ok(()) => tracing::info!(target: "flux::netfilter", "interceptor installed"),
-                Err(e) => tracing::warn!(target: "flux::netfilter", "install failed: {e}"),
-            }
+/// Same interceptor, but for a standalone `WebviewWindow` (e.g. a peek window,
+/// #50) — peeks are their own window, not a `tab-*` child webview, so they'd
+/// otherwise miss shields/HTTPS-only/lean entirely.
+pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
+    #[cfg(windows)]
+    {
+        let app = app.clone();
+        let r = window.with_webview(move |platform| wire(&app, platform));
+        if let Err(e) = r {
+            tracing::warn!(target: "flux::netfilter", "with_webview (window) failed: {e}");
         }
-    });
-    if let Err(e) = r {
-        tracing::warn!(target: "flux::netfilter", "with_webview failed: {e}");
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, window);
+    }
+}
+
+/// Wire the WebView2 `WebResourceRequested` interceptor with Flux's policy.
+/// Runs on the webview's UI thread (where `with_webview` puts us) — the only
+/// place the WebView2 event handler may be installed.
+#[cfg(windows)]
+fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
+    use tauri::Manager;
+    let controller = platform.controller();
+    unsafe {
+        let core = match controller.CoreWebView2() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(target: "flux::netfilter", "CoreWebView2() failed: {e}");
+                return;
+            }
+        };
+        let policy_app = app.clone();
+        // Per request: block trackers/ads (shields), else upgrade http→https
+        // (HTTPS-only), else allow.
+        let verdict = move |url: &str, source: &str, ty: &str| -> win::Decision {
+            if let Some(s) = policy_app.try_state::<crate::shields::ShieldsState>() {
+                if s.should_block(url, source, ty) {
+                    return win::Decision::Block;
+                }
+            }
+            // Lean mode (#105): extra heavy-script blocking for opted-in sites.
+            if let Some(l) = policy_app.try_state::<crate::leanmode::LeanState>() {
+                if l.should_block(url, source, ty) {
+                    return win::Decision::Block;
+                }
+            }
+            if let Some(h) = policy_app.try_state::<crate::https::HttpsState>() {
+                if let Some(secure) = h.upgrade(url) {
+                    return win::Decision::Redirect(secure);
+                }
+            }
+            win::Decision::Allow
+        };
+        match win::install_interceptor(&core, verdict) {
+            Ok(()) => tracing::info!(target: "flux::netfilter", "interceptor installed"),
+            Err(e) => tracing::warn!(target: "flux::netfilter", "install failed: {e}"),
+        }
     }
 }
 
