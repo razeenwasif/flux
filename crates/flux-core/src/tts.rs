@@ -105,7 +105,7 @@ fn el_key() -> Result<String, String> {
 fn el_err(action: &str, e: ureq::Error) -> String {
     match e {
         ureq::Error::Status(401, _) => format!(
-            "ElevenLabs {action}: invalid API key (401). Save the raw key only, not a label, header, or Bearer token."
+            "ElevenLabs {action}: API key rejected (401). Flux cleaned common pasted-key wrappers; regenerate the key in ElevenLabs and save it again."
         ),
         ureq::Error::Status(code, r) => {
             let body: String = r.into_string().unwrap_or_default().chars().take(180).collect();
@@ -117,14 +117,21 @@ fn el_err(action: &str, e: ureq::Error) -> String {
 
 fn normalize_el_key(key: &str) -> String {
     let mut k = key.trim().trim_matches(['"', '\'', '`']).trim().to_string();
-    for _ in 0..4 {
+    if let Some(extracted) = extract_el_key_candidate(&k) {
+        k = extracted;
+    }
+    for _ in 0..8 {
         let lower = k.to_ascii_lowercase();
-        if lower.starts_with("authorization:") {
-            k = k["authorization:".len()..].trim().to_string();
-            continue;
-        }
-        if lower.starts_with("xi-api-key:") {
-            k = k["xi-api-key:".len()..].trim().to_string();
+        if let Some(rest) = prefixed_value(&k, "authorization:")
+            .or_else(|| prefixed_value(&k, "xi-api-key:"))
+            .or_else(|| prefixed_value(&k, "x-api-key:"))
+            .or_else(|| prefixed_value(&k, "api-key:"))
+            .or_else(|| prefixed_value(&k, "elevenlabs_api_key="))
+            .or_else(|| prefixed_value(&k, "xi_api_key="))
+            .or_else(|| prefixed_value(&k, "api_key="))
+            .or_else(|| prefixed_value(&k, "key="))
+        {
+            k = rest.to_string();
             continue;
         }
         if lower.starts_with("bearer ") {
@@ -140,6 +147,62 @@ fn normalize_el_key(key: &str) -> String {
         break;
     }
     k.trim().trim_matches(['"', '\'', '`']).trim().to_string()
+}
+
+fn prefixed_value<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    value
+        .to_ascii_lowercase()
+        .starts_with(prefix)
+        .then(|| value[prefix.len()..].trim().trim_matches(['"', '\'', '`']).trim())
+}
+
+fn extract_el_key_candidate(input: &str) -> Option<String> {
+    let lower = input.to_ascii_lowercase();
+    for marker in [
+        "xi-api-key",
+        "x-api-key",
+        "authorization",
+        "elevenlabs_api_key",
+        "xi_api_key",
+        "api_key",
+    ] {
+        if let Some(idx) = lower.find(marker) {
+            if let Some(token) = first_key_token(&input[idx + marker.len()..]) {
+                return Some(token);
+            }
+        }
+    }
+    let tokens: Vec<String> = input
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'))
+        .filter_map(|token| {
+            let token = token.trim().trim_matches(['"', '\'', '`']).trim();
+            is_plausible_el_key(token).then(|| token.to_string())
+        })
+        .collect();
+    tokens
+        .iter()
+        .find(|token| token.starts_with("sk_"))
+        .cloned()
+        .or_else(|| tokens.first().cloned())
+}
+
+fn first_key_token(input: &str) -> Option<String> {
+    input
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'))
+        .find_map(|token| {
+            let token = token.trim().trim_matches(['"', '\'', '`']).trim();
+            is_plausible_el_key(token).then(|| token.to_string())
+        })
+}
+
+fn is_plausible_el_key(token: &str) -> bool {
+    let lower = token.to_ascii_lowercase();
+    token.len() >= 20
+        && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        && !matches!(
+            lower.as_str(),
+            "authorization" | "bearer" | "elevenlabs_api_key" | "xi_api_key" | "xi-api-key" | "api_key"
+        )
 }
 
 /// Store (or, with an empty string, clear) the ElevenLabs API key in the keyring.
@@ -341,4 +404,25 @@ pub async fn elevenlabs_speak(text: String, voice_id: String, model_id: String) 
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_el_key;
+
+    const KEY: &str = "sk_1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJK";
+
+    #[test]
+    fn normalizes_labeled_elevenlabs_keys() {
+        assert_eq!(normalize_el_key(KEY), KEY);
+        assert_eq!(normalize_el_key(&format!("Bearer {KEY}")), KEY);
+        assert_eq!(normalize_el_key(&format!("xi-api-key: {KEY}")), KEY);
+        assert_eq!(normalize_el_key(&format!("ELEVENLABS_API_KEY={KEY}")), KEY);
+    }
+
+    #[test]
+    fn extracts_key_from_snippets() {
+        assert_eq!(normalize_el_key(&format!(r#"{{"xi-api-key":"{KEY}"}}"#)), KEY);
+        assert_eq!(normalize_el_key(&format!(r#"curl -H "xi-api-key: {KEY}" https://api.elevenlabs.io/v1/voices"#)), KEY);
+    }
 }

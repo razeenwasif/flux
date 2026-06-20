@@ -50,6 +50,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **ElevenLabs key snippet cleanup** — Settings now extracts the actual API key
+  from pasted JSON, curl/header snippets, and multi-line copied text before
+  storing it in the OS keyring.
 - **ElevenLabs API key paste handling** — Settings now strips common copied
   wrappers such as `Bearer ...`, `xi-api-key: ...`, and
   `ELEVENLABS_API_KEY=...` before saving, then verifies the stored key with
