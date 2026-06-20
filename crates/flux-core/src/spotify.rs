@@ -25,11 +25,47 @@ const API: &str = "https://api.spotify.com/v1";
 /// In-memory refreshed access token (avoids a refresh per call).
 static ACCESS: RwLock<Option<String>> = RwLock::new(None);
 
+/// Locate AudioPulse's config dir (holds `token.json` + `config.json`).
+///
+/// The tricky case: Flux's native **Windows** build has no `HOME`, and AudioPulse
+/// runs in **WSL**, so its config lives on the WSL filesystem. We (1) honour an
+/// explicit `FLUX_AUDIOPULSE_DIR` override, (2) use the normal XDG/`HOME` path on
+/// Linux/WSL, and (3) on Windows probe `\\wsl$\<distro>\home\<user>\.config\
+/// audiopulse` so it usually "just works" across the boundary.
 fn ap_config_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("audiopulse"))
+    if let Some(d) = std::env::var_os("FLUX_AUDIOPULSE_DIR") {
+        return Some(PathBuf::from(d));
+    }
+    if let Some(x) = std::env::var_os("XDG_CONFIG_HOME") {
+        return Some(PathBuf::from(x).join("audiopulse"));
+    }
+    if let Some(h) = std::env::var_os("HOME") {
+        return Some(PathBuf::from(h).join(".config").join("audiopulse"));
+    }
+    #[cfg(windows)]
+    if let Some(d) = wsl_probe() {
+        return Some(d);
+    }
+    None
+}
+
+/// Scan the WSL 9P mounts for an AudioPulse config (Windows only). Looks for the
+/// first `\\wsl$\*\home\*\.config\audiopulse\token.json`.
+#[cfg(windows)]
+fn wsl_probe() -> Option<PathBuf> {
+    for root in ["\\\\wsl.localhost", "\\\\wsl$"] {
+        let Ok(distros) = std::fs::read_dir(root) else { continue };
+        for distro in distros.flatten() {
+            let Ok(users) = std::fs::read_dir(distro.path().join("home")) else { continue };
+            for user in users.flatten() {
+                let cand = user.path().join(".config").join("audiopulse");
+                if cand.join("token.json").is_file() {
+                    return Some(cand);
+                }
+            }
+        }
+    }
+    None
 }
 
 #[derive(Deserialize)]
@@ -47,11 +83,17 @@ struct ConfigFile {
 
 /// (access_token, refresh_token, client_id) read from AudioPulse's config.
 fn read_creds() -> Result<(String, String, String), String> {
-    let dir = ap_config_dir().ok_or("can't locate ~/.config/audiopulse")?;
+    let dir = ap_config_dir().ok_or(
+        "can't find AudioPulse's config. On a Windows build, set FLUX_AUDIOPULSE_DIR to the WSL path, \
+         e.g. \\\\wsl$\\Ubuntu\\home\\<you>\\.config\\audiopulse",
+    )?;
     let tok: TokenFile = std::fs::read_to_string(dir.join("token.json"))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .ok_or("AudioPulse isn't signed in to Spotify yet — open AudioPulse and log in first")?;
+        .ok_or_else(|| format!(
+            "no AudioPulse Spotify token at {} — open AudioPulse and log in first (or set FLUX_AUDIOPULSE_DIR)",
+            dir.join("token.json").display()
+        ))?;
     let cfg: ConfigFile = std::fs::read_to_string(dir.join("config.json"))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
