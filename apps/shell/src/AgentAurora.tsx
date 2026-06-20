@@ -64,11 +64,14 @@ float snoise(vec3 v){
 void main() {
   vec2 uv = v_uv;
   vec2 d = uv - vec2(0.5);
-  d.x *= u_aspect; // Maintain circular shape inside a rectangular panel
   
-  float radius = length(d);
-  // atan returns -PI to PI
+  // Squircle distance so the glow nicely traces the rectangular panel bounds
+  float radius = pow(pow(abs(d.x), 3.5) + pow(abs(d.y), 3.5), 1.0/3.5);
   float angle = atan(d.y, d.x);
+  
+  // Keep the actual noise sampling uniform (circular) so it doesn't stretch
+  vec2 noiseD = d;
+  noiseD.x *= u_aspect;
   
   float t = u_time * 0.15;
   
@@ -84,7 +87,7 @@ void main() {
     float c = cos(rotT);
     mat2 rot = mat2(c, -s, s, c);
     
-    vec2 q = rot * d * 2.5; 
+    vec2 q = rot * noiseD * 2.5; 
     
     float n1 = snoise(vec3(q, t * 0.5));
     float n2 = snoise(vec3(q * 2.0 + n1 * 0.5, t * 0.8));
@@ -97,8 +100,8 @@ void main() {
     float ridge = abs(n1 + n2 * 0.5);
     ridge = 1.0 - smoothstep(0.0, 0.4, ridge);
     
-    // Ring fade (glow focused in a ring around the center)
-    float ringFade = smoothstep(0.1, 0.35, radius) * smoothstep(0.6, 0.25, radius);
+    // Hug the outer bounds of the panel (pushed out from the center)
+    float ringFade = smoothstep(0.25, 0.45, radius) * smoothstep(0.65, 0.45, radius);
     
     vec3 c1 = vec3(0.1, 1.0, 0.5); // Neon green
     vec3 c2 = vec3(0.2, 0.5, 0.9); // Blue
