@@ -1054,7 +1054,40 @@ body.resizing, body.busy { --glass-blur: none; }
   flex-direction: column;
   gap: 12px;
   overflow: hidden;
+  /* Liquid glass: a glossy top-light over the frosted fill, "thick glass" depth
+     from layered inner shadows, and a soft lift on hover. */
+  background:
+    linear-gradient(157deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.02) 42%, transparent 72%),
+    var(--glass-fill);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),         /* bright top edge */
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    inset 0 -22px 34px -22px rgba(0, 0, 0, 0.55);     /* depth toward the bottom */
+  transition: transform .24s cubic-bezier(.2, .7, .3, 1), box-shadow .24s ease, background .24s ease;
 }
+/* Specular reflection pooled in the top-left, like light catching the glass. */
+.start-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(130% 85% at 14% -8%, rgba(255, 255, 255, 0.16), transparent 46%);
+}
+.start-card:hover {
+  transform: translateY(-2px);
+  background:
+    linear-gradient(157deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.03) 42%, transparent 72%),
+    var(--glass-fill);
+  box-shadow:
+    0 24px 64px -14px rgba(0, 0, 0, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 -22px 34px -22px rgba(0, 0, 0, 0.55);
+}
+/* Keep the resize/busy perf path cheap — drop the lift transition then. */
+body.resizing .start-card, body.busy .start-card { transition: none; }
 .start-card-title {
   flex: none;
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
