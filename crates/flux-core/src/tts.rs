@@ -11,10 +11,12 @@
 //! Privacy: text never leaves the machine; Piper synthesizes locally and we hand
 //! the audio straight back to the webview. Nothing is written to disk.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use base64::Engine as _;
+use serde_json::{json, Value};
 
 fn piper_bin() -> String {
     std::env::var("FLUX_PIPER_BIN").unwrap_or_else(|_| "piper".into())
@@ -72,6 +74,128 @@ pub async fn voice_speak(text: String) -> Result<String, String> {
             return Err("piper produced no audio".into());
         }
         Ok(base64::engine::general_purpose::STANDARD.encode(&out.stdout))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ── ElevenLabs (cloud TTS) ───────────────────────────────────────────────────
+//
+// Opt-in and explicitly NOT local: when this engine is chosen, Gemma's reply
+// *text* is sent to ElevenLabs to synthesize speech (the mic audio / STT stay
+// local — only the text leaves). The API key lives in the OS keyring, never in
+// the renderer or localStorage.
+
+const EL_SERVICE: &str = "flux.elevenlabs";
+const EL_ACCOUNT: &str = "api-key";
+const EL_API: &str = "https://api.elevenlabs.io/v1";
+
+fn el_http() -> ureq::Agent {
+    ureq::AgentBuilder::new().timeout(Duration::from_secs(30)).build()
+}
+
+fn el_key() -> Result<String, String> {
+    let entry = keyring::Entry::new(EL_SERVICE, EL_ACCOUNT).map_err(|e| e.to_string())?;
+    match entry.get_password() {
+        Ok(k) if !k.trim().is_empty() => Ok(k.trim().to_string()),
+        _ => Err("no ElevenLabs API key set — add it in Settings → Integrations".into()),
+    }
+}
+
+fn el_err(action: &str, e: ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(401, _) => format!("ElevenLabs {action}: invalid API key (401)"),
+        ureq::Error::Status(code, r) => {
+            let body: String = r.into_string().unwrap_or_default().chars().take(180).collect();
+            format!("ElevenLabs {action} failed ({code}): {body}")
+        }
+        e => format!("ElevenLabs {action} failed: {e}"),
+    }
+}
+
+/// Store (or, with an empty string, clear) the ElevenLabs API key in the keyring.
+#[tauri::command]
+pub fn elevenlabs_set_key(key: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(EL_SERVICE, EL_ACCOUNT).map_err(|e| e.to_string())?;
+    if key.trim().is_empty() {
+        let _ = entry.delete_credential();
+        Ok(())
+    } else {
+        entry.set_password(key.trim()).map_err(|e| e.to_string())
+    }
+}
+
+/// Whether an ElevenLabs API key is stored (so the UI can show key-set state
+/// without ever reading the key back into the renderer).
+#[tauri::command]
+pub fn elevenlabs_has_key() -> bool {
+    keyring::Entry::new(EL_SERVICE, EL_ACCOUNT)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .map(|k| !k.trim().is_empty())
+        .unwrap_or(false)
+}
+
+#[derive(serde::Serialize)]
+pub struct ElVoice {
+    id: String,
+    name: String,
+}
+
+/// The voices available on the configured ElevenLabs account.
+#[tauri::command]
+pub async fn elevenlabs_voices() -> Result<Vec<ElVoice>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let key = el_key()?;
+        let resp = el_http()
+            .get(&format!("{EL_API}/voices"))
+            .set("xi-api-key", &key)
+            .call()
+            .map_err(|e| el_err("list voices", e))?;
+        let v: Value = resp.into_json().map_err(|e| e.to_string())?;
+        let list = v.get("voices").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+        Ok(list
+            .iter()
+            .filter_map(|voice| {
+                let id = voice.get("voice_id").and_then(|x| x.as_str())?;
+                let name = voice.get("name").and_then(|n| n.as_str()).unwrap_or(id);
+                Some(ElVoice { id: id.to_string(), name: name.to_string() })
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Synthesize `text` with ElevenLabs; returns base64 MP3 for the webview to play.
+#[tauri::command]
+pub async fn elevenlabs_speak(text: String, voice_id: String, model_id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let t = text.trim().to_string();
+        if t.is_empty() {
+            return Err("nothing to speak".into());
+        }
+        if voice_id.trim().is_empty() {
+            return Err("no ElevenLabs voice selected".into());
+        }
+        let key = el_key()?;
+        let model = if model_id.trim().is_empty() { "eleven_turbo_v2_5" } else { model_id.trim() };
+        let resp = el_http()
+            .post(&format!("{EL_API}/text-to-speech/{}", voice_id.trim()))
+            .set("xi-api-key", &key)
+            .set("accept", "audio/mpeg")
+            .send_json(json!({
+                "text": t,
+                "model_id": model,
+                "voice_settings": { "stability": 0.5, "similarity_boost": 0.75 }
+            }))
+            .map_err(|e| el_err("synthesize", e))?;
+        let mut bytes = Vec::new();
+        resp.into_reader().read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+        if bytes.is_empty() {
+            return Err("ElevenLabs returned no audio".into());
+        }
+        Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
     })
     .await
     .map_err(|e| e.to_string())?
