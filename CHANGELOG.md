@@ -97,9 +97,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   right-clicking anywhere that isn't a link still gets the native menu.
 
 ### Changed
-- **Tab folders lay out horizontally** (BACKLOG #111) — an expanded folder's
-  member tabs now flow as compact chips in a single horizontally-scrollable row
-  instead of a tall vertical list, so a folder with many tabs stays one row high.
+- **Tab folders lay out horizontally** (BACKLOG #111) — the Folders section now
+  arranges folders **side by side as compact columns** and scrolls horizontally,
+  so adding folders grows the section sideways instead of pushing the sidebar
+  down. (Members stay a vertical list within each folder column.)
 - **Home widgets use fixed cards with expandable detail views** — Start-page
   widgets now keep a consistent dashboard footprint and expose an Expand action
   for full lists/details, so longer recent tabs, feeds, tasks, shortcuts,

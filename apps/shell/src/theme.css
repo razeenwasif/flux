@@ -1809,7 +1809,11 @@ body.resizing, body.busy { --glass-blur: none; }
 .boost-note { font-size: 10.5px; color: var(--flux-text-mute); padding: 6px 4px 2px; line-height: 1.4; }
 
 /* ── Tab folders (hibernated parking buckets) ── */
-.folders { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px 4px; border-top: 1px solid var(--flux-border); max-height: 38vh; overflow-y: auto; }
+/* Folders lay out side by side as compact columns and scroll horizontally, so
+   adding folders grows the section sideways instead of pushing the sidebar down. */
+.folders { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 6px 10px 8px; border-top: 1px solid var(--flux-border); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.folders::-webkit-scrollbar { height: 0; }
+.folder { flex: none; width: 164px; background: rgba(255,255,255,0.035); border: 1px solid var(--glass-rim-soft); border-radius: 9px; padding: 3px 3px 4px; }
 .folder-head { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 7px; cursor: pointer; font-size: 12.5px; color: var(--flux-text-dim); }
 .folder-head:hover { background: var(--flux-surface); }
 .folder-caret { width: 10px; font-size: 9px; color: var(--flux-text-mute); }
@@ -1823,17 +1827,16 @@ body.resizing, body.busy { --glass-blur: none; }
 .folder-x:hover { background: #c0392b; color: #fff; }
 /* Inline tab-rename input (reuses the row's title slot) */
 .tab-rename { flex: 1; min-width: 0; background: var(--flux-surface-2); border: 1px solid var(--flux-teal-dim); border-radius: 5px; color: var(--flux-text); font-size: inherit; padding: 1px 5px; }
-/* Folder members flow horizontally as compact chips and scroll sideways, so a
-   folder with many tabs stays one row tall instead of a long vertical list. */
-.folder-tabs { display: flex; flex-direction: row; gap: 4px; padding: 2px 0 4px 14px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
-.folder-tabs::-webkit-scrollbar { height: 0; }
-.folder-tab { flex: none; max-width: 132px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 7px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--flux-text-dim); }
+/* Members stack vertically within each folder column; the list scrolls if a
+   folder holds a lot of tabs, so a deep folder doesn't make the row tall. */
+.folder-tabs { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 1px 4px; max-height: 30vh; overflow-y: auto; scrollbar-width: thin; }
+.folder-tab { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--flux-text-dim); }
 .folder-tab:hover { background: var(--flux-surface); }
 .folder-tab.active { background: var(--flux-surface-2); color: var(--flux-text); }
 .folder-tab-ico { flex: none; width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; opacity: .7; }
 .folder-tab.active .folder-tab-ico { opacity: 1; }
-.folder-tab-title { flex: none; max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.folder-tab-out { flex: none; width: 16px; height: 16px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; border-radius: 5px; opacity: 0; font-size: 11px; }
+.folder-tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-tab-out { flex: none; width: 18px; height: 18px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; border-radius: 5px; opacity: 0; font-size: 11px; }
 .folder-tab:hover .folder-tab-out { opacity: 1; }
 .folder-tab-out:hover { color: var(--flux-text); background: var(--flux-surface-2); }
 
