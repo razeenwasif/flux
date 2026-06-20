@@ -104,7 +104,7 @@ void main() {
 
     float grain = 0.72 + 0.28 * snoise(vec3(q * 4.0, t * 0.55 + fi));
     float sweep = 0.5 + 0.5 * sin(angle * 3.0 + t * (1.0 + busy * 3.0) + fi);
-    float focus = mix(centerWash * 0.22 + edgeBand * 0.85, centerWash * 0.58 + edgeBand, busy);
+    float focus = mix(centerWash * 0.12 + edgeBand * 0.45, centerWash * 0.22 + edgeBand * 0.85, busy);
 
     vec3 teal = vec3(0.10, 0.95, 0.86);
     vec3 blue = vec3(0.22, 0.40, 1.00);
@@ -114,15 +114,15 @@ void main() {
     col = mix(col, violet, smoothstep(-0.4, 1.0, n2 + radius));
     col = mix(col, rose, pow(sweep, 2.4) * (0.18 + busy * 0.22));
 
-    auroraCol += col * ribbon * grain * focus * (0.38 + busy * 0.75);
+    auroraCol += col * ribbon * grain * focus * (0.18 + busy * 0.20);
   }
 
   // A restrained inner rim makes the glass feel alive without washing out text.
   float innerRim = smoothstep(0.44, 0.58, radius) * smoothstep(0.66, 0.50, radius);
   float pulse = 0.55 + 0.45 * sin(t * (2.2 + busy * 3.2) + angle * 2.0);
-  auroraCol += vec3(0.18, 0.72, 1.0) * innerRim * pulse * (0.08 + busy * 0.22);
+  auroraCol += vec3(0.18, 0.72, 1.0) * innerRim * pulse * (0.03 + busy * 0.05);
 
-  float alpha = clamp(length(auroraCol) * mix(0.34, 0.52, busy), 0.0, 0.72);
+  float alpha = clamp(length(auroraCol) * mix(0.24, 0.34, busy), 0.0, 0.72);
   o = vec4(auroraCol, alpha);
 }
 `;
