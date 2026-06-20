@@ -14,6 +14,7 @@ import {
   elevenlabsHasKey,
   elevenlabsImportVoice,
   elevenlabsSetKey,
+  elevenlabsVerifyKey,
   elevenlabsVoices,
   HISTORY_URL,
   httpsAllowSite,
@@ -174,10 +175,18 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const loadElVoices = () => void elevenlabsVoices().then((v) => setElVoices(v)).catch(() => setElVoices([]));
   const saveElKey = async () => {
     try {
-      await elevenlabsSetKey(elKeyInput().trim());
+      const raw = elKeyInput().trim();
+      await elevenlabsSetKey(raw);
       setElKeyInput("");
-      refreshElKey();
-      setElFlash("Saved");
+      if (!raw) {
+        setElKeySet(false);
+        setElVoices([]);
+        setElFlash("Key removed");
+        return;
+      }
+      const msg = await elevenlabsVerifyKey();
+      setElKeySet(true);
+      setElFlash(msg);
       loadElVoices();
     } catch (e) { setElFlash(String(e)); }
   };

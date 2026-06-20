@@ -97,14 +97,16 @@ fn el_http() -> ureq::Agent {
 fn el_key() -> Result<String, String> {
     let entry = keyring::Entry::new(EL_SERVICE, EL_ACCOUNT).map_err(|e| e.to_string())?;
     match entry.get_password() {
-        Ok(k) if !k.trim().is_empty() => Ok(k.trim().to_string()),
+        Ok(k) if !normalize_el_key(&k).is_empty() => Ok(normalize_el_key(&k)),
         _ => Err("no ElevenLabs API key set — add it in Settings → Integrations".into()),
     }
 }
 
 fn el_err(action: &str, e: ureq::Error) -> String {
     match e {
-        ureq::Error::Status(401, _) => format!("ElevenLabs {action}: invalid API key (401)"),
+        ureq::Error::Status(401, _) => format!(
+            "ElevenLabs {action}: invalid API key (401). Save the raw key only, not a label, header, or Bearer token."
+        ),
         ureq::Error::Status(code, r) => {
             let body: String = r.into_string().unwrap_or_default().chars().take(180).collect();
             format!("ElevenLabs {action} failed ({code}): {body}")
@@ -113,15 +115,43 @@ fn el_err(action: &str, e: ureq::Error) -> String {
     }
 }
 
+fn normalize_el_key(key: &str) -> String {
+    let mut k = key.trim().trim_matches(['"', '\'', '`']).trim().to_string();
+    for _ in 0..4 {
+        let lower = k.to_ascii_lowercase();
+        if lower.starts_with("authorization:") {
+            k = k["authorization:".len()..].trim().to_string();
+            continue;
+        }
+        if lower.starts_with("xi-api-key:") {
+            k = k["xi-api-key:".len()..].trim().to_string();
+            continue;
+        }
+        if lower.starts_with("bearer ") {
+            k = k["bearer ".len()..].trim().to_string();
+            continue;
+        }
+        if let Some((left, right)) = k.split_once('=') {
+            if left.to_ascii_lowercase().contains("key") {
+                k = right.trim().to_string();
+                continue;
+            }
+        }
+        break;
+    }
+    k.trim().trim_matches(['"', '\'', '`']).trim().to_string()
+}
+
 /// Store (or, with an empty string, clear) the ElevenLabs API key in the keyring.
 #[tauri::command]
 pub fn elevenlabs_set_key(key: String) -> Result<(), String> {
     let entry = keyring::Entry::new(EL_SERVICE, EL_ACCOUNT).map_err(|e| e.to_string())?;
-    if key.trim().is_empty() {
+    let key = normalize_el_key(&key);
+    if key.is_empty() {
         let _ = entry.delete_credential();
         Ok(())
     } else {
-        entry.set_password(key.trim()).map_err(|e| e.to_string())
+        entry.set_password(&key).map_err(|e| e.to_string())
     }
 }
 
@@ -132,8 +162,25 @@ pub fn elevenlabs_has_key() -> bool {
     keyring::Entry::new(EL_SERVICE, EL_ACCOUNT)
         .ok()
         .and_then(|e| e.get_password().ok())
-        .map(|k| !k.trim().is_empty())
+        .map(|k| !normalize_el_key(&k).is_empty())
         .unwrap_or(false)
+}
+
+/// Verify that the stored key is accepted by ElevenLabs before the user tries to
+/// import a voice or synthesize speech.
+#[tauri::command]
+pub async fn elevenlabs_verify_key() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let key = el_key()?;
+        el_http()
+            .get(&format!("{EL_API}/voices"))
+            .set("xi-api-key", &key)
+            .call()
+            .map_err(|e| el_err("verify key", e))?;
+        Ok("Key verified".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[derive(serde::Serialize)]

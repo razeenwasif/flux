@@ -50,6 +50,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **ElevenLabs API key paste handling** — Settings now strips common copied
+  wrappers such as `Bearer ...`, `xi-api-key: ...`, and
+  `ELEVENLABS_API_KEY=...` before saving, then verifies the stored key with
+  ElevenLabs so bad credentials fail at Save instead of during voice playback.
 - **"Launch AudioPulse" from a Windows Flux build** — AudioPulse lives in WSL, so
   the Windows build now crosses the boundary with `wsl.exe -d <distro> -- ~/AudioPulse/
   audiopulse` (auto-detecting the distro/user; the ConPTY gives the TUI a real

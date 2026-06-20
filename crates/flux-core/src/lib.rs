@@ -598,6 +598,7 @@ pub fn run(intent: cli::LaunchIntent) {
             tts::voice_speak,
             tts::elevenlabs_set_key,
             tts::elevenlabs_has_key,
+            tts::elevenlabs_verify_key,
             tts::elevenlabs_voices,
             tts::elevenlabs_import_voice,
             tts::elevenlabs_speak,
