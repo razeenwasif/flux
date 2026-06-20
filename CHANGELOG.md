@@ -16,7 +16,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   so when AudioPulse is running its librespot device is the active one and these
   control exactly what it's playing — no changes to AudioPulse needed. Token is
   refreshed on demand (held in memory, never rewrites AudioPulse's file); a clear
-  message if AudioPulse isn't signed in or no device is active. (`spotify.rs` +
+  message if AudioPulse isn't signed in or no device is active. On a **native
+  Windows** Flux build (where AudioPulse lives in WSL) it auto-probes
+  `\\wsl$\<distro>\home\<user>\.config\audiopulse`, or honours a
+  `FLUX_AUDIOPULSE_DIR` override. (`spotify.rs` +
   `spotify_play`/`_pause`/`_resume`/`_next`/`_prev`/`_now_playing`.)
 - **Google Maps popout** — a 🗺 button next to the file-explorer button opens a
   large floating Maps pane (mirrors the files popout: a centered DOM panel that
