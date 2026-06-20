@@ -22,7 +22,8 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   indicator + hard toggle sit in the agent panel; **off by default**, opt-in in
   Settings → Integrations. (`tts.rs` `voice_speak` + `speak.ts` + `heygemma.ts`.)
   Gemma now speaks with a **female voice by default** (auto-picks a natural female
-  English voice; pick a specific one in Settings → Integrations → System voice).
+  English voice; pick a specific one in Settings → Integrations → System voice, with
+  a **🔊 Test** button to preview it).
 - **cr-sqlite CRDT sync — prototype** (BACKLOG #62 evolution, behind the `crsync`
   cargo feature) — explores replacing the single-encrypted-blob sync with **SQLite
   CRR tables + changeset exchange**: each device keeps its own DB, exports compact
