@@ -77,16 +77,23 @@ fn is_peek(window: &Window) -> bool {
 }
 
 /// Open a link in a peek window (chrome trigger — link menu, ⌘K).
+///
+/// **Async on purpose:** building the window + installing the WebView2 request
+/// interceptor (`with_webview`) needs the main thread. A *synchronous* command
+/// runs ON the main thread and would deadlock against `with_webview` — freezing
+/// the app. Async runs it off-main (like `webview_open`), so the work marshals
+/// to the main thread cleanly.
 #[tauri::command]
-pub fn peek_open(app: AppHandle, url: String) -> Result<(), String> {
+pub async fn peek_open(app: AppHandle, url: String) -> Result<(), String> {
     open_peek(&app, &url)
 }
 
 /// Open a link in a peek window (page trigger — `newtab.js` Alt-click / menu).
 /// A separate name from `peek_open` so the chrome path stays a plain app command
-/// and only this one is exposed to remote pages via the `fluxtab` plugin.
+/// and only this one is exposed to remote pages via the `fluxtab` plugin. Async
+/// for the same main-thread reason as [`peek_open`].
 #[tauri::command]
-pub fn chrome_peek_url(app: AppHandle, url: String) -> Result<(), String> {
+pub async fn chrome_peek_url(app: AppHandle, url: String) -> Result<(), String> {
     open_peek(&app, &url)
 }
 
