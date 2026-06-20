@@ -273,6 +273,13 @@ export const voiceTranscribe = (pcmB64: string, sampleRate: number) =>
   invoke<string>("voice_transcribe", { pcmB64, sampleRate });
 /** Local TTS via Piper: returns a base64 WAV (errors if Piper isn't installed). */
 export const voiceSpeak = (text: string) => invoke<string>("voice_speak", { text });
+/** Store (or clear, with "") the ElevenLabs API key in the OS keyring. */
+export const elevenlabsSetKey = (key: string) => invoke<void>("elevenlabs_set_key", { key });
+export const elevenlabsHasKey = () => invoke<boolean>("elevenlabs_has_key");
+export const elevenlabsVoices = () => invoke<{ id: string; name: string }[]>("elevenlabs_voices");
+/** Cloud TTS via ElevenLabs: returns a base64 MP3 (sends the text to ElevenLabs). */
+export const elevenlabsSpeak = (text: string, voiceId: string, modelId: string) =>
+  invoke<string>("elevenlabs_speak", { text, voiceId, modelId });
 
 // ─── AudioPulse / Spotify control (Path A: reuse AudioPulse's token) ──────────
 /** Override AudioPulse's config-dir (e.g. a \\wsl.localhost\<distro>\… path). */

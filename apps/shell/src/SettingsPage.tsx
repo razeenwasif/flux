@@ -11,6 +11,9 @@ import {
   ARCHIVE_URL,
   BOOKMARKS_URL,
   cookiesClearAll,
+  elevenlabsHasKey,
+  elevenlabsSetKey,
+  elevenlabsVoices,
   HISTORY_URL,
   httpsAllowSite,
   httpsSetEnabled,
@@ -37,7 +40,7 @@ import {
   type SearchEngine,
 } from "./ipc";
 import { heyGemmaEnabled, setHeyGemmaEnabled } from "./heygemma";
-import { loadVoices, preferredVoice, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
+import { elVoiceId, loadVoices, preferredVoice, setElVoiceId, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
   audiopulseDir,
@@ -112,6 +115,24 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     try { await speak("Hi, I'm Gemma. This is how I'll sound when we talk."); }
     finally { setTesting(false); }
   };
+  // ElevenLabs (cloud) voice.
+  const [elKeyInput, setElKeyInput] = createSignal("");
+  const [elKeySet, setElKeySet] = createSignal(false);
+  const [elVoices, setElVoices] = createSignal<{ id: string; name: string }[]>([]);
+  const [elVoiceSel, setElVoiceSel] = createSignal(elVoiceId());
+  const [elFlash, setElFlash] = createSignal("");
+  const refreshElKey = () => void elevenlabsHasKey().then(setElKeySet).catch(() => {});
+  const loadElVoices = () => void elevenlabsVoices().then((v) => setElVoices(v)).catch(() => setElVoices([]));
+  const saveElKey = async () => {
+    try {
+      await elevenlabsSetKey(elKeyInput().trim());
+      setElKeyInput("");
+      refreshElKey();
+      setElFlash("Saved");
+      loadElVoices();
+    } catch (e) { setElFlash(String(e)); }
+  };
+  const pickElVoice = (id: string) => { setElVoiceId(id); setElVoiceSel(id); };
 
   // Search engines.
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
@@ -138,6 +159,8 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     if (id != null) updateTabTitle(id, "Settings");
     refreshVoices();
     try { window.speechSynthesis?.addEventListener?.("voiceschanged", refreshVoices); } catch { /* ignore */ }
+    refreshElKey();
+    if (ttsEngine() === "elevenlabs") loadElVoices();
     void searchEngines().then(setEngines).catch(() => {});
     void searchDefault().then(setDefaultEngine).catch(() => {});
     loadShields();
@@ -318,12 +341,40 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           <Row label="Hey Gemma (always-on voice)" hint="Listen for “hey Gemma”, then converse by voice. Everything is local — speech-to-text (Vosk), the reply (Ollama), and the spoken voice never leave your device; audio before the wake word is discarded, never stored. Toggle it from the mic button in the agent panel. Default off.">
             <Toggle on={heyGemmaEnabled()} onClick={() => void setHeyGemmaEnabled(!heyGemmaEnabled())} />
           </Row>
-          <Row label="Gemma's voice" hint="System uses your OS voices (zero setup). Piper is a higher-quality local neural voice — set FLUX_PIPER_MODEL to a .onnx voice (and FLUX_PIPER_BIN if piper isn't on PATH); falls back to System if Piper isn't installed.">
-            <select class="shields-select" value={ttsEngineSel()} onChange={(e) => pickTts(e.currentTarget.value as TtsEngine)}>
-              <option value="system">System voice</option>
+          <Row label="Gemma's voice" hint="System and Piper are fully local. ElevenLabs is a cloud service — choosing it sends Gemma's reply text (not your mic audio) to ElevenLabs, needs an API key, and is metered. Piper: set FLUX_PIPER_MODEL to a .onnx voice; falls back to System if absent.">
+            <select class="shields-select" value={ttsEngineSel()} onChange={(e) => { const v = e.currentTarget.value as TtsEngine; pickTts(v); if (v === "elevenlabs") { refreshElKey(); loadElVoices(); } }}>
+              <option value="system">System voice (local)</option>
               <option value="piper">Piper (local neural)</option>
+              <option value="elevenlabs">ElevenLabs (cloud)</option>
             </select>
           </Row>
+          <Show when={ttsEngineSel() === "elevenlabs"}>
+            <Row label="ElevenLabs API key" hint="Stored in your OS keyring, never in plaintext. Get a key at elevenlabs.io → Profile. Leave blank and save to remove it.">
+              <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                <input
+                  class="map-search-input"
+                  type="password"
+                  style={{ "max-width": "260px" }}
+                  placeholder={elKeySet() ? "•••••••• (key set)" : "xi-api-key…"}
+                  value={elKeyInput()}
+                  onInput={(e) => setElKeyInput(e.currentTarget.value)}
+                />
+                <button class="set-link-btn" onClick={() => void saveElKey()}>{elFlash() || "Save"}</button>
+              </div>
+            </Row>
+            <Show when={elKeySet()}>
+              <Row label="ElevenLabs voice" hint="Voices from your ElevenLabs account. Pick one, then use Test to preview.">
+                <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                  <select class="shields-select" value={elVoiceSel()} onChange={(e) => pickElVoice(e.currentTarget.value)}>
+                    <option value="">Select a voice…</option>
+                    <For each={elVoices()}>{(v) => <option value={v.id}>{v.name}</option>}</For>
+                  </select>
+                  <button class="set-link-btn" onClick={loadElVoices}>↻</button>
+                  <button class="set-link-btn" onClick={() => void testVoice()}>{testing() ? "■ Stop" : "🔊 Test"}</button>
+                </div>
+              </Row>
+            </Show>
+          </Show>
           <Show when={ttsEngineSel() === "system"}>
             <Row label="System voice" hint="Which OS voice Gemma speaks with. Auto picks a female English voice. On Windows, “Microsoft Zira” is female; install the OneCore “Natural” voices (e.g. Aria, Jenny) for higher quality.">
               <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>

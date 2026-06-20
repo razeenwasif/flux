@@ -4,12 +4,20 @@
 //                falling back to the system voice if Piper isn't installed.
 // Privacy: nothing here touches the network; text is synthesized on-device.
 
-import { voiceSpeak } from "./ipc";
+import { elevenlabsSpeak, voiceSpeak } from "./ipc";
 
-export type TtsEngine = "system" | "piper";
+export type TtsEngine = "system" | "piper" | "elevenlabs";
 const ENGINE_KEY = "flux.voice.tts";
 export const ttsEngine = (): TtsEngine => (localStorage.getItem(ENGINE_KEY) as TtsEngine) || "system";
 export const setTtsEngine = (e: TtsEngine) => localStorage.setItem(ENGINE_KEY, e);
+
+// ElevenLabs voice + model (not secret — the API key lives in the OS keyring).
+const EL_VOICE_KEY = "flux.voice.el.voice";
+const EL_MODEL_KEY = "flux.voice.el.model";
+export const elVoiceId = (): string => localStorage.getItem(EL_VOICE_KEY) || "";
+export const setElVoiceId = (id: string) => localStorage.setItem(EL_VOICE_KEY, id);
+export const elModel = (): string => localStorage.getItem(EL_MODEL_KEY) || "eleven_turbo_v2_5";
+export const setElModel = (m: string) => localStorage.setItem(EL_MODEL_KEY, m);
 
 // Which speechSynthesis voice to use ("" = auto-pick a female English voice so it
 // matches Gemma). The Settings dropdown stores an exact voice name here.
@@ -77,9 +85,9 @@ function speakSystem(text: string): Promise<void> {
   });
 }
 
-function playWavB64(b64: string): Promise<void> {
+function playAudioB64(b64: string, mime: string): Promise<void> {
   return new Promise((resolve) => {
-    const a = new Audio(`data:audio/wav;base64,${b64}`);
+    const a = new Audio(`data:${mime};base64,${b64}`);
     current = a;
     const done = () => { if (current === a) current = null; resolve(); };
     a.onended = done;
@@ -93,12 +101,19 @@ export async function speak(text: string): Promise<void> {
   const t = cleanForSpeech(text);
   if (!t) return;
   stopSpeaking();
-  if (ttsEngine() === "piper") {
+  const engine = ttsEngine();
+  if (engine === "piper") {
     try {
       const b64 = await voiceSpeak(t);
-      await playWavB64(b64);
+      await playAudioB64(b64, "audio/wav");
       return;
     } catch { /* Piper missing/failed → fall back to the OS voice */ }
+  } else if (engine === "elevenlabs") {
+    try {
+      const b64 = await elevenlabsSpeak(t, elVoiceId(), elModel());
+      await playAudioB64(b64, "audio/mpeg");
+      return;
+    } catch { /* no key / network / quota → fall back to the OS voice */ }
   }
   await speakSystem(t);
 }

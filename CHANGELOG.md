@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **ElevenLabs voice (opt-in, cloud)** — a third TTS engine alongside System and
+  Piper, for a much more natural voice. Pick **ElevenLabs (cloud)** in Settings →
+  Integrations, paste an API key (stored in the **OS keyring**, never plaintext /
+  localStorage), and choose from your account's voices (fetched live; 🔊 Test to
+  preview). Clearly labeled cloud: choosing it sends Gemma's **reply text** — not
+  your mic audio (STT stays local) — to ElevenLabs, and it's metered. Falls back to
+  the System voice on any error (no key, offline, quota). System/Piper remain the
+  local default. (`tts.rs` `elevenlabs_*` + `speak.ts`.)
 - **"Hey Gemma" — always-on, fully-local voice conversation** — say *"hey Gemma"*
   and the agent acknowledges, listens, answers **out loud**, then stays warm for
   follow-ups (no wake word needed) so you can keep talking. The whole loop is
