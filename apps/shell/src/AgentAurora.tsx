@@ -102,8 +102,10 @@ void main() {
     ridge = 1.0 - smoothstep(0.0, 0.4, ridge);
     
     // Hug the outer bounds of the panel tightly (peak closer to 0.5)
-    // Expand inward when busy to fill the panel more
-    float ringFade = smoothstep(mix(0.35, 0.05, u_busy), 0.49, radius) * smoothstep(0.60, 0.49, radius);
+    // Displace the inner fade radius with noise so it organically fades out instead of leaving a hard geometric cutout
+    float organicRadius = radius + n2 * 0.15;
+    float innerFade = mix(0.15, -0.1, u_busy);
+    float ringFade = smoothstep(innerFade, 0.50, organicRadius) * smoothstep(0.60, 0.49, radius);
     
     vec3 c1 = vec3(0.1, 1.0, 0.5); // Neon green
     vec3 c2 = vec3(0.2, 0.5, 0.9); // Blue
