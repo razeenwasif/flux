@@ -8,6 +8,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Manual ElevenLabs voice links** — Settings → Integrations now accepts a
+  pasted ElevenLabs voice link or raw voice ID when a shared/custom voice is not
+  returned by the account voices dropdown.
 - **ElevenLabs voice (opt-in, cloud)** — a third TTS engine alongside System and
   Piper, for a much more natural voice. Pick **ElevenLabs (cloud)** in Settings →
   Integrations, paste an API key (stored in the **OS keyring**, never plaintext /

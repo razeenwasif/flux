@@ -100,6 +100,19 @@ const Toggle: Component<{ on: boolean; onClick: () => void }> = (props) => (
   </button>
 );
 
+function parseElevenLabsVoiceId(input: string): string {
+  const raw = input.trim();
+  if (!raw) return "";
+  const direct = raw.match(/^[A-Za-z0-9_-]{10,}$/)?.[0];
+  if (direct) return direct;
+  const fromParam = raw.match(/[?&]voice(?:_id|Id)?=([A-Za-z0-9_-]{10,})/i)?.[1];
+  if (fromParam) return fromParam;
+  const fromPath = raw.match(/\/voices?\/([A-Za-z0-9_-]{10,})(?:[/?#]|$)/i)?.[1];
+  if (fromPath) return fromPath;
+  const ids = raw.match(/[A-Za-z0-9_-]{16,}/g);
+  return ids?.at(-1) ?? raw;
+}
+
 const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   // Gemma's voice (TTS engine) + "Hey Gemma" always-on listening.
   const [ttsEngineSel, setTtsEngineSel] = createSignal<TtsEngine>(ttsEngine());
@@ -120,6 +133,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [elKeySet, setElKeySet] = createSignal(false);
   const [elVoices, setElVoices] = createSignal<{ id: string; name: string }[]>([]);
   const [elVoiceSel, setElVoiceSel] = createSignal(elVoiceId());
+  const [elManualVoice, setElManualVoice] = createSignal("");
   const [elFlash, setElFlash] = createSignal("");
   const refreshElKey = () => void elevenlabsHasKey().then(setElKeySet).catch(() => {});
   const loadElVoices = () => void elevenlabsVoices().then((v) => setElVoices(v)).catch(() => setElVoices([]));
@@ -133,6 +147,16 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     } catch (e) { setElFlash(String(e)); }
   };
   const pickElVoice = (id: string) => { setElVoiceId(id); setElVoiceSel(id); };
+  const saveManualElVoice = () => {
+    const id = parseElevenLabsVoiceId(elManualVoice());
+    if (!id) {
+      setElFlash("Paste a voice link or ID");
+      return;
+    }
+    pickElVoice(id);
+    setElManualVoice("");
+    setElFlash("Voice saved");
+  };
 
   // Search engines.
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
@@ -363,14 +387,30 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               </div>
             </Row>
             <Show when={elKeySet()}>
-              <Row label="ElevenLabs voice" hint="Voices from your ElevenLabs account. Pick one, then use Test to preview.">
-                <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
-                  <select class="shields-select" value={elVoiceSel()} onChange={(e) => pickElVoice(e.currentTarget.value)}>
-                    <option value="">Select a voice…</option>
-                    <For each={elVoices()}>{(v) => <option value={v.id}>{v.name}</option>}</For>
-                  </select>
-                  <button class="set-link-btn" onClick={loadElVoices}>↻</button>
-                  <button class="set-link-btn" onClick={() => void testVoice()}>{testing() ? "■ Stop" : "🔊 Test"}</button>
+              <Row label="ElevenLabs voice" hint="Pick an account voice, or paste a shared voice link/ID when it is not listed. Use Test to preview.">
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                    <select class="shields-select" value={elVoiceSel()} onChange={(e) => pickElVoice(e.currentTarget.value)}>
+                      <option value="">Select a voice…</option>
+                      <Show when={elVoiceSel() && !elVoices().some((v) => v.id === elVoiceSel())}>
+                        <option value={elVoiceSel()}>Custom voice ({elVoiceSel()})</option>
+                      </Show>
+                      <For each={elVoices()}>{(v) => <option value={v.id}>{v.name}</option>}</For>
+                    </select>
+                    <button class="set-link-btn" onClick={loadElVoices}>↻</button>
+                    <button class="set-link-btn" onClick={() => void testVoice()}>{testing() ? "■ Stop" : "🔊 Test"}</button>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                    <input
+                      class="map-search-input"
+                      style={{ "max-width": "360px" }}
+                      placeholder="Paste ElevenLabs voice link or voice ID"
+                      value={elManualVoice()}
+                      onInput={(e) => setElManualVoice(e.currentTarget.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") saveManualElVoice(); }}
+                    />
+                    <button class="set-link-btn" onClick={saveManualElVoice}>Use voice</button>
+                  </div>
                 </div>
               </Row>
             </Show>
