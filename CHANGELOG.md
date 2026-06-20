@@ -7,6 +7,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **cr-sqlite CRDT sync — prototype** (BACKLOG #62 evolution, behind the `crsync`
+  cargo feature) — explores replacing the single-encrypted-blob sync with **SQLite
+  CRR tables + changeset exchange**: each device keeps its own DB, exports compact
+  `crsql_changes` deltas (which would be encrypted + dropped in the existing
+  bring-your-own folder), and merges them **conflict-free** — concurrent edits
+  resolve last-writer-wins, deletes propagate with no tombstone bookkeeping. Keeps
+  the no-server, local-first model while removing the history cap. `crsync.rs` +
+  3 tests proving two devices converge. Needs the native cr-sqlite extension
+  (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
+
 ### Fixed
 - **Vosk DLL dependency loading on Windows** — voice transcription now loads
   `libvosk.dll` with Windows' altered DLL search path so companion DLLs beside

@@ -47,6 +47,7 @@ base64 = "0.22"
 # Voice STT loads the native Vosk library at runtime so Windows builds do not
 # need an MSVC import library (`libvosk.lib`) just to link Flux.
 libloading = { version = "0.8", optional = true }
+rusqlite = { version = "0.31", optional = true, features = ["bundled", "load_extension"] }
 # Transcode ICO favicons → PNG so every engine (incl. WebKitGTK, which doesn't
 # render data:image/x-icon in <img>) shows them. Just the ico+png codecs.
 image = { version = "0.25", default-features = false, features = ["ico", "png"] }
@@ -112,3 +113,6 @@ llama = ["flux-agent/llama"]
 # Offline push-to-talk voice (STT) via Vosk. Off by default; when enabled, Flux
 # loads native libvosk at runtime (Linux: libvosk.so; Windows: libvosk.dll).
 voice = ["dep:libloading"]
+# Prototype: cr-sqlite CRDT sync (SQLite changesets). Off by default — needs the
+# native cr-sqlite loadable extension (third_party/crsqlite/crsqlite.{so,dll}).
+crsync = ["dep:rusqlite"]
