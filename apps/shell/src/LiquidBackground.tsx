@@ -96,13 +96,8 @@ void main() {
   
   float t = u_time * 0.15;
   
-  // Base night sky
-  vec3 bg = vec3(0.01, 0.01, 0.04) - uv.y * vec3(0.01, 0.01, 0.02);
-  
-  // Stars
-  float starNoise = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
-  float star = smoothstep(0.997, 1.0, starNoise) * (0.5 + 0.5 * sin(u_time * 2.0 + starNoise * 10.0));
-  bg += vec3(star) * smoothstep(0.2, 0.9, uv.y); // More stars towards the top
+  // Base dark purple night sky
+  vec3 bg = vec3(0.02, 0.005, 0.04) - uv.y * vec3(0.01, 0.005, 0.02);
 
   vec3 auroraCol = vec3(0.0);
   
