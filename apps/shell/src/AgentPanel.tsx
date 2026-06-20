@@ -232,6 +232,11 @@ const AgentPanel: Component = () => {
   return (
     <aside class="agent">
       <div class="agent-inner">
+        {/* Ambient effects layer (Gemini-style): a soft gradient pooled at the
+            bottom, plus a glow that orbits the edges while the agent works. Its
+            own absolutely-positioned + clipped layer so it never affects layout
+            or clips the model dropdown. */}
+        <div class="agent-fx" classList={{ busy: working() }} aria-hidden="true" />
         <header style={{ display: "flex", "align-items": "center", gap: "8px" }}>
           <span
             classList={{ "ai-thinking": working() }}
