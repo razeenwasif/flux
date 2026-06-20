@@ -25,6 +25,18 @@ const API: &str = "https://api.spotify.com/v1";
 /// In-memory refreshed access token (avoids a refresh per call).
 static ACCESS: RwLock<Option<String>> = RwLock::new(None);
 
+/// UI-set config-dir override (Settings → Integrations), checked before the env
+/// var. Lets the user paste the `\\wsl.localhost\<distro>\…` path once.
+static OVERRIDE_DIR: RwLock<Option<String>> = RwLock::new(None);
+
+/// Set (or clear, with "") the AudioPulse config-dir override from Settings.
+#[tauri::command]
+pub fn spotify_set_dir(path: String) {
+    if let Ok(mut g) = OVERRIDE_DIR.write() {
+        *g = if path.trim().is_empty() { None } else { Some(path) };
+    }
+}
+
 /// Locate AudioPulse's config dir (holds `token.json` + `config.json`).
 ///
 /// The tricky case: Flux's native **Windows** build has no `HOME`, and AudioPulse
@@ -33,6 +45,9 @@ static ACCESS: RwLock<Option<String>> = RwLock::new(None);
 /// Linux/WSL, and (3) on Windows probe `\\wsl$\<distro>\home\<user>\.config\
 /// audiopulse` so it usually "just works" across the boundary.
 fn ap_config_dir() -> Option<PathBuf> {
+    if let Some(d) = OVERRIDE_DIR.read().ok().and_then(|g| g.clone()).filter(|s| !s.trim().is_empty()) {
+        return Some(PathBuf::from(d));
+    }
     if let Some(d) = std::env::var_os("FLUX_AUDIOPULSE_DIR") {
         return Some(PathBuf::from(d));
     }

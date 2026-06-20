@@ -151,6 +151,7 @@ import {
   applyDarkMode,
   applyNav,
   applyAgentModel,
+  applyAudiopulseDir,
   bookmarkBarOpen,
   setBookmarkBarOpen,
   pagesBarOpen,
@@ -381,6 +382,7 @@ const App: Component = () => {
     applyDarkMode(); // re-apply the persisted dark-mode preference (#40)
     applyNav(); // re-apply vim-hints / mouse-gestures toggles (#51/#52)
     applyAgentModel(); // re-apply the chosen agent model (#81)
+    applyAudiopulseDir(); // push the persisted AudioPulse config-dir override (#115)
     const unClusters = await onClustersUpdated(refreshTabs);
     // An extension called flux.tabs.open (#94) — the shell owns webview
     // geometry, so the broker emits an intent and we open the tab here.

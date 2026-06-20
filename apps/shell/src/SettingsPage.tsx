@@ -38,6 +38,8 @@ import {
 } from "./ipc";
 import {
   aiAnswersOn,
+  audiopulseDir,
+  setAudiopulseDir,
   bookmarkBarOpen,
   darkMode,
   hibernateEnabled,
@@ -282,6 +284,18 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             <button class="set-link-btn" onClick={() => props.onNavigate(BOOKMARKS_URL)}>🔖 Bookmarks</button>
             <button class="set-link-btn" onClick={() => props.onNavigate(ARCHIVE_URL)}>📚 Archive</button>
           </div>
+        </Section>
+
+        <Section title="Integrations">
+          <Row label="AudioPulse config folder" hint="Where AudioPulse keeps token.json — needed to ask Gemma to play/skip music. On a Windows build it's in WSL: e.g. \\wsl.localhost\Ubuntu-24.04\home\you\.config\audiopulse. Leave blank to auto-detect.">
+            <input
+              class="map-search-input"
+              style={{ "max-width": "340px" }}
+              placeholder="\\wsl.localhost\<distro>\home\<you>\.config\audiopulse"
+              value={audiopulseDir()}
+              onChange={(e) => setAudiopulseDir(e.currentTarget.value.trim())}
+            />
+          </Row>
         </Section>
       </div>
     </div>
