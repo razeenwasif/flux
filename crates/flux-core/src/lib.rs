@@ -643,6 +643,7 @@ pub fn run(intent: cli::LaunchIntent) {
             vault::vault_disable_master_password,
             vault::vault_set_autolock,
             files::fs_list,
+            files::attachment_read,
             files::fs_home,
             files::fs_quick_locations,
             files::fs_open,

@@ -616,3 +616,57 @@ fn make_watcher(app: AppHandle, path: String) -> Result<notify::RecommendedWatch
 pub fn fs_unwatch(watchers: State<'_, FsWatchers>, id: u64) {
     watchers.0.lock().remove(&id);
 }
+
+/// An attachment read from a file path (a file dragged from the explorer into the
+/// agent panel). Images come back base64 + a `data_url` for the thumbnail; text/
+/// code files come back as `text`.
+#[derive(Serialize)]
+pub struct DroppedAttachment {
+    pub kind: String, // "image" | "text"
+    pub name: String,
+    pub b64: String,
+    pub text: String,
+    pub data_url: String,
+}
+
+/// Read a dropped file for the agent panel (#115). Images → base64; text → text;
+/// other binaries are declined. 20 MB cap, matching the 📎 upload path.
+#[tauri::command]
+pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine as _;
+        let p = Path::new(&path);
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        let meta = std::fs::metadata(p).map_err(|e| format!("can't read {name}: {e}"))?;
+        if meta.len() > 20 * 1024 * 1024 {
+            return Err(format!("{name} is too large (max 20 MB)"));
+        }
+        let image_mime = match ext.as_str() {
+            "png" => Some("image/png"),
+            "jpg" | "jpeg" => Some("image/jpeg"),
+            "webp" => Some("image/webp"),
+            "gif" => Some("image/gif"),
+            "bmp" => Some("image/bmp"),
+            _ => None,
+        };
+        let is_text = matches!(
+            ext.as_str(),
+            "txt" | "md" | "markdown" | "json" | "jsonc" | "csv" | "tsv" | "log" | "yaml" | "yml" | "toml"
+                | "ini" | "xml" | "html" | "htm" | "css" | "js" | "jsx" | "ts" | "tsx" | "rs" | "py" | "go"
+                | "java" | "c" | "cpp" | "h" | "sh" | "sql" | "rb" | "php" | "swift" | "kt"
+        );
+        let bytes = std::fs::read(p).map_err(|e| format!("can't read {name}: {e}"))?;
+        if let Some(mime) = image_mime {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            let data_url = format!("data:{mime};base64,{b64}");
+            Ok(DroppedAttachment { kind: "image".into(), name, b64, text: String::new(), data_url })
+        } else if is_text {
+            Ok(DroppedAttachment { kind: "text".into(), name, b64: String::new(), text: String::from_utf8_lossy(&bytes).into_owned(), data_url: String::new() })
+        } else {
+            Err(format!("can't attach {name} — only images and text files are supported"))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
