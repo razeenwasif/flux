@@ -13,18 +13,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   hides the active tab's webview while open, click-outside / Esc to close). Embeds
   Google Maps via its keyless `output=embed` endpoint with a search box to jump to
   a place; the last search persists. (CSP gains `frame-src https://*.google.com`.)
-- **Particle-liquid home backdrop** (BACKLOG #77) — the start page's flowing wave
-  can now be a **WebGL particle-liquid**: ~1,500 tiny **metallic droplets** that
-  endlessly swirl/splash, advected by a curl-noise flow field (divergence-free →
-  fluid-like). Rendered as GL points (one small shaded bead each, so cost scales
-  with particle *count*, not screen pixels) shaded as little chrome spheres that
-  pick up the velvet page background (no fixed hue). Built lean for the low-RAM
-  wedge — one buffer upload + one draw call per frame, no Three.js — and it **only
-  animates while the start page is the active, focused, visible tab** (switching
-  away tears the GL context down to zero), pauses on blur / resize, runs at ~40 fps,
-  honours `prefers-reduced-motion`, and **auto-falls back to the lightweight wave**
-  if WebGL2 isn't available or the shader fails. Toggle in Settings → Appearance
-  ("Liquid home background", default on).
+- **Particle-flow home backdrop** (BACKLOG #77) — the start page's flowing wave
+  can now be a **WebGL particle field**: ~8,000 fine **monochrome** particles
+  advected by a curl-noise flow that leave **fading trails** (frame-feedback) so
+  they bunch into flowing fingerprint/topographic ridges, over a velvet base with
+  soft drifting glow blobs — a smoke/ferrofluid look, no fixed hue. Built lean for
+  the low-RAM wedge — a few draw calls + ping-pong framebuffers, no Three.js — and
+  it **only animates while the start page is the active, focused, visible tab**
+  (switching away tears the GL context down to zero), pauses on blur / resize,
+  renders the field at ~0.8× resolution + ~40 fps, honours `prefers-reduced-motion`,
+  and **auto-falls back to the lightweight wave** if WebGL2 isn't available or a
+  shader fails. Toggle in Settings → Appearance ("Liquid home background", on).
 - **Agent panel ambient glow** — a Gemini-style soft multi-colour gradient now
   **flows around within** the Flux Agent panel, and while the agent is working a
   bright arc **orbits the panel's edge** as a "thinking" indicator. Pure CSS on a
