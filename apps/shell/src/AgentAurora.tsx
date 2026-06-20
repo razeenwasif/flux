@@ -66,8 +66,8 @@ void main() {
   vec2 uv = v_uv;
   vec2 d = uv - vec2(0.5);
   
-  // Squircle distance so the glow nicely traces the rectangular panel bounds
-  float radius = pow(pow(abs(d.x), 3.5) + pow(abs(d.y), 3.5), 1.0/3.5);
+  // Tighter squircle distance (power 5.0) to hug the rectangular bounds more closely
+  float radius = pow(pow(abs(d.x), 5.0) + pow(abs(d.y), 5.0), 0.2);
   float angle = atan(d.y, d.x);
   
   // Keep the actual noise sampling uniform (circular) so it doesn't stretch
@@ -101,9 +101,9 @@ void main() {
     float ridge = abs(n1 + n2 * 0.5);
     ridge = 1.0 - smoothstep(0.0, 0.4, ridge);
     
-    // Hug the outer bounds of the panel (pushed out from the center)
+    // Hug the outer bounds of the panel tightly (peak closer to 0.5)
     // Expand inward when busy to fill the panel more
-    float ringFade = smoothstep(mix(0.25, 0.05, u_busy), 0.45, radius) * smoothstep(0.65, 0.45, radius);
+    float ringFade = smoothstep(mix(0.35, 0.05, u_busy), 0.49, radius) * smoothstep(0.60, 0.49, radius);
     
     vec3 c1 = vec3(0.1, 1.0, 0.5); // Neon green
     vec3 c2 = vec3(0.2, 0.5, 0.9); // Blue
