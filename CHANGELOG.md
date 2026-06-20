@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **Vosk DLL dependency loading on Windows** — voice transcription now loads
+  `libvosk.dll` with Windows' altered DLL search path so companion DLLs beside
+  Vosk are discoverable, and loader errors now show whether each configured path
+  exists.
 - **Windows voice builds no longer require `libvosk.lib`** — the `voice` feature
   now loads Vosk dynamically at runtime, so MSVC release builds do not fail at
   link time with `LNK1181: cannot open input file 'libvosk.lib'`. Set

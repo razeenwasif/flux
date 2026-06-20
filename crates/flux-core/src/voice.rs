@@ -13,7 +13,7 @@
 use std::{
     ffi::{CStr, CString},
     os::raw::{c_char, c_float, c_int},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 /// Decode base64 little-endian i16 PCM into samples.
@@ -79,10 +79,11 @@ impl VoskApi {
 
         for path in candidates {
             // Keep the library handle in VoskApi so copied function pointers stay valid.
-            let lib = match unsafe { libloading::Library::new(&path) } {
+            let lib = match unsafe { load_vosk_library(&path) } {
                 Ok(lib) => lib,
                 Err(err) => {
-                    errors.push(format!("{} ({err})", path.display()));
+                    let exists = if path.exists() { "exists" } else { "missing" };
+                    errors.push(format!("{} [{exists}] ({err})", path.display()));
                     continue;
                 }
             };
@@ -101,7 +102,7 @@ impl VoskApi {
         }
 
         Err(format!(
-            "Vosk native library not found. Put {} on PATH, set FLUX_VOSK_LIBRARY to the full library path, or set FLUX_VOSK_LIB_DIR to its folder. Tried: {}",
+            "Vosk native library could not be loaded. Put {} and its companion DLLs in the same folder, set FLUX_VOSK_LIBRARY to the full DLL path, or set FLUX_VOSK_LIB_DIR to that folder. Tried: {}",
             vosk_library_name(),
             errors.join("; "),
         ))
@@ -129,10 +130,18 @@ fn vosk_library_name() -> &'static str {
 fn vosk_library_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("FLUX_VOSK_LIBRARY") {
-        candidates.push(PathBuf::from(path));
+        let path = PathBuf::from(path);
+        if let Some(parent) = path.parent() {
+            candidates.push(parent.join(vosk_library_name()));
+        }
+        candidates.push(path);
     }
     if let Some(path) = std::env::var_os("FLUX_VOSK_DLL") {
-        candidates.push(PathBuf::from(path));
+        let path = PathBuf::from(path);
+        if let Some(parent) = path.parent() {
+            candidates.push(parent.join(vosk_library_name()));
+        }
+        candidates.push(path);
     }
     if let Some(dir) = std::env::var_os("FLUX_VOSK_LIB_DIR") {
         candidates.push(PathBuf::from(dir).join(vosk_library_name()));
@@ -144,7 +153,30 @@ fn vosk_library_candidates() -> Vec<PathBuf> {
         candidates.push(model.join(vosk_library_name()));
     }
     candidates.push(PathBuf::from(vosk_library_name()));
-    candidates
+
+    let mut deduped = Vec::new();
+    for candidate in candidates {
+        if !deduped.iter().any(|seen: &PathBuf| seen == &candidate) {
+            deduped.push(candidate);
+        }
+    }
+    deduped
+}
+
+#[cfg(all(feature = "voice", target_os = "windows"))]
+unsafe fn load_vosk_library(path: &Path) -> Result<libloading::Library, libloading::Error> {
+    let lib = unsafe {
+        libloading::os::windows::Library::load_with_flags(
+            path.as_os_str(),
+            libloading::os::windows::LOAD_WITH_ALTERED_SEARCH_PATH,
+        )
+    }?;
+    Ok(lib.into())
+}
+
+#[cfg(all(feature = "voice", not(target_os = "windows")))]
+unsafe fn load_vosk_library(path: &Path) -> Result<libloading::Library, libloading::Error> {
+    unsafe { libloading::Library::new(path) }
 }
 
 #[cfg(feature = "voice")]
