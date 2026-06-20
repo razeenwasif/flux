@@ -9,20 +9,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ### Added
 - **Particle-liquid home backdrop** (BACKLOG #77) — the start page's flowing wave
-  can now be a **WebGL particle-liquid**: flowing metaballs with fake-3D shading
-  and a fine grain, in Flux's velvet→violet→teal→magenta palette, pooled toward
-  the bottom. Built deliberately lean for the low-RAM wedge — a **single fragment
+  can now be a **WebGL particle-liquid**: ~80 small balls driven by a lightweight
+  physics sim (gravity + pairwise repulsion, so they collide/space out and merge
+  like liquid) rendered as metaballs with a **metallic, near-colourless** shade
+  that picks up the velvet page background (chrome + a tight highlight, no fixed
+  hue). Built deliberately lean for the low-RAM wedge — a **single fragment
   shader** (one draw call, no Three.js) that **only animates while the start page
   is the active, focused, visible tab** (switching away tears the GL context down
-  to zero), pauses on blur / resize, caps render resolution + framerate, honours
-  `prefers-reduced-motion`, and **auto-falls back to the lightweight wave** if
-  WebGL2 isn't available or the shader fails. Toggle in Settings → Appearance
+  to zero), pauses on blur / resize, renders at ~0.7× resolution + ~40 fps,
+  honours `prefers-reduced-motion`, and **auto-falls back to the lightweight wave**
+  if WebGL2 isn't available or the shader fails. Toggle in Settings → Appearance
   ("Liquid home background", default on).
 - **Agent panel ambient glow** — a Gemini-style soft multi-colour gradient now
-  pools and gently drifts at the bottom of the Flux Agent panel, and while the
-  agent is working a bright arc **orbits the panel's edge** as a "thinking"
-  indicator. Pure CSS on a dedicated effects layer (so it never affects layout or
-  clips the model dropdown); honours `prefers-reduced-motion`.
+  **flows around within** the Flux Agent panel, and while the agent is working a
+  bright arc **orbits the panel's edge** as a "thinking" indicator. Pure CSS on a
+  dedicated effects layer (so it never affects layout or clips the model
+  dropdown); honours `prefers-reduced-motion`.
 - **Web panel unread badges** (BACKLOG #48) — pinned web panels (Discord, Proton
   Mail, LinkedIn, Gmail, WhatsApp…) now show a **phone-style red unread bubble** on
   their rail icon. An injected title-watcher parses the unread `(N)` count from the
