@@ -203,7 +203,8 @@ const AgentPanel: Component = () => {
   };
 
   // Push-to-talk voice: hold the 🎤 to record, release to transcribe locally
-  // (Vosk). The text lands in the input so you can review/edit before sending.
+  // (Vosk). Releasing the mic sends the transcript immediately; any typed input
+  // already in the box is treated as a prefix for the spoken prompt.
   const [recording, setRecording] = createSignal(false);
   let micStream: MediaStream | null = null;
   let audioCtx: AudioContext | null = null;
@@ -247,14 +248,18 @@ const AgentPanel: Component = () => {
     const i16 = new Int16Array(len);
     for (let i = 0; i < len; i++) { const s = Math.max(-1, Math.min(1, f32[i]!)); i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff; }
     setBusy(true);
+    let spoken = "";
     try {
       const text = await voiceTranscribe(b64FromBytes(new Uint8Array(i16.buffer)), rate);
-      if (text.trim()) setPrompt((p) => (p ? p + " " : "") + text.trim());
+      spoken = text.trim();
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
     } finally {
       setBusy(false);
     }
+    if (!spoken) return;
+    const prefix = prompt().trim();
+    await send(prefix ? `${prefix} ${spoken}` : spoken);
   };
 
   // Music intents (AudioPulse via Spotify) — "play …" / "skip" / "pause" etc.,

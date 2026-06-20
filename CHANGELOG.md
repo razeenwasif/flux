@@ -38,6 +38,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   → base64/text.)
 
 ### Changed
+- **Push-to-talk sends after transcription** — releasing the agent mic now submits
+  the Vosk transcript immediately, combining it with any typed prefix already in
+  the input instead of only placing the text in the box.
 - **Agent panel animation refresh** — the ambient panel effect now uses slower
   glassy ribbon currents at rest, then tightens into brighter focused currents
   with a slimmer dual edge sweep while the agent is thinking.
