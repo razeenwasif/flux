@@ -20,6 +20,7 @@ import {
   agentRunAction,
   agentTaskStep,
   agentLens,
+  agentVision,
   webviewCapture,
   onScreenshot,
   isStartUrl,
@@ -28,8 +29,9 @@ import {
   type AgentStatus,
 } from "./ipc";
 import { activeId, activeWorkspace, agentModelName, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
+import AgentAurora from "./AgentAurora";
 
-type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task"; text: string; action?: AgentAction; pending?: boolean };
+type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task"; text: string; action?: AgentAction; pending?: boolean; image?: string };
 
 const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
@@ -139,6 +141,45 @@ const AgentPanel: Component = () => {
     }
   });
 
+  // File attachments: an image (→ the local vision model) or a text file (→ chat
+  // context). One at a time; shown as a chip above the input until sent.
+  type Attachment =
+    | { kind: "image"; name: string; b64: string; dataUrl: string }
+    | { kind: "text"; name: string; text: string };
+  const [attachment, setAttachment] = createSignal<Attachment | null>(null);
+  let fileInput: HTMLInputElement | undefined;
+  const MAX_BYTES = 20 * 1024 * 1024;
+  const TEXT_EXT = /\.(txt|md|markdown|json|jsonc|csv|tsv|log|ya?ml|toml|ini|xml|html?|css|js|jsx|ts|tsx|rs|py|go|java|c|cpp|h|sh|sql|rb|php|swift|kt)$/i;
+
+  const readFile = (file: File) =>
+    new Promise<void>((resolve) => {
+      if (file.size > MAX_BYTES) {
+        setFeed((f) => [...f, { role: "error", text: `"${file.name}" is too large (max 20 MB).` }]);
+        return resolve();
+      }
+      const reader = new FileReader();
+      if (file.type.startsWith("image/")) {
+        reader.onload = () => {
+          const dataUrl = String(reader.result || "");
+          const b64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
+          setAttachment({ kind: "image", name: file.name, b64, dataUrl });
+          resolve();
+        };
+        reader.readAsDataURL(file);
+      } else if (file.type.startsWith("text/") || TEXT_EXT.test(file.name)) {
+        reader.onload = () => { setAttachment({ kind: "text", name: file.name, text: String(reader.result || "") }); resolve(); };
+        reader.readAsText(file);
+      } else {
+        setFeed((f) => [...f, { role: "error", text: `Can't read "${file.name}" — attach an image or a text file (video/binary isn't supported).` }]);
+        resolve();
+      }
+    });
+  const onPickFile = (e: Event) => {
+    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (file) void readFile(file);
+    (e.currentTarget as HTMLInputElement).value = ""; // allow re-picking the same file
+  };
+
   // Music intents (AudioPulse via Spotify) — "play …" / "skip" / "pause" etc.,
   // optionally addressed to Gemma ("hey gemma, play …" / "can you skip"). Returns
   // true if it handled the message (and posts the result/error to the feed).
@@ -163,18 +204,36 @@ const AgentPanel: Component = () => {
   };
 
   const send = async (p: string) => {
-    if (!p || working() || taskRunning()) return;
-    // "/task <goal>" runs the multi-step agent loop (#A) instead of one action.
-    const task = p.match(/^\/task\s+([\s\S]+)/i);
-    if (task?.[1]) {
-      setPrompt("");
-      void runTask(task[1].trim());
-      return;
+    const att = attachment();
+    if ((!p && !att) || working() || taskRunning()) return;
+    // "/task <goal>" runs the multi-step agent loop (#A) — not with an attachment.
+    if (!att) {
+      const task = p.match(/^\/task\s+([\s\S]+)/i);
+      if (task?.[1]) {
+        setPrompt("");
+        void runTask(task[1].trim());
+        return;
+      }
     }
     setPrompt("");
-    setFeed((f) => [...f, { role: "user", text: p }]);
+    setFeed((f) => [...f, { role: "user", text: p, image: att?.kind === "image" ? att.dataUrl : undefined }]);
     setBusy(true);
     try {
+      // An attachment routes to the vision model (image) or chat-with-file (text).
+      if (att) {
+        setAttachment(null);
+        if (att.kind === "image") {
+          const answer = await agentVision(att.b64, p);
+          setFeed((f) => [...f, { role: "assistant", text: answer.trim() }]);
+        } else {
+          const idx = feed().length;
+          setFeed((f) => [...f, { role: "assistant", text: "" }]);
+          const append = (chunk: string) => setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + chunk } : it)));
+          await agentChatStream(`${p || "Summarize this file."}\n\n--- file: ${att.name} ---\n${att.text}`, append);
+          setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)));
+        }
+        return;
+      }
       // Visual Lens — "/lens", "what is this", "identify this/it", "what am I looking at".
       const lens = p.match(/^\/lens(?:\s+([\s\S]+))?$/i) ||
         p.match(/^(?:what(?:'?s| is) this|identify (?:this|it)|what am i looking at)\b[\s\S]*/i);
@@ -309,11 +368,12 @@ const AgentPanel: Component = () => {
   return (
     <aside class="agent">
       <div class="agent-inner">
-        {/* Ambient effects layer (Gemini-style): a soft gradient pooled at the
-            bottom, plus a glow that orbits the edges while the agent works. Its
+        {/* Ambient effects layer: circular aurora background + orbital edge glow. Its
             own absolutely-positioned + clipped layer so it never affects layout
             or clips the model dropdown. */}
-        <div class="agent-fx" classList={{ busy: working() }} aria-hidden="true" />
+        <div class="agent-fx" classList={{ busy: working() }} aria-hidden="true">
+          <AgentAurora active={() => true} />
+        </div>
         <header style={{ display: "flex", "align-items": "center", gap: "8px" }}>
           <span
             classList={{ "ai-thinking": working() }}
@@ -360,6 +420,7 @@ const AgentPanel: Component = () => {
             <For each={feed()}>
               {(item, i) => (
                 <div classList={{ "agent-msg": true, [`agent-${item.role}`]: true }}>
+                  <Show when={item.image}><img class="agent-thumb" src={item.image} alt="attachment" /></Show>
                   <div>{item.text}</div>
                   <Show when={item.role === "plan" && item.pending && item.action}>
                     <div class="agent-approve">
@@ -413,14 +474,35 @@ const AgentPanel: Component = () => {
           <button class="agent-chip" disabled={working()} onClick={() => void send("What are the key points and any action items?")}>Key points</button>
           <button class="agent-chip" disabled={working()} onClick={() => void send("Explain this like I'm new to the topic.")}>Explain</button>
         </div>
-        <form onSubmit={run} classList={{ "ai-thinking-border": working() }}>
+        <Show when={attachment()}>
+          {(a) => (
+            <div class="agent-attach">
+              <Show when={a().kind === "image"} fallback={<span class="agent-attach-name">📄 {a().name}</span>}>
+                <img class="agent-attach-thumb" src={(a() as { dataUrl: string }).dataUrl} alt="" />
+                <span class="agent-attach-name">{a().name}</span>
+              </Show>
+              <button class="agent-attach-x" title="Remove" onClick={() => setAttachment(null)}>✕</button>
+            </div>
+          )}
+        </Show>
+        <form onSubmit={run}>
           <input
-            value={prompt()}
-            onInput={(e) => setPrompt(e.currentTarget.value)}
-            placeholder={taskRunning() ? "task running…" : working() ? "thinking…" : scope() === "tabs" ? "Ask across tabs · /act · /task" : "Ask · /act page action · /task multi-step"}
-            disabled={working() || taskRunning()}
-            style={{ width: "100%", padding: "10px 12px", border: working() ? "none" : undefined }}
+            type="file"
+            ref={fileInput}
+            style={{ display: "none" }}
+            accept="image/*,text/*,.md,.json,.jsonc,.csv,.tsv,.log,.yaml,.yml,.toml,.ini,.xml,.html,.htm,.css,.js,.jsx,.ts,.tsx,.rs,.py,.go,.java,.c,.cpp,.h,.sh,.sql,.rb,.php,.swift,.kt"
+            onChange={onPickFile}
           />
+          <div class="agent-input-row" classList={{ "ai-thinking-border": working() }}>
+            <button type="button" class="agent-attach-btn" title="Attach an image or text file" disabled={working() || taskRunning()} onClick={() => fileInput?.click()}>📎</button>
+            <input
+              value={prompt()}
+              onInput={(e) => setPrompt(e.currentTarget.value)}
+              placeholder={taskRunning() ? "task running…" : working() ? "thinking…" : attachment() ? "Ask about the attachment…" : scope() === "tabs" ? "Ask across tabs · /act · /task" : "Ask · attach 📎 · /act · /task"}
+              disabled={working() || taskRunning()}
+              style={{ flex: "1", "min-width": "0", padding: "10px 12px", border: working() ? "none" : undefined }}
+            />
+          </div>
         </form>
       </div>
     </aside>

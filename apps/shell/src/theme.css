@@ -813,21 +813,7 @@ body.resizing, body.busy { --glass-blur: none; }
 /* Soft multi-colour gradient that flows AROUND WITHIN the pane — oversized +
    heavily blurred, slowly translating/rotating so the colour blobs sweep across
    the whole panel interior rather than just pooling at the bottom. */
-.agent-fx::after {
-  content: ""; position: absolute; inset: -35%;
-  background:
-    radial-gradient(26% 30% at 28% 30%, rgba(99, 140, 255, 0.20), transparent 62%),
-    radial-gradient(24% 28% at 72% 38%, rgba(214, 107, 255, 0.17), transparent 62%),
-    radial-gradient(30% 32% at 48% 72%, rgba(99, 214, 255, 0.15), transparent 64%),
-    radial-gradient(22% 26% at 80% 78%, rgba(157, 107, 255, 0.15), transparent 62%);
-  filter: blur(34px);
-  animation: agent-wash 22s ease-in-out infinite alternate;
-}
-@keyframes agent-wash {
-  0%   { transform: translate(-4%, -3%) rotate(0deg)  scale(1.00); }
-  50%  { transform: translate(4%, 3%)   rotate(9deg)  scale(1.07); }
-  100% { transform: translate(-2%, 4%)  rotate(-7deg) scale(1.03); }
-}
+/* .agent-fx::after has been replaced by the AgentAurora WebGL component */
 /* While the agent works: a bright arc orbits the panel edge. */
 .agent-fx.busy::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 2.5px;
@@ -847,7 +833,7 @@ body.resizing, body.busy { --glass-blur: none; }
 }
 @keyframes agent-orbit { to { --agent-angle: 360deg; } }
 @media (prefers-reduced-motion: reduce) {
-  .agent-fx::after, .agent-fx.busy::before { animation: none; }
+  .agent-fx.busy::before { animation: none; }
 }
 .agent-feed { flex: 1; overflow-y: auto; min-height: 0; font-size: 12.5px; line-height: 1.6; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; user-select: text; -webkit-user-select: text; cursor: text; }
 .agent-feed::-webkit-scrollbar { width: 8px; }
@@ -903,6 +889,19 @@ body.resizing, body.busy { --glass-blur: none; }
 
 /* Chat bubbles — user right, assistant/agent left; replies keep newlines. */
 .agent-msg { max-width: 92%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
+/* Attachment thumbnail inside a message bubble. */
+.agent-thumb { display: block; max-width: 100%; max-height: 180px; border-radius: 8px; margin-bottom: 6px; }
+/* Attachment chip above the input (pending send). */
+.agent-attach { display: flex; align-items: center; gap: 8px; padding: 5px 8px; margin-bottom: 6px; border-radius: 9px; background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); }
+.agent-attach-thumb { flex: none; width: 30px; height: 30px; object-fit: cover; border-radius: 6px; }
+.agent-attach-name { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-attach-x { flex: none; width: 20px; height: 20px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; border-radius: 5px; }
+.agent-attach-x:hover { color: #fff; background: #c0392b; }
+/* Input row: attach button + text field. */
+.agent-input-row { display: flex; align-items: center; gap: 4px; }
+.agent-attach-btn { flex: none; width: 34px; height: 38px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; border-radius: 9px; font-size: 15px; }
+.agent-attach-btn:hover:not(:disabled) { color: var(--flux-text); background: var(--flux-surface-2); }
+.agent-attach-btn:disabled { opacity: 0.4; cursor: default; }
 .agent-user { align-self: flex-end; background: var(--flux-teal-dim); border: 1px solid rgba(47, 243, 255, 0.22); color: var(--flux-text); }
 .agent-assistant { align-self: flex-start; background: var(--flux-surface); border: 1px solid var(--flux-border); }
 .agent-action { align-self: flex-start; color: var(--flux-magenta); background: rgba(236, 75, 224, 0.10); border: 1px solid rgba(236, 75, 224, 0.25); }

@@ -720,6 +720,9 @@ export const webviewCapture = (tabId: number) => invoke<string>("webview_capture
 /** Visual Lens (#115): identify the captured PNG with the local vision model. */
 export const agentLens = (imagePath: string, prompt?: string) =>
   invoke<string>("agent_lens", { imagePath, prompt: prompt ?? null });
+/** Ask the local vision model about an uploaded image (base64, no data: prefix). */
+export const agentVision = (imageB64: string, prompt?: string) =>
+  invoke<string>("agent_vision", { imageB64, prompt: prompt ?? null });
 export const onScreenshot = (cb: (path: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://screenshot", (e) => cb(e.payload));
 export const onReader = (cb: (tabId: number, title: string, blocks: ReaderBlock[]) => void): Promise<UnlistenFn> =>

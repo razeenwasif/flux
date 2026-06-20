@@ -589,6 +589,7 @@ pub fn run(intent: cli::LaunchIntent) {
             sync::sync_now,
             sync::sync_set_auto,
             lens::agent_lens,
+            lens::agent_vision,
             spotify::spotify_set_dir,
             spotify::spotify_play,
             spotify::spotify_pause,
