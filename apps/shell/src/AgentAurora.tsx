@@ -13,6 +13,7 @@ precision highp float;
 in vec2 v_uv; out vec4 o;
 uniform float u_time;
 uniform float u_aspect;
+uniform float u_busy;
 
 // Simplex 3D Noise from Ashima Arts
 vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
@@ -101,7 +102,8 @@ void main() {
     ridge = 1.0 - smoothstep(0.0, 0.4, ridge);
     
     // Hug the outer bounds of the panel (pushed out from the center)
-    float ringFade = smoothstep(0.25, 0.45, radius) * smoothstep(0.65, 0.45, radius);
+    // Expand inward when busy to fill the panel more
+    float ringFade = smoothstep(mix(0.25, 0.05, u_busy), 0.45, radius) * smoothstep(0.65, 0.45, radius);
     
     vec3 c1 = vec3(0.1, 1.0, 0.5); // Neon green
     vec3 c2 = vec3(0.2, 0.5, 0.9); // Blue
@@ -110,7 +112,7 @@ void main() {
     vec3 col = mix(c1, c2, radius * 2.0 + i * 0.1);
     col = mix(col, c3, n2 * 0.5 + 0.5);
     
-    auroraCol += col * ridge * curtain * ringFade * 0.6;
+    auroraCol += col * ridge * curtain * ringFade * (0.6 + u_busy * 0.8);
   }
   
   float alpha = length(auroraCol);
@@ -118,7 +120,7 @@ void main() {
 }
 `;
 
-const AgentAurora: Component<{ active: () => boolean }> = (props) => {
+const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = (props) => {
   let canvas: HTMLCanvasElement | undefined;
 
   onMount(() => {
@@ -159,8 +161,10 @@ const AgentAurora: Component<{ active: () => boolean }> = (props) => {
 
     const uTime = gl.getUniformLocation(prog, "u_time");
     const uAspect = gl.getUniformLocation(prog, "u_aspect");
+    const uBusy = gl.getUniformLocation(prog, "u_busy");
 
     let time = 0;
+    let busyVal = 0;
     const render = () => {
       gl.viewport(0, 0, c.width, c.height);
       gl.useProgram(prog);
@@ -169,6 +173,7 @@ const AgentAurora: Component<{ active: () => boolean }> = (props) => {
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       gl.uniform1f(uTime, time);
       gl.uniform1f(uAspect, aspect);
+      gl.uniform1f(uBusy, busyVal);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 
@@ -179,7 +184,12 @@ const AgentAurora: Component<{ active: () => boolean }> = (props) => {
       const d = last ? (now - last) / 1000 : 0; last = now;
       acc += d;
       if (acc < MIN_DT) return;
-      time += acc; acc = 0;
+      
+      const targetBusy = props.busy?.() ? 1.0 : 0.0;
+      busyVal += (targetBusy - busyVal) * 5.0 * acc;
+      
+      time += acc * (1.0 + busyVal * 1.5);
+      acc = 0;
       render();
     };
     const start = () => { if (running) return; running = true; last = 0; raf = requestAnimationFrame(frame); };

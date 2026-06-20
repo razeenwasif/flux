@@ -399,7 +399,7 @@ const AgentPanel: Component = () => {
             own absolutely-positioned + clipped layer so it never affects layout
             or clips the model dropdown. */}
         <div class="agent-fx" classList={{ busy: working() }} aria-hidden="true">
-          <AgentAurora active={() => true} />
+          <AgentAurora active={() => true} busy={() => working()} />
         </div>
         <header style={{ display: "flex", "align-items": "center", gap: "8px" }}>
           <span
