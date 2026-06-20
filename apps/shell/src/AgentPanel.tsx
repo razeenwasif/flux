@@ -21,6 +21,7 @@ import {
   agentTaskStep,
   agentLens,
   agentVision,
+  attachmentRead,
   webviewCapture,
   onScreenshot,
   isStartUrl,
@@ -28,7 +29,7 @@ import {
   type AgentAction,
   type AgentStatus,
 } from "./ipc";
-import { activeId, activeWorkspace, agentModelName, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
+import { activeId, activeWorkspace, agentModelName, filesPanelOpen, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
 import AgentAurora from "./AgentAurora";
 
 type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task"; text: string; action?: AgentAction; pending?: boolean; image?: string };
@@ -178,6 +179,26 @@ const AgentPanel: Component = () => {
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
     if (file) void readFile(file);
     (e.currentTarget as HTMLInputElement).value = ""; // allow re-picking the same file
+  };
+
+  // Drag-and-drop onto the panel: an OS file (dataTransfer.files) or a file
+  // dragged from Flux's explorer (its rows put the path in text/plain).
+  const [dropping, setDropping] = createSignal(false);
+  const onDrop = async (e: DragEvent) => {
+    e.preventDefault();
+    setDropping(false);
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    if (dt.files && dt.files.length) { void readFile(dt.files[0]!); return; }
+    const path = (dt.getData("text/plain") || "").split("\n")[0]?.trim();
+    if (!path) return;
+    try {
+      const a = await attachmentRead(path);
+      if (a.kind === "image") setAttachment({ kind: "image", name: a.name, b64: a.b64, dataUrl: a.data_url });
+      else setAttachment({ kind: "text", name: a.name, text: a.text });
+    } catch (err) {
+      setFeed((f) => [...f, { role: "error", text: String(err) }]);
+    }
   };
 
   // Music intents (AudioPulse via Spotify) — "play …" / "skip" / "pause" etc.,
@@ -366,7 +387,13 @@ const AgentPanel: Component = () => {
   };
 
   return (
-    <aside class="agent">
+    <aside
+      class="agent"
+      classList={{ "agent-droppable": filesPanelOpen(), "agent-dropping": dropping() }}
+      onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"; setDropping(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false); }}
+      onDrop={(e) => void onDrop(e)}
+    >
       <div class="agent-inner">
         {/* Ambient effects layer: circular aurora background + orbital edge glow. Its
             own absolutely-positioned + clipped layer so it never affects layout

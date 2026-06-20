@@ -7,6 +7,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Drag a file from the explorer into the agent** — with the file popout open, the
+  agent panel lifts above its dimmed backdrop (stays visible + interactive) and
+  becomes a **drop target**: drag a file from the explorer onto it and it attaches
+  (image → vision model, text/code → chat context), with a dashed "drop here"
+  highlight. Also accepts OS file drops. (`attachment_read` reads the dropped path
+  → base64/text.)
+
 ### Changed
 - **Liquid-glass home surfaces** — the start-page widget cards, the search hero,
   and the expanded-widget modals now have a richer "liquid glass" look: a glossy

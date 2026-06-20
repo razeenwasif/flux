@@ -723,6 +723,9 @@ export const agentLens = (imagePath: string, prompt?: string) =>
 /** Ask the local vision model about an uploaded image (base64, no data: prefix). */
 export const agentVision = (imageB64: string, prompt?: string) =>
   invoke<string>("agent_vision", { imageB64, prompt: prompt ?? null });
+/** Read a file dragged from the explorer into the agent (image → b64, text → text). */
+export interface DroppedAttachment { kind: "image" | "text"; name: string; b64: string; text: string; data_url: string }
+export const attachmentRead = (path: string) => invoke<DroppedAttachment>("attachment_read", { path });
 export const onScreenshot = (cb: (path: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://screenshot", (e) => cb(e.payload));
 export const onReader = (cb: (tabId: number, title: string, blocks: ReaderBlock[]) => void): Promise<UnlistenFn> =>
