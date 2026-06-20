@@ -1165,6 +1165,32 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .cal-day-header { font-size: 12px; font-weight: 700; color: var(--flux-teal); text-transform: uppercase; letter-spacing: .04em; }
 .cal-day-event { display: flex; gap: 12px; padding: 6px 8px; border-radius: 8px; }
 .cal-day-event:hover { background: var(--flux-surface); }
+
+/* ── Liquid glass, extended to the search hero + expanded-widget modals ───── */
+.start-search {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03) 55%, transparent 90%),
+    var(--glass-fill);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+.start-search::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(120% 150% at 12% -30%, rgba(255, 255, 255, 0.16), transparent 50%);
+}
+.cal-modal {
+  background:
+    linear-gradient(157deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.02) 42%, transparent 72%),
+    var(--glass-fill);
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    inset 0 -26px 40px -26px rgba(0, 0, 0, 0.5);
+}
+.cal-modal::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(120% 70% at 16% -6%, rgba(255, 255, 255, 0.14), transparent 44%);
+}
 .cal-event-time { flex: none; min-width: 64px; font-size: 12px; color: var(--flux-text-mute); font-variant-numeric: tabular-nums; }
 .cal-event-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .cal-event-title { font-size: 13px; color: var(--flux-text); }
