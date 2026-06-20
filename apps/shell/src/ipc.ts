@@ -282,6 +282,14 @@ export const spotifyResume = () => invoke<string>("spotify_resume");
 export const spotifyNext = () => invoke<string>("spotify_next");
 export const spotifyPrev = () => invoke<string>("spotify_prev");
 export const spotifyNowPlaying = () => invoke<string>("spotify_now_playing");
+export const spotifyShuffle = (on: boolean) => invoke<string>("spotify_shuffle", { on });
+/** Repeat mode: "one" (track) / "all" (context) / "off". */
+export const spotifyRepeat = (mode: string) => invoke<string>("spotify_repeat", { mode });
+export const spotifyVolume = (percent: number) => invoke<string>("spotify_volume", { percent });
+export const spotifyPlayLiked = () => invoke<string>("spotify_play_liked");
+export const spotifyPlayPlaylist = (name: string) => invoke<string>("spotify_play_playlist", { name });
+/** Launch AudioPulse (Linux/WSL build) so its Spotify Connect device comes online. */
+export const spotifyLaunch = () => invoke<string>("spotify_launch");
 /**
  * Streaming chat (BACKLOG #82): calls `onToken` for each chunk as the model
  * generates it, resolving with the full reply when done. The sidebar renders

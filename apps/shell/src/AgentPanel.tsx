@@ -16,6 +16,12 @@ import {
   spotifyPlay,
   spotifyPrev,
   spotifyResume,
+  spotifyShuffle,
+  spotifyRepeat,
+  spotifyVolume,
+  spotifyPlayLiked,
+  spotifyPlayPlaylist,
+  spotifyLaunch,
   agentPlan,
   agentRunAction,
   agentTaskStep,
@@ -262,12 +268,48 @@ const AgentPanel: Component = () => {
     await send(prefix ? `${prefix} ${spoken}` : spoken);
   };
 
-  // Music intents (AudioPulse via Spotify) — "play …" / "skip" / "pause" etc.,
-  // optionally addressed to Gemma ("hey gemma, play …" / "can you skip"). Returns
-  // true if it handled the message (and posts the result/error to the feed).
+  // Music intents (AudioPulse via Spotify) — "play …" / "skip" / "shuffle on" /
+  // "launch audiopulse" etc., optionally addressed to Gemma ("hey gemma, …").
+  // `musicIntent` maps one clause → a backend call (or null). `runMusic` runs a
+  // single clause, OR a compound macro ("launch audiopulse and play my liked
+  // songs, shuffle on") when EVERY clause is itself a music intent — so a normal
+  // "play X and Y" query (where "Y" isn't an intent) still plays as one search.
+  const musicIntent = (clause: string): (() => Promise<string>) | null => {
+    const cmd = clause
+      .replace(/^\/?(?:and\s+|also\s+|then\s+|make\s+sure\s+to\s+|be\s+sure\s+to\s+|please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)+/i, "")
+      .trim();
+    let m: RegExpMatchArray | null;
+    if (/^(?:launch|start(?:\s*up)?|open|boot(?:\s*up)?|fire\s*up)\s+(?:audio\s*pulse|ap)\b/i.test(cmd)) return spotifyLaunch;
+    if (/^(?:play|put on|start)\s+(?:my\s+|the\s+)?liked(?:\s+songs?)?(?:\s+playlist)?$/i.test(cmd)) return spotifyPlayLiked;
+    if ((m = cmd.match(/^(?:play|put on|start)\s+(?:my\s+|the\s+)?(.+?)\s+playlist$/i))) {
+      const name = m[1]!.trim();
+      return () => spotifyPlayPlaylist(name);
+    }
+    if ((m = cmd.match(/^(?:play|put on|queue)\s+(.+)/i))) {
+      const q = m[1]!.trim();
+      return () => spotifyPlay(q);
+    }
+    if (/^(?:turn\s+)?shuffle(?:\s+on)?$|^turn\s+on\s+shuffle$/i.test(cmd)) return () => spotifyShuffle(true);
+    if (/^(?:turn\s+)?shuffle\s+off$|^turn\s+off\s+shuffle$/i.test(cmd)) return () => spotifyShuffle(false);
+    if ((m = cmd.match(/^(?:set\s+)?(?:the\s+)?volume\s+(?:to\s+)?(\d{1,3})%?$/i))) {
+      const pct = Number(m[1]);
+      return () => spotifyVolume(pct);
+    }
+    if ((m = cmd.match(/^(?:set\s+)?repeat(?:\s+(?:to\s+|mode\s+)?(one|all|track|context|song|playlist|album|off|none))?$/i))) {
+      const mode = (m[1] || "context").toLowerCase();
+      return () => spotifyRepeat(mode);
+    }
+    if (/^(?:loop|repeat)\s+(?:this|song|track)$/i.test(cmd)) return () => spotifyRepeat("track");
+    if (/^(?:skip|next)(?:\s+(?:song|track))?$/i.test(cmd)) return spotifyNext;
+    if (/^(?:prev(?:ious)?|back|last(?:\s+song)?)$/i.test(cmd)) return spotifyPrev;
+    if (/^pause$/i.test(cmd)) return spotifyPause;
+    if (/^(?:resume|unpause|continue)$/i.test(cmd)) return spotifyResume;
+    if (/^(?:what'?s\s*playing|now\s*playing|np)\??$/i.test(cmd)) return spotifyNowPlaying;
+    return null;
+  };
   const runMusic = async (raw: string): Promise<boolean> => {
     const cmd = raw
-      .replace(/^(hey\s+)?gemma[,:\s]+/i, "")
+      .replace(/^\/?(hey\s+)?gemma[,:\s]+/i, "")
       .replace(/^(can|could|would)\s+you\s+/i, "")
       .replace(/^please\s+/i, "")
       .trim();
@@ -275,13 +317,18 @@ const AgentPanel: Component = () => {
       try { const r = await fn(); setFeed((f) => [...f, { role: "action", text: r }]); }
       catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); }
     };
-    const play = cmd.match(/^\/?(?:play|put on|queue)\s+(.+)/i);
-    if (play?.[1]) { await call(() => spotifyPlay(play[1]!.trim())); return true; }
-    if (/^\/?(?:skip|next)(?:\s+(?:song|track))?$/i.test(cmd)) { await call(spotifyNext); return true; }
-    if (/^\/?(?:prev(?:ious)?|back|last(?:\s+song)?)$/i.test(cmd)) { await call(spotifyPrev); return true; }
-    if (/^\/?pause$/i.test(cmd)) { await call(spotifyPause); return true; }
-    if (/^\/?(?:resume|unpause|continue)$/i.test(cmd)) { await call(spotifyResume); return true; }
-    if (/^\/?(?:what'?s\s*playing|now\s*playing|np)\??$/i.test(cmd)) { await call(spotifyNowPlaying); return true; }
+    const single = musicIntent(cmd);
+    if (single) { await call(single); return true; }
+    // Compound macro: split on "and" / "then" / "," / ";" / "." and run each step
+    // in order — only if every clause is a recognised music intent.
+    const clauses = cmd.split(/\s*(?:,|;|\.|\bthen\b|\band\b)\s*/i).map((s) => s.trim()).filter(Boolean);
+    if (clauses.length >= 2) {
+      const steps = clauses.map(musicIntent);
+      if (steps.every(Boolean)) {
+        for (const step of steps) await call(step!);
+        return true;
+      }
+    }
     return false;
   };
 
