@@ -12,6 +12,7 @@
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import { Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
+import LiquidBackground from "./LiquidBackground";
 
 /** Velvet-matched 16-color palette + teal cursor (theme.css alignment). */
 const THEME = {
@@ -82,7 +83,8 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
       allowProposedApi: true,
       macOptionIsMeta: true,
       scrollback: 10_000,
-      theme: THEME,
+      allowTransparency: true,
+      theme: { ...THEME, background: "transparent" },
     });
 
     const fit = new FitAddon();
@@ -133,7 +135,15 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
     });
   });
 
-  return <div ref={host} style={{ width: "100%", height: "100%", padding: "8px" }} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden", "border-radius": "inherit" }}>
+      <div style={{ position: "absolute", inset: 0, "z-index": 0, "pointer-events": "none" }}>
+        <LiquidBackground active={() => props.active ?? true} />
+      </div>
+      <div style={{ position: "absolute", inset: 0, "z-index": 0, background: "rgba(11, 10, 29, 0.88)", "pointer-events": "none" }} />
+      <div ref={host} style={{ position: "relative", "z-index": 1, width: "100%", height: "100%", padding: "8px" }} />
+    </div>
+  );
 };
 
 export default TerminalView;
