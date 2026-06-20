@@ -268,6 +268,15 @@ export const agentTaskStep = (goal: string, history: string[]) =>
   invoke<AgentAction>("agent_task_step", { goal, history });
 /** Free-form chat with the local model (no page required). Returns the reply. */
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
+
+// ─── AudioPulse / Spotify control (Path A: reuse AudioPulse's token) ──────────
+/** Search + play the top match. Returns a human "▶ Playing …" line (or an error). */
+export const spotifyPlay = (query: string) => invoke<string>("spotify_play", { query });
+export const spotifyPause = () => invoke<string>("spotify_pause");
+export const spotifyResume = () => invoke<string>("spotify_resume");
+export const spotifyNext = () => invoke<string>("spotify_next");
+export const spotifyPrev = () => invoke<string>("spotify_prev");
+export const spotifyNowPlaying = () => invoke<string>("spotify_now_playing");
 /**
  * Streaming chat (BACKLOG #82): calls `onToken` for each chunk as the model
  * generates it, resolving with the full reply when done. The sidebar renders

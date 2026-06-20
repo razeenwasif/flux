@@ -10,6 +10,12 @@ import {
   agentChatStream,
   agentChatTabsStream,
   agentModels,
+  spotifyNext,
+  spotifyNowPlaying,
+  spotifyPause,
+  spotifyPlay,
+  spotifyPrev,
+  spotifyResume,
   agentPlan,
   agentRunAction,
   agentTaskStep,
@@ -91,6 +97,29 @@ const AgentPanel: Component = () => {
     }
   });
 
+  // Music intents (AudioPulse via Spotify) — "play …" / "skip" / "pause" etc.,
+  // optionally addressed to Gemma ("hey gemma, play …" / "can you skip"). Returns
+  // true if it handled the message (and posts the result/error to the feed).
+  const runMusic = async (raw: string): Promise<boolean> => {
+    const cmd = raw
+      .replace(/^(hey\s+)?gemma[,:\s]+/i, "")
+      .replace(/^(can|could|would)\s+you\s+/i, "")
+      .replace(/^please\s+/i, "")
+      .trim();
+    const call = async (fn: () => Promise<string>) => {
+      try { const r = await fn(); setFeed((f) => [...f, { role: "action", text: r }]); }
+      catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); }
+    };
+    const play = cmd.match(/^\/?(?:play|put on|queue)\s+(.+)/i);
+    if (play?.[1]) { await call(() => spotifyPlay(play[1]!.trim())); return true; }
+    if (/^\/?(?:skip|next)(?:\s+(?:song|track))?$/i.test(cmd)) { await call(spotifyNext); return true; }
+    if (/^\/?(?:prev(?:ious)?|back|last(?:\s+song)?)$/i.test(cmd)) { await call(spotifyPrev); return true; }
+    if (/^\/?pause$/i.test(cmd)) { await call(spotifyPause); return true; }
+    if (/^\/?(?:resume|unpause|continue)$/i.test(cmd)) { await call(spotifyResume); return true; }
+    if (/^\/?(?:what'?s\s*playing|now\s*playing|np)\??$/i.test(cmd)) { await call(spotifyNowPlaying); return true; }
+    return false;
+  };
+
   const send = async (p: string) => {
     if (!p || working() || taskRunning()) return;
     // "/task <goal>" runs the multi-step agent loop (#A) instead of one action.
@@ -104,6 +133,8 @@ const AgentPanel: Component = () => {
     setFeed((f) => [...f, { role: "user", text: p }]);
     setBusy(true);
     try {
+      // Music command (AudioPulse) before chat — "play …" / "skip" / "pause" / …
+      if (await runMusic(p)) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
       // grounded in the active page or all open tabs per the scope toggle.
       const act = p.match(/^\/(?:act|do)\s+([\s\S]+)/i);

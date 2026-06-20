@@ -41,6 +41,7 @@ pub mod search;
 pub mod session;
 pub mod sessions;
 pub mod shields;
+pub mod spotify;
 pub mod sync;
 pub mod taskmgr;
 pub mod tombstone;
@@ -586,6 +587,12 @@ pub fn run(intent: cli::LaunchIntent) {
             sync::sync_lock,
             sync::sync_now,
             sync::sync_set_auto,
+            spotify::spotify_play,
+            spotify::spotify_pause,
+            spotify::spotify_resume,
+            spotify::spotify_next,
+            spotify::spotify_prev,
+            spotify::spotify_now_playing,
             pwa::pwa_list,
             pwa::pwa_install,
             pwa::pwa_launch,
