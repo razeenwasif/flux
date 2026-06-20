@@ -18,12 +18,12 @@
  */
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 
-const N = 5000;        // fine particles
-const POINT_PX = 3.6;  // splat size in field pixels
-const SPEED = 0.06;    // flow speed
-const FADE = 0.95;     // trail persistence (higher = longer contour streaks)
-const INTENSITY = 0.32;
-const FIELD_SCALE = 0.8;
+const N = 35000;       // dense fine particles
+const POINT_PX = 2.0;  // sharper splat size
+const SPEED = 0.05;    // flow speed
+const FADE = 0.96;     // trail persistence
+const INTENSITY = 0.2;
+const FIELD_SCALE = 1.0; // full res field
 
 const QUAD_VS = `#version 300 es
 layout(location = 0) in vec2 p;
@@ -34,7 +34,27 @@ const FADE_FS = `#version 300 es
 precision highp float;
 in vec2 v_uv; out vec4 o;
 uniform sampler2D u_prev; uniform float u_fade;
-void main(){ o = texture(u_prev, v_uv) * u_fade; }`;
+uniform float u_time; uniform float u_aspect;
+
+vec2 get_curl(float x, float y, float t) {
+  float vx = sin(3.0 * x + 0.5 * t) * (-3.0 * sin(3.0 * y - 0.4 * t))
+           + 0.5 * (5.0 * cos(5.0 * y + 0.3 * t)) * cos(5.0 * x - 0.6 * t);
+  float vy = -(3.0 * cos(3.0 * x + 0.5 * t) * cos(3.0 * y - 0.4 * t)
+           + 0.5 * sin(5.0 * y + 0.3 * t) * (-5.0 * sin(5.0 * x - 0.6 * t)));
+  float x2 = x * 2.1, y2 = y * 2.1, t2 = t * 1.5;
+  vx += 0.5 * (sin(3.0 * x2 + 0.5 * t2) * (-3.0 * sin(3.0 * y2 - 0.4 * t2))
+           + 0.5 * (5.0 * cos(5.0 * y2 + 0.3 * t2)) * cos(5.0 * x2 - 0.6 * t2));
+  vy += 0.5 * (-(3.0 * cos(3.0 * x2 + 0.5 * t2) * cos(3.0 * y2 - 0.4 * t2)
+           + 0.5 * sin(5.0 * y2 + 0.3 * t2) * (-5.0 * sin(5.0 * x2 - 0.6 * t2))));
+  return vec2(vx, vy);
+}
+
+void main(){
+  vec2 uv = v_uv;
+  vec2 vel = get_curl(uv.x * u_aspect, uv.y, u_time);
+  vec2 adv_uv = uv - vel * 0.0025 * vec2(1.0/u_aspect, 1.0);
+  o = texture(u_prev, adv_uv) * u_fade;
+}`;
 
 const PART_VS = `#version 300 es
 layout(location = 0) in vec2 a_pos;
@@ -55,22 +75,13 @@ void main(){
 const COMP_FS = `#version 300 es
 precision highp float;
 in vec2 v_uv; out vec4 o;
-uniform sampler2D u_field; uniform float u_time; uniform float u_aspect;
+uniform sampler2D u_field; 
 void main(){
-  vec2 uv = v_uv;
-  vec2 p = vec2(uv.x * u_aspect, uv.y);
-  vec3 base = vec3(0.028, 0.022, 0.055)                 // velvet
-            + vec3(0.05, 0.04, 0.10) * smoothstep(0.85, -0.1, uv.y); // a hair brighter low
-  float g = 0.0;
-  for(int i = 0; i < 3; i++){
-    float fi = float(i);
-    vec2 c = vec2((0.5 + 0.30 * sin(u_time * 0.13 + fi * 2.1)) * u_aspect,
-                  0.45 + 0.28 * cos(u_time * 0.11 + fi * 1.7));
-    g += smoothstep(0.46, 0.0, distance(p, c)) * 0.13;
-  }
-  vec3 glow = vec3(0.55, 0.60, 0.78) * g;
-  vec3 field = texture(u_field, uv).rgb;                // accumulated white particles + trails
-  o = vec4(base + glow + field, 1.0);
+  vec3 field = texture(u_field, v_uv).rgb;
+  float density = max(field.r, max(field.g, field.b));
+  // High contrast white on black (magnetic sand / swirling smoke)
+  float val = smoothstep(0.0, 0.7, density);
+  o = vec4(vec3(val), 1.0);
 }`;
 
 const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => void }> = (props) => {
@@ -153,15 +164,25 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     };
 
-    const fadeU = { prev: gl.getUniformLocation(fadeP, "u_prev"), fade: gl.getUniformLocation(fadeP, "u_fade") };
+    const fadeU = { 
+      prev: gl.getUniformLocation(fadeP, "u_prev"), fade: gl.getUniformLocation(fadeP, "u_fade"),
+      time: gl.getUniformLocation(fadeP, "u_time"), aspect: gl.getUniformLocation(fadeP, "u_aspect")
+    };
     const partU = { size: gl.getUniformLocation(partP, "u_size"), intensity: gl.getUniformLocation(partP, "u_intensity") };
-    const compU = { field: gl.getUniformLocation(compP, "u_field"), time: gl.getUniformLocation(compP, "u_time"), aspect: gl.getUniformLocation(compP, "u_aspect") };
+    const compU = { field: gl.getUniformLocation(compP, "u_field") };
 
     const curl = (x: number, y: number, t: number): [number, number] => {
-      const vx = Math.sin(3 * x + 0.5 * t) * (-3 * Math.sin(3 * y - 0.4 * t))
-               + 0.5 * (5 * Math.cos(5 * y + 0.3 * t)) * Math.cos(5 * x - 0.6 * t);
-      const vy = -(3 * Math.cos(3 * x + 0.5 * t) * Math.cos(3 * y - 0.4 * t)
-               + 0.5 * Math.sin(5 * y + 0.3 * t) * (-5 * Math.sin(5 * x - 0.6 * t)));
+      let vx = Math.sin(3 * x + 0.5 * t) * (-3 * Math.sin(3 * y - 0.4 * t))
+             + 0.5 * (5 * Math.cos(5 * y + 0.3 * t)) * Math.cos(5 * x - 0.6 * t);
+      let vy = -(3 * Math.cos(3 * x + 0.5 * t) * Math.cos(3 * y - 0.4 * t)
+             + 0.5 * Math.sin(5 * y + 0.3 * t) * (-5 * Math.sin(5 * x - 0.6 * t)));
+             
+      const x2 = x * 2.1, y2 = y * 2.1, t2 = t * 1.5;
+      vx += 0.5 * (Math.sin(3 * x2 + 0.5 * t2) * (-3 * Math.sin(3 * y2 - 0.4 * t2))
+             + 0.5 * (5 * Math.cos(5 * y2 + 0.3 * t2)) * Math.cos(5 * x2 - 0.6 * t2));
+      vy += 0.5 * (-(3 * Math.cos(3 * x2 + 0.5 * t2) * Math.cos(3 * y2 - 0.4 * t2)
+             + 0.5 * Math.sin(5 * y2 + 0.3 * t2) * (-5 * Math.sin(5 * x2 - 0.6 * t2))));
+             
       return [vx, vy];
     };
     const sim = (dt: number, t: number) => {
@@ -192,6 +213,7 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
       bindQuad(fadeP);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, a.tex);
       gl.uniform1i(fadeU.prev, 0); gl.uniform1f(fadeU.fade, FADE);
+      gl.uniform1f(fadeU.time, time); gl.uniform1f(fadeU.aspect, aspect);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       // 2) additive particles onto cur
       gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
@@ -208,7 +230,7 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
       gl.disable(gl.BLEND);
       bindQuad(compP);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, b.tex);
-      gl.uniform1i(compU.field, 0); gl.uniform1f(compU.time, time); gl.uniform1f(compU.aspect, aspect);
+      gl.uniform1i(compU.field, 0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       const tmp = a; a = b; b = tmp; // swap
     };
