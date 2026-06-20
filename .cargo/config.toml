@@ -1,0 +1,25 @@
+# Cargo build configuration.
+#
+# ── Faster Windows builds ─────────────────────────────────────────────────────
+# On Windows-MSVC the *linker* (link.exe) dominates rebuild time, especially for
+# the big `windows`/`webview2-com` crates and release LTO. Two levers:
+#
+#   1. Less debug info — done in the root Cargo.toml ([profile.dev] debug =
+#      "line-tables-only"); applies everywhere, no setup.
+#
+#   2. Use LLD instead of MSVC link.exe — typically 2–5× faster linking. It needs
+#      `lld-link.exe` on PATH: install LLVM (`winget install LLVM.LLVM`, or via
+#      Visual Studio's "C++ Clang tools"). Then UNCOMMENT the block below.
+#
+# Left commented so the default build never fails for someone without LLVM.
+#
+# [target.x86_64-pc-windows-msvc]
+# linker = "lld-link.exe"
+#
+# Other big wins (no file changes needed):
+#   • Iterate with `cargo tauri dev` (dev profile + Vite HMR), NOT `cargo tauri
+#     build` — the release profile uses fat LTO + codegen-units=1 (great binary,
+#     slow build). Reserve release builds for shipping.
+#   • `sccache` caches compiled crates across builds:
+#       cargo install sccache  &&  set RUSTC_WRAPPER=sccache  (or $env: in PowerShell)
+#   • Exclude the repo's `target\` from Windows Defender real-time scanning.

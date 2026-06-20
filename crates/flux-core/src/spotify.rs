@@ -381,17 +381,67 @@ pub async fn spotify_play_playlist(name: String) -> Result<String, String> {
 /// build would need to cross into WSL, which isn't wired yet.
 static AUDIOPULSE: Mutex<Option<(Box<dyn MasterPty + Send>, Box<dyn Child + Send + Sync>)>> = Mutex::new(None);
 
-fn audiopulse_bin() -> Result<String, String> {
+/// Build the command that launches AudioPulse. An explicit `FLUX_AUDIOPULSE_BIN`
+/// always wins; otherwise it's the local `~/AudioPulse/audiopulse` on Linux/WSL, or
+/// on a native Windows build it crosses into WSL via `wsl.exe` (AudioPulse lives in
+/// the distro, and the ConPTY we spawn it in gives the TUI a real terminal).
+fn audiopulse_command() -> Result<CommandBuilder, String> {
     if let Ok(p) = std::env::var("FLUX_AUDIOPULSE_BIN") {
-        return Ok(p);
+        return Ok(CommandBuilder::new(p));
     }
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).map_err(|_| "no HOME to locate AudioPulse")?;
+    #[cfg(not(windows))]
+    return native_audiopulse_command();
+    #[cfg(windows)]
+    return windows_audiopulse_command();
+}
+
+#[cfg(not(windows))]
+fn native_audiopulse_command() -> Result<CommandBuilder, String> {
+    let home = std::env::var("HOME").map_err(|_| "no HOME to locate AudioPulse")?;
     let cand = format!("{home}/AudioPulse/audiopulse");
-    if std::path::Path::new(&cand).is_file() {
-        Ok(cand)
-    } else {
-        Err(format!("AudioPulse binary not found at {cand} — set FLUX_AUDIOPULSE_BIN to it"))
+    if !std::path::Path::new(&cand).is_file() {
+        return Err(format!("AudioPulse binary not found at {cand} — set FLUX_AUDIOPULSE_BIN to it"));
     }
+    let mut c = CommandBuilder::new(&cand);
+    if let Some(dir) = std::path::Path::new(&cand).parent() {
+        c.cwd(dir);
+    }
+    Ok(c)
+}
+
+/// `wsl.exe -d <distro> -- /home/<user>/AudioPulse/audiopulse`.
+#[cfg(windows)]
+fn windows_audiopulse_command() -> Result<CommandBuilder, String> {
+    let (distro, lin) = wsl_audiopulse_bin().ok_or(
+        "AudioPulse isn't on Windows — it's in WSL. Couldn't find ~/AudioPulse/audiopulse in any distro; \
+         set FLUX_AUDIOPULSE_BIN, or make sure the binary exists (build it in WSL).",
+    )?;
+    let mut c = CommandBuilder::new("wsl.exe");
+    c.arg("-d");
+    c.arg(&distro);
+    c.arg("--");
+    c.arg(&lin);
+    Ok(c)
+}
+
+/// Scan the WSL mounts for `…/home/<user>/AudioPulse/audiopulse`; return the distro
+/// name + the Linux-side path (Windows only).
+#[cfg(windows)]
+fn wsl_audiopulse_bin() -> Option<(String, String)> {
+    for root in ["\\\\wsl.localhost", "\\\\wsl$"] {
+        let Ok(distros) = std::fs::read_dir(root) else { continue };
+        for distro in distros.flatten() {
+            let dname = distro.file_name().to_string_lossy().into_owned();
+            let Ok(users) = std::fs::read_dir(distro.path().join("home")) else { continue };
+            for user in users.flatten() {
+                let uname = user.file_name().to_string_lossy().into_owned();
+                if user.path().join("AudioPulse").join("audiopulse").is_file() {
+                    return Some((dname, format!("/home/{uname}/AudioPulse/audiopulse")));
+                }
+            }
+        }
+    }
+    None
 }
 
 #[tauri::command]
@@ -405,15 +455,11 @@ pub async fn spotify_launch() -> Result<String, String> {
                 }
             }
         }
-        let bin = audiopulse_bin()?;
+        let mut cmd = audiopulse_command()?;
+        cmd.env("TERM", "xterm-256color");
         let pair = native_pty_system()
             .openpty(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| format!("openpty: {e}"))?;
-        let mut cmd = CommandBuilder::new(&bin);
-        cmd.env("TERM", "xterm-256color");
-        if let Some(dir) = std::path::Path::new(&bin).parent() {
-            cmd.cwd(dir);
-        }
         let child = pair.slave.spawn_command(cmd).map_err(|e| format!("couldn't launch AudioPulse: {e}"))?;
         drop(pair.slave);
         // Drain the TUI's output so a full PTY buffer never stalls it.
