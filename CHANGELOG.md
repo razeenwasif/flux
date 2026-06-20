@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Web panel unread badges** (BACKLOG #48) — pinned web panels (Discord, Proton
+  Mail, LinkedIn, Gmail, WhatsApp…) now show a **phone-style red unread bubble** on
+  their rail icon. An injected title-watcher parses the unread `(N)` count from the
+  page title (the convention these apps all use) and reports it to the chrome; no
+  content is captured, so panels stay history-clean. Live for the currently-open
+  panel; the others keep their last-known count until reopened. (A new
+  `capabilities/panel.json` grants panel webviews the `fluxtab` bridge for the
+  report — which also makes keyboard-chord forwarding work inside panels.)
+  _Coming next, if wanted:_ an opt-in "keep pinned panels live" mode so every
+  badge updates without opening each panel (trades RAM for always-fresh counts).
 - **Pages bar** — an opt-in quick-access strip docked **above** the content card
   (mirroring the bookmark bar below it) with one chip per Flux native page —
   Sessions, Archive, Feeds, History, Bookmarks, Task manager, Resources, Speed

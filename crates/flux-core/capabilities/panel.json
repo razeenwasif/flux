@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "flux-panel",
+  "description": "Web panels (#48) host REMOTE page content and, like tab webviews, get ONLY the inlined `fluxtab` bridge — keyboard-chord forwarding (shortcuts.js) and the unread-count badge report (panel-badge.js). No core/window/webview APIs.",
+  "webviews": ["panel-*"],
+  "remote": { "urls": ["http://*:*", "https://*:*"] },
+  "permissions": ["fluxtab:default"]
+}

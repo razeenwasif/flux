@@ -531,6 +531,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_close,
             webview::webview_debug,
             webview::panel_open,
+            webview::panel_badge,
             webview::panel_set_bounds,
             webview::panel_show,
             webview::panel_hide,

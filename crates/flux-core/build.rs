@@ -23,6 +23,7 @@ fn main() {
                     "find_result",
                     "hibernate_capture",
                     "reader_publish",
+                    "panel_badge",
                 ])
                 .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands),
         ),

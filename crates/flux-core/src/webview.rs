@@ -26,6 +26,10 @@ const CAPTURE_JS: &str = include_str!("../assets/capture.js");
 /// to the chrome (#18), since a focused child webview eats the keyboard.
 const SHORTCUTS_JS: &str = include_str!("../assets/shortcuts.js");
 
+/// panel-badge.js: watches a web panel's title for an unread `(N)` count and
+/// reports it via `panel_badge` so the chrome can bubble it on the rail (#48).
+const PANEL_BADGE_JS: &str = include_str!("../assets/panel-badge.js");
+
 /// hibernate.js: `__fluxCapture()` / `__fluxRestore()` for preserving a tab's
 /// scroll + form state across hibernation (#45).
 const HIBERNATE_JS: &str = include_str!("../assets/hibernate.js");
@@ -474,7 +478,7 @@ pub async fn panel_open(
     let target = parse_url(&url)?;
     let dark = app.try_state::<crate::darkmode::DarkState>().map(|s| s.is_on()).unwrap_or(false);
     let dark_flag = if dark { "window.__FLUX_DARK__ = true;\n" } else { "" };
-    let init = format!("{dark_flag}{SHORTCUTS_JS}\n{DARKMODE_JS}");
+    let init = format!("{dark_flag}{SHORTCUTS_JS}\n{DARKMODE_JS}\n{PANEL_BADGE_JS}");
     let app_for_load = app.clone();
     let builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target))
         .initialization_script(&init)
@@ -496,6 +500,17 @@ pub async fn panel_open(
     crate::permissions::install(&app, &child);
     install_tab_accelerators(&app, &child);
     Ok(())
+}
+
+/// A web panel reporting its unread count (#48), parsed from the page title by
+/// the injected `panel-badge.js`. The panel id comes from the *calling webview's*
+/// label (`panel-<id>`), so a page can only badge its own panel. Emits
+/// `flux://panel-badge` for the chrome to paint a bubble on the rail icon.
+#[tauri::command]
+pub fn panel_badge(app: AppHandle, webview: tauri::Webview, count: i64) {
+    if let Some(id) = webview.label().strip_prefix("panel-").and_then(|s| s.parse::<u32>().ok()) {
+        let _ = app.emit("flux://panel-badge", (id, count.max(0)));
+    }
 }
 
 #[tauri::command]
