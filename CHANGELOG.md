@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Visual Lens (local vision model)** — ask the agent **"what is this?"** /
+  **"identify this"** / **"/lens"**, or ⌘K → **"Identify page (Lens)"**: Flux
+  captures the active page (WebView2 `CapturePreview`) and asks a **local
+  multimodal model** (`gemma3:4b` by default, `FLUX_VISION_MODEL` to override) over
+  Ollama's `/api/generate` `images` field to identify the main subject — product,
+  book, plant, animal, landmark, text, etc. Fully on-device, no cloud
+  (`lens.rs` + `agent_lens`). Needs a vision model pulled (`ollama pull gemma3:4b`).
 - **Ask Gemma to control music (AudioPulse / Spotify)** — the agent panel now
   understands music commands: **"play <song>"**, **"skip"/"next"**, **"pause"**,
   **"resume"**, **"previous"**, **"what's playing"** (optionally addressed —

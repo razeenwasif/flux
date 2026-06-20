@@ -717,6 +717,9 @@ export const hibernateRank = (currentUrl: string, candidates: HibernateCandidate
 
 // ─── Web capture (BACKLOG #54) ───────────────────────────────────────────────
 export const webviewCapture = (tabId: number) => invoke<string>("webview_capture", { tabId });
+/** Visual Lens (#115): identify the captured PNG with the local vision model. */
+export const agentLens = (imagePath: string, prompt?: string) =>
+  invoke<string>("agent_lens", { imagePath, prompt: prompt ?? null });
 export const onScreenshot = (cb: (path: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://screenshot", (e) => cb(e.payload));
 export const onReader = (cb: (tabId: number, title: string, blocks: ReaderBlock[]) => void): Promise<UnlistenFn> =>

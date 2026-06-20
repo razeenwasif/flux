@@ -19,12 +19,15 @@ import {
   agentPlan,
   agentRunAction,
   agentTaskStep,
+  agentLens,
+  webviewCapture,
+  onScreenshot,
   isStartUrl,
   onAgentStatus,
   type AgentAction,
   type AgentStatus,
 } from "./ipc";
-import { activeWorkspace, agentModelName, pendingAsk, setAgentModel, setPendingAsk, tabs } from "./store";
+import { activeId, activeWorkspace, agentModelName, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
 
 type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task"; text: string; action?: AgentAction; pending?: boolean };
 
@@ -97,6 +100,45 @@ const AgentPanel: Component = () => {
     }
   });
 
+  // Visual Lens (#115): capture the active page (#54 emits the path when written),
+  // then identify it with the local vision model.
+  const capturePage = (tabId: number) =>
+    new Promise<string>((resolve, reject) => {
+      let unlisten: (() => void) | null = null;
+      let settled = false;
+      const done = () => { settled = true; unlisten?.(); clearTimeout(timer); };
+      const timer = setTimeout(() => { if (!settled) { done(); reject(new Error("page capture timed out")); } }, 9000);
+      void onScreenshot((path) => { if (!settled) { done(); resolve(path); } }).then((u) => { unlisten = u; if (settled) u(); });
+      void webviewCapture(tabId).catch((e) => { if (!settled) { done(); reject(e); } });
+    });
+  const runLens = async (userPrompt?: string) => {
+    if (working() || taskRunning()) return;
+    const t = tabs().find((x) => x.id === activeId());
+    if (!t || t.kind !== "browser" || isStartUrl(t.url)) {
+      setFeed((f) => [...f, { role: "error", text: "Open a web page first, then use Lens." }]);
+      return;
+    }
+    setFeed((f) => [...f, { role: "task", text: "🔍 Looking…" }]);
+    setBusy(true);
+    try {
+      const path = await capturePage(t.id);
+      const answer = await agentLens(path, userPrompt);
+      setFeed((f) => [...f, { role: "assistant", text: answer.trim() }]);
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  // ⌘K / a button can request a Lens via the store signal.
+  createEffect(() => {
+    if (pendingLens()) {
+      setPendingLens(false);
+      setFeed((f) => [...f, { role: "user", text: "🔍 Identify this page" }]);
+      void runLens();
+    }
+  });
+
   // Music intents (AudioPulse via Spotify) — "play …" / "skip" / "pause" etc.,
   // optionally addressed to Gemma ("hey gemma, play …" / "can you skip"). Returns
   // true if it handled the message (and posts the result/error to the feed).
@@ -133,6 +175,10 @@ const AgentPanel: Component = () => {
     setFeed((f) => [...f, { role: "user", text: p }]);
     setBusy(true);
     try {
+      // Visual Lens — "/lens", "what is this", "identify this/it", "what am I looking at".
+      const lens = p.match(/^\/lens(?:\s+([\s\S]+))?$/i) ||
+        p.match(/^(?:what(?:'?s| is) this|identify (?:this|it)|what am i looking at)\b[\s\S]*/i);
+      if (lens) { await runLens(lens[1]?.trim() || (/^\/lens/i.test(p) ? "" : p)); return; }
       // Music command (AudioPulse) before chat — "play …" / "skip" / "pause" / …
       if (await runMusic(p)) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,

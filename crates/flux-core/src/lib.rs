@@ -22,6 +22,7 @@ pub mod files;
 pub mod hibernate;
 pub mod history;
 pub mod leanmode;
+pub mod lens;
 pub mod macros;
 pub mod mem;
 pub mod netspeed;
@@ -587,6 +588,7 @@ pub fn run(intent: cli::LaunchIntent) {
             sync::sync_lock,
             sync::sync_now,
             sync::sync_set_auto,
+            lens::agent_lens,
             spotify::spotify_set_dir,
             spotify::spotify_play,
             spotify::spotify_pause,

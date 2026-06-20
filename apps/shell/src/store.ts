@@ -469,6 +469,10 @@ export function setAiAnswersOn(on: boolean): void {
 // A search query handed to the agent panel to answer (consumed once).
 const [pendingAsk, setPendingAsk] = createSignal<string | null>(null);
 export { pendingAsk, setPendingAsk };
+// Visual Lens trigger (#115): ⌘K / button sets this; the agent panel picks it up,
+// captures the active page, and identifies it with the local vision model.
+const [pendingLens, setPendingLens] = createSignal(false);
+export { pendingLens, setPendingLens };
 
 // Bookmark bar (#22): a chip row docked under the content card. Persisted,
 // default on. Toggling resizes the card → the webview relayout follows.

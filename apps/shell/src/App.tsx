@@ -253,6 +253,7 @@ import {
   setHibernateMins,
   setMemEvict,
   setPendingAsk,
+  setPendingLens,
   setSearchSuggestOn,
   omniAutoAnswer,
   setOmniAutoAnswer,
@@ -1129,6 +1130,7 @@ const App: Component = () => {
     { id: "reload", label: "Reload page", icon: "⟳", run: () => navActive(webviewReload) },
     { id: "tog-term", label: "Toggle terminal", icon: "⌨", run: () => setTerminalOpen((v) => !v) },
     { id: "tog-agent", label: "Toggle agent", icon: "✦", run: () => setAgentOpen((v) => !v) },
+    { id: "lens", label: "Identify page (Lens)", icon: "🔍", run: () => { setAgentOpen(true); setPendingLens(true); } },
     { id: "tog-side", label: "Toggle sidebar", icon: "◧", run: () => setSidebarOpen((v) => !v) },
     { id: "close", label: "Close current tab", icon: "✕", run: () => { const id = activeId(); if (id != null) void closeTab(id); } },
   ];
