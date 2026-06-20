@@ -53,6 +53,7 @@ function pickVoice(): SpeechSynthesisVoice | null {
 }
 
 let current: HTMLAudioElement | null = null;
+let currentUrl: string | null = null;
 
 /** Strip emoji / markdown so the voice reads clean prose, not "asterisk asterisk". */
 export function cleanForSpeech(text: string): string {
@@ -68,6 +69,7 @@ export function cleanForSpeech(text: string): string {
 export function stopSpeaking(): void {
   try { window.speechSynthesis?.cancel(); } catch { /* no synth */ }
   if (current) { try { current.pause(); } catch { /* ignore */ } current.src = ""; current = null; }
+  if (currentUrl) { URL.revokeObjectURL(currentUrl); currentUrl = null; }
 }
 
 function speakSystem(text: string): Promise<void> {
@@ -91,14 +93,28 @@ function audioError(a: HTMLAudioElement, fallback: string): Error {
   return new Error(`audio playback failed (${detail})`);
 }
 
+function audioUrlFromB64(b64: string, mime: string): string {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+}
+
 function playAudioB64(b64: string, mime: string, rejectOnError = false): Promise<void> {
   return new Promise((resolve, reject) => {
-    const a = new Audio(`data:${mime};base64,${b64}`);
+    if (currentUrl) { URL.revokeObjectURL(currentUrl); currentUrl = null; }
+    const url = audioUrlFromB64(b64, mime);
+    currentUrl = url;
+    const a = new Audio(url);
     a.preload = "auto";
     current = a;
-    const done = () => { if (current === a) current = null; resolve(); };
-    const fail = (err: unknown) => {
+    const cleanup = () => {
       if (current === a) current = null;
+      if (currentUrl === url) { URL.revokeObjectURL(url); currentUrl = null; }
+    };
+    const done = () => { cleanup(); resolve(); };
+    const fail = (err: unknown) => {
+      cleanup();
       if (rejectOnError) {
         reject(err instanceof Error ? err : audioError(a, String(err || "unknown")));
       } else {

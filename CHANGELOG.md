@@ -50,6 +50,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **ElevenLabs preview audio in WebView** — generated MP3/WAV playback now uses
+  Blob object URLs instead of `data:` URLs, avoiding WebView's URL safety check
+  rejection for ElevenLabs preview audio.
 - **ElevenLabs test playback reporting** — the Settings **Test** button now
   reports browser audio playback failures instead of saying "Voice tested" when
   ElevenLabs returned billable audio but the webview could not play it.
