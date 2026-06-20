@@ -54,3 +54,6 @@ flux-shell-default.png
 # Research corpus: keep the synthesis (RESEARCH.md) + metadata in the repo,
 # but not the ~79 MB of downloaded PDFs (re-fetchable from arXiv via curated.json).
 /research/papers/
+
+# cr-sqlite native extension (download per-platform, not committed)
+third_party/crsqlite/

@@ -12,6 +12,8 @@ pub mod cache;
 pub mod cli;
 pub mod commands;
 pub mod cookies;
+#[cfg(feature = "crsync")]
+pub mod crsync;
 pub mod darkmode;
 pub mod downloads;
 pub mod embedding;
