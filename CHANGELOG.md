@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Particle-liquid home backdrop** (BACKLOG #77) — the start page's flowing wave
+  can now be a **WebGL particle-liquid**: flowing metaballs with fake-3D shading
+  and a fine grain, in Flux's velvet→violet→teal→magenta palette, pooled toward
+  the bottom. Built deliberately lean for the low-RAM wedge — a **single fragment
+  shader** (one draw call, no Three.js) that **only animates while the start page
+  is the active, focused, visible tab** (switching away tears the GL context down
+  to zero), pauses on blur / resize, caps render resolution + framerate, honours
+  `prefers-reduced-motion`, and **auto-falls back to the lightweight wave** if
+  WebGL2 isn't available or the shader fails. Toggle in Settings → Appearance
+  ("Liquid home background", default on).
 - **Agent panel ambient glow** — a Gemini-style soft multi-colour gradient now
   pools and gently drifts at the bottom of the Flux Agent panel, and while the
   agent is working a bright arc **orbits the panel's edge** as a "thinking"

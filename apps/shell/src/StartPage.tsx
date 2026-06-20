@@ -30,7 +30,8 @@ import {
   type FeedItem,
   type Todo,
 } from "./ipc";
-import { activeId, focusTab, tabs } from "./store";
+import { activeId, focusTab, liquidBg, tabs } from "./store";
+import LiquidBackground from "./LiquidBackground";
 
 /** Hostname without `www.`, best-effort. */
 function hostOf(url: string): string {
@@ -86,6 +87,8 @@ const StartPage: Component<{
   onToggleAgent: () => void;
 }> = (props) => {
   const [query, setQuery] = createSignal("");
+  // Liquid backdrop (#77): falls back to the SVG wave if WebGL2/shader fails.
+  const [liquidOk, setLiquidOk] = createSignal(true);
   const [engineName, setEngineName] = createSignal("");
   const [now, setNow] = createSignal(new Date());
   const [weather, setWeather] = createSignal<{ temp: number; code: number; city: string } | null>(null);
@@ -709,19 +712,26 @@ const StartPage: Component<{
         </div>
       </Show>
 
-      {/* Subtle flowing wave — the "flux" feel. Paths span wider than the
-          viewBox so the SMIL translate loops seamlessly. (Richer motion is
-          BACKLOG #77.) */}
-      <svg class="start-wave" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
-        <g>
-          <path class="start-wave-1" d="M0 120 Q 240 60 480 120 T 960 120 T 1440 120 T 1920 120 V220 H0 Z" />
-          <animateTransform attributeName="transform" type="translate" from="0 0" to="-480 0" dur="14s" repeatCount="indefinite" />
-        </g>
-        <g>
-          <path class="start-wave-2" d="M0 150 Q 240 110 480 150 T 960 150 T 1440 150 T 1920 150 V220 H0 Z" />
-          <animateTransform attributeName="transform" type="translate" from="0 0" to="-480 0" dur="9s" repeatCount="indefinite" />
-        </g>
-      </svg>
+      {/* Backdrop (#77): the WebGL particle-liquid, or — when it's toggled off,
+          unsupported, or the shader fails — the cheap SMIL flowing wave. The
+          liquid only animates while this (the active) tab is visible + focused. */}
+      <Show
+        when={liquidBg() && liquidOk()}
+        fallback={
+          <svg class="start-wave" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
+            <g>
+              <path class="start-wave-1" d="M0 120 Q 240 60 480 120 T 960 120 T 1440 120 T 1920 120 V220 H0 Z" />
+              <animateTransform attributeName="transform" type="translate" from="0 0" to="-480 0" dur="14s" repeatCount="indefinite" />
+            </g>
+            <g>
+              <path class="start-wave-2" d="M0 150 Q 240 110 480 150 T 960 150 T 1440 150 T 1920 150 V220 H0 Z" />
+              <animateTransform attributeName="transform" type="translate" from="0 0" to="-480 0" dur="9s" repeatCount="indefinite" />
+            </g>
+          </svg>
+        }
+      >
+        <LiquidBackground active={() => true} onFallback={() => setLiquidOk(false)} />
+      </Show>
     </div>
   );
 };

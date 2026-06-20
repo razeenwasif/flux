@@ -42,6 +42,7 @@ import {
   darkMode,
   hibernateEnabled,
   hibernateMins,
+  liquidBg,
   memEvict,
   mouseGestures,
   omniAutoAnswer,
@@ -52,6 +53,7 @@ import {
   setDarkMode,
   setHibernateEnabled,
   setHibernateMins,
+  setLiquidBg,
   setMemEvict,
   setMouseGestures,
   setOmniAutoAnswer,
@@ -158,6 +160,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Row label="Pages bar" hint="A strip above the page with quick links to Flux's native pages (open in a new tab).">
             <Toggle on={pagesBarOpen()} onClick={() => setPagesBarOpen(!pagesBarOpen())} />
+          </Row>
+          <Row label="Liquid home background" hint="A GPU particle-liquid backdrop on the start page (only animates while the start tab is visible). Off = the lightweight wave.">
+            <Toggle on={liquidBg()} onClick={() => setLiquidBg(!liquidBg())} />
           </Row>
         </Section>
 
