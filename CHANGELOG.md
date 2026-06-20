@@ -89,6 +89,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   `\\wsl$\<distro>\home\<user>\.config\audiopulse`, or honours a
   `FLUX_AUDIOPULSE_DIR` override. (`spotify.rs` +
   `spotify_play`/`_pause`/`_resume`/`_next`/`_prev`/`_now_playing`.)
+- **More music control + compound commands** — Gemma now also understands
+  **"shuffle on/off"**, **"repeat one/all/off"** (and "loop this"), **"volume 40"**,
+  **"play my liked songs"**, **"play my <name> playlist"**, and **"launch
+  AudioPulse"** — the last runs the TUI inside a headless PTY so its Spotify
+  Connect device comes online (Linux/WSL build; the handle is kept alive so the
+  TUI isn't SIGHUP'd). Commands now **chain**: *"launch audiopulse and play my
+  liked songs, make sure shuffle is on"* runs each step in order (only when every
+  clause is a known music intent, so a normal "play X and Y" search still works).
+  (`spotify_shuffle`/`_repeat`/`_volume`/`_play_liked`/`_play_playlist`/`_launch`.)
 - **Google Maps popout** — a 🗺 button next to the file-explorer button opens a
   large floating Maps pane (mirrors the files popout: a centered DOM panel that
   hides the active tab's webview while open, click-outside / Esc to close). Embeds

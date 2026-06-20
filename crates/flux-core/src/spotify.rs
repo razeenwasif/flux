@@ -13,9 +13,10 @@
 //! rewrite AudioPulse's token file.
 
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 use std::time::Duration;
 
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -282,6 +283,151 @@ pub async fn spotify_prev() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
         api("POST", "/me/player/previous", &[], None)?;
         Ok("⏮ Previous".into())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Turn shuffle on/off.
+#[tauri::command]
+pub async fn spotify_shuffle(on: bool) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        api("PUT", "/me/player/shuffle", &[("state", if on { "true" } else { "false" })], None)?;
+        Ok(if on { "🔀 Shuffle on".into() } else { "➡ Shuffle off".into() })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Set the repeat mode: `track` (one), `context` (all), or `off`.
+#[tauri::command]
+pub async fn spotify_repeat(mode: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = match mode.trim().to_ascii_lowercase().as_str() {
+            "track" | "one" | "song" | "this" => "track",
+            "context" | "all" | "on" | "playlist" | "album" => "context",
+            "off" | "none" | "no" => "off",
+            other => return Err(format!("repeat mode “{other}” — use one, all, or off")),
+        };
+        api("PUT", "/me/player/repeat", &[("state", m)], None)?;
+        Ok(format!("🔁 Repeat {m}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Set the active device's volume (0–100%).
+#[tauri::command]
+pub async fn spotify_volume(percent: i64) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = percent.clamp(0, 100).to_string();
+        api("PUT", "/me/player/volume", &[("volume_percent", &p)], None)?;
+        Ok(format!("🔊 Volume {p}%"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Play the user's Liked Songs (the first ~50, since the library has no URI).
+#[tauri::command]
+pub async fn spotify_play_liked() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let v = api("GET", "/me/tracks", &[("limit", "50")], None)?.ok_or("empty liked-songs response")?;
+        let uris: Vec<Value> = v
+            .get("items")
+            .and_then(|i| i.as_array())
+            .map(|a| a.iter().filter_map(|it| it.get("track").and_then(|t| t.get("uri")).cloned()).collect())
+            .unwrap_or_default();
+        if uris.is_empty() {
+            return Err("no liked songs found (is anything in your Liked Songs?)".into());
+        }
+        let n = uris.len();
+        api("PUT", "/me/player/play", &[], Some(json!({ "uris": uris })))?;
+        Ok(format!("▶ Playing your Liked Songs ({n})"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Play one of the user's playlists by (fuzzy) name.
+#[tauri::command]
+pub async fn spotify_play_playlist(name: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let q = name.trim();
+        if q.is_empty() {
+            return Err("which playlist?".into());
+        }
+        let v = api("GET", "/me/playlists", &[("limit", "50")], None)?.ok_or("empty playlists response")?;
+        let items = v.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+        let want = q.to_ascii_lowercase();
+        let name_of = |p: &Value| p.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let pick = items
+            .iter()
+            .find(|p| name_of(p).eq_ignore_ascii_case(q))
+            .or_else(|| items.iter().find(|p| name_of(p).to_ascii_lowercase().contains(&want)))
+            .ok_or_else(|| format!("no playlist matching “{q}”"))?;
+        let uri = pick.get("uri").and_then(|x| x.as_str()).ok_or("playlist has no uri")?;
+        let pname = name_of(pick);
+        api("PUT", "/me/player/play", &[], Some(json!({ "context_uri": uri })))?;
+        Ok(format!("▶ Playing playlist “{pname}”"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Launch AudioPulse so its Spotify Connect device comes online. The TUI needs a
+/// real terminal, so we run it inside a headless PTY and keep the handle alive
+/// (dropping it would SIGHUP the TUI). Linux/WSL build only — the native Windows
+/// build would need to cross into WSL, which isn't wired yet.
+static AUDIOPULSE: Mutex<Option<(Box<dyn MasterPty + Send>, Box<dyn Child + Send + Sync>)>> = Mutex::new(None);
+
+fn audiopulse_bin() -> Result<String, String> {
+    if let Ok(p) = std::env::var("FLUX_AUDIOPULSE_BIN") {
+        return Ok(p);
+    }
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).map_err(|_| "no HOME to locate AudioPulse")?;
+    let cand = format!("{home}/AudioPulse/audiopulse");
+    if std::path::Path::new(&cand).is_file() {
+        Ok(cand)
+    } else {
+        Err(format!("AudioPulse binary not found at {cand} — set FLUX_AUDIOPULSE_BIN to it"))
+    }
+}
+
+#[tauri::command]
+pub async fn spotify_launch() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        // Already running? (the child is alive if try_wait → Ok(None))
+        if let Ok(mut g) = AUDIOPULSE.lock() {
+            if let Some((_, child)) = g.as_mut() {
+                if matches!(child.try_wait(), Ok(None)) {
+                    return Ok("AudioPulse is already running.".to_string());
+                }
+            }
+        }
+        let bin = audiopulse_bin()?;
+        let pair = native_pty_system()
+            .openpty(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })
+            .map_err(|e| format!("openpty: {e}"))?;
+        let mut cmd = CommandBuilder::new(&bin);
+        cmd.env("TERM", "xterm-256color");
+        if let Some(dir) = std::path::Path::new(&bin).parent() {
+            cmd.cwd(dir);
+        }
+        let child = pair.slave.spawn_command(cmd).map_err(|e| format!("couldn't launch AudioPulse: {e}"))?;
+        drop(pair.slave);
+        // Drain the TUI's output so a full PTY buffer never stalls it.
+        if let Ok(mut reader) = pair.master.try_clone_reader() {
+            std::thread::spawn(move || {
+                use std::io::Read;
+                let mut buf = [0u8; 4096];
+                while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
+            });
+        }
+        if let Ok(mut g) = AUDIOPULSE.lock() {
+            *g = Some((pair.master, child));
+        }
+        Ok("▶ Launched AudioPulse — give it a second to come online.".to_string())
     })
     .await
     .map_err(|e| e.to_string())?
