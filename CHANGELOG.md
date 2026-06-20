@@ -50,6 +50,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **ElevenLabs typed-key verification** — Settings now verifies the exact key in
+  the input before writing it to the OS keyring, strips hidden clipboard
+  characters, then verifies the stored key separately so 401s reveal whether the
+  typed value or the keyring value is being rejected.
 - **ElevenLabs keyring refresh** — saving a new ElevenLabs key now deletes the
   previous OS keyring entry first, verifies the saved value round-trips, and
   reports a masked length/prefix/suffix label so a 401 can be compared against

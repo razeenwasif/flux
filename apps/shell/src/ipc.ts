@@ -277,6 +277,7 @@ export const voiceSpeak = (text: string) => invoke<string>("voice_speak", { text
 export const elevenlabsSetKey = (key: string) => invoke<void>("elevenlabs_set_key", { key });
 export const elevenlabsHasKey = () => invoke<boolean>("elevenlabs_has_key");
 export const elevenlabsVerifyKey = () => invoke<string>("elevenlabs_verify_key");
+export const elevenlabsVerifyKeyValue = (key: string) => invoke<string>("elevenlabs_verify_key_value", { key });
 export const elevenlabsVoices = () => invoke<{ id: string; name: string }[]>("elevenlabs_voices");
 export const elevenlabsImportVoice = (voiceId: string, publicOwnerId = "", name = "") =>
   invoke<{ id: string; name: string }>("elevenlabs_import_voice", { voiceId, publicOwnerId, name });

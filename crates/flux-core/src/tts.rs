@@ -123,7 +123,7 @@ fn el_err(action: &str, e: ureq::Error) -> String {
 }
 
 fn normalize_el_key(key: &str) -> String {
-    let mut k = key.trim().trim_matches(['"', '\'', '`']).trim().to_string();
+    let mut k = strip_key_hidden_chars(key.trim().trim_matches(['"', '\'', '`']).trim());
     if let Some(extracted) = extract_el_key_candidate(&k) {
         k = extracted;
     }
@@ -153,7 +153,37 @@ fn normalize_el_key(key: &str) -> String {
         }
         break;
     }
-    k.trim().trim_matches(['"', '\'', '`']).trim().to_string()
+    strip_key_invisibles(k.trim().trim_matches(['"', '\'', '`']).trim())
+}
+
+fn strip_key_invisibles(key: &str) -> String {
+    key.chars()
+        .filter(|c| {
+            !c.is_whitespace()
+                && !c.is_control()
+                && !matches!(*c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}')
+        })
+        .collect()
+}
+
+fn strip_key_hidden_chars(key: &str) -> String {
+    key.chars()
+        .filter(|c| !c.is_control() && !matches!(*c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}'))
+        .collect()
+}
+
+fn el_verify_key(key: &str, action: &str) -> Result<String, String> {
+    let key = normalize_el_key(key);
+    if key.is_empty() {
+        return Err("no ElevenLabs API key set — add it in Settings → Integrations".into());
+    }
+    let key_label = el_key_label(&key);
+    el_http()
+        .get(&format!("{EL_API}/voices"))
+        .set("xi-api-key", &key)
+        .call()
+        .map_err(|e| format!("{} ({key_label})", el_err(action, e)))?;
+    Ok(key_label)
 }
 
 fn prefixed_value<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
@@ -253,13 +283,20 @@ pub fn elevenlabs_has_key() -> bool {
 pub async fn elevenlabs_verify_key() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let key = el_key()?;
-        let key_label = el_key_label(&key);
-        el_http()
-            .get(&format!("{EL_API}/voices"))
-            .set("xi-api-key", &key)
-            .call()
-            .map_err(|e| format!("{} ({key_label})", el_err("verify key", e)))?;
+        let key_label = el_verify_key(&key, "verify stored key")?;
         Ok(format!("Key verified ({key_label})"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Verify the key currently in the Settings input before it touches the OS
+/// keyring. This distinguishes a rejected key from a stale keyring read/write.
+#[tauri::command]
+pub async fn elevenlabs_verify_key_value(key: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let key_label = el_verify_key(&key, "verify typed key")?;
+        Ok(format!("Typed key verified ({key_label})"))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -443,5 +480,10 @@ mod tests {
     fn extracts_key_from_snippets() {
         assert_eq!(normalize_el_key(&format!(r#"{{"xi-api-key":"{KEY}"}}"#)), KEY);
         assert_eq!(normalize_el_key(&format!(r#"curl -H "xi-api-key: {KEY}" https://api.elevenlabs.io/v1/voices"#)), KEY);
+    }
+
+    #[test]
+    fn strips_invisible_key_characters() {
+        assert_eq!(normalize_el_key(&format!("sk_\u{200B}1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJK")), KEY);
     }
 }
