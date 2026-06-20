@@ -458,8 +458,13 @@ body.resizing, body.busy { --glass-blur: none; }
   display: flex; flex-direction: column; gap: 1px; padding: 4px;
   max-height: 320px; overflow-y: auto;
   border-radius: 12px;
-  background: var(--flux-surface); border: 1px solid var(--glass-rim-soft);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  /* Frosted, near-opaque so the text is readable over pinned tabs behind it
+     (the old var(--flux-surface) was 8% alpha → see-through). */
+  background: rgba(11, 10, 29, 0.93);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-rim-soft);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
 }
 .omni-sug { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 8px; text-align: left; width: 100%; }
 .omni-sug.sel, .omni-sug:hover { background: var(--flux-surface-2); }
