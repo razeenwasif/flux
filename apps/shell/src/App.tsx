@@ -56,6 +56,7 @@ import {
   onShortcut,
   onOpenUrl,
   onTabLoaded,
+  onPanelBadge,
   historySearch,
   searchDefault,
   searchEngines,
@@ -183,6 +184,8 @@ import {
   unpinPanel,
   togglePanel,
   closePanel,
+  panelBadges,
+  setPanelBadge,
   darkMode,
   deleteGroup,
   ensureFavicon,
@@ -572,6 +575,8 @@ const App: Component = () => {
         }
       }
     });
+    // Web panel unread badges (#48): a panel reports its title's (N) count.
+    const unBadge = await onPanelBadge((id, count) => setPanelBadge(id, count));
     onCleanup(() => {
       unClusters();
       unExtOpen();
@@ -579,6 +584,7 @@ const App: Component = () => {
       unOpenUrl();
       unFind();
       unLoaded();
+      unBadge();
     });
 
     // Track the content-card rect: ResizeObserver catches every layout change
@@ -1786,6 +1792,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 onClick={() => togglePanel(p.id)}
               >
                 <PanelIcon url={p.url} />
+                <Show when={(panelBadges[p.id] ?? 0) > 0}>
+                  <span class="app-rail-badge">{panelBadges[p.id]! > 99 ? "99+" : panelBadges[p.id]}</span>
+                </Show>
               </button>
             )}
           </For>

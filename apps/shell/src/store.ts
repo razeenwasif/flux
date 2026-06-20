@@ -478,6 +478,15 @@ export function setBookmarkBarOpen(on: boolean): void {
   localStorage.setItem("flux.bookmarkbar", on ? "1" : "0");
 }
 
+// Web panel unread badges (#48): panel id → last-reported unread count from its
+// title. A fine-grained store so updating one panel's badge only re-renders that
+// rail icon. Set by a `flux://panel-badge` listener.
+const [panelBadges, setPanelBadgeRaw] = createStore<Record<number, number>>({});
+export { panelBadges };
+export function setPanelBadge(id: number, count: number): void {
+  setPanelBadgeRaw(id, count);
+}
+
 // Pages bar: a quick-access strip of Flux native pages above the content card.
 // Persisted, default OFF (opt-in). Like the bookmark bar, toggling resizes the
 // card so the native webview relayout follows.

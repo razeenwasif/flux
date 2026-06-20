@@ -244,6 +244,9 @@ export const panelShow = (panelId: number) => invoke<void>("panel_show", { panel
 export const panelHide = (panelId: number) => invoke<void>("panel_hide", { panelId });
 export const panelNavigate = (panelId: number, url: string) => invoke<void>("panel_navigate", { panelId, url });
 export const panelClose = (panelId: number) => invoke<void>("panel_close", { panelId });
+/** Fires when a web panel reports its unread count (#48), parsed from its title. */
+export const onPanelBadge = (cb: (panelId: number, count: number) => void): Promise<UnlistenFn> =>
+  listen<[number, number]>("flux://panel-badge", (e) => cb(e.payload[0], e.payload[1]));
 /** Sync a tab's live url/title to the backend so the persisted session is current. */
 export const tabSetUrl = (id: number, url: string, title?: string) =>
   invoke<void>("tab_set_url", { id, url, title: title ?? null });
