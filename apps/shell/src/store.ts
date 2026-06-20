@@ -8,6 +8,7 @@ import { createStore } from "solid-js/store";
 import {
   darkmodeSet,
   navSet,
+  spotifySetDir,
   agentSetModel,
   agentModel,
   faviconFetch,
@@ -516,6 +517,22 @@ export { filesPanelOpen, setFilesPanelOpen, filesPanelPath };
 export function setFilesPanelPath(p: string): void {
   setFilesPanelPathRaw(p);
   localStorage.setItem("flux.filespanel.path", p);
+}
+
+// AudioPulse config-dir override (#115): on a Windows Flux build, AudioPulse's
+// token lives in WSL — let the user paste the path (e.g. a \\wsl.localhost\… one)
+// instead of an env var. Persisted; pushed to the backend on change + on boot.
+const [audiopulseDir, setAudiopulseDirRaw] = createSignal(localStorage.getItem("flux.audiopulse.dir") ?? "");
+export { audiopulseDir };
+export function setAudiopulseDir(p: string): void {
+  setAudiopulseDirRaw(p);
+  localStorage.setItem("flux.audiopulse.dir", p);
+  void spotifySetDir(p).catch(() => {});
+}
+/** Push the persisted AudioPulse dir to the backend (call once on boot). */
+export function applyAudiopulseDir(): void {
+  const d = audiopulseDir();
+  if (d) void spotifySetDir(d).catch(() => {});
 }
 
 // Google Maps popout pane: a floating DOM panel (like the files popout, bigger)

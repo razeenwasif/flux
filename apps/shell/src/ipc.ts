@@ -270,6 +270,8 @@ export const agentTaskStep = (goal: string, history: string[]) =>
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
 
 // ─── AudioPulse / Spotify control (Path A: reuse AudioPulse's token) ──────────
+/** Override AudioPulse's config-dir (e.g. a \\wsl.localhost\<distro>\… path). */
+export const spotifySetDir = (path: string) => invoke<void>("spotify_set_dir", { path });
 /** Search + play the top match. Returns a human "▶ Playing …" line (or an error). */
 export const spotifyPlay = (query: string) => invoke<string>("spotify_play", { query });
 export const spotifyPause = () => invoke<string>("spotify_pause");

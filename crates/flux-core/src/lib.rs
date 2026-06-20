@@ -587,6 +587,7 @@ pub fn run(intent: cli::LaunchIntent) {
             sync::sync_lock,
             sync::sync_now,
             sync::sync_set_auto,
+            spotify::spotify_set_dir,
             spotify::spotify_play,
             spotify::spotify_pause,
             spotify::spotify_resume,
