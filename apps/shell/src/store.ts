@@ -518,6 +518,17 @@ export function setFilesPanelPath(p: string): void {
   localStorage.setItem("flux.filespanel.path", p);
 }
 
+// Google Maps popout pane: a floating DOM panel (like the files popout, bigger)
+// holding a Google Maps embed iframe. `mapQuery` persists the last search so it
+// reopens where you left off.
+const [mapPanelOpen, setMapPanelOpen] = createSignal(false);
+const [mapQuery, setMapQueryRaw] = createSignal(localStorage.getItem("flux.map.query") ?? "");
+export { mapPanelOpen, setMapPanelOpen, mapQuery };
+export function setMapQuery(q: string): void {
+  setMapQueryRaw(q);
+  localStorage.setItem("flux.map.query", q);
+}
+
 // Native dark mode (#40) — WebView2 preferred-color-scheme. Persisted; applied
 // on boot + on toggle.
 const [darkMode, setDarkRaw] = createSignal(localStorage.getItem("flux.dark") === "1");

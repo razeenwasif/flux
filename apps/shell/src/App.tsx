@@ -159,6 +159,10 @@ import {
   setFilesPanelOpen,
   filesPanelPath,
   setFilesPanelPath,
+  mapPanelOpen,
+  setMapPanelOpen,
+  mapQuery,
+  setMapQuery,
   vimHints,
   mouseGestures,
   setVimHints,
@@ -356,7 +360,7 @@ const App: Component = () => {
     if (boundsRaf) return;
     boundsRaf = requestAnimationFrame(() => {
       boundsRaf = 0;
-      if (splitDragging() || panelDragging() || readerOpen() || filesPanelOpen() || paletteOpen()) return;
+      if (splitDragging() || panelDragging() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen()) return;
       for (const p of paneLayout()) wv(webviewSetBounds(p.tab.id, p.rect));
     });
   };
@@ -404,7 +408,7 @@ const App: Component = () => {
       // Handled outside the chord table so it isn't forwarded from focused pages
       // (they use Esc themselves).
       if (e.key === "Escape" && !inTerminal()) {
-        if (filesPanelOpen()) {
+        if (filesPanelOpen() || mapPanelOpen()) {
           closeFilesPanel();
           return;
         }
@@ -613,7 +617,7 @@ const App: Component = () => {
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = splitDragging() || panelDragging();
-    const overlay = readerOpen() || filesPanelOpen() || paletteOpen();
+    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen();
     const panes = overlay ? [] : paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
@@ -650,7 +654,7 @@ const App: Component = () => {
             await webviewSetBounds(id, r);
             openingWebviews.delete(id);
             openedWebviews.add(id);
-            if (readerOpen() || filesPanelOpen() || paletteOpen() || splitDragging() || panelDragging()) {
+            if (readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || splitDragging() || panelDragging()) {
               shown.delete(id);
               await webviewHide(id);
               return;
@@ -683,7 +687,7 @@ const App: Component = () => {
       openedPanel = null;
     }
     if (!p) return;
-    if (dragging || focusMode() || readerOpen() || filesPanelOpen() || paletteOpen()) {
+    if (dragging || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen()) {
       // Reader / Files popout / command palette are full overlays that must sit
       // above everything — including the web panel's own native webview layer.
       wv(panelHide(p.id));
@@ -1040,7 +1044,7 @@ const App: Component = () => {
     setPaletteOpen(false);
     const t = activeTab();
     // Don't re-show the webview if the files panel is still covering it.
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !filesPanelOpen()) wv(webviewShow(t.id));
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !filesPanelOpen() && !mapPanelOpen()) wv(webviewShow(t.id));
   };
 
   // Files panel — imperative show/hide, matching the palette pattern exactly.
@@ -1056,6 +1060,34 @@ const App: Component = () => {
     const t = activeTab();
     if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen()) wv(webviewShow(t.id));
   };
+  // Google Maps popout — mirrors the files popout (hide the native webview while
+  // the DOM pane is open, re-show on close).
+  const openMapPanel = () => {
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
+    setMapPanelOpen(true);
+  };
+  const closeMapPanel = () => {
+    setMapPanelOpen(false);
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen()) wv(webviewShow(t.id));
+  };
+  const [mapDraft, setMapDraft] = createSignal(mapQuery());
+  // Keyless Google Maps embed — only the `output=embed` endpoint is frameable
+  // (the full site sets X-Frame-Options); a `q=` jumps to a place.
+  const mapSrc = () => {
+    const q = mapQuery().trim();
+    return q
+      ? `https://www.google.com/maps?q=${encodeURIComponent(q)}&output=embed`
+      : `https://www.google.com/maps?output=embed`;
+  };
+  // Esc closes the map pane while it's open.
+  createEffect(() => {
+    if (!mapPanelOpen()) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeMapPanel(); };
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => document.removeEventListener("keydown", onKey));
+  });
   // Actions offered by the palette (tab-switching + history are built in).
   const paletteActions = (): PaletteAction[] => [
     { id: "new-tab", label: "New browser tab", icon: "🌐", run: () => void openTab("browser") },
@@ -1220,6 +1252,7 @@ const App: Component = () => {
         onToggleBookmark={toggleBookmark}
         isBookmarked={() => bookmarkedId() != null}
         onToggleFilesPanel={() => filesPanelOpen() ? closeFilesPanel() : openFilesPanel()}
+        onToggleMapPanel={() => mapPanelOpen() ? closeMapPanel() : openMapPanel()}
       />
       <ContentArea
         onNavigate={go}
@@ -1340,6 +1373,33 @@ const App: Component = () => {
           </div>
         </div>
       </Show>
+      {/* Google Maps popout — a bigger floating pane (like the files popout) with
+          a Google Maps embed. Click outside / Esc to close. */}
+      <Show when={mapPanelOpen()}>
+        <div class="map-panel-backdrop" onClick={() => closeMapPanel()}>
+          <div class="map-panel glass" onClick={(e) => e.stopPropagation()}>
+            <div class="map-panel-head">
+              <span class="map-panel-title">🗺 Maps</span>
+              <form class="map-search" onSubmit={(e) => { e.preventDefault(); setMapQuery(mapDraft().trim()); }}>
+                <input
+                  class="map-search-input"
+                  placeholder="Search a place or address…"
+                  value={mapDraft()}
+                  onInput={(e) => setMapDraft(e.currentTarget.value)}
+                />
+              </form>
+              <button class="map-panel-x" title="Close (Esc)" onClick={() => closeMapPanel()}>✕</button>
+            </div>
+            <iframe
+              class="map-frame"
+              src={mapSrc()}
+              title="Google Maps"
+              referrerpolicy="no-referrer-when-downgrade"
+              loading="lazy"
+            />
+          </div>
+        </div>
+      </Show>
     </div>
   );
 };
@@ -1421,6 +1481,7 @@ interface SidebarProps {
   onToggleBookmark: () => void;
   isBookmarked: () => boolean;
   onToggleFilesPanel: () => void;
+  onToggleMapPanel: () => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | "notes" | null;
@@ -1822,6 +1883,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Show>
           <button class="icon-btn" title="Home (new tab page)" onClick={() => props.onNavigate("flux://start")}>⌂</button>
           <button classList={{ "icon-btn": true, active: filesPanelOpen() }} title="File explorer" onClick={props.onToggleFilesPanel}>🗁</button>
+          <button classList={{ "icon-btn": true, active: mapPanelOpen() }} title="Maps" onClick={props.onToggleMapPanel}>🗺</button>
           <span style={{ flex: 1 }} />
         </Show>
       </div>

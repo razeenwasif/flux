@@ -2094,6 +2094,18 @@ input[type="checkbox"].pdf-fw, input[type="radio"].pdf-fw { accent-color: var(--
 .files-panel-x:hover { background: var(--flux-surface-2); color: var(--flux-text); }
 .files-panel-body { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .files-panel-body > * { height: 100%; }
+
+/* Google Maps popout — like the files popout but bigger. */
+.map-panel-backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, 0.42); display: flex; justify-content: center; align-items: center; padding: 3vh 3vw; }
+.map-panel { width: min(1200px, 95vw); height: min(840px, 92vh); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); border: 1px solid var(--glass-rim-soft); }
+.map-panel-head { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--glass-rim-soft); flex: none; }
+.map-panel-title { font-size: 13px; font-weight: 650; color: var(--flux-text); flex: none; }
+.map-search { flex: 1; min-width: 0; display: flex; }
+.map-search-input { width: 100%; max-width: 460px; padding: 6px 12px; font-size: 12.5px; border-radius: 999px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); }
+.map-search-input:focus { outline: none; border-color: var(--flux-teal); }
+.map-panel-x { flex: none; width: 26px; height: 26px; border-radius: 7px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; font-size: 13px; }
+.map-panel-x:hover { background: var(--flux-surface-2); color: var(--flux-text); }
+.map-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: var(--velvet-800); }
 .palette { width: min(620px, 90vw); max-height: 60vh; display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5); }
 .palette-input { padding: 16px 18px; font-size: 15px; background: transparent; border: none; border-bottom: 1px solid var(--glass-rim-soft); color: var(--flux-text); }
 .palette-input:focus { outline: none; }

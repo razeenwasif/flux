@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Google Maps popout** — a 🗺 button next to the file-explorer button opens a
+  large floating Maps pane (mirrors the files popout: a centered DOM panel that
+  hides the active tab's webview while open, click-outside / Esc to close). Embeds
+  Google Maps via its keyless `output=embed` endpoint with a search box to jump to
+  a place; the last search persists. (CSP gains `frame-src https://*.google.com`.)
 - **Particle-liquid home backdrop** (BACKLOG #77) — the start page's flowing wave
   can now be a **WebGL particle-liquid**: ~1,500 tiny **metallic droplets** that
   endlessly swirl/splash, advected by a curl-noise flow field (divergence-free →
