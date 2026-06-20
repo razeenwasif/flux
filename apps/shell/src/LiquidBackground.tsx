@@ -18,12 +18,12 @@
  */
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 
-const N = 25000;       // softer aurora curtains
-const POINT_PX = 2.5;  // softer, slightly larger splat
-const SPEED = 0.08;    // faster upward flow
-const FADE = 0.97;     // longer trails = taller curtains
-const INTENSITY = 0.15; // smooth overlapping glow
-const FIELD_SCALE = 0.8; // slight downscale for graceful blur
+const N = 12000;       // distinct swarm particles
+const POINT_PX = 4.0;  // larger glowing blobs
+const SPEED = 0.03;    // slow underwater drift
+const FADE = 0.92;     // shorter trails for distinct entities
+const INTENSITY = 0.35; // bright bioluminescence
+const FIELD_SCALE = 0.8; // soft underwater diffusion
 
 const QUAD_VS = `#version 300 es
 layout(location = 0) in vec2 p;
@@ -37,15 +37,16 @@ uniform sampler2D u_prev; uniform float u_fade;
 uniform float u_time; uniform float u_aspect;
 
 vec2 get_curl(float x, float y, float t) {
-  float vx = sin(y * 3.0 + t * 0.5) * 0.4 + sin(x * 5.0 - t * 0.3) * 0.3;
-  float vy = 0.7 + cos(x * 8.0 + t * 0.7) * 0.2;
-  return vec2(vx, vy) * 1.5;
+  float vx = sin(y * 2.0 + t * 0.3) * 0.5 + cos(x * 3.0 - t * 0.2) * 0.3;
+  float vy = cos(x * 2.0 + t * 0.4) * 0.5 + sin(y * 3.0 - t * 0.2) * 0.3;
+  return vec2(vx + 0.2, vy + 0.1);
 }
 
 void main(){
   vec2 uv = v_uv;
   vec2 vel = get_curl(uv.x * u_aspect, uv.y, u_time);
-  vec2 adv_uv = uv - vel * 0.0025 * vec2(1.0/u_aspect, 1.0);
+  // Advect trails slightly for water ripple effect
+  vec2 adv_uv = uv - vel * 0.003 * vec2(1.0/u_aspect, 1.0);
   o = texture(u_prev, adv_uv) * u_fade;
 }`;
 
@@ -74,22 +75,28 @@ void main(){
   vec3 field = texture(u_field, v_uv).rgb;
   float density = max(field.r, max(field.g, field.b));
   
-  vec3 bg = vec3(0.02, 0.03, 0.08) - v_uv.y * vec3(0.02, 0.01, 0.03); // deep space
+  // Deep sea gradient
+  vec3 bg = vec3(0.0, 0.02, 0.05) + vec3(0.0, 0.04, 0.08) * smoothstep(0.8, 0.0, v_uv.y);
   
-  float starNoise = fract(sin(dot(v_uv, vec2(12.9898, 78.233))) * 43758.5453);
-  float star = smoothstep(0.998, 1.0, starNoise) * (0.5 + 0.5 * sin(u_time * 3.0 + starNoise * 10.0));
-  bg += vec3(star);
+  // Bioluminescent plankton dust in the water
+  float dust = fract(sin(dot(v_uv, vec2(12.9898, 78.233))) * 43758.5453);
+  bg += vec3(0.0, 0.8, 0.6) * smoothstep(0.996, 1.0, dust) * (0.3 + 0.3 * sin(u_time * 2.0 + dust * 15.0));
 
-  vec3 cBottom = vec3(0.1, 1.0, 0.4); // Neon green
-  vec3 cMid    = vec3(0.0, 0.6, 1.0); // Bright blue
-  vec3 cTop    = vec3(0.8, 0.2, 0.9); // Purple
+  // Bioluminescent swarm colors
+  vec3 cSparse = vec3(0.0, 0.4, 0.8);  // Deep azure
+  vec3 cDense  = vec3(0.2, 1.0, 0.8);  // Bright turquoise
+  vec3 cCore   = vec3(0.8, 1.0, 0.9);  // Glowing white core
   
-  vec3 auroraCol = mix(cBottom, cMid, smoothstep(0.1, 0.6, v_uv.y));
-  auroraCol = mix(auroraCol, cTop, smoothstep(0.5, 0.9, v_uv.y));
+  vec3 bioCol = mix(cSparse, cDense, smoothstep(0.0, 0.5, density));
+  bioCol = mix(bioCol, cCore, smoothstep(0.5, 1.0, density));
   
-  float glow = smoothstep(0.0, 0.5, density) * 0.8 + smoothstep(0.4, 1.0, density) * 1.5;
+  // The water scatters the light
+  float glow = smoothstep(0.0, 1.0, density) * 1.3;
   
-  o = vec4(bg + auroraCol * glow, 1.0);
+  // Subtle water shimmer
+  float shimmer = 0.9 + 0.1 * sin(u_time * 1.5 + v_uv.x * 20.0 + sin(v_uv.y * 15.0 + u_time));
+  
+  o = vec4(bg + bioCol * glow * shimmer, 1.0);
 }`;
 
 const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => void }> = (props) => {
@@ -180,9 +187,9 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
     const compU = { field: gl.getUniformLocation(compP, "u_field"), time: gl.getUniformLocation(compP, "u_time") };
 
     const curl = (x: number, y: number, t: number): [number, number] => {
-      let vx = Math.sin(y * 3.0 + t * 0.5) * 0.4 + Math.sin(x * 5.0 - t * 0.3) * 0.3;
-      let vy = 0.7 + Math.cos(x * 8.0 + t * 0.7) * 0.2;
-      return [vx * 1.5, vy * 1.5];
+      let vx = Math.sin(y * 2.0 + t * 0.3) * 0.5 + Math.cos(x * 3.0 - t * 0.2) * 0.3;
+      let vy = Math.cos(x * 2.0 + t * 0.4) * 0.5 + Math.sin(y * 3.0 - t * 0.2) * 0.3;
+      return [vx + 0.2, vy + 0.1];
     };
     const sim = (dt: number, t: number) => {
       dt = Math.min(dt, 0.05);
