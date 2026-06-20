@@ -112,25 +112,24 @@ void main() {
   for(float i = 0.0; i < 4.0; i++) {
     float fi = i * 0.8;
     
-    // Domain warp for swirling velvety curtains
-    vec2 q = p * vec2(0.6, 1.2) + vec2(t * 0.2 + fi, t * 0.1);
-    float n1 = snoise(vec3(q, t * 0.4));
-    float n2 = snoise(vec3(q * 2.0 + n1 * 0.6, t * 0.7));
+    // Domain warp for swirling velvety curtains (broader, softer)
+    vec2 q = p * vec2(0.4, 0.8) + vec2(t * 0.15 + fi, t * 0.1);
+    float n1 = snoise(vec3(q, t * 0.3));
+    float n2 = snoise(vec3(q * 1.5 + n1 * 0.5, t * 0.5));
     
-    // Velvet folds: smoother sine waves displaced heavily by noise
-    float wave = p.x * 2.5 + n1 * 1.2 + n2 * 2.5 + t + fi * 2.0;
+    // Velvet folds: broader and softer to avoid looking like individual strings
+    float wave = p.x * 1.2 + n1 * 1.0 + n2 * 1.5 + t + fi * 1.5;
     
-    // Soft, plush curtain shape 
-    float curtain = smoothstep(-0.4, 1.0, sin(wave));
+    // Very broad, blurred wave for a soft plush shape
+    float curtain = smoothstep(-0.8, 1.0, sin(wave));
     
-    // Soft sheen on the edges (rim light / velvet effect)
-    // cos(wave) peaks at the edges of the fold
-    float sheen = smoothstep(0.4, 1.0, cos(wave));
-    curtain = curtain * 0.7 + sheen * 0.5;
+    // Soft sheen on the edges
+    float sheen = smoothstep(0.6, 1.0, cos(wave));
+    curtain = curtain * 0.8 + sheen * 0.3;
     
-    // Density ridge - smoothed out for a velvety texture instead of sharp wisps
-    float ridge = 1.0 - abs(n1 + n2 * 0.5);
-    ridge = smoothstep(0.0, 0.9, ridge);
+    // Density ridge - heavily smoothed for a blurred, non-stringy velvety texture
+    float ridge = 1.0 - abs(n1 + n2 * 0.4);
+    ridge = smoothstep(0.0, 1.0, ridge);
     
     // Fade at top and bottom (make the curtains a bit taller and more encompassing)
     float heightFade = smoothstep(0.05, 0.5, uv.y) * smoothstep(0.95, 0.2, uv.y);

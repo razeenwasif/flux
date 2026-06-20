@@ -91,15 +91,16 @@ void main() {
     float c = cos(rotT);
     mat2 rot = mat2(c, -s, s, c);
 
-    vec2 q = rot * noiseD * mix(1.9, 2.45, busy);
-    q.y += sin(q.x * 2.2 + t * 2.6 + fi) * 0.18;
-    q.x += cos(q.y * 1.6 - t * 1.9 + fi) * 0.14;
+    vec2 q = rot * noiseD * mix(1.2, 1.6, busy);
+    q.y += sin(q.x * 1.5 + t * 2.0 + fi) * 0.15;
+    q.x += cos(q.y * 1.2 - t * 1.5 + fi) * 0.15;
 
     float n1 = snoise(vec3(q, t + fi));
-    float n2 = snoise(vec3(q * 2.15 + n1 * 0.35, t * 1.5 - fi));
+    float n2 = snoise(vec3(q * 1.8 + n1 * 0.4, t * 1.2 - fi));
 
-    float ribbon = sin((q.x * 3.6 + q.y * 1.15) + n2 * 2.8 + t * (2.0 + busy * 2.4) + fi * 3.4);
-    ribbon = 1.0 - smoothstep(0.02, mix(0.46, 0.28, busy), abs(ribbon));
+    // Broad, blurry wave to avoid individual stringy strands
+    float wave = (q.x * 1.5 + q.y * 0.8) + n2 * 1.5 + t * (1.5 + busy * 2.0) + fi * 2.5;
+    float ribbon = smoothstep(-0.8, 1.0, sin(wave));
 
     float grain = 0.72 + 0.28 * snoise(vec3(q * 4.0, t * 0.55 + fi));
     float sweep = 0.5 + 0.5 * sin(angle * 3.0 + t * (1.0 + busy * 3.0) + fi);
