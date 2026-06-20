@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Attach files/images in the agent panel** — a 📎 button on the agent input
+  takes an **image** (→ sent to the local vision model, `gemma3:4b`, so you can
+  ask about any picture, not just the current page) or a **text/code file** (→ its
+  contents become context for your question). The attachment shows as a chip until
+  you send; images render as a thumbnail in the conversation. Read entirely in the
+  browser (FileReader), capped at 20 MB; video/other binaries are declined with a
+  note. (`agent_vision` command.)
 - **Visual Lens (local vision model)** — ask the agent **"what is this?"** /
   **"identify this"** / **"/lens"**, or ⌘K → **"Identify page (Lens)"**: Flux
   captures the active page (WebView2 `CapturePreview`) and asks a **local
