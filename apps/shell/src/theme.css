@@ -835,6 +835,11 @@ body.resizing, body.busy { --glass-blur: none; }
 @media (prefers-reduced-motion: reduce) {
   .agent-fx.busy::before { animation: none; }
 }
+/* While the files popout is open, lift the agent panel above its dimmed backdrop
+   so it stays visible + is a reachable drop target (drag a file straight onto it). */
+.agent-droppable { position: relative; z-index: 60; }
+.agent-dropping .agent-inner { outline: 2px dashed var(--flux-teal); outline-offset: -5px; background: rgba(47, 243, 255, 0.05); }
+
 .agent-feed { flex: 1; overflow-y: auto; min-height: 0; font-size: 12.5px; line-height: 1.6; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; user-select: text; -webkit-user-select: text; cursor: text; }
 .agent-feed::-webkit-scrollbar { width: 8px; }
 .agent-feed::-webkit-scrollbar-thumb { background: rgba(150, 160, 220, 0.18); border-radius: 4px; }
@@ -1073,7 +1078,7 @@ body.resizing, body.busy { --glass-blur: none; }
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: radial-gradient(130% 85% at 14% -8%, rgba(255, 255, 255, 0.16), transparent 46%);
+  background: radial-gradient(130% 85% at 14% -8%, rgba(255, 255, 255, 0.08), transparent 46%);
 }
 .start-card:hover {
   transform: translateY(-2px);
@@ -1175,7 +1180,7 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 }
 .start-search::after {
   content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  background: radial-gradient(120% 150% at 12% -30%, rgba(255, 255, 255, 0.16), transparent 50%);
+  background: radial-gradient(120% 150% at 12% -30%, rgba(255, 255, 255, 0.08), transparent 50%);
 }
 .cal-modal {
   background:
@@ -1189,7 +1194,7 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 }
 .cal-modal::after {
   content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  background: radial-gradient(120% 70% at 16% -6%, rgba(255, 255, 255, 0.14), transparent 44%);
+  background: radial-gradient(120% 70% at 16% -6%, rgba(255, 255, 255, 0.06), transparent 44%);
 }
 .cal-event-time { flex: none; min-width: 64px; font-size: 12px; color: var(--flux-text-mute); font-variant-numeric: tabular-nums; }
 .cal-event-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
