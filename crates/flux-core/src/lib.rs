@@ -599,6 +599,7 @@ pub fn run(intent: cli::LaunchIntent) {
             tts::elevenlabs_set_key,
             tts::elevenlabs_has_key,
             tts::elevenlabs_voices,
+            tts::elevenlabs_import_voice,
             tts::elevenlabs_speak,
             spotify::spotify_set_dir,
             spotify::spotify_play,

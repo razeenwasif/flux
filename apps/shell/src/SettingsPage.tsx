@@ -12,6 +12,7 @@ import {
   BOOKMARKS_URL,
   cookiesClearAll,
   elevenlabsHasKey,
+  elevenlabsImportVoice,
   elevenlabsSetKey,
   elevenlabsVoices,
   HISTORY_URL,
@@ -40,7 +41,7 @@ import {
   type SearchEngine,
 } from "./ipc";
 import { heyGemmaEnabled, setHeyGemmaEnabled } from "./heygemma";
-import { elVoiceId, loadVoices, preferredVoice, setElVoiceId, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
+import { elVoiceId, loadVoices, preferredVoice, previewElevenLabs, setElVoiceId, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
   audiopulseDir,
@@ -100,17 +101,41 @@ const Toggle: Component<{ on: boolean; onClick: () => void }> = (props) => (
   </button>
 );
 
-function parseElevenLabsVoiceId(input: string): string {
+type ElevenLabsVoiceRef = { voiceId: string; publicOwnerId?: string };
+
+function parseElevenLabsVoiceRef(input: string): ElevenLabsVoiceRef {
   const raw = input.trim();
-  if (!raw) return "";
+  if (!raw) return { voiceId: "" };
   const direct = raw.match(/^[A-Za-z0-9_-]{10,}$/)?.[0];
-  if (direct) return direct;
-  const fromParam = raw.match(/[?&]voice(?:_id|Id)?=([A-Za-z0-9_-]{10,})/i)?.[1];
-  if (fromParam) return fromParam;
+  if (direct) return { voiceId: direct };
+
+  const fromAddPath = raw.match(/\/voices?\/add\/([A-Za-z0-9_-]{10,})\/([A-Za-z0-9_-]{10,})(?:[/?#]|$)/i);
+  if (fromAddPath) return { publicOwnerId: fromAddPath[1]!, voiceId: fromAddPath[2]! };
+
+  try {
+    const u = new URL(raw);
+    const voiceId =
+      u.searchParams.get("voice_id") ||
+      u.searchParams.get("voiceId") ||
+      u.searchParams.get("voice");
+    const publicOwnerId =
+      u.searchParams.get("public_owner_id") ||
+      u.searchParams.get("publicOwnerId") ||
+      u.searchParams.get("public_user_id") ||
+      u.searchParams.get("publicUserId") ||
+      u.searchParams.get("owner_id") ||
+      u.searchParams.get("ownerId");
+    if (voiceId) return { voiceId, publicOwnerId: publicOwnerId || undefined };
+  } catch { /* not a URL */ }
+
   const fromPath = raw.match(/\/voices?\/([A-Za-z0-9_-]{10,})(?:[/?#]|$)/i)?.[1];
-  if (fromPath) return fromPath;
+  if (fromPath) return { voiceId: fromPath };
+
   const ids = raw.match(/[A-Za-z0-9_-]{16,}/g);
-  return ids?.at(-1) ?? raw;
+  if (!ids?.length) return { voiceId: raw };
+  const publicOwnerId = ids.find((id) => id.length >= 32);
+  const voiceId = [...ids].reverse().find((id) => id !== publicOwnerId) || ids.at(-1) || raw;
+  return { voiceId, publicOwnerId };
 }
 
 const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
@@ -125,7 +150,16 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const testVoice = async () => {
     if (testing()) { stopSpeaking(); setTesting(false); return; }
     setTesting(true);
-    try { await speak("Hi, I'm Gemma. This is how I'll sound when we talk."); }
+    try {
+      if (ttsEngineSel() === "elevenlabs") {
+        await previewElevenLabs("Hi, I'm Gemma. This is how I'll sound when we talk.");
+        setElFlash("Voice tested");
+      } else {
+        await speak("Hi, I'm Gemma. This is how I'll sound when we talk.");
+      }
+    } catch (e) {
+      setElFlash(String(e));
+    }
     finally { setTesting(false); }
   };
   // ElevenLabs (cloud) voice.
@@ -135,6 +169,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [elVoiceSel, setElVoiceSel] = createSignal(elVoiceId());
   const [elManualVoice, setElManualVoice] = createSignal("");
   const [elFlash, setElFlash] = createSignal("");
+  const [elSavingVoice, setElSavingVoice] = createSignal(false);
   const refreshElKey = () => void elevenlabsHasKey().then(setElKeySet).catch(() => {});
   const loadElVoices = () => void elevenlabsVoices().then((v) => setElVoices(v)).catch(() => setElVoices([]));
   const saveElKey = async () => {
@@ -147,15 +182,25 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     } catch (e) { setElFlash(String(e)); }
   };
   const pickElVoice = (id: string) => { setElVoiceId(id); setElVoiceSel(id); };
-  const saveManualElVoice = () => {
-    const id = parseElevenLabsVoiceId(elManualVoice());
-    if (!id) {
+  const saveManualElVoice = async () => {
+    const ref = parseElevenLabsVoiceRef(elManualVoice());
+    if (!ref.voiceId) {
       setElFlash("Paste a voice link or ID");
       return;
     }
-    pickElVoice(id);
-    setElManualVoice("");
-    setElFlash("Voice saved");
+    setElSavingVoice(true);
+    setElFlash("Adding voice…");
+    try {
+      const v = await elevenlabsImportVoice(ref.voiceId, ref.publicOwnerId || "", "Flux Gemma");
+      pickElVoice(v.id || ref.voiceId);
+      setElManualVoice("");
+      setElFlash("Voice ready");
+      loadElVoices();
+    } catch (e) {
+      setElFlash(String(e));
+    } finally {
+      setElSavingVoice(false);
+    }
   };
 
   // Search engines.
@@ -407,9 +452,11 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                       placeholder="Paste ElevenLabs voice link or voice ID"
                       value={elManualVoice()}
                       onInput={(e) => setElManualVoice(e.currentTarget.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") saveManualElVoice(); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") void saveManualElVoice(); }}
                     />
-                    <button class="set-link-btn" onClick={saveManualElVoice}>Use voice</button>
+                    <button class="set-link-btn" disabled={elSavingVoice()} onClick={() => void saveManualElVoice()}>
+                      {elSavingVoice() ? "Adding…" : "Use voice"}
+                    </button>
                   </div>
                 </div>
               </Row>

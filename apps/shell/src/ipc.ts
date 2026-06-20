@@ -277,6 +277,8 @@ export const voiceSpeak = (text: string) => invoke<string>("voice_speak", { text
 export const elevenlabsSetKey = (key: string) => invoke<void>("elevenlabs_set_key", { key });
 export const elevenlabsHasKey = () => invoke<boolean>("elevenlabs_has_key");
 export const elevenlabsVoices = () => invoke<{ id: string; name: string }[]>("elevenlabs_voices");
+export const elevenlabsImportVoice = (voiceId: string, publicOwnerId = "", name = "") =>
+  invoke<{ id: string; name: string }>("elevenlabs_import_voice", { voiceId, publicOwnerId, name });
 /** Cloud TTS via ElevenLabs: returns a base64 MP3 (sends the text to ElevenLabs). */
 export const elevenlabsSpeak = (text: string, voiceId: string, modelId: string) =>
   invoke<string>("elevenlabs_speak", { text, voiceId, modelId });

@@ -96,6 +96,15 @@ function playAudioB64(b64: string, mime: string): Promise<void> {
   });
 }
 
+/** Preview ElevenLabs directly and surface configuration/API errors to Settings. */
+export async function previewElevenLabs(text: string): Promise<void> {
+  const t = cleanForSpeech(text);
+  if (!t) return;
+  stopSpeaking();
+  const b64 = await elevenlabsSpeak(t, elVoiceId(), elModel());
+  await playAudioB64(b64, "audio/mpeg");
+}
+
 /** Speak `text`, resolving when the audio finishes. Honours the engine setting. */
 export async function speak(text: string): Promise<void> {
   const t = cleanForSpeech(text);

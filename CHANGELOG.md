@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **ElevenLabs shared voice import** — pasted ElevenLabs voice-library links now
+  add the shared voice to the configured ElevenLabs account before selecting it,
+  and the Settings **Test** button reports ElevenLabs API errors instead of
+  silently falling back to the system voice.
 - **Manual ElevenLabs voice links** — Settings → Integrations now accepts a
   pasted ElevenLabs voice link or raw voice ID when a shared/custom voice is not
   returned by the account voices dropdown.

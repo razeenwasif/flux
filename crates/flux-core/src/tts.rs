@@ -142,6 +142,51 @@ pub struct ElVoice {
     name: String,
 }
 
+fn clean_el_path_segment(label: &str, value: &str) -> Result<String, String> {
+    let v = value.trim();
+    if v.is_empty() {
+        return Err(format!("missing {label}"));
+    }
+    if !v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(format!("{label} contains invalid characters"));
+    }
+    Ok(v.to_string())
+}
+
+fn el_get_voice(key: &str, voice_id: &str) -> Result<ElVoice, ureq::Error> {
+    let v: Value = el_http()
+        .get(&format!("{EL_API}/voices/{voice_id}"))
+        .set("xi-api-key", key)
+        .call()?
+        .into_json()
+        .unwrap_or_else(|_| json!({}));
+    let name = v.get("name").and_then(|n| n.as_str()).unwrap_or(voice_id);
+    Ok(ElVoice { id: voice_id.to_string(), name: name.to_string() })
+}
+
+fn el_find_shared_owner(key: &str, voice_id: &str) -> Result<Option<String>, String> {
+    let resp = el_http()
+        .get(&format!("{EL_API}/shared-voices"))
+        .query("search", voice_id)
+        .query("page_size", "100")
+        .set("xi-api-key", key)
+        .call()
+        .map_err(|e| el_err("search shared voices", e))?;
+    let v: Value = resp.into_json().map_err(|e| e.to_string())?;
+    let list = v.get("voices").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+    Ok(list.iter().find_map(|voice| {
+        let id = voice.get("voice_id").and_then(|x| x.as_str())?;
+        if id != voice_id {
+            return None;
+        }
+        voice
+            .get("public_owner_id")
+            .or_else(|| voice.get("public_user_id"))
+            .and_then(|x| x.as_str())
+            .map(|x| x.to_string())
+    }))
+}
+
 /// The voices available on the configured ElevenLabs account.
 #[tauri::command]
 pub async fn elevenlabs_voices() -> Result<Vec<ElVoice>, String> {
@@ -162,6 +207,56 @@ pub async fn elevenlabs_voices() -> Result<Vec<ElVoice>, String> {
                 Some(ElVoice { id: id.to_string(), name: name.to_string() })
             })
             .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Add a Voice Library / shared voice to the configured account, then return the
+/// account voice ID that can be used for TTS.
+#[tauri::command]
+pub async fn elevenlabs_import_voice(
+    voice_id: String,
+    public_owner_id: String,
+    name: String,
+) -> Result<ElVoice, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let voice_id = clean_el_path_segment("voice ID", &voice_id)?;
+        let key = el_key()?;
+
+        let owner = if public_owner_id.trim().is_empty() {
+            if let Ok(v) = el_get_voice(&key, &voice_id) {
+                return Ok(v);
+            }
+            el_find_shared_owner(&key, &voice_id)?.ok_or_else(|| {
+                "ElevenLabs could not find that shared voice. Paste the full voice-library link, or add the voice in ElevenLabs first.".to_string()
+            })?
+        } else {
+            public_owner_id.trim().to_string()
+        };
+        let owner = clean_el_path_segment("public owner ID", &owner)?;
+        let new_name = if name.trim().is_empty() {
+            format!("Flux {}", voice_id.chars().take(8).collect::<String>())
+        } else {
+            name.trim().to_string()
+        };
+
+        match el_http()
+            .post(&format!("{EL_API}/voices/add/{owner}/{voice_id}"))
+            .set("xi-api-key", &key)
+            .set("content-type", "application/json")
+            .send_json(json!({ "new_name": new_name, "bookmarked": true }))
+        {
+            Ok(resp) => {
+                let v: Value = resp.into_json().map_err(|e| e.to_string())?;
+                let id = v.get("voice_id").and_then(|x| x.as_str()).unwrap_or(&voice_id);
+                Ok(ElVoice { id: id.to_string(), name: name.trim().to_string() })
+            }
+            Err(e) => match el_get_voice(&key, &voice_id) {
+                Ok(v) => Ok(v),
+                Err(_) => Err(el_err("add shared voice", e)),
+            },
+        }
     })
     .await
     .map_err(|e| e.to_string())?
