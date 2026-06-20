@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Ask Gemma to control music (AudioPulse / Spotify)** — the agent panel now
+  understands music commands: **"play <song>"**, **"skip"/"next"**, **"pause"**,
+  **"resume"**, **"previous"**, **"what's playing"** (optionally addressed —
+  "hey gemma, play …", "can you skip"). It drives the **Spotify Web API** by
+  **reusing AudioPulse's cached OAuth token** (`~/.config/audiopulse/token.json`),
+  so when AudioPulse is running its librespot device is the active one and these
+  control exactly what it's playing — no changes to AudioPulse needed. Token is
+  refreshed on demand (held in memory, never rewrites AudioPulse's file); a clear
+  message if AudioPulse isn't signed in or no device is active. (`spotify.rs` +
+  `spotify_play`/`_pause`/`_resume`/`_next`/`_prev`/`_now_playing`.)
 - **Google Maps popout** — a 🗺 button next to the file-explorer button opens a
   large floating Maps pane (mirrors the files popout: a centered DOM panel that
   hides the active tab's webview while open, click-outside / Esc to close). Embeds
