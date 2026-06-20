@@ -487,6 +487,16 @@ export function setPanelBadge(id: number, count: number): void {
   setPanelBadgeRaw(id, count);
 }
 
+// Liquid start-page background (#77): the WebGL particle-liquid backdrop vs the
+// cheap SVG wave. Persisted, default ON (auto-falls back to the wave if WebGL2
+// is unavailable or the shader fails).
+const [liquidBg, setLiquidRaw] = createSignal(localStorage.getItem("flux.liquidbg") !== "0");
+export { liquidBg };
+export function setLiquidBg(on: boolean): void {
+  setLiquidRaw(on);
+  localStorage.setItem("flux.liquidbg", on ? "1" : "0");
+}
+
 // Pages bar: a quick-access strip of Flux native pages above the content card.
 // Persisted, default OFF (opt-in). Like the bookmark bar, toggling resizes the
 // card so the native webview relayout follows.

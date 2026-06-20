@@ -972,6 +972,15 @@ body.resizing, body.busy { --glass-blur: none; }
   scrollbar-width: thin;
 }
 
+/* Particle-liquid backdrop (#77): a WebGL canvas filling the page, behind the
+   hero + widgets. The shader pools the liquid toward the bottom (where the wave
+   was) and fades out going up, so the search hero stays clean. */
+.start-liquid {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 0; pointer-events: none;
+}
+
 /* Flowing wave: pinned to the bottom of the card, behind the widgets. */
 .start-wave {
   position: absolute;
