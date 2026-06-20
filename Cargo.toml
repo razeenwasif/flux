@@ -75,6 +75,11 @@ opt-level = "z"
 # llama bindings) so the dev-loop terminal still hits 120fps.
 [profile.dev]
 opt-level = 1
+# Emit only line tables, not full debuginfo. Backtraces still have file:line, but
+# the linker writes far less (esp. the MSVC `.pdb` on Windows) — a big cut to
+# incremental link time, which dominates Windows dev rebuilds. See .cargo/config.toml
+# for the optional LLD linker swap (the other half of the Windows speedup).
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3

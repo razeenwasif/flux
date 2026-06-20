@@ -11,6 +11,39 @@ const ENGINE_KEY = "flux.voice.tts";
 export const ttsEngine = (): TtsEngine => (localStorage.getItem(ENGINE_KEY) as TtsEngine) || "system";
 export const setTtsEngine = (e: TtsEngine) => localStorage.setItem(ENGINE_KEY, e);
 
+// Which speechSynthesis voice to use ("" = auto-pick a female English voice so it
+// matches Gemma). The Settings dropdown stores an exact voice name here.
+const VOICE_KEY = "flux.voice.name";
+export const preferredVoice = (): string => localStorage.getItem(VOICE_KEY) || "";
+export const setPreferredVoice = (name: string) => localStorage.setItem(VOICE_KEY, name);
+
+let cachedVoices: SpeechSynthesisVoice[] = [];
+/** Available OS voices (populates asynchronously on some platforms). */
+export function loadVoices(): SpeechSynthesisVoice[] {
+  try { cachedVoices = window.speechSynthesis?.getVoices() ?? []; } catch { /* no synth */ }
+  return cachedVoices;
+}
+try { window.speechSynthesis?.addEventListener?.("voiceschanged", () => loadVoices()); } catch { /* ignore */ }
+loadVoices();
+
+// Names that signal a female voice across Windows / macOS / Linux / Chromium.
+const FEMALE = /aria|jenny|zira|hazel|natasha|sonia|libby|michelle|clara|amy|emma|eva|ava|samantha|susan|fiona|google us english|female|woman/i;
+/** Pick Gemma's voice: the user's choice if set, else a natural female English one. */
+function pickVoice(): SpeechSynthesisVoice | null {
+  const voices = cachedVoices.length ? cachedVoices : loadVoices();
+  if (!voices.length) return null;
+  const want = preferredVoice();
+  if (want) {
+    const exact = voices.find((v) => v.name === want);
+    if (exact) return exact;
+  }
+  const en = voices.filter((v) => /^en(-|\b)/i.test(v.lang));
+  const pool = en.length ? en : voices;
+  const female = pool.filter((v) => FEMALE.test(v.name));
+  const natural = female.filter((v) => /natural|neural|online|premium/i.test(v.name));
+  return natural[0] || female[0] || pool[0] || null;
+}
+
 let current: HTMLAudioElement | null = null;
 
 /** Strip emoji / markdown so the voice reads clean prose, not "asterisk asterisk". */
@@ -33,7 +66,10 @@ function speakSystem(text: string): Promise<void> {
   return new Promise((resolve) => {
     try {
       const u = new SpeechSynthesisUtterance(text);
+      const v = pickVoice();
+      if (v) { u.voice = v; u.lang = v.lang; }
       u.rate = 1.02;
+      u.pitch = 1.05; // a touch brighter — reads as a warmer female voice
       u.onend = () => resolve();
       u.onerror = () => resolve();
       window.speechSynthesis.speak(u);

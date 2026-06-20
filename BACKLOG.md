@@ -223,3 +223,12 @@ only remaining pieces are engine-gated (noted per item).
   native webviews → Flux ships its **own curated mini-extension API** (new epic,
   #92–96), not WebExtensions compat or built-in-only. Start at the ADR (#96).
 - CLI: replace the hand-rolled parser with `clap` once flags exceed ~6 (`cli.rs`).
+- **Voice — better wake word + STT models.** The "Hey Gemma" MVP reuses Vosk
+  partials for the wake word and a small Vosk model for transcription, which is
+  serviceable but has false triggers and limited accuracy. Bring in (a) a
+  dedicated wake-word model — **openWakeWord** (ONNX, custom "hey gemma" phrase) or
+  **Porcupine** (Picovoice free tier) — so detection is robust without constantly
+  transcribing, and (b) a more accurate STT — a **larger Vosk model** or
+  **whisper.cpp** (`whisper-small`/`base`, still fully local) for the command
+  utterance. Keep the privacy invariants ([[voice-privacy-invariants]]): all local,
+  pre-wake audio discarded, nothing persisted.

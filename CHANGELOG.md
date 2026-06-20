@@ -21,6 +21,8 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   the mic is gated shut while Gemma speaks so it can't hear itself; a live mic
   indicator + hard toggle sit in the agent panel; **off by default**, opt-in in
   Settings → Integrations. (`tts.rs` `voice_speak` + `speak.ts` + `heygemma.ts`.)
+  Gemma now speaks with a **female voice by default** (auto-picks a natural female
+  English voice; pick a specific one in Settings → Integrations → System voice).
 - **cr-sqlite CRDT sync — prototype** (BACKLOG #62 evolution, behind the `crsync`
   cargo feature) — explores replacing the single-encrypted-blob sync with **SQLite
   CRR tables + changeset exchange**: each device keeps its own DB, exports compact
@@ -30,6 +32,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   the no-server, local-first model while removing the history cap. `crsync.rs` +
   3 tests proving two devices converge. Needs the native cr-sqlite extension
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
+
+### Fixed
+- **"Launch AudioPulse" from a Windows Flux build** — AudioPulse lives in WSL, so
+  the Windows build now crosses the boundary with `wsl.exe -d <distro> -- ~/AudioPulse/
+  audiopulse` (auto-detecting the distro/user; the ConPTY gives the TUI a real
+  terminal). Previously it looked for the binary at a Windows path and failed.
+  `FLUX_AUDIOPULSE_BIN` still overrides. (`spotify.rs`.)
+
+### Changed
+- **Faster Windows builds** — `[profile.dev] debug = "line-tables-only"` cuts the
+  debug info the MSVC linker writes (still keeps file:line in backtraces), and a new
+  `.cargo/config.toml` documents the bigger lever (the LLD linker) plus `sccache`
+  and `cargo tauri dev`. Backtraces are unchanged on release.
 
 ### Fixed
 - **Vosk DLL dependency loading on Windows** — voice transcription now loads

@@ -37,7 +37,7 @@ import {
   type SearchEngine,
 } from "./ipc";
 import { heyGemmaEnabled, setHeyGemmaEnabled } from "./heygemma";
-import { setTtsEngine, ttsEngine, type TtsEngine } from "./speak";
+import { loadVoices, preferredVoice, setPreferredVoice, setTtsEngine, ttsEngine, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
   audiopulseDir,
@@ -101,6 +101,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   // Gemma's voice (TTS engine) + "Hey Gemma" always-on listening.
   const [ttsEngineSel, setTtsEngineSel] = createSignal<TtsEngine>(ttsEngine());
   const pickTts = (e: TtsEngine) => { setTtsEngine(e); setTtsEngineSel(e); };
+  const [sysVoices, setSysVoices] = createSignal<{ name: string; lang: string }[]>([]);
+  const [voiceSel, setVoiceSel] = createSignal(preferredVoice());
+  const refreshVoices = () => setSysVoices(loadVoices().map((v) => ({ name: v.name, lang: v.lang })));
+  const pickVoiceName = (name: string) => { setPreferredVoice(name); setVoiceSel(name); };
 
   // Search engines.
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
@@ -125,6 +129,8 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Settings");
+    refreshVoices();
+    try { window.speechSynthesis?.addEventListener?.("voiceschanged", refreshVoices); } catch { /* ignore */ }
     void searchEngines().then(setEngines).catch(() => {});
     void searchDefault().then(setDefaultEngine).catch(() => {});
     loadShields();
@@ -311,6 +317,14 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <option value="piper">Piper (local neural)</option>
             </select>
           </Row>
+          <Show when={ttsEngineSel() === "system"}>
+            <Row label="System voice" hint="Which OS voice Gemma speaks with. Auto picks a female English voice. On Windows, “Microsoft Zira” is female; install the OneCore “Natural” voices (e.g. Aria, Jenny) for higher quality.">
+              <select class="shields-select" value={voiceSel()} onChange={(e) => pickVoiceName(e.currentTarget.value)}>
+                <option value="">Auto (female)</option>
+                <For each={sysVoices()}>{(v) => <option value={v.name}>{v.name} ({v.lang})</option>}</For>
+              </select>
+            </Row>
+          </Show>
         </Section>
       </div>
     </div>
