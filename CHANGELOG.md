@@ -7,13 +7,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Fixed
+- **Windows voice builds no longer require `libvosk.lib`** — the `voice` feature
+  now loads Vosk dynamically at runtime, so MSVC release builds do not fail at
+  link time with `LNK1181: cannot open input file 'libvosk.lib'`. Set
+  `FLUX_VOSK_LIBRARY` or `FLUX_VOSK_LIB_DIR` when using voice transcription.
+
 ### Added
 - **Push-to-talk voice input** (offline) — a 🎤 button on the agent input: **hold to
   talk, release to transcribe** locally with **Vosk** (reusing AudioPulse's model);
   the text drops into the input to review/edit before sending. Mic is captured
   in-browser (Web Audio → 16 kHz mono PCM) and transcribed on-device — no cloud.
-  Behind the `voice` cargo feature (needs native `libvosk`; the default build ships
-  the command as a graceful "not built" stub). `FLUX_VOSK_MODEL` points at a model
+  Behind the `voice` cargo feature (loads native `libvosk` at runtime; the default
+  build ships the command as a graceful "not built" stub). `FLUX_VOSK_MODEL` points at a model
   dir (defaults to AudioPulse's `~/AudioPulse/third_party/vosk/model`). (`voice.rs`
   + `voice_transcribe`.)
 - **Drag a file from the explorer into the agent** — with the file popout open, the

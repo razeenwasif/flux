@@ -44,7 +44,9 @@ argon2 = "0.5"
 rand = "0.8"
 # Favicons (#21): encode fetched icon bytes into a data: URL.
 base64 = "0.22"
-vosk = { version = "0.3", optional = true }
+# Voice STT loads the native Vosk library at runtime so Windows builds do not
+# need an MSVC import library (`libvosk.lib`) just to link Flux.
+libloading = { version = "0.8", optional = true }
 # Transcode ICO favicons → PNG so every engine (incl. WebKitGTK, which doesn't
 # render data:image/x-icon in <img>) shows them. Just the ico+png codecs.
 image = { version = "0.25", default-features = false, features = ["ico", "png"] }
@@ -107,6 +109,6 @@ custom-protocol = ["tauri/custom-protocol"]
 # Compile real llama.cpp inference. Off by default so `cargo check` stays
 # fast and CI doesn't need CUDA/Metal toolchains; the MockBackend serves dev.
 llama = ["flux-agent/llama"]
-# Offline push-to-talk voice (STT) via Vosk. Off by default — needs the native
-# libvosk (Linux: AudioPulse's third_party/vosk/libvosk.so; Windows: libvosk.dll).
-voice = ["dep:vosk"]
+# Offline push-to-talk voice (STT) via Vosk. Off by default; when enabled, Flux
+# loads native libvosk at runtime (Linux: libvosk.so; Windows: libvosk.dll).
+voice = ["dep:libloading"]
