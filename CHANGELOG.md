@@ -50,6 +50,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **ElevenLabs synthesize diagnostics** — TTS now preflights the selected voice
+  before synthesis and preserves ElevenLabs 401 response bodies instead of
+  labeling every synthesize 401 as an API-key failure.
 - **ElevenLabs typed-key verification** — Settings now verifies the exact key in
   the input before writing it to the OS keyring, strips hidden clipboard
   characters, then verifies the stored key separately so 401s reveal whether the

@@ -109,13 +109,16 @@ fn el_key_label(key: &str) -> String {
     format!("stored key len={}, prefix={}, suffix={}", key.len(), prefix, suffix)
 }
 
+fn el_id_label(label: &str, id: &str) -> String {
+    let suffix: String = id.chars().rev().take(4).collect::<String>().chars().rev().collect();
+    let prefix: String = id.chars().take(4).collect();
+    format!("{label} len={}, prefix={}, suffix={}", id.len(), prefix, suffix)
+}
+
 fn el_err(action: &str, e: ureq::Error) -> String {
     match e {
-        ureq::Error::Status(401, _) => format!(
-            "ElevenLabs {action}: API key rejected (401). Flux cleaned common pasted-key wrappers; regenerate the key in ElevenLabs and save it again."
-        ),
         ureq::Error::Status(code, r) => {
-            let body: String = r.into_string().unwrap_or_default().chars().take(180).collect();
+            let body: String = r.into_string().unwrap_or_default().chars().take(300).collect();
             format!("ElevenLabs {action} failed ({code}): {body}")
         }
         e => format!("ElevenLabs {action} failed: {e}"),
@@ -440,9 +443,14 @@ pub async fn elevenlabs_speak(text: String, voice_id: String, model_id: String) 
             return Err("no ElevenLabs voice selected".into());
         }
         let key = el_key()?;
+        let voice_id = clean_el_path_segment("voice ID", &voice_id)?;
+        let key_label = el_key_label(&key);
+        let voice_label = el_id_label("voice", &voice_id);
+        el_get_voice(&key, &voice_id)
+            .map_err(|e| format!("{} ({key_label}; {voice_label})", el_err("check voice access", e)))?;
         let model = if model_id.trim().is_empty() { "eleven_turbo_v2_5" } else { model_id.trim() };
         let resp = el_http()
-            .post(&format!("{EL_API}/text-to-speech/{}", voice_id.trim()))
+            .post(&format!("{EL_API}/text-to-speech/{voice_id}"))
             .set("xi-api-key", &key)
             .set("accept", "audio/mpeg")
             .send_json(json!({
@@ -450,7 +458,7 @@ pub async fn elevenlabs_speak(text: String, voice_id: String, model_id: String) 
                 "model_id": model,
                 "voice_settings": { "stability": 0.5, "similarity_boost": 0.75 }
             }))
-            .map_err(|e| el_err("synthesize", e))?;
+            .map_err(|e| format!("{} ({key_label}; {voice_label})", el_err("synthesize", e)))?;
         let mut bytes = Vec::new();
         resp.into_reader().read_to_end(&mut bytes).map_err(|e| e.to_string())?;
         if bytes.is_empty() {
