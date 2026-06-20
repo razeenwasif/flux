@@ -85,14 +85,30 @@ function speakSystem(text: string): Promise<void> {
   });
 }
 
-function playAudioB64(b64: string, mime: string): Promise<void> {
-  return new Promise((resolve) => {
+function audioError(a: HTMLAudioElement, fallback: string): Error {
+  const media = a.error;
+  const detail = media ? `code=${media.code}${media.message ? ` ${media.message}` : ""}` : fallback;
+  return new Error(`audio playback failed (${detail})`);
+}
+
+function playAudioB64(b64: string, mime: string, rejectOnError = false): Promise<void> {
+  return new Promise((resolve, reject) => {
     const a = new Audio(`data:${mime};base64,${b64}`);
+    a.preload = "auto";
     current = a;
     const done = () => { if (current === a) current = null; resolve(); };
+    const fail = (err: unknown) => {
+      if (current === a) current = null;
+      if (rejectOnError) {
+        reject(err instanceof Error ? err : audioError(a, String(err || "unknown")));
+      } else {
+        console.warn("[flux] TTS audio playback failed", err);
+        resolve();
+      }
+    };
     a.onended = done;
-    a.onerror = done;
-    void a.play().catch(done);
+    a.onerror = () => fail(audioError(a, "media error"));
+    void a.play().catch(fail);
   });
 }
 
@@ -102,7 +118,7 @@ export async function previewElevenLabs(text: string): Promise<void> {
   if (!t) return;
   stopSpeaking();
   const b64 = await elevenlabsSpeak(t, elVoiceId(), elModel());
-  await playAudioB64(b64, "audio/mpeg");
+  await playAudioB64(b64, "audio/mpeg", true);
 }
 
 /** Speak `text`, resolving when the audio finishes. Honours the engine setting. */

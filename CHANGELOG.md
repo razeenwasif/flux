@@ -50,6 +50,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **ElevenLabs test playback reporting** — the Settings **Test** button now
+  reports browser audio playback failures instead of saying "Voice tested" when
+  ElevenLabs returned billable audio but the webview could not play it.
 - **ElevenLabs synthesize diagnostics** — TTS now preflights the selected voice
   before synthesis and preserves ElevenLabs 401 response bodies instead of
   labeling every synthesize 401 as an API-key failure.
