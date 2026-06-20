@@ -36,6 +36,8 @@ import {
   type MemInfo,
   type SearchEngine,
 } from "./ipc";
+import { heyGemmaEnabled, setHeyGemmaEnabled } from "./heygemma";
+import { setTtsEngine, ttsEngine, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
   audiopulseDir,
@@ -96,6 +98,10 @@ const Toggle: Component<{ on: boolean; onClick: () => void }> = (props) => (
 );
 
 const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
+  // Gemma's voice (TTS engine) + "Hey Gemma" always-on listening.
+  const [ttsEngineSel, setTtsEngineSel] = createSignal<TtsEngine>(ttsEngine());
+  const pickTts = (e: TtsEngine) => { setTtsEngine(e); setTtsEngineSel(e); };
+
   // Search engines.
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
   const [defaultEngine, setDefaultEngine] = createSignal("");
@@ -295,6 +301,15 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               value={audiopulseDir()}
               onChange={(e) => setAudiopulseDir(e.currentTarget.value.trim())}
             />
+          </Row>
+          <Row label="Hey Gemma (always-on voice)" hint="Listen for “hey Gemma”, then converse by voice. Everything is local — speech-to-text (Vosk), the reply (Ollama), and the spoken voice never leave your device; audio before the wake word is discarded, never stored. Toggle it from the mic button in the agent panel. Default off.">
+            <Toggle on={heyGemmaEnabled()} onClick={() => void setHeyGemmaEnabled(!heyGemmaEnabled())} />
+          </Row>
+          <Row label="Gemma's voice" hint="System uses your OS voices (zero setup). Piper is a higher-quality local neural voice — set FLUX_PIPER_MODEL to a .onnx voice (and FLUX_PIPER_BIN if piper isn't on PATH); falls back to System if Piper isn't installed.">
+            <select class="shields-select" value={ttsEngineSel()} onChange={(e) => pickTts(e.currentTarget.value as TtsEngine)}>
+              <option value="system">System voice</option>
+              <option value="piper">Piper (local neural)</option>
+            </select>
           </Row>
         </Section>
       </div>

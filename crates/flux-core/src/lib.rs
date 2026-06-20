@@ -46,6 +46,7 @@ pub mod sessions;
 pub mod shields;
 pub mod spotify;
 pub mod sync;
+pub mod tts;
 pub mod voice;
 pub mod taskmgr;
 pub mod tombstone;
@@ -594,6 +595,7 @@ pub fn run(intent: cli::LaunchIntent) {
             lens::agent_lens,
             lens::agent_vision,
             voice::voice_transcribe,
+            tts::voice_speak,
             spotify::spotify_set_dir,
             spotify::spotify_play,
             spotify::spotify_pause,

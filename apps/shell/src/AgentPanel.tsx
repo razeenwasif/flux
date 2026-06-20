@@ -38,6 +38,7 @@ import {
 } from "./ipc";
 import { activeId, activeWorkspace, agentModelName, filesPanelOpen, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
 import AgentAurora from "./AgentAurora";
+import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 
 type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task"; text: string; action?: AgentAction; pending?: boolean; image?: string };
 
@@ -332,6 +333,40 @@ const AgentPanel: Component = () => {
     return false;
   };
 
+  // Handle one spoken command from the "hey gemma" loop: show it in the feed,
+  // route it through the same music / chat pipeline as typed input, and return
+  // the reply text for the conductor to speak. Music commands speak their action
+  // result ("Shuffle on"); everything else streams a chat answer into the feed.
+  const voiceRespond = async (transcript: string): Promise<string> => {
+    const t = transcript.trim();
+    if (!t || working() || taskRunning()) return "";
+    setFeed((f) => [...f, { role: "user", text: t }]);
+    const single = musicIntent(t.replace(/^\/?(hey\s+)?gemma[,:\s]+/i, "").trim());
+    if (single) {
+      try { const r = await single(); setFeed((f) => [...f, { role: "action", text: r }]); return r; }
+      catch (e) { const m = String(e); setFeed((f) => [...f, { role: "error", text: m }]); return m; }
+    }
+    const idx = feed().length;
+    setFeed((f) => [...f, { role: "assistant", text: "" }]);
+    let acc = "";
+    const append = (c: string) => { acc += c; setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it))); };
+    setBusy(true);
+    try {
+      await agentChatStream(t, append);
+    } catch (e) {
+      acc = String(e);
+      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, role: "error", text: acc } : it)));
+    } finally {
+      setBusy(false);
+    }
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)));
+    return acc.trim();
+  };
+  onMount(() => {
+    setVoiceHandler(voiceRespond);
+    if (heyGemmaEnabled()) void startConversation();
+  });
+
   const send = async (p: string) => {
     const att = attachment();
     if ((!p && !att) || working() || taskRunning()) return;
@@ -538,6 +573,18 @@ const AgentPanel: Component = () => {
               </div>
             </Show>
           </div>
+          <button
+            class="agent-voice-toggle"
+            classList={{ on: micLive(), live: listening() }}
+            title={micLive() ? `Hey Gemma is on — ${voiceStatus()}` : "Turn on “Hey Gemma” always-on voice"}
+            aria-label="Toggle Hey Gemma voice"
+            style={{ "margin-left": "auto" }}
+            onClick={() => void setHeyGemmaEnabled(!heyGemmaEnabled())}
+          >
+            <Show when={micLive()} fallback="🎙">
+              <span class="agent-voice-dot" /> {listening() ? "●" : "🎙"}
+            </Show>
+          </button>
         </header>
 
         <div class="agent-feed" ref={feedEl}>

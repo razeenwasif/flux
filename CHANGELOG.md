@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **"Hey Gemma" — always-on, fully-local voice conversation** — say *"hey Gemma"*
+  and the agent acknowledges, listens, answers **out loud**, then stays warm for
+  follow-ups (no wake word needed) so you can keep talking. The whole loop is
+  on-device: wake + speech-to-text via **Vosk**, the reply via **Ollama**, and the
+  spoken voice via the webview's **speechSynthesis** (OS voices, zero setup) or
+  **Piper** (local neural TTS — set `FLUX_PIPER_MODEL`; falls back to the system
+  voice if absent). Voice commands route through the same pipeline as typed input,
+  so *"hey Gemma, play my liked songs and shuffle on"* works too.
+  **Privacy by construction:** nothing leaves the device (no cloud STT/TTS ever);
+  audio before the wake word is discarded immediately and never written to disk;
+  the mic is gated shut while Gemma speaks so it can't hear itself; a live mic
+  indicator + hard toggle sit in the agent panel; **off by default**, opt-in in
+  Settings → Integrations. (`tts.rs` `voice_speak` + `speak.ts` + `heygemma.ts`.)
 - **cr-sqlite CRDT sync — prototype** (BACKLOG #62 evolution, behind the `crsync`
   cargo feature) — explores replacing the single-encrypted-blob sync with **SQLite
   CRR tables + changeset exchange**: each device keeps its own DB, exports compact

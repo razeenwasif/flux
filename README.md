@@ -295,7 +295,15 @@ detected, import tracked in BACKLOG #23.
 | `llama` | flux-core / flux-agent | Real llama.cpp inference (needs a GGUF in `models/`, see `FLUX_MODEL_PATH`). Default: deterministic `MockBackend`. |
 | `gpu` | flux-term | WGPU renderer. Default off so headless CI checks the grid/parser logic. |
 | `model` | flux-embed | EmbeddingGemma-class embedder. Default: hashing embedder. |
-| `voice` | flux-core | Push-to-talk STT via Vosk. Builds without linking to Vosk; at runtime Flux loads `libvosk.dll`/`libvosk.so` from `PATH`, `FLUX_VOSK_LIBRARY`, `FLUX_VOSK_LIB_DIR`, or next to the configured model. `FLUX_VOSK_MODEL` points at a model dir. Default: the 🎤 returns a "not built" stub. |
+| `voice` | flux-core | Push-to-talk + "Hey Gemma" STT via Vosk. Builds without linking to Vosk; at runtime Flux loads `libvosk.dll`/`libvosk.so` from `PATH`, `FLUX_VOSK_LIBRARY`, `FLUX_VOSK_LIB_DIR`, or next to the configured model. `FLUX_VOSK_MODEL` points at a model dir. Default: the 🎤 returns a "not built" stub. |
+
+**Gemma's voice (TTS)** needs no cargo feature. By default Flux speaks with the
+webview's `speechSynthesis` (OS voices). For a higher-quality local neural voice,
+install [Piper](https://github.com/rhasspy/piper) and set `FLUX_PIPER_MODEL` to a
+`.onnx` voice (its `.onnx.json` config must sit beside it; `FLUX_PIPER_BIN` if
+`piper` isn't on `PATH`), then pick **Piper** under Settings → Integrations. If
+Piper is missing, Flux silently falls back to the system voice. Nothing about the
+voice loop touches the network.
 
 On Windows, install a voice-enabled `flux.exe` onto PATH with:
 
