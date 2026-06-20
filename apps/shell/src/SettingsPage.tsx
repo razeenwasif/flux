@@ -45,6 +45,7 @@ import {
   memEvict,
   mouseGestures,
   omniAutoAnswer,
+  pagesBarOpen,
   searchSuggestOn,
   setAiAnswersOn,
   setBookmarkBarOpen,
@@ -54,6 +55,7 @@ import {
   setMemEvict,
   setMouseGestures,
   setOmniAutoAnswer,
+  setPagesBarOpen,
   setSearchSuggestOn,
   setVimHints,
   vimHints,
@@ -153,6 +155,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Row label="Bookmark bar" hint="A chip row docked under the page for one-click bookmarks.">
             <Toggle on={bookmarkBarOpen()} onClick={() => setBookmarkBarOpen(!bookmarkBarOpen())} />
+          </Row>
+          <Row label="Pages bar" hint="A strip above the page with quick links to Flux's native pages (open in a new tab).">
+            <Toggle on={pagesBarOpen()} onClick={() => setPagesBarOpen(!pagesBarOpen())} />
           </Row>
         </Section>
 

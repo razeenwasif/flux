@@ -478,6 +478,16 @@ export function setBookmarkBarOpen(on: boolean): void {
   localStorage.setItem("flux.bookmarkbar", on ? "1" : "0");
 }
 
+// Pages bar: a quick-access strip of Flux native pages above the content card.
+// Persisted, default OFF (opt-in). Like the bookmark bar, toggling resizes the
+// card so the native webview relayout follows.
+const [pagesBarOpen, setPagesBarRaw] = createSignal(localStorage.getItem("flux.pagesbar") === "1");
+export { pagesBarOpen };
+export function setPagesBarOpen(on: boolean): void {
+  setPagesBarRaw(on);
+  localStorage.setItem("flux.pagesbar", on ? "1" : "0");
+}
+
 // Files popout panel (#6 file explorer): a DOM file-explorer overlay toggled
 // from the toolbar, separate from Files *tabs*. Its cwd persists (localStorage)
 // so it reopens where you left off.

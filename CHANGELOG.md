@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Pages bar** — an opt-in quick-access strip docked **above** the content card
+  (mirroring the bookmark bar below it) with one chip per Flux native page —
+  Sessions, Archive, Feeds, History, Bookmarks, Task manager, Resources, Speed
+  test, Omni, Apps, Passwords, Sync, Settings. Each chip **opens in a new tab**.
+  Horizontal + horizontally scrollable; toggle from ⌘K ("Show pages bar") or
+  Settings → Appearance (default off). A sibling of the card, not an overlay, so
+  the card shrinks and the native webview relayout follows.
 - **Peek / glance windows** (BACKLOG #50) — open a link in a transient,
   always-on-top **floating window** without committing it to a tab (Arc's "Little
   Arc"). **Alt-click** a link or right-click → **Peek** on any page, or **Peek**
@@ -80,6 +87,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   right-clicking anywhere that isn't a link still gets the native menu.
 
 ### Changed
+- **Tab folders lay out horizontally** (BACKLOG #111) — an expanded folder's
+  member tabs now flow as compact chips in a single horizontally-scrollable row
+  instead of a tall vertical list, so a folder with many tabs stays one row high.
 - **Home widgets use fixed cards with expandable detail views** — Start-page
   widgets now keep a consistent dashboard footprint and expose an Expand action
   for full lists/details, so longer recent tabs, feeds, tasks, shortcuts,
