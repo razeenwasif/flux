@@ -102,6 +102,13 @@ fn el_key() -> Result<String, String> {
     }
 }
 
+fn el_key_label(key: &str) -> String {
+    let key = normalize_el_key(key);
+    let suffix: String = key.chars().rev().take(4).collect::<String>().chars().rev().collect();
+    let prefix: String = key.chars().take(3).collect();
+    format!("stored key len={}, prefix={}, suffix={}", key.len(), prefix, suffix)
+}
+
 fn el_err(action: &str, e: ureq::Error) -> String {
     match e {
         ureq::Error::Status(401, _) => format!(
@@ -214,7 +221,18 @@ pub fn elevenlabs_set_key(key: String) -> Result<(), String> {
         let _ = entry.delete_credential();
         Ok(())
     } else {
-        entry.set_password(&key).map_err(|e| e.to_string())
+        let _ = entry.delete_credential();
+        entry.set_password(&key).map_err(|e| e.to_string())?;
+        let saved = entry.get_password().map_err(|e| format!("could not read saved ElevenLabs key back from OS keyring: {e}"))?;
+        let saved = normalize_el_key(&saved);
+        if saved != key {
+            return Err(format!(
+                "saved ElevenLabs key did not round-trip through the OS keyring (entered {}, read back {})",
+                el_key_label(&key),
+                el_key_label(&saved)
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -235,12 +253,13 @@ pub fn elevenlabs_has_key() -> bool {
 pub async fn elevenlabs_verify_key() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let key = el_key()?;
+        let key_label = el_key_label(&key);
         el_http()
             .get(&format!("{EL_API}/voices"))
             .set("xi-api-key", &key)
             .call()
-            .map_err(|e| el_err("verify key", e))?;
-        Ok("Key verified".to_string())
+            .map_err(|e| format!("{} ({key_label})", el_err("verify key", e)))?;
+        Ok(format!("Key verified ({key_label})"))
     })
     .await
     .map_err(|e| e.to_string())?

@@ -50,6 +50,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **ElevenLabs keyring refresh** — saving a new ElevenLabs key now deletes the
+  previous OS keyring entry first, verifies the saved value round-trips, and
+  reports a masked length/prefix/suffix label so a 401 can be compared against
+  the key that works in curl without exposing the full secret.
 - **ElevenLabs key snippet cleanup** — Settings now extracts the actual API key
   from pasted JSON, curl/header snippets, and multi-line copied text before
   storing it in the OS keyring.
