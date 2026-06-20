@@ -788,6 +788,7 @@ body.resizing, body.busy { --glass-blur: none; }
 /* ── Agent panel (liquid glass) ── */
 .agent { grid-area: agent; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--flux-frame-pad); padding-left: 0; }
 .agent-inner {
+  position: relative; /* anchor the ambient effects layer (.agent-fx) */
   display: flex; flex-direction: column; gap: 11px;
   height: 100%;
   min-height: 0; /* let the feed scroll instead of growing the panel */
@@ -798,6 +799,51 @@ body.resizing, body.busy { --glass-blur: none; }
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-rim-soft);
   box-shadow: var(--glass-shadow), var(--glass-inset);
+}
+/* Real content sits above the effects layer. */
+.agent-inner > *:not(.agent-fx) { position: relative; z-index: 1; }
+
+/* ── Gemini-style ambient effects (agent panel) ───────────────────────────── */
+@property --agent-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+
+.agent-fx {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  border-radius: inherit; overflow: hidden;
+}
+/* Soft multi-colour gradient pooled at the bottom, gently drifting. */
+.agent-fx::after {
+  content: ""; position: absolute; left: -12%; right: -12%; bottom: -22%; height: 56%;
+  background:
+    radial-gradient(60% 100% at 25% 100%, rgba(99, 140, 255, 0.22), transparent 70%),
+    radial-gradient(55% 100% at 72% 100%, rgba(214, 107, 255, 0.18), transparent 70%),
+    radial-gradient(50% 95% at 50% 100%, rgba(99, 214, 255, 0.15), transparent 72%);
+  filter: blur(26px);
+  animation: agent-pool 14s ease-in-out infinite alternate;
+}
+@keyframes agent-pool {
+  0%   { transform: translateX(-6%) scale(1);     opacity: 0.8; }
+  100% { transform: translateX(6%) translateY(-5%) scale(1.08); opacity: 1; }
+}
+/* While the agent works: a bright arc orbits the panel edge. */
+.agent-fx.busy::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 2.5px;
+  background: conic-gradient(from var(--agent-angle),
+    rgba(99, 140, 255, 0) 0deg,
+    rgba(99, 140, 255, 0.95) 65deg,
+    rgba(180, 107, 255, 0.95) 140deg,
+    rgba(255, 107, 208, 0.95) 215deg,
+    rgba(99, 214, 255, 0.95) 285deg,
+    rgba(99, 140, 255, 0) 360deg);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  filter: blur(1px);
+  animation: agent-orbit 2.4s linear infinite;
+}
+@keyframes agent-orbit { to { --agent-angle: 360deg; } }
+@media (prefers-reduced-motion: reduce) {
+  .agent-fx::after, .agent-fx.busy::before { animation: none; }
 }
 .agent-feed { flex: 1; overflow-y: auto; min-height: 0; font-size: 12.5px; line-height: 1.6; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; user-select: text; -webkit-user-select: text; cursor: text; }
 .agent-feed::-webkit-scrollbar { width: 8px; }

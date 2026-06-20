@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Agent panel ambient glow** — a Gemini-style soft multi-colour gradient now
+  pools and gently drifts at the bottom of the Flux Agent panel, and while the
+  agent is working a bright arc **orbits the panel's edge** as a "thinking"
+  indicator. Pure CSS on a dedicated effects layer (so it never affects layout or
+  clips the model dropdown); honours `prefers-reduced-motion`.
 - **Web panel unread badges** (BACKLOG #48) — pinned web panels (Discord, Proton
   Mail, LinkedIn, Gmail, WhatsApp…) now show a **phone-style red unread bubble** on
   their rail icon. An injected title-watcher parses the unread `(N)` count from the
