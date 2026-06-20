@@ -712,6 +712,27 @@ body.resizing, body.busy { --glass-blur: none; }
   scrollbar-width: thin;
 }
 .bookmark-bar::-webkit-scrollbar { height: 0; }
+
+/* Pages bar — quick-access native-page strip above the card (mirrors the bookmark
+   bar but docked above, so margin-bottom). Horizontal + horizontally scrollable. */
+.pages-bar {
+  flex: none; height: 32px; margin-bottom: 6px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 8px; overflow-x: auto; overflow-y: hidden;
+  border: 1px solid var(--glass-rim-soft); border-radius: 10px;
+  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+  scrollbar-width: thin;
+}
+.pages-bar::-webkit-scrollbar { height: 0; }
+.pages-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px 3px 7px; border-radius: 7px; cursor: pointer;
+  font-size: 12px; color: var(--flux-text-dim); background: none; border: none;
+  white-space: nowrap;
+}
+.pages-chip:hover { background: var(--flux-surface); color: var(--flux-text); }
+.pages-chip-ico { flex: none; font-size: 12.5px; }
+.pages-chip-label { overflow: hidden; text-overflow: ellipsis; }
 .bookmark-bar-empty { font-size: 11.5px; color: var(--flux-text-mute); white-space: nowrap; padding-left: 4px; }
 .bookmark-chip {
   flex: none; display: inline-flex; align-items: center; gap: 6px;
@@ -1794,14 +1815,17 @@ body.resizing, body.busy { --glass-blur: none; }
 .folder-x:hover { background: #c0392b; color: #fff; }
 /* Inline tab-rename input (reuses the row's title slot) */
 .tab-rename { flex: 1; min-width: 0; background: var(--flux-surface-2); border: 1px solid var(--flux-teal-dim); border-radius: 5px; color: var(--flux-text); font-size: inherit; padding: 1px 5px; }
-.folder-tabs { display: flex; flex-direction: column; gap: 1px; padding: 1px 0 3px 14px; }
-.folder-tab { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--flux-text-dim); }
+/* Folder members flow horizontally as compact chips and scroll sideways, so a
+   folder with many tabs stays one row tall instead of a long vertical list. */
+.folder-tabs { display: flex; flex-direction: row; gap: 4px; padding: 2px 0 4px 14px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.folder-tabs::-webkit-scrollbar { height: 0; }
+.folder-tab { flex: none; max-width: 132px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 7px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--flux-text-dim); }
 .folder-tab:hover { background: var(--flux-surface); }
 .folder-tab.active { background: var(--flux-surface-2); color: var(--flux-text); }
 .folder-tab-ico { flex: none; width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; opacity: .7; }
 .folder-tab.active .folder-tab-ico { opacity: 1; }
-.folder-tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.folder-tab-out { flex: none; width: 18px; height: 18px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; border-radius: 5px; opacity: 0; font-size: 11px; }
+.folder-tab-title { flex: none; max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-tab-out { flex: none; width: 16px; height: 16px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; border-radius: 5px; opacity: 0; font-size: 11px; }
 .folder-tab:hover .folder-tab-out { opacity: 1; }
 .folder-tab-out:hover { color: var(--flux-text); background: var(--flux-surface-2); }
 

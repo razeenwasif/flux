@@ -134,6 +134,7 @@ const PdfViewer = lazy(() => import("./PdfViewer"));
 const ArchivePage = lazy(() => import("./ArchivePage"));
 const FeedsPage = lazy(() => import("./FeedsPage"));
 const BookmarkBar = lazy(() => import("./BookmarkBar"));
+const PagesBar = lazy(() => import("./PagesBar"));
 const AgentPanel = lazy(() => import("./AgentPanel"));
 const SyncPage = lazy(() => import("./SyncPage"));
 const AppsPage = lazy(() => import("./AppsPage"));
@@ -151,6 +152,8 @@ import {
   applyAgentModel,
   bookmarkBarOpen,
   setBookmarkBarOpen,
+  pagesBarOpen,
+  setPagesBarOpen,
   filesPanelOpen,
   setFilesPanelOpen,
   filesPanelPath,
@@ -1056,6 +1059,7 @@ const App: Component = () => {
     { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
     { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
     { id: "bookmark-bar", label: bookmarkBarOpen() ? "Hide bookmark bar" : "Show bookmark bar", icon: "🔖", run: () => setBookmarkBarOpen(!bookmarkBarOpen()) },
+    { id: "pages-bar", label: pagesBarOpen() ? "Hide pages bar" : "Show pages bar", icon: "🗂️", run: () => setPagesBarOpen(!pagesBarOpen()) },
     { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
@@ -2531,6 +2535,11 @@ const ContentArea: Component<{
   const terminalIds = createMemo(() => tabs().filter((t) => t.kind === "terminal").map((t) => t.id));
   return (
   <main class="content">
+    {/* Pages bar: quick-access native-page chips docked above the card. A sibling
+        (not an overlay) so the card shrinks and the native webview follows it. */}
+    <Show when={pagesBarOpen()}>
+      <Suspense><PagesBar /></Suspense>
+    </Show>
     <div class="card" id="flux-web-area">
       {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
       <Show when={readerOpen()}>
