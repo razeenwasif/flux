@@ -18,7 +18,7 @@
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 
 const N = 2800;        // lots of small droplets
-const POINT_PX = 7.0;  // sprite size (device px) — small balls, not pinprick dots
+const POINT_PX = 10.0;  // sprite size (device px) — small balls, not pinprick dots
 const SPEED = 0.07;    // flow speed
 const GRAVITY = 0.015; // gentle downward bias
 
