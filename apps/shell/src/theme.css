@@ -803,35 +803,41 @@ body.resizing, body.busy { --glass-blur: none; }
 /* Real content sits above the effects layer. */
 .agent-inner > *:not(.agent-fx) { position: relative; z-index: 1; }
 
-/* ── Gemini-style ambient effects (agent panel) ───────────────────────────── */
+/* ── Agent ambient effects ───────────────────────────────────────────────── */
 @property --agent-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
 
 .agent-fx {
   position: absolute; inset: 0; z-index: 0; pointer-events: none;
   border-radius: inherit; overflow: hidden;
 }
-/* Soft multi-colour gradient that flows AROUND WITHIN the pane — oversized +
-   heavily blurred, slowly translating/rotating so the colour blobs sweep across
-   the whole panel interior rather than just pooling at the bottom. */
-/* .agent-fx::after has been replaced by the AgentAurora WebGL component */
-/* While the agent works: a bright arc orbits the panel edge. */
+/* AgentAurora renders the internal glass ribbons; while the agent works, this
+   adds a slimmer edge current that feels active without outlining the whole pane. */
 .agent-fx.busy::before {
-  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 2.5px;
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 2px;
   background: conic-gradient(from var(--agent-angle),
-    rgba(99, 140, 255, 0) 0deg,
-    rgba(99, 140, 255, 0.95) 65deg,
-    rgba(180, 107, 255, 0.95) 140deg,
-    rgba(255, 107, 208, 0.95) 215deg,
-    rgba(99, 214, 255, 0.95) 285deg,
-    rgba(99, 140, 255, 0) 360deg);
+    rgba(47, 243, 255, 0) 0deg,
+    rgba(47, 243, 255, 0) 44deg,
+    rgba(47, 243, 255, 0.92) 68deg,
+    rgba(157, 141, 241, 0.78) 98deg,
+    rgba(236, 75, 224, 0) 126deg,
+    rgba(236, 75, 224, 0) 202deg,
+    rgba(236, 75, 224, 0.72) 228deg,
+    rgba(99, 214, 255, 0.88) 258deg,
+    rgba(47, 243, 255, 0) 292deg,
+    rgba(47, 243, 255, 0) 360deg);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
-  filter: blur(1px);
-  animation: agent-orbit 2.4s linear infinite;
+  filter: blur(0.7px) drop-shadow(0 0 11px rgba(47, 243, 255, 0.42));
+  opacity: 0.9;
+  animation: agent-orbit 3.2s cubic-bezier(.42, 0, .18, 1) infinite;
 }
-@keyframes agent-orbit { to { --agent-angle: 360deg; } }
+@keyframes agent-orbit {
+  0% { --agent-angle: 0deg; opacity: 0.58; }
+  45% { opacity: 0.95; }
+  100% { --agent-angle: 360deg; opacity: 0.58; }
+}
 @media (prefers-reduced-motion: reduce) {
   .agent-fx.busy::before { animation: none; }
 }

@@ -65,60 +65,64 @@ float snoise(vec3 v){
 void main() {
   vec2 uv = v_uv;
   vec2 d = uv - vec2(0.5);
-  
-  // Tighter squircle distance (power 5.0) to hug the rectangular bounds more closely
-  float radius = pow(pow(abs(d.x), 5.0) + pow(abs(d.y), 5.0), 0.2);
+
+  // Squircle distance keeps the effect panel-shaped instead of circular.
+  float radius = pow(pow(abs(d.x), 4.5) + pow(abs(d.y), 4.5), 1.0 / 4.5);
   float angle = atan(d.y, d.x);
-  
-  // Keep the actual noise sampling uniform (circular) so it doesn't stretch
+
+  // Keep the noise sampling proportional on wide/narrow panels.
   vec2 noiseD = d;
   noiseD.x *= u_aspect;
-  
-  float t = u_time * 0.15;
-  
-  // Transparent background so the agent panel's glass effect works
+
+  float busy = smoothstep(0.0, 1.0, u_busy);
+  float t = u_time * mix(0.09, 0.16, busy);
+
   vec3 auroraCol = vec3(0.0);
-  
-  for(float i = 0.0; i < 4.0; i++) {
-    float fi = i * 0.8;
-    
-    // Sample 3D noise using rotating Cartesian coordinates for seamlessness
-    float rotT = t * 0.3 + fi;
+
+  // A broad mask: faint central ribbons, stronger light near the glass edge.
+  float centerWash = smoothstep(0.72, 0.10, radius);
+  float edgeBand = smoothstep(0.22, 0.55, radius) * smoothstep(0.68, 0.48, radius);
+
+  for(float i = 0.0; i < 5.0; i++) {
+    float fi = i * 0.73;
+
+    float rotT = t * (0.35 + i * 0.08) + fi;
     float s = sin(rotT);
     float c = cos(rotT);
     mat2 rot = mat2(c, -s, s, c);
-    
-    vec2 q = rot * noiseD * 2.5; 
-    
-    float n1 = snoise(vec3(q, t * 0.5));
-    float n2 = snoise(vec3(q * 2.0 + n1 * 0.5, t * 0.8));
-    
-    // Curtains spinning around the center
-    // Multiply angle by an integer (4.0) so it wraps perfectly seamlessly at PI
-    float curtain = smoothstep(0.0, 1.0, sin(angle * 4.0 + n2 * 4.0 + t * 3.0 + fi * 2.0));
-    
-    // Density ridge
-    float ridge = abs(n1 + n2 * 0.5);
-    ridge = 1.0 - smoothstep(0.0, 0.4, ridge);
-    
-    // Hug the outer bounds of the panel tightly (peak closer to 0.5)
-    // Displace the inner fade radius with noise so it organically fades out instead of leaving a hard geometric cutout
-    float organicRadius = radius + n2 * 0.15;
-    float innerFade = mix(0.15, -0.1, u_busy);
-    float ringFade = smoothstep(innerFade, 0.50, organicRadius) * smoothstep(0.60, 0.49, radius);
-    
-    vec3 c1 = vec3(0.1, 1.0, 0.5); // Neon green
-    vec3 c2 = vec3(0.2, 0.5, 0.9); // Blue
-    vec3 c3 = vec3(0.8, 0.2, 0.9); // Purple
-    
-    vec3 col = mix(c1, c2, radius * 2.0 + i * 0.1);
-    col = mix(col, c3, n2 * 0.5 + 0.5);
-    
-    auroraCol += col * ridge * curtain * ringFade * (0.6 + u_busy * 0.8);
+
+    vec2 q = rot * noiseD * mix(1.9, 2.45, busy);
+    q.y += sin(q.x * 2.2 + t * 2.6 + fi) * 0.18;
+    q.x += cos(q.y * 1.6 - t * 1.9 + fi) * 0.14;
+
+    float n1 = snoise(vec3(q, t + fi));
+    float n2 = snoise(vec3(q * 2.15 + n1 * 0.35, t * 1.5 - fi));
+
+    float ribbon = sin((q.x * 3.6 + q.y * 1.15) + n2 * 2.8 + t * (2.0 + busy * 2.4) + fi * 3.4);
+    ribbon = 1.0 - smoothstep(0.02, mix(0.46, 0.28, busy), abs(ribbon));
+
+    float grain = 0.72 + 0.28 * snoise(vec3(q * 4.0, t * 0.55 + fi));
+    float sweep = 0.5 + 0.5 * sin(angle * 3.0 + t * (1.0 + busy * 3.0) + fi);
+    float focus = mix(centerWash * 0.22 + edgeBand * 0.85, centerWash * 0.58 + edgeBand, busy);
+
+    vec3 teal = vec3(0.10, 0.95, 0.86);
+    vec3 blue = vec3(0.22, 0.40, 1.00);
+    vec3 violet = vec3(0.58, 0.32, 1.00);
+    vec3 rose = vec3(1.00, 0.30, 0.72);
+    vec3 col = mix(teal, blue, smoothstep(-0.8, 0.8, n1));
+    col = mix(col, violet, smoothstep(-0.4, 1.0, n2 + radius));
+    col = mix(col, rose, pow(sweep, 2.4) * (0.18 + busy * 0.22));
+
+    auroraCol += col * ribbon * grain * focus * (0.38 + busy * 0.75);
   }
-  
-  float alpha = length(auroraCol);
-  o = vec4(auroraCol, alpha * 0.8);
+
+  // A restrained inner rim makes the glass feel alive without washing out text.
+  float innerRim = smoothstep(0.44, 0.58, radius) * smoothstep(0.66, 0.50, radius);
+  float pulse = 0.55 + 0.45 * sin(t * (2.2 + busy * 3.2) + angle * 2.0);
+  auroraCol += vec3(0.18, 0.72, 1.0) * innerRim * pulse * (0.08 + busy * 0.22);
+
+  float alpha = clamp(length(auroraCol) * mix(0.34, 0.52, busy), 0.0, 0.72);
+  o = vec4(auroraCol, alpha);
 }
 `;
 

@@ -34,6 +34,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   → base64/text.)
 
 ### Changed
+- **Agent panel animation refresh** — the ambient panel effect now uses slower
+  glassy ribbon currents at rest, then tightens into brighter focused currents
+  with a slimmer dual edge sweep while the agent is thinking.
 - **Liquid-glass home surfaces** — the start-page widget cards, the search hero,
   and the expanded-widget modals now have a richer "liquid glass" look: a glossy
   top-light reflection over the frosted fill, layered inner shadows for thick-glass
