@@ -9,14 +9,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ### Added
 - **Particle-liquid home backdrop** (BACKLOG #77) — the start page's flowing wave
-  can now be a **WebGL particle-liquid**: ~80 small balls driven by a lightweight
-  physics sim (gravity + pairwise repulsion, so they collide/space out and merge
-  like liquid) rendered as metaballs with a **metallic, near-colourless** shade
-  that picks up the velvet page background (chrome + a tight highlight, no fixed
-  hue). Built deliberately lean for the low-RAM wedge — a **single fragment
-  shader** (one draw call, no Three.js) that **only animates while the start page
-  is the active, focused, visible tab** (switching away tears the GL context down
-  to zero), pauses on blur / resize, renders at ~0.7× resolution + ~40 fps,
+  can now be a **WebGL particle-liquid**: ~1,500 tiny **metallic droplets** that
+  endlessly swirl/splash, advected by a curl-noise flow field (divergence-free →
+  fluid-like). Rendered as GL points (one small shaded bead each, so cost scales
+  with particle *count*, not screen pixels) shaded as little chrome spheres that
+  pick up the velvet page background (no fixed hue). Built lean for the low-RAM
+  wedge — one buffer upload + one draw call per frame, no Three.js — and it **only
+  animates while the start page is the active, focused, visible tab** (switching
+  away tears the GL context down to zero), pauses on blur / resize, runs at ~40 fps,
   honours `prefers-reduced-motion`, and **auto-falls back to the lightweight wave**
   if WebGL2 isn't available or the shader fails. Toggle in Settings → Appearance
   ("Liquid home background", default on).

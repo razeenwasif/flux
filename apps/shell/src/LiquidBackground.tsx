@@ -1,75 +1,57 @@
 /**
- * Particle-liquid start-page backdrop (BACKLOG #77) — many small metallic balls
- * flowing + colliding like liquid, replacing the SMIL wave.
+ * Particle-liquid start-page backdrop (BACKLOG #77) — a fine spray of tiny
+ * metallic droplets endlessly swirling/splashing, replacing the SMIL wave.
  *
- * A lightweight CPU sim moves N particles (gravity + pairwise soft repulsion so
- * they collide/space out + a gentle sideways flow so it keeps sloshing); their
- * positions feed a SINGLE WebGL2 fragment shader that renders them as merging
- * metaballs with a metallic, near-colourless shade that picks up the velvet page
- * background (no pink/cyan — just chrome tinted by the bg + a sharp highlight).
+ * Rendered as GL points (one small shaded sprite per particle), so cost scales
+ * with particle *count*, not screen pixels — that's what lets there be thousands
+ * of tiny balls cheaply (the per-pixel metaball approach can't). A curl-noise
+ * flow field advects them (divergence-free → fluid-like swirls) so they're always
+ * moving; each sprite is shaded as a little metallic bead that picks up the
+ * velvet page background (no fixed hue).
  *
- * Performance is the whole point (Flux's low-RAM wedge):
- *   • one fullscreen triangle, one draw call, no library;
- *   • the start page only mounts while it's the active tab, so leaving it tears
- *     the GL context down (GPU → 0);
- *   • pauses on window blur / tab hidden / `body.resizing`;
- *   • renders at ~0.7× resolution (metaballs are soft, upscaling is invisible)
- *     and throttles to ~40 fps;
- *   • `prefers-reduced-motion` → one static frame;
- *   • any WebGL2 / shader failure → `onFallback` so the page shows the cheap wave.
+ * Performance (Flux's low-RAM wedge): one buffer upload + one draw call per frame,
+ * no library; the start page only mounts while it's the active tab (leaving it
+ * tears the GL context down → GPU 0); pauses on blur / hidden / `body.resizing`;
+ * ~40 fps; `prefers-reduced-motion` → static; any WebGL2 failure → `onFallback`
+ * so the page shows the cheap SVG wave.
  */
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 
-const N = 80;          // particle count — "a lot of small balls"
-const RADIUS = 0.052;  // metaball influence radius (uv units)
+const N = 1500;        // lots of tiny droplets
+const POINT_PX = 3.4;  // sprite size (device px) — "really small balls"
+const SPEED = 0.07;    // flow speed
+const GRAVITY = 0.015; // gentle downward bias
 
 const VERT = `#version 300 es
-in vec2 p;
-void main(){ gl_Position = vec4(p, 0.0, 1.0); }`;
+in vec2 a_pos;            // 0..1 (x across width, y up)
+uniform float u_size;
+out float v_y;
+void main(){
+  gl_Position = vec4(a_pos * 2.0 - 1.0, 0.0, 1.0);
+  gl_PointSize = u_size;
+  v_y = a_pos.y;
+}`;
 
 const FRAG = `#version 300 es
 precision highp float;
+in float v_y;
 out vec4 outColor;
-#define N ${N}
-uniform vec2 u_res;
-uniform vec2 u_balls[N];
-uniform float u_r2;     // metaball radius squared
-uniform float u_aspect; // res.x / res.y
-
-float field(vec2 uv, out vec2 grad){
-  float f = 0.0; grad = vec2(0.0);
-  for(int i = 0; i < N; i++){
-    vec2 d = uv - u_balls[i]; d.x *= u_aspect;
-    float dd = dot(d, d) + 1e-4;
-    f += u_r2 / dd;
-    grad += (-2.0 * u_r2 / (dd * dd)) * vec2(d.x * u_aspect, d.y);
-  }
-  return f;
-}
-
 void main(){
-  vec2 uv = gl_FragCoord.xy / u_res;     // 0..1, origin bottom-left
-  vec2 grad;
-  float f = field(uv, grad);
-  float m = smoothstep(0.95, 1.5, f);    // liquid surface
-  if(m <= 0.001){ outColor = vec4(0.0); return; }
-
-  // Metallic shade: an "environment" that's just the velvet page background,
-  // lighter toward the top of each blob, + fresnel rim + a tight specular. No
-  // hue of its own — it reads as liquid chrome tinted by the page.
-  vec3 n = normalize(vec3(grad * 0.5, 1.0));
-  vec3 L = normalize(vec3(0.35, 0.6, 0.75));
-  vec3 V = vec3(0.0, 0.0, 1.0);
-  vec3 envLo = vec3(0.06, 0.05, 0.14);   // velvet base
-  vec3 envHi = vec3(0.28, 0.26, 0.48);   // raised velvet/violet
-  vec3 env = mix(envLo, envHi, clamp(n.y * 0.5 + 0.5, 0.0, 1.0));
-  float fres = pow(1.0 - clamp(n.z, 0.0, 1.0), 3.0);
-  float spec = pow(clamp(dot(reflect(-L, n), V), 0.0, 1.0), 60.0);
-  vec3 col = env + fres * vec3(0.5, 0.55, 0.72) * 0.5 + spec * vec3(0.95);
-
-  float bottom = 1.0 - smoothstep(0.0, 0.98, uv.y);
-  float alpha = clamp(m * mix(0.35, 1.0, bottom), 0.0, 1.0);
-  outColor = vec4(col * alpha, alpha);   // premultiplied
+  vec2 pc = gl_PointCoord * 2.0 - 1.0;   // -1..1 within the sprite
+  float r2 = dot(pc, pc);
+  if(r2 > 1.0) discard;
+  // Fake sphere normal → a little 3D metallic bead.
+  vec3 n = vec3(pc, sqrt(max(0.0, 1.0 - r2)));
+  vec3 L = normalize(vec3(0.4, 0.6, 0.7));
+  float diff = clamp(dot(n, L), 0.0, 1.0);
+  float spec = pow(clamp(n.z, 0.0, 1.0), 36.0);          // top-lit chrome highlight
+  // Metallic "environment" = the velvet page bg, lighter toward the top.
+  vec3 env = mix(vec3(0.10, 0.09, 0.20), vec3(0.34, 0.32, 0.56), n.y * 0.5 + 0.5);
+  vec3 col = env * (0.5 + 0.6 * diff) + spec * vec3(0.95);
+  float edge = smoothstep(1.0, 0.55, r2);                 // soft round edge
+  float fade = mix(0.30, 0.95, 1.0 - smoothstep(0.0, 0.98, v_y)); // lighter near the top
+  float a = edge * fade;
+  outColor = vec4(col * a, a);                            // premultiplied
 }`;
 
 const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => void }> = (props) => {
@@ -103,98 +85,71 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { props.onFallback?.(); return; }
     gl.useProgram(prog);
 
+    // Particle positions (uv space) — uploaded each frame.
+    const pos = new Float32Array(N * 2);
+    for (let i = 0; i < N; i++) { pos[i * 2] = Math.random(); pos[i * 2 + 1] = Math.random(); }
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, "p");
+    gl.bufferData(gl.ARRAY_BUFFER, pos, gl.DYNAMIC_DRAW);
+    const loc = gl.getAttribLocation(prog, "a_pos");
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const uRes = gl.getUniformLocation(prog, "u_res");
-    const uBalls = gl.getUniformLocation(prog, "u_balls");
-    const uR2 = gl.getUniformLocation(prog, "u_r2");
-    const uAspect = gl.getUniformLocation(prog, "u_aspect");
+    const uSize = gl.getUniformLocation(prog, "u_size");
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
-    gl.uniform1f(uR2, RADIUS * RADIUS);
 
-    const RENDER_SCALE = 0.7; // metaballs are soft → render below CSS resolution
-    let w = 0, h = 0, aspect = 1;
+    let dpr = 1, aspect = 1;
     const resize = () => {
-      const nw = Math.max(1, Math.round(c.clientWidth * RENDER_SCALE));
-      const nh = Math.max(1, Math.round(c.clientHeight * RENDER_SCALE));
-      if (nw !== w || nh !== h) {
-        w = nw; h = nh; aspect = nw / nh;
-        c.width = nw; c.height = nh;
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const nw = Math.max(1, Math.round(c.clientWidth * dpr));
+      const nh = Math.max(1, Math.round(c.clientHeight * dpr));
+      if (nw !== c.width || nh !== c.height) {
+        c.width = nw; c.height = nh; aspect = nw / nh;
         gl.viewport(0, 0, nw, nh);
+        gl.uniform1f(uSize, POINT_PX * dpr);
       }
     };
     const ro = new ResizeObserver(resize);
     ro.observe(c);
     resize();
 
-    // ── Particle sim ── physical space: x in [0, aspect], y in [0, 1] (isotropic).
-    const qx = new Float32Array(N), qy = new Float32Array(N);
-    const vx = new Float32Array(N), vy = new Float32Array(N);
-    const balls = new Float32Array(N * 2);
-    // Deterministic-ish spread (no Math.random dependency on exact look).
-    for (let i = 0; i < N; i++) {
-      qx[i] = ((i * 0.6180339887) % 1) * aspect;
-      qy[i] = 0.08 + ((i * 0.7548776662) % 1) * 0.55;
-      vx[i] = 0; vy[i] = 0;
-    }
-    const MIND = RADIUS * 1.7;      // collision spacing
-    const G = 0.07;                  // gravity
-    const DAMP = 0.985;
+    // Divergence-free curl-noise flow (incompressible → fluid swirls). x is
+    // aspect-scaled so the swirls stay round on wide screens.
     const sim = (dt: number, t: number) => {
       dt = Math.min(dt, 0.05);
-      // forces: gravity + a gentle sideways sloshing flow
       for (let i = 0; i < N; i++) {
-        vy[i] = vy[i]! - G * dt;
-        vx[i] = vx[i]! + Math.sin(t * 0.5 + qy[i]! * 6.0) * 0.05 * dt;
-      }
-      // pairwise soft repulsion → collision / spacing
-      for (let i = 0; i < N; i++) {
-        const xi = qx[i]!, yi = qy[i]!;
-        for (let j = i + 1; j < N; j++) {
-          let dx = xi - qx[j]!, dy = yi - qy[j]!;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < MIND * MIND && d2 > 1e-7) {
-            const d = Math.sqrt(d2);
-            const push = ((MIND - d) / MIND) * 0.9 * dt;
-            dx /= d; dy /= d;
-            vx[i] = vx[i]! + dx * push; vy[i] = vy[i]! + dy * push;
-            vx[j] = vx[j]! - dx * push; vy[j] = vy[j]! - dy * push;
-          }
-        }
-      }
-      // integrate + damp + bounce
-      for (let i = 0; i < N; i++) {
-        let pvx = vx[i]! * DAMP, pvy = vy[i]! * DAMP;
-        let x = qx[i]! + pvx * dt, y = qy[i]! + pvy * dt;
-        if (x < 0) { x = 0; pvx *= -0.6; } else if (x > aspect) { x = aspect; pvx *= -0.6; }
-        if (y < 0) { y = 0; pvy *= -0.5; } else if (y > 1) { y = 1; pvy *= -0.5; }
-        qx[i] = x; qy[i] = y; vx[i] = pvx; vy[i] = pvy;
-        balls[i * 2] = x / aspect;
-        balls[i * 2 + 1] = y;
+        const x = pos[i * 2]! * aspect;
+        const y = pos[i * 2 + 1]!;
+        // psi = sin(3x+.5t)cos(3y-.4t) + .5 sin(5y+.3t)cos(5x-.6t)
+        // v = (dpsi/dy, -dpsi/dx)
+        const vx = Math.sin(3 * x + 0.5 * t) * (-3 * Math.sin(3 * y - 0.4 * t))
+                 + 0.5 * (5 * Math.cos(5 * y + 0.3 * t)) * Math.cos(5 * x - 0.6 * t);
+        const vy = -(3 * Math.cos(3 * x + 0.5 * t) * Math.cos(3 * y - 0.4 * t)
+                 + 0.5 * Math.sin(5 * y + 0.3 * t) * (-5 * Math.sin(5 * x - 0.6 * t)));
+        let nx = pos[i * 2]! + (vx * SPEED / aspect) * dt;
+        let ny = pos[i * 2 + 1]! + (vy * SPEED - GRAVITY) * dt;
+        // wrap so the spray recirculates forever
+        nx = nx < 0 ? nx + 1 : nx > 1 ? nx - 1 : nx;
+        ny = ny < 0 ? ny + 1 : ny > 1 ? ny - 1 : ny;
+        pos[i * 2] = nx; pos[i * 2 + 1] = ny;
       }
     };
 
     const draw = () => {
-      gl.uniform2f(uRes, w, h);
-      gl.uniform1f(uAspect, aspect);
-      gl.uniform2fv(uBalls, balls);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, pos);
+      gl.drawArrays(gl.POINTS, 0, N);
     };
 
     const FPS = 40, MIN_DT = 1 / FPS;
     let raf = 0, running = false, last = 0, acc = 0, t = 0;
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const dt = last ? (now - last) / 1000 : 0;
+      const d = last ? (now - last) / 1000 : 0;
       last = now;
-      acc += dt;
+      acc += d;
       if (acc < MIN_DT) return;
       t += acc;
       sim(acc, t);
