@@ -37,7 +37,7 @@ import {
   type SearchEngine,
 } from "./ipc";
 import { heyGemmaEnabled, setHeyGemmaEnabled } from "./heygemma";
-import { loadVoices, preferredVoice, setPreferredVoice, setTtsEngine, ttsEngine, type TtsEngine } from "./speak";
+import { loadVoices, preferredVoice, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
   audiopulseDir,
@@ -103,8 +103,15 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const pickTts = (e: TtsEngine) => { setTtsEngine(e); setTtsEngineSel(e); };
   const [sysVoices, setSysVoices] = createSignal<{ name: string; lang: string }[]>([]);
   const [voiceSel, setVoiceSel] = createSignal(preferredVoice());
+  const [testing, setTesting] = createSignal(false);
   const refreshVoices = () => setSysVoices(loadVoices().map((v) => ({ name: v.name, lang: v.lang })));
   const pickVoiceName = (name: string) => { setPreferredVoice(name); setVoiceSel(name); };
+  const testVoice = async () => {
+    if (testing()) { stopSpeaking(); setTesting(false); return; }
+    setTesting(true);
+    try { await speak("Hi, I'm Gemma. This is how I'll sound when we talk."); }
+    finally { setTesting(false); }
+  };
 
   // Search engines.
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
@@ -319,10 +326,13 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Show when={ttsEngineSel() === "system"}>
             <Row label="System voice" hint="Which OS voice Gemma speaks with. Auto picks a female English voice. On Windows, “Microsoft Zira” is female; install the OneCore “Natural” voices (e.g. Aria, Jenny) for higher quality.">
-              <select class="shields-select" value={voiceSel()} onChange={(e) => pickVoiceName(e.currentTarget.value)}>
-                <option value="">Auto (female)</option>
-                <For each={sysVoices()}>{(v) => <option value={v.name}>{v.name} ({v.lang})</option>}</For>
-              </select>
+              <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                <select class="shields-select" value={voiceSel()} onChange={(e) => pickVoiceName(e.currentTarget.value)}>
+                  <option value="">Auto (female)</option>
+                  <For each={sysVoices()}>{(v) => <option value={v.name}>{v.name} ({v.lang})</option>}</For>
+                </select>
+                <button class="set-link-btn" onClick={() => void testVoice()}>{testing() ? "■ Stop" : "🔊 Test"}</button>
+              </div>
             </Row>
           </Show>
         </Section>
