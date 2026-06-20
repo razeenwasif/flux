@@ -85,15 +85,24 @@ struct ConfigFile {
 fn read_creds() -> Result<(String, String, String), String> {
     let dir = ap_config_dir().ok_or(
         "can't find AudioPulse's config. On a Windows build, set FLUX_AUDIOPULSE_DIR to the WSL path, \
-         e.g. \\\\wsl$\\Ubuntu\\home\\<you>\\.config\\audiopulse",
+         e.g. \\\\wsl.localhost\\Ubuntu\\home\\<you>\\.config\\audiopulse",
     )?;
-    let tok: TokenFile = std::fs::read_to_string(dir.join("token.json"))
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .ok_or_else(|| format!(
-            "no AudioPulse Spotify token at {} — open AudioPulse and log in first (or set FLUX_AUDIOPULSE_DIR)",
-            dir.join("token.json").display()
-        ))?;
+    let tpath = dir.join("token.json");
+    // Surface the real read error (vs a generic "no token") — on Windows this
+    // distinguishes a path/WSL-mount problem ("cannot find the path") from perms
+    // ("access denied") from a genuinely-missing/empty token.
+    let raw = std::fs::read_to_string(&tpath).map_err(|e| {
+        format!(
+            "can't read {} ({e}). On Windows, try FLUX_AUDIOPULSE_DIR with the \\\\wsl.localhost\\<distro>\\… form \
+             and make sure WSL is running.",
+            tpath.display()
+        )
+    })?;
+    let tok: TokenFile = serde_json::from_str(&raw)
+        .map_err(|e| format!("{} isn't a valid AudioPulse token file: {e}", tpath.display()))?;
+    if tok.access_token.is_empty() {
+        return Err("AudioPulse's token.json has no access_token — log in to Spotify in AudioPulse".into());
+    }
     let cfg: ConfigFile = std::fs::read_to_string(dir.join("config.json"))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
