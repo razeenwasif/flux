@@ -8,10 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Changed
-- **Liquid-glass home widgets** — the start-page widget cards now have a richer
-  "liquid glass" look: a glossy top-light reflection over the frosted fill,
-  layered inner shadows for thick-glass depth, and a soft lift on hover (over the
-  particle backdrop showing through the blur). Pure CSS on `.start-card`.
+- **Liquid-glass home surfaces** — the start-page widget cards, the search hero,
+  and the expanded-widget modals now have a richer "liquid glass" look: a glossy
+  top-light reflection over the frosted fill, layered inner shadows for thick-glass
+  depth, a top-left specular highlight, and a soft lift on the cards on hover (over
+  the particle backdrop showing through the blur). Pure CSS.
 
 ### Added
 - **Attach files/images in the agent panel** — a 📎 button on the agent input
