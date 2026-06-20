@@ -18,12 +18,12 @@
  */
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 
-const N = 35000;       // dense fine particles
-const POINT_PX = 2.0;  // sharper splat size
-const SPEED = 0.05;    // flow speed
-const FADE = 0.96;     // trail persistence
-const INTENSITY = 0.2;
-const FIELD_SCALE = 1.0; // full res field
+const N = 25000;       // softer aurora curtains
+const POINT_PX = 2.5;  // softer, slightly larger splat
+const SPEED = 0.08;    // faster upward flow
+const FADE = 0.97;     // longer trails = taller curtains
+const INTENSITY = 0.15; // smooth overlapping glow
+const FIELD_SCALE = 0.8; // slight downscale for graceful blur
 
 const QUAD_VS = `#version 300 es
 layout(location = 0) in vec2 p;
@@ -37,16 +37,9 @@ uniform sampler2D u_prev; uniform float u_fade;
 uniform float u_time; uniform float u_aspect;
 
 vec2 get_curl(float x, float y, float t) {
-  float vx = sin(3.0 * x + 0.5 * t) * (-3.0 * sin(3.0 * y - 0.4 * t))
-           + 0.5 * (5.0 * cos(5.0 * y + 0.3 * t)) * cos(5.0 * x - 0.6 * t);
-  float vy = -(3.0 * cos(3.0 * x + 0.5 * t) * cos(3.0 * y - 0.4 * t)
-           + 0.5 * sin(5.0 * y + 0.3 * t) * (-5.0 * sin(5.0 * x - 0.6 * t)));
-  float x2 = x * 2.1, y2 = y * 2.1, t2 = t * 1.5;
-  vx += 0.5 * (sin(3.0 * x2 + 0.5 * t2) * (-3.0 * sin(3.0 * y2 - 0.4 * t2))
-           + 0.5 * (5.0 * cos(5.0 * y2 + 0.3 * t2)) * cos(5.0 * x2 - 0.6 * t2));
-  vy += 0.5 * (-(3.0 * cos(3.0 * x2 + 0.5 * t2) * cos(3.0 * y2 - 0.4 * t2)
-           + 0.5 * sin(5.0 * y2 + 0.3 * t2) * (-5.0 * sin(5.0 * x2 - 0.6 * t2))));
-  return vec2(vx, vy);
+  float vx = sin(y * 3.0 + t * 0.5) * 0.4 + sin(x * 5.0 - t * 0.3) * 0.3;
+  float vy = 0.7 + cos(x * 8.0 + t * 0.7) * 0.2;
+  return vec2(vx, vy) * 1.5;
 }
 
 void main(){
@@ -75,13 +68,28 @@ void main(){
 const COMP_FS = `#version 300 es
 precision highp float;
 in vec2 v_uv; out vec4 o;
-uniform sampler2D u_field; 
+uniform sampler2D u_field;
+uniform float u_time;
 void main(){
   vec3 field = texture(u_field, v_uv).rgb;
   float density = max(field.r, max(field.g, field.b));
-  // High contrast white on black (magnetic sand / swirling smoke)
-  float val = smoothstep(0.0, 0.7, density);
-  o = vec4(vec3(val), 1.0);
+  
+  vec3 bg = vec3(0.02, 0.03, 0.08) - v_uv.y * vec3(0.02, 0.01, 0.03); // deep space
+  
+  float starNoise = fract(sin(dot(v_uv, vec2(12.9898, 78.233))) * 43758.5453);
+  float star = smoothstep(0.998, 1.0, starNoise) * (0.5 + 0.5 * sin(u_time * 3.0 + starNoise * 10.0));
+  bg += vec3(star);
+
+  vec3 cBottom = vec3(0.1, 1.0, 0.4); // Neon green
+  vec3 cMid    = vec3(0.0, 0.6, 1.0); // Bright blue
+  vec3 cTop    = vec3(0.8, 0.2, 0.9); // Purple
+  
+  vec3 auroraCol = mix(cBottom, cMid, smoothstep(0.1, 0.6, v_uv.y));
+  auroraCol = mix(auroraCol, cTop, smoothstep(0.5, 0.9, v_uv.y));
+  
+  float glow = smoothstep(0.0, 0.5, density) * 0.8 + smoothstep(0.4, 1.0, density) * 1.5;
+  
+  o = vec4(bg + auroraCol * glow, 1.0);
 }`;
 
 const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => void }> = (props) => {
@@ -169,21 +177,12 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
       time: gl.getUniformLocation(fadeP, "u_time"), aspect: gl.getUniformLocation(fadeP, "u_aspect")
     };
     const partU = { size: gl.getUniformLocation(partP, "u_size"), intensity: gl.getUniformLocation(partP, "u_intensity") };
-    const compU = { field: gl.getUniformLocation(compP, "u_field") };
+    const compU = { field: gl.getUniformLocation(compP, "u_field"), time: gl.getUniformLocation(compP, "u_time") };
 
     const curl = (x: number, y: number, t: number): [number, number] => {
-      let vx = Math.sin(3 * x + 0.5 * t) * (-3 * Math.sin(3 * y - 0.4 * t))
-             + 0.5 * (5 * Math.cos(5 * y + 0.3 * t)) * Math.cos(5 * x - 0.6 * t);
-      let vy = -(3 * Math.cos(3 * x + 0.5 * t) * Math.cos(3 * y - 0.4 * t)
-             + 0.5 * Math.sin(5 * y + 0.3 * t) * (-5 * Math.sin(5 * x - 0.6 * t)));
-             
-      const x2 = x * 2.1, y2 = y * 2.1, t2 = t * 1.5;
-      vx += 0.5 * (Math.sin(3 * x2 + 0.5 * t2) * (-3 * Math.sin(3 * y2 - 0.4 * t2))
-             + 0.5 * (5 * Math.cos(5 * y2 + 0.3 * t2)) * Math.cos(5 * x2 - 0.6 * t2));
-      vy += 0.5 * (-(3 * Math.cos(3 * x2 + 0.5 * t2) * Math.cos(3 * y2 - 0.4 * t2)
-             + 0.5 * Math.sin(5 * y2 + 0.3 * t2) * (-5 * Math.sin(5 * x2 - 0.6 * t2))));
-             
-      return [vx, vy];
+      let vx = Math.sin(y * 3.0 + t * 0.5) * 0.4 + Math.sin(x * 5.0 - t * 0.3) * 0.3;
+      let vy = 0.7 + Math.cos(x * 8.0 + t * 0.7) * 0.2;
+      return [vx * 1.5, vy * 1.5];
     };
     const sim = (dt: number, t: number) => {
       dt = Math.min(dt, 0.05);
@@ -230,7 +229,7 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
       gl.disable(gl.BLEND);
       bindQuad(compP);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, b.tex);
-      gl.uniform1i(compU.field, 0);
+      gl.uniform1i(compU.field, 0); gl.uniform1f(compU.time, time);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       const tmp = a; a = b; b = tmp; // swap
     };
