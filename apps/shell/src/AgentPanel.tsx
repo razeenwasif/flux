@@ -22,6 +22,7 @@ import {
   agentLens,
   agentVision,
   attachmentRead,
+  voiceTranscribe,
   webviewCapture,
   onScreenshot,
   isStartUrl,
@@ -198,6 +199,61 @@ const AgentPanel: Component = () => {
       else setAttachment({ kind: "text", name: a.name, text: a.text });
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
+    }
+  };
+
+  // Push-to-talk voice: hold the 🎤 to record, release to transcribe locally
+  // (Vosk). The text lands in the input so you can review/edit before sending.
+  const [recording, setRecording] = createSignal(false);
+  let micStream: MediaStream | null = null;
+  let audioCtx: AudioContext | null = null;
+  let recNode: ScriptProcessorNode | null = null;
+  let pcmChunks: Float32Array[] = [];
+  const startRec = async () => {
+    if (recording() || working() || taskRunning()) return;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setFeed((f) => [...f, { role: "error", text: "Microphone access was denied." }]);
+      return;
+    }
+    audioCtx = new AudioContext();
+    const src = audioCtx.createMediaStreamSource(micStream);
+    recNode = audioCtx.createScriptProcessor(4096, 1, 1);
+    pcmChunks = [];
+    recNode.onaudioprocess = (e) => pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    src.connect(recNode);
+    recNode.connect(audioCtx.destination); // we write silence → no echo
+    setRecording(true);
+  };
+  const b64FromBytes = (bytes: Uint8Array) => {
+    let s = "";
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) s += String.fromCharCode(...bytes.subarray(i, i + CH));
+    return btoa(s);
+  };
+  const stopRec = async () => {
+    if (!recording()) return;
+    setRecording(false);
+    const rate = audioCtx?.sampleRate ?? 48000;
+    try { recNode?.disconnect(); } catch { /* ignore */ }
+    micStream?.getTracks().forEach((t) => t.stop());
+    void audioCtx?.close();
+    const len = pcmChunks.reduce((n, c) => n + c.length, 0);
+    const chunks = pcmChunks; pcmChunks = []; micStream = null; audioCtx = null; recNode = null;
+    if (len < rate * 0.25) return; // ignore < 0.25 s (a stray tap)
+    const f32 = new Float32Array(len);
+    let o = 0; for (const c of chunks) { f32.set(c, o); o += c.length; }
+    const i16 = new Int16Array(len);
+    for (let i = 0; i < len; i++) { const s = Math.max(-1, Math.min(1, f32[i]!)); i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff; }
+    setBusy(true);
+    try {
+      const text = await voiceTranscribe(b64FromBytes(new Uint8Array(i16.buffer)), rate);
+      if (text.trim()) setPrompt((p) => (p ? p + " " : "") + text.trim());
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -522,6 +578,15 @@ const AgentPanel: Component = () => {
           />
           <div class="agent-input-row" classList={{ "ai-thinking-border": working() }}>
             <button type="button" class="agent-attach-btn" title="Attach an image or text file" disabled={working() || taskRunning()} onClick={() => fileInput?.click()}>📎</button>
+            <button
+              type="button"
+              classList={{ "agent-attach-btn": true, "agent-mic-on": recording() }}
+              title="Hold to talk (push-to-talk)"
+              disabled={working() || taskRunning()}
+              onPointerDown={(e) => { e.preventDefault(); void startRec(); }}
+              onPointerUp={() => void stopRec()}
+              onPointerLeave={() => { if (recording()) void stopRec(); }}
+            >🎤</button>
             <input
               value={prompt()}
               onInput={(e) => setPrompt(e.currentTarget.value)}

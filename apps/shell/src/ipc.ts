@@ -268,6 +268,9 @@ export const agentTaskStep = (goal: string, history: string[]) =>
   invoke<AgentAction>("agent_task_step", { goal, history });
 /** Free-form chat with the local model (no page required). Returns the reply. */
 export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prompt });
+/** Push-to-talk STT (#voice): transcribe base64 LE-i16 mono PCM at `sampleRate`. */
+export const voiceTranscribe = (pcmB64: string, sampleRate: number) =>
+  invoke<string>("voice_transcribe", { pcmB64, sampleRate });
 
 // ─── AudioPulse / Spotify control (Path A: reuse AudioPulse's token) ──────────
 /** Override AudioPulse's config-dir (e.g. a \\wsl.localhost\<distro>\… path). */
