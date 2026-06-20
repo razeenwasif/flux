@@ -295,3 +295,4 @@ detected, import tracked in BACKLOG #23.
 | `llama` | flux-core / flux-agent | Real llama.cpp inference (needs a GGUF in `models/`, see `FLUX_MODEL_PATH`). Default: deterministic `MockBackend`. |
 | `gpu` | flux-term | WGPU renderer. Default off so headless CI checks the grid/parser logic. |
 | `model` | flux-embed | EmbeddingGemma-class embedder. Default: hashing embedder. |
+| `voice` | flux-core | Push-to-talk STT via Vosk (needs native `libvosk`). Build e.g. `RUSTFLAGS="-L /path/to/vosk" LD_LIBRARY_PATH=/path/to/vosk cargo build --features voice`; `FLUX_VOSK_MODEL` points at a model dir. Default: the 🎤 returns a "not built" stub. |
