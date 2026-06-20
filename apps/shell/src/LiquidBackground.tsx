@@ -96,8 +96,15 @@ void main() {
   
   float t = u_time * 0.15;
   
+  // Subtle rippling in the dark areas using low-freq noise
+  float bgRipple = snoise(vec3(p * 1.5, t * 0.3));
+  float bgRipple2 = snoise(vec3(p * 3.0 - bgRipple, t * 0.4));
+  float bgMix = smoothstep(-0.6, 0.6, bgRipple * 0.7 + bgRipple2 * 0.3);
+  
   // Base dark purple night sky
   vec3 bg = vec3(0.02, 0.005, 0.04) - uv.y * vec3(0.01, 0.005, 0.02);
+  // Add the deep velvet ripples to the background
+  bg += vec3(0.015, 0.005, 0.025) * bgMix * (1.0 - uv.y * 0.5);
 
   vec3 auroraCol = vec3(0.0);
   
@@ -105,22 +112,30 @@ void main() {
   for(float i = 0.0; i < 4.0; i++) {
     float fi = i * 0.8;
     
-    // Domain warp for swirling curtains
-    vec2 q = p * vec2(0.5, 1.0) + vec2(t * 0.3 + fi, t * 0.1);
-    float n1 = snoise(vec3(q, t * 0.5));
-    float n2 = snoise(vec3(q * 2.0 + n1 * 0.5, t * 0.8));
+    // Domain warp for swirling velvety curtains
+    vec2 q = p * vec2(0.6, 1.2) + vec2(t * 0.2 + fi, t * 0.1);
+    float n1 = snoise(vec3(q, t * 0.4));
+    float n2 = snoise(vec3(q * 2.0 + n1 * 0.6, t * 0.7));
     
-    // Curtain shape (vertical alignment)
-    float curtain = smoothstep(0.0, 1.0, sin(p.x * 2.0 + n2 * 3.0 + t + fi * 2.0));
+    // Velvet folds: smoother sine waves displaced heavily by noise
+    float wave = p.x * 2.5 + n1 * 1.2 + n2 * 2.5 + t + fi * 2.0;
     
-    // Density ridge
-    float ridge = abs(n1 + n2 * 0.5);
-    ridge = 1.0 - smoothstep(0.0, 0.4, ridge);
+    // Soft, plush curtain shape 
+    float curtain = smoothstep(-0.4, 1.0, sin(wave));
     
-    // Fade at top and bottom
-    float heightFade = smoothstep(0.1, 0.4, uv.y) * smoothstep(0.9, 0.3, uv.y);
+    // Soft sheen on the edges (rim light / velvet effect)
+    // cos(wave) peaks at the edges of the fold
+    float sheen = smoothstep(0.4, 1.0, cos(wave));
+    curtain = curtain * 0.7 + sheen * 0.5;
     
-    // Colors based on layer and height
+    // Density ridge - smoothed out for a velvety texture instead of sharp wisps
+    float ridge = 1.0 - abs(n1 + n2 * 0.5);
+    ridge = smoothstep(0.0, 0.9, ridge);
+    
+    // Fade at top and bottom (make the curtains a bit taller and more encompassing)
+    float heightFade = smoothstep(0.05, 0.5, uv.y) * smoothstep(0.95, 0.2, uv.y);
+    
+    // Colors based on layer and height (matching user's request to keep color scheme perfect)
     vec3 c1 = vec3(0.1, 1.0, 0.5); // Neon green base
     vec3 c2 = vec3(0.2, 0.5, 0.9); // Blue
     vec3 c3 = vec3(0.8, 0.2, 0.9); // Purple top
@@ -128,7 +143,7 @@ void main() {
     vec3 col = mix(c1, c2, uv.y + i * 0.1);
     col = mix(col, c3, n2 * 0.5 + 0.5);
     
-    // Accumulate
+    // Accumulate with velvety weighting
     auroraCol += col * ridge * curtain * heightFade * 0.5;
   }
   
