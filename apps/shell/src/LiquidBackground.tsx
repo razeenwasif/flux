@@ -18,8 +18,8 @@
  */
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 
-const N = 8000;        // fine particles
-const POINT_PX = 1.6;  // splat size in field pixels
+const N = 5000;        // fine particles
+const POINT_PX = 3.6;  // splat size in field pixels
 const SPEED = 0.06;    // flow speed
 const FADE = 0.95;     // trail persistence (higher = longer contour streaks)
 const INTENSITY = 0.32;
