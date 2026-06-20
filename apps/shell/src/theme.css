@@ -794,7 +794,7 @@ body.resizing, body.busy { --glass-blur: none; }
   min-height: 0; /* let the feed scroll instead of growing the panel */
   padding: 14px;
   border-radius: var(--flux-radius-card);
-  background: var(--glass-fill);
+  background: rgba(18, 14, 46, 0.75); /* Darker than var(--glass-fill) */
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-rim-soft);
