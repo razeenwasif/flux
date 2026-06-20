@@ -72,6 +72,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   `FLUX_AUDIOPULSE_BIN` still overrides. (`spotify.rs`.)
 
 ### Changed
+- **ElevenLabs status messages are readable** — the Settings API-key save result
+  and diagnostic 401 text now render below the key field in a wrapped status line
+  instead of being squeezed into the Save button.
 - **Faster Windows builds** — `[profile.dev] debug = "line-tables-only"` cuts the
   debug info the MSVC linker writes (still keeps file:line in backtraces), and a new
   `.cargo/config.toml` documents the bigger lever (the LLD linker) plus `sccache`

@@ -432,16 +432,21 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Show when={ttsEngineSel() === "elevenlabs"}>
             <Row label="ElevenLabs API key" hint="Stored in your OS keyring, never in plaintext. Get a key at elevenlabs.io → Profile. Leave blank and save to remove it.">
-              <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
-                <input
-                  class="map-search-input"
-                  type="password"
-                  style={{ "max-width": "260px" }}
-                  placeholder={elKeySet() ? "•••••••• (key set)" : "xi-api-key…"}
-                  value={elKeyInput()}
-                  onInput={(e) => setElKeyInput(e.currentTarget.value)}
-                />
-                <button class="set-link-btn" onClick={() => void saveElKey()}>{elFlash() || "Save"}</button>
+              <div class="set-stack-control">
+                <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                  <input
+                    class="map-search-input"
+                    type="password"
+                    style={{ "max-width": "260px" }}
+                    placeholder={elKeySet() ? "•••••••• (key set)" : "xi-api-key…"}
+                    value={elKeyInput()}
+                    onInput={(e) => setElKeyInput(e.currentTarget.value)}
+                  />
+                  <button class="set-link-btn" onClick={() => void saveElKey()}>Save</button>
+                </div>
+                <Show when={elFlash()}>
+                  <div class="set-status-line" title={elFlash()}>{elFlash()}</div>
+                </Show>
               </div>
             </Row>
             <Show when={elKeySet()}>

@@ -1773,6 +1773,8 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .set-row-label { font-size: 13.5px; font-weight: 550; }
 .set-row-hint { font-size: 12px; color: var(--flux-text-mute); line-height: 1.35; }
 .set-row-control { flex: none; }
+.set-stack-control { display: grid; gap: 8px; justify-items: end; max-width: min(520px, 60vw); }
+.set-status-line { max-width: 100%; justify-self: stretch; font-size: 12px; line-height: 1.35; color: var(--flux-text-mute); overflow-wrap: anywhere; text-align: right; }
 .set-link-btn { padding: 6px 12px; border-radius: 8px; font-size: 12.5px; color: var(--flux-text); background: var(--flux-surface-3, rgba(255,255,255,0.05)); border: 1px solid var(--glass-rim-soft); cursor: pointer; white-space: nowrap; }
 .set-link-btn:hover { color: var(--flux-teal); border-color: var(--flux-teal); }
 .set-link-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px; }
