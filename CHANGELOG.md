@@ -12,6 +12,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   now loads Vosk dynamically at runtime, so MSVC release builds do not fail at
   link time with `LNK1181: cannot open input file 'libvosk.lib'`. Set
   `FLUX_VOSK_LIBRARY` or `FLUX_VOSK_LIB_DIR` when using voice transcription.
+- **Windows voice install path is explicit** — `scripts/install-windows.ps1 -Voice`
+  now builds and installs a voice-enabled `flux.exe`, and the non-voice runtime
+  message points at the installed-binary mismatch instead of implying Vosk failed
+  to link.
 
 ### Added
 - **Push-to-talk voice input** (offline) — a 🎤 button on the agent input: **hold to

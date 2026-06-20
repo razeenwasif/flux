@@ -27,13 +27,21 @@
     is rebuilt, so the exe always embeds the latest UI — otherwise a stale dist
     silently ships old UI even though cargo rebuilt the binary.
 
+.PARAMETER Voice
+    Build and install Flux with push-to-talk voice transcription enabled. This
+    still loads Vosk at runtime, so the build does not need libvosk.lib, but using
+    the mic requires libvosk.dll on PATH or FLUX_VOSK_LIBRARY/FLUX_VOSK_LIB_DIR.
+
 .NOTES
     If the repo lives on the WSL filesystem (\\wsl.localhost\...), building over
     that share works but is slow; for best results copy the repo to a local
     Windows path (e.g. C:\src\Flux) and run this from there.
 #>
 [CmdletBinding()]
-param([switch]$SkipFrontend)
+param(
+    [switch]$SkipFrontend,
+    [switch]$Voice
+)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -101,7 +109,10 @@ if ($SkipFrontend -and (Test-Path $dist)) {
 Write-Host "==> Building release flux.exe (LTO - takes several minutes)" -ForegroundColor Cyan
 # custom-protocol -> serve the embedded frontend (without it the app loads the
 # dev server URL and shows ERR_CONNECTION_REFUSED).
-cargo build --release -p flux-core --features custom-protocol
+$features = @('custom-protocol')
+if ($Voice) { $features += 'voice' }
+Write-Host "==> Cargo features: $($features -join ',')" -ForegroundColor DarkCyan
+cargo build --release -p flux-core --features ($features -join ',')
 
 $exe = Join-Path $root 'target\release\flux.exe'
 if (-not (Test-Path $exe)) { throw "Build reported success but $exe is missing." }

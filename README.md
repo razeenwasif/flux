@@ -296,3 +296,9 @@ detected, import tracked in BACKLOG #23.
 | `gpu` | flux-term | WGPU renderer. Default off so headless CI checks the grid/parser logic. |
 | `model` | flux-embed | EmbeddingGemma-class embedder. Default: hashing embedder. |
 | `voice` | flux-core | Push-to-talk STT via Vosk. Builds without linking to Vosk; at runtime Flux loads `libvosk.dll`/`libvosk.so` from `PATH`, `FLUX_VOSK_LIBRARY`, `FLUX_VOSK_LIB_DIR`, or next to the configured model. `FLUX_VOSK_MODEL` points at a model dir. Default: the 🎤 returns a "not built" stub. |
+
+On Windows, install a voice-enabled `flux.exe` onto PATH with:
+
+```powershell
+.\scripts\install-windows.ps1 -Voice
+```

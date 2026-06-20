@@ -238,7 +238,7 @@ pub async fn voice_transcribe(pcm_b64: String, sample_rate: f32) -> Result<Strin
         #[cfg(not(feature = "voice"))]
         {
             let _ = (pcm_b64, sample_rate);
-            Err("voice input isn't built into this binary — rebuild with `--features voice` (needs libvosk)".into())
+            Err("voice input isn't built into the running flux.exe. Reinstall with `scripts\\install-windows.ps1 -Voice`, or launch the voice-enabled `target\\release\\flux.exe` you built with `--features voice,custom-protocol`.".into())
         }
     })
     .await
