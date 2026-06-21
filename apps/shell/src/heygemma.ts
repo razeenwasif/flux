@@ -45,11 +45,15 @@ export const [voiceStatus, setVoiceStatus] = createSignal("");
 
 // The wake word + a few near-misses Vosk tends to emit for "gemma".
 const WAKE = /\b(?:hey\s+)?(?:gemma|gema|gemini|jemma|gamma)\b/i;
-const THRESH = 0.014; // RMS speech threshold
-const SILENCE_S = 0.8; // trailing silence that ends an utterance
-const MIN_SPEECH_S = 0.32; // ignore shorter blips (coughs, clicks)
+const SILENCE_S = 0.7; // trailing silence that ends an utterance
+const MIN_SPEECH_S = 0.25; // ignore shorter blips (coughs, clicks)
 const MAX_UTTER_S = 12; // hard cap on one utterance
 const WARM_MS = 9000; // follow-up window after a reply (no wake word needed)
+// Adaptive VAD: the speech threshold tracks the ambient noise floor instead of a
+// fixed value, so it works across mics/gains (a fixed bar missed quiet mics).
+const NOISE_MULT = 2.2; // speech = this many × the ambient floor …
+const MIN_ABS = 0.006; // … but never less sensitive than this absolute floor
+const PREROLL = 4; // frames kept before onset so the start of "hey" isn't clipped
 
 let onCommand: ((t: string) => Promise<string>) | null = null;
 /** AgentPanel injects how a transcript is handled (returns the text to speak). */
@@ -71,12 +75,15 @@ let utter: Float32Array[] = [];
 let gateClosed = false; // dropped while we transcribe/think/speak (no self-hearing)
 let warmUntil = 0; // timestamp: follow-ups accepted without the wake word
 let porcupineOn = false; // dedicated wake-word model is running (vs. Vosk scan)
+let noiseFloor = 0.01; // adaptive ambient RMS
+let recent: Float32Array[] = []; // pre-roll ring (frames before speech onset)
 
 function resetUtter() {
   speaking = false;
   speechLen = 0;
   silenceLen = 0;
   utter = [];
+  recent = [];
 }
 
 function rms(frame: Float32Array): number {
@@ -90,9 +97,19 @@ function onAudio(e: AudioProcessingEvent) {
   const input = e.inputBuffer.getChannelData(0);
   const frame = new Float32Array(input); // copy (the buffer is reused)
   if (porcupineOn) pushPorcupine(frame, rate); // dedicated wake model listens continuously
-  const loud = rms(frame) > THRESH;
+  const level = rms(frame);
+  if (!speaking) {
+    noiseFloor = noiseFloor * 0.97 + level * 0.03; // slowly track ambient
+    recent.push(frame);
+    if (recent.length > PREROLL) recent.shift();
+  }
+  const loud = level > Math.max(MIN_ABS, noiseFloor * NOISE_MULT);
   if (loud) {
-    if (!speaking) { speaking = true; speechLen = 0; silenceLen = 0; utter = []; }
+    if (!speaking) {
+      speaking = true; speechLen = 0; silenceLen = 0;
+      utter = recent.slice(); // prepend pre-roll so the onset isn't clipped
+      recent = [];
+    }
     utter.push(frame);
     speechLen += frame.length;
     silenceLen = 0;
@@ -170,9 +187,13 @@ async function handleUtterance(chunks: Float32Array[]) {
     // recognizes the wake phrase, so random speech rarely false-triggers.
     if (!warm) {
       if (porcupineOn) return; // Porcupine handles wake; a non-warm utterance isn't a command
+      // Cheap grammar pass first; if it misses, fall back to the full model (same
+      // path push-to-talk uses) so detection is as reliable as PTT.
       let detected = "";
-      try { detected = (await wakeTranscribe(b64, rate)).trim(); }
-      catch { try { detected = (await voiceTranscribe(b64, rate)).trim(); } catch { detected = ""; } }
+      try { detected = (await wakeTranscribe(b64, rate)).trim(); } catch { detected = ""; }
+      if (!WAKE.test(detected)) {
+        try { detected = (await voiceTranscribe(b64, rate)).trim(); } catch { /* keep */ }
+      }
       if (!WAKE.test(detected)) return; // not addressed to Gemma → drop, nothing sent anywhere
     }
 

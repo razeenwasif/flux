@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Gemma can run terminal commands** — "run <cmd>" / "execute <cmd>" / "/run <cmd>"
+  (typed or by voice) runs a shell command in the same shell the embedded terminal
+  uses (WSL on Windows), with the output shown in the panel. A safety **denylist**
+  blocks `rm` and other destructive commands (rmdir/del/dd/mkfs/format/shutdown/…,
+  matched against every token so `sudo rm`/`find -exec rm` are caught too), so a
+  mis-heard voice command can't wreck anything. `FLUX_EXEC_SHELL` overrides the
+  shell. (`exec.rs` `run_shell`.)
 - **More reliable Vosk wake word (grammar spotting)** — the default "hey Gemma"
   detection now runs a **grammar-restricted** Vosk pass that only recognizes the
   wake phrase (everything else collapses to "[unk]"), so random speech rarely
@@ -74,6 +81,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **"Hey Gemma" always-on now reliably hears the wake word** — the voice activity
+  detector used a fixed threshold that was too high for some mics (push-to-talk
+  worked because it captures regardless). It's now **adaptive** (tracks your ambient
+  noise floor) with pre-roll so the start of "hey" isn't clipped, and wake detection
+  falls back from the grammar pass to the full model — the same one push-to-talk
+  uses — so if PTT hears it, always-on does too.
 - **ElevenLabs selected voice display on reload** — the Settings dropdown now
   renders the saved voice as an explicit current option before the live
   ElevenLabs voice list loads, so it does not visually reset to "Select a voice…".
@@ -117,6 +130,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   `FLUX_AUDIOPULSE_BIN` still overrides. (`spotify.rs`.)
 
 ### Changed
+- **"launch spotify" launches AudioPulse** — Vosk often mishears "pulse", so the
+  launch intent now accepts "spotify"/"audiopulse" as well as "audiopulse".
+- **Quieter build** — the ~3.3 MB Porcupine lazy chunk no longer trips Vite's
+  500 kB chunk-size warning (`chunkSizeWarningLimit`); the eager-chrome budget is
+  still enforced by the manifest gate.
 - **Concise ElevenLabs voice preview** — the Settings **Test** phrase for
   ElevenLabs is now "Hi, I'm Gemma" so previewing a paid cloud voice stays short.
 - **ElevenLabs status messages are readable** — the Settings API-key save result

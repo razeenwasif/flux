@@ -14,6 +14,10 @@ export default defineConfig({
     // Emit a build manifest so the perf-budget gate (ADR 0001: chrome JS ≤ 50 KB
     // gzip) can separate eagerly-loaded chrome JS from lazy route chunks.
     manifest: true,
+    // The Porcupine wake-word SDK is a ~3.3 MB lazy chunk (its WASM is base64-
+    // embedded) that only loads if a user enables Porcupine — so don't warn on it.
+    // The eager-chrome budget is enforced separately by the manifest gate above.
+    chunkSizeWarningLimit: 4000,
   },
   clearScreen: false,
 });

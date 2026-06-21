@@ -15,6 +15,7 @@ pub mod cookies;
 #[cfg(feature = "crsync")]
 pub mod crsync;
 pub mod darkmode;
+pub mod exec;
 pub mod downloads;
 pub mod embedding;
 pub mod extensions;
@@ -598,6 +599,7 @@ pub fn run(intent: cli::LaunchIntent) {
             lens::agent_vision,
             voice::voice_transcribe,
             voice::wake_transcribe,
+            exec::run_shell,
             stt::stt_whisper,
             porcupine::porcupine_set_key,
             porcupine::porcupine_has_key,
