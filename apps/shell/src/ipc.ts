@@ -279,6 +279,16 @@ export const wakeTranscribe = (pcmB64: string, sampleRate: number) =>
   invoke<string>("wake_transcribe", { pcmB64, sampleRate });
 /** Run a shell command for the agent (rm + destructive commands are blocked). */
 export const runShell = (command: string) => invoke<string>("run_shell", { command });
+/** Persistent reminders (backend-scheduled; fire even with the panel closed). */
+export type ReminderRow = { id: string; text: string; due: number | null; fired?: boolean; created?: number };
+export const remindersList = () => invoke<ReminderRow[]>("reminders_list");
+export const remindersAdd = (id: string, text: string, due: number | null, created: number) =>
+  invoke<void>("reminders_add", { id, text, due, created });
+export const remindersRemove = (id: string) => invoke<void>("reminders_remove", { id });
+export const remindersImport = (items: ReminderRow[]) => invoke<void>("reminders_import", { items });
+/** Fired when a reminder is due (the scheduler emits it). */
+export const onReminderDue = (cb: (r: ReminderRow) => void): Promise<UnlistenFn> =>
+  listen<ReminderRow>("flux://reminder-due", (e) => cb(e.payload));
 /** Gemma's long-term memory (a Markdown file). Read for context / append facts. */
 export const memoryRead = () => invoke<string>("memory_read");
 export const memoryAppend = (note: string) => invoke<string>("memory_append", { note });

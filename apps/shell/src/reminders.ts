@@ -1,35 +1,34 @@
 // Reminders / to-dos Gemma surfaces proactively ("Hey Razeen, just a reminder …").
-// Stored in localStorage; dated ones fire at their time, undated ones are to-dos
-// you can list. A timer in the agent panel checks them and speaks when due.
+// Persisted + scheduled by the Rust backend (survives restarts; fires via an OS
+// notification + event even with the panel closed). This module is a thin wrapper
+// plus the natural-language time parsing.
 
-export type Reminder = { id: string; text: string; due: number | null; fired?: boolean };
+import { remindersAdd, remindersImport, remindersList, remindersRemove, type ReminderRow } from "./ipc";
 
-const KEY = "flux.reminders";
+export type Reminder = ReminderRow;
+
 let seq = 0;
 
-export function listReminders(): Reminder[] {
-  try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
+export async function addReminder(text: string, due: number | null): Promise<void> {
+  await remindersAdd(`r${Date.now()}_${seq++}`, text.trim(), due, Date.now());
 }
-function save(rs: Reminder[]) { localStorage.setItem(KEY, JSON.stringify(rs.slice(0, 200))); }
-
-export function addReminder(text: string, due: number | null): Reminder {
-  const r: Reminder = { id: `r${Date.now()}_${seq++}`, text: text.trim(), due };
-  save([...listReminders(), r]);
-  return r;
-}
-export function removeReminder(id: string) { save(listReminders().filter((r) => r.id !== id)); }
-export function markFired(id: string) { save(listReminders().map((r) => (r.id === id ? { ...r, fired: true } : r))); }
-
-/** Reminders whose time has arrived and that haven't fired yet. */
-export function dueReminders(now: number): Reminder[] {
-  return listReminders().filter((r) => r.due != null && !r.fired && r.due <= now);
-}
+export async function removeReminder(id: string): Promise<void> { await remindersRemove(id); }
 
 /** Pending (not-yet-fired) reminders, soonest first; undated to-dos last. */
-export function pendingReminders(): Reminder[] {
-  return listReminders()
-    .filter((r) => !r.fired)
-    .sort((a, b) => (a.due ?? Infinity) - (b.due ?? Infinity));
+export async function pendingReminders(): Promise<Reminder[]> {
+  const rs = await remindersList();
+  return rs.filter((r) => !r.fired).sort((a, b) => (a.due ?? Infinity) - (b.due ?? Infinity));
+}
+
+/** One-time migration of the old localStorage reminders into the backend. */
+export async function migrateReminders(): Promise<void> {
+  const raw = localStorage.getItem("flux.reminders");
+  if (!raw) return;
+  try {
+    const items = JSON.parse(raw) as Reminder[];
+    if (items.length) await remindersImport(items);
+  } catch { /* ignore */ }
+  localStorage.removeItem("flux.reminders");
 }
 
 /** A human time like "in 10 minutes" / "at 3pm" / "tomorrow at 9" → epoch ms,

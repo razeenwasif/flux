@@ -34,6 +34,8 @@ dashmap.workspace = true
 zeroize = "1"
 # Remember the window size/position across launches (open as you left it).
 tauri-plugin-window-state = "2"
+# OS notifications for due reminders (Windows toast / Linux libnotify / macOS).
+tauri-plugin-notification = "2"
 # System + process memory readout, for memory-pressure tab eviction (#45).
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 # Async waits between macro-replay steps (#67). `time` only; Tauri already pulls tokio.

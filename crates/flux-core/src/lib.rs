@@ -40,6 +40,7 @@ pub mod peek;
 pub mod permissions;
 pub mod prefetch;
 pub mod pwa;
+pub mod reminders;
 pub mod rpc;
 pub mod screenshot;
 pub mod search;
@@ -126,7 +127,12 @@ pub fn run(intent: cli::LaunchIntent) {
     tauri::Builder::default()
         // Persist + restore window size/position across launches (open as closed).
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        // OS notifications (used by the reminder scheduler).
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
+            // Background reminder scheduler — fires due reminders even with the
+            // agent panel closed (event + OS toast).
+            reminders::start_scheduler(app.handle().clone());
             let boot_started = std::time::Instant::now();
             // Single source of truth, injected into every command. Restored
             // from the persisted session so tabs survive a restart (#19).
@@ -606,6 +612,10 @@ pub fn run(intent: cli::LaunchIntent) {
             memory::memory_append,
             memory::memory_write,
             memory::memory_path_str,
+            reminders::reminders_list,
+            reminders::reminders_add,
+            reminders::reminders_remove,
+            reminders::reminders_import,
             stt::stt_whisper,
             porcupine::porcupine_set_key,
             porcupine::porcupine_has_key,

@@ -9,10 +9,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ### Added
 - **Proactive reminders & to-dos** — *"remind me to <x> in 10 minutes / at 3pm /
-  tomorrow"* schedules a reminder; when it's due Gemma shows it and says it aloud
-  (*"Hey Razeen, just popping in with a reminder — …"*). Undated ones become to-dos;
-  *"what are my reminders"* lists them. Set your name + toggle spoken reminders in
-  Settings → Integrations. (`reminders.ts`; a 30 s timer checks while the panel is open.)
+  tomorrow"* schedules a reminder; when it's due Gemma shows it, says it aloud
+  (*"Hey Razeen, just popping in — …"*), **and pops an OS notification**. Undated ones
+  become to-dos; *"what are my reminders"* lists them. Set your name + toggle spoken
+  reminders in Settings → Integrations. Now **backend-scheduled** (`reminders.rs`):
+  reminders persist in `app-data/reminders.json` (survive restarts) and a background
+  task fires them even with the agent panel closed — so the OS toast shows regardless.
+  (Cross-*launch* alarms while Flux is closed would still need an OS scheduled task.)
 - **Whisper wake word falls back to Vosk** — selecting Whisper for the wake word no
   longer silently dies on short clips / when whisper isn't configured; it falls back
   to the Vosk grammar + full-model pass so "hey Gemma" still registers.
