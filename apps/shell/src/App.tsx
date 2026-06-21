@@ -1736,8 +1736,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [omniAns, setOmniAns] = createSignal<OmniAns | null>(null);
   const [addrFocused, setAddrFocused] = createSignal(false);
   let omniGen = 0; // ignore events from a superseded request
+  let omniDismissTimer: number | undefined;
   const closeSuggest = () => { setSuggestions([]); setSelIdx(-1); };
-  const clearOmniAns = () => { omniGen++; setOmniAns(null); };
+  const clearOmniAns = () => {
+    omniGen++;
+    window.clearTimeout(omniDismissTimer);
+    setOmniAns(null);
+  };
 
   // Show the "Ask Omni" affordance for a real query (not a URL / flux:// page).
   const canAsk = () => {
@@ -1749,14 +1754,21 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const query = q.trim();
     if (!query) return;
     const gen = ++omniGen;
+    window.clearTimeout(omniDismissTimer);
     setOmniAns({ text: "", sources: [], streaming: true });
     void omniAnswer(query, (e) => {
       if (gen !== omniGen) return; // a newer ask superseded this stream
       if (e.type === "sources") setOmniAns((a) => (a ? { ...a, sources: e.sources } : a));
       else if (e.type === "token") setOmniAns((a) => (a ? { ...a, text: a.text + e.text } : a));
-      else if (e.type === "done") setOmniAns((a) => (a ? { ...a, streaming: false } : a));
+      else if (e.type === "done") {
+        setOmniAns((a) => (a ? { ...a, streaming: false } : a));
+        omniDismissTimer = window.setTimeout(() => { if (gen === omniGen) clearOmniAns(); }, 9000);
+      }
     }).catch(() => {
-      if (gen === omniGen) setOmniAns((a) => (a ? { ...a, streaming: false } : a));
+      if (gen === omniGen) {
+        setOmniAns((a) => (a ? { ...a, streaming: false } : a));
+        omniDismissTimer = window.setTimeout(() => { if (gen === omniGen) clearOmniAns(); }, 5000);
+      }
     });
   };
 
@@ -1931,6 +1943,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
                     <div class="omni-answer-head">
                       <span class="spark">✦</span> Omni answer
                       <Show when={a().streaming}><span class="omni-answer-dot" /></Show>
+                      <button
+                        type="button"
+                        class="omni-answer-close"
+                        title="Dismiss Omni answer"
+                        onMouseDown={(e) => { e.preventDefault(); clearOmniAns(); }}
+                      >
+                        ×
+                      </button>
                     </div>
                     <div class="omni-answer-body">
                       <Show when={a().text} fallback={a().streaming ? "Thinking…" : "No answer."}>

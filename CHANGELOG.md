@@ -89,6 +89,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **Omni answer popup dismissal** — completed Omni answer cards now auto-dismiss
+  after a short delay and include a close button, so they no longer sit over the
+  pinned tabs area indefinitely.
 - **Music with no active device auto-starts AudioPulse** — asking to play something
   when no Spotify Connect device is online now **launches AudioPulse for you** (idempotent)
   and tells you to try again in a few seconds, instead of just erroring. (`spotify.rs`.)
