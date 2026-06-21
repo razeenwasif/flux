@@ -514,6 +514,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
               <select class="shields-select" style={{ "max-width": "240px" }} value={micSel()} onChange={(e) => pickMic(e.currentTarget.value)}>
                 <option value="">System default</option>
+                <Show when={micSel() && !micList().some((m) => m.id === micSel())}>
+                  <option value={micSel()}>Saved microphone</option>
+                </Show>
                 <For each={micList()}>{(m) => <option value={m.id}>{m.label}</option>}</For>
               </select>
               <button class="set-link-btn" onClick={refreshMics}>↻</button>
