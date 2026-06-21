@@ -20,7 +20,7 @@ import { createSignal } from "solid-js";
 
 import { sttWhisper, voiceTranscribe, wakeTranscribe } from "./ipc";
 import { pushAudio as pushPorcupine, startPorcupine, stopPorcupine } from "./porcupine";
-import { speak, stopSpeaking } from "./speak";
+import { speak, speaking as ttsSpeaking, stopSpeaking } from "./speak";
 
 const ENABLED_KEY = "flux.voice.heygemma";
 // Recognition engine for the command utterance: "vosk" (fast) or "whisper" (more
@@ -28,8 +28,8 @@ const ENABLED_KEY = "flux.voice.heygemma";
 const STT_KEY = "flux.voice.stt";
 export const sttEngine = (): string => localStorage.getItem(STT_KEY) || "vosk";
 export const setSttEngine = (e: string) => localStorage.setItem(STT_KEY, e);
-// Wake-word engine: "vosk" (transcribe-and-match, zero setup) or "porcupine"
-// (dedicated model, needs an access key + .ppn/.pv files).
+// Wake-word engine: "vosk" (grammar spotting, zero setup), "whisper" (most
+// accurate, slower — runs whisper on each utterance), or "porcupine".
 const WAKE_KEY = "flux.voice.wake";
 export const wakeEngine = (): string => localStorage.getItem(WAKE_KEY) || "vosk";
 export const setWakeEngine = (e: string) => localStorage.setItem(WAKE_KEY, e);
@@ -45,15 +45,21 @@ export const [voiceStatus, setVoiceStatus] = createSignal("");
 
 // The wake word + a few near-misses Vosk tends to emit for "gemma".
 const WAKE = /\b(?:hey\s+)?(?:gemma|gema|gemini|jemma|gamma)\b/i;
-const SILENCE_S = 0.7; // trailing silence that ends an utterance
-const MIN_SPEECH_S = 0.25; // ignore shorter blips (coughs, clicks)
+const SILENCE_S = 0.8; // trailing silence that ends an utterance (longer = less cut-off)
+const MIN_SPEECH_S = 0.2; // ignore shorter blips (coughs, clicks)
 const MAX_UTTER_S = 12; // hard cap on one utterance
 const WARM_MS = 9000; // follow-up window after a reply (no wake word needed)
 // Adaptive VAD: the speech threshold tracks the ambient noise floor instead of a
 // fixed value, so it works across mics/gains (a fixed bar missed quiet mics).
-const NOISE_MULT = 1.7; // speech = this many × the ambient floor … (lower = more sensitive)
-const MIN_ABS = 0.004; // … but never less sensitive than this absolute floor
-const PREROLL = 6; // frames kept before onset so the start of "hey" isn't clipped
+const NOISE_MULT = 1.5; // speech = this many × the ambient floor … (lower = more sensitive)
+const MIN_ABS = 0.003; // … but never less sensitive than this absolute floor
+const PREROLL = 8; // frames kept before onset so the start of "hey" isn't clipped
+// Barge-in: while Gemma is speaking, clearly-louder sustained speech stops her.
+// Higher bar than normal VAD so residual TTS (echo-cancelled) doesn't self-trigger.
+const BARGE_MULT = 4; // barge speech = this many × the ambient floor …
+const BARGE_ABS = 0.018; // … or at least this absolute level
+const BARGE_S = 0.22; // sustained for this long before cutting her off
+let bargeLen = 0;
 
 let onCommand: ((t: string) => Promise<string>) | null = null;
 /** AgentPanel injects how a transcript is handled (returns the text to speak). */
@@ -93,9 +99,21 @@ function rms(frame: Float32Array): number {
 }
 
 function onAudio(e: AudioProcessingEvent) {
-  if (gateClosed) return;
   const input = e.inputBuffer.getChannelData(0);
   const frame = new Float32Array(input); // copy (the buffer is reused)
+  // Barge-in: while Gemma speaks, don't segment her own voice — instead watch for
+  // the user talking over her, and cut her off if they do.
+  if (ttsSpeaking()) {
+    if (rms(frame) > Math.max(BARGE_ABS, noiseFloor * BARGE_MULT)) {
+      bargeLen += frame.length;
+      if (bargeLen > rate * BARGE_S) { bargeLen = 0; warmUntil = Date.now() + WARM_MS; stopSpeaking(); }
+    } else {
+      bargeLen = Math.max(0, bargeLen - frame.length);
+    }
+    return;
+  }
+  bargeLen = 0;
+  if (gateClosed) return;
   if (porcupineOn) pushPorcupine(frame, rate); // dedicated wake model listens continuously
   const level = rms(frame);
   if (!speaking) {
@@ -187,12 +205,17 @@ async function handleUtterance(chunks: Float32Array[]) {
     // recognizes the wake phrase, so random speech rarely false-triggers.
     if (!warm) {
       if (porcupineOn) return; // Porcupine handles wake; a non-warm utterance isn't a command
-      // Cheap grammar pass first; if it misses, fall back to the full model (same
-      // path push-to-talk uses) so detection is as reliable as PTT.
       let detected = "";
-      try { detected = (await wakeTranscribe(b64, rate)).trim(); } catch { detected = ""; }
-      if (!WAKE.test(detected)) {
-        try { detected = (await voiceTranscribe(b64, rate)).trim(); } catch { /* keep */ }
+      if (wakeEngine() === "whisper") {
+        // Most accurate, slower — transcribe each utterance with whisper.
+        try { detected = (await sttWhisper(b64, rate)).trim(); } catch { detected = ""; }
+      } else {
+        // Cheap grammar pass first; if it misses, fall back to the full Vosk model
+        // (same path push-to-talk uses) so detection is as reliable as PTT.
+        try { detected = (await wakeTranscribe(b64, rate)).trim(); } catch { detected = ""; }
+        if (!WAKE.test(detected)) {
+          try { detected = (await voiceTranscribe(b64, rate)).trim(); } catch { /* keep */ }
+        }
       }
       if (!WAKE.test(detected)) return; // not addressed to Gemma → drop, nothing sent anywhere
     }
@@ -231,7 +254,9 @@ async function handleUtterance(chunks: Float32Array[]) {
 export async function startConversation(): Promise<boolean> {
   if (running) return true;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    // autoGainControl normalizes a quiet mic (helps VAD + recognition); echo
+    // cancellation keeps Gemma's own voice out of the mic for barge-in.
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   } catch {
     setVoiceStatus("mic denied");
     return false;
