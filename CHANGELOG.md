@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Terminal context ("read the terminal")** — *"read the terminal"* / *"what's in my
+  terminal"* pulls the active Terminal tab's recent scrollback into Gemma's context
+  (a chip like a file), so she can debug a failed command / read build output you ran
+  yourself — not just commands she runs. (`terminals.ts` xterm-buffer registry.)
 - **File context ("read this file")** — *"read src/foo.rs"* / *"look at <path>"* pulls
   a file into Gemma's context so she can answer about it without copy-paste, and it
   **stays for follow-ups** (chips above the input show what's loaded; ✕ or "forget the

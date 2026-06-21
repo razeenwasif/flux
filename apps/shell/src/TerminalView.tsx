@@ -12,6 +12,7 @@
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import { Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
+import { registerTerminal, setActiveTerminal, unregisterTerminal } from "./terminals";
 import LiquidBackground from "./LiquidBackground";
 
 /** Velvet-matched 16-color palette + teal cursor (theme.css alignment). */
@@ -49,6 +50,7 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
   // re-measure now that it has a size. (onMount handles the first show.)
   createEffect(() => {
     if (props.active && termRef) {
+      setActiveTerminal(props.session); // agent reads the active terminal's buffer
       termRef.focus();
       requestAnimationFrame(() => fitRef?.fit());
     }
@@ -94,6 +96,7 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
     fit.fit();
     termRef = term; // expose to the active-tab effect (keep-alive re-fit/focus)
     fitRef = fit;
+    registerTerminal(props.session, term); // let the agent read this terminal's buffer
 
     // Surface shell exit / spawn failure in the terminal itself, so a broken
     // shell shows a message instead of a silent blank pane.
@@ -130,6 +133,7 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
       ro.disconnect();
       inputSub.dispose();
       unExit();
+      unregisterTerminal(props.session);
       void terminalKill(props.session);
       term.dispose();
     });

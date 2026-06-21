@@ -48,6 +48,7 @@ import { activeId, activeWorkspace, agentModelName, filesPanelOpen, openTab, pen
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 import { micConstraints } from "./mic";
+import { activeTerminalText } from "./terminals";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
@@ -466,6 +467,7 @@ const AgentPanel: Component = () => {
     "- Long-term memory: \"remember that <x>\" saves a fact you'll recall in future chats; \"what do you remember\".\n" +
     "- Run terminal commands (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command.\n" +
     "- Read files into context: \"read src/foo.rs\" / \"look at <path>\" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); \"forget the files\" clears. You can also drag a file from the explorer onto the panel.\n" +
+    "- Read the terminal: \"read the terminal\" / \"what's in my terminal\" pulls the active Terminal tab's recent output into context (great for debugging a failed command).\n" +
     "- System awareness: \"system status\" / \"how's my CPU\" / \"what's using memory\" → CPU%, RAM, top processes.\n" +
     "- Web search: \"search <x>\" / \"open a new tab and search <x>\".\n" +
     "- Music (AudioPulse/Spotify): \"play <song>\", \"play my liked songs\", \"shuffle on\", \"skip\", \"pause\", \"launch spotify\".\n" +
@@ -527,6 +529,20 @@ const AgentPanel: Component = () => {
     }
   };
   const clearCtxFiles = () => setCtxFiles([]);
+
+  // "read the terminal" → pull the active terminal's scrollback into context.
+  const TERM_RE = /^(?:read|look at|show me|check|grab|capture|see)\s+(?:the\s+|my\s+)?terminal(?:\s+(?:output|buffer|scrollback|window))?\s*$|^what(?:'?s| does| is)?\s*(?:in|on)?\s*(?:the\s+|my\s+)?terminal(?:\s+say(?:ing)?)?\s*\??$|^terminal\s+(?:output|contents?)\s*$/i;
+  const runReadTerminal = (): string => {
+    const t = activeTerminalText();
+    if (!t || !t.text.trim()) {
+      setFeed((f) => [...f, { role: "error", text: "No terminal output to read — open a Terminal tab and run something first." }]);
+      return "There's no terminal output yet.";
+    }
+    setCtxFiles((c) => [...c.filter((f) => f.path !== "terminal"), { path: "terminal", name: "terminal output", content: t.text }].slice(-8));
+    const lines = t.text.split("\n").length;
+    setFeed((f) => [...f, { role: "action", text: `🖥 Read your terminal (${lines} lines) — it's in context now.` }]);
+    return "Got your terminal output — what's up with it?";
+  };
   const refreshMemory = () => void memoryRead().then(setMemText).catch(() => {});
   const REMEMBER_RE = /^(?:\/remember|remember|note|make a note|keep in mind|save (?:to memory|this))\b[:,]?\s+(?:that\s+|to\s+)?(.+)/i;
   const RECALL_RE = /^(?:\/memory|what do you remember|show (?:me )?(?:your |the )?memory|what'?s in your memory)\b/i;
@@ -664,6 +680,7 @@ const AgentPanel: Component = () => {
     if (musicReply !== null) return musicReply;
     const vs = stripped.match(SEARCH_RE);
     if (vs?.[1]) return await runSearch(vs[1]);
+    if (TERM_RE.test(stripped)) return runReadTerminal();
     const vrf = stripped.match(FILE_RE);
     if (vrf?.[1]) return await runReadFile(vrf[1]);
     const rm = stripped.match(REMEMBER_RE);
@@ -761,6 +778,8 @@ const AgentPanel: Component = () => {
       // "search …" / "open a new tab and search …" → open a browser tab.
       const search = pc.match(SEARCH_RE);
       if (search?.[1]) { await runSearch(search[1]); return; }
+      // "read the terminal" → pull its scrollback into context (before the file read).
+      if (TERM_RE.test(pc)) { runReadTerminal(); return; }
       // "read <file>" → pull a file into Gemma's context; "forget the files" clears.
       const rf = pc.match(FILE_RE);
       if (rf?.[1]) { await runReadFile(rf[1]); return; }
