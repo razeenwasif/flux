@@ -20,7 +20,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   Ask *"list all the files in my home directory"* and the local model translates it
   to a command (`ls ~`) and proposes it with the same Run/Cancel approval card.
   Gated to machine/file-type requests so normal chat isn't slowed by an extra
-  round-trip. (`agent_shell_plan` → `AgentPlanner::plan_shell`.)
+  round-trip — Settings → Integrations has a **"Translate every message to a
+  command"** toggle to instead try it on every message. (`agent_shell_plan` →
+  `AgentPlanner::plan_shell`.)
 - **More reliable Vosk wake word (grammar spotting)** — the default "hey Gemma"
   detection now runs a **grammar-restricted** Vosk pass that only recognizes the
   wake phrase (everything else collapses to "[unk]"), so random speech rarely

@@ -149,6 +149,13 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const pickTts = (e: TtsEngine) => { setTtsEngine(e); setTtsEngineSel(e); };
   const [sttSel, setSttSel] = createSignal(sttEngine());
   const pickStt = (e: string) => { setSttEngine(e); setSttSel(e); };
+  // Translate every chat message to a command vs. only machine/file-type ones.
+  const [shellAlways, setShellAlways] = createSignal(localStorage.getItem("flux.shellplan.always") === "1");
+  const toggleShellAlways = () => {
+    const v = !shellAlways();
+    localStorage.setItem("flux.shellplan.always", v ? "1" : "0");
+    setShellAlways(v);
+  };
   // Wake word (Porcupine).
   const [wakeSel, setWakeSel] = createSignal(wakeEngine());
   const pickWake = (e: string) => { setWakeEngine(e); setWakeSel(e); };
@@ -458,6 +465,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Row label="Hey Gemma (always-on voice)" hint="Listen for “hey Gemma”, then converse by voice. Everything is local — speech-to-text (Vosk), the reply (Ollama), and the spoken voice never leave your device; audio before the wake word is discarded, never stored. Toggle it from the mic button in the agent panel. Default off.">
             <Toggle on={heyGemmaEnabled()} onClick={() => void setHeyGemmaEnabled(!heyGemmaEnabled())} />
+          </Row>
+          <Row label="Translate every message to a command" hint="Off (default): only chat messages that look like they're about your machine/files become terminal commands (proposed for approval) — keeps normal chat fast. On: Gemma tries to turn ANY message into a command, which adds a model round-trip to every message. Either way, “run <cmd>” always works and nothing executes without your approval.">
+            <Toggle on={shellAlways()} onClick={toggleShellAlways} />
           </Row>
           <Row label="Recognition (STT)" hint="How your spoken command is transcribed. Vosk is instant. Whisper (whisper.cpp) is much more accurate but adds ~1–3s per command — set FLUX_WHISPER_MODEL to a ggml model (e.g. ggml-base.en.bin); falls back to Vosk if whisper isn't installed. Both are fully local.">
             <select class="shields-select" value={sttSel()} onChange={(e) => pickStt(e.currentTarget.value)}>
