@@ -213,6 +213,20 @@ string      ::= "\"" ([^"\\] | "\\" .)* "\""
 ws          ::= [ \t\n]*
 "#;
 
+/// One surgical file edit: replace the first occurrence of `search` with `replace`.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FileEdit {
+    pub search: String,
+    pub replace: String,
+}
+
+/// A planned set of edits the frontend applies after the user approves the diff.
+#[derive(Serialize, Deserialize)]
+pub struct EditPlan {
+    pub summary: String,
+    pub edits: Vec<FileEdit>,
+}
+
 /// Planner: owns a backend, turns (user prompt, page text) into an action.
 pub struct AgentPlanner {
     backend: Box<dyn Inference>,
@@ -287,6 +301,43 @@ impl AgentPlanner {
         let v: serde_json::Value = serde_json::from_str(raw.trim())?;
         let cmd = v.get("command").and_then(|c| c.as_str()).unwrap_or("").trim().to_string();
         Ok(if cmd.is_empty() { None } else { Some(cmd) })
+    }
+
+    /// Plan a surgical edit to a file as search/replace pairs the frontend applies
+    /// after the user approves a diff. The model copies exact snippets from the file,
+    /// so we don't rely on it regenerating the whole thing (a small model would drop
+    /// parts). Empty `edits` (with a reason in `summary`) means "couldn't do it".
+    pub fn plan_edit(&self, path: &str, content: &str, instruction: &str) -> Result<EditPlan, AgentError> {
+        const BUDGET: usize = 24 * 1024;
+        let body = truncate_utf8(content, BUDGET);
+        let prompt = format!(
+            "You are a precise code editor working on the file `{path}`. Apply this change:\n\
+             {instruction}\n\n\
+             Respond with JSON: {{\"summary\":\"<one line of what you changed>\",\"edits\":\
+             [{{\"search\":\"<exact snippet copied verbatim from the file>\",\"replace\":\"<replacement>\"}}]}}.\n\
+             Rules: each `search` MUST be an exact substring of the file below — copy it character-for-character, \
+             including indentation, and include enough surrounding lines to be unique. Make minimal, surgical \
+             edits (don't rewrite the whole file). If the change isn't possible, return \"edits\":[] and explain \
+             in summary.\n\n\
+             FILE `{path}`:\n{body}"
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "summary": { "type": "string" },
+                "edits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": { "search": { "type": "string" }, "replace": { "type": "string" } },
+                        "required": ["search", "replace"]
+                    }
+                }
+            },
+            "required": ["summary", "edits"]
+        });
+        let raw = self.backend.complete(&prompt, Some(&schema))?;
+        Ok(serde_json::from_str(raw.trim())?)
     }
 
     /// Plan the **single next step** of a multi-step task (BACKLOG #A). The agent

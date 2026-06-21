@@ -729,3 +729,52 @@ fn read_text_raw(p: &str) -> Result<String, String> {
     };
     std::fs::read_to_string(&expanded).map_err(|e| format!("can't read {p}: {e}"))
 }
+
+/// Write a text file (overwrites). WSL-aware on Windows for unix paths. Only called
+/// after the user approves an edit diff in the agent panel.
+#[tauri::command]
+pub async fn write_text_file(path: String, content: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = path.trim();
+        if p.is_empty() {
+            return Err("no file path given".into());
+        }
+        write_text_raw(p, &content)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(windows)]
+fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
+    use std::io::Write as _;
+    if p.starts_with('/') || p.starts_with('~') {
+        let lin = if let Some(rest) = p.strip_prefix("~/") {
+            format!("$HOME/{rest}")
+        } else if p == "~" {
+            "$HOME".to_string()
+        } else {
+            p.to_string()
+        };
+        let cmd = format!("cat > \"{}\"", lin.replace('"', "\\\""));
+        let mut child = std::process::Command::new("wsl.exe")
+            .args(["--", "bash", "-lc", &cmd])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("couldn't write {p} via WSL: {e}"))?;
+        child.stdin.take().ok_or("no stdin")?.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+        let status = child.wait().map_err(|e| e.to_string())?;
+        return if status.success() { Ok(()) } else { Err(format!("WSL write of {p} failed")) };
+    }
+    std::fs::write(p, content).map_err(|e| format!("can't write {p}: {e}"))
+}
+
+#[cfg(not(windows))]
+fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
+    let expanded = if let Some(rest) = p.strip_prefix("~/") {
+        std::env::var("HOME").map(|h| format!("{h}/{rest}")).unwrap_or_else(|_| p.to_string())
+    } else {
+        p.to_string()
+    };
+    std::fs::write(&expanded, content).map_err(|e| format!("can't write {p}: {e}"))
+}

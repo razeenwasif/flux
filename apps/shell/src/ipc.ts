@@ -281,6 +281,12 @@ export const wakeTranscribe = (pcmB64: string, sampleRate: number) =>
 export const runShell = (command: string) => invoke<string>("run_shell", { command });
 /** Read a text file (WSL-aware) into the agent's context. */
 export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
+/** Write a text file (WSL-aware) — only after the user approves an edit. */
+export const writeTextFile = (path: string, content: string) => invoke<void>("write_text_file", { path, content });
+export type EditPlan = { summary: string; edits: { search: string; replace: string }[] };
+/** Plan a file edit (search/replace) from an instruction; the UI diffs + approves. */
+export const agentEditPlan = (path: string, content: string, instruction: string) =>
+  invoke<EditPlan>("agent_edit_plan", { path, content, instruction });
 /** Persistent reminders (backend-scheduled; fire even with the panel closed). */
 export type ReminderRow = { id: string; text: string; due: number | null; fired?: boolean; created?: number };
 export const remindersList = () => invoke<ReminderRow[]>("reminders_list");

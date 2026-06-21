@@ -13,6 +13,8 @@ import {
   agentShellPlan,
   runShell,
   readTextFile,
+  writeTextFile,
+  agentEditPlan,
   memoryRead,
   memoryAppend,
   onReminderDue,
@@ -54,7 +56,7 @@ import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
-type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string };
+type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string; editPath?: string; editNew?: string; editDiff?: string };
 
 const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
@@ -479,6 +481,7 @@ const AgentPanel: Component = () => {
     "- Run terminal commands (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command.\n" +
     "- Read files into context: \"read src/foo.rs\" / \"look at <path>\" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); \"forget the files\" clears. You can also drag a file from the explorer onto the panel.\n" +
     "- Read the terminal: \"read the terminal\" / \"what's in my terminal\" pulls the active Terminal tab's recent output into context (great for debugging a failed command).\n" +
+    "- Edit files (with approval): \"edit src/foo.rs: rename X to Y\" / (after reading a file) \"change it to …\" — you propose a diff; nothing is written until the user taps Apply. Make surgical edits.\n" +
     "- Inspect Flux's own UI (for debugging it): \"app state\" (UI snapshot), \"css variables\" / \"what's --flux-teal\", \"inspect <css selector>\" (computed style + visibility — e.g. why an element is hidden or a var isn't applying).\n" +
     "- System awareness: \"system status\" / \"how's my CPU\" / \"what's using memory\" → CPU%, RAM, top processes.\n" +
     "- Web search: \"search <x>\" / \"open a new tab and search <x>\".\n" +
@@ -541,6 +544,70 @@ const AgentPanel: Component = () => {
     }
   };
   const clearCtxFiles = () => setCtxFiles([]);
+  const lastCtxFile = () =>
+    [...ctxFiles()].reverse().find((f) => !["terminal", "css-vars", "app-state"].includes(f.path) && !f.path.startsWith("inspect:"));
+
+  // "edit <file>: <instruction>" / "change it to …" → propose search/replace edits,
+  // show a diff, and write only on approval (apply happens client-side).
+  const EDIT_RE = /^(?:\/edit|edit|modify|change|update|patch|fix|refactor)\s+(~?[\w./\\@-]+\.[a-z0-9]{1,8})\s*[:,–-]?\s*([\s\S]+)/i;
+  const EDIT_IT_RE = /^(?:\/edit|edit|modify|change|update|patch|apply|fix|refactor)\s+(?:it|this(?:\s+file)?|that|the\s+file)\b[:,–-]?\s*([\s\S]+)/i;
+  const applyEdits = (content: string, edits: { search: string; replace: string }[]): { out: string; failed: string[] } => {
+    let out = content;
+    const failed: string[] = [];
+    for (const e of edits) {
+      if (!e.search) continue;
+      if (out.includes(e.search)) { out = out.replace(e.search, e.replace); continue; }
+      const s2 = e.search.replace(/\r\n/g, "\n");
+      const n = out.replace(/\r\n/g, "\n");
+      if (n.includes(s2)) { out = n.replace(s2, e.replace.replace(/\r\n/g, "\n")); continue; }
+      failed.push((e.search.split("\n")[0] || "").slice(0, 50));
+    }
+    return { out, failed };
+  };
+  const editDiffText = (edits: { search: string; replace: string }[]): string =>
+    edits.map((e, i) =>
+      `@@ change ${i + 1} @@\n${e.search.split("\n").map((l) => `- ${l}`).join("\n")}\n${e.replace.split("\n").map((l) => `+ ${l}`).join("\n")}`,
+    ).join("\n\n");
+  const runEdit = async (filePath: string, instruction: string): Promise<string> => {
+    const path = filePath.trim().replace(/^["']|["']$/g, "");
+    if (!path || !instruction.trim()) return "";
+    setBusy(true);
+    try {
+      const inCtx = ctxFiles().find((f) => f.path === path);
+      const content = inCtx ? inCtx.content : await readTextFile(path);
+      const plan = await agentEditPlan(path, content, instruction.trim());
+      if (!plan.edits.length) {
+        setFeed((f) => [...f, { role: "assistant", text: `I couldn't make that edit: ${plan.summary}` }]);
+        return plan.summary;
+      }
+      const { out, failed } = applyEdits(content, plan.edits);
+      if (out === content) {
+        setFeed((f) => [...f, { role: "error", text: `Couldn't find the text to change in ${path}${failed.length ? ` (missed: ${failed.join("; ")})` : ""}. Try “read ${path}” first so I'm looking at the current version.` }]);
+        return "Couldn't apply the edit.";
+      }
+      const diff = editDiffText(plan.edits) + (failed.length ? `\n\n⚠ ${failed.length} edit(s) didn't match the file and were skipped.` : "");
+      setFeed((f) => [...f, { role: "edit", text: `✏ ${path} — ${plan.summary}`, editPath: path, editNew: out, editDiff: diff, pending: true }]);
+      return `Drafted an edit to ${path.split(/[/\\]/).pop()} — review the diff and tap Apply.`;
+    } catch (e) {
+      const m = String(e);
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const approveEdit = async (idx: number, path: string, content: string) => {
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
+    try {
+      await writeTextFile(path, content);
+      setCtxFiles((c) => c.map((f) => (f.path === path ? { ...f, content } : f)));
+      setFeed((f) => [...f, { role: "action", text: `✓ Wrote ${path.split(/[/\\]/).pop()}.` }]);
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+    }
+  };
+  const cancelEdit = (idx: number) =>
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)));
 
   // "read the terminal" → pull the active terminal's scrollback into context.
   const TERM_RE = /^(?:read|look at|show me|check|grab|capture|see)\s+(?:the\s+|my\s+)?terminal(?:\s+(?:output|buffer|scrollback|window))?\s*$|^what(?:'?s| does| is)?\s*(?:in|on)?\s*(?:the\s+|my\s+)?terminal(?:\s+say(?:ing)?)?\s*\??$|^terminal\s+(?:output|contents?)\s*$/i;
@@ -718,6 +785,8 @@ const AgentPanel: Component = () => {
     if (musicReply !== null) return musicReply;
     const vs = stripped.match(SEARCH_RE);
     if (vs?.[1]) return await runSearch(vs[1]);
+    { const me = stripped.match(EDIT_RE); if (me?.[1] && me[2]) return await runEdit(me[1], me[2]); }
+    { const mei = stripped.match(EDIT_IT_RE); if (mei?.[1]) { const lf = lastCtxFile(); if (lf) return await runEdit(lf.path, mei[1]); } }
     if (TERM_RE.test(stripped)) return runReadTerminal();
     const vrf = stripped.match(FILE_RE);
     if (vrf?.[1]) return await runReadFile(vrf[1]);
@@ -819,6 +888,9 @@ const AgentPanel: Component = () => {
       // "search …" / "open a new tab and search …" → open a browser tab.
       const search = pc.match(SEARCH_RE);
       if (search?.[1]) { await runSearch(search[1]); return; }
+      // "edit <file>: <instruction>" / "change it to …" → propose an edit (diff + approve).
+      { const me = pc.match(EDIT_RE); if (me?.[1] && me[2]) { await runEdit(me[1], me[2]); return; } }
+      { const mei = pc.match(EDIT_IT_RE); if (mei?.[1]) { const lf = lastCtxFile(); if (lf) { await runEdit(lf.path, mei[1]); return; } } }
       // "read the terminal" → pull its scrollback into context (before the file read).
       if (TERM_RE.test(pc)) { runReadTerminal(); return; }
       // "read <file>" → pull a file into Gemma's context; "forget the files" clears.
@@ -1097,6 +1169,19 @@ const AgentPanel: Component = () => {
                       <button class="agent-approve-yes" onClick={() => void approveShell(i(), item.shellCmd!)}>▶ Run</button>
                       <button class="agent-approve-no" onClick={() => cancelShell(i())}>Cancel</button>
                     </div>
+                  </Show>
+                  <Show when={item.role === "edit" && item.editDiff}>
+                    <div class="agent-diff">
+                      <For each={item.editDiff!.split("\n")}>
+                        {(ln) => <div classList={{ "diff-add": ln.startsWith("+ "), "diff-del": ln.startsWith("- "), "diff-hunk": ln.startsWith("@@") }}>{ln || " "}</div>}
+                      </For>
+                    </div>
+                    <Show when={item.pending && item.editPath && item.editNew !== undefined}>
+                      <div class="agent-approve">
+                        <button class="agent-approve-yes" onClick={() => void approveEdit(i(), item.editPath!, item.editNew!)}>✓ Apply</button>
+                        <button class="agent-approve-no" onClick={() => cancelEdit(i())}>Cancel</button>
+                      </div>
+                    </Show>
                   </Show>
                 </div>
               )}

@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Gemma edits files (with approval)** — *"edit src/foo.rs: rename X to Y"* (or, after
+  reading a file, *"change it to …"*) → she proposes surgical search/replace edits, you
+  see a **colored diff**, and **nothing is written until you tap ✓ Apply**. WSL-aware
+  writes; applied edits update the file context. Completes read → reason → change.
+  (`plan_edit` + `write_text_file`.)
 - **UI introspection (debug Flux itself)** — *"app state"* snapshots the live UI
   (tabs, workspace, panels, overlays, appearance, agent model); *"css variables"* /
   *"what's --flux-teal"* dumps the theme vars; *"inspect <css selector>"* reports an

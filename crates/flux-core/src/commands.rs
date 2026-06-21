@@ -617,6 +617,17 @@ pub async fn agent_shell_plan(prompt: String) -> Result<Option<String>, String> 
     .map_err(|e| e.to_string())?
 }
 
+/// Plan a file edit (search/replace pairs) from a natural-language instruction. The
+/// frontend applies the edits, shows a diff, and writes only after the user approves.
+#[tauri::command]
+pub async fn agent_edit_plan(path: String, content: String, instruction: String) -> Result<flux_agent::EditPlan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().plan_edit(&path, &content, &instruction).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Streaming chat (BACKLOG #82): same as [`agent_chat`] but relays each token to
 /// the frontend over `on_token` as the model generates it, so the sidebar renders
 /// the reply live. Resolves when the completion ends.
