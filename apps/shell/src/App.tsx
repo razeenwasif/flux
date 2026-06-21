@@ -53,6 +53,7 @@ import {
   onClustersUpdated,
   onExtOpenTab,
   onFindResult,
+  onFullscreenChanged,
   onShortcut,
   onOpenUrl,
   onTabLoaded,
@@ -476,6 +477,14 @@ const App: Component = () => {
     onCleanup(() => { window.removeEventListener("resize", onWinResize); clearTimeout(busyTimer); });
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     const unShortcut = await onShortcut((a) => dispatch(a));
+    // A page left HTML5 fullscreen (video): wry restored the webview to fill the
+    // window, covering the chrome. Re-tile to put it back in the content card —
+    // twice, since wry's restore can land just after the event fires.
+    const unFullscreen = await onFullscreenChanged(() => {
+      forceRelayout();
+      setTimeout(forceRelayout, 120);
+      setTimeout(forceRelayout, 400);
+    });
     // Page-initiated new windows (window.open / target="_blank" / modified
     // click) → open as a Flux tab; background tabs don't steal focus.
     const unOpenUrl = await onOpenUrl((url, background) => {
@@ -609,6 +618,7 @@ const App: Component = () => {
       unClusters();
       unExtOpen();
       unShortcut();
+      unFullscreen();
       unOpenUrl();
       unFind();
       unLoaded();

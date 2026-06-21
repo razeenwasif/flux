@@ -220,6 +220,7 @@ pub async fn webview_open(
     crate::permissions::install(&app, &child);
     crate::downloads::install(&app, &child);
     install_tab_accelerators(&app, &child); // Ctrl+Tab cycling (#18)
+    install_fullscreen_relayout(&app, &child); // re-tile after video fullscreen exit
     tracing::info!(target: "flux::webview", tab_id, %url, x, y, width, height, scale, "opened tab webview");
     Ok(())
 }
@@ -499,6 +500,7 @@ pub async fn panel_open(
     crate::tracking::install(&app, &child);
     crate::permissions::install(&app, &child);
     install_tab_accelerators(&app, &child);
+    install_fullscreen_relayout(&app, &child); // re-tile after video fullscreen exit
     Ok(())
 }
 
@@ -602,6 +604,50 @@ fn install_tab_accelerators(app: &AppHandle, wv: &tauri::webview::Webview) {
             }));
             let mut token = 0i64;
             let _ = controller.add_AcceleratorKeyPressed(&handler, &mut token);
+        });
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, wv);
+    }
+}
+
+/// When a page leaves HTML5 fullscreen (e.g. a video player), WebView2 (via wry)
+/// restores the child webview to fill the *parent window* — which covers Flux's
+/// chrome (bookmark bar / footer), because Flux tiles webview bounds itself rather
+/// than letting wry own them. No DOM event in the chrome's own webview observes
+/// this (the fullscreen happens in a separate page webview), so we hook the page
+/// webview's `ContainsFullScreenElementChanged` and, on *exit only* (re-tiling on
+/// enter would shrink the video back out of fullscreen), emit
+/// `flux://fullscreen-changed` — the frontend re-applies the tiled bounds. No-op
+/// off Windows.
+fn install_fullscreen_relayout(app: &AppHandle, wv: &tauri::webview::Webview) {
+    #[cfg(windows)]
+    {
+        let app = app.clone();
+        let _ = wv.with_webview(move |platform| unsafe {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            use tauri::Emitter;
+            use webview2_com::ContainsFullScreenElementChangedEventHandler;
+
+            let controller = platform.controller();
+            let Ok(core) = controller.CoreWebView2() else { return };
+            // The event strictly *alternates* (no-fullscreen → fullscreen → …), so we
+            // track state with a flip instead of querying ContainsFullScreenElement —
+            // that getter wants webview2-com-sys's own `windows_core::BOOL`, a
+            // different version from the `windows` crate this file otherwise uses.
+            // Only act when fullscreen has just been *left*; re-tiling on enter would
+            // shrink the video straight back out of fullscreen.
+            let is_full = AtomicBool::new(false);
+            let handler = ContainsFullScreenElementChangedEventHandler::create(Box::new(move |_sender, _args| {
+                let now_full = !is_full.fetch_xor(true, Ordering::Relaxed);
+                if !now_full {
+                    let _ = app.emit("flux://fullscreen-changed", false);
+                }
+                Ok(())
+            }));
+            let mut token = 0i64;
+            let _ = core.add_ContainsFullScreenElementChanged(&handler, &mut token);
         });
     }
     #[cfg(not(windows))]

@@ -27,9 +27,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ### Fixed
 - **Chrome vanishing after fullscreen video** — exiting an HTML5 video fullscreen left
-  the native page webview oversized, covering the bookmark bar / sidebar footer (no
-  resize fires to re-tile it). Window focus / visibility / fullscreenchange now force a
-  bounds re-apply so the chrome comes back.
+  the native page webview oversized, covering the bookmark bar / sidebar footer: on
+  exit wry restores the webview to fill the parent window (Flux tiles bounds itself),
+  and no DOM event the chrome can see fires. Now the page webview's WebView2
+  `ContainsFullScreenElementChanged` is hooked on the backend (`install_fullscreen_relayout`,
+  Windows) and emits `flux://fullscreen-changed` on *exit only* — the frontend re-applies
+  the tiled bounds so the chrome comes back. (Supersedes the earlier focus/visibility
+  attempt, which couldn't observe the page webview's fullscreen.)
 - **Agent panel `working()` crash** — `working()` referenced an undefined `ttsSpeaking`
   (only the prod build, which skips typechecking, let it through); now uses the imported
   `speaking` signal.

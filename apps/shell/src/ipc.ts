@@ -407,6 +407,10 @@ export const onExtOpenTab = (cb: (url: string) => void): Promise<UnlistenFn> =>
 export const onShortcut = (cb: (action: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://shortcut", (e) => cb(e.payload));
 
+/** A page webview left HTML5 fullscreen — re-tile so it stops covering the chrome. */
+export const onFullscreenChanged = (cb: (fullscreen: boolean) => void): Promise<UnlistenFn> =>
+  listen<boolean>("flux://fullscreen-changed", (e) => cb(e.payload));
+
 /** Find-in-page result from the page: [tabId, matchCount, found] (BACKLOG #33). */
 export const onFindResult = (
   cb: (tabId: number, count: number, found: boolean) => void,
