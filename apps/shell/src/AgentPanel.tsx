@@ -818,7 +818,7 @@ const AgentPanel: Component = () => {
               {shortModel()} · local ▾
             </button>
             <Show when={modelMenu()}>
-              <div class="agent-model-menu glass">
+              <div class="agent-model-menu">
                 <Show when={models().length > 0} fallback={<div class="agent-model-empty">No Ollama models found (is it running?)</div>}>
                   <For each={models()}>
                     {(m) => (
@@ -852,9 +852,9 @@ const AgentPanel: Component = () => {
             ＋
           </button>
           <div class="agent-model">
-            <button class="agent-model-btn" title="Past chats" aria-label="Past chats" onClick={() => setChatsMenu(!chatsMenu())}>🕘</button>
+            <button class="agent-model-btn" title="Past chats" aria-label="Past chats" onClick={() => setChatsMenu(!chatsMenu())}>☰</button>
             <Show when={chatsMenu()}>
-              <div class="agent-model-menu glass">
+              <div class="agent-model-menu">
                 <Show when={chats().length > 0} fallback={<div class="agent-model-empty">No saved chats yet</div>}>
                   <For each={chats()}>
                     {(s) => (
