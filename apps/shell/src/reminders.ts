@@ -34,18 +34,32 @@ export async function migrateReminders(): Promise<void> {
 /** A human time like "in 10 minutes" / "at 3pm" / "tomorrow at 9" → epoch ms,
  *  stripped from the text. Returns `due: null` for an undated to-do. `now` is
  *  injected so this stays pure/testable. */
+// Spelled-out counts ("in one minute", "in a couple of hours", "in half an hour").
+const NUMW: Record<string, number> = {
+  a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
+  half: 0.5, couple: 2, few: 3,
+};
+
 export function parseWhen(input: string, now: number): { text: string; due: number | null } {
   let text = input.trim();
   const lower = text.toLowerCase();
 
-  // "in N minutes/hours/seconds/days"
-  const rel = lower.match(/\bin\s+(\d+)\s*(sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?|days?)\b/);
+  // "half an hour" / "an hour" (common phrasings the N+unit form misses).
+  const halfHr = lower.match(/\bin\s+half\s+an?\s+hour\b/);
+  if (halfHr) return { text: strip(text, halfHr[0]!), due: now + 18e5 };
+
+  // "in N minutes/hours/seconds/days" — N is a digit OR a spelled-out word, plus
+  // an optional "of" ("in a couple of hours").
+  const rel = lower.match(/\bin\s+(?:(\d+(?:\.\d+)?)|([a-z]+))\s*(?:of\s+)?(sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?|days?)\b/);
   if (rel) {
-    const n = Number(rel[1]);
-    const unit = rel[2]!;
-    const ms = unit.startsWith("sec") ? n * 1e3 : unit.startsWith("min") ? n * 6e4 : unit.startsWith("h") ? n * 36e5 : n * 864e5;
-    text = strip(text, rel[0]!);
-    return { text, due: now + ms };
+    const n = rel[1] ? Number(rel[1]) : (NUMW[rel[2]!] ?? NaN);
+    if (!Number.isNaN(n)) {
+      const unit = rel[3]!;
+      const ms = unit.startsWith("sec") ? n * 1e3 : unit.startsWith("min") ? n * 6e4 : unit.startsWith("h") ? n * 36e5 : n * 864e5;
+      text = strip(text, rel[0]!);
+      return { text, due: now + Math.round(ms) };
+    }
   }
 
   // "(today|tomorrow)? at H[:MM] (am|pm)?"
