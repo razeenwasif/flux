@@ -28,7 +28,7 @@
     silently ships old UI even though cargo rebuilt the binary.
 
 .PARAMETER Voice
-    Build and install Flux with push-to-talk voice transcription enabled. This
+    (Deprecated) Push-to-talk voice transcription is now enabled by default. This
     still loads Vosk at runtime, so the build does not need libvosk.lib, but using
     the mic requires libvosk.dll on PATH or FLUX_VOSK_LIBRARY/FLUX_VOSK_LIB_DIR.
 
@@ -117,8 +117,7 @@ if ($SkipFrontend -and (Test-Path $dist)) {
 Write-Host "==> Building release flux.exe (LTO - takes several minutes)" -ForegroundColor Cyan
 # custom-protocol -> serve the embedded frontend (without it the app loads the
 # dev server URL and shows ERR_CONNECTION_REFUSED).
-$features = @('custom-protocol')
-if ($Voice) { $features += 'voice' }
+$features = @('custom-protocol', 'voice')
 Write-Host "==> Cargo features: $($features -join ',')" -ForegroundColor DarkCyan
 if ($Tauri) {
     # `cargo tauri build` runs beforeBuildCommand (npm run build) first, so the UI
@@ -129,7 +128,7 @@ if ($Tauri) {
         Write-Host "==> Installing tauri-cli (cargo install tauri-cli)" -ForegroundColor Cyan
         cargo install tauri-cli --locked
     }
-    $extra = @(); if ($Voice) { $extra = @('--features', 'voice') }
+    $extra = @('--features', 'voice')
     cargo tauri build --no-bundle @extra
 } else {
     cargo build --release -p flux-core --features ($features -join ',')
