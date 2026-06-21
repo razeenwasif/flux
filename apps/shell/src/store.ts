@@ -764,3 +764,22 @@ export function updateTabUrl(id: number, url: string): void {
 export function updateTabTitle(id: number, title: string): void {
   setTabs((list) => list.map((t) => (t.id === id ? { ...t, title } : t)));
 }
+
+/** Curated snapshot of Flux's live UI state for the agent (#4 introspection) —
+ *  reads the meaningful store signals into a readable summary. */
+export function fluxStateSnapshot(): string {
+  const ts = tabs();
+  const at = activeTab();
+  const n = (k: string) => ts.filter((t) => t.kind === k).length;
+  const lines = [
+    `Workspace: ${activeWorkspace()} (of ${workspaces().length})`,
+    `Tabs: ${ts.length} open — ${n("browser")} browser, ${n("terminal")} terminal, ${n("files")} files`,
+    at ? `Active tab: #${at.id} ${at.kind} — ${(at.title || at.url || "").slice(0, 80)}` : "Active tab: none",
+    `Web panels: ${panels().length} pinned, active=${activePanelId() ?? "none"}`,
+    `Overlays: reader=${readerOpen()}, files-popout=${filesPanelOpen()}, map=${mapPanelOpen()}, agent-menu=${agentMenuOpen()}`,
+    `Split view: ${splitPair() ? "on" : "off"}`,
+    `Appearance: dark=${darkMode()}, liquidBg=${liquidBg()}, bookmarkBar=${bookmarkBarOpen()}, pagesBar=${pagesBarOpen()}`,
+    `Agent model: ${agentModelName() || "(default)"}`,
+  ];
+  return `Flux UI state:\n${lines.join("\n")}`;
+}

@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **UI introspection (debug Flux itself)** — *"app state"* snapshots the live UI
+  (tabs, workspace, panels, overlays, appearance, agent model); *"css variables"* /
+  *"what's --flux-teal"* dumps the theme vars; *"inspect <css selector>"* reports an
+  element's computed style + visibility (why it's hidden / a var isn't applying).
+  Results drop into context for follow-ups. (SolidJS signals are closures, so this is
+  curated DOM/CSS + store snapshot, not arbitrary signal reads.) (`debug.ts`,
+  `fluxStateSnapshot`.)
 - **Terminal context ("read the terminal")** — *"read the terminal"* / *"what's in my
   terminal"* pulls the active Terminal tab's recent scrollback into Gemma's context
   (a chip like a file), so she can debug a failed command / read build output you ran

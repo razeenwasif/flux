@@ -44,11 +44,12 @@ import {
   type AgentAction,
   type AgentStatus,
 } from "./ipc";
-import { activeId, activeWorkspace, agentModelName, filesPanelOpen, openTab, pendingAsk, pendingLens, setAgentMenuOpen, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
+import { activeId, activeWorkspace, agentModelName, filesPanelOpen, fluxStateSnapshot, openTab, pendingAsk, pendingLens, setAgentMenuOpen, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 import { micConstraints } from "./mic";
 import { activeTerminalText } from "./terminals";
+import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
@@ -468,6 +469,7 @@ const AgentPanel: Component = () => {
     "- Run terminal commands (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command.\n" +
     "- Read files into context: \"read src/foo.rs\" / \"look at <path>\" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); \"forget the files\" clears. You can also drag a file from the explorer onto the panel.\n" +
     "- Read the terminal: \"read the terminal\" / \"what's in my terminal\" pulls the active Terminal tab's recent output into context (great for debugging a failed command).\n" +
+    "- Inspect Flux's own UI (for debugging it): \"app state\" (UI snapshot), \"css variables\" / \"what's --flux-teal\", \"inspect <css selector>\" (computed style + visibility — e.g. why an element is hidden or a var isn't applying).\n" +
     "- System awareness: \"system status\" / \"how's my CPU\" / \"what's using memory\" → CPU%, RAM, top processes.\n" +
     "- Web search: \"search <x>\" / \"open a new tab and search <x>\".\n" +
     "- Music (AudioPulse/Spotify): \"play <song>\", \"play my liked songs\", \"shuffle on\", \"skip\", \"pause\", \"launch spotify\".\n" +
@@ -542,6 +544,32 @@ const AgentPanel: Component = () => {
     const lines = t.text.split("\n").length;
     setFeed((f) => [...f, { role: "action", text: `🖥 Read your terminal (${lines} lines) — it's in context now.` }]);
     return "Got your terminal output — what's up with it?";
+  };
+
+  // #4 UI introspection — inspect an element's computed style/visibility, dump the
+  // CSS theme variables, or snapshot the app state. Results go into context too.
+  const addContext = (path: string, name: string, content: string) =>
+    setCtxFiles((c) => [...c.filter((f) => f.path !== path), { path, name, content }].slice(-8));
+  const STATE_RE = /^(?:flux|app|ui)\s+state\b|^(?:debug|inspect|show)\s+(?:the\s+)?(?:app|ui|flux)\s+state\b|^what(?:'?s| is)\s+(?:the\s+)?(?:current\s+)?(?:app|ui|flux)\s+state\b/i;
+  const VARS_RE = /^(?:(?:list|show|dump)\s+(?:me\s+)?)?(?:css|theme)\s+(?:variables?|vars|custom\s+properties)\b|^(?:what(?:'?s| is)|show me)\s+(?:the\s+(?:value\s+of\s+)?)?(--[\w-]+)\b/i;
+  const INSPECT_RE = /^(?:inspect|examine)\s+(?:the\s+|element\s+)?(\S[\s\S]*?)\s*$/i;
+  const runState = (): string => {
+    const r = fluxStateSnapshot();
+    addContext("app-state", "app state", r);
+    setFeed((f) => [...f, { role: "assistant", text: r }]);
+    return "Here's the current Flux UI state — it's in context if you want to dig in.";
+  };
+  const runVars = (name?: string): string => {
+    const r = themeVarsDump(name);
+    addContext("css-vars", name ? `var ${name}` : "css variables", r);
+    setFeed((f) => [...f, { role: "assistant", text: r }]);
+    return name ? r : "Dumped the CSS theme variables into context.";
+  };
+  const runInspect = (sel: string): string => {
+    const r = inspectElement(sel.trim());
+    addContext(`inspect:${sel.trim()}`, `inspect ${sel.trim().slice(0, 24)}`, r);
+    setFeed((f) => [...f, { role: "assistant", text: r }]);
+    return "Inspected it — details are in the panel and context.";
   };
   const refreshMemory = () => void memoryRead().then(setMemText).catch(() => {});
   const REMEMBER_RE = /^(?:\/remember|remember|note|make a note|keep in mind|save (?:to memory|this))\b[:,]?\s+(?:that\s+|to\s+)?(.+)/i;
@@ -691,6 +719,9 @@ const AgentPanel: Component = () => {
     if (REMINDERS_LIST_RE.test(stripped)) return await runListReminders();
     if (SYS_RE.test(stripped)) return await runSysStats();
     if (HELP_RE.test(stripped)) return runHelp();
+    if (STATE_RE.test(stripped)) return runState();
+    { const mv = stripped.match(VARS_RE); if (mv) return runVars(mv[1]); }
+    { const mi = stripped.match(INSPECT_RE); if (mi?.[1]) return runInspect(mi[1]); }
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
     const cp = convoPrompt(t); // memory
@@ -794,6 +825,10 @@ const AgentPanel: Component = () => {
       if (REMINDERS_LIST_RE.test(pc)) { await runListReminders(); return; }
       if (SYS_RE.test(pc)) { await runSysStats(); return; }
       if (HELP_RE.test(pc)) { runHelp(); return; }
+      // #4 UI introspection (check state/vars before the broad "inspect <selector>").
+      if (STATE_RE.test(pc)) { runState(); return; }
+      { const mv = pc.match(VARS_RE); if (mv) { runVars(mv[1]); return; } }
+      { const mi = pc.match(INSPECT_RE); if (mi?.[1]) { runInspect(mi[1]); return; } }
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
