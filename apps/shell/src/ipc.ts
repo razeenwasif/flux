@@ -274,6 +274,12 @@ export const voiceTranscribe = (pcmB64: string, sampleRate: number) =>
 /** More accurate STT via whisper.cpp (errors if whisper isn't installed). */
 export const sttWhisper = (pcmB64: string, sampleRate: number) =>
   invoke<string>("stt_whisper", { pcmB64, sampleRate });
+/** Store (or clear, with "") the Picovoice (Porcupine) access key in the keyring. */
+export const porcupineSetKey = (key: string) => invoke<void>("porcupine_set_key", { key });
+export const porcupineHasKey = () => invoke<boolean>("porcupine_has_key");
+/** Resolve the access key (keyring) + keyword/model files (base64) for the Web SDK. */
+export const porcupineConfig = (ppnPath: string, modelPath: string) =>
+  invoke<{ accessKey: string; keywordB64: string; modelB64: string }>("porcupine_config", { ppnPath, modelPath });
 /** Local TTS via Piper: returns a base64 WAV (errors if Piper isn't installed). */
 export const voiceSpeak = (text: string) => invoke<string>("voice_speak", { text });
 /** Store (or clear, with "") the ElevenLabs API key in the OS keyring. */

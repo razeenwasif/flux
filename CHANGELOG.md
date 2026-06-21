@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Porcupine wake word (opt-in)** — a dedicated "Hey Gemma" wake-word model as an
+  alternative to the default Vosk transcribe-and-match: far fewer false triggers and
+  lower CPU. Runs the Porcupine **Web** SDK in the renderer (dynamically imported, so
+  its WASM only loads when enabled), fed from the same mic pipeline — detection stays
+  **on-device, no audio leaves**. Pick **Porcupine** under Settings → Integrations →
+  Wake word; needs a free Picovoice access key (stored in the **OS keyring**) plus a
+  custom `Hey-Gemma.ppn` (generated on console.picovoice.ai) and `porcupine_params.pv`.
+  Falls back to Vosk if not configured. (`porcupine.rs` + `porcupine.ts`.)
 - **Whisper.cpp speech recognition (opt-in)** — a more accurate STT engine for the
   spoken command than the small Vosk model, especially with accents/noise. Pick
   **Whisper (accurate)** under Settings → Integrations → Recognition; set

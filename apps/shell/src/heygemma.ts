@@ -19,6 +19,7 @@
 import { createSignal } from "solid-js";
 
 import { sttWhisper, voiceTranscribe } from "./ipc";
+import { pushAudio as pushPorcupine, startPorcupine, stopPorcupine } from "./porcupine";
 import { speak, stopSpeaking } from "./speak";
 
 const ENABLED_KEY = "flux.voice.heygemma";
@@ -27,6 +28,11 @@ const ENABLED_KEY = "flux.voice.heygemma";
 const STT_KEY = "flux.voice.stt";
 export const sttEngine = (): string => localStorage.getItem(STT_KEY) || "vosk";
 export const setSttEngine = (e: string) => localStorage.setItem(STT_KEY, e);
+// Wake-word engine: "vosk" (transcribe-and-match, zero setup) or "porcupine"
+// (dedicated model, needs an access key + .ppn/.pv files).
+const WAKE_KEY = "flux.voice.wake";
+export const wakeEngine = (): string => localStorage.getItem(WAKE_KEY) || "vosk";
+export const setWakeEngine = (e: string) => localStorage.setItem(WAKE_KEY, e);
 
 const [enabled, setEnabledSig] = createSignal(localStorage.getItem(ENABLED_KEY) === "1");
 export const heyGemmaEnabled = enabled;
@@ -64,6 +70,7 @@ let silenceLen = 0; // trailing silence samples
 let utter: Float32Array[] = [];
 let gateClosed = false; // dropped while we transcribe/think/speak (no self-hearing)
 let warmUntil = 0; // timestamp: follow-ups accepted without the wake word
+let porcupineOn = false; // dedicated wake-word model is running (vs. Vosk scan)
 
 function resetUtter() {
   speaking = false;
@@ -82,6 +89,7 @@ function onAudio(e: AudioProcessingEvent) {
   if (gateClosed) return;
   const input = e.inputBuffer.getChannelData(0);
   const frame = new Float32Array(input); // copy (the buffer is reused)
+  if (porcupineOn) pushPorcupine(frame, rate); // dedicated wake model listens continuously
   const loud = rms(frame) > THRESH;
   if (loud) {
     if (!speaking) { speaking = true; speechLen = 0; silenceLen = 0; utter = []; }
@@ -135,14 +143,33 @@ function stripWake(text: string): string {
   return m ? text.slice(m.index + m[0].length).replace(/^[,.:;\s]+/, "").trim() : text.trim();
 }
 
+// Porcupine fired: open the warm window so the next captured utterance is the
+// command, and (if the user pauses rather than speaking it in one breath) ack.
+function onPorcupineWake() {
+  if (gateClosed) return; // ignore during our own speech / handling
+  warmUntil = Date.now() + WARM_MS;
+  setListening(true);
+  setVoiceStatus("listening…");
+  window.setTimeout(() => {
+    if (gateClosed || speaking || Date.now() >= warmUntil) return; // one-breath command in progress
+    gateClosed = true;
+    void speak("Mm-hm?").finally(() => {
+      resetUtter();
+      window.setTimeout(() => { gateClosed = false; }, 250);
+    });
+  }, 500);
+}
+
 async function handleUtterance(chunks: Float32Array[]) {
   try {
     const b64 = toI16B64(chunks);
     const warm = Date.now() < warmUntil;
 
-    // Fast Vosk pass to detect the wake word (skipped in the warm follow-up window).
+    // Fast Vosk pass to detect the wake word (skipped in the warm follow-up window,
+    // and entirely when Porcupine owns wake detection).
     let vosk = "";
     if (!warm) {
+      if (porcupineOn) return; // Porcupine handles wake; a non-warm utterance isn't a command
       try { vosk = (await voiceTranscribe(b64, rate)).trim(); } catch { vosk = ""; }
       if (!vosk) return;
     }
@@ -202,6 +229,8 @@ export async function startConversation(): Promise<boolean> {
   gateClosed = false;
   warmUntil = 0;
   resetUtter();
+  // Dedicated wake model (if selected + configured); otherwise the Vosk scan runs.
+  porcupineOn = wakeEngine() === "porcupine" ? await startPorcupine(onPorcupineWake) : false;
   setMicLive(true);
   setVoiceStatus("say “hey Gemma”");
   return true;
@@ -210,6 +239,7 @@ export async function startConversation(): Promise<boolean> {
 export function stopConversation(): void {
   running = false;
   stopSpeaking();
+  if (porcupineOn) { porcupineOn = false; void stopPorcupine(); }
   try { node?.disconnect(); } catch { /* ignore */ }
   stream?.getTracks().forEach((t) => t.stop());
   void ctx?.close();

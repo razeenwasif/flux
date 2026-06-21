@@ -27,6 +27,8 @@ import {
   PERMISSIONS_URL,
   permissionsSetBlock,
   permissionsStatus,
+  porcupineHasKey,
+  porcupineSetKey,
   RESOURCES_URL,
   searchDefault,
   searchEngines,
@@ -42,7 +44,8 @@ import {
   type MemInfo,
   type SearchEngine,
 } from "./ipc";
-import { heyGemmaEnabled, setHeyGemmaEnabled, setSttEngine, sttEngine } from "./heygemma";
+import { heyGemmaEnabled, setHeyGemmaEnabled, setSttEngine, setWakeEngine, sttEngine, wakeEngine } from "./heygemma";
+import { porcupinePpnPath, porcupinePvPath, setPorcupinePpnPath, setPorcupinePvPath } from "./porcupine";
 import { elVoiceId, elVoiceName, loadVoices, preferredVoice, previewElevenLabs, setElVoiceId, setElVoiceName, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
@@ -146,6 +149,19 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const pickTts = (e: TtsEngine) => { setTtsEngine(e); setTtsEngineSel(e); };
   const [sttSel, setSttSel] = createSignal(sttEngine());
   const pickStt = (e: string) => { setSttEngine(e); setSttSel(e); };
+  // Wake word (Porcupine).
+  const [wakeSel, setWakeSel] = createSignal(wakeEngine());
+  const pickWake = (e: string) => { setWakeEngine(e); setWakeSel(e); };
+  const [pcKeyInput, setPcKeyInput] = createSignal("");
+  const [pcKeySet, setPcKeySet] = createSignal(false);
+  const [pcFlash, setPcFlash] = createSignal("");
+  const [ppnPath, setPpnPath] = createSignal(porcupinePpnPath());
+  const [pvPath, setPvPath] = createSignal(porcupinePvPath());
+  const refreshPcKey = () => void porcupineHasKey().then(setPcKeySet).catch(() => {});
+  const savePcKey = async () => {
+    try { await porcupineSetKey(pcKeyInput().trim()); setPcKeyInput(""); refreshPcKey(); setPcFlash("Saved"); }
+    catch (e) { setPcFlash(String(e)); }
+  };
   const [sysVoices, setSysVoices] = createSignal<{ name: string; lang: string }[]>([]);
   const [voiceSel, setVoiceSel] = createSignal(preferredVoice());
   const [testing, setTesting] = createSignal(false);
@@ -259,6 +275,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     try { window.speechSynthesis?.addEventListener?.("voiceschanged", refreshVoices); } catch { /* ignore */ }
     refreshElKey();
     if (ttsEngine() === "elevenlabs") loadElVoices();
+    refreshPcKey();
     void searchEngines().then(setEngines).catch(() => {});
     void searchDefault().then(setDefaultEngine).catch(() => {});
     loadShields();
@@ -445,6 +462,33 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <option value="whisper">Whisper (accurate)</option>
             </select>
           </Row>
+          <Row label="Wake word" hint="How “hey Gemma” is detected. Vosk transcribes and matches (zero setup). Porcupine is a dedicated wake-word model — far fewer false triggers — but needs a free Picovoice access key + a custom 'Hey Gemma' .ppn (generate it on console.picovoice.ai) and porcupine_params.pv. Detection runs locally; if not configured it falls back to Vosk.">
+            <select class="shields-select" value={wakeSel()} onChange={(e) => { pickWake(e.currentTarget.value); if (e.currentTarget.value === "porcupine") refreshPcKey(); }}>
+              <option value="vosk">Vosk (zero setup)</option>
+              <option value="porcupine">Porcupine (dedicated model)</option>
+            </select>
+          </Row>
+          <Show when={wakeSel() === "porcupine"}>
+            <Row label="Picovoice access key" hint="Stored in your OS keyring. Free key from console.picovoice.ai. Leave blank and save to remove.">
+              <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                <input
+                  class="map-search-input"
+                  type="password"
+                  style={{ "max-width": "260px" }}
+                  placeholder={pcKeySet() ? "•••••••• (key set)" : "access key…"}
+                  value={pcKeyInput()}
+                  onInput={(e) => setPcKeyInput(e.currentTarget.value)}
+                />
+                <button class="set-link-btn" onClick={() => void savePcKey()}>{pcFlash() || "Save"}</button>
+              </div>
+            </Row>
+            <Row label="Keyword file (.ppn)" hint="Path to your custom “Hey Gemma” .ppn (WebAssembly/Web platform), e.g. \\wsl.localhost\…\Hey-Gemma_en_wasm_v3_0_0.ppn or a Windows path.">
+              <input class="map-search-input" style={{ "max-width": "340px" }} placeholder="…/Hey-Gemma_en_wasm.ppn" value={ppnPath()} onChange={(e) => { const v = e.currentTarget.value.trim(); setPpnPath(v); setPorcupinePpnPath(v); }} />
+            </Row>
+            <Row label="Model file (.pv)" hint="Path to porcupine_params.pv (download from the Picovoice GitHub: lib/common/porcupine_params.pv).">
+              <input class="map-search-input" style={{ "max-width": "340px" }} placeholder="…/porcupine_params.pv" value={pvPath()} onChange={(e) => { const v = e.currentTarget.value.trim(); setPvPath(v); setPorcupinePvPath(v); }} />
+            </Row>
+          </Show>
           <Row label="Gemma's voice" hint="System and Piper are fully local. ElevenLabs is a cloud service — choosing it sends Gemma's reply text (not your mic audio) to ElevenLabs, needs an API key, and is metered. Piper: set FLUX_PIPER_MODEL to a .onnx voice; falls back to System if absent.">
             <select class="shields-select" value={ttsEngineSel()} onChange={(e) => { const v = e.currentTarget.value as TtsEngine; pickTts(v); if (v === "elevenlabs") { refreshElKey(); loadElVoices(); } }}>
               <option value="system">System voice (local)</option>
