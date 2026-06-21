@@ -89,6 +89,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **Compound music commands run every step** — "launch spotify and play my liked
+  songs, shuffle on" now launches AudioPulse *and* plays *and* shuffles. Previously
+  the leading "launch …" intent matched first and swallowed the rest; the compound
+  split is now tried before a single intent, and "with" joins steps too ("play my
+  liked songs **with shuffle on**"). The voice path uses the same logic now, so
+  compound spoken commands work. (`handleMusic` in AgentPanel.)
 - **Agent model picker** — the Flux Agent model dropdown is now opaque and sits
   above the chat feed, so model rows highlight on hover and can be clicked.
 - **Omni answer popup dismissal** — completed Omni answer cards now auto-dismiss
