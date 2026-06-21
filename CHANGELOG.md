@@ -81,6 +81,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   `FLUX_AUDIOPULSE_BIN` still overrides. (`spotify.rs`.)
 
 ### Changed
+- **Lower-cost ElevenLabs voice preview** — the Settings **Test** phrase for
+  ElevenLabs is now just "Hi." so previewing a paid cloud voice consumes far
+  fewer API credits.
 - **ElevenLabs status messages are readable** — the Settings API-key save result
   and diagnostic 401 text now render below the key field in a wrapped status line
   instead of being squeezed into the Save button.

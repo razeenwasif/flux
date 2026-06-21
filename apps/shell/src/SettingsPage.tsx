@@ -154,7 +154,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     setTesting(true);
     try {
       if (ttsEngineSel() === "elevenlabs") {
-        await previewElevenLabs("Hi, I'm Gemma. This is how I'll sound when we talk.");
+        await previewElevenLabs("Hi.");
         setElFlash("Voice tested");
       } else {
         await speak("Hi, I'm Gemma. This is how I'll sound when we talk.");
