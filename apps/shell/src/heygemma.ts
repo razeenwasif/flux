@@ -20,6 +20,7 @@ import { createSignal } from "solid-js";
 
 import { sttWhisper, voiceTranscribe, wakeTranscribe } from "./ipc";
 import { pushAudio as pushPorcupine, startPorcupine, stopPorcupine } from "./porcupine";
+import { micConstraints } from "./mic";
 import { speak, speaking as ttsSpeaking, stopSpeaking } from "./speak";
 
 const ENABLED_KEY = "flux.voice.heygemma";
@@ -256,9 +257,9 @@ async function handleUtterance(chunks: Float32Array[]) {
 export async function startConversation(): Promise<boolean> {
   if (running) return true;
   try {
-    // autoGainControl normalizes a quiet mic (helps VAD + recognition); echo
-    // cancellation keeps Gemma's own voice out of the mic for barge-in.
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    // Honors the chosen mic + noise-suppression setting (Settings → Integrations);
+    // echo cancellation on so barge-in doesn't hear Gemma's own voice.
+    stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
   } catch {
     setVoiceStatus("mic denied");
     return false;

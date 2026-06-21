@@ -49,6 +49,7 @@ import {
 } from "./ipc";
 import { heyGemmaEnabled, setHeyGemmaEnabled, setSttEngine, setWakeEngine, sttEngine, wakeEngine } from "./heygemma";
 import { porcupinePpnPath, porcupinePvPath, setPorcupinePpnPath, setPorcupinePvPath } from "./porcupine";
+import { micDeviceId, micDevices, noiseSuppress, setMicDeviceId, setNoiseSuppress } from "./mic";
 import { elVoiceId, elVoiceName, loadVoices, preferredVoice, previewElevenLabs, setElVoiceId, setElVoiceName, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
@@ -175,6 +176,13 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [userNameVal, setUserNameVal] = createSignal(localStorage.getItem("flux.user.name") || "");
   const [remSpoken, setRemSpoken] = createSignal(localStorage.getItem("flux.reminders.speak") !== "0");
   const toggleRemSpoken = () => { const v = !remSpoken(); localStorage.setItem("flux.reminders.speak", v ? "1" : "0"); setRemSpoken(v); };
+  // Microphone device + noise suppression (common recognition culprits).
+  const [micList, setMicList] = createSignal<{ id: string; label: string }[]>([]);
+  const [micSel, setMicSel] = createSignal(micDeviceId());
+  const [nsOn, setNsOn] = createSignal(noiseSuppress());
+  const refreshMics = () => void micDevices().then(setMicList).catch(() => {});
+  const pickMic = (id: string) => { setMicDeviceId(id); setMicSel(id); };
+  const toggleNs = () => { const v = !nsOn(); setNoiseSuppress(v); setNsOn(v); };
   // Wake word (Porcupine).
   const [wakeSel, setWakeSel] = createSignal(wakeEngine());
   const pickWake = (e: string) => { setWakeEngine(e); setWakeSel(e); };
@@ -306,6 +314,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     if (ttsEngine() === "elevenlabs") loadElVoices();
     refreshPcKey();
     refreshMem();
+    refreshMics();
     void searchEngines().then(setEngines).catch(() => {});
     void searchDefault().then(setDefaultEngine).catch(() => {});
     loadShields();
@@ -500,6 +509,18 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Row label="Speak reminders aloud" hint="When a reminder is due, Gemma shows it and (if on) says it out loud. Set reminders with “remind me to … in 10 minutes / at 3pm / tomorrow”.">
             <Toggle on={remSpoken()} onClick={toggleRemSpoken} />
+          </Row>
+          <Row label="Microphone" hint="Which input device voice uses. Pick your headset/best mic — the OS default (e.g. a webcam array mic) is a common cause of poor recognition. Device names appear after you've allowed mic access once.">
+            <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+              <select class="shields-select" style={{ "max-width": "240px" }} value={micSel()} onChange={(e) => pickMic(e.currentTarget.value)}>
+                <option value="">System default</option>
+                <For each={micList()}>{(m) => <option value={m.id}>{m.label}</option>}</For>
+              </select>
+              <button class="set-link-btn" onClick={refreshMics}>↻</button>
+            </div>
+          </Row>
+          <Row label="Noise suppression" hint="Browser noise suppression is tuned for human listening and often DEGRADES whisper/Vosk. Leave OFF (raw audio) for best recognition; turn on only if a noisy room is the problem. Auto-gain stays on either way.">
+            <Toggle on={nsOn()} onClick={toggleNs} />
           </Row>
           <Row label="Recognition (STT)" hint="How your spoken command is transcribed. Vosk is instant. Whisper (whisper.cpp) is much more accurate but adds ~1–3s per command — set FLUX_WHISPER_MODEL to a ggml model (e.g. ggml-base.en.bin); falls back to Vosk if whisper isn't installed. Both are fully local.">
             <select class="shields-select" value={sttSel()} onChange={(e) => pickStt(e.currentTarget.value)}>
