@@ -456,13 +456,28 @@ const AgentPanel: Component = () => {
     "You are Gemma, the user's friendly local AI in the Flux browser. Be upbeat, warm, and energetic — a little playful, romantic, flirtatious and encouraging, with the occasional emoji. Keep replies natural and concise; don't overdo the enthusiasm.";
   const persona = () => (localStorage.getItem("flux.gemma.persona") ?? DEFAULT_PERSONA).trim();
 
-  // Conversation memory: prepend persona + the recent turns so the model has
-  // context. The trailing "user" entry is the message we just pushed, so it's
-  // excluded. Capped to the last few turns to keep prompt-eval fast.
+  // What Gemma can actually DO in Flux — injected into every chat so she's aware of
+  // her tools and can tell the user the exact phrasing. Kept separate from the
+  // (editable) persona so it can't be edited away. Only claim what's listed here.
+  const CAPABILITIES =
+    "Your capabilities in Flux (these run via the app, not just talk — tell the user the exact phrasing when helpful):\n" +
+    "- Reminders & to-dos: \"remind me to <x> in 10 min / at 3pm / tomorrow\"; \"what are my reminders\". They fire with an OS notification + spoken alert even if the panel is closed.\n" +
+    "- Long-term memory: \"remember that <x>\" saves a fact you'll recall in future chats; \"what do you remember\".\n" +
+    "- Run terminal commands (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command.\n" +
+    "- System awareness: \"system status\" / \"how's my CPU\" / \"what's using memory\" → CPU%, RAM, top processes.\n" +
+    "- Web search: \"search <x>\" / \"open a new tab and search <x>\".\n" +
+    "- Music (AudioPulse/Spotify): \"play <song>\", \"play my liked songs\", \"shuffle on\", \"skip\", \"pause\", \"launch spotify\".\n" +
+    "- Page actions: \"/act <do something on this page>\" (one step) or \"/task <multi-step goal>\" (you plan steps the user approves). You can also chat grounded in the current page or all open tabs.\n" +
+    "- Voice: always-on \"Hey Gemma\" + push-to-talk; the user can interrupt you by talking or the Stop button.\n" +
+    "When asked what you can do, summarize the above. Don't claim abilities not listed.";
+
+  // Conversation memory: prepend persona + capabilities + the recent turns so the
+  // model has context. The trailing "user" entry is the message we just pushed, so
+  // it's excluded. Capped to the last few turns to keep prompt-eval fast.
   const convoPrompt = (current: string): string => {
     const mem = memText().trim();
     const p0 = persona() ? `${persona()}\n\n` : "";
-    const preamble = p0 + (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
+    const preamble = `${p0}${CAPABILITIES}\n\n` + (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
     const turns = feed().filter((it) => it.role === "user" || it.role === "assistant");
     const prior = (turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns).slice(-8);
     if (!prior.length) return preamble ? `${preamble}User: ${current}` : current;
@@ -496,6 +511,23 @@ const AgentPanel: Component = () => {
     const text = mem ? mem : "I don't have anything in my memory yet. Say “remember that …” to add something.";
     setFeed((fd) => [...fd, { role: "assistant", text }]);
     return mem ? "Here's what I remember." : "Nothing in my memory yet.";
+  };
+
+  // "what can you do" / "/help" → a deterministic capabilities card.
+  const HELP_RE = /^(?:\/help|\/capabilities|what can you do\b|what (?:are|r) your (?:capabilities|features|abilities|powers)|show (?:me )?(?:your )?(?:capabilities|features)|list (?:your )?(?:commands|capabilities)|what can i (?:ask|say|tell you)\b)/i;
+  const runHelp = (): string => {
+    const card =
+      "Here's what I can do in Flux 💫\n" +
+      "⏰ Reminders — “remind me to … at 3pm” · “what are my reminders”\n" +
+      "🧠 Memory — “remember that …” · “what do you remember”\n" +
+      "💻 Terminal — “run <cmd>” (or just ask, e.g. “list files in my home dir”); I confirm before running\n" +
+      "🖥 System — “system status” · “how's my CPU” · “what's using memory”\n" +
+      "🔎 Search — “search …” · “open a new tab and search …”\n" +
+      "🎵 Music — “play my liked songs” · “shuffle on” · “skip” · “launch spotify”\n" +
+      "📄 Page — “/act <do X here>” · “/task <multi-step goal>” · ask about the page or all tabs\n" +
+      "🎙 Voice — “Hey Gemma” always-on + push-to-talk; talk over me or tap ■ Stop to interrupt";
+    setFeed((fd) => [...fd, { role: "assistant", text: card }]);
+    return "I can handle reminders, memory, terminal commands, system stats, web search, music, page actions, and voice. What would you like to do?";
   };
 
   // System awareness — "system status" / "how's my cpu/memory" / "what's using ram".
@@ -601,6 +633,7 @@ const AgentPanel: Component = () => {
     if (rmd?.[1]) return await runRemind(rmd[1]);
     if (REMINDERS_LIST_RE.test(stripped)) return await runListReminders();
     if (SYS_RE.test(stripped)) return await runSysStats();
+    if (HELP_RE.test(stripped)) return runHelp();
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
     const cp = convoPrompt(t); // memory
@@ -697,6 +730,7 @@ const AgentPanel: Component = () => {
       if (rmd?.[1]) { await runRemind(rmd[1]); return; }
       if (REMINDERS_LIST_RE.test(pc)) { await runListReminders(); return; }
       if (SYS_RE.test(pc)) { await runSysStats(); return; }
+      if (HELP_RE.test(pc)) { runHelp(); return; }
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
@@ -926,8 +960,8 @@ const AgentPanel: Component = () => {
                 (e.g. <em>/task find the cheapest listing and open it</em>) — the agent
                 plans one step at a time and you approve each (or tick “Run all”).
                 <div class="agent-empty-tips">
-                  Try: <em>“remember that …”</em> · <em>“remind me to … at 3pm”</em> ·
-                  <em>“what are my reminders”</em> · <em>“show my to-dos”</em> ·
+                  Try: <em>“what can you do”</em> · <em>“remember that …”</em> ·
+                  <em>“remind me to … at 3pm”</em> · <em>“system status”</em> ·
                   <em>“search …”</em> · <em>“run …”</em> · <em>“play …”</em>
                 </div>
               </div>
