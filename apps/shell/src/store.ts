@@ -133,28 +133,50 @@ export const splitPanes = (): [TabMeta, TabMeta] | null => {
 // is the pane width; `panelDragging` hides the panel + tab webviews while the
 // divider is dragged so the DOM splitter can track the pointer.
 const [panels, setPanels] = createSignal<WebPanel[]>([]);
+// Two stacked slots: `activePanelId` is the top, `activePanelIdB` the bottom split
+// (e.g. calendar over email). Each holds at most one panel; the same panel can't
+// be in both. When only the top is set the pane shows one panel full-height.
 const [activePanelId, setActivePanelIdRaw] = createSignal<number | null>(null);
-// Persist which panel is open so it reopens on next launch (panel "on by default").
+const [activePanelIdB, setActivePanelIdBRaw] = createSignal<number | null>(null);
+// Persist which panels are open so they reopen on next launch (panel "on by default").
 function setActivePanelId(id: number | null): void {
   setActivePanelIdRaw(id);
   localStorage.setItem("flux.panel.active", id == null ? "" : String(id));
 }
+function setActivePanelIdB(id: number | null): void {
+  setActivePanelIdBRaw(id);
+  localStorage.setItem("flux.panel.activeB", id == null ? "" : String(id));
+}
 const [panelWidth, setPanelWidthSig] = createSignal(Number(localStorage.getItem("flux.panel.w")) || 380);
+// Top panel's share of the pane height when both slots are filled (0.2–0.8).
+const [panelSplitRatio, setPanelSplitRatioSig] = createSignal(
+  Math.min(0.8, Math.max(0.2, Number(localStorage.getItem("flux.panel.split")) || 0.5)),
+);
 const [panelDragging, setPanelDragging] = createSignal(false);
-export { panels, activePanelId, panelWidth, panelDragging, setPanelDragging };
+export { panels, activePanelId, activePanelIdB, panelWidth, panelSplitRatio, panelDragging, setPanelDragging };
 export const activePanel = (): WebPanel | null =>
   panels().find((p) => p.id === activePanelId()) ?? null;
+export const activePanelB = (): WebPanel | null =>
+  panels().find((p) => p.id === activePanelIdB()) ?? null;
 export function setPanelWidth(px: number): void {
   const w = Math.round(Math.max(280, Math.min(640, px)));
   setPanelWidthSig(w);
   localStorage.setItem("flux.panel.w", String(w));
 }
+export function setPanelSplitRatio(r: number): void {
+  const v = Math.min(0.8, Math.max(0.2, r));
+  setPanelSplitRatioSig(v);
+  localStorage.setItem("flux.panel.split", String(v));
+}
 function applyPanels(list: WebPanel[]): void {
   setPanels(list);
-  // On boot, reopen the last-open panel (panel "on by default"); drop a stale one.
+  // On boot, reopen the last-open panels (panel "on by default"); drop stale ones.
   const saved = Number(localStorage.getItem("flux.panel.active") || "0");
   if (activePanelId() == null && saved && list.some((p) => p.id === saved)) setActivePanelIdRaw(saved);
   else if (activePanelId() != null && !list.some((p) => p.id === activePanelId())) setActivePanelIdRaw(null);
+  const savedB = Number(localStorage.getItem("flux.panel.activeB") || "0");
+  if (activePanelIdB() == null && savedB && savedB !== activePanelId() && list.some((p) => p.id === savedB)) setActivePanelIdBRaw(savedB);
+  else if (activePanelIdB() != null && !list.some((p) => p.id === activePanelIdB())) setActivePanelIdBRaw(null);
 }
 async function refreshPanels(): Promise<void> {
   const list = await panelsList().catch(() => []);
@@ -166,18 +188,32 @@ export async function pinPanel(url: string, title: string): Promise<void> {
   await refreshPanels();
   if (p) setActivePanelId(p.id);
 }
-/** Remove a pinned panel; closes it if it was open. */
+/** Remove a pinned panel; closes it if it was open in either slot. */
 export async function unpinPanel(id: number): Promise<void> {
   if (activePanelId() === id) setActivePanelId(null);
+  if (activePanelIdB() === id) setActivePanelIdB(null);
   await panelRemove(id).catch(() => {});
   await refreshPanels();
 }
-/** Toggle a panel open/closed (only one open at a time). */
+/** Toggle a panel in the top slot. If it was in the bottom split, move it up. */
 export function togglePanel(id: number): void {
+  if (activePanelIdB() === id) setActivePanelIdB(null);
   setActivePanelId(activePanelId() === id ? null : id);
 }
+/** Toggle a panel in the bottom split slot. If it was on top, move it down. */
+export function togglePanelBottom(id: number): void {
+  if (activePanelId() === id) setActivePanelId(null);
+  setActivePanelIdB(activePanelIdB() === id ? null : id);
+}
 export function closePanel(): void {
+  // Closing the top promotes the bottom split up, so the pane never goes blank
+  // with a panel still parked below.
+  const b = activePanelIdB();
   setActivePanelId(null);
+  if (b != null) { setActivePanelIdB(null); setActivePanelId(b); }
+}
+export function closePanelB(): void {
+  setActivePanelIdB(null);
 }
 
 // Per-site zoom (BACKLOG #36): factor per host, persisted in localStorage and

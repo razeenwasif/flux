@@ -240,11 +240,14 @@ body.resizing, body.busy { --glass-blur: none; }
   min-height: 0;
   padding: var(--flux-frame-pad);
   padding-left: 0;
+  display: flex;
+  flex-direction: column;
 }
 .webpanel-surface {
   position: relative;
   width: 100%;
-  height: 100%;
+  flex-basis: 0;
+  flex-shrink: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -253,6 +256,25 @@ body.resizing, body.busy { --glass-blur: none; }
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
   box-shadow: var(--glass-shadow), var(--glass-inset);
 }
+/* Horizontal divider between the two stacked split panels (top/bottom). */
+.webpanel-vdiv {
+  flex: 0 0 8px;
+  margin: 1px 0;
+  border-radius: 4px;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+}
+.webpanel-vdiv::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px; height: 3px;
+  border-radius: 2px;
+  background: var(--glass-rim-soft);
+}
+.webpanel-vdiv:hover::after { background: var(--flux-accent, var(--glass-rim)); }
 .panel-divider { left: auto; transform: translateX(50%); }
 .panel-toolbar {
   position: absolute; top: 0; left: 0; right: 0; z-index: 6;
@@ -271,6 +293,9 @@ body.resizing, body.busy { --glass-blur: none; }
 .panel-row-open { flex: 1; min-width: 0; text-align: left; padding: 7px 10px; border-radius: 8px; color: var(--flux-text); }
 .panel-row-open:hover { background: var(--flux-surface-2); }
 .panel-row-title { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; }
+.panel-slot-btn { flex: none; width: 26px; height: 26px; border-radius: 7px; color: var(--flux-text-mute); font-size: 13px; }
+.panel-slot-btn:hover { color: var(--flux-text); background: var(--flux-surface-2); }
+.panel-slot-btn.on { color: var(--flux-text); background: var(--flux-teal-dim); }
 .panel-row-x { flex: none; width: 26px; height: 26px; border-radius: 7px; color: var(--flux-text-mute); }
 .panel-row-x:hover { color: #fff; background: #c0392b; }
 

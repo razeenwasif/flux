@@ -107,6 +107,7 @@ import {
   type ResizeDir,
   type TabGroup,
   type TabMeta,
+  type WebPanel,
   type Workspace,
 } from "./ipc";
 import TerminalView from "./TerminalView";
@@ -182,14 +183,20 @@ import {
   panels,
   activePanel,
   activePanelId,
+  activePanelB,
+  activePanelIdB,
   panelWidth,
   setPanelWidth,
+  panelSplitRatio,
+  setPanelSplitRatio,
   panelDragging,
   setPanelDragging,
   pinPanel,
   unpinPanel,
   togglePanel,
+  togglePanelBottom,
   closePanel,
+  closePanelB,
   panelBadges,
   setPanelBadge,
   darkMode,
@@ -289,6 +296,12 @@ const App: Component = () => {
   // Live rect of the content card, in CSS (logical) px relative to the window.
   // Native tab webviews are positioned to match it (BACKLOG #2).
   const [contentRect, setContentRect] = createSignal<Rect | null>(null);
+  // Bumped to force the webview tiling effects to re-apply bounds even when the
+  // card rect hasn't changed. Needed because exiting an HTML5 video fullscreen
+  // leaves the native webview oversized (covering the bookmark bar / footer) and
+  // fires no window resize, so nothing would otherwise re-tile it back down.
+  const [relayoutTick, setRelayoutTick] = createSignal(0);
+  const forceRelayout = () => setRelayoutTick((n) => n + 1);
   const openedWebviews = new Set<number>();
   const openingWebviews = new Set<number>();
   // Webview ids currently shown (visible panes). Lets the layout effect issue
@@ -328,14 +341,18 @@ const App: Component = () => {
   const mainRect = (): Rect | null => {
     return readRect();
   };
-  const panelViewRect = (): Rect | null => {
-    const el = document.getElementById("flux-panel-area");
-    if (!el) return null;
+  // Each split slot is a DOM element (toolbar + native-webview region); the webview
+  // is tiled below the toolbar of its slot's box, so a vertical split is just two
+  // boxes the native layer follows.
+  const slotViewRect = (elId: string, active: boolean): Rect | null => {
+    const el = document.getElementById(elId);
+    if (!el || !active) return null;
     const r = el.getBoundingClientRect();
-    if (!r || activePanelId() == null) return null;
-    if (r.width < 1 || r.height < PANEL_TOOLBAR + 1) return null;
+    if (!r || r.width < 1 || r.height < PANEL_TOOLBAR + 1) return null;
     return { x: r.x, y: r.y + PANEL_TOOLBAR, width: r.width, height: Math.max(0, r.height - PANEL_TOOLBAR) };
   };
+  const panelViewRect = (): Rect | null => slotViewRect("flux-panel-area", activePanelId() != null);
+  const panelViewRectB = (): Rect | null => slotViewRect("flux-panel-area-b", activePanelIdB() != null);
   const paneLayout = (): { tab: TabMeta; rect: Rect }[] => {
     if (readerOpen()) return []; // reader view covers the card; hide the page
     const rect = mainRect();
@@ -603,10 +620,22 @@ const App: Component = () => {
       const ro = new ResizeObserver(measure);
       ro.observe(el);
       window.addEventListener("resize", measure);
+      // Recover the layout after a video leaves fullscreen: the host window regains
+      // focus / fires a fullscreenchange, but no resize, so we re-measure AND force a
+      // bounds re-apply to shrink the page webview off the bottom chrome again.
+      const recover = () => { measure(); forceRelayout(); };
+      window.addEventListener("focus", recover);
+      document.addEventListener("visibilitychange", recover);
+      document.addEventListener("fullscreenchange", recover);
+      document.addEventListener("webkitfullscreenchange", recover);
       measure();
       onCleanup(() => {
         ro.disconnect();
         window.removeEventListener("resize", measure);
+        window.removeEventListener("focus", recover);
+        document.removeEventListener("visibilitychange", recover);
+        document.removeEventListener("fullscreenchange", recover);
+        document.removeEventListener("webkitfullscreenchange", recover);
       });
     }
   });
@@ -618,6 +647,7 @@ const App: Component = () => {
   // webview is a separate OS layer that would otherwise eat the mouse).
   createEffect(() => {
     contentRect(); // subscribe: re-run on any layout change
+    relayoutTick(); // subscribe: forced re-tile (e.g. after fullscreen-video exit)
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = splitDragging() || panelDragging();
@@ -680,35 +710,41 @@ const App: Component = () => {
   // Web panel (#48): manage the single open panel's webview — positioned in its
   // own grid pane beside the content card. Switching panels closes the old one;
   // hidden mid-divider-drag.
-  let openedPanel: number | null = null;
-  createEffect(() => {
-    contentRect();
-    panelWidth(); // subscribe: re-position on resize / divider drag
-    const p = activePanel();
-    const dragging = panelDragging();
-    if (openedPanel != null && openedPanel !== (p?.id ?? null)) {
-      wv(panelClose(openedPanel));
-      openedPanel = null;
+  const opened: { top: number | null; bottom: number | null } = { top: null, bottom: null };
+  // Reconcile one split slot's native webview against the panel it should show and
+  // the rect it should occupy (null rect = keep alive but hidden behind an overlay).
+  const syncSlot = (slot: "top" | "bottom", p: WebPanel | null, rect: Rect | null) => {
+    const prev = opened[slot];
+    if (prev != null && prev !== (p?.id ?? null)) {
+      wv(panelClose(prev));
+      opened[slot] = null;
     }
     if (!p) return;
-    if (dragging || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen()) {
-      // Reader / Files popout / command palette are full overlays that must sit
-      // above everything — including the web panel's own native webview layer.
-      wv(panelHide(p.id));
-      return;
-    }
-    const rect = panelViewRect();
     if (!rect) {
       wv(panelHide(p.id));
       return;
     }
-    if (openedPanel === p.id) {
+    if (opened[slot] === p.id) {
       wv(panelSetBounds(p.id, rect));
       wv(panelShow(p.id));
     } else {
-      openedPanel = p.id;
+      opened[slot] = p.id;
       wv(panelOpen(p.id, p.url, rect).then(() => panelSetBounds(p.id, rect)));
     }
+  };
+  createEffect(() => {
+    contentRect();
+    relayoutTick(); // subscribe: forced re-tile (e.g. after fullscreen-video exit)
+    panelWidth(); // subscribe: re-position on resize / divider drag
+    panelSplitRatio(); // subscribe: re-tile both slots when the split moves
+    const top = activePanel();
+    const bottom = activePanelB();
+    // Reader / Files popout / command palette are full overlays that must sit above
+    // everything — including the web panel's own native webview layer.
+    const hidden =
+      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen();
+    syncSlot("top", top, hidden ? null : panelViewRect());
+    syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
   });
 
   // Capture a tab's scroll/form state the moment you switch away from it (#45),
@@ -1182,7 +1218,7 @@ const App: Component = () => {
   // The vertical terminal column only shows for browser tabs — a terminal
   // *tab* already fills the content card with a shell.
   const termColVisible = () => terminalOpen() && !focusMode() && activeTab()?.kind !== "terminal";
-  const panelColVisible = () => !focusMode() && activePanel() != null;
+  const panelColVisible = () => !focusMode() && (activePanel() != null || activePanelB() != null);
 
   const columns = () =>
     focusMode()
@@ -2534,14 +2570,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 <div class="ctx-sep" />
                 <For each={panels()}>
                   {(p) => (
-                    <div class="panel-row" classList={{ active: activePanelId() === p.id }}>
-                      <button class="panel-row-open" onClick={() => { togglePanel(p.id); setPanel(null); }}>
+                    <div class="panel-row" classList={{ active: activePanelId() === p.id || activePanelIdB() === p.id }}>
+                      <button class="panel-row-open" onClick={() => { togglePanel(p.id); setPanel(null); }} title="Show in panel (top)">
                         <span class="panel-row-title">{p.title || p.url}</span>
                       </button>
+                      <button class="panel-slot-btn" classList={{ on: activePanelIdB() === p.id }} title="Stack in bottom split" onClick={(e) => { e.stopPropagation(); togglePanelBottom(p.id); }}>⬓</button>
                       <button class="panel-row-x" title="Unpin" onClick={(e) => { e.stopPropagation(); void unpinPanel(p.id); }}>✕</button>
                     </div>
                   )}
                 </For>
+                <div class="start-empty" style={{ padding: "6px 10px 4px", "font-size": "11px", opacity: "0.7" }}>Tap a panel for the top; ⬓ stacks it below — e.g. calendar over email.</div>
               </Show>
             </Show>
             <Show when={panel() === "notes"}>
@@ -2780,24 +2818,56 @@ const ContentArea: Component<{
 
 // ─── Web panel column ────────────────────────────────────────────────────────
 
-const WebPanelPane: Component = () => (
-  <aside class="webpanel-pane">
-    <div class="webpanel-surface" id="flux-panel-area">
-      <Show when={activePanel()}>
-        {(p) => (
-          <>
-            <div class="panel-toolbar">
-              <span class="panel-title" title={p().url}>{p().title || p().url}</span>
-              <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p().id, p().url)}>⟳</button>
-              <button class="panel-btn" title="Close panel" onClick={() => closePanel()}>✕</button>
-            </div>
-            <div class="panel-placeholder" />
-          </>
-        )}
-      </Show>
+const WebPanelPane: Component = () => {
+  const both = () => activePanel() != null && activePanelB() != null;
+  // Drag the horizontal divider to re-balance the top/bottom split. Webviews hide
+  // during the drag (panelDragging) so the DOM divider can track the pointer freely.
+  const startSplitDrag = (e: PointerEvent) => {
+    e.preventDefault();
+    const pane = (e.currentTarget as HTMLElement).parentElement;
+    if (!pane) return;
+    setPanelDragging(true);
+    const move = (ev: PointerEvent) => {
+      const r = pane.getBoundingClientRect();
+      if (r.height > 0) setPanelSplitRatio((ev.clientY - r.top) / r.height);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setPanelDragging(false);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const slot = (
+    id: string,
+    p: WebPanel,
+    onClose: () => void,
+    grow: () => number,
+  ) => (
+    <div class="webpanel-surface" id={id} style={{ "flex-grow": String(grow()) }}>
+      <div class="panel-toolbar">
+        <span class="panel-title" title={p.url}>{p.title || p.url}</span>
+        <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p.id, p.url)}>⟳</button>
+        <button class="panel-btn" title="Close panel" onClick={onClose}>✕</button>
+      </div>
+      <div class="panel-placeholder" />
     </div>
-  </aside>
-);
+  );
+  return (
+    <aside class="webpanel-pane">
+      <Show when={activePanel()}>
+        {(p) => slot("flux-panel-area", p(), () => closePanel(), () => (both() ? panelSplitRatio() : 1))}
+      </Show>
+      <Show when={both()}>
+        <div class="webpanel-vdiv" onPointerDown={startSplitDrag} title="Drag to resize split" />
+      </Show>
+      <Show when={activePanelB()}>
+        {(p) => slot("flux-panel-area-b", p(), () => closePanelB(), () => (both() ? 1 - panelSplitRatio() : 1))}
+      </Show>
+    </aside>
+  );
+};
 
 // ─── Vertical terminal column ───────────────────────────────────────────────
 

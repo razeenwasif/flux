@@ -8,6 +8,24 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Split web panel (top / bottom)** — stack two pinned panels in the side pane, e.g.
+  **calendar over email**, both live at once. In *Web panels* tap a panel for the top
+  slot and **⬓** to stack one below; drag the divider between them to re-balance (the
+  split ratio + both open panels persist across launches). Each panel keeps its own
+  reload / close toolbar; closing the top promotes the bottom up. (Frontend-only — the
+  backend already keys panel webviews per id.)
+- **"Hey Gems" wake word** — Gemma now answers to the shorter *"hey gems"* / *"gems"*
+  (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
+
+### Fixed
+- **Chrome vanishing after fullscreen video** — exiting an HTML5 video fullscreen left
+  the native page webview oversized, covering the bookmark bar / sidebar footer (no
+  resize fires to re-tile it). Window focus / visibility / fullscreenchange now force a
+  bounds re-apply so the chrome comes back.
+- **Agent panel `working()` crash** — `working()` referenced an undefined `ttsSpeaking`
+  (only the prod build, which skips typechecking, let it through); now uses the imported
+  `speaking` signal.
+
 - **Gemma edits files (with approval)** — *"edit src/foo.rs: rename X to Y"* (or, after
   reading a file, *"change it to …"*) → she proposes surgical search/replace edits, you
   see a **colored diff**, and **nothing is written until you tap ✓ Apply**. WSL-aware

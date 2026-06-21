@@ -304,7 +304,7 @@ pub async fn wake_transcribe(pcm_b64: String, sample_rate: f32) -> Result<String
         #[cfg(feature = "voice")]
         {
             let pcm = decode_pcm(&pcm_b64)?;
-            transcribe_inner(&pcm, sample_rate, Some("[\"hey gemma\", \"gemma\", \"[unk]\"]"))
+            transcribe_inner(&pcm, sample_rate, Some("[\"hey gemma\", \"gemma\", \"hey gems\", \"gems\", \"gem\", \"[unk]\"]"))
         }
         #[cfg(not(feature = "voice"))]
         {
