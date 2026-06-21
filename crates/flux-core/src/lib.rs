@@ -43,6 +43,7 @@ pub mod screenshot;
 pub mod search;
 pub mod session;
 pub mod sessions;
+pub mod porcupine;
 pub mod shields;
 pub mod spotify;
 pub mod stt;
@@ -597,6 +598,9 @@ pub fn run(intent: cli::LaunchIntent) {
             lens::agent_vision,
             voice::voice_transcribe,
             stt::stt_whisper,
+            porcupine::porcupine_set_key,
+            porcupine::porcupine_has_key,
+            porcupine::porcupine_config,
             tts::voice_speak,
             tts::elevenlabs_set_key,
             tts::elevenlabs_has_key,

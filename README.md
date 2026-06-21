@@ -312,6 +312,13 @@ to a ggml model (e.g. `ggml-base.en.bin`; `FLUX_WHISPER_BIN` if `whisper-cli` is
 on `PATH`), and pick **Whisper** under Settings → Integrations → Recognition. It
 runs locally on the command utterance and falls back to Vosk if absent.
 
+**Dedicated wake word (Porcupine)** is optional. By default "hey Gemma" is detected
+by Vosk. For far fewer false triggers, pick **Porcupine** under Settings →
+Integrations → Wake word: it needs a free [Picovoice](https://console.picovoice.ai)
+access key (kept in the OS keyring), a custom `Hey Gemma` `.ppn` you generate on
+their console (Web/WASM platform), and `porcupine_params.pv` from the Picovoice
+GitHub. Detection runs locally in the browser; if unconfigured it falls back to Vosk.
+
 On Windows, install a voice-enabled `flux.exe` onto PATH with:
 
 ```powershell
