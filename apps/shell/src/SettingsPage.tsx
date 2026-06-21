@@ -50,7 +50,7 @@ import {
 import { heyGemmaEnabled, setHeyGemmaEnabled, setSttEngine, setWakeEngine, sttEngine, wakeEngine } from "./heygemma";
 import { porcupinePpnPath, porcupinePvPath, setPorcupinePpnPath, setPorcupinePvPath } from "./porcupine";
 import { micDeviceId, micDevices, noiseSuppress, setMicDeviceId, setNoiseSuppress } from "./mic";
-import { elVoiceId, elVoiceName, loadVoices, preferredVoice, previewElevenLabs, setElVoiceId, setElVoiceName, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
+import { elVoiceId, elVoiceName, loadVoices, preferredVoice, previewElevenLabs, setElVoiceId, setElVoiceName, setPreferredVoice, setSpeechLength, setTtsEngine, speak, speechLength, stopSpeaking, ttsEngine, type SpeechLength, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
   audiopulseDir,
@@ -151,6 +151,8 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   // Gemma's voice (TTS engine) + "Hey Gemma" always-on listening.
   const [ttsEngineSel, setTtsEngineSel] = createSignal<TtsEngine>(ttsEngine());
   const pickTts = (e: TtsEngine) => { setTtsEngine(e); setTtsEngineSel(e); };
+  const [speechLenSel, setSpeechLenSel] = createSignal<SpeechLength>(speechLength());
+  const pickSpeechLen = (v: SpeechLength) => { setSpeechLength(v); setSpeechLenSel(v); };
   const [sttSel, setSttSel] = createSignal(sttEngine());
   const pickStt = (e: string) => { setSttEngine(e); setSttSel(e); };
   // Translate every chat message to a command vs. only machine/file-type ones.
@@ -564,6 +566,13 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <option value="system">System voice (local)</option>
               <option value="piper">Piper (local neural)</option>
               <option value="elevenlabs">ElevenLabs (cloud)</option>
+            </select>
+          </Row>
+          <Row label="Spoken reply length" hint="How much of a reply Gemma says aloud (the full text always shows in the panel). You can cut her off any time — talk over her or tap ■ Stop.">
+            <select class="shields-select" value={speechLenSel()} onChange={(e) => pickSpeechLen(e.currentTarget.value as SpeechLength)}>
+              <option value="brief">Brief (~2 sentences)</option>
+              <option value="medium">Medium (~7 sentences)</option>
+              <option value="full">Full (everything)</option>
             </select>
           </Row>
           <Show when={ttsEngineSel() === "elevenlabs"}>

@@ -76,17 +76,28 @@ export function cleanForSpeech(text: string): string {
     .trim();
 }
 
-/** Keep spoken replies short so a wrong/long answer isn't a "rant" — the full text
- *  is always shown in the panel; only the first sentence-or-two is voiced. */
+// How much of a reply Gemma speaks: "brief" (~2 sentences), "medium" (~6),
+// or "full" (everything). You can always cut her off (barge-in / Stop button).
+const SPEECH_LEN_KEY = "flux.voice.speechlen";
+export type SpeechLength = "brief" | "medium" | "full";
+export const speechLength = (): SpeechLength => (localStorage.getItem(SPEECH_LEN_KEY) as SpeechLength) || "medium";
+export const setSpeechLength = (v: SpeechLength) => localStorage.setItem(SPEECH_LEN_KEY, v);
+
+/** Trim a reply for speech per the length setting — the full text always shows in
+ *  the panel; this only bounds what's voiced. */
 export function conciseForSpeech(text: string): string {
   const t = cleanForSpeech(text);
-  if (t.length <= 320) return t;
+  const mode = speechLength();
+  if (mode === "full") return t;
+  const cap = mode === "brief" ? 320 : 1400;
+  const maxSent = mode === "brief" ? 2 : 7;
+  if (t.length <= cap) return t;
   const sentences = t.match(/[^.!?]+[.!?]+/g);
-  if (sentences && sentences.length >= 2) {
-    const two = `${sentences[0]}${sentences[1]}`.trim();
-    if (two.length >= 40) return two;
+  if (sentences && sentences.length > maxSent) {
+    const chunk = sentences.slice(0, maxSent).join("").trim();
+    if (chunk.length >= 40) return chunk;
   }
-  return `${t.slice(0, 320).replace(/\s+\S*$/, "")}…`;
+  return `${t.slice(0, cap).replace(/\s+\S*$/, "")}…`;
 }
 
 export function stopSpeaking(): void {
