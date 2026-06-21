@@ -58,6 +58,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **Typed Gemma replies use the selected voice** — normal Agent panel replies now
+  speak through the configured TTS engine after the text response finishes
+  streaming, matching the Hey Gemma voice loop.
 - **ElevenLabs selected voice persistence** — the chosen ElevenLabs voice now
   persists both its ID and display name, so shared/custom voices remain selected
   and readable after reopening Settings or restarting Flux.

@@ -39,6 +39,7 @@ import {
 import { activeId, activeWorkspace, agentModelName, filesPanelOpen, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
+import { speak } from "./speak";
 
 type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task"; text: string; action?: AgentAction; pending?: boolean; image?: string };
 
@@ -95,7 +96,9 @@ const AgentPanel: Component = () => {
     setBusy(true);
     try {
       const reply = await agentChat(`Give a concise, direct answer to this search query: "${query}"`);
-      setFeed((f) => [...f, { role: "assistant", text: reply.trim() }]);
+      const text = reply.trim();
+      setFeed((f) => [...f, { role: "assistant", text }]);
+      void speak(text);
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
     } finally {
@@ -134,7 +137,9 @@ const AgentPanel: Component = () => {
     try {
       const path = await capturePage(t.id);
       const answer = await agentLens(path, userPrompt);
-      setFeed((f) => [...f, { role: "assistant", text: answer.trim() }]);
+      const text = answer.trim();
+      setFeed((f) => [...f, { role: "assistant", text }]);
+      void speak(text);
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
     } finally {
@@ -388,13 +393,21 @@ const AgentPanel: Component = () => {
         setAttachment(null);
         if (att.kind === "image") {
           const answer = await agentVision(att.b64, p);
-          setFeed((f) => [...f, { role: "assistant", text: answer.trim() }]);
+          const text = answer.trim();
+          setFeed((f) => [...f, { role: "assistant", text }]);
+          void speak(text);
         } else {
           const idx = feed().length;
           setFeed((f) => [...f, { role: "assistant", text: "" }]);
-          const append = (chunk: string) => setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + chunk } : it)));
+          let acc = "";
+          const append = (chunk: string) => {
+            acc += chunk;
+            setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + chunk } : it)));
+          };
           await agentChatStream(`${p || "Summarize this file."}\n\n--- file: ${att.name} ---\n${att.text}`, append);
-          setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)));
+          const text = acc.trim() || "(no response)";
+          setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text } : it)));
+          void speak(text);
         }
         return;
       }
@@ -421,13 +434,18 @@ const AgentPanel: Component = () => {
         // so the captured index stays valid.
         const idx = feed().length;
         setFeed((f) => [...f, { role: "assistant", text: "" }]);
-        const append = (chunk: string) =>
+        let acc = "";
+        const append = (chunk: string) => {
+          acc += chunk;
           setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + chunk } : it)));
+        };
         if (scope() === "tabs") await agentChatTabsStream(p, browserTabIds(), append);
         else await agentChatStream(p, append);
+        const text = acc.trim() || "(no response)";
         setFeed((f) =>
-          f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)),
+          f.map((it, i) => (i === idx ? { ...it, text } : it)),
         );
+        void speak(text);
       }
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
