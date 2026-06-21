@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Saved chats** — every conversation persists; a **🕘** menu in the panel header
+  lists past chats (titled from the first message) to reopen or delete, and **＋ New
+  chat** saves the current one and starts fresh. The most recent reopens on launch.
+- **Interrupt Gemma** — a **■ Stop** button appears in the input row while she's
+  thinking or speaking: it cuts the TTS and abandons the streaming reply (so a
+  mis-heard prompt doesn't make you sit through the answer). Spoken replies are also
+  capped to a sentence or two (the full text still shows in the panel).
 - **Chat memory** — Gemma now remembers the recent conversation: each reply is sent
   with the last several turns as context, so follow-ups ("what about the second one?")
   work. A **＋ New chat** button in the panel header clears the conversation when you
@@ -97,6 +104,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **Misheard music verbs + filler** — STT often turns "play" into "played"/"playing",
+  so the music intents now accept those, and "play the song <x>" / "this track <x>"
+  filler is stripped from the search. More sensitive always-on VAD (lower threshold,
+  longer pre-roll). "search up <x>" is recognized as a search too.
 - **Compound music commands run every step** — "launch spotify and play my liked
   songs, shuffle on" now launches AudioPulse *and* plays *and* shuffles. Previously
   the leading "launch …" intent matched first and swallowed the rest; the compound

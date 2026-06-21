@@ -40,7 +40,11 @@
 [CmdletBinding()]
 param(
     [switch]$SkipFrontend,
-    [switch]$Voice
+    [switch]$Voice,
+    # Build with `cargo tauri build` instead of the manual npm+cargo steps. It
+    # rebuilds the UI automatically via tauri.conf.json's beforeBuildCommand, so the
+    # embedded frontend is always current (installs tauri-cli if missing).
+    [switch]$Tauri
 )
 
 $ErrorActionPreference = 'Stop'
@@ -101,8 +105,12 @@ if ($SkipFrontend -and (Test-Path $dist)) {
         Write-Host "==> npm ci (installing/updating dependencies)" -ForegroundColor Cyan
         npm ci
     }
-    Write-Host "==> Building frontend (vite)" -ForegroundColor Cyan
-    npm run build --workspace apps/shell
+    if ($Tauri) {
+        Write-Host "==> Frontend will be built by 'cargo tauri build' (beforeBuildCommand)" -ForegroundColor DarkCyan
+    } else {
+        Write-Host "==> Building frontend (vite)" -ForegroundColor Cyan
+        npm run build --workspace apps/shell
+    }
 }
 
 # --- Release binary -----------------------------------------------------------
@@ -112,7 +120,20 @@ Write-Host "==> Building release flux.exe (LTO - takes several minutes)" -Foregr
 $features = @('custom-protocol')
 if ($Voice) { $features += 'voice' }
 Write-Host "==> Cargo features: $($features -join ',')" -ForegroundColor DarkCyan
-cargo build --release -p flux-core --features ($features -join ',')
+if ($Tauri) {
+    # `cargo tauri build` runs beforeBuildCommand (npm run build) first, so the UI
+    # is always rebuilt — the foolproof one-shot. custom-protocol is implied by a
+    # release tauri build; pass only the extra features. --no-bundle skips the
+    # installer (we just want the exe).
+    if (-not (cargo tauri --version 2>$null)) {
+        Write-Host "==> Installing tauri-cli (cargo install tauri-cli)" -ForegroundColor Cyan
+        cargo install tauri-cli --locked
+    }
+    $extra = @(); if ($Voice) { $extra = @('--features', 'voice') }
+    cargo tauri build --no-bundle @extra
+} else {
+    cargo build --release -p flux-core --features ($features -join ',')
+}
 
 $exe = Join-Path $root 'target\release\flux.exe'
 if (-not (Test-Path $exe)) { throw "Build reported success but $exe is missing." }

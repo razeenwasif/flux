@@ -868,9 +868,13 @@ body.resizing, body.busy { --glass-blur: none; }
   padding: 5px; display: flex; flex-direction: column; gap: 1px; max-height: 260px; overflow-y: auto;
   background: #14102f; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: auto;
 }
-.agent-model-item { font-size: 12px; padding: 6px 9px; border-radius: 7px; text-align: left; color: var(--flux-text); cursor: pointer; }
+.agent-model-item { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 9px; border-radius: 7px; text-align: left; color: var(--flux-text); cursor: pointer; }
 .agent-model-item:hover, .agent-model-item:focus-visible { background: var(--flux-surface-2); outline: none; }
 .agent-model-item.on { color: var(--flux-teal); }
+.agent-chat-del { opacity: 0.5; padding: 0 2px; border-radius: 4px; }
+.agent-chat-del:hover { opacity: 1; color: #ff9b9b; }
+.agent-stop-btn { color: #fff !important; background: #e5484d !important; }
+.agent-stop-btn:hover { background: #d23b40 !important; }
 .agent-model-empty { font-size: 11.5px; color: var(--flux-text-mute); padding: 8px 9px; }
 
 /* Chat-with-page/tabs (#34): scope toggle + quick-prompt chips above the input. */
