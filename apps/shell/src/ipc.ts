@@ -279,6 +279,11 @@ export const wakeTranscribe = (pcmB64: string, sampleRate: number) =>
   invoke<string>("wake_transcribe", { pcmB64, sampleRate });
 /** Run a shell command for the agent (rm + destructive commands are blocked). */
 export const runShell = (command: string) => invoke<string>("run_shell", { command });
+/** Gemma's long-term memory (a Markdown file). Read for context / append facts. */
+export const memoryRead = () => invoke<string>("memory_read");
+export const memoryAppend = (note: string) => invoke<string>("memory_append", { note });
+export const memoryWrite = (content: string) => invoke<void>("memory_write", { content });
+export const memoryPath = () => invoke<string>("memory_path_str");
 /** Turn a natural request into a shell command (or null if it's conversational). */
 export const agentShellPlan = (prompt: string) => invoke<string | null>("agent_shell_plan", { prompt });
 /** Store (or clear, with "") the Picovoice (Porcupine) access key in the keyring. */

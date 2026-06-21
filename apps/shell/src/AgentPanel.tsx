@@ -11,6 +11,8 @@ import {
   agentChatTabsStream,
   agentShellPlan,
   runShell,
+  memoryRead,
+  memoryAppend,
   searchResolve,
   agentModels,
   spotifyNext,
@@ -446,11 +448,41 @@ const AgentPanel: Component = () => {
   // trailing "user" entry is the message we just pushed, so it's excluded. Capped
   // to the last few turns to keep prompt-eval fast.
   const convoPrompt = (current: string): string => {
+    const mem = memText().trim();
+    const preamble = mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 2000)}\n\n` : "";
     const turns = feed().filter((it) => it.role === "user" || it.role === "assistant");
     const prior = (turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns).slice(-8);
-    if (!prior.length) return current;
+    if (!prior.length) return preamble ? `${preamble}User: ${current}` : current;
     const transcript = prior.map((it) => `${it.role === "user" ? "User" : "Gemma"}: ${it.text}`).join("\n");
-    return `Conversation so far:\n${transcript}\n\nReply to the new message, using the conversation above for context.\nUser: ${current}`;
+    return `${preamble}Conversation so far:\n${transcript}\n\nReply to the new message, using the memory + conversation above for context.\nUser: ${current}`;
+  };
+
+  // Long-term memory (a Markdown file Gemma reads + appends to). "remember (that) X"
+  // / "note X" / "/remember X" saves a fact; it's then injected into every chat
+  // prompt above. "what do you remember" / "show your memory" reads it back.
+  const [memText, setMemText] = createSignal("");
+  const refreshMemory = () => void memoryRead().then(setMemText).catch(() => {});
+  const REMEMBER_RE = /^(?:\/remember|remember|note|make a note|keep in mind|save (?:to memory|this))\b[:,]?\s+(?:that\s+|to\s+)?(.+)/i;
+  const RECALL_RE = /^(?:\/memory|what do you remember|show (?:me )?(?:your |the )?memory|what'?s in your memory)\b/i;
+  const runRemember = async (fact: string): Promise<string> => {
+    const f = fact.trim().replace(/[?.!]+$/, "");
+    if (!f) return "";
+    try {
+      const msg = await memoryAppend(f);
+      refreshMemory();
+      setFeed((fd) => [...fd, { role: "action", text: `🧠 Remembered: ${f}` }]);
+      return msg;
+    } catch (e) {
+      const m = String(e);
+      setFeed((fd) => [...fd, { role: "error", text: m }]);
+      return m;
+    }
+  };
+  const runRecall = (): string => {
+    const mem = memText().trim();
+    const text = mem ? mem : "I don't have anything in my memory yet. Say “remember that …” to add something.";
+    setFeed((fd) => [...fd, { role: "assistant", text }]);
+    return mem ? "Here's what I remember." : "Nothing in my memory yet.";
   };
 
   // "search X" / "google X" / "open a new tab and search X" → open a new browser tab
@@ -487,6 +519,9 @@ const AgentPanel: Component = () => {
     if (musicReply !== null) return musicReply;
     const vs = stripped.match(SEARCH_RE);
     if (vs?.[1]) return await runSearch(vs[1]);
+    const rm = stripped.match(REMEMBER_RE);
+    if (rm?.[1]) return await runRemember(rm[1]);
+    if (RECALL_RE.test(stripped)) return runRecall();
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
     const cp = convoPrompt(t); // memory
@@ -509,6 +544,7 @@ const AgentPanel: Component = () => {
   onMount(() => {
     setVoiceHandler(voiceRespond);
     if (heyGemmaEnabled()) void startConversation();
+    refreshMemory();
     // Reopen the most recent conversation so a reload doesn't lose your place.
     const recent = chats()[0];
     if (recent && !feed().length) loadSession(recent);
@@ -565,6 +601,10 @@ const AgentPanel: Component = () => {
       // "search …" / "open a new tab and search …" → open a browser tab.
       const search = p.match(SEARCH_RE);
       if (search?.[1]) { await runSearch(search[1]); return; }
+      // Long-term memory — "remember that …" / "what do you remember".
+      const rem = p.match(REMEMBER_RE);
+      if (rem?.[1]) { await runRemember(rem[1]); return; }
+      if (RECALL_RE.test(p)) { runRecall(); return; }
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
