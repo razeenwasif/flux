@@ -66,6 +66,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **ElevenLabs selected voice display on reload** — the Settings dropdown now
+  renders the saved voice as an explicit current option before the live
+  ElevenLabs voice list loads, so it does not visually reset to "Select a voice…".
 - **Typed Gemma replies use the selected voice** — normal Agent panel replies now
   speak through the configured TTS engine after the text response finishes
   streaming, matching the Hey Gemma voice loop.

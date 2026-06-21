@@ -191,10 +191,13 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [elManualVoice, setElManualVoice] = createSignal("");
   const [elFlash, setElFlash] = createSignal("");
   const [elSavingVoice, setElSavingVoice] = createSignal(false);
+  const selectedElVoice = () => elVoices().find((v) => v.id === elVoiceSel());
+  const selectedElVoiceLabel = () => selectedElVoice()?.name || elVoiceNameSel() || `Custom voice (${elVoiceSel()})`;
+  const selectableElVoices = () => elVoices().filter((v) => v.id !== elVoiceSel());
   const refreshElKey = () => void elevenlabsHasKey().then(setElKeySet).catch(() => {});
   const loadElVoices = () => void elevenlabsVoices().then((v) => {
     setElVoices(v);
-    const current = v.find((voice) => voice.id === elVoiceSel());
+    const current = selectedElVoice();
     if (current) {
       setElVoiceName(current.name);
       setElVoiceNameSel(current.name);
@@ -528,10 +531,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                       }}
                     >
                       <option value="">Select a voice…</option>
-                      <Show when={elVoiceSel() && !elVoices().some((v) => v.id === elVoiceSel())}>
-                        <option value={elVoiceSel()}>{elVoiceNameSel() || `Custom voice (${elVoiceSel()})`}</option>
+                      <Show when={elVoiceSel()}>
+                        <option value={elVoiceSel()}>{selectedElVoiceLabel()}</option>
                       </Show>
-                      <For each={elVoices()}>{(v) => <option value={v.id}>{v.name}</option>}</For>
+                      <For each={selectableElVoices()}>{(v) => <option value={v.id}>{v.name}</option>}</For>
                     </select>
                     <button class="set-link-btn" onClick={loadElVoices}>↻</button>
                     <button class="set-link-btn" onClick={() => void testVoice()}>{testing() ? "■ Stop" : "🔊 Test"}</button>
