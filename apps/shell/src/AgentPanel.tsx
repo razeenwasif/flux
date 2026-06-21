@@ -450,7 +450,7 @@ const AgentPanel: Component = () => {
   // to the last few turns to keep prompt-eval fast.
   const convoPrompt = (current: string): string => {
     const mem = memText().trim();
-    const preamble = mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 2000)}\n\n` : "";
+    const preamble = mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "";
     const turns = feed().filter((it) => it.role === "user" || it.role === "assistant");
     const prior = (turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns).slice(-8);
     if (!prior.length) return preamble ? `${preamble}User: ${current}` : current;
@@ -882,6 +882,11 @@ const AgentPanel: Component = () => {
                 single page action, or <kbd>/task</kbd> for a multi-step goal
                 (e.g. <em>/task find the cheapest listing and open it</em>) — the agent
                 plans one step at a time and you approve each (or tick “Run all”).
+                <div class="agent-empty-tips">
+                  Try: <em>“remember that …”</em> · <em>“remind me to … at 3pm”</em> ·
+                  <em>“what are my reminders”</em> · <em>“show my to-dos”</em> ·
+                  <em>“search …”</em> · <em>“run …”</em> · <em>“play …”</em>
+                </div>
               </div>
             }
           >

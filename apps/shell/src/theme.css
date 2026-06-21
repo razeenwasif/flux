@@ -857,6 +857,8 @@ body.resizing, body.busy { --glass-blur: none; }
 .agent-feed::-webkit-scrollbar { width: 8px; }
 .agent-feed::-webkit-scrollbar-thumb { background: rgba(150, 160, 220, 0.18); border-radius: 4px; }
 .agent-empty { color: var(--flux-text-mute); line-height: 1.7; }
+.agent-empty-tips { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--flux-border); font-size: 12px; line-height: 2; }
+.agent-empty-tips em { color: var(--flux-teal); font-style: normal; }
 .agent-empty kbd { font: inherit; font-size: 11px; background: var(--flux-surface); border: 1px solid var(--flux-border); border-radius: 4px; padding: 0 5px; color: var(--flux-text-dim); }
 
 /* Agent model picker (#81). */
