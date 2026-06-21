@@ -317,30 +317,35 @@ const AgentPanel: Component = () => {
     if (/^(?:what'?s\s*playing|now\s*playing|np)\??$/i.test(cmd)) return spotifyNowPlaying;
     return null;
   };
-  const runMusic = async (raw: string): Promise<boolean> => {
+  const callMusic = async (fn: () => Promise<string>): Promise<string> => {
+    try { const r = await fn(); setFeed((f) => [...f, { role: "action", text: r }]); return r; }
+    catch (e) { const m = String(e); setFeed((f) => [...f, { role: "error", text: m }]); return m; }
+  };
+  // Handle a music command (typed or voice). Returns the spoken summary if handled,
+  // else null. Tries the COMPOUND split FIRST — "launch spotify and play my liked
+  // songs, shuffle on" — so a leading intent (e.g. "launch …") doesn't swallow the
+  // rest; only fires as a macro when EVERY clause is a music intent, so a normal
+  // "play Stay with Me" search still falls through to a single play.
+  const handleMusic = async (raw: string): Promise<string | null> => {
     const cmd = raw
       .replace(/^\/?(hey\s+)?gemma[,:\s]+/i, "")
       .replace(/^(can|could|would)\s+you\s+/i, "")
       .replace(/^please\s+/i, "")
       .trim();
-    const call = async (fn: () => Promise<string>) => {
-      try { const r = await fn(); setFeed((f) => [...f, { role: "action", text: r }]); }
-      catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); }
-    };
-    const single = musicIntent(cmd);
-    if (single) { await call(single); return true; }
-    // Compound macro: split on "and" / "then" / "," / ";" / "." and run each step
-    // in order — only if every clause is a recognised music intent.
-    const clauses = cmd.split(/\s*(?:,|;|\.|\bthen\b|\band\b)\s*/i).map((s) => s.trim()).filter(Boolean);
+    const clauses = cmd.split(/\s*(?:,|;|\.|\bthen\b|\band\b|\bwith\b)\s*/i).map((s) => s.trim()).filter(Boolean);
     if (clauses.length >= 2) {
       const steps = clauses.map(musicIntent);
       if (steps.every(Boolean)) {
-        for (const step of steps) await call(step!);
-        return true;
+        let last = "";
+        for (const step of steps) last = await callMusic(step!);
+        return last;
       }
     }
-    return false;
+    const single = musicIntent(cmd);
+    if (single) return await callMusic(single);
+    return null;
   };
+  const runMusic = async (raw: string): Promise<boolean> => (await handleMusic(raw)) !== null;
 
   // "run <cmd>" / "execute <cmd>" / "/run <cmd>" → propose a shell command. Nothing
   // runs until you tap Run (rm + destructive commands are also blocked backend-side).
@@ -394,11 +399,8 @@ const AgentPanel: Component = () => {
     const stripped = t.replace(/^\/?(hey\s+)?gemma[,:\s]+/i, "").trim();
     const sh = stripped.match(SHELL_RE);
     if (sh?.[1]) return await runShellCmd(sh[1]);
-    const single = musicIntent(stripped);
-    if (single) {
-      try { const r = await single(); setFeed((f) => [...f, { role: "action", text: r }]); return r; }
-      catch (e) { const m = String(e); setFeed((f) => [...f, { role: "error", text: m }]); return m; }
-    }
+    const musicReply = await handleMusic(t);
+    if (musicReply !== null) return musicReply;
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
     const idx = feed().length;
