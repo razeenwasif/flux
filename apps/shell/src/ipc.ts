@@ -277,6 +277,8 @@ export const sttWhisper = (pcmB64: string, sampleRate: number) =>
 /** Grammar-restricted wake-word pass (Vosk) — reliable "hey gemma" spotting. */
 export const wakeTranscribe = (pcmB64: string, sampleRate: number) =>
   invoke<string>("wake_transcribe", { pcmB64, sampleRate });
+/** Run a shell command for the agent (rm + destructive commands are blocked). */
+export const runShell = (command: string) => invoke<string>("run_shell", { command });
 /** Store (or clear, with "") the Picovoice (Porcupine) access key in the keyring. */
 export const porcupineSetKey = (key: string) => invoke<void>("porcupine_set_key", { key });
 export const porcupineHasKey = () => invoke<boolean>("porcupine_has_key");

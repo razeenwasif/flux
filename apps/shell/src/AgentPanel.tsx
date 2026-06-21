@@ -9,6 +9,7 @@ import {
   agentChat,
   agentChatStream,
   agentChatTabsStream,
+  runShell,
   agentModels,
   spotifyNext,
   spotifyNowPlaying,
@@ -285,7 +286,9 @@ const AgentPanel: Component = () => {
       .replace(/^\/?(?:and\s+|also\s+|then\s+|make\s+sure\s+to\s+|be\s+sure\s+to\s+|please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)+/i, "")
       .trim();
     let m: RegExpMatchArray | null;
-    if (/^(?:launch|start(?:\s*up)?|open|boot(?:\s*up)?|fire\s*up)\s+(?:audio\s*pulse|ap)\b/i.test(cmd)) return spotifyLaunch;
+    // "launch audiopulse" + synonyms; "spotify" is accepted too since Vosk often
+    // mishears "pulse" (so "launch spotify" → launch AudioPulse).
+    if (/^(?:launch|start(?:\s*up)?|open|boot(?:\s*up)?|fire\s*up)\s+(?:audio\s*pulse|audiopulse|spotify|ap)\b/i.test(cmd)) return spotifyLaunch;
     if (/^(?:play|put on|start)\s+(?:my\s+|the\s+)?liked(?:\s+songs?)?(?:\s+playlist)?$/i.test(cmd)) return spotifyPlayLiked;
     if ((m = cmd.match(/^(?:play|put on|start)\s+(?:my\s+|the\s+)?(.+?)\s+playlist$/i))) {
       const name = m[1]!.trim();
@@ -338,15 +341,35 @@ const AgentPanel: Component = () => {
     return false;
   };
 
+  // "run <cmd>" / "execute <cmd>" / "/run <cmd>" → execute a shell command in the
+  // embedded terminal's shell (rm + destructive commands are blocked backend-side).
+  const SHELL_RE = /^\/?(?:run|exec|execute|terminal|shell)\s+([\s\S]+)/i;
+  const runShellCmd = async (cmd: string): Promise<string> => {
+    const c = cmd.trim();
+    if (!c) return "";
+    setFeed((f) => [...f, { role: "action", text: `$ ${c}` }]);
+    try {
+      const out = await runShell(c);
+      setFeed((f) => [...f, { role: "assistant", text: out }]);
+      return out.length > 160 ? "Done — the output's in the panel." : out || "Done.";
+    } catch (e) {
+      const m = String(e);
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    }
+  };
+
   // Handle one spoken command from the "hey gemma" loop: show it in the feed,
-  // route it through the same music / chat pipeline as typed input, and return
-  // the reply text for the conductor to speak. Music commands speak their action
-  // result ("Shuffle on"); everything else streams a chat answer into the feed.
+  // route it through the same music / shell / chat pipeline as typed input, and
+  // return the reply text for the conductor to speak.
   const voiceRespond = async (transcript: string): Promise<string> => {
     const t = transcript.trim();
     if (!t || working() || taskRunning()) return "";
     setFeed((f) => [...f, { role: "user", text: t }]);
-    const single = musicIntent(t.replace(/^\/?(hey\s+)?gemma[,:\s]+/i, "").trim());
+    const stripped = t.replace(/^\/?(hey\s+)?gemma[,:\s]+/i, "").trim();
+    const sh = stripped.match(SHELL_RE);
+    if (sh?.[1]) return await runShellCmd(sh[1]);
+    const single = musicIntent(stripped);
     if (single) {
       try { const r = await single(); setFeed((f) => [...f, { role: "action", text: r }]); return r; }
       catch (e) { const m = String(e); setFeed((f) => [...f, { role: "error", text: m }]); return m; }
@@ -415,6 +438,9 @@ const AgentPanel: Component = () => {
       const lens = p.match(/^\/lens(?:\s+([\s\S]+))?$/i) ||
         p.match(/^(?:what(?:'?s| is) this|identify (?:this|it)|what am i looking at)\b[\s\S]*/i);
       if (lens) { await runLens(lens[1]?.trim() || (/^\/lens/i.test(p) ? "" : p)); return; }
+      // Shell command — "run …" / "execute …" / "/run …" (rm + destructive blocked).
+      const shell = p.match(SHELL_RE);
+      if (shell?.[1]) { await runShellCmd(shell[1].trim()); return; }
       // Music command (AudioPulse) before chat — "play …" / "skip" / "pause" / …
       if (await runMusic(p)) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
