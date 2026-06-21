@@ -279,6 +279,8 @@ export const wakeTranscribe = (pcmB64: string, sampleRate: number) =>
   invoke<string>("wake_transcribe", { pcmB64, sampleRate });
 /** Run a shell command for the agent (rm + destructive commands are blocked). */
 export const runShell = (command: string) => invoke<string>("run_shell", { command });
+/** Denylist pre-check before typing a command into the live terminal. null = allowed. */
+export const shellGuard = (command: string) => invoke<string | null>("shell_guard", { command });
 /** Read a text file (WSL-aware) into the agent's context. */
 export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
 /** Write a text file (WSL-aware) — only after the user approves an edit. */

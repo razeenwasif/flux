@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Gemma runs commands in your live terminal (#65)** — *"run cargo test"* / *"execute
+  ls -la"* (or ask naturally, *"what's in my downloads"*) → a **▶ Run in terminal**
+  approval card → on tap she types the command into your **real embedded terminal**
+  (your cwd / env / history), you watch it run live, and she **reads the output back**
+  from the scrollback to report / re-plan. Opens a terminal first if none is up; same
+  rm/destructive **denylist** as the headless path (enforced via `shell_guard` before
+  the keystrokes hit the PTY). Together with file editing this closes **read → reason →
+  change → verify** — edit a file, run the tests, read the failure, fix it.
 - **Split web panel (top / bottom)** — stack two pinned panels in the side pane, e.g.
   **calendar over email**, both live at once. In *Web panels* tap a panel for the top
   slot and **⬓** to stack one below; drag the divider between them to re-balance (the

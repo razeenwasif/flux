@@ -12,6 +12,7 @@ import {
   agentChatTabsStream,
   agentShellPlan,
   runShell,
+  shellGuard,
   readTextFile,
   writeTextFile,
   agentEditPlan,
@@ -51,7 +52,7 @@ import { activeId, activeWorkspace, agentModelName, filesPanelOpen, fluxStateSna
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 import { micConstraints } from "./mic";
-import { activeTerminalText } from "./terminals";
+import { activeTerminalText, activeTerminalLineCount, activeTerminalLinesFrom, runInActiveTerminal } from "./terminals";
 import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
@@ -431,14 +432,51 @@ const AgentPanel: Component = () => {
     const c = cmd.trim();
     if (!c) return "";
     setFeed((f) => [...f, { role: "shell", text: `$ ${c}`, shellCmd: c, pending: true }]);
-    return `Run “${c}”? Tap Run in the panel to confirm.`;
+    return `Run “${c}” in your terminal? Tap ▶ Run in terminal to confirm.`;
   };
+  // Poll the active terminal's new output (from `baseline`) until it goes quiet —
+  // a PTY has no exit signal, so "stopped changing for STABLE ms" is our done-ish
+  // heuristic, capped at MAX. Returns the captured tail.
+  const readBackTerminal = async (baseline: number): Promise<string> => {
+    const STEP = 350, STABLE = 1200, MAX = 30000;
+    let last = "";
+    let stable = 0;
+    for (let t = 0; t < MAX; t += STEP) {
+      await new Promise((r) => setTimeout(r, STEP));
+      const cur = activeTerminalLinesFrom(baseline, 200);
+      if (cur === last) {
+        stable += STEP;
+        if (stable >= STABLE && cur.trim()) break;
+      } else {
+        last = cur;
+        stable = 0;
+      }
+    }
+    return last;
+  };
+
   const approveShell = async (idx: number, cmd: string) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
     setBusy(true);
     try {
-      const out = await runShell(cmd);
-      setFeed((f) => [...f, { role: "assistant", text: out }]);
+      // Same denylist as the headless run — we're typing straight into the PTY,
+      // which bypasses run_shell's guard, so check it ourselves first.
+      let block: string | null = null;
+      try { block = await shellGuard(cmd); } catch { block = null; }
+      if (block) { setFeed((f) => [...f, { role: "error", text: block! }]); return; }
+      // Baseline BEFORE running so we read only this command's new output. -1 to
+      // include the prompt line the command echoes onto.
+      const baseline = Math.max(0, activeTerminalLineCount() - 1);
+      const session = await runInActiveTerminal(cmd);
+      if (session == null) {
+        // Couldn't bring a terminal up — fall back to a headless run so the command
+        // still executes and returns something.
+        const out = await runShell(cmd);
+        setFeed((f) => [...f, { role: "assistant", text: out }]);
+        return;
+      }
+      const out = (await readBackTerminal(baseline)).trim();
+      setFeed((f) => [...f, { role: "assistant", text: out ? `Terminal output:\n${out}` : "(ran in your terminal — no output captured; check the terminal)" }]);
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
     } finally {
@@ -478,7 +516,7 @@ const AgentPanel: Component = () => {
     "Your capabilities in Flux (these run via the app, not just talk — tell the user the exact phrasing when helpful):\n" +
     "- Reminders & to-dos: \"remind me to <x> in 10 min / at 3pm / tomorrow\"; \"what are my reminders\". They fire with an OS notification + spoken alert even if the panel is closed.\n" +
     "- Long-term memory: \"remember that <x>\" saves a fact you'll recall in future chats; \"what do you remember\".\n" +
-    "- Run terminal commands (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command.\n" +
+    "- Run commands in the user's live terminal (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command. On approval it runs in their real terminal session (their cwd/env) and you read the output back — so you can edit a file, run the tests, read the result, and fix it.\n" +
     "- Read files into context: \"read src/foo.rs\" / \"look at <path>\" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); \"forget the files\" clears. You can also drag a file from the explorer onto the panel.\n" +
     "- Read the terminal: \"read the terminal\" / \"what's in my terminal\" pulls the active Terminal tab's recent output into context (great for debugging a failed command).\n" +
     "- Edit files (with approval): \"edit src/foo.rs: rename X to Y\" / (after reading a file) \"change it to …\" — you propose a diff; nothing is written until the user taps Apply. Make surgical edits.\n" +
@@ -1166,7 +1204,7 @@ const AgentPanel: Component = () => {
                   </Show>
                   <Show when={item.role === "shell" && item.pending && item.shellCmd}>
                     <div class="agent-approve">
-                      <button class="agent-approve-yes" onClick={() => void approveShell(i(), item.shellCmd!)}>▶ Run</button>
+                      <button class="agent-approve-yes" onClick={() => void approveShell(i(), item.shellCmd!)}>▶ Run in terminal</button>
                       <button class="agent-approve-no" onClick={() => cancelShell(i())}>Cancel</button>
                     </div>
                   </Show>

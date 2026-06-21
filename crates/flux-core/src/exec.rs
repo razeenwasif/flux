@@ -17,7 +17,7 @@ const DENY: &[&str] = &[
     "shutdown", "reboot", "halt", "poweroff",
 ];
 
-fn blocked_reason(cmd: &str) -> Option<String> {
+pub fn blocked_reason(cmd: &str) -> Option<String> {
     let c = cmd.trim();
     if c.is_empty() {
         return Some("no command given".into());
@@ -68,6 +68,14 @@ fn shell_command(cmd: &str) -> Command {
         c.args(["-lc", cmd]);
         c
     }
+}
+
+/// Safety pre-check for a command we're about to *type into the live terminal*
+/// (which bypasses `run_shell`'s capture path): returns the block reason, or None
+/// if it's allowed. Same denylist as the headless run.
+#[tauri::command]
+pub fn shell_guard(command: String) -> Option<String> {
+    blocked_reason(&command)
 }
 
 /// Run `command` and return its output (truncated). stdin is closed so commands

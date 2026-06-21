@@ -111,6 +111,7 @@ import {
   type Workspace,
 } from "./ipc";
 import TerminalView from "./TerminalView";
+import { setTerminalOpener } from "./terminals";
 import { keyToAction } from "./shortcuts";
 import FindBar from "./FindBar";
 import Downloads from "./Downloads";
@@ -282,6 +283,8 @@ const App: Component = () => {
   // Terminal column open by default (persisted — toggling off sticks).
   const [terminalOpen, setTerminalOpen] = createSignal(localStorage.getItem("flux.term.open") !== "0");
   createEffect(() => localStorage.setItem("flux.term.open", terminalOpen() ? "1" : "0"));
+  // Let the agent bring up a terminal before running a command in it (#65).
+  setTerminalOpener(() => setTerminalOpen(true));
   const [agentOpen, setAgentOpen] = createSignal(true);
   // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
   const [focusMode, setFocusMode] = createSignal(false);

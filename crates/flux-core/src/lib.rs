@@ -610,6 +610,7 @@ pub fn run(intent: cli::LaunchIntent) {
             voice::voice_transcribe,
             voice::wake_transcribe,
             exec::run_shell,
+            exec::shell_guard,
             memory::memory_read,
             memory::memory_append,
             memory::memory_write,
