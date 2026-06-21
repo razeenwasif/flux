@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Whisper.cpp speech recognition (opt-in)** — a more accurate STT engine for the
+  spoken command than the small Vosk model, especially with accents/noise. Pick
+  **Whisper (accurate)** under Settings → Integrations → Recognition; set
+  `FLUX_WHISPER_MODEL` to a ggml model (e.g. `ggml-base.en.bin`). Runs via the
+  `whisper-cli` binary (no link deps, like Piper), resampling the mic to 16 kHz;
+  falls back to Vosk if whisper isn't installed. Wake detection stays on the fast
+  Vosk pass, so whisper only runs on the command (~1–3 s). Fully local — audio goes
+  to a temp WAV that's deleted right after. (`stt.rs` `stt_whisper`.)
 - **ElevenLabs shared voice import** — pasted ElevenLabs voice-library links now
   add the shared voice to the configured ElevenLabs account before selecting it,
   and the Settings **Test** button reports ElevenLabs API errors instead of

@@ -271,6 +271,9 @@ export const agentChat = (prompt: string) => invoke<string>("agent_chat", { prom
 /** Push-to-talk STT (#voice): transcribe base64 LE-i16 mono PCM at `sampleRate`. */
 export const voiceTranscribe = (pcmB64: string, sampleRate: number) =>
   invoke<string>("voice_transcribe", { pcmB64, sampleRate });
+/** More accurate STT via whisper.cpp (errors if whisper isn't installed). */
+export const sttWhisper = (pcmB64: string, sampleRate: number) =>
+  invoke<string>("stt_whisper", { pcmB64, sampleRate });
 /** Local TTS via Piper: returns a base64 WAV (errors if Piper isn't installed). */
 export const voiceSpeak = (text: string) => invoke<string>("voice_speak", { text });
 /** Store (or clear, with "") the ElevenLabs API key in the OS keyring. */

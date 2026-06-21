@@ -18,10 +18,15 @@
 
 import { createSignal } from "solid-js";
 
-import { voiceTranscribe } from "./ipc";
+import { sttWhisper, voiceTranscribe } from "./ipc";
 import { speak, stopSpeaking } from "./speak";
 
 const ENABLED_KEY = "flux.voice.heygemma";
+// Recognition engine for the command utterance: "vosk" (fast) or "whisper" (more
+// accurate, ~1–3 s). Wake detection always uses the fast Vosk pass.
+const STT_KEY = "flux.voice.stt";
+export const sttEngine = (): string => localStorage.getItem(STT_KEY) || "vosk";
+export const setSttEngine = (e: string) => localStorage.setItem(STT_KEY, e);
 
 const [enabled, setEnabledSig] = createSignal(localStorage.getItem(ENABLED_KEY) === "1");
 export const heyGemmaEnabled = enabled;
@@ -117,34 +122,49 @@ function toI16B64(chunks: Float32Array[]): string {
   return btoa(str);
 }
 
+/** Accurate command transcription: whisper if selected (fallback to Vosk), else Vosk. */
+async function transcribeCommand(b64: string, voskText: string): Promise<string> {
+  if (sttEngine() === "whisper") {
+    try { const t = (await sttWhisper(b64, rate)).trim(); if (t) return t; } catch { /* fall through to Vosk */ }
+  }
+  if (voskText) return voskText;
+  try { return (await voiceTranscribe(b64, rate)).trim(); } catch { return ""; }
+}
+function stripWake(text: string): string {
+  const m = WAKE.exec(text);
+  return m ? text.slice(m.index + m[0].length).replace(/^[,.:;\s]+/, "").trim() : text.trim();
+}
+
 async function handleUtterance(chunks: Float32Array[]) {
   try {
-    let text = "";
-    try {
-      text = (await voiceTranscribe(toI16B64(chunks), rate)).trim();
-    } catch {
-      text = "";
-    }
-    if (!text) return;
-
+    const b64 = toI16B64(chunks);
     const warm = Date.now() < warmUntil;
-    const wake = WAKE.exec(text);
+
+    // Fast Vosk pass to detect the wake word (skipped in the warm follow-up window).
+    let vosk = "";
+    if (!warm) {
+      try { vosk = (await voiceTranscribe(b64, rate)).trim(); } catch { vosk = ""; }
+      if (!vosk) return;
+    }
+
     let command = "";
     if (warm) {
-      command = text; // follow-up: no wake word needed
-    } else if (wake) {
-      // Strip the wake word; whatever follows on the same breath is the command.
-      command = text.slice(wake.index + wake[0].length).replace(/^[,.:;\s]+/, "").trim();
-      if (!command) {
+      command = await transcribeCommand(b64, ""); // whole utterance is the command
+    } else {
+      const wake = WAKE.exec(vosk);
+      if (!wake) return; // not addressed to Gemma → drop, nothing sent anywhere
+      const remainder = vosk.slice(wake.index + wake[0].length).replace(/^[,.:;\s]+/, "").trim();
+      if (!remainder) {
         setListening(true);
         setVoiceStatus("listening…");
         await speak("Mm-hm?"); // acknowledge, then wait for the command utterance
         warmUntil = Date.now() + WARM_MS; // the next utterance is the command
         return;
       }
-    } else {
-      return; // not addressed to Gemma → drop, nothing sent anywhere
+      // Re-transcribe accurately, then strip any leading wake word from the result.
+      command = stripWake(await transcribeCommand(b64, vosk));
     }
+    if (!command.trim()) { warmUntil = Date.now() + WARM_MS; return; }
 
     setListening(true);
     setVoiceStatus("thinking…");

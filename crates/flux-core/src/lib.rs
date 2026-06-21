@@ -45,6 +45,7 @@ pub mod session;
 pub mod sessions;
 pub mod shields;
 pub mod spotify;
+pub mod stt;
 pub mod sync;
 pub mod tts;
 pub mod voice;
@@ -595,6 +596,7 @@ pub fn run(intent: cli::LaunchIntent) {
             lens::agent_lens,
             lens::agent_vision,
             voice::voice_transcribe,
+            stt::stt_whisper,
             tts::voice_speak,
             tts::elevenlabs_set_key,
             tts::elevenlabs_has_key,
