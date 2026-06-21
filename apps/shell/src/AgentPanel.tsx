@@ -45,6 +45,7 @@ import {
 import { activeId, activeWorkspace, agentModelName, filesPanelOpen, openTab, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
+import { micConstraints } from "./mic";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
@@ -280,7 +281,7 @@ const AgentPanel: Component = () => {
   const startRec = async () => {
     if (recording() || working() || taskRunning()) return;
     try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: false }));
     } catch {
       setFeed((f) => [...f, { role: "error", text: "Microphone access was denied." }]);
       return;

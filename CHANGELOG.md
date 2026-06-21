@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Microphone controls (recognition tuning)** — Settings → Integrations now has a
+  **Microphone** device picker (the OS default mic is a common cause of poor
+  recognition) and a **Noise suppression** toggle. Noise suppression is now **off by
+  default** for both the always-on loop and push-to-talk — browser NS is tuned for
+  human listening and tends to degrade whisper/Vosk; auto-gain stays on. (`mic.ts`.)
 - **Proactive reminders & to-dos** — *"remind me to <x> in 10 minutes / at 3pm /
   tomorrow"* schedules a reminder; when it's due Gemma shows it, says it aloud
   (*"Hey Razeen, just popping in — …"*), **and pops an OS notification**. Undated ones
