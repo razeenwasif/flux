@@ -42,7 +42,7 @@ import {
   type AgentAction,
   type AgentStatus,
 } from "./ipc";
-import { activeId, activeWorkspace, agentModelName, filesPanelOpen, openTab, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
+import { activeId, activeWorkspace, agentModelName, filesPanelOpen, openTab, pendingAsk, pendingLens, setAgentMenuOpen, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 import { micConstraints } from "./mic";
@@ -117,6 +117,9 @@ const AgentPanel: Component = () => {
   // Model picker (#81): the dropdown of locally-pulled Ollama models.
   const [models, setModels] = createSignal<string[]>([]);
   const [modelMenu, setModelMenu] = createSignal(false);
+  // Tell App to hide the active page webview while a dropdown is open (it's an OS
+  // layer above the chrome, otherwise the menu is behind it — unclickable).
+  createEffect(() => setAgentMenuOpen(modelMenu() || chatsMenu()));
   const toggleModelMenu = () => {
     const open = !modelMenu();
     setModelMenu(open);

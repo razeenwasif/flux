@@ -545,6 +545,13 @@ export function applyAudiopulseDir(): void {
 const [mapPanelOpen, setMapPanelOpen] = createSignal(false);
 const [mapQuery, setMapQueryRaw] = createSignal(localStorage.getItem("flux.map.query") ?? "");
 export { mapPanelOpen, setMapPanelOpen, mapQuery };
+
+// An agent-panel dropdown (model picker / past chats) is open. Native page
+// webviews are an OS layer above the chrome, so a dropdown rendered over the page
+// would be behind it (translucent + unclickable). App hides the active webview
+// while this is set, like the other chrome overlays.
+const [agentMenuOpen, setAgentMenuOpen] = createSignal(false);
+export { agentMenuOpen, setAgentMenuOpen };
 export function setMapQuery(q: string): void {
   setMapQueryRaw(q);
   localStorage.setItem("flux.map.query", q);

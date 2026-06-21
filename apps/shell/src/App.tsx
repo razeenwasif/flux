@@ -161,6 +161,7 @@ import {
   filesPanelPath,
   setFilesPanelPath,
   mapPanelOpen,
+  agentMenuOpen,
   setMapPanelOpen,
   mapQuery,
   setMapQuery,
@@ -362,7 +363,7 @@ const App: Component = () => {
     if (boundsRaf) return;
     boundsRaf = requestAnimationFrame(() => {
       boundsRaf = 0;
-      if (splitDragging() || panelDragging() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen()) return;
+      if (splitDragging() || panelDragging() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen()) return;
       for (const p of paneLayout()) wv(webviewSetBounds(p.tab.id, p.rect));
     });
   };
@@ -620,7 +621,7 @@ const App: Component = () => {
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = splitDragging() || panelDragging();
-    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen();
+    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen();
     const panes = overlay ? [] : paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
@@ -657,7 +658,7 @@ const App: Component = () => {
             await webviewSetBounds(id, r);
             openingWebviews.delete(id);
             openedWebviews.add(id);
-            if (readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || splitDragging() || panelDragging()) {
+            if (readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen() || splitDragging() || panelDragging()) {
               shown.delete(id);
               await webviewHide(id);
               return;
@@ -690,7 +691,7 @@ const App: Component = () => {
       openedPanel = null;
     }
     if (!p) return;
-    if (dragging || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen()) {
+    if (dragging || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen()) {
       // Reader / Files popout / command palette are full overlays that must sit
       // above everything — including the web panel's own native webview layer.
       wv(panelHide(p.id));
