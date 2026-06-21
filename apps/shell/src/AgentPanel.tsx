@@ -42,7 +42,7 @@ import {
 import { activeId, activeWorkspace, agentModelName, filesPanelOpen, openTab, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
-import { speak } from "./speak";
+import { speak, speaking, stopSpeaking } from "./speak";
 
 type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string };
 
@@ -86,6 +86,12 @@ const AgentPanel: Component = () => {
     persistChats(chats().filter((s) => s.id !== id));
     if (currentId === id) { currentId = ""; setFeed([]); }
   };
+  // Interrupt ("stop the rant"): bump the generation so in-flight stream tokens are
+  // ignored, cut any TTS, and free the input. The backend completion may keep
+  // running, but its late tokens no-op against the new generation.
+  let replyGen = 0;
+  const cancelReply = () => { replyGen++; stopSpeaking(); setBusy(false); };
+
   // Persist the live conversation (debounced so streaming tokens don't thrash localStorage).
   let persistTimer: number | undefined;
   createEffect(() => {
@@ -342,8 +348,9 @@ const AgentPanel: Component = () => {
     }
     if ((m = cmd.match(new RegExp(`^(?:${PLAY}|queue)\\s+(.+)`, "i")))) {
       // Drop "the song"/"this track"/"a tune" filler so the search is just the title.
-      const q = m[1]!.trim().replace(/^(?:me\s+)?(?:the|this|a|that)?\s*(?:song|track|tune)\s+(?:called\s+|named\s+|titled\s+)?/i, "").trim();
-      return () => spotifyPlay(q || m[1]!.trim());
+      const raw = m[1]!.trim();
+      const q = raw.replace(/^(?:me\s+)?(?:the|this|a|that)?\s*(?:song|track|tune)\s+(?:called\s+|named\s+|titled\s+)?/i, "").trim();
+      return () => spotifyPlay(q || raw);
     }
     if (/^(?:turn\s+)?shuffle(?:\s+on)?$|^turn\s+on\s+shuffle$/i.test(cmd)) return () => spotifyShuffle(true);
     if (/^(?:turn\s+)?shuffle\s+off$|^turn\s+off\s+shuffle$/i.test(cmd)) return () => spotifyShuffle(false);
@@ -451,7 +458,7 @@ const AgentPanel: Component = () => {
   // Works typed or by voice. /act and /task can't do this — they act on the current
   // page's DOM, not browser tabs.
   const SEARCH_RE =
-    /^(?:open\s+(?:a\s+|the\s+)?new\s+tab\s+(?:and\s+|to\s+)?(?:search(?:\s+for)?\s+|google\s+|for\s+)?|search(?:\s+for)?\s+|google\s+|look\s*up\s+)(.+)/i;
+    /^(?:open\s+(?:a\s+|the\s+)?new\s+tab\s+(?:and\s+|to\s+)?(?:search(?:\s+(?:for|up))?\s+|google\s+|for\s+)?|search(?:\s+(?:for|up))?\s+|google\s+|look\s*up\s+)(.+)/i;
   const runSearch = async (query: string): Promise<string> => {
     const q = query.trim().replace(/[?.!]+$/, "");
     if (!q) return "";
@@ -502,6 +509,9 @@ const AgentPanel: Component = () => {
   onMount(() => {
     setVoiceHandler(voiceRespond);
     if (heyGemmaEnabled()) void startConversation();
+    // Reopen the most recent conversation so a reload doesn't lose your place.
+    const recent = chats()[0];
+    if (recent && !feed().length) loadSession(recent);
   });
 
   const send = async (p: string) => {
@@ -573,15 +583,18 @@ const AgentPanel: Component = () => {
         // answer renders live. Nothing else appends to the feed during the await,
         // so the captured index stays valid.
         const cp = convoPrompt(p); // build memory before pushing the empty reply bubble
+        const gen = ++replyGen; // Stop button bumps replyGen to abandon this stream
         const idx = feed().length;
         setFeed((f) => [...f, { role: "assistant", text: "" }]);
         let acc = "";
         const append = (chunk: string) => {
+          if (gen !== replyGen) return; // cancelled — ignore late tokens
           acc += chunk;
           setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + chunk } : it)));
         };
         if (scope() === "tabs") await agentChatTabsStream(cp, browserTabIds(), append);
         else await agentChatStream(cp, append);
+        if (gen !== replyGen) return; // stopped mid-stream — don't finalize/speak
         const text = acc.trim() || "(no response)";
         setFeed((f) =>
           f.map((it, i) => (i === idx ? { ...it, text } : it)),
@@ -746,12 +759,29 @@ const AgentPanel: Component = () => {
           </button>
           <button
             class="agent-voice-toggle"
-            title="New chat — clear the conversation"
+            title="New chat — saves the current one and starts fresh"
             aria-label="New chat"
-            onClick={() => { if (!working() && !taskRunning()) setFeed([]); }}
+            onClick={newChat}
           >
             ＋
           </button>
+          <div class="agent-model">
+            <button class="agent-model-btn" title="Past chats" aria-label="Past chats" onClick={() => setChatsMenu(!chatsMenu())}>🕘</button>
+            <Show when={chatsMenu()}>
+              <div class="agent-model-menu glass">
+                <Show when={chats().length > 0} fallback={<div class="agent-model-empty">No saved chats yet</div>}>
+                  <For each={chats()}>
+                    {(s) => (
+                      <button classList={{ "agent-model-item": true, on: s.id === currentId }} onClick={() => loadSession(s)}>
+                        <span style={{ flex: 1, overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{s.title}</span>
+                        <span class="agent-chat-del" title="Delete" onClick={(e) => deleteSession(s.id, e)}>✕</span>
+                      </button>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </Show>
+          </div>
         </header>
 
         <div class="agent-feed" ref={feedEl}>
@@ -866,6 +896,9 @@ const AgentPanel: Component = () => {
               disabled={working() || taskRunning()}
               style={{ flex: "1", "min-width": "0", padding: "10px 12px", border: working() ? "none" : undefined }}
             />
+            <Show when={working() || speaking()}>
+              <button type="button" class="agent-attach-btn agent-stop-btn" title="Stop Gemma" aria-label="Stop" onClick={cancelReply}>■</button>
+            </Show>
           </div>
         </form>
       </div>

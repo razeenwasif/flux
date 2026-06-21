@@ -4,7 +4,12 @@
 //                falling back to the system voice if Piper isn't installed.
 // Privacy: nothing here touches the network; text is synthesized on-device.
 
+import { createSignal } from "solid-js";
+
 import { elevenlabsSpeak, voiceSpeak } from "./ipc";
+
+/** True while Gemma is speaking — drives the Stop / interrupt affordance. */
+export const [speaking, setSpeaking] = createSignal(false);
 
 export type TtsEngine = "system" | "piper" | "elevenlabs";
 const ENGINE_KEY = "flux.voice.tts";
@@ -71,7 +76,21 @@ export function cleanForSpeech(text: string): string {
     .trim();
 }
 
+/** Keep spoken replies short so a wrong/long answer isn't a "rant" — the full text
+ *  is always shown in the panel; only the first sentence-or-two is voiced. */
+export function conciseForSpeech(text: string): string {
+  const t = cleanForSpeech(text);
+  if (t.length <= 320) return t;
+  const sentences = t.match(/[^.!?]+[.!?]+/g);
+  if (sentences && sentences.length >= 2) {
+    const two = `${sentences[0]}${sentences[1]}`.trim();
+    if (two.length >= 40) return two;
+  }
+  return `${t.slice(0, 320).replace(/\s+\S*$/, "")}…`;
+}
+
 export function stopSpeaking(): void {
+  setSpeaking(false);
   try { window.speechSynthesis?.cancel(); } catch { /* no synth */ }
   if (current) { try { current.pause(); } catch { /* ignore */ } current.src = ""; current = null; }
   if (currentUrl) { URL.revokeObjectURL(currentUrl); currentUrl = null; }
@@ -179,22 +198,27 @@ export async function previewElevenLabs(text: string): Promise<void> {
 
 /** Speak `text`, resolving when the audio finishes. Honours the engine setting. */
 export async function speak(text: string): Promise<void> {
-  const t = cleanForSpeech(text);
+  const t = conciseForSpeech(text);
   if (!t) return;
   stopSpeaking();
-  const engine = ttsEngine();
-  if (engine === "piper") {
-    try {
-      const b64 = await voiceSpeak(t);
-      await playAudioB64(b64, "audio/wav");
-      return;
-    } catch { /* Piper missing/failed → fall back to the OS voice */ }
-  } else if (engine === "elevenlabs") {
-    try {
-      const b64 = await elevenlabsSpeak(t, elVoiceId(), elModel());
-      await playAudioB64(b64, "audio/mpeg");
-      return;
-    } catch { /* no key / network / quota → fall back to the OS voice */ }
+  setSpeaking(true);
+  try {
+    const engine = ttsEngine();
+    if (engine === "piper") {
+      try {
+        const b64 = await voiceSpeak(t);
+        await playAudioB64(b64, "audio/wav");
+        return;
+      } catch { /* Piper missing/failed → fall back to the OS voice */ }
+    } else if (engine === "elevenlabs") {
+      try {
+        const b64 = await elevenlabsSpeak(t, elVoiceId(), elModel());
+        await playAudioB64(b64, "audio/mpeg");
+        return;
+      } catch { /* no key / network / quota → fall back to the OS voice */ }
+    }
+    await speakSystem(t);
+  } finally {
+    setSpeaking(false);
   }
-  await speakSystem(t);
 }
