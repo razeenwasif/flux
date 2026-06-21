@@ -51,9 +51,9 @@ const MAX_UTTER_S = 12; // hard cap on one utterance
 const WARM_MS = 9000; // follow-up window after a reply (no wake word needed)
 // Adaptive VAD: the speech threshold tracks the ambient noise floor instead of a
 // fixed value, so it works across mics/gains (a fixed bar missed quiet mics).
-const NOISE_MULT = 2.2; // speech = this many × the ambient floor …
-const MIN_ABS = 0.006; // … but never less sensitive than this absolute floor
-const PREROLL = 4; // frames kept before onset so the start of "hey" isn't clipped
+const NOISE_MULT = 1.7; // speech = this many × the ambient floor … (lower = more sensitive)
+const MIN_ABS = 0.004; // … but never less sensitive than this absolute floor
+const PREROLL = 6; // frames kept before onset so the start of "hey" isn't clipped
 
 let onCommand: ((t: string) => Promise<string>) | null = null;
 /** AgentPanel injects how a transcript is handled (returns the text to speak). */

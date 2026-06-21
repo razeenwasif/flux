@@ -51,6 +51,48 @@ const AgentPanel: Component = () => {
   const [prompt, setPrompt] = createSignal("");
   const [feed, setFeed] = createSignal<FeedItem[]>([]);
   const [busy, setBusy] = createSignal(false);
+  // Saved chat sessions (#sessions). Each conversation persists to localStorage so
+  // you can start a New chat and reopen earlier ones. `currentId` is the session the
+  // live feed belongs to (assigned on the first message).
+  type ChatSession = { id: string; title: string; ts: number; feed: FeedItem[] };
+  const CHATS_KEY = "flux.chats";
+  const loadChats = (): ChatSession[] => { try { return JSON.parse(localStorage.getItem(CHATS_KEY) || "[]"); } catch { return []; } };
+  const [chats, setChats] = createSignal<ChatSession[]>(loadChats());
+  const [chatsMenu, setChatsMenu] = createSignal(false);
+  let currentId = "";
+  let seq = 0;
+  const titleOf = (f: FeedItem[]) => (f.find((it) => it.role === "user")?.text || "New chat").trim().slice(0, 44);
+  const persistChats = (next: ChatSession[]) => { setChats(next); try { localStorage.setItem(CHATS_KEY, JSON.stringify(next.slice(0, 50))); } catch { /* quota */ } };
+  const persistCurrent = (f: FeedItem[]) => {
+    if (!f.length) return;
+    if (!currentId) currentId = `c${Date.now()}_${seq++}`;
+    // Strip live "pending" state so reopened chats are read-only history.
+    const session: ChatSession = { id: currentId, title: titleOf(f), ts: Date.now(), feed: f.map((it) => ({ ...it, pending: false })) };
+    persistChats([session, ...chats().filter((s) => s.id !== currentId)].slice(0, 50));
+  };
+  const newChat = () => {
+    if (working() || taskRunning()) return;
+    currentId = ""; // the current conversation is already saved under its id
+    setFeed([]);
+    setChatsMenu(false);
+  };
+  const loadSession = (s: ChatSession) => {
+    currentId = s.id;
+    setFeed(s.feed.map((it) => ({ ...it })));
+    setChatsMenu(false);
+  };
+  const deleteSession = (id: string, e: MouseEvent) => {
+    e.stopPropagation();
+    persistChats(chats().filter((s) => s.id !== id));
+    if (currentId === id) { currentId = ""; setFeed([]); }
+  };
+  // Persist the live conversation (debounced so streaming tokens don't thrash localStorage).
+  let persistTimer: number | undefined;
+  createEffect(() => {
+    const f = feed();
+    clearTimeout(persistTimer);
+    persistTimer = window.setTimeout(() => persistCurrent(f), 400);
+  });
   // Chat-with-page/tabs (#34): "page" grounds in the active tab; "tabs" grounds
   // in every open browser tab in the active workspace.
   const [scope, setScope] = createSignal<"page" | "tabs">("page");
@@ -291,14 +333,17 @@ const AgentPanel: Component = () => {
     // "launch audiopulse" + synonyms; "spotify" is accepted too since Vosk often
     // mishears "pulse" (so "launch spotify" → launch AudioPulse).
     if (/^(?:launch|start(?:\s*up)?|open|boot(?:\s*up)?|fire\s*up)\s+(?:audio\s*pulse|audiopulse|spotify|ap)\b/i.test(cmd)) return spotifyLaunch;
-    if (/^(?:play|put on|start)\s+(?:my\s+|the\s+)?liked(?:\s+songs?)?(?:\s+playlist)?$/i.test(cmd)) return spotifyPlayLiked;
-    if ((m = cmd.match(/^(?:play|put on|start)\s+(?:my\s+|the\s+)?(.+?)\s+playlist$/i))) {
+    // STT often mangles the imperative "play" into "played"/"playing"/"plays" — accept those.
+    const PLAY = "play(?:ed|s|ing)?|put\\s*on|start";
+    if (new RegExp(`^(?:${PLAY})\\s+(?:my\\s+|the\\s+)?liked(?:\\s+songs?)?(?:\\s+playlist)?$`, "i").test(cmd)) return spotifyPlayLiked;
+    if ((m = cmd.match(new RegExp(`^(?:${PLAY})\\s+(?:my\\s+|the\\s+)?(.+?)\\s+playlist$`, "i")))) {
       const name = m[1]!.trim();
       return () => spotifyPlayPlaylist(name);
     }
-    if ((m = cmd.match(/^(?:play|put on|queue)\s+(.+)/i))) {
-      const q = m[1]!.trim();
-      return () => spotifyPlay(q);
+    if ((m = cmd.match(new RegExp(`^(?:${PLAY}|queue)\\s+(.+)`, "i")))) {
+      // Drop "the song"/"this track"/"a tune" filler so the search is just the title.
+      const q = m[1]!.trim().replace(/^(?:me\s+)?(?:the|this|a|that)?\s*(?:song|track|tune)\s+(?:called\s+|named\s+|titled\s+)?/i, "").trim();
+      return () => spotifyPlay(q || m[1]!.trim());
     }
     if (/^(?:turn\s+)?shuffle(?:\s+on)?$|^turn\s+on\s+shuffle$/i.test(cmd)) return () => spotifyShuffle(true);
     if (/^(?:turn\s+)?shuffle\s+off$|^turn\s+off\s+shuffle$/i.test(cmd)) return () => spotifyShuffle(false);
