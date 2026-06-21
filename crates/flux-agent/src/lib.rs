@@ -255,6 +255,33 @@ impl AgentPlanner {
         Ok(action)
     }
 
+    /// Translate a natural-language request into a single shell command when it asks
+    /// to do or inspect something on the user's own machine; `None` for purely
+    /// conversational requests. The user approves the command before it runs (and
+    /// rm/destructive commands are blocked downstream), so this only has to produce
+    /// the command — it doesn't gate execution.
+    pub fn plan_shell(&self, request: &str) -> Result<Option<String>, AgentError> {
+        let prompt = format!(
+            "You can run ONE shell command on the user's own computer; they approve it \
+             before it runs (bash syntax). If the request asks to DO or INSPECT \
+             something on their machine — list files/folders, the current directory, \
+             disk usage, running processes, environment, launch a program, read a \
+             file, etc. — reply with {{\"command\":\"<the command>\"}}. If it's \
+             conversational or answerable in words, reply with {{\"command\":\"\"}}. \
+             Never use rm or other destructive commands. Reply with EXACTLY ONE JSON \
+             object and nothing else.\n\nREQUEST: {request}"
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "command": { "type": "string" } },
+            "required": ["command"]
+        });
+        let raw = self.backend.complete(&prompt, Some(&schema))?;
+        let v: serde_json::Value = serde_json::from_str(raw.trim())?;
+        let cmd = v.get("command").and_then(|c| c.as_str()).unwrap_or("").trim().to_string();
+        Ok(if cmd.is_empty() { None } else { Some(cmd) })
+    }
+
     /// Plan the **single next step** of a multi-step task (BACKLOG #A). The agent
     /// loop calls this repeatedly: each call sees the *live* page and the steps
     /// already taken, and returns one `AgentAction` — or `Finish` when the goal is
