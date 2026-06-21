@@ -11,6 +11,7 @@ import {
   agentChatTabsStream,
   agentShellPlan,
   runShell,
+  readTextFile,
   memoryRead,
   memoryAppend,
   onReminderDue,
@@ -464,6 +465,7 @@ const AgentPanel: Component = () => {
     "- Reminders & to-dos: \"remind me to <x> in 10 min / at 3pm / tomorrow\"; \"what are my reminders\". They fire with an OS notification + spoken alert even if the panel is closed.\n" +
     "- Long-term memory: \"remember that <x>\" saves a fact you'll recall in future chats; \"what do you remember\".\n" +
     "- Run terminal commands (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command.\n" +
+    "- Read files into context: \"read src/foo.rs\" / \"look at <path>\" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); \"forget the files\" clears. You can also drag a file from the explorer onto the panel.\n" +
     "- System awareness: \"system status\" / \"how's my CPU\" / \"what's using memory\" → CPU%, RAM, top processes.\n" +
     "- Web search: \"search <x>\" / \"open a new tab and search <x>\".\n" +
     "- Music (AudioPulse/Spotify): \"play <song>\", \"play my liked songs\", \"shuffle on\", \"skip\", \"pause\", \"launch spotify\".\n" +
@@ -474,10 +476,24 @@ const AgentPanel: Component = () => {
   // Conversation memory: prepend persona + capabilities + the recent turns so the
   // model has context. The trailing "user" entry is the message we just pushed, so
   // it's excluded. Capped to the last few turns to keep prompt-eval fast.
+  const filesContext = (): string => {
+    const fs = ctxFiles();
+    if (!fs.length) return "";
+    let budget = 14000;
+    const blocks: string[] = [];
+    for (const f of fs) {
+      const body = f.content.slice(0, Math.max(0, budget));
+      budget -= body.length;
+      blocks.push(`--- file: ${f.path} ---\n${body}${body.length < f.content.length ? "\n…(truncated)" : ""}`);
+      if (budget <= 0) break;
+    }
+    return `Files the user has open / asked you to read (use them to answer):\n${blocks.join("\n\n")}\n\n`;
+  };
+
   const convoPrompt = (current: string): string => {
     const mem = memText().trim();
     const p0 = persona() ? `${persona()}\n\n` : "";
-    const preamble = `${p0}${CAPABILITIES}\n\n` + (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
+    const preamble = `${p0}${CAPABILITIES}\n\n` + filesContext() + (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
     const turns = feed().filter((it) => it.role === "user" || it.role === "assistant");
     const prior = (turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns).slice(-8);
     if (!prior.length) return preamble ? `${preamble}User: ${current}` : current;
@@ -489,6 +505,28 @@ const AgentPanel: Component = () => {
   // / "note X" / "/remember X" saves a fact; it's then injected into every chat
   // prompt above. "what do you remember" / "show your memory" reads it back.
   const [memText, setMemText] = createSignal("");
+
+  // Files Gemma is "looking at" — read into context so she can answer without
+  // copy-paste, and stay there for follow-ups. Capped so the prompt stays sane.
+  const [ctxFiles, setCtxFiles] = createSignal<{ path: string; name: string; content: string }[]>([]);
+  const FILE_RE = /^(?:read|open|load|look at|show me|check out|cat|add)\s+(?:the\s+)?(?:file\s+|context\s+)?(~?\/?[\w. /\\@-]*?(?:\.[a-z0-9]{1,8}|\/[\w.-]+)|[~/][\w. /\\@.-]+)\s*$/i;
+  const runReadFile = async (raw: string): Promise<string> => {
+    const path = raw.trim().replace(/^["']|["']$/g, "");
+    if (!path) return "";
+    try {
+      const content = await readTextFile(path);
+      const name = path.split(/[/\\]/).pop() || path;
+      setCtxFiles((c) => [...c.filter((f) => f.path !== path), { path, name, content }].slice(-8));
+      const lines = content.split("\n").length;
+      setFeed((f) => [...f, { role: "action", text: `📄 Reading ${name} (${lines} lines) — it's in context now; ask me anything about it.` }]);
+      return `Got ${name} — what would you like to know about it?`;
+    } catch (e) {
+      const m = String(e);
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    }
+  };
+  const clearCtxFiles = () => setCtxFiles([]);
   const refreshMemory = () => void memoryRead().then(setMemText).catch(() => {});
   const REMEMBER_RE = /^(?:\/remember|remember|note|make a note|keep in mind|save (?:to memory|this))\b[:,]?\s+(?:that\s+|to\s+)?(.+)/i;
   const RECALL_RE = /^(?:\/memory|what do you remember|show (?:me )?(?:your |the )?memory|what'?s in your memory)\b/i;
@@ -626,6 +664,8 @@ const AgentPanel: Component = () => {
     if (musicReply !== null) return musicReply;
     const vs = stripped.match(SEARCH_RE);
     if (vs?.[1]) return await runSearch(vs[1]);
+    const vrf = stripped.match(FILE_RE);
+    if (vrf?.[1]) return await runReadFile(vrf[1]);
     const rm = stripped.match(REMEMBER_RE);
     if (rm?.[1]) return await runRemember(rm[1]);
     if (RECALL_RE.test(stripped)) return runRecall();
@@ -721,6 +761,10 @@ const AgentPanel: Component = () => {
       // "search …" / "open a new tab and search …" → open a browser tab.
       const search = pc.match(SEARCH_RE);
       if (search?.[1]) { await runSearch(search[1]); return; }
+      // "read <file>" → pull a file into Gemma's context; "forget the files" clears.
+      const rf = pc.match(FILE_RE);
+      if (rf?.[1]) { await runReadFile(rf[1]); return; }
+      if (/^(?:forget|clear|drop|remove)\s+(?:the\s+)?(?:files?|file\s+context|context)\b/i.test(pc)) { clearCtxFiles(); setFeed((f) => [...f, { role: "action", text: "🗑 Cleared the file context." }]); return; }
       // Long-term memory — "remember that …" / "what do you remember".
       const rem = pc.match(REMEMBER_RE);
       if (rem?.[1]) { await runRemember(rem[1]); return; }
@@ -1040,6 +1084,21 @@ const AgentPanel: Component = () => {
               <button class="agent-attach-x" title="Remove" onClick={() => setAttachment(null)}>✕</button>
             </div>
           )}
+        </Show>
+        <Show when={ctxFiles().length > 0}>
+          <div class="agent-ctxfiles">
+            <For each={ctxFiles()}>
+              {(f) => (
+                <span class="agent-ctxchip" title={f.path}>
+                  📄 {f.name}
+                  <span class="agent-ctxchip-x" title="Remove from context" onClick={() => setCtxFiles((c) => c.filter((x) => x.path !== f.path))}>✕</span>
+                </span>
+              )}
+            </For>
+            <Show when={ctxFiles().length > 1}>
+              <button class="agent-ctxchip-clear" onClick={clearCtxFiles}>clear all</button>
+            </Show>
+          </div>
         </Show>
         <form onSubmit={run}>
           <input

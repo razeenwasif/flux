@@ -689,6 +689,7 @@ pub fn run(intent: cli::LaunchIntent) {
             vault::vault_set_autolock,
             files::fs_list,
             files::attachment_read,
+            files::read_text_file,
             files::fs_home,
             files::fs_quick_locations,
             files::fs_open,

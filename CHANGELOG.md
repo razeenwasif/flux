@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **File context ("read this file")** — *"read src/foo.rs"* / *"look at <path>"* pulls
+  a file into Gemma's context so she can answer about it without copy-paste, and it
+  **stays for follow-ups** (chips above the input show what's loaded; ✕ or "forget the
+  files" clears). WSL-aware: unix paths (`~/Flux/Cargo.toml`) are read through WSL on
+  a Windows build. Capped so the prompt stays sane. (`read_text_file`.)
 - **System awareness** — ask Gemma *"system status"* / *"how's my CPU"* / *"what's
   using my memory"* and she reports CPU%, RAM used/total, and the top processes by
   memory (`mem.rs` `system_stats`).

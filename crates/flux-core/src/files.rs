@@ -670,3 +670,62 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
     .await
     .map_err(|e| e.to_string())?
 }
+
+/// Read a text file's content for the agent's context ("read src/foo.rs"). Handles
+/// WSL/unix paths on a Windows build (reads via `wsl.exe cat`, expanding `~`), and
+/// Windows / `\\wsl.localhost` paths via std::fs. Capped so it doesn't blow the
+/// prompt; returns the text (with a truncation note if it was long).
+#[tauri::command]
+pub async fn read_text_file(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = path.trim();
+        if p.is_empty() {
+            return Err("no file path given".into());
+        }
+        let raw: String = read_text_raw(p)?;
+        const CAP: usize = 60_000;
+        if raw.chars().count() > CAP {
+            let head: String = raw.chars().take(CAP).collect();
+            Ok(format!("{head}\n…(truncated; {} bytes total)", raw.len()))
+        } else {
+            Ok(raw)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(windows)]
+fn read_text_raw(p: &str) -> Result<String, String> {
+    // Unix-style path → it lives in WSL; read it there (expanding ~).
+    if p.starts_with('/') || p.starts_with('~') {
+        let lin = if let Some(rest) = p.strip_prefix("~/") {
+            format!("$HOME/{rest}")
+        } else if p == "~" {
+            "$HOME".to_string()
+        } else {
+            p.to_string()
+        };
+        let cmd = format!("cat -- \"{}\"", lin.replace('"', "\\\""));
+        let out = std::process::Command::new("wsl.exe")
+            .args(["--", "bash", "-lc", &cmd])
+            .output()
+            .map_err(|e| format!("couldn't read {p} via WSL: {e}"))?;
+        if !out.status.success() {
+            let err: String = String::from_utf8_lossy(&out.stderr).chars().take(160).collect();
+            return Err(format!("can't read {p}: {}", err.trim()));
+        }
+        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+    }
+    std::fs::read_to_string(p).map_err(|e| format!("can't read {p}: {e}"))
+}
+
+#[cfg(not(windows))]
+fn read_text_raw(p: &str) -> Result<String, String> {
+    let expanded = if let Some(rest) = p.strip_prefix("~/") {
+        std::env::var("HOME").map(|h| format!("{h}/{rest}")).unwrap_or_else(|_| p.to_string())
+    } else {
+        p.to_string()
+    };
+    std::fs::read_to_string(&expanded).map_err(|e| format!("can't read {p}: {e}"))
+}

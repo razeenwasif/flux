@@ -279,6 +279,8 @@ export const wakeTranscribe = (pcmB64: string, sampleRate: number) =>
   invoke<string>("wake_transcribe", { pcmB64, sampleRate });
 /** Run a shell command for the agent (rm + destructive commands are blocked). */
 export const runShell = (command: string) => invoke<string>("run_shell", { command });
+/** Read a text file (WSL-aware) into the agent's context. */
+export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
 /** Persistent reminders (backend-scheduled; fire even with the panel closed). */
 export type ReminderRow = { id: string; text: string; due: number | null; fired?: boolean; created?: number };
 export const remindersList = () => invoke<ReminderRow[]>("reminders_list");
