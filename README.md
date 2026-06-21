@@ -305,6 +305,13 @@ install [Piper](https://github.com/rhasspy/piper) and set `FLUX_PIPER_MODEL` to 
 Piper is missing, Flux silently falls back to the system voice. Nothing about the
 voice loop touches the network.
 
+**More accurate recognition (Whisper)** is also no-cargo-feature. Vosk handles the
+wake word and (by default) the command. For higher accuracy, install
+[whisper.cpp](https://github.com/ggerganov/whisper.cpp), set `FLUX_WHISPER_MODEL`
+to a ggml model (e.g. `ggml-base.en.bin`; `FLUX_WHISPER_BIN` if `whisper-cli` isn't
+on `PATH`), and pick **Whisper** under Settings → Integrations → Recognition. It
+runs locally on the command utterance and falls back to Vosk if absent.
+
 On Windows, install a voice-enabled `flux.exe` onto PATH with:
 
 ```powershell

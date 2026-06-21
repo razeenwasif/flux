@@ -42,7 +42,7 @@ import {
   type MemInfo,
   type SearchEngine,
 } from "./ipc";
-import { heyGemmaEnabled, setHeyGemmaEnabled } from "./heygemma";
+import { heyGemmaEnabled, setHeyGemmaEnabled, setSttEngine, sttEngine } from "./heygemma";
 import { elVoiceId, loadVoices, preferredVoice, previewElevenLabs, setElVoiceId, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
@@ -144,6 +144,8 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   // Gemma's voice (TTS engine) + "Hey Gemma" always-on listening.
   const [ttsEngineSel, setTtsEngineSel] = createSignal<TtsEngine>(ttsEngine());
   const pickTts = (e: TtsEngine) => { setTtsEngine(e); setTtsEngineSel(e); };
+  const [sttSel, setSttSel] = createSignal(sttEngine());
+  const pickStt = (e: string) => { setSttEngine(e); setSttSel(e); };
   const [sysVoices, setSysVoices] = createSignal<{ name: string; lang: string }[]>([]);
   const [voiceSel, setVoiceSel] = createSignal(preferredVoice());
   const [testing, setTesting] = createSignal(false);
@@ -422,6 +424,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Row label="Hey Gemma (always-on voice)" hint="Listen for “hey Gemma”, then converse by voice. Everything is local — speech-to-text (Vosk), the reply (Ollama), and the spoken voice never leave your device; audio before the wake word is discarded, never stored. Toggle it from the mic button in the agent panel. Default off.">
             <Toggle on={heyGemmaEnabled()} onClick={() => void setHeyGemmaEnabled(!heyGemmaEnabled())} />
+          </Row>
+          <Row label="Recognition (STT)" hint="How your spoken command is transcribed. Vosk is instant. Whisper (whisper.cpp) is much more accurate but adds ~1–3s per command — set FLUX_WHISPER_MODEL to a ggml model (e.g. ggml-base.en.bin); falls back to Vosk if whisper isn't installed. Both are fully local.">
+            <select class="shields-select" value={sttSel()} onChange={(e) => pickStt(e.currentTarget.value)}>
+              <option value="vosk">Vosk (fast)</option>
+              <option value="whisper">Whisper (accurate)</option>
+            </select>
           </Row>
           <Row label="Gemma's voice" hint="System and Piper are fully local. ElevenLabs is a cloud service — choosing it sends Gemma's reply text (not your mic audio) to ElevenLabs, needs an API key, and is metered. Piper: set FLUX_PIPER_MODEL to a .onnx voice; falls back to System if absent.">
             <select class="shields-select" value={ttsEngineSel()} onChange={(e) => { const v = e.currentTarget.value as TtsEngine; pickTts(v); if (v === "elevenlabs") { refreshElKey(); loadElVoices(); } }}>
