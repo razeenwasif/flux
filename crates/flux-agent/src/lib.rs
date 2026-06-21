@@ -264,12 +264,19 @@ impl AgentPlanner {
         let prompt = format!(
             "You can run ONE shell command on the user's own computer; they approve it \
              before it runs (bash syntax). If the request asks to DO or INSPECT \
-             something on their machine — list files/folders, the current directory, \
-             disk usage, running processes, environment, launch a program, read a \
-             file, etc. — reply with {{\"command\":\"<the command>\"}}. If it's \
-             conversational or answerable in words, reply with {{\"command\":\"\"}}. \
-             Never use rm or other destructive commands. Reply with EXACTLY ONE JSON \
-             object and nothing else.\n\nREQUEST: {request}"
+             something on their machine — files/folders, directories, disk usage, \
+             processes, environment, launching a program, reading a file, etc. — reply \
+             with {{\"command\":\"<the command>\"}}. If it's conversational or \
+             answerable in words, reply with {{\"command\":\"\"}}. Never use rm or \
+             other destructive commands. Reply with EXACTLY ONE JSON object.\n\
+             Examples:\n\
+             \"list the files in my home directory\" -> {{\"command\":\"ls -la ~\"}}\n\
+             \"show my files oldest first\" -> {{\"command\":\"ls -ltra ~\"}}\n\
+             \"what folders are in downloads\" -> {{\"command\":\"ls -d ~/Downloads/*/\"}}\n\
+             \"how much disk space is free\" -> {{\"command\":\"df -h\"}}\n\
+             \"what processes are running\" -> {{\"command\":\"ps aux\"}}\n\
+             \"what's the capital of France\" -> {{\"command\":\"\"}}\n\n\
+             REQUEST: {request}"
         );
         let schema = serde_json::json!({
             "type": "object",

@@ -188,7 +188,14 @@ fn api(method: &str, path: &str, query: &[(&str, &str)], body: Option<Value>) ->
             }
             Err(ureq::Error::Status(401, _)) if attempt == 0 => continue, // expired → refresh + retry
             Err(ureq::Error::Status(404, _)) => {
-                return Err("no active Spotify device — start AudioPulse (or open Spotify) and try again".into());
+                // No active device — auto-start AudioPulse (idempotent) so the
+                // retry works once its Connect device registers.
+                let started = launch_audiopulse().is_ok();
+                return Err(if started {
+                    "no active device yet — I'm starting AudioPulse; give it a few seconds and ask again".into()
+                } else {
+                    "no active Spotify device — start AudioPulse (or open Spotify) and try again".into()
+                });
             }
             Err(ureq::Error::Status(code, r)) => {
                 let msg: String = r.into_string().unwrap_or_default().chars().take(180).collect();
@@ -434,37 +441,39 @@ fn windows_audiopulse_command() -> Result<CommandBuilder, String> {
 
 #[tauri::command]
 pub async fn spotify_launch() -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        // Already running? (the child is alive if try_wait → Ok(None))
-        if let Ok(mut g) = AUDIOPULSE.lock() {
-            if let Some((_, child)) = g.as_mut() {
-                if matches!(child.try_wait(), Ok(None)) {
-                    return Ok("AudioPulse is already running.".to_string());
-                }
+    tauri::async_runtime::spawn_blocking(launch_audiopulse).await.map_err(|e| e.to_string())?
+}
+
+/// Start AudioPulse if it isn't already running (sync; used by the command and by
+/// the no-active-device auto-start). Idempotent — safe to call repeatedly.
+fn launch_audiopulse() -> Result<String, String> {
+    // Already running? (the child is alive if try_wait → Ok(None))
+    if let Ok(mut g) = AUDIOPULSE.lock() {
+        if let Some((_, child)) = g.as_mut() {
+            if matches!(child.try_wait(), Ok(None)) {
+                return Ok("AudioPulse is already running.".to_string());
             }
         }
-        let mut cmd = audiopulse_command()?;
-        cmd.env("TERM", "xterm-256color");
-        let pair = native_pty_system()
-            .openpty(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("openpty: {e}"))?;
-        let child = pair.slave.spawn_command(cmd).map_err(|e| format!("couldn't launch AudioPulse: {e}"))?;
-        drop(pair.slave);
-        // Drain the TUI's output so a full PTY buffer never stalls it.
-        if let Ok(mut reader) = pair.master.try_clone_reader() {
-            std::thread::spawn(move || {
-                use std::io::Read;
-                let mut buf = [0u8; 4096];
-                while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
-            });
-        }
-        if let Ok(mut g) = AUDIOPULSE.lock() {
-            *g = Some((pair.master, child));
-        }
-        Ok("▶ Launched AudioPulse — give it a second to come online.".to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }
+    let mut cmd = audiopulse_command()?;
+    cmd.env("TERM", "xterm-256color");
+    let pair = native_pty_system()
+        .openpty(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("openpty: {e}"))?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| format!("couldn't launch AudioPulse: {e}"))?;
+    drop(pair.slave);
+    // Drain the TUI's output so a full PTY buffer never stalls it.
+    if let Ok(mut reader) = pair.master.try_clone_reader() {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = [0u8; 4096];
+            while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
+        });
+    }
+    if let Ok(mut g) = AUDIOPULSE.lock() {
+        *g = Some((pair.master, child));
+    }
+    Ok("▶ Launched AudioPulse — give it a second to come online.".to_string())
 }
 
 /// The currently-playing track, or a note that nothing's playing.
