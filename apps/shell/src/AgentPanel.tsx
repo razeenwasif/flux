@@ -4,7 +4,8 @@
  * its weight stays off the eager chrome bundle (ADR 0001's 50 KB gzip budget);
  * it only loads when the agent panel is first opened.
  */
-import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js";
+import { Portal } from "solid-js/web";
 import {
   agentChat,
   agentChatStream,
@@ -124,6 +125,15 @@ const AgentPanel: Component = () => {
   // Tell App to hide the active page webview while a dropdown is open (it's an OS
   // layer above the chrome, otherwise the menu is behind it — unclickable).
   createEffect(() => setAgentMenuOpen(modelMenu() || chatsMenu()));
+  // Dropdowns render via a <Portal> to <body> with fixed position, so no agent-panel
+  // stacking context (z-index, transform, backdrop-filter) can trap them behind.
+  let modelBtn: HTMLButtonElement | undefined;
+  let chatsBtn: HTMLButtonElement | undefined;
+  const menuPos = (btn?: HTMLElement): JSX.CSSProperties => {
+    const r = btn?.getBoundingClientRect();
+    if (!r) return { position: "fixed", top: "56px", right: "14px", "z-index": "9999" };
+    return { position: "fixed", top: `${Math.round(r.bottom + 5)}px`, right: `${Math.round(Math.max(8, window.innerWidth - r.right))}px`, "z-index": "9999" };
+  };
   const toggleModelMenu = () => {
     const open = !modelMenu();
     setModelMenu(open);
@@ -992,21 +1002,24 @@ const AgentPanel: Component = () => {
           />
           <strong>Flux Agent</strong>
           <div class="agent-model">
-            <button class="agent-model-btn" title="Pick the local model (Ollama)" onClick={toggleModelMenu}>
+            <button ref={modelBtn} class="agent-model-btn" title="Pick the local model (Ollama)" onClick={toggleModelMenu}>
               {shortModel()} · local ▾
             </button>
             <Show when={modelMenu()}>
-              <div class="agent-model-menu">
-                <Show when={models().length > 0} fallback={<div class="agent-model-empty">No Ollama models found (is it running?)</div>}>
-                  <For each={models()}>
-                    {(m) => (
-                      <button classList={{ "agent-model-item": true, on: agentModelName() === m }} onClick={() => { setAgentModel(m); setModelMenu(false); }}>
-                        {m}
-                      </button>
-                    )}
-                  </For>
-                </Show>
-              </div>
+              <Portal>
+                <div class="agent-menu-backdrop" onClick={() => setModelMenu(false)} />
+                <div class="agent-model-menu" style={menuPos(modelBtn)}>
+                  <Show when={models().length > 0} fallback={<div class="agent-model-empty">No Ollama models found (is it running?)</div>}>
+                    <For each={models()}>
+                      {(m) => (
+                        <button classList={{ "agent-model-item": true, on: agentModelName() === m }} onClick={() => { setAgentModel(m); setModelMenu(false); }}>
+                          {m}
+                        </button>
+                      )}
+                    </For>
+                  </Show>
+                </div>
+              </Portal>
             </Show>
           </div>
           <button
@@ -1030,20 +1043,23 @@ const AgentPanel: Component = () => {
             ＋
           </button>
           <div class="agent-model">
-            <button class="agent-model-btn" title="Past chats" aria-label="Past chats" onClick={() => setChatsMenu(!chatsMenu())}>☰</button>
+            <button ref={chatsBtn} class="agent-model-btn" title="Past chats" aria-label="Past chats" onClick={() => setChatsMenu(!chatsMenu())}>☰</button>
             <Show when={chatsMenu()}>
-              <div class="agent-model-menu">
-                <Show when={chats().length > 0} fallback={<div class="agent-model-empty">No saved chats yet</div>}>
-                  <For each={chats()}>
-                    {(s) => (
-                      <button classList={{ "agent-model-item": true, on: s.id === currentId }} onClick={() => loadSession(s)}>
-                        <span style={{ flex: 1, overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{s.title}</span>
-                        <span class="agent-chat-del" title="Delete" onClick={(e) => deleteSession(s.id, e)}>✕</span>
-                      </button>
-                    )}
-                  </For>
-                </Show>
-              </div>
+              <Portal>
+                <div class="agent-menu-backdrop" onClick={() => setChatsMenu(false)} />
+                <div class="agent-model-menu" style={menuPos(chatsBtn)}>
+                  <Show when={chats().length > 0} fallback={<div class="agent-model-empty">No saved chats yet</div>}>
+                    <For each={chats()}>
+                      {(s) => (
+                        <button classList={{ "agent-model-item": true, on: s.id === currentId }} onClick={() => loadSession(s)}>
+                          <span style={{ flex: 1, overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{s.title}</span>
+                          <span class="agent-chat-del" title="Delete" onClick={(e) => deleteSession(s.id, e)}>✕</span>
+                        </button>
+                      )}
+                    </For>
+                  </Show>
+                </div>
+              </Portal>
             </Show>
           </div>
         </header>

@@ -889,6 +889,9 @@ body.resizing, body.busy { --glass-blur: none; }
 .agent-ctxchip-clear { font-size: 11px; color: var(--flux-text-dim); padding: 2px 6px; border-radius: 6px; cursor: pointer; }
 .agent-ctxchip-clear:hover { color: var(--flux-text); }
 .agent-model-empty { font-size: 11.5px; color: var(--flux-text-mute); padding: 8px 9px; }
+/* Portal'd dropdowns: a transparent backdrop catches outside clicks; the menu sits
+   above it. Both live at <body>, so no agent-panel stacking context can trap them. */
+.agent-menu-backdrop { position: fixed; inset: 0; z-index: 9998; background: transparent; }
 
 /* Chat-with-page/tabs (#34): scope toggle + quick-prompt chips above the input. */
 .agent-context { display: flex; gap: 6px; margin-bottom: 6px; }
