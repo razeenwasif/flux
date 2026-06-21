@@ -54,6 +54,8 @@ function pickVoice(): SpeechSynthesisVoice | null {
 
 let current: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
+let currentSource: AudioBufferSourceNode | null = null;
+let currentContext: AudioContext | null = null;
 
 /** Strip emoji / markdown so the voice reads clean prose, not "asterisk asterisk". */
 export function cleanForSpeech(text: string): string {
@@ -70,6 +72,8 @@ export function stopSpeaking(): void {
   try { window.speechSynthesis?.cancel(); } catch { /* no synth */ }
   if (current) { try { current.pause(); } catch { /* ignore */ } current.src = ""; current = null; }
   if (currentUrl) { URL.revokeObjectURL(currentUrl); currentUrl = null; }
+  if (currentSource) { try { currentSource.stop(); } catch { /* ignore */ } currentSource = null; }
+  if (currentContext) { void currentContext.close().catch(() => {}); currentContext = null; }
 }
 
 function speakSystem(text: string): Promise<void> {
@@ -94,10 +98,40 @@ function audioError(a: HTMLAudioElement, fallback: string): Error {
 }
 
 function audioUrlFromB64(b64: string, mime: string): string {
+  return URL.createObjectURL(new Blob([audioBufferFromB64(b64)], { type: mime }));
+}
+
+function audioBufferFromB64(b64: string): ArrayBuffer {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+async function playAudioBufferB64(b64: string): Promise<void> {
+  if (currentContext) { await currentContext.close().catch(() => {}); currentContext = null; }
+  const ctx = new AudioContext();
+  currentContext = ctx;
+  if (ctx.state === "suspended") await ctx.resume();
+  const buffer = await ctx.decodeAudioData(audioBufferFromB64(b64));
+  await new Promise<void>((resolve, reject) => {
+    const source = ctx.createBufferSource();
+    currentSource = source;
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.onended = () => {
+      if (currentSource === source) currentSource = null;
+      if (currentContext === ctx) currentContext = null;
+      void ctx.close().finally(resolve);
+    };
+    try {
+      source.start();
+    } catch (e) {
+      if (currentSource === source) currentSource = null;
+      if (currentContext === ctx) currentContext = null;
+      void ctx.close().finally(() => reject(e));
+    }
+  });
 }
 
 function playAudioB64(b64: string, mime: string, rejectOnError = false): Promise<void> {
@@ -115,12 +149,15 @@ function playAudioB64(b64: string, mime: string, rejectOnError = false): Promise
     const done = () => { cleanup(); resolve(); };
     const fail = (err: unknown) => {
       cleanup();
-      if (rejectOnError) {
-        reject(err instanceof Error ? err : audioError(a, String(err || "unknown")));
-      } else {
-        console.warn("[flux] TTS audio playback failed", err);
-        resolve();
-      }
+      const firstError = err instanceof Error ? err : audioError(a, String(err || "unknown"));
+      void playAudioBufferB64(b64).then(resolve).catch((fallbackErr) => {
+        const combined = new Error(`${firstError.message}; Web Audio fallback failed (${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)})`);
+        if (rejectOnError) reject(combined);
+        else {
+          console.warn("[flux] TTS audio playback failed", combined);
+          resolve();
+        }
+      });
     };
     a.onended = done;
     a.onerror = () => fail(audioError(a, "media error"));

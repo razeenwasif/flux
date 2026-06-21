@@ -50,6 +50,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **Generated TTS playback fallback** — if WebView rejects generated audio
+  `blob:` URLs, Flux now decodes the returned MP3/WAV bytes with Web Audio and
+  plays the buffer directly.
 - **ElevenLabs preview audio in WebView** — generated MP3/WAV playback now uses
   Blob object URLs instead of `data:` URLs, avoiding WebView's URL safety check
   rejection for ElevenLabs preview audio.
