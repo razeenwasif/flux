@@ -43,7 +43,7 @@ import {
   type SearchEngine,
 } from "./ipc";
 import { heyGemmaEnabled, setHeyGemmaEnabled, setSttEngine, sttEngine } from "./heygemma";
-import { elVoiceId, loadVoices, preferredVoice, previewElevenLabs, setElVoiceId, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
+import { elVoiceId, elVoiceName, loadVoices, preferredVoice, previewElevenLabs, setElVoiceId, setElVoiceName, setPreferredVoice, setTtsEngine, speak, stopSpeaking, ttsEngine, type TtsEngine } from "./speak";
 import {
   aiAnswersOn,
   audiopulseDir,
@@ -171,11 +171,19 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [elKeySet, setElKeySet] = createSignal(false);
   const [elVoices, setElVoices] = createSignal<{ id: string; name: string }[]>([]);
   const [elVoiceSel, setElVoiceSel] = createSignal(elVoiceId());
+  const [elVoiceNameSel, setElVoiceNameSel] = createSignal(elVoiceName());
   const [elManualVoice, setElManualVoice] = createSignal("");
   const [elFlash, setElFlash] = createSignal("");
   const [elSavingVoice, setElSavingVoice] = createSignal(false);
   const refreshElKey = () => void elevenlabsHasKey().then(setElKeySet).catch(() => {});
-  const loadElVoices = () => void elevenlabsVoices().then((v) => setElVoices(v)).catch(() => setElVoices([]));
+  const loadElVoices = () => void elevenlabsVoices().then((v) => {
+    setElVoices(v);
+    const current = v.find((voice) => voice.id === elVoiceSel());
+    if (current) {
+      setElVoiceName(current.name);
+      setElVoiceNameSel(current.name);
+    }
+  }).catch(() => setElVoices([]));
   const saveElKey = async () => {
     try {
       const raw = elKeyInput().trim();
@@ -196,7 +204,13 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
       loadElVoices();
     } catch (e) { setElFlash(String(e)); }
   };
-  const pickElVoice = (id: string) => { setElVoiceId(id); setElVoiceSel(id); };
+  const pickElVoice = (id: string, name = "") => {
+    const resolvedName = name || elVoices().find((v) => v.id === id)?.name || "";
+    setElVoiceId(id);
+    setElVoiceName(resolvedName);
+    setElVoiceSel(id);
+    setElVoiceNameSel(resolvedName);
+  };
   const saveManualElVoice = async () => {
     const ref = parseElevenLabsVoiceRef(elManualVoice());
     if (!ref.voiceId) {
@@ -207,7 +221,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     setElFlash("Adding voice…");
     try {
       const v = await elevenlabsImportVoice(ref.voiceId, ref.publicOwnerId || "", "Flux Gemma");
-      pickElVoice(v.id || ref.voiceId);
+      pickElVoice(v.id || ref.voiceId, v.name || "Flux Gemma");
       setElManualVoice("");
       setElFlash("Voice ready");
       loadElVoices();
@@ -461,10 +475,17 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <Row label="ElevenLabs voice" hint="Pick an account voice, or paste a shared voice link/ID when it is not listed. Use Test to preview.">
                 <div style={{ display: "grid", gap: "8px" }}>
                   <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
-                    <select class="shields-select" value={elVoiceSel()} onChange={(e) => pickElVoice(e.currentTarget.value)}>
+                    <select
+                      class="shields-select"
+                      value={elVoiceSel()}
+                      onChange={(e) => {
+                        const id = e.currentTarget.value;
+                        pickElVoice(id, e.currentTarget.selectedOptions[0]?.textContent || "");
+                      }}
+                    >
                       <option value="">Select a voice…</option>
                       <Show when={elVoiceSel() && !elVoices().some((v) => v.id === elVoiceSel())}>
-                        <option value={elVoiceSel()}>Custom voice ({elVoiceSel()})</option>
+                        <option value={elVoiceSel()}>{elVoiceNameSel() || `Custom voice (${elVoiceSel()})`}</option>
                       </Show>
                       <For each={elVoices()}>{(v) => <option value={v.id}>{v.name}</option>}</For>
                     </select>

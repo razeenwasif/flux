@@ -58,6 +58,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **ElevenLabs selected voice persistence** — the chosen ElevenLabs voice now
+  persists both its ID and display name, so shared/custom voices remain selected
+  and readable after reopening Settings or restarting Flux.
 - **Generated TTS playback fallback** — if WebView rejects generated audio
   `blob:` URLs, Flux now decodes the returned MP3/WAV bytes with Web Audio and
   plays the buffer directly.

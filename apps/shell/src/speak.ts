@@ -13,9 +13,12 @@ export const setTtsEngine = (e: TtsEngine) => localStorage.setItem(ENGINE_KEY, e
 
 // ElevenLabs voice + model (not secret — the API key lives in the OS keyring).
 const EL_VOICE_KEY = "flux.voice.el.voice";
+const EL_VOICE_NAME_KEY = "flux.voice.el.voiceName";
 const EL_MODEL_KEY = "flux.voice.el.model";
 export const elVoiceId = (): string => localStorage.getItem(EL_VOICE_KEY) || "";
 export const setElVoiceId = (id: string) => localStorage.setItem(EL_VOICE_KEY, id);
+export const elVoiceName = (): string => localStorage.getItem(EL_VOICE_NAME_KEY) || "";
+export const setElVoiceName = (name: string) => localStorage.setItem(EL_VOICE_NAME_KEY, name);
 export const elModel = (): string => localStorage.getItem(EL_MODEL_KEY) || "eleven_turbo_v2_5";
 export const setElModel = (m: string) => localStorage.setItem(EL_MODEL_KEY, m);
 
