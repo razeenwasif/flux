@@ -808,6 +808,7 @@ body.resizing, body.busy { --glass-blur: none; }
 }
 /* Real content sits above the effects layer. */
 .agent-inner > *:not(.agent-fx) { position: relative; z-index: 1; }
+.agent-inner > header { z-index: 8; overflow: visible; }
 
 /* ── Agent ambient effects ───────────────────────────────────────────────── */
 @property --agent-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
@@ -859,15 +860,16 @@ body.resizing, body.busy { --glass-blur: none; }
 .agent-empty kbd { font: inherit; font-size: 11px; background: var(--flux-surface); border: 1px solid var(--flux-border); border-radius: 4px; padding: 0 5px; color: var(--flux-text-dim); }
 
 /* Agent model picker (#81). */
-.agent-model { position: relative; margin-left: auto; }
+.agent-model { position: relative; z-index: 2; margin-left: auto; }
 .agent-model-btn { font-size: 11px; color: var(--flux-text-dim); padding: 2px 7px; border-radius: 7px; border: 1px solid transparent; }
 .agent-model-btn:hover { color: var(--flux-text); border-color: var(--flux-border); }
 .agent-model-menu {
-  position: absolute; right: 0; top: calc(100% + 5px); z-index: 30; min-width: 170px;
+  position: absolute; right: 0; top: calc(100% + 5px); z-index: 80; min-width: 170px;
   padding: 5px; display: flex; flex-direction: column; gap: 1px; max-height: 260px; overflow-y: auto;
+  background: #14102f; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: auto;
 }
-.agent-model-item { font-size: 12px; padding: 6px 9px; border-radius: 7px; text-align: left; color: var(--flux-text); }
-.agent-model-item:hover { background: var(--flux-surface-2); }
+.agent-model-item { font-size: 12px; padding: 6px 9px; border-radius: 7px; text-align: left; color: var(--flux-text); cursor: pointer; }
+.agent-model-item:hover, .agent-model-item:focus-visible { background: var(--flux-surface-2); outline: none; }
 .agent-model-item.on { color: var(--flux-teal); }
 .agent-model-empty { font-size: 11.5px; color: var(--flux-text-mute); padding: 8px 9px; }
 

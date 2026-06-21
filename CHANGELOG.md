@@ -89,6 +89,8 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **Agent model picker** — the Flux Agent model dropdown is now opaque and sits
+  above the chat feed, so model rows highlight on hover and can be clicked.
 - **Omni answer popup dismissal** — completed Omni answer cards now auto-dismiss
   after a short delay and include a close button, so they no longer sit over the
   pinned tabs area indefinitely.
