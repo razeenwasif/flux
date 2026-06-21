@@ -223,13 +223,14 @@ async function handleUtterance(chunks: Float32Array[]) {
       if (!WAKE.test(detected)) return; // not addressed to Gemma → drop, nothing sent anywhere
     }
 
+    setListening(true);
+    setVoiceStatus("thinking…");
     // Command always comes from an accurate full transcription (Vosk or whisper);
     // strip any leading wake word so "hey gemma, play jazz" → "play jazz".
     const full = await transcribeCommand(b64, "");
     const command = warm ? full.trim() : stripWake(full);
     if (!command) {
       if (!warm) {
-        setListening(true);
         setVoiceStatus("listening…");
         await speak("Mm-hm?"); // wake word alone → acknowledge, then wait for the command
       }
@@ -237,8 +238,6 @@ async function handleUtterance(chunks: Float32Array[]) {
       return;
     }
 
-    setListening(true);
-    setVoiceStatus("thinking…");
     const reply = onCommand ? await onCommand(command) : "";
     if (reply) {
       setVoiceStatus("speaking…");

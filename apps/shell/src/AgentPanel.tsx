@@ -161,7 +161,7 @@ const AgentPanel: Component = () => {
     if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
   });
 
-  const working = () => busy() || status().state === "thinking";
+  const working = () => busy() || status().state === "thinking" || listening() || ttsSpeaking();
 
   // A quick AI answer for a search query, drafted by the local model (#ai).
   // Fed in via `pendingAsk` when the user runs a search with AI answers on.
