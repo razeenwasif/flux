@@ -45,7 +45,7 @@ export const [listening, setListening] = createSignal(false);
 export const [voiceStatus, setVoiceStatus] = createSignal("");
 
 // The wake word + a few near-misses Vosk tends to emit for "gemma".
-const WAKE = /\b(?:hey\s+)?(?:gemma|gema|gemini|jemma|gamma)\b/i;
+const WAKE = /\b(?:hey\s+)?(?:gemma|gems?|gema|jemma|gamma|gemini|hmm|a\s+german)\b/i;
 const SILENCE_S = 0.8; // trailing silence that ends an utterance (longer = less cut-off)
 const MIN_SPEECH_S = 0.2; // ignore shorter blips (coughs, clicks)
 const MAX_UTTER_S = 12; // hard cap on one utterance
