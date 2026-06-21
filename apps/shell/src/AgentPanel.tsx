@@ -11,6 +11,7 @@ import {
   agentChatTabsStream,
   agentShellPlan,
   runShell,
+  searchResolve,
   agentModels,
   spotifyNext,
   spotifyNowPlaying,
@@ -38,7 +39,7 @@ import {
   type AgentAction,
   type AgentStatus,
 } from "./ipc";
-import { activeId, activeWorkspace, agentModelName, filesPanelOpen, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
+import { activeId, activeWorkspace, agentModelName, filesPanelOpen, openTab, pendingAsk, pendingLens, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 import { speak } from "./speak";
@@ -389,6 +390,37 @@ const AgentPanel: Component = () => {
     return await runShellCmd(cmd);
   };
 
+  // Conversation memory: prepend the recent turns so the model has context. The
+  // trailing "user" entry is the message we just pushed, so it's excluded. Capped
+  // to the last few turns to keep prompt-eval fast.
+  const convoPrompt = (current: string): string => {
+    const turns = feed().filter((it) => it.role === "user" || it.role === "assistant");
+    const prior = (turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns).slice(-8);
+    if (!prior.length) return current;
+    const transcript = prior.map((it) => `${it.role === "user" ? "User" : "Gemma"}: ${it.text}`).join("\n");
+    return `Conversation so far:\n${transcript}\n\nReply to the new message, using the conversation above for context.\nUser: ${current}`;
+  };
+
+  // "search X" / "google X" / "open a new tab and search X" → open a new browser tab
+  // with the result (searchResolve respects the default engine + navigate-vs-search).
+  // Works typed or by voice. /act and /task can't do this — they act on the current
+  // page's DOM, not browser tabs.
+  const SEARCH_RE =
+    /^(?:open\s+(?:a\s+|the\s+)?new\s+tab\s+(?:and\s+|to\s+)?(?:search(?:\s+for)?\s+|google\s+|for\s+)?|search(?:\s+for)?\s+|google\s+|look\s*up\s+)(.+)/i;
+  const runSearch = async (query: string): Promise<string> => {
+    const q = query.trim().replace(/[?.!]+$/, "");
+    if (!q) return "";
+    try {
+      const { url } = await searchResolve(q);
+      await openTab("browser", url);
+      return `Opened a tab for “${q}”.`;
+    } catch (e) {
+      const m = String(e);
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    }
+  };
+
   // Handle one spoken command from the "hey gemma" loop: show it in the feed,
   // route it through the same music / shell / chat pipeline as typed input, and
   // return the reply text for the conductor to speak.
@@ -401,15 +433,18 @@ const AgentPanel: Component = () => {
     if (sh?.[1]) return await runShellCmd(sh[1]);
     const musicReply = await handleMusic(t);
     if (musicReply !== null) return musicReply;
+    const vs = stripped.match(SEARCH_RE);
+    if (vs?.[1]) return await runSearch(vs[1]);
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
+    const cp = convoPrompt(t); // memory
     const idx = feed().length;
     setFeed((f) => [...f, { role: "assistant", text: "" }]);
     let acc = "";
     const append = (c: string) => { acc += c; setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it))); };
     setBusy(true);
     try {
-      await agentChatStream(t, append);
+      await agentChatStream(cp, append);
     } catch (e) {
       acc = String(e);
       setFeed((f) => f.map((it, i) => (i === idx ? { ...it, role: "error", text: acc } : it)));
@@ -472,6 +507,9 @@ const AgentPanel: Component = () => {
       if (shell?.[1]) { await runShellCmd(shell[1].trim()); return; }
       // Music command (AudioPulse) before chat — "play …" / "skip" / "pause" / …
       if (await runMusic(p)) return;
+      // "search …" / "open a new tab and search …" → open a browser tab.
+      const search = p.match(SEARCH_RE);
+      if (search?.[1]) { await runSearch(search[1]); return; }
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
@@ -489,6 +527,7 @@ const AgentPanel: Component = () => {
         // Stream the reply token-by-token into one assistant bubble (#82) so the
         // answer renders live. Nothing else appends to the feed during the await,
         // so the captured index stays valid.
+        const cp = convoPrompt(p); // build memory before pushing the empty reply bubble
         const idx = feed().length;
         setFeed((f) => [...f, { role: "assistant", text: "" }]);
         let acc = "";
@@ -496,8 +535,8 @@ const AgentPanel: Component = () => {
           acc += chunk;
           setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + chunk } : it)));
         };
-        if (scope() === "tabs") await agentChatTabsStream(p, browserTabIds(), append);
-        else await agentChatStream(p, append);
+        if (scope() === "tabs") await agentChatTabsStream(cp, browserTabIds(), append);
+        else await agentChatStream(cp, append);
         const text = acc.trim() || "(no response)";
         setFeed((f) =>
           f.map((it, i) => (i === idx ? { ...it, text } : it)),
@@ -659,6 +698,14 @@ const AgentPanel: Component = () => {
             <Show when={micLive()} fallback="🎙">
               <span class="agent-voice-dot" /> {listening() ? "●" : "🎙"}
             </Show>
+          </button>
+          <button
+            class="agent-voice-toggle"
+            title="New chat — clear the conversation"
+            aria-label="New chat"
+            onClick={() => { if (!working() && !taskRunning()) setFeed([]); }}
+          >
+            ＋
           </button>
         </header>
 
