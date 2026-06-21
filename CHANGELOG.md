@@ -8,13 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
-- **Gemma can run terminal commands** — "run <cmd>" / "execute <cmd>" / "/run <cmd>"
-  (typed or by voice) runs a shell command in the same shell the embedded terminal
-  uses (WSL on Windows), with the output shown in the panel. A safety **denylist**
-  blocks `rm` and other destructive commands (rmdir/del/dd/mkfs/format/shutdown/…,
-  matched against every token so `sudo rm`/`find -exec rm` are caught too), so a
-  mis-heard voice command can't wreck anything. `FLUX_EXEC_SHELL` overrides the
-  shell. (`exec.rs` `run_shell`.)
+- **Gemma can run terminal commands (with one-tap approval)** — "run <cmd>" /
+  "execute <cmd>" / "/run <cmd>" (typed or by voice) proposes a shell command as a
+  card with **▶ Run / Cancel** buttons; **nothing executes until you tap Run**. It
+  runs in the same shell the embedded terminal uses (WSL on Windows) and shows the
+  output in the panel. Two safety layers: the approval gate, plus a backend
+  **denylist** that blocks `rm` and other destructive commands (rmdir/del/dd/mkfs/
+  format/shutdown/…, matched against every token so `sudo rm`/`find -exec rm` are
+  caught). `FLUX_EXEC_SHELL` overrides the shell. (`exec.rs` `run_shell`.)
 - **More reliable Vosk wake word (grammar spotting)** — the default "hey Gemma"
   detection now runs a **grammar-restricted** Vosk pass that only recognizes the
   wake phrase (everything else collapses to "[unk]"), so random speech rarely
@@ -81,6 +82,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **"Launch AudioPulse" from a Windows build now works** — instead of scanning the
+  `\\wsl.localhost` mount (which often found nothing), Flux launches it through
+  `wsl.exe` and lets the WSL login shell expand `~/AudioPulse/audiopulse`. Override
+  the path with `FLUX_AUDIOPULSE_BIN` (WSL-side) and the distro with
+  `FLUX_AUDIOPULSE_DISTRO`. (`spotify.rs`.)
 - **"Hey Gemma" always-on now reliably hears the wake word** — the voice activity
   detector used a fixed threshold that was too high for some mics (push-to-talk
   worked because it captures regardless). It's now **adaptive** (tracks your ambient

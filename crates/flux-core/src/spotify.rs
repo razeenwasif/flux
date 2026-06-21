@@ -381,14 +381,15 @@ pub async fn spotify_play_playlist(name: String) -> Result<String, String> {
 /// build would need to cross into WSL, which isn't wired yet.
 static AUDIOPULSE: Mutex<Option<(Box<dyn MasterPty + Send>, Box<dyn Child + Send + Sync>)>> = Mutex::new(None);
 
-/// Build the command that launches AudioPulse. An explicit `FLUX_AUDIOPULSE_BIN`
-/// always wins; otherwise it's the local `~/AudioPulse/audiopulse` on Linux/WSL, or
-/// on a native Windows build it crosses into WSL via `wsl.exe` (AudioPulse lives in
-/// the distro, and the ConPTY we spawn it in gives the TUI a real terminal).
+/// Build the command that launches AudioPulse.
+///
+/// On Linux/WSL it's the local `~/AudioPulse/audiopulse` (override with
+/// `FLUX_AUDIOPULSE_BIN`). On a native **Windows** build AudioPulse lives in WSL,
+/// so we launch it through `wsl.exe` and let the WSL login shell expand `~` — far
+/// more robust than poking at the `\\wsl.localhost` mount from Windows. Set
+/// `FLUX_AUDIOPULSE_BIN` to a different WSL-side path, and `FLUX_AUDIOPULSE_DISTRO`
+/// if it isn't your default distro. The ConPTY we spawn it in gives the TUI a tty.
 fn audiopulse_command() -> Result<CommandBuilder, String> {
-    if let Ok(p) = std::env::var("FLUX_AUDIOPULSE_BIN") {
-        return Ok(CommandBuilder::new(p));
-    }
     #[cfg(not(windows))]
     return native_audiopulse_command();
     #[cfg(windows)]
@@ -397,51 +398,38 @@ fn audiopulse_command() -> Result<CommandBuilder, String> {
 
 #[cfg(not(windows))]
 fn native_audiopulse_command() -> Result<CommandBuilder, String> {
-    let home = std::env::var("HOME").map_err(|_| "no HOME to locate AudioPulse")?;
-    let cand = format!("{home}/AudioPulse/audiopulse");
-    if !std::path::Path::new(&cand).is_file() {
-        return Err(format!("AudioPulse binary not found at {cand} — set FLUX_AUDIOPULSE_BIN to it"));
+    let bin = std::env::var("FLUX_AUDIOPULSE_BIN")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| std::env::var("HOME").map(|h| format!("{h}/AudioPulse/audiopulse")).unwrap_or_default());
+    if bin.is_empty() || !std::path::Path::new(&bin).is_file() {
+        return Err(format!("AudioPulse binary not found ({bin}) — set FLUX_AUDIOPULSE_BIN to it"));
     }
-    let mut c = CommandBuilder::new(&cand);
-    if let Some(dir) = std::path::Path::new(&cand).parent() {
+    let mut c = CommandBuilder::new(&bin);
+    if let Some(dir) = std::path::Path::new(&bin).parent() {
         c.cwd(dir);
     }
     Ok(c)
 }
 
-/// `wsl.exe -d <distro> -- /home/<user>/AudioPulse/audiopulse`.
+/// `wsl.exe [-d <distro>] -- bash -lc "exec ~/AudioPulse/audiopulse"`.
 #[cfg(windows)]
 fn windows_audiopulse_command() -> Result<CommandBuilder, String> {
-    let (distro, lin) = wsl_audiopulse_bin().ok_or(
-        "AudioPulse isn't on Windows — it's in WSL. Couldn't find ~/AudioPulse/audiopulse in any distro; \
-         set FLUX_AUDIOPULSE_BIN, or make sure the binary exists (build it in WSL).",
-    )?;
+    let lin = std::env::var("FLUX_AUDIOPULSE_BIN")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "~/AudioPulse/audiopulse".to_string());
     let mut c = CommandBuilder::new("wsl.exe");
-    c.arg("-d");
-    c.arg(&distro);
-    c.arg("--");
-    c.arg(&lin);
-    Ok(c)
-}
-
-/// Scan the WSL mounts for `…/home/<user>/AudioPulse/audiopulse`; return the distro
-/// name + the Linux-side path (Windows only).
-#[cfg(windows)]
-fn wsl_audiopulse_bin() -> Option<(String, String)> {
-    for root in ["\\\\wsl.localhost", "\\\\wsl$"] {
-        let Ok(distros) = std::fs::read_dir(root) else { continue };
-        for distro in distros.flatten() {
-            let dname = distro.file_name().to_string_lossy().into_owned();
-            let Ok(users) = std::fs::read_dir(distro.path().join("home")) else { continue };
-            for user in users.flatten() {
-                let uname = user.file_name().to_string_lossy().into_owned();
-                if user.path().join("AudioPulse").join("audiopulse").is_file() {
-                    return Some((dname, format!("/home/{uname}/AudioPulse/audiopulse")));
-                }
-            }
-        }
+    if let Some(distro) = std::env::var("FLUX_AUDIOPULSE_DISTRO").ok().filter(|s| !s.trim().is_empty()) {
+        c.arg("-d");
+        c.arg(distro.trim());
     }
-    None
+    // Login shell so `~` + PATH resolve; `exec` lets the TUI take over the pty.
+    c.arg("--");
+    c.arg("bash");
+    c.arg("-lc");
+    c.arg(format!("exec {lin}"));
+    Ok(c)
 }
 
 #[tauri::command]
