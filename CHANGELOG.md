@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **More reliable Vosk wake word (grammar spotting)** — the default "hey Gemma"
+  detection now runs a **grammar-restricted** Vosk pass that only recognizes the
+  wake phrase (everything else collapses to "[unk]"), so random speech rarely
+  false-triggers and it's lower-CPU than full transcription. The command is then
+  taken from an accurate full transcription (Vosk or whisper), so same-breath
+  commands ("hey gemma, play jazz") still work. Zero setup; needs no account —
+  unlike Porcupine, which gates its console behind a business email.
+  (`voice.rs` `wake_transcribe` via `vosk_recognizer_new_grm`.)
 - **Porcupine wake word (opt-in)** — a dedicated "Hey Gemma" wake-word model as an
   alternative to the default Vosk transcribe-and-match: far fewer false triggers and
   lower CPU. Runs the Porcupine **Web** SDK in the renderer (dynamically imported, so

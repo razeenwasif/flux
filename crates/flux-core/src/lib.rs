@@ -597,6 +597,7 @@ pub fn run(intent: cli::LaunchIntent) {
             lens::agent_lens,
             lens::agent_vision,
             voice::voice_transcribe,
+            voice::wake_transcribe,
             stt::stt_whisper,
             porcupine::porcupine_set_key,
             porcupine::porcupine_has_key,

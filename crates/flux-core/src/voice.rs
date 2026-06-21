@@ -54,6 +54,10 @@ type VoskModelFree = unsafe extern "C" fn(*mut VoskModel);
 #[cfg(feature = "voice")]
 type VoskRecognizerNew = unsafe extern "C" fn(*mut VoskModel, c_float) -> *mut VoskRecognizer;
 #[cfg(feature = "voice")]
+// Grammar-restricted recognizer: only the phrases in the JSON grammar (+ "[unk]")
+// are recognized — used for reliable, low-false-trigger wake-word spotting.
+type VoskRecognizerNewGrm = unsafe extern "C" fn(*mut VoskModel, c_float, *const c_char) -> *mut VoskRecognizer;
+#[cfg(feature = "voice")]
 type VoskRecognizerFree = unsafe extern "C" fn(*mut VoskRecognizer);
 #[cfg(feature = "voice")]
 type VoskAcceptWaveform = unsafe extern "C" fn(*mut VoskRecognizer, *const i16, c_int) -> c_int;
@@ -66,6 +70,7 @@ struct VoskApi {
     model_new: VoskModelNew,
     model_free: VoskModelFree,
     recognizer_new: VoskRecognizerNew,
+    recognizer_new_grm: VoskRecognizerNewGrm,
     recognizer_free: VoskRecognizerFree,
     accept_waveform: VoskAcceptWaveform,
     final_result: VoskFinalResult,
@@ -93,6 +98,7 @@ impl VoskApi {
                     model_new: load_symbol(&lib, b"vosk_model_new\0")?,
                     model_free: load_symbol(&lib, b"vosk_model_free\0")?,
                     recognizer_new: load_symbol(&lib, b"vosk_recognizer_new\0")?,
+                    recognizer_new_grm: load_symbol(&lib, b"vosk_recognizer_new_grm\0")?,
                     recognizer_free: load_symbol(&lib, b"vosk_recognizer_free\0")?,
                     accept_waveform: load_symbol(&lib, b"vosk_recognizer_accept_waveform_s\0")?,
                     final_result: load_symbol(&lib, b"vosk_recognizer_final_result\0")?,
@@ -238,9 +244,20 @@ impl Drop for RecognizerHandle<'_> {
 
 #[cfg(feature = "voice")]
 fn transcribe(pcm: &[i16], sample_rate: f32) -> Result<String, String> {
+    transcribe_inner(pcm, sample_rate, None)
+}
+
+#[cfg(feature = "voice")]
+fn transcribe_inner(pcm: &[i16], sample_rate: f32, grammar: Option<&str>) -> Result<String, String> {
     let api = vosk_api()?;
     let model = model()?;
-    let rec = unsafe { (api.recognizer_new)(model.ptr, sample_rate as c_float) };
+    let rec = match grammar {
+        Some(g) => {
+            let cg = CString::new(g).map_err(|_| "wake grammar has an interior NUL byte".to_string())?;
+            unsafe { (api.recognizer_new_grm)(model.ptr, sample_rate as c_float, cg.as_ptr()) }
+        }
+        None => unsafe { (api.recognizer_new)(model.ptr, sample_rate as c_float) },
+    };
     if rec.is_null() {
         return Err("couldn't create the Vosk recognizer".into());
     }
@@ -271,6 +288,28 @@ pub async fn voice_transcribe(pcm_b64: String, sample_rate: f32) -> Result<Strin
         {
             let _ = (pcm_b64, sample_rate);
             Err("voice input isn't built into the running flux.exe. Reinstall with `scripts\\install-windows.ps1 -Voice`, or launch the voice-enabled `target\\release\\flux.exe` you built with `--features voice,custom-protocol`.".into())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Wake-word spotting: a **grammar-restricted** Vosk pass that only recognizes the
+/// wake phrase (everything else collapses to "[unk]"), so it's far less prone to
+/// false triggers than full transcription. Returns the recognized text (e.g.
+/// "hey gemma" / "gemma" / "") for the frontend to match.
+#[tauri::command]
+pub async fn wake_transcribe(pcm_b64: String, sample_rate: f32) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "voice")]
+        {
+            let pcm = decode_pcm(&pcm_b64)?;
+            transcribe_inner(&pcm, sample_rate, Some("[\"hey gemma\", \"gemma\", \"[unk]\"]"))
+        }
+        #[cfg(not(feature = "voice"))]
+        {
+            let _ = (pcm_b64, sample_rate);
+            Err("voice not built".into())
         }
     })
     .await
