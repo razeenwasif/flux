@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Chat memory** — Gemma now remembers the recent conversation: each reply is sent
+  with the last several turns as context, so follow-ups ("what about the second one?")
+  work. A **＋ New chat** button in the panel header clears the conversation when you
+  want a fresh context.
+- **"Search …" opens a tab** — "search <x>", "google <x>", "look up <x>", or "open a
+  new tab and search <x>" (typed or by voice) opens a new browser tab with the result
+  (respecting your default engine). Note: this is separate from `/act` and `/task`,
+  which act on the *current page's* DOM and can't open tabs.
 - **Gemma can run terminal commands (with one-tap approval)** — "run <cmd>" /
   "execute <cmd>" / "/run <cmd>" (typed or by voice) proposes a shell command as a
   card with **▶ Run / Cancel** buttons; **nothing executes until you tap Run**. It
