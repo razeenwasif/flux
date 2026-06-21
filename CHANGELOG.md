@@ -89,6 +89,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (`third_party/crsqlite/`, BYO per platform); not yet wired to the live stores.
 
 ### Fixed
+- **Music with no active device auto-starts AudioPulse** — asking to play something
+  when no Spotify Connect device is online now **launches AudioPulse for you** (idempotent)
+  and tells you to try again in a few seconds, instead of just erroring. (`spotify.rs`.)
+- **More reliable natural-language → command** — the shell-translation prompt now
+  includes worked examples (`"list the files in my home directory"` → `ls -la ~`),
+  so the local model emits the command reliably instead of declining. (`plan_shell`.)
 - **"Launch AudioPulse" from a Windows build now works** — instead of scanning the
   `\\wsl.localhost` mount (which often found nothing), Flux launches it through
   `wsl.exe` and lets the WSL login shell expand `~/AudioPulse/audiopulse`. Override
