@@ -84,7 +84,7 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
       macOptionIsMeta: true,
       scrollback: 10_000,
       allowTransparency: true,
-      theme: { ...THEME, background: "transparent" },
+      theme: { ...THEME, background: "#00000000" },
     });
 
     const fit = new FitAddon();
@@ -137,10 +137,9 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden", "border-radius": "inherit", background: THEME.background }}>
-      <div style={{ position: "absolute", inset: 0, "z-index": 0, "pointer-events": "none" }}>
+      <div style={{ position: "absolute", inset: 0, "z-index": 0, "pointer-events": "none", opacity: 0.6 }}>
         <LiquidBackground active={() => props.active ?? true} />
       </div>
-      <div style={{ position: "absolute", inset: 0, "z-index": 0, background: "rgba(11, 10, 29, 0.55)", "pointer-events": "none" }} />
       <div ref={host} style={{ position: "relative", "z-index": 1, width: "100%", height: "100%", padding: "8px" }} />
     </div>
   );
