@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Gemma's long-term memory** — say *"remember that …"* (or "/remember", "note …",
+  "keep in mind …") and Gemma saves the fact to a Markdown file that's injected into
+  every chat as context, so it persists across conversations (beyond the per-chat
+  window). *"what do you remember"* reads it back; Settings → Integrations shows the
+  file path + a Clear button. It's a plain `.md` at `<app-data>/memory.md` you can
+  open/edit (`FLUX_MEMORY_FILE` relocates it). Fully local. (`memory.rs`.)
 - **Voice barge-in** — talk over Gemma and she stops: while she's speaking, clearly
   louder sustained speech cuts the TTS (the threshold sits above echo-cancelled
   residual so she doesn't stop herself), and the warm window opens so your next words

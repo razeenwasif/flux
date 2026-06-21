@@ -28,6 +28,7 @@ pub mod leanmode;
 pub mod lens;
 pub mod macros;
 pub mod mem;
+pub mod memory;
 pub mod netspeed;
 pub mod nav;
 pub mod notes;
@@ -601,6 +602,10 @@ pub fn run(intent: cli::LaunchIntent) {
             voice::voice_transcribe,
             voice::wake_transcribe,
             exec::run_shell,
+            memory::memory_read,
+            memory::memory_append,
+            memory::memory_write,
+            memory::memory_path_str,
             stt::stt_whisper,
             porcupine::porcupine_set_key,
             porcupine::porcupine_has_key,
