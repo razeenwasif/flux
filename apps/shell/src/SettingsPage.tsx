@@ -475,9 +475,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <option value="whisper">Whisper (accurate)</option>
             </select>
           </Row>
-          <Row label="Wake word" hint="How “hey Gemma” is detected. Vosk uses grammar-restricted spotting (zero setup, few false triggers). Porcupine is a dedicated wake-word model but needs a Picovoice account whose console requires a business email — so Vosk is the recommended free path. Porcupine detection runs locally; if not configured it falls back to Vosk.">
+          <Row label="Wake word" hint="How “hey Gemma” is detected. Vosk grammar-spotting is instant, zero setup. Whisper is the most accurate but runs whisper.cpp on each utterance (needs FLUX_WHISPER_MODEL; more CPU). Porcupine is a dedicated model but its console needs a business email. All run locally.">
             <select class="shields-select" value={wakeSel()} onChange={(e) => { pickWake(e.currentTarget.value); if (e.currentTarget.value === "porcupine") refreshPcKey(); }}>
-              <option value="vosk">Vosk (grammar spotting · recommended)</option>
+              <option value="vosk">Vosk (grammar spotting · fast)</option>
+              <option value="whisper">Whisper (most accurate · slower)</option>
               <option value="porcupine">Porcupine (needs business email)</option>
             </select>
           </Row>

@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Voice barge-in** — talk over Gemma and she stops: while she's speaking, clearly
+  louder sustained speech cuts the TTS (the threshold sits above echo-cancelled
+  residual so she doesn't stop herself), and the warm window opens so your next words
+  are taken as the command.
+- **Whisper wake word** — a third wake-word option (Settings → Integrations → Wake
+  word) that runs whisper.cpp on each utterance for the most accurate "hey Gemma"
+  detection (more CPU than Vosk grammar-spotting). Mic now uses **autoGainControl**
+  so a quiet mic is normalized (helps both detection and command recognition), and
+  the VAD is more sensitive again.
 - **Saved chats** — every conversation persists; a **🕘** menu in the panel header
   lists past chats (titled from the first message) to reopen or delete, and **＋ New
   chat** saves the current one and starts fresh. The most recent reopens on launch.
