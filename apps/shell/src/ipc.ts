@@ -802,6 +802,9 @@ export interface MemInfo {
 }
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */
 export const memStatus = () => invoke<MemInfo>("mem_status");
+export type SystemStats = { cpuPct: number; memTotalMb: number; memUsedMb: number; memPct: number; top: { name: string; memMb: number; cpu: number }[] };
+/** CPU + memory + heaviest processes (agent "system awareness"). */
+export const systemStats = () => invoke<SystemStats>("system_stats");
 
 // ─── Native dark mode (BACKLOG #40) ──────────────────────────────────────────
 export const darkmodeStatus = () => invoke<boolean>("darkmode_status");

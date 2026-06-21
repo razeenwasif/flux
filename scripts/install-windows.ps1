@@ -118,6 +118,17 @@ if ($SkipFrontend -and (Test-Path $dist)) {
 
 # --- Release binary -----------------------------------------------------------
 Write-Host "==> Building release flux.exe (LTO - takes several minutes)" -ForegroundColor Cyan
+
+# Auto-enable the LLD linker when available — much faster linking than MSVC
+# link.exe (the slowest part of a release build). Safe fallback: if lld-link isn't
+# on PATH we just use the default linker. Install with: winget install LLVM.LLVM
+if (Get-Command lld-link.exe -ErrorAction SilentlyContinue) {
+    Write-Host "==> LLD linker found -> using lld-link.exe (faster links)" -ForegroundColor Green
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = 'lld-link.exe'
+} else {
+    Write-Host "==> LLD not found (install LLVM for ~2x faster links); using MSVC link.exe" -ForegroundColor DarkGray
+}
+
 # custom-protocol -> serve the embedded frontend (without it the app loads the
 # dev server URL and shows ERR_CONNECTION_REFUSED).
 $features = @('custom-protocol', 'voice')

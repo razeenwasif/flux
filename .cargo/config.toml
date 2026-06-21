@@ -9,12 +9,16 @@
 #
 #   2. Use LLD instead of MSVC link.exe — typically 2–5× faster linking. It needs
 #      `lld-link.exe` on PATH: install LLVM (`winget install LLVM.LLVM`, or via
-#      Visual Studio's "C++ Clang tools"). Then UNCOMMENT the block below.
+#      Visual Studio's "C++ Clang tools").
 #
-# Left commented so the default build never fails for someone without LLVM.
+#      install-windows.ps1 AUTO-ENABLES it: if `lld-link.exe` is on PATH it sets
+#      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=lld-link.exe for the build (and
+#      falls back to link.exe otherwise). For `cargo tauri dev` / manual builds,
+#      do the same once per shell:
+#        $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "lld-link.exe"
 #
-# [target.x86_64-pc-windows-msvc]
-# linker = "lld-link.exe"
+#   We DON'T hardcode the linker here (a static config would break the build for
+#   anyone without LLVM) — the script's PATH check is the safe auto-enable.
 #
 # Other big wins (no file changes needed):
 #   • Iterate with `cargo tauri dev` (dev profile + Vite HMR), NOT `cargo tauri

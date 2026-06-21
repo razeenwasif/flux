@@ -64,3 +64,65 @@ pub fn mem_status(mon: State<'_, SysMon>) -> MemInfo {
         available_pct,
     }
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcInfo {
+    pub name: String,
+    pub mem_mb: u64,
+    pub cpu: f32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemStats {
+    pub cpu_pct: u32,
+    pub mem_total_mb: u64,
+    pub mem_used_mb: u64,
+    pub mem_pct: u32,
+    /// Top processes by memory.
+    pub top: Vec<ProcInfo>,
+}
+
+/// CPU + memory + the heaviest processes — system awareness for the agent
+/// ("how's my CPU?", "what's using memory?"). Briefly blocks (~200 ms) to sample
+/// CPU usage over an interval.
+#[tauri::command]
+pub fn system_stats(mon: State<'_, SysMon>) -> SystemStats {
+    let mut sys = mon.0.lock();
+    // CPU% needs two samples spaced by an interval.
+    sys.refresh_cpu_usage();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    sys.refresh_cpu_usage();
+    let cpu_pct = sys.global_cpu_usage().round().clamp(0.0, 100.0) as u32;
+
+    sys.refresh_memory();
+    let total = sys.total_memory();
+    let used = total.saturating_sub(sys.available_memory());
+    let mem_pct = if total > 0 { (used.saturating_mul(100) / total) as u32 } else { 0 };
+
+    sys.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::All,
+        true,
+        sysinfo::ProcessRefreshKind::new().with_memory().with_cpu(),
+    );
+    let mut top: Vec<ProcInfo> = sys
+        .processes()
+        .values()
+        .map(|p| ProcInfo {
+            name: p.name().to_string_lossy().into_owned(),
+            mem_mb: p.memory() / 1_048_576,
+            cpu: p.cpu_usage(),
+        })
+        .collect();
+    top.sort_by(|a, b| b.mem_mb.cmp(&a.mem_mb));
+    top.truncate(6);
+
+    SystemStats {
+        cpu_pct,
+        mem_total_mb: total / 1_048_576,
+        mem_used_mb: used / 1_048_576,
+        mem_pct,
+        top,
+    }
+}

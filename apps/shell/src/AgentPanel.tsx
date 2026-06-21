@@ -14,6 +14,7 @@ import {
   memoryRead,
   memoryAppend,
   onReminderDue,
+  systemStats,
   searchResolve,
   agentModels,
   spotifyNext,
@@ -450,12 +451,18 @@ const AgentPanel: Component = () => {
     return await runShellCmd(cmd);
   };
 
-  // Conversation memory: prepend the recent turns so the model has context. The
-  // trailing "user" entry is the message we just pushed, so it's excluded. Capped
-  // to the last few turns to keep prompt-eval fast.
+  // Gemma's personality, prepended to every chat. Editable in Settings.
+  const DEFAULT_PERSONA =
+    "You are Gemma, the user's friendly local AI in the Flux browser. Be upbeat, warm, and energetic — a little playful and encouraging, with the occasional emoji. Keep replies natural and concise; don't overdo the enthusiasm.";
+  const persona = () => (localStorage.getItem("flux.gemma.persona") ?? DEFAULT_PERSONA).trim();
+
+  // Conversation memory: prepend persona + the recent turns so the model has
+  // context. The trailing "user" entry is the message we just pushed, so it's
+  // excluded. Capped to the last few turns to keep prompt-eval fast.
   const convoPrompt = (current: string): string => {
     const mem = memText().trim();
-    const preamble = mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "";
+    const p0 = persona() ? `${persona()}\n\n` : "";
+    const preamble = p0 + (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
     const turns = feed().filter((it) => it.role === "user" || it.role === "assistant");
     const prior = (turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns).slice(-8);
     if (!prior.length) return preamble ? `${preamble}User: ${current}` : current;
@@ -489,6 +496,24 @@ const AgentPanel: Component = () => {
     const text = mem ? mem : "I don't have anything in my memory yet. Say “remember that …” to add something.";
     setFeed((fd) => [...fd, { role: "assistant", text }]);
     return mem ? "Here's what I remember." : "Nothing in my memory yet.";
+  };
+
+  // System awareness — "system status" / "how's my cpu/memory" / "what's using ram".
+  const SYS_RE = /^(?:system\s+(?:status|stats|info|usage)|how'?s?\s+my\s+(?:system|cpu|memory|ram|pc|computer)|(?:cpu|memory|ram)\s+usage|what'?s\s+(?:using|eating|hogging)\s+(?:my\s+)?(?:memory|ram|cpu))\b/i;
+  const runSysStats = async (): Promise<string> => {
+    try {
+      const s = await systemStats();
+      const gb = (mb: number) => (mb / 1024).toFixed(1);
+      const sz = (mb: number) => (mb >= 1024 ? `${gb(mb)} GB` : `${mb} MB`);
+      const top = s.top.slice(0, 5).map((p) => `${p.name} ${sz(p.memMb)}`).join(", ");
+      setFeed((fd) => [...fd, { role: "assistant", text: `🖥 CPU ${s.cpuPct}% · RAM ${gb(s.memUsedMb)}/${gb(s.memTotalMb)} GB (${s.memPct}%)\nTop by memory: ${top}` }]);
+      const hog = s.top[0]?.name;
+      return `CPU's at ${s.cpuPct} percent, memory at ${s.memPct} percent${hog ? `. ${hog} is using the most.` : "."}`;
+    } catch (e) {
+      const m = String(e);
+      setFeed((fd) => [...fd, { role: "error", text: m }]);
+      return m;
+    }
   };
 
   // Proactive reminders/to-dos — "remind me to X [in 10 min / at 3pm / tomorrow]".
@@ -575,6 +600,7 @@ const AgentPanel: Component = () => {
     const rmd = stripped.match(REMIND_RE);
     if (rmd?.[1]) return await runRemind(rmd[1]);
     if (REMINDERS_LIST_RE.test(stripped)) return await runListReminders();
+    if (SYS_RE.test(stripped)) return await runSysStats();
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
     const cp = convoPrompt(t); // memory
@@ -670,6 +696,7 @@ const AgentPanel: Component = () => {
       const rmd = pc.match(REMIND_RE);
       if (rmd?.[1]) { await runRemind(rmd[1]); return; }
       if (REMINDERS_LIST_RE.test(pc)) { await runListReminders(); return; }
+      if (SYS_RE.test(pc)) { await runSysStats(); return; }
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,

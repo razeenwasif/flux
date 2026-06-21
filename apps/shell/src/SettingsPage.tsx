@@ -153,6 +153,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const pickTts = (e: TtsEngine) => { setTtsEngine(e); setTtsEngineSel(e); };
   const [speechLenSel, setSpeechLenSel] = createSignal<SpeechLength>(speechLength());
   const pickSpeechLen = (v: SpeechLength) => { setSpeechLength(v); setSpeechLenSel(v); };
+  const [personaVal, setPersonaVal] = createSignal(localStorage.getItem("flux.gemma.persona") ?? "");
   const [sttSel, setSttSel] = createSignal(sttEngine());
   const pickStt = (e: string) => { setSttEngine(e); setSttSel(e); };
   // Translate every chat message to a command vs. only machine/file-type ones.
@@ -574,6 +575,15 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <option value="medium">Medium (~7 sentences)</option>
               <option value="full">Full (everything)</option>
             </select>
+          </Row>
+          <Row label="Gemma's personality" hint="Prepended to every reply to set her tone. Leave blank for the default (upbeat, warm, energetic, a little playful). Edit for your own vibe — e.g. “dry and terse” or “formal and precise”.">
+            <textarea
+              class="map-search-input"
+              style={{ "max-width": "340px", "min-height": "56px", "font-family": "inherit", resize: "vertical" }}
+              placeholder="Default: upbeat, warm, energetic, a little playful 🙂"
+              value={personaVal()}
+              onChange={(e) => { const v = e.currentTarget.value; setPersonaVal(v); if (v.trim()) localStorage.setItem("flux.gemma.persona", v.trim()); else localStorage.removeItem("flux.gemma.persona"); }}
+            />
           </Row>
           <Show when={ttsEngineSel() === "elevenlabs"}>
             <Row label="ElevenLabs API key" hint="Stored in your OS keyring, never in plaintext. Get a key at elevenlabs.io → Profile. Leave blank and save to remove it.">

@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **System awareness** — ask Gemma *"system status"* / *"how's my CPU"* / *"what's
+  using my memory"* and she reports CPU%, RAM used/total, and the top processes by
+  memory (`mem.rs` `system_stats`).
+- **Editable personality** — Gemma now has an upbeat, energetic default persona
+  prepended to every reply; customize it (or go terse/formal) in Settings →
+  Integrations → "Gemma's personality".
+- **Faster Windows links (auto)** — `install-windows.ps1` auto-uses the LLD linker
+  (`lld-link.exe`) when it's on PATH, falling back to MSVC link.exe otherwise; with
+  the `-Fast` `release-fast` profile that gets a full build well under the old time.
 - **Microphone controls (recognition tuning)** — Settings → Integrations now has a
   **Microphone** device picker (the OS default mic is a common cause of poor
   recognition) and a **Noise suppression** toggle. Noise suppression is now **off by
