@@ -554,7 +554,15 @@ const AgentPanel: Component = () => {
     const t = transcript.trim();
     if (!t || working() || taskRunning()) return "";
     setFeed((f) => [...f, { role: "user", text: t }]);
-    const stripped = t.replace(/^\/?(hey\s+)?gemma[,:\s]+/i, "").trim();
+    // Strip the wake word AND polite lead-ins ("can you", "please", "I want you
+    // to", …) so spoken intents like "hey gemma, can you remind me to …" still
+    // match the ^-anchored intent regexes instead of falling through to chat.
+    const stripped = t
+      .replace(/^\/?(hey\s+)?gemma[,:\s]+/i, "")
+      .replace(/^(?:can|could|would|will)\s+you\s+/i, "")
+      .replace(/^(?:please|kindly|hey|ok|okay)\s+/i, "")
+      .replace(/^i(?:'?d| would)?\s+(?:like|want|need)\s+(?:you\s+)?to\s+/i, "")
+      .trim();
     const sh = stripped.match(SHELL_RE);
     if (sh?.[1]) return await runShellCmd(sh[1]);
     const musicReply = await handleMusic(t);
@@ -638,22 +646,28 @@ const AgentPanel: Component = () => {
       const lens = p.match(/^\/lens(?:\s+([\s\S]+))?$/i) ||
         p.match(/^(?:what(?:'?s| is) this|identify (?:this|it)|what am i looking at)\b[\s\S]*/i);
       if (lens) { await runLens(lens[1]?.trim() || (/^\/lens/i.test(p) ? "" : p)); return; }
+      // Strip polite lead-ins so "can you remind me to …" / "please run …" match.
+      const pc = p
+        .replace(/^(?:can|could|would|will)\s+you\s+/i, "")
+        .replace(/^(?:please|kindly)\s+/i, "")
+        .replace(/^i(?:'?d| would)?\s+(?:like|want|need)\s+(?:you\s+)?to\s+/i, "")
+        .trim();
       // Shell command — "run …" / "execute …" / "/run …" (rm + destructive blocked).
-      const shell = p.match(SHELL_RE);
+      const shell = pc.match(SHELL_RE);
       if (shell?.[1]) { await runShellCmd(shell[1].trim()); return; }
       // Music command (AudioPulse) before chat — "play …" / "skip" / "pause" / …
       if (await runMusic(p)) return;
       // "search …" / "open a new tab and search …" → open a browser tab.
-      const search = p.match(SEARCH_RE);
+      const search = pc.match(SEARCH_RE);
       if (search?.[1]) { await runSearch(search[1]); return; }
       // Long-term memory — "remember that …" / "what do you remember".
-      const rem = p.match(REMEMBER_RE);
+      const rem = pc.match(REMEMBER_RE);
       if (rem?.[1]) { await runRemember(rem[1]); return; }
-      if (RECALL_RE.test(p)) { runRecall(); return; }
+      if (RECALL_RE.test(pc)) { runRecall(); return; }
       // Reminders / to-dos — "remind me to …" / "what are my reminders".
-      const rmd = p.match(REMIND_RE);
+      const rmd = pc.match(REMIND_RE);
       if (rmd?.[1]) { await runRemind(rmd[1]); return; }
-      if (REMINDERS_LIST_RE.test(p)) { await runListReminders(); return; }
+      if (REMINDERS_LIST_RE.test(pc)) { await runListReminders(); return; }
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
