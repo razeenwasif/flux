@@ -274,6 +274,9 @@ export const voiceTranscribe = (pcmB64: string, sampleRate: number) =>
 /** More accurate STT via whisper.cpp (errors if whisper isn't installed). */
 export const sttWhisper = (pcmB64: string, sampleRate: number) =>
   invoke<string>("stt_whisper", { pcmB64, sampleRate });
+/** Grammar-restricted wake-word pass (Vosk) — reliable "hey gemma" spotting. */
+export const wakeTranscribe = (pcmB64: string, sampleRate: number) =>
+  invoke<string>("wake_transcribe", { pcmB64, sampleRate });
 /** Store (or clear, with "") the Picovoice (Porcupine) access key in the keyring. */
 export const porcupineSetKey = (key: string) => invoke<void>("porcupine_set_key", { key });
 export const porcupineHasKey = () => invoke<boolean>("porcupine_has_key");

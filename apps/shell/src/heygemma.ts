@@ -18,7 +18,7 @@
 
 import { createSignal } from "solid-js";
 
-import { sttWhisper, voiceTranscribe } from "./ipc";
+import { sttWhisper, voiceTranscribe, wakeTranscribe } from "./ipc";
 import { pushAudio as pushPorcupine, startPorcupine, stopPorcupine } from "./porcupine";
 import { speak, stopSpeaking } from "./speak";
 
@@ -165,33 +165,30 @@ async function handleUtterance(chunks: Float32Array[]) {
     const b64 = toI16B64(chunks);
     const warm = Date.now() < warmUntil;
 
-    // Fast Vosk pass to detect the wake word (skipped in the warm follow-up window,
-    // and entirely when Porcupine owns wake detection).
-    let vosk = "";
+    // Wake detection (skipped in the warm follow-up window, and entirely when
+    // Porcupine owns wake). Uses the grammar-restricted Vosk pass — it only
+    // recognizes the wake phrase, so random speech rarely false-triggers.
     if (!warm) {
       if (porcupineOn) return; // Porcupine handles wake; a non-warm utterance isn't a command
-      try { vosk = (await voiceTranscribe(b64, rate)).trim(); } catch { vosk = ""; }
-      if (!vosk) return;
+      let detected = "";
+      try { detected = (await wakeTranscribe(b64, rate)).trim(); }
+      catch { try { detected = (await voiceTranscribe(b64, rate)).trim(); } catch { detected = ""; } }
+      if (!WAKE.test(detected)) return; // not addressed to Gemma → drop, nothing sent anywhere
     }
 
-    let command = "";
-    if (warm) {
-      command = await transcribeCommand(b64, ""); // whole utterance is the command
-    } else {
-      const wake = WAKE.exec(vosk);
-      if (!wake) return; // not addressed to Gemma → drop, nothing sent anywhere
-      const remainder = vosk.slice(wake.index + wake[0].length).replace(/^[,.:;\s]+/, "").trim();
-      if (!remainder) {
+    // Command always comes from an accurate full transcription (Vosk or whisper);
+    // strip any leading wake word so "hey gemma, play jazz" → "play jazz".
+    const full = await transcribeCommand(b64, "");
+    const command = warm ? full.trim() : stripWake(full);
+    if (!command) {
+      if (!warm) {
         setListening(true);
         setVoiceStatus("listening…");
-        await speak("Mm-hm?"); // acknowledge, then wait for the command utterance
-        warmUntil = Date.now() + WARM_MS; // the next utterance is the command
-        return;
+        await speak("Mm-hm?"); // wake word alone → acknowledge, then wait for the command
       }
-      // Re-transcribe accurately, then strip any leading wake word from the result.
-      command = stripWake(await transcribeCommand(b64, vosk));
+      warmUntil = Date.now() + WARM_MS; // the next utterance is the command
+      return;
     }
-    if (!command.trim()) { warmUntil = Date.now() + WARM_MS; return; }
 
     setListening(true);
     setVoiceStatus("thinking…");
