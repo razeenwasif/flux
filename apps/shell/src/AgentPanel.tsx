@@ -646,8 +646,10 @@ const AgentPanel: Component = () => {
       const lens = p.match(/^\/lens(?:\s+([\s\S]+))?$/i) ||
         p.match(/^(?:what(?:'?s| is) this|identify (?:this|it)|what am i looking at)\b[\s\S]*/i);
       if (lens) { await runLens(lens[1]?.trim() || (/^\/lens/i.test(p) ? "" : p)); return; }
-      // Strip polite lead-ins so "can you remind me to …" / "please run …" match.
+      // Strip a typed "hey gemma," prefix AND polite lead-ins so "hey gemma, can you
+      // remind me to …" / "please run …" still match the ^-anchored intent regexes.
       const pc = p
+        .replace(/^\/?(?:hey\s+)?gemma[,:\s]+/i, "")
         .replace(/^(?:can|could|would|will)\s+you\s+/i, "")
         .replace(/^(?:please|kindly)\s+/i, "")
         .replace(/^i(?:'?d| would)?\s+(?:like|want|need)\s+(?:you\s+)?to\s+/i, "")
