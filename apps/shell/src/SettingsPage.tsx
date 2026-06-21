@@ -580,7 +580,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             <textarea
               class="map-search-input"
               style={{ "max-width": "340px", "min-height": "56px", "font-family": "inherit", resize: "vertical" }}
-              placeholder="Default: upbeat, warm, energetic, a little playful 🙂"
+              placeholder="Default: upbeat, warm, energetic, flirty, romantic, a little playful 🙂"
               value={personaVal()}
               onChange={(e) => { const v = e.currentTarget.value; setPersonaVal(v); if (v.trim()) localStorage.setItem("flux.gemma.persona", v.trim()); else localStorage.removeItem("flux.gemma.persona"); }}
             />
