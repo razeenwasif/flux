@@ -209,13 +209,15 @@ async function handleUtterance(chunks: Float32Array[]) {
       if (wakeEngine() === "whisper") {
         // Most accurate, slower — transcribe each utterance with whisper.
         try { detected = (await sttWhisper(b64, rate)).trim(); } catch { detected = ""; }
-      } else {
-        // Cheap grammar pass first; if it misses, fall back to the full Vosk model
-        // (same path push-to-talk uses) so detection is as reliable as PTT.
-        try { detected = (await wakeTranscribe(b64, rate)).trim(); } catch { detected = ""; }
-        if (!WAKE.test(detected)) {
-          try { detected = (await voiceTranscribe(b64, rate)).trim(); } catch { /* keep */ }
-        }
+      }
+      // Vosk grammar pass + full-model fallback. Also runs when whisper is selected
+      // but returned nothing (not installed / blank on a short clip), so the wake
+      // word never silently dies.
+      if (!WAKE.test(detected)) {
+        try { detected = (await wakeTranscribe(b64, rate)).trim(); } catch { /* keep */ }
+      }
+      if (!WAKE.test(detected)) {
+        try { detected = (await voiceTranscribe(b64, rate)).trim(); } catch { /* keep */ }
       }
       if (!WAKE.test(detected)) return; // not addressed to Gemma → drop, nothing sent anywhere
     }

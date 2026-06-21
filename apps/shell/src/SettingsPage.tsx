@@ -171,6 +171,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     try { await memoryWrite(""); setMemFlash("Cleared"); refreshMem(); }
     catch (e) { setMemFlash(String(e)); }
   };
+  // Proactive reminders: the name Gemma greets you with + whether to speak them.
+  const [userNameVal, setUserNameVal] = createSignal(localStorage.getItem("flux.user.name") || "");
+  const [remSpoken, setRemSpoken] = createSignal(localStorage.getItem("flux.reminders.speak") !== "0");
+  const toggleRemSpoken = () => { const v = !remSpoken(); localStorage.setItem("flux.reminders.speak", v ? "1" : "0"); setRemSpoken(v); };
   // Wake word (Porcupine).
   const [wakeSel, setWakeSel] = createSignal(wakeEngine());
   const pickWake = (e: string) => { setWakeEngine(e); setWakeSel(e); };
@@ -490,6 +494,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <span class="set-row-hint" style={{ "white-space": "nowrap" }}>{memCount()} {memCount() === 1 ? "note" : "notes"}</span>
               <button class="set-link-btn" onClick={() => void clearMem()}>{memFlash() || "Clear"}</button>
             </div>
+          </Row>
+          <Row label="Your name" hint="What Gemma calls you in proactive reminders (“Hey <name>, just popping in …”). Leave blank for a generic greeting.">
+            <input class="map-search-input" style={{ "max-width": "200px" }} placeholder="e.g. Razeen" value={userNameVal()} onChange={(e) => { const v = e.currentTarget.value.trim(); setUserNameVal(v); localStorage.setItem("flux.user.name", v); }} />
+          </Row>
+          <Row label="Speak reminders aloud" hint="When a reminder is due, Gemma shows it and (if on) says it out loud. Set reminders with “remind me to … in 10 minutes / at 3pm / tomorrow”.">
+            <Toggle on={remSpoken()} onClick={toggleRemSpoken} />
           </Row>
           <Row label="Recognition (STT)" hint="How your spoken command is transcribed. Vosk is instant. Whisper (whisper.cpp) is much more accurate but adds ~1–3s per command — set FLUX_WHISPER_MODEL to a ggml model (e.g. ggml-base.en.bin); falls back to Vosk if whisper isn't installed. Both are fully local.">
             <select class="shields-select" value={sttSel()} onChange={(e) => pickStt(e.currentTarget.value)}>
