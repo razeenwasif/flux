@@ -465,10 +465,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <option value="whisper">Whisper (accurate)</option>
             </select>
           </Row>
-          <Row label="Wake word" hint="How “hey Gemma” is detected. Vosk transcribes and matches (zero setup). Porcupine is a dedicated wake-word model — far fewer false triggers — but needs a free Picovoice access key + a custom 'Hey Gemma' .ppn (generate it on console.picovoice.ai) and porcupine_params.pv. Detection runs locally; if not configured it falls back to Vosk.">
+          <Row label="Wake word" hint="How “hey Gemma” is detected. Vosk uses grammar-restricted spotting (zero setup, few false triggers). Porcupine is a dedicated wake-word model but needs a Picovoice account whose console requires a business email — so Vosk is the recommended free path. Porcupine detection runs locally; if not configured it falls back to Vosk.">
             <select class="shields-select" value={wakeSel()} onChange={(e) => { pickWake(e.currentTarget.value); if (e.currentTarget.value === "porcupine") refreshPcKey(); }}>
-              <option value="vosk">Vosk (zero setup)</option>
-              <option value="porcupine">Porcupine (dedicated model)</option>
+              <option value="vosk">Vosk (grammar spotting · recommended)</option>
+              <option value="porcupine">Porcupine (needs business email)</option>
             </select>
           </Row>
           <Show when={wakeSel() === "porcupine"}>
