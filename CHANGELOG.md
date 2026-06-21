@@ -16,6 +16,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   **denylist** that blocks `rm` and other destructive commands (rmdir/del/dd/mkfs/
   format/shutdown/…, matched against every token so `sudo rm`/`find -exec rm` are
   caught). `FLUX_EXEC_SHELL` overrides the shell. (`exec.rs` `run_shell`.)
+- **Natural-language commands** — you no longer need the literal "run" prefix.
+  Ask *"list all the files in my home directory"* and the local model translates it
+  to a command (`ls ~`) and proposes it with the same Run/Cancel approval card.
+  Gated to machine/file-type requests so normal chat isn't slowed by an extra
+  round-trip. (`agent_shell_plan` → `AgentPlanner::plan_shell`.)
 - **More reliable Vosk wake word (grammar spotting)** — the default "hey Gemma"
   detection now runs a **grammar-restricted** Vosk pass that only recognizes the
   wake phrase (everything else collapses to "[unk]"), so random speech rarely

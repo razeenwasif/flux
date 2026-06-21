@@ -604,6 +604,19 @@ pub async fn agent_chat(state: State<'_, FluxState>, prompt: String) -> Result<S
     .map_err(|e| e.to_string())
 }
 
+/// Ask the local model to turn a natural-language request into a shell command
+/// (e.g. "list the files in my home directory" → `ls ~`), or `None` if it's a
+/// conversational request. The frontend proposes the command with a Run/Cancel
+/// approval card; nothing executes here.
+#[tauri::command]
+pub async fn agent_shell_plan(prompt: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().plan_shell(&prompt).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Streaming chat (BACKLOG #82): same as [`agent_chat`] but relays each token to
 /// the frontend over `on_token` as the model generates it, so the sidebar renders
 /// the reply live. Resolves when the completion ends.

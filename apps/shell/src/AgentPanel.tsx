@@ -9,6 +9,7 @@ import {
   agentChat,
   agentChatStream,
   agentChatTabsStream,
+  agentShellPlan,
   runShell,
   agentModels,
   spotifyNext,
@@ -365,6 +366,21 @@ const AgentPanel: Component = () => {
   const cancelShell = (idx: number) =>
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)));
 
+  // Natural-language → command. When a message reads like a request about the
+  // user's machine/files (not just any "list"/"show"), ask the model to translate
+  // it to a shell command and propose it (with approval). Gated so normal chat
+  // isn't taxed with an extra round-trip. Returns true if it proposed a command.
+  const SYSTEMISH =
+    /\b(?:my|this|the|current|home|working)\s+(?:files?|folders?|director(?:y|ies)|downloads?|desktop|documents|drive|disk)\b|\b(?:list|show|count|what'?s|whats)\b[^.?!]*\b(?:files?|folders?|director(?:y|ies)|processes|disk|drive)\b|\b(?:disk\s+(?:space|usage)|running\s+process(?:es)?|environment\s+variables?|current\s+director|home\s+director|on\s+my\s+(?:computer|machine|system|pc|laptop))\b|\b(?:ls|pwd|cat|grep|df|du|ps|mkdir|touch|whoami|uptime)\b|\bgit\s+(?:status|log|diff|branch)\b/i;
+  const maybeShellPlan = async (p: string): Promise<boolean> => {
+    if (!SYSTEMISH.test(p)) return false;
+    let cmd: string | null = null;
+    try { cmd = await agentShellPlan(p); } catch { return false; }
+    if (!cmd) return false;
+    await runShellCmd(cmd);
+    return true;
+  };
+
   // Handle one spoken command from the "hey gemma" loop: show it in the feed,
   // route it through the same music / shell / chat pipeline as typed input, and
   // return the reply text for the conductor to speak.
@@ -379,6 +395,12 @@ const AgentPanel: Component = () => {
     if (single) {
       try { const r = await single(); setFeed((f) => [...f, { role: "action", text: r }]); return r; }
       catch (e) { const m = String(e); setFeed((f) => [...f, { role: "error", text: m }]); return m; }
+    }
+    if (SYSTEMISH.test(stripped)) {
+      try {
+        const cmd = await agentShellPlan(stripped);
+        if (cmd) return await runShellCmd(cmd);
+      } catch { /* fall through to chat */ }
     }
     const idx = feed().length;
     setFeed((f) => [...f, { role: "assistant", text: "" }]);
@@ -449,6 +471,8 @@ const AgentPanel: Component = () => {
       if (shell?.[1]) { await runShellCmd(shell[1].trim()); return; }
       // Music command (AudioPulse) before chat — "play …" / "skip" / "pause" / …
       if (await runMusic(p)) return;
+      // Natural request about the machine/files → propose a shell command (approval).
+      if (await maybeShellPlan(p)) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
       // grounded in the active page or all open tabs per the scope toggle.
       const act = p.match(/^\/(?:act|do)\s+([\s\S]+)/i);
