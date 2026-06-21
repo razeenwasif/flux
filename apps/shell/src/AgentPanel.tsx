@@ -42,7 +42,7 @@ import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 import { speak } from "./speak";
 
-type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task"; text: string; action?: AgentAction; pending?: boolean; image?: string };
+type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string };
 
 const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
@@ -341,23 +341,29 @@ const AgentPanel: Component = () => {
     return false;
   };
 
-  // "run <cmd>" / "execute <cmd>" / "/run <cmd>" → execute a shell command in the
-  // embedded terminal's shell (rm + destructive commands are blocked backend-side).
+  // "run <cmd>" / "execute <cmd>" / "/run <cmd>" → propose a shell command. Nothing
+  // runs until you tap Run (rm + destructive commands are also blocked backend-side).
   const SHELL_RE = /^\/?(?:run|exec|execute|terminal|shell)\s+([\s\S]+)/i;
   const runShellCmd = async (cmd: string): Promise<string> => {
     const c = cmd.trim();
     if (!c) return "";
-    setFeed((f) => [...f, { role: "action", text: `$ ${c}` }]);
+    setFeed((f) => [...f, { role: "shell", text: `$ ${c}`, shellCmd: c, pending: true }]);
+    return `Run “${c}”? Tap Run in the panel to confirm.`;
+  };
+  const approveShell = async (idx: number, cmd: string) => {
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
+    setBusy(true);
     try {
-      const out = await runShell(c);
+      const out = await runShell(cmd);
       setFeed((f) => [...f, { role: "assistant", text: out }]);
-      return out.length > 160 ? "Done — the output's in the panel." : out || "Done.";
     } catch (e) {
-      const m = String(e);
-      setFeed((f) => [...f, { role: "error", text: m }]);
-      return m;
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+    } finally {
+      setBusy(false);
     }
   };
+  const cancelShell = (idx: number) =>
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)));
 
   // Handle one spoken command from the "hey gemma" loop: show it in the feed,
   // route it through the same music / shell / chat pipeline as typed input, and
@@ -652,6 +658,12 @@ const AgentPanel: Component = () => {
                     <div class="agent-approve">
                       <button class="agent-approve-yes" onClick={() => void approve(i(), item.action!)}>✓ Approve</button>
                       <button class="agent-approve-no" onClick={() => cancelPlan(i())}>Skip</button>
+                    </div>
+                  </Show>
+                  <Show when={item.role === "shell" && item.pending && item.shellCmd}>
+                    <div class="agent-approve">
+                      <button class="agent-approve-yes" onClick={() => void approveShell(i(), item.shellCmd!)}>▶ Run</button>
+                      <button class="agent-approve-no" onClick={() => cancelShell(i())}>Cancel</button>
                     </div>
                   </Show>
                 </div>

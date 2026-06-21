@@ -933,6 +933,7 @@ body.resizing, body.busy { --glass-blur: none; }
 .agent-user { align-self: flex-end; background: var(--flux-teal-dim); border: 1px solid rgba(47, 243, 255, 0.22); color: var(--flux-text); }
 .agent-assistant { align-self: flex-start; background: var(--flux-surface); border: 1px solid var(--flux-border); }
 .agent-action { align-self: flex-start; color: var(--flux-magenta); background: rgba(236, 75, 224, 0.10); border: 1px solid rgba(236, 75, 224, 0.25); }
+.agent-shell { align-self: flex-start; font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", monospace; font-size: 12px; color: var(--flux-text); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-rim-soft); }
 .agent-error { align-self: flex-start; color: #ff9b9b; background: rgba(255, 80, 80, 0.10); border: 1px solid rgba(255, 80, 80, 0.25); }
 
 /* ── Popover (new-tab picker) — liquid glass ── */
