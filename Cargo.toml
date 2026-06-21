@@ -71,6 +71,18 @@ opt-level = "z"
 [profile.release.package.csv]
 opt-level = "z"
 
+# Fast iteration build (install-windows.ps1 -Fast / `cargo build --profile
+# release-fast`). The shipping `release` above uses fat LTO + a single codegen unit
+# for the smallest/fastest binary — which is exactly what makes a full build take
+# minutes. This keeps a usable opt-level but skips whole-program LTO and runs codegen
+# in parallel, cutting build time ~2× (esp. the relink). The exe is a bit larger and
+# marginally slower — fine for testing features against the real (WebView2) binary.
+[profile.release-fast]
+inherits = "release"
+opt-level = 2
+lto = false
+codegen-units = 16
+
 # Dev: keep *our* code fast to compile, but optimize dependencies (wgpu, vte,
 # llama bindings) so the dev-loop terminal still hits 120fps.
 [profile.dev]

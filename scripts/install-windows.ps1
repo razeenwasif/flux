@@ -44,7 +44,10 @@ param(
     # Build with `cargo tauri build` instead of the manual npm+cargo steps. It
     # rebuilds the UI automatically via tauri.conf.json's beforeBuildCommand, so the
     # embedded frontend is always current (installs tauri-cli if missing).
-    [switch]$Tauri
+    [switch]$Tauri,
+    # Fast iteration build: the `release-fast` profile (no fat LTO, parallel codegen)
+    # — ~2x faster than the shipping release, exe a touch larger. Good for testing.
+    [switch]$Fast
 )
 
 $ErrorActionPreference = 'Stop'
@@ -130,11 +133,15 @@ if ($Tauri) {
     }
     $extra = @('--features', 'voice')
     cargo tauri build --no-bundle @extra
+} elseif ($Fast) {
+    Write-Host "==> FAST build (release-fast profile: no LTO, parallel codegen)" -ForegroundColor Yellow
+    cargo build --profile release-fast -p flux-core --features ($features -join ',')
 } else {
     cargo build --release -p flux-core --features ($features -join ',')
 }
 
-$exe = Join-Path $root 'target\release\flux.exe'
+$profileDir = if ($Fast) { 'release-fast' } else { 'release' }
+$exe = Join-Path $root "target\$profileDir\flux.exe"
 if (-not (Test-Path $exe)) { throw "Build reported success but $exe is missing." }
 
 # --- Install onto PATH --------------------------------------------------------
