@@ -13,6 +13,7 @@ import {
   runShell,
   memoryRead,
   memoryAppend,
+  onReminderDue,
   searchResolve,
   agentModels,
   spotifyNext,
@@ -45,7 +46,7 @@ import { activeId, activeWorkspace, agentModelName, filesPanelOpen, openTab, pen
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 import { speak, speaking, stopSpeaking } from "./speak";
-import { addReminder, dueReminders, markFired, parseWhen, pendingReminders, whenLabel } from "./reminders";
+import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
 type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string };
 
@@ -492,10 +493,10 @@ const AgentPanel: Component = () => {
   const remindersSpoken = () => localStorage.getItem("flux.reminders.speak") !== "0";
   const REMIND_RE = /^(?:remind me|set (?:a )?reminder|add (?:a )?(?:reminder|to-?do|task)|reminder)\b(?:\s+to)?[:,]?\s+(.+)/i;
   const REMINDERS_LIST_RE = /^(?:what(?:'?s| is| are)?(?:\s+on)?\s+my|list (?:my)?|show (?:me )?(?:my )?|do i have any)\s*(?:reminders?|to-?dos?|tasks?)\b|^my (?:reminders?|to-?dos?|tasks?)\b/i;
-  const runRemind = (raw: string): string => {
+  const runRemind = async (raw: string): Promise<string> => {
     const { text, due } = parseWhen(raw.trim().replace(/[?.!]+$/, ""), Date.now());
     if (!text) return "";
-    addReminder(text, due);
+    try { await addReminder(text, due); } catch (e) { const m = String(e); setFeed((f) => [...f, { role: "error", text: m }]); return m; }
     if (due != null) {
       setFeed((f) => [...f, { role: "action", text: `⏰ Reminder set (${whenLabel(due)}): ${text}` }]);
       return `Okay — I'll remind you ${whenLabel(due)}.`;
@@ -503,28 +504,23 @@ const AgentPanel: Component = () => {
     setFeed((f) => [...f, { role: "action", text: `📝 To-do added: ${text}` }]);
     return "Added to your to-dos.";
   };
-  const runListReminders = (): string => {
-    const ps = pendingReminders();
+  const runListReminders = async (): Promise<string> => {
+    const ps = await pendingReminders().catch(() => []);
     if (!ps.length) { setFeed((f) => [...f, { role: "assistant", text: "You have no reminders or to-dos." }]); return "Nothing on your list."; }
     const lines = ps.map((r) => `- ${r.text}${r.due != null ? ` — ${whenLabel(r.due)}` : ""}`).join("\n");
     setFeed((f) => [...f, { role: "assistant", text: `Your reminders & to-dos:\n${lines}` }]);
     return "Here's what's on your list.";
   };
-  // Timer: fires due reminders (spoken + shown). Runs while the panel is mounted.
-  const checkReminders = () => {
-    const due = dueReminders(Date.now());
-    if (!due.length) return;
-    due.forEach((r) => markFired(r.id));
-    due.forEach((r) => setFeed((f) => [...f, { role: "assistant", text: `🔔 Reminder: ${r.text}` }]));
-    const name = userName();
-    const texts = due.map((r) => r.text);
-    const body = texts.length === 1 ? `a reminder — ${texts[0]}` : `${texts.length} reminders — ${texts.join("; ")}`;
-    if (remindersSpoken()) void speak(`Hey${name ? ` ${name}` : ""}, just popping in with ${body}.`);
-  };
+  // The Rust scheduler fires due reminders (event + OS toast). We just react to the
+  // event: show it and (optionally) speak it with the user's name.
   onMount(() => {
-    const timer = window.setInterval(checkReminders, 30_000);
-    onCleanup(() => clearInterval(timer));
-    checkReminders();
+    void migrateReminders();
+    let unlisten: (() => void) | undefined;
+    void onReminderDue((r) => {
+      setFeed((f) => [...f, { role: "assistant", text: `🔔 Reminder: ${r.text}` }]);
+      if (remindersSpoken()) void speak(`Hey${userName() ? ` ${userName()}` : ""}, just popping in — ${r.text}.`);
+    }).then((u) => { unlisten = u; });
+    onCleanup(() => unlisten?.());
   });
 
   // "search X" / "google X" / "open a new tab and search X" → open a new browser tab
@@ -565,8 +561,8 @@ const AgentPanel: Component = () => {
     if (rm?.[1]) return await runRemember(rm[1]);
     if (RECALL_RE.test(stripped)) return runRecall();
     const rmd = stripped.match(REMIND_RE);
-    if (rmd?.[1]) return runRemind(rmd[1]);
-    if (REMINDERS_LIST_RE.test(stripped)) return runListReminders();
+    if (rmd?.[1]) return await runRemind(rmd[1]);
+    if (REMINDERS_LIST_RE.test(stripped)) return await runListReminders();
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
     const cp = convoPrompt(t); // memory
@@ -652,8 +648,8 @@ const AgentPanel: Component = () => {
       if (RECALL_RE.test(p)) { runRecall(); return; }
       // Reminders / to-dos — "remind me to …" / "what are my reminders".
       const rmd = p.match(REMIND_RE);
-      if (rmd?.[1]) { runRemind(rmd[1]); return; }
-      if (REMINDERS_LIST_RE.test(p)) { runListReminders(); return; }
+      if (rmd?.[1]) { await runRemind(rmd[1]); return; }
+      if (REMINDERS_LIST_RE.test(p)) { await runListReminders(); return; }
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
