@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Auto-archive stale tabs (#46)** — Settings → *Auto-archive stale tabs* (Off by
+  default; 1–30 days): browser tabs left untouched that long are closed into a
+  restorable **Archived Tabs** list (the 🗄 footer button, shown once anything's
+  archived) — reopen any with one tap. Pinned, foldered, active and start tabs are
+  never archived; the sweep is gentle (a few per minute). Last-access is keyed by URL
+  so it survives restarts, and freshly-restored tabs are seeded as fresh so they're
+  never archived on sight. Hibernation already reclaims their RAM; this clears the
+  clutter. (Arc-style.)
 - **Responsive layout (#28)** — the fixed column grid (sidebar · content · web panel ·
   terminal · agent) no longer crushes the content card on a narrow window. As width
   shrinks, panes are shed in priority order — terminal, then web panel, then agent,

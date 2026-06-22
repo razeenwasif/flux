@@ -271,6 +271,14 @@ import {
   sendTabToWorkspace,
   sendGroupToWorkspace,
   tabs,
+  touchTabUrl,
+  seedTabAccess,
+  staleTabIds,
+  archiveTabRecord,
+  archivedTabs,
+  restoreArchived,
+  removeArchived,
+  clearArchived,
   tabLabel,
   renameTab,
   togglePin,
@@ -304,6 +312,10 @@ const App: Component = () => {
   // resize event only (not layout changes) so it can't feed back into the columns
   // it sizes. Initialised to the current width.
   const [winW, setWinW] = createSignal(window.innerWidth);
+  // #46: track per-URL last-access (keyed by URL so it survives restarts) and seed
+  // restored tabs so they aren't treated as stale on the first auto-archive sweep.
+  createEffect(() => { const t = activeTab(); if (t?.kind === "browser") touchTabUrl(t.url); });
+  createEffect(() => { seedTabAccess(tabs().filter((t) => t.kind === "browser").map((t) => t.url)); });
   // Bumped to force the webview tiling effects to re-apply bounds even when the
   // card rect hasn't changed. Needed because exiting an HTML5 video fullscreen
   // leaves the native webview oversized (covering the bookmark bar / footer) and
@@ -540,6 +552,13 @@ const App: Component = () => {
       const now = Date.now();
       const act = activeId();
       if (act != null) lastActive.set(act, now);
+      // Auto-archive (#46): close long-stale tabs into the restorable list. Gentle —
+      // a few per sweep — and run BEFORE the live-bg bail, since stale tabs are
+      // usually already hibernated (so not "live").
+      for (const id of staleTabIds(now).slice(0, 5)) {
+        const t = tabs().find((x) => x.id === id);
+        if (t) { archiveTabRecord(t.url, t.title); void closeTab(id); }
+      }
       // Nothing live in the background → no idle-sleep candidates and no reason
       // to scan system memory. Bail before the sysinfo IPC (the periodic cost).
       const bg = liveBackground(act);
@@ -1578,7 +1597,7 @@ interface SidebarProps {
   onToggleMapPanel: () => void;
 }
 
-type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | "notes" | null;
+type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | "notes" | "archived" | null;
 /** An omnibox suggestion (#32): a local history hit (has `url`) or an engine suggestion. */
 type Suggestion = { kind: "history" | "search"; label: string; sub?: string; url?: string };
 
@@ -2491,6 +2510,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
         <button classList={{ "icon-btn": true, active: panel() === "notes" }} title="Note for this page" onClick={() => { openPanel("notes"); loadNote(); }}>📝</button>
         <button classList={{ "icon-btn": true, active: panel() === "webpanels" || activePanelId() != null }} title="Web panels — pin a site beside your tabs" onClick={() => openPanel("webpanels")}>◨</button>
+        <Show when={archivedTabs().length > 0}>
+          <button classList={{ "icon-btn": true, active: panel() === "archived" }} title="Archived tabs — auto-closed stale tabs you can reopen" onClick={() => openPanel("archived")}>🗄</button>
+        </Show>
         <button classList={{ "icon-btn": true, active: panel() === "extensions" }} title="Extensions" onClick={() => openPanel("extensions")}>🧩</button>
         <button classList={{ "icon-btn": true, active: panel() === "settings" }} title="Settings" onClick={() => openPanel("settings")}>⚙</button>
 
@@ -2645,6 +2667,26 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   value={noteText()}
                   onInput={(e) => saveNote(e.currentTarget.value)}
                 />
+              </Show>
+            </Show>
+            <Show when={panel() === "archived"}>
+              <div class="sidebar-section" style={{ padding: "4px 8px", display: "flex", "align-items": "center", "justify-content": "space-between" }}>
+                <span>Archived tabs</span>
+                <Show when={archivedTabs().length > 0}>
+                  <button class="panel-row-x" title="Clear all" onClick={() => clearArchived()}>Clear</button>
+                </Show>
+              </div>
+              <Show when={archivedTabs().length > 0} fallback={<div class="start-empty" style={{ padding: "4px 10px 8px" }}>Stale tabs auto-archive here (set the threshold in Settings → Tabs). Reopen any with one tap.</div>}>
+                <For each={archivedTabs()}>
+                  {(a) => (
+                    <div class="panel-row">
+                      <button class="panel-row-open" title={a.url} onClick={() => { void restoreArchived(a); setPanel(null); }}>
+                        <span class="panel-row-title">{a.title || a.url}</span>
+                      </button>
+                      <button class="panel-row-x" title="Remove" onClick={(e) => { e.stopPropagation(); removeArchived(a.url); }}>✕</button>
+                    </div>
+                  )}
+                </For>
               </Show>
             </Show>
             <Show when={panel() === "extensions"}>

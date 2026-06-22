@@ -59,6 +59,8 @@ import {
   setAudiopulseDir,
   bookmarkBarOpen,
   darkMode,
+  autoArchiveDays,
+  setAutoArchiveDays,
   hibernateEnabled,
   hibernateMins,
   liquidBg,
@@ -465,6 +467,16 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Show>
           <Row label="Sleep under memory pressure" hint="When free RAM runs low, sleep the least-recently-used tabs early.">
             <Toggle on={memEvict()} onClick={() => setMemEvict(!memEvict())} />
+          </Row>
+          <Row label="Auto-archive stale tabs" hint="Close tabs left untouched this long into the Archived Tabs list (🗄), where you can reopen them. Pinned tabs are never archived.">
+            <select class="shields-select" value={String(autoArchiveDays())} onChange={(e) => setAutoArchiveDays(Number(e.currentTarget.value))}>
+              <option value="0">Off</option>
+              <option value="1">1 day</option>
+              <option value="3">3 days</option>
+              <option value="7">7 days</option>
+              <option value="14">14 days</option>
+              <option value="30">30 days</option>
+            </select>
           </Row>
           <Show when={mem()}>
             <div class="set-mem-stat">

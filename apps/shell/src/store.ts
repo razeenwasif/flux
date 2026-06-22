@@ -777,6 +777,70 @@ export async function closeTab(id: number): Promise<void> {
   await refreshTabs();
 }
 
+// ─── Auto-archive stale tabs (#46) ──────────────────────────────────────────
+// Close browser tabs left untouched for N days into a restorable list, so a long-
+// lived window sheds clutter (hibernation already handles their RAM). Access times
+// are keyed by URL — tab ids reset across restarts — and persisted; the archived
+// list and the "days" setting also live in localStorage. Off by default (days = 0).
+export type ArchivedTab = { url: string; title: string; ts: number };
+const ACCESS_KEY = "flux.tabAccess";
+const ARCHIVED_KEY = "flux.archivedTabs";
+const ARCH_DAYS_KEY = "flux.autoArchive.days";
+
+const readJson = <T,>(key: string, fallback: T): T => {
+  try { return JSON.parse(localStorage.getItem(key) || "") as T; } catch { return fallback; }
+};
+let accessMap: Record<string, number> = readJson(ACCESS_KEY, {});
+const saveAccess = () => localStorage.setItem(ACCESS_KEY, JSON.stringify(accessMap));
+/** Record that a tab's URL was just visited (so it's not considered stale). */
+export function touchTabUrl(url: string): void {
+  if (!url || url === START_URL) return;
+  accessMap[url] = Date.now();
+  saveAccess();
+}
+/** Seed access times for URLs we haven't seen, so freshly-restored tabs aren't
+ *  instantly stale on the first sweep after a long-ago last visit. */
+export function seedTabAccess(urls: string[]): void {
+  const now = Date.now();
+  let changed = false;
+  for (const u of urls) if (u && u !== START_URL && accessMap[u] == null) { accessMap[u] = now; changed = true; }
+  if (changed) saveAccess();
+}
+
+const [archivedTabs, setArchivedTabs] = createSignal<ArchivedTab[]>(readJson(ARCHIVED_KEY, []));
+export { archivedTabs };
+export const autoArchiveDays = (): number => Number(localStorage.getItem(ARCH_DAYS_KEY) || "0");
+export function setAutoArchiveDays(d: number): void {
+  localStorage.setItem(ARCH_DAYS_KEY, String(Math.max(0, Math.round(d))));
+}
+function persistArchived(list: ArchivedTab[]): void {
+  setArchivedTabs(list);
+  localStorage.setItem(ARCHIVED_KEY, JSON.stringify(list.slice(0, 200)));
+}
+/** Record a tab in the archived list (newest first; dedup by URL). */
+export function archiveTabRecord(url: string, title: string): void {
+  if (!url || url === START_URL) return;
+  persistArchived([{ url, title: title || url, ts: Date.now() }, ...archivedTabs().filter((a) => a.url !== url)].slice(0, 200));
+}
+export function removeArchived(url: string): void { persistArchived(archivedTabs().filter((a) => a.url !== url)); }
+export function clearArchived(): void { persistArchived([]); }
+/** Reopen an archived tab and drop it from the list. */
+export async function restoreArchived(a: ArchivedTab): Promise<void> {
+  removeArchived(a.url);
+  touchTabUrl(a.url);
+  await openTab("browser", a.url);
+}
+/** Open browser tabs stale enough to auto-archive now (excludes the active, pinned,
+ *  foldered and start tabs). Empty when the feature is off (days = 0). */
+export function staleTabIds(now: number): number[] {
+  const days = autoArchiveDays();
+  if (days <= 0) return [];
+  const cutoff = days * 86_400_000;
+  return tabs()
+    .filter((t) => t.kind === "browser" && !t.pinned && t.folder == null && t.id !== activeId() && t.url !== START_URL && now - (accessMap[t.url] ?? now) > cutoff)
+    .map((t) => t.id);
+}
+
 /** Drag-reorder (#30): move `draggedId` before/after `targetId`, optimistically
  *  update the strip, and persist the new full order to the backend. */
 export async function reorderTabs(draggedId: number, targetId: number, after: boolean): Promise<void> {
