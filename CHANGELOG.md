@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Responsive layout (#28)** — the fixed column grid (sidebar · content · web panel ·
+  terminal · agent) no longer crushes the content card on a narrow window. As width
+  shrinks, panes are shed in priority order — terminal, then web panel, then agent,
+  then the sidebar collapses to its icon rail — and restored as the window grows back.
+  Non-destructive: your open/closed intent is untouched (the toggles stay set), only
+  the rendered layout adapts to keep the content card at a usable width. (ADR 0002
+  mitigation; a `responsive` memo over a tracked window width.)
 - **Adaptive fix loop (#115)** — *"/fix &lt;goal&gt;"* (e.g. *"/fix make the tests in
   src/foo.rs pass"*) runs an iterative agent loop: plan ONE step → run it → read the
   result → re-plan, reacting to failures — run the tests, read the failure, edit a fix,

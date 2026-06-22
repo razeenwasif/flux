@@ -300,6 +300,10 @@ const App: Component = () => {
   // Live rect of the content card, in CSS (logical) px relative to the window.
   // Native tab webviews are positioned to match it (BACKLOG #2).
   const [contentRect, setContentRect] = createSignal<Rect | null>(null);
+  // Window width drives the responsive pane-shedding (#28). Tracked from the window
+  // resize event only (not layout changes) so it can't feed back into the columns
+  // it sizes. Initialised to the current width.
+  const [winW, setWinW] = createSignal(window.innerWidth);
   // Bumped to force the webview tiling effects to re-apply bounds even when the
   // card rect hasn't changed. Needed because exiting an HTML5 video fullscreen
   // leaves the native webview oversized (covering the bookmark bar / footer) and
@@ -469,6 +473,7 @@ const App: Component = () => {
     // Add `busy` on each resize event, remove shortly after the last one.
     let busyTimer: number | undefined;
     const onWinResize = () => {
+      setWinW(window.innerWidth);
       document.body.classList.add("busy");
       clearTimeout(busyTimer);
       busyTimer = window.setTimeout(() => document.body.classList.remove("busy"), 160);
@@ -1228,20 +1233,55 @@ const App: Component = () => {
     }
   };
 
+  // Responsive pane-shedding (#28 / ADR 0002 mitigation): when the fixed panes would
+  // squeeze the content card below a comfortable minimum, drop them in priority order
+  // — terminal, then web panel, then agent, then collapse the sidebar to its icon rail
+  // — and restore them as the window grows back. Non-destructive: the user's open
+  // intent is untouched (the signals stay set), only the rendered layout adapts.
+  const SIDEBAR_RAIL = 72; // --flux-sidebar-w-min
+  const MIN_CONTENT = 460; // narrowest content card we'll keep before shedding a pane
+  const responsive = createMemo(() => {
+    if (focusMode()) return { sidebar: false, panel: false, terminal: false, agent: false };
+    // What the user wants open (same conditions as the non-responsive layout used).
+    const want = {
+      sidebar: sidebarOpen(),
+      agent: agentOpen(),
+      panel: activePanel() != null || activePanelB() != null,
+      terminal: terminalOpen() && activeTab()?.kind !== "terminal",
+    };
+    const out = { sidebar: false, agent: false, panel: false, terminal: false };
+    // Content card + the always-present sidebar rail are reserved first.
+    let used = MIN_CONTENT + SIDEBAR_RAIL;
+    const w = winW();
+    // Allocate width in PRIORITY order (kept longest first): the sidebar's expansion,
+    // then agent, then web panel, then terminal — the reverse of the shed order.
+    const order: [keyof typeof want, number][] = [
+      ["sidebar", sidebarW() - SIDEBAR_RAIL], // extra beyond the rail it already has
+      ["agent", agentW()],
+      ["panel", panelWidth()],
+      ["terminal", terminalW()],
+    ];
+    for (const [k, extra] of order) {
+      if (want[k] && used + extra <= w) { out[k] = true; used += extra; }
+    }
+    return out;
+  });
+
   // The vertical terminal column only shows for browser tabs — a terminal
   // *tab* already fills the content card with a shell.
-  const termColVisible = () => terminalOpen() && !focusMode() && activeTab()?.kind !== "terminal";
-  const panelColVisible = () => !focusMode() && (activePanel() != null || activePanelB() != null);
+  const termColVisible = () => responsive().terminal;
+  const panelColVisible = () => responsive().panel;
+  const agentColVisible = () => responsive().agent;
 
   const columns = () =>
     focusMode()
       ? "0px 1fr 0px 0px 0px" // focus/compact mode (#55): content only
       : [
-          sidebarOpen() ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
+          responsive().sidebar ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
           "1fr",
           panelColVisible() ? `${panelWidth()}px` : "0px",
           termColVisible() ? `${terminalW()}px` : "0px",
-          agentOpen() ? `${agentW()}px` : "0px",
+          agentColVisible() ? `${agentW()}px` : "0px",
         ].join(" ");
 
   // Drag a pane's splitter. `sign` is +1 when dragging right grows the pane
@@ -1284,7 +1324,7 @@ const App: Component = () => {
     >
       <TitleBar />
       <Sidebar
-        collapsed={!sidebarOpen()}
+        collapsed={!responsive().sidebar}
         terminalOpen={terminalOpen()}
         agentOpen={agentOpen()}
         onNavigate={go}
@@ -1320,7 +1360,7 @@ const App: Component = () => {
       <Show when={panelColVisible()}>
         <div
           class="pane-splitter panel-divider"
-          style={{ right: `${(agentOpen() ? agentW() : 0) + (termColVisible() ? terminalW() : 0) + panelWidth()}px` }}
+          style={{ right: `${(agentColVisible() ? agentW() : 0) + (termColVisible() ? terminalW() : 0) + panelWidth()}px` }}
           title="Drag to resize the web panel"
           onPointerDown={(e) => {
             e.preventDefault();
@@ -1343,12 +1383,12 @@ const App: Component = () => {
       <Show when={termColVisible()}>
         <TerminalColumn />
       </Show>
-      <Show when={agentOpen() && !focusMode()}>
+      <Show when={agentColVisible()}>
         <Suspense><AgentPanel /></Suspense>
       </Show>
 
       {/* Pane splitters — drag to resize (BACKLOG #27). */}
-      <Show when={sidebarOpen()}>
+      <Show when={responsive().sidebar}>
         <div
           class="pane-splitter"
           style={{ left: `${sidebarW()}px` }}
@@ -1358,11 +1398,11 @@ const App: Component = () => {
       <Show when={termColVisible()}>
         <div
           class="pane-splitter"
-          style={{ right: `${(agentOpen() ? agentW() : 0) + terminalW()}px` }}
+          style={{ right: `${(agentColVisible() ? agentW() : 0) + terminalW()}px` }}
           onPointerDown={(e) => startPaneResize(e, terminalW, setTerminalW, -1, "flux.w.terminal", 280, 820)}
         />
       </Show>
-      <Show when={agentOpen()}>
+      <Show when={agentColVisible()}>
         <div
           class="pane-splitter"
           style={{ right: `${agentW()}px` }}
