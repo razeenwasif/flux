@@ -1039,6 +1039,13 @@ body.resizing, body.busy { --glass-blur: none; }
 /* ════════════════════════════════════════════════════════════════════════
    Start page (new-tab dashboard)
    ════════════════════════════════════════════════════════════════════════ */
+/* #71: show/hide widgets — a corner gear opens a checklist popover. */
+.start-customize { position: absolute; top: 14px; right: 16px; z-index: 3; width: 32px; height: 32px; border-radius: 9px; border: none; background: var(--glass-fill, rgba(26,22,64,0.6)); color: var(--flux-text-dim); font-size: 15px; cursor: pointer; }
+.start-customize:hover { color: var(--flux-text); }
+.start-customize-pop { position: absolute; top: 50px; right: 16px; z-index: 4; min-width: 180px; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+.start-customize-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; font-size: 13px; color: var(--flux-text); cursor: pointer; }
+.start-customize-row:hover { background: var(--flux-surface-2); }
+
 .start {
   position: relative;
   width: 100%; height: 100%;
@@ -2018,6 +2025,15 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .boost-del { flex: none; width: 20px; height: 20px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; border-radius: 5px; font-size: 11px; }
 .boost-del:hover { background: #c0392b; color: #fff; }
 .boost-note { font-size: 10.5px; color: var(--flux-text-mute); padding: 6px 4px 2px; line-height: 1.4; }
+/* #49: raw-CSS / All-sites controls + inline CSS editing. */
+.boost-row-wrap { display: flex; flex-direction: column; }
+.boost-host-tag { color: var(--flux-text-mute); font-size: 11px; }
+.boost-edit-actions { display: flex; gap: 6px; padding: 0 4px 6px; }
+.boost-edit-actions .boost-apply { flex: 1; }
+.boost-edit-actions .boost-del { width: auto; padding: 0 10px; font-size: 12px; }
+.boost-mode { display: flex; gap: 2px; margin-left: auto; }
+.boost-mode-tab { padding: 3px 9px; border-radius: 7px; font-size: 11.5px; color: var(--flux-text-dim); background: none; border: 1px solid var(--flux-border); cursor: pointer; }
+.boost-mode-tab.on { color: #06121b; background: var(--flux-teal); border-color: transparent; font-weight: 600; }
 
 /* ── Tab folders (hibernated parking buckets) ── */
 /* Folders lay out side by side as compact columns and scroll horizontally, so

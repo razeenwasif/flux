@@ -694,6 +694,11 @@ export const macroRun = (id: number) => invoke<void>("macro_run", { id });
 // ─── Per-site boosts (BACKLOG #49) ───────────────────────────────────────────
 // Boost type is generated (bindings.gen) and aliased above.
 export const boostsForHost = (host: string) => invoke<Boost[]>("boosts_for_host", { host });
+/** Every saved boost across all hosts (the manage-all view). */
+export const boostsList = () => invoke<Boost[]>("boosts_list");
+/** Create (id=null) or edit a boost's CSS by hand. JS stays "" (CSS-only by design). */
+export const boostSave = (id: number | null, host: string, name: string, css: string, enabled: boolean) =>
+  invoke<Boost>("boost_save", { id, host, name, css, js: "", enabled });
 export const boostSetEnabled = (id: number, host: string, enabled: boolean) =>
   invoke<void>("boost_set_enabled", { id, host, enabled });
 export const boostDelete = (id: number, host: string) => invoke<void>("boost_delete", { id, host });

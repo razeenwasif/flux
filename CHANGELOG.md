@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Boosts: edit the CSS + manage every site (#49)** — the ✨ Boosts popover now has an
+  **AI / CSS** toggle (let the agent write the CSS, or paste your own), an **✎ edit**
+  button on each boost to tweak its CSS inline, and an **All sites** view that lists and
+  manages every boost across hosts (toggle / edit / delete). Still CSS-only by design
+  (raw JS isn't exposed).
+- **Start page: show/hide widgets (#71)** — a **⚙** in the top corner opens a checklist
+  to hide widgets you don't use (Recent, Shortcuts, Top sites, Headlines, Scratchpad,
+  Calendar, Tasks, Quick actions); persisted locally. The clock/search hero always stays.
 - **Single-instance launch (#20)** — a second `flux <url>` (or a link opened from the
   OS) now adds tabs to the **already-running** Flux window and focuses it, instead of
   spawning a whole second process. Reuses the same argv parser as cold launch (so

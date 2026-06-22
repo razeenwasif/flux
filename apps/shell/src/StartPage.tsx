@@ -102,6 +102,27 @@ const StartPage: Component<{
   const [addingCal, setAddingCal] = createSignal(false);
   const [newCalUrl, setNewCalUrl] = createSignal("");
   const [expandedWidget, setExpandedWidget] = createSignal<ExpandedWidget>(null);
+  // Show/hide widgets (#71) — persisted list of hidden widget keys (the clock + hero
+  // are always shown). `Customize` toggles a checklist popover.
+  const WIDGETS: { key: string; label: string }[] = [
+    { key: "recent", label: "Recent" },
+    { key: "shortcuts", label: "Shortcuts" },
+    { key: "topsites", label: "Top sites" },
+    { key: "headlines", label: "Headlines" },
+    { key: "scratchpad", label: "Scratchpad" },
+    { key: "calendar", label: "Calendar & clocks" },
+    { key: "tasks", label: "Tasks" },
+    { key: "actions", label: "Quick actions" },
+  ];
+  const readHidden = (): string[] => { try { return JSON.parse(localStorage.getItem("flux.start.hidden") || "[]"); } catch { return []; } };
+  const [hiddenWidgets, setHiddenWidgets] = createSignal<string[]>(readHidden());
+  const widgetOn = (k: string) => !hiddenWidgets().includes(k);
+  const toggleWidget = (k: string) => {
+    const next = widgetOn(k) ? [...hiddenWidgets(), k] : hiddenWidgets().filter((x) => x !== k);
+    setHiddenWidgets(next);
+    localStorage.setItem("flux.start.hidden", JSON.stringify(next));
+  };
+  const [customizing, setCustomizing] = createSignal(false);
   const [selectedCalDate, setSelectedCalDate] = createSignal<string | null>(null);
   const [todos, setTodos] = createSignal<Todo[]>([]);
   const [newTodo, setNewTodo] = createSignal("");
@@ -324,6 +345,21 @@ const StartPage: Component<{
 
   return (
     <div class="start">
+      <button class="start-customize" title="Show/hide widgets" onClick={() => setCustomizing((v) => !v)}>⚙</button>
+      <Show when={customizing()}>
+        <div class="shield-backdrop" onClick={() => setCustomizing(false)} />
+        <div class="glass popover start-customize-pop">
+          <div class="ctx-label">Widgets</div>
+          <For each={WIDGETS}>
+            {(w) => (
+              <label class="start-customize-row">
+                <input type="checkbox" checked={widgetOn(w.key)} onChange={() => toggleWidget(w.key)} />
+                <span>{w.label}</span>
+              </label>
+            )}
+          </For>
+        </div>
+      </Show>
       <header class="start-hero">
         <div class="start-brand">
           <span class="start-spark">✦</span> Flux
@@ -365,7 +401,7 @@ const StartPage: Component<{
         </div>
 
         {/* Recent tabs */}
-        <div class="glass start-card">
+        <div class="glass start-card" style={{ display: widgetOn("recent") ? undefined : "none" }}>
           <div class="start-card-title">
             Recent
             <button class="start-card-link" title="Expand recent tabs" onClick={() => setExpandedWidget("recent")}>⤢ Expand</button>
@@ -388,7 +424,7 @@ const StartPage: Component<{
         </div>
 
         {/* Editable speed dial */}
-        <div class="glass start-card">
+        <div class="glass start-card" style={{ display: widgetOn("shortcuts") ? undefined : "none" }}>
           <div class="start-card-title">
             Shortcuts
             <button class="start-card-link" title="Expand shortcuts" onClick={() => setExpandedWidget("shortcuts")}>⤢ Expand</button>
@@ -411,7 +447,7 @@ const StartPage: Component<{
         </div>
 
         {/* Top sites */}
-        <Show when={topSites().length > 0}>
+        <Show when={widgetOn("topsites") && topSites().length > 0}>
           <div class="glass start-card">
             <div class="start-card-title">
               Top sites
@@ -437,7 +473,7 @@ const StartPage: Component<{
         </Show>
 
         {/* Feed headlines (#72) */}
-        <div class="glass start-card">
+        <div class="glass start-card" style={{ display: widgetOn("headlines") ? undefined : "none" }}>
           <div class="start-card-title">
             Headlines
             <span class="start-card-actions">
@@ -463,7 +499,7 @@ const StartPage: Component<{
         </div>
 
         {/* Scratchpad */}
-        <div class="glass start-card">
+        <div class="glass start-card" style={{ display: widgetOn("scratchpad") ? undefined : "none" }}>
           <div class="start-card-title">
             Scratchpad
             <button class="start-card-link" title="Expand scratchpad" onClick={() => setExpandedWidget("scratch")}>⤢ Expand</button>
@@ -478,7 +514,7 @@ const StartPage: Component<{
         </div>
 
         {/* Calendar (Google via ICS, #114) + world clocks */}
-        <div class="glass start-card">
+        <div class="glass start-card" style={{ display: widgetOn("calendar") ? undefined : "none" }}>
           <div class="start-card-title">
             {monthLabel()}
             <span class="start-card-actions">
@@ -533,7 +569,7 @@ const StartPage: Component<{
         </div>
 
         {/* Tasks (#114) — local, on-device */}
-        <div class="glass start-card">
+        <div class="glass start-card" style={{ display: widgetOn("tasks") ? undefined : "none" }}>
           <div class="start-card-title">
             Tasks
             <span class="start-card-actions">
@@ -572,7 +608,7 @@ const StartPage: Component<{
         </div>
 
         {/* Quick actions */}
-        <div class="glass start-card">
+        <div class="glass start-card" style={{ display: widgetOn("actions") ? undefined : "none" }}>
           <div class="start-card-title">
             Quick actions
             <button class="start-card-link" title="Expand quick actions" onClick={() => setExpandedWidget("actions")}>⤢ Expand</button>
