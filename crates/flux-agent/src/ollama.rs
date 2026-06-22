@@ -89,6 +89,42 @@ pub fn embed_remote(text: &str) -> Option<Vec<f32>> {
     Some(v)
 }
 
+/// Batch-embed many texts in ONE `/api/embed` call (Ollama accepts an array
+/// `input`). Returns one L2-normalized vector per input, in order, or `None` on
+/// any error / shape mismatch. Used by the file-search semantic re-rank (#88/#11).
+pub fn embed_remote_batch(texts: &[String]) -> Option<Vec<Vec<f32>>> {
+    if texts.is_empty() {
+        return Some(Vec::new());
+    }
+    let url = format!("{}/api/embed", endpoint());
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(3))
+        .timeout_read(Duration::from_secs(60))
+        .build();
+    let resp = agent
+        .post(&url)
+        .send_json(serde_json::json!({ "model": embed_model(), "input": texts }))
+        .ok()?;
+    let value: serde_json::Value = resp.into_json().ok()?;
+    let arr = value.get("embeddings")?.as_array()?;
+    if arr.len() != texts.len() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(arr.len());
+    for emb in arr {
+        let mut v: Vec<f32> = emb.as_array()?.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect();
+        if v.is_empty() {
+            return None;
+        }
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 1e-6 {
+            v.iter_mut().for_each(|x| *x /= norm);
+        }
+        out.push(v);
+    }
+    Some(out)
+}
+
 pub struct OllamaBackend {
     agent: ureq::Agent,
     endpoint: String,

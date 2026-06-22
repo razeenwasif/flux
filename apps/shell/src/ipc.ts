@@ -929,8 +929,8 @@ export const onTabLoaded = (
 export const fsList = (path: string) => invoke<DirListing>("fs_list", { path });
 /** Recursive filename search under `root` (#88). Hand-written type (not specta). */
 export type FsHit = { path: string; name: string; is_dir: boolean };
-export const fsSearch = (root: string, query: string, limit = 500) =>
-  invoke<FsHit[]>("fs_search", { root, query, limit });
+export const fsSearch = (root: string, query: string, limit = 500, semantic = false) =>
+  invoke<FsHit[]>("fs_search", { root, query, limit, semantic });
 export const fsHome = () => invoke<string>("fs_home");
 export const fsQuickLocations = () => invoke<QuickLocation[]>("fs_quick_locations");
 export const fsOpen = (path: string) => invoke<void>("fs_open", { path });

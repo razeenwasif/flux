@@ -39,6 +39,15 @@ pub fn embed_with(text: &str, kind: Embedder) -> Option<Vec<f32>> {
     }
 }
 
+/// Embed many texts with a specific embedder in one shot — one batched Ollama call
+/// for Model, a fast local map for Hash. `None` (Model) if Ollama is unavailable.
+pub fn embed_batch(texts: &[String], kind: Embedder) -> Option<Vec<Vec<f32>>> {
+    match kind {
+        Embedder::Model => flux_agent::ollama::embed_remote_batch(texts),
+        Embedder::Hash => Some(texts.iter().map(|t| flux_embed::embed(t).to_vec()).collect()),
+    }
+}
+
 /// The embedder [`embed`] would use right now (Model if Ollama answers, else
 /// Hash) — used to decide whether a persisted corpus needs re-embedding.
 pub fn current() -> Embedder {

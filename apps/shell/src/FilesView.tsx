@@ -67,6 +67,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   // Recursive search (#88): when on, the Filter box searches filenames under the
   // current folder (subtree) instead of filtering just this directory.
   const [recursive, setRecursive] = createSignal(false);
+  // Semantic re-rank of search hits by filename relevance (#88/#11) — opt-in, since
+  // it adds an embed round-trip (and only helps with the model embedder running).
+  const [semantic, setSemantic] = createSignal(localStorage.getItem("flux.files.semantic") === "1");
+  const setSemanticPersist = (v: boolean) => { setSemantic(v); localStorage.setItem("flux.files.semantic", v ? "1" : "0"); };
   const [searchHits, setSearchHits] = createSignal<FsHit[]>([]);
   const [searching, setSearching] = createSignal(false);
   const searchMode = () => recursive() && filter().trim().length > 0;
@@ -489,15 +493,16 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   createEffect(() => {
     const q = filter().trim();
     const dir = cwd();
+    const sem = semantic();
     if (!recursive() || !q) { setSearchHits([]); setSearching(false); return; }
     setSearching(true);
     clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => {
-      void fsSearch(dir, q, 500)
+      void fsSearch(dir, q, 500, sem)
         .then(setSearchHits)
         .catch(() => setSearchHits([]))
         .finally(() => setSearching(false));
-    }, 200);
+    }, sem ? 350 : 200); // a touch more debounce when the embed round-trip is on
     onCleanup(() => clearTimeout(searchTimer));
   });
   const dirOf = (p: string): string => {
@@ -598,6 +603,13 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
           title={recursive() ? "Searching subfolders — click to filter this folder only" : "Search subfolders (recursive)"}
           onClick={() => setRecursive((v) => !v)}
         >⌕</button>
+        <Show when={recursive()}>
+          <button
+            classList={{ "files-act": true, "files-search-toggle": true, on: semantic() }}
+            title={semantic() ? "Semantic ranking on — re-orders matches by relevance (needs the local embed model)" : "Rank matches by semantic relevance (✦)"}
+            onClick={() => setSemanticPersist(!semantic())}
+          >✦</button>
+        </Show>
         <input
           class="files-search"
           value={filter()}

@@ -18,9 +18,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ### Added
 - **Files: search subfolders (#88)** — the ⌕ toggle next to the explorer's Filter box
   flips it from filtering the current folder to **recursively searching filenames** in
-  the whole subtree (case-insensitive, debounced; skips `node_modules`/`.git`/`target`
-  and other heavy/hidden dirs, bounded so big trees stay responsive). Each hit shows
-  its relative folder; click to jump there. (`fs_search`, unit-tested.)
+  the whole subtree, **fuzzy-ranked** (fzf-style subsequence match with start /
+  word-boundary / contiguous bonuses — so "mcf" finds "MyConfigFile.json"). Debounced;
+  skips `node_modules`/`.git`/`target` and other heavy/hidden dirs; bounded so big
+  trees stay responsive. Each hit shows its relative folder; click to jump there. An
+  optional **✦ semantic** toggle re-orders matches by filename relevance using the
+  local embed model (one batched `/api/embed` call; no-op on the hashing fallback).
+  (`fs_search`, unit-tested.)
 - **Bundled terminal font (#76)** — CaskaydiaCove (Cascadia Code) Nerd Font Mono is now
   bundled (woff2, ~2.4 MB) and preferred by the terminal, so prompt/powerline/icon
   glyphs render out of the box without installing a font. Falls back to installed

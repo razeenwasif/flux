@@ -234,10 +234,53 @@ const SEARCH_SKIP: &[&str] =
 /// Bounded (hit cap, depth cap, visited-node budget) so a huge tree can't hang the
 /// UI; skips hidden + heavy dirs and never follows symlinked dirs (loop-safe).
 #[tauri::command]
-pub async fn fs_search(root: String, query: String, limit: usize) -> Result<Vec<SearchHit>, String> {
-    tauri::async_runtime::spawn_blocking(move || search_tree(&root, &query, limit.clamp(1, 2000)))
-        .await
-        .map_err(|e| e.to_string())?
+pub async fn fs_search(root: String, query: String, limit: usize, semantic: bool) -> Result<Vec<SearchHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut hits = search_tree(&root, &query, limit.clamp(1, 2000))?;
+        if semantic && hits.len() > 1 {
+            semantic_rerank(&query, &mut hits);
+        }
+        Ok(hits)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Re-order the top fuzzy hits by semantic similarity of the **filename** to the
+/// query (#88/#11). No-op unless the real (model) embedder is live — the hashing
+/// fallback isn't semantic. Fuzzy stays the base so exact matches don't sink;
+/// semantic nudges within the pool. Note: this only *re-orders* subsequence
+/// matches; true intent search (a query finding a differently-named file) would
+/// need a pre-built file-embedding index.
+fn semantic_rerank(query: &str, hits: &mut Vec<SearchHit>) {
+    use crate::embedding::{cosine, current, embed_batch, Embedder};
+    if !matches!(current(), Embedder::Model) {
+        return;
+    }
+    let pool = hits.len().min(60); // bound the embed cost (one batched call)
+    // One batched call: [query, name0, name1, …].
+    let mut inputs = Vec::with_capacity(pool + 1);
+    inputs.push(query.to_string());
+    inputs.extend(hits[..pool].iter().map(|h| h.name.clone()));
+    let Some(vecs) = embed_batch(&inputs, Embedder::Model) else { return };
+    if vecs.len() != pool + 1 {
+        return;
+    }
+    let qv = &vecs[0];
+    // Blend: preserve fuzzy order as a descending base, let semantic shift an item
+    // by up to ~half the pool. Higher = better.
+    let mut scored: Vec<(f32, SearchHit)> = hits
+        .drain(..pool)
+        .enumerate()
+        .map(|(i, h)| {
+            let fuzzy_base = (pool - i) as f32;
+            let sem = cosine(qv, &vecs[i + 1]).max(0.0);
+            (fuzzy_base + sem * pool as f32 * 0.5, h)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let reranked: Vec<SearchHit> = scored.into_iter().map(|(_, h)| h).collect();
+    hits.splice(0..0, reranked);
 }
 
 /// Fuzzy subsequence score (fzf-style): `None` if the query's chars don't all
