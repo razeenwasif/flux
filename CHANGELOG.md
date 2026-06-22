@@ -11,8 +11,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - **Boosts: edit the CSS + manage every site (#49)** — the ✨ Boosts popover now has an
   **AI / CSS** toggle (let the agent write the CSS, or paste your own), an **✎ edit**
   button on each boost to tweak its CSS inline, and an **All sites** view that lists and
-  manages every boost across hosts (toggle / edit / delete). Still CSS-only by design
-  (raw JS isn't exposed).
+  manages every boost across hosts (toggle / edit / delete). Boosts now also match
+  **subdomains** — a boost on `github.com` applies to `gist.github.com` too (a
+  subdomain-specific boost stays scoped; a leading `*.` is accepted); suffix-spoofs
+  like `github.com.evil.com` don't match. Still CSS-only by design (raw JS isn't exposed).
 - **Start page: customize widgets (#71)** — a **⚙** in the top corner opens a checklist
   to **show/hide** widgets you don't use (Recent, Shortcuts, Top sites, Headlines,
   Scratchpad, Calendar, Tasks, Quick actions) and **↑/↓ reorder** them; both persisted

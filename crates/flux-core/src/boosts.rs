@@ -42,6 +42,17 @@ fn norm(host: &str) -> &str {
     host.strip_prefix("www.").unwrap_or(host)
 }
 
+/// Does a boost saved for `pattern` apply to a page on `page_host` (#49 wildcard
+/// matching)? A bare host matches itself **and all subdomains** (`github.com` →
+/// `gist.github.com`), so a boost authored on a base domain spreads across it; a
+/// subdomain-specific boost (`gist.github.com`) stays scoped to that subtree. A
+/// leading `*.` is accepted and treated the same as the bare base.
+fn host_matches(pattern: &str, page_host: &str) -> bool {
+    let base = norm(pattern.strip_prefix("*.").unwrap_or(pattern));
+    let page = norm(page_host);
+    page == base || page.ends_with(&format!(".{base}"))
+}
+
 impl Default for BoostStore {
     fn default() -> Self {
         Self { path: None, inner: RwLock::new(Vec::new()), next_id: AtomicU64::new(1) }
@@ -63,17 +74,15 @@ impl BoostStore {
     }
 
     pub fn for_host(&self, host: &str) -> Vec<Boost> {
-        let h = norm(host);
-        self.inner.read().iter().filter(|b| b.host == h).cloned().collect()
+        self.inner.read().iter().filter(|b| host_matches(&b.host, host)).cloned().collect()
     }
 
     /// Combined CSS + JS to inject for a page host (enabled boosts only).
     pub fn injection_for(&self, host: &str) -> (String, String) {
-        let h = norm(host);
         let g = self.inner.read();
         let mut css = String::new();
         let mut js = String::new();
-        for b in g.iter().filter(|b| b.enabled && b.host == h) {
+        for b in g.iter().filter(|b| b.enabled && host_matches(&b.host, host)) {
             if !b.css.is_empty() {
                 css.push_str(&b.css);
                 css.push('\n');
@@ -220,6 +229,23 @@ mod tests {
     fn host_normalization() {
         assert_eq!(host_of("https://www.example.com/x?y"), "example.com");
         assert_eq!(host_of("http://sub.example.com/"), "sub.example.com");
+    }
+
+    #[test]
+    fn wildcard_subdomain_matching() {
+        // A base-domain boost spreads to subdomains…
+        assert!(host_matches("github.com", "github.com"));
+        assert!(host_matches("github.com", "gist.github.com"));
+        assert!(host_matches("github.com", "www.github.com"));
+        // …a subdomain-specific boost stays scoped to that subtree…
+        assert!(host_matches("gist.github.com", "gist.github.com"));
+        assert!(!host_matches("gist.github.com", "github.com"));
+        // …unrelated hosts and suffix-spoofs don't match…
+        assert!(!host_matches("github.com", "notgithub.com"));
+        assert!(!host_matches("github.com", "github.com.evil.com"));
+        // a leading "*." is accepted and behaves like the bare base.
+        assert!(host_matches("*.github.com", "gist.github.com"));
+        assert!(host_matches("*.github.com", "github.com"));
     }
 
     #[test]
