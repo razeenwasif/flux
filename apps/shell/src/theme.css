@@ -1049,6 +1049,14 @@ body.resizing, body.busy { --glass-blur: none; }
 .start-customize-move { width: 22px; height: 22px; flex: none; border: none; border-radius: 6px; background: none; color: var(--flux-text-dim); cursor: pointer; font-size: 12px; }
 .start-customize-move:hover:not(:disabled) { background: var(--flux-surface); color: var(--flux-text); }
 .start-customize-move:disabled { opacity: 0.3; cursor: default; }
+.start-customize-bg { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 7px 9px; border-radius: 7px; font-size: 12px; color: var(--flux-text); background: var(--flux-surface); border: 1px solid var(--flux-border); }
+/* #97 Omni glance widget */
+.start-omni { display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+.start-omni-row { display: flex; gap: 18px; }
+.start-omni-stat { display: flex; flex-direction: column; }
+.start-omni-num { font-size: 26px; font-weight: 700; line-height: 1; color: var(--flux-text); }
+.start-omni-lbl { font-size: 11px; color: var(--flux-text-mute); margin-top: 3px; }
+.start-omni-meta { font-size: 11px; color: var(--flux-text-dim); }
 
 .start {
   position: relative;

@@ -43,6 +43,7 @@ import {
   type FileEntry,
   type QuickLocation,
 } from "./ipc";
+import { openTab } from "./store";
 
 const ROW_H = 30;
 
@@ -491,6 +492,8 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
       ];
       if (!m.entry.is_dir)
         items.push({ label: "Open in default app", run: () => { setMenu(null); void fsOpen(joinPath(cwd(), m.entry!.name)).catch((e) => toast(String(e), "err")); } });
+      if (m.entry.is_dir)
+        items.push({ label: "Open terminal here", run: () => { setMenu(null); void openTab("terminal", joinPath(cwd(), m.entry!.name)); } });
       items.push("sep");
       if (selCount <= 1) items.push({ label: "Rename", key: "F2", run: startRename });
       items.push(
@@ -513,6 +516,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     if (hasClip) items.push({ label: "Paste", key: mod("V"), run: () => void paste() });
     items.push(
       "sep",
+      { label: "Open terminal here", run: () => { setMenu(null); void openTab("terminal", cwd()); } },
       { label: "Undo", key: mod("Z"), run: () => { setMenu(null); void undo(); } },
       { label: "Select All", key: mod("A"), run: () => { setMenu(null); selectAll(); } },
       { label: "Refresh", run: () => { setMenu(null); void refresh(); } },

@@ -16,6 +16,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Start page: Omni glance widget (#97)** — a card showing your local Omni index at a
+  glance (pages indexed, vectors, embedder) with a one-tap link to the full dashboard.
+  Toggle/reorder it like any widget.
+- **Start page: custom background (#71)** — the ⚙ customize popover takes an image URL
+  or any CSS color/gradient for the start-page background (empty = the liquid/wave
+  backdrop). Persisted.
+- **Files: "Open terminal here" (#87)** — right-click a folder (or the empty area) in
+  the file explorer → opens a Terminal tab already `cd`'d into that directory.
 - **Terminal links open Flux tabs (#17)** — clicking a URL in the terminal now opens a
   Flux **browser tab** (closing the terminal↔browser loop) instead of the OS browser —
   both auto-detected URLs and explicit OSC 8 hyperlinks. Web URLs only; other schemes

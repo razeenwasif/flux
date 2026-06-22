@@ -18,6 +18,8 @@ import {
   calEvents,
   feedItems,
   historyRecent,
+  omniStats,
+  type OmniStats,
   noteGet,
   noteSet,
   searchDefault,
@@ -112,6 +114,7 @@ const StartPage: Component<{
     { key: "scratchpad", label: "Scratchpad" },
     { key: "calendar", label: "Calendar & clocks" },
     { key: "tasks", label: "Tasks" },
+    { key: "omni", label: "Omni index" },
     { key: "actions", label: "Quick actions" },
   ];
   const readHidden = (): string[] => { try { return JSON.parse(localStorage.getItem("flux.start.hidden") || "[]"); } catch { return []; } };
@@ -146,6 +149,19 @@ const StartPage: Component<{
     setWidgetOrder(arr);
     localStorage.setItem("flux.start.order", JSON.stringify(arr));
   };
+  // Omni index glance (#97).
+  const [omni, setOmni] = createSignal<OmniStats | null>(null);
+  // Custom start-page background (#71): an image URL or any CSS color/gradient.
+  // Empty = the liquid/wave backdrop. Persisted.
+  const [bg, setBgRaw] = createSignal(localStorage.getItem("flux.start.bg") || "");
+  const setBg = (v: string) => { setBgRaw(v.trim()); localStorage.setItem("flux.start.bg", v.trim()); };
+  const bgStyle = () => {
+    const v = bg();
+    if (!v) return undefined;
+    return /^(https?:|data:|\/|\.)/.test(v)
+      ? { "background-image": `url("${v}")`, "background-size": "cover", "background-position": "center" }
+      : { background: v }; // a CSS color or gradient
+  };
   const [selectedCalDate, setSelectedCalDate] = createSignal<string | null>(null);
   const [todos, setTodos] = createSignal<Todo[]>([]);
   const [newTodo, setNewTodo] = createSignal("");
@@ -169,6 +185,7 @@ const StartPage: Component<{
 
   onMount(async () => {
     visibleInterval(() => setNow(new Date()), 1000);
+    void omniStats().then(setOmni).catch(() => {}); // #97 glance widget (best-effort)
 
     try {
       const [def, engines] = await Promise.all([searchDefault(), searchEngines()]);
@@ -367,7 +384,7 @@ const StartPage: Component<{
     );
 
   return (
-    <div class="start">
+    <div class="start" style={bgStyle()}>
       <button class="start-customize" title="Show/hide widgets" onClick={() => setCustomizing((v) => !v)}>⚙</button>
       <Show when={customizing()}>
         <div class="shield-backdrop" onClick={() => setCustomizing(false)} />
@@ -383,6 +400,15 @@ const StartPage: Component<{
               </div>
             )}
           </For>
+          <div class="ctx-sep" />
+          <div class="ctx-label">Background — image URL or CSS color (empty = liquid)</div>
+          <input
+            class="start-customize-bg"
+            value={bg()}
+            placeholder="https://…/wallpaper.jpg  ·  #0b0a1d  ·  empty"
+            spellcheck={false}
+            onChange={(e) => setBg(e.currentTarget.value)}
+          />
         </div>
       </Show>
       <header class="start-hero">
@@ -630,6 +656,25 @@ const StartPage: Component<{
             </div>
           </Show>
           <Show when={openTodos() > 0}><div class="start-todo-count">{openTodos()} open</div></Show>
+        </div>
+
+        {/* Omni index glance (#97) */}
+        <div class="glass start-card" style={{ display: widgetOn("omni") ? undefined : "none", order: orderOf("omni") }}>
+          <div class="start-card-title">
+            Omni index
+            <button class="start-card-link" title="Open the Omni dashboard" onClick={() => props.onNavigate(OMNI_URL)}>⤢ Dashboard</button>
+          </div>
+          <Show when={omni()} fallback={<div class="start-empty">Your local search index — save pages with ⌘⇧O and they're searchable here.</div>}>
+            {(s) => (
+              <div class="start-card-body start-omni">
+                <div class="start-omni-row">
+                  <div class="start-omni-stat"><span class="start-omni-num">{s().live_docs.toLocaleString()}</span><span class="start-omni-lbl">pages</span></div>
+                  <div class="start-omni-stat"><span class="start-omni-num">{s().ann_vectors.toLocaleString()}</span><span class="start-omni-lbl">vectors</span></div>
+                </div>
+                <div class="start-omni-meta">{s().embedder_kind}{s().embedded ? ` · ${s().embedder_dim}-dim` : " · hashing (offline)"}</div>
+              </div>
+            )}
+          </Show>
         </div>
 
         {/* Quick actions */}
