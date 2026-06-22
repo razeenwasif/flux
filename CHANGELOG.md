@@ -16,6 +16,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Terminal links open Flux tabs (#17)** — clicking a URL in the terminal now opens a
+  Flux **browser tab** (closing the terminal↔browser loop) instead of the OS browser —
+  both auto-detected URLs and explicit OSC 8 hyperlinks. Web URLs only; other schemes
+  are left untouched.
 - **Boosts: edit the CSS + manage every site (#49)** — the ✨ Boosts popover now has an
   **AI / CSS** toggle (let the agent write the CSS, or paste your own), an **✎ edit**
   button on each boost to tweak its CSS inline, and an **All sites** view that lists and

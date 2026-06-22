@@ -13,6 +13,7 @@ import { createEffect, onCleanup, onMount, type Component } from "solid-js";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import { Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
 import { registerTerminal, setActiveTerminal, unregisterTerminal } from "./terminals";
+import { openTab } from "./store";
 import LiquidBackground from "./LiquidBackground";
 
 /** Velvet-matched 16-color palette + teal cursor (theme.css alignment). */
@@ -65,7 +66,16 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
       import("@xterm/xterm/css/xterm.css"),
     ]);
 
+    // #17: clicking a link in the terminal opens a Flux browser tab (closing the
+    // terminal↔browser loop) rather than the OS browser. Covers both auto-detected
+    // URLs (WebLinksAddon) and explicit OSC 8 hyperlinks (the linkHandler option).
+    // Only web URLs are taken; other schemes (file:, mailto:) are left alone.
+    const openInFlux = (uri: string) => {
+      if (/^https?:\/\//i.test(uri)) void openTab("browser", uri).catch(() => {});
+    };
+
     const term: XTerm = new Terminal({
+      linkHandler: { activate: (_e, uri) => openInFlux(uri) },
       // Broad monospace fallback: prefer a programming font, then any installed
       // Nerd/symbol font for prompt glyphs, then Unicode/emoji coverage, then
       // the platform monospace. (Bundling a Nerd Font for guaranteed icon
@@ -91,7 +101,7 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
 
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new WebLinksAddon((_e, uri) => openInFlux(uri)));
     term.open(host);
     fit.fit();
     termRef = term; // expose to the active-tab effect (keep-alive re-fit/focus)
