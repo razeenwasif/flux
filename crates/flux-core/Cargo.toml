@@ -40,7 +40,7 @@ tauri-plugin-single-instance = "2"
 # OS notifications for due reminders (Windows toast / Linux libnotify / macOS).
 tauri-plugin-notification = "2"
 # System + process memory readout, for memory-pressure tab eviction (#45).
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+sysinfo = { version = "0.32", default-features = false, features = ["system", "network"] }
 # Async waits between macro-replay steps (#67). `time` only; Tauri already pulls tokio.
 tokio = { version = "1", features = ["time"] }
 # E2E sync (#62): AES-256-GCM seal + Argon2id KDF over a bring-your-own folder.

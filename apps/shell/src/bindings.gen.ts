@@ -73,9 +73,13 @@ export type DaySnapshot = { day: number; captured_ms: number; tabs: SavedTab[] }
  */
 export type ProcInfo = { pid: number; name: string; cpu: number; mem_mb: number; is_flux: boolean; current: boolean }
 /**
- * System-wide CPU + memory, for the task-manager graphs.
+ * System-wide CPU / memory / swap / network snapshot for the task manager.
  */
-export type SysStats = { cpu: number; mem_used_mb: number; mem_total_mb: number; mem_pct: number; cores: number }
+export type SysStats = { cpu: number; per_core: number[]; cpu_brand: string; mem_used_mb: number; mem_total_mb: number; mem_pct: number; swap_used_mb: number; swap_total_mb: number; cores: number; uptime_secs: number; net_rx_bps: number; net_tx_bps: number }
+/**
+ * One GPU's live stats (NVIDIA via `nvidia-smi`).
+ */
+export type GpuInfo = { name: string; util_pct: number; mem_used_mb: number; mem_total_mb: number; temp_c: number; power_w: number }
 export type SpeedResult = { ping_ms: number; jitter_ms: number; download_mbps: number; upload_mbps: number; server: string }
 /**
  * List/search row — metadata + a short snippet (the full text stays out of list

@@ -84,6 +84,7 @@ import type {
   SpeedResult as GenSpeedResult,
   ShellSnapshot as GenShellSnapshot,
   SysStats as GenSysStats,
+  GpuInfo as GenGpuInfo,
   TabFolder as GenTabFolder,
   TabGroup as GenTabGroup,
   TabKind as GenTabKind,
@@ -112,6 +113,7 @@ export type SavedSession = GenSavedSession;
 export type DaySnapshot = GenDaySnapshot;
 export type ProcInfo = GenProcInfo;
 export type SysStats = GenSysStats;
+export type GpuInfo = GenGpuInfo;
 export type SpeedResult = GenSpeedResult;
 export type ArchiveMeta = GenArchiveMeta;
 export type CalFeed = GenCalFeed;
@@ -762,6 +764,8 @@ export const TASKS_URL = "flux://tasks";
 export const tasksList = () => invoke<ProcInfo[]>("tasks_list");
 export const tasksKill = (pid: number) => invoke<boolean>("tasks_kill", { pid });
 export const tasksStats = () => invoke<SysStats>("tasks_stats");
+/** Live GPU stats via nvidia-smi (empty on non-NVIDIA / no driver). */
+export const gpuStats = () => invoke<GpuInfo[]>("gpu_stats");
 
 // ─── Network speed test (BACKLOG #108) ───────────────────────────────────────
 export const SPEEDTEST_URL = "flux://speedtest";

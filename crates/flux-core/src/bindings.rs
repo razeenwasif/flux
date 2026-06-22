@@ -34,7 +34,7 @@ use crate::state::{
     AgentStatus, ClusterTag, Container, TabFolder, TabGroup, TabKind, TabMeta, WebPanel, Workspace,
 };
 use crate::sync::{SyncReport, SyncStatus};
-use crate::taskmgr::{ProcInfo, SysStats};
+use crate::taskmgr::{GpuInfo, ProcInfo, SysStats};
 use crate::todos::Todo;
 use crate::vault::{CredentialMeta, VaultStatus};
 
@@ -73,6 +73,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<DaySnapshot>(&c),
         specta::ts::export::<ProcInfo>(&c),
         specta::ts::export::<SysStats>(&c),
+        specta::ts::export::<GpuInfo>(&c),
         specta::ts::export::<SpeedResult>(&c),
         specta::ts::export::<ArchiveMeta>(&c),
         // Calendar + tasks (BACKLOG #114).

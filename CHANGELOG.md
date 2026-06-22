@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Changed
+- **Task manager rebuilt btop-style (full page)** — `flux://tasks` is now a full-page
+  system monitor: **CPU** overall graph + **per-core** load bars + model name, **RAM +
+  swap** bars with a graph, **network** throughput (↓/↑ bytes/sec with a graph), and a
+  **GPU** panel per card (utilization, VRAM, temp, power) via `nvidia-smi` (hidden on
+  non-NVIDIA / no driver), plus uptime, process count, and the sortable process list
+  with end-task filling the rest. (`SysStats` gained per-core/swap/uptime/net; new
+  `gpu_stats` command.)
 - **Terminal renders TUIs much better** — the terminal now uses a **GPU renderer**
   (`@xterm/addon-webgl`, like Windows Terminal / VS Code) for crisp glyphs and smooth
   scrolling, falling back to the DOM renderer if WebGL is unavailable; and `lineHeight`

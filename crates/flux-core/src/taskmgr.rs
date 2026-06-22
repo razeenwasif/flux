@@ -15,15 +15,28 @@
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use std::time::Instant;
+use sysinfo::{Networks, Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tauri::State;
 
-/// Owns a reused `System` so CPU deltas are meaningful across polls.
-pub struct TaskManager(Mutex<System>);
+/// Owns a reused `System` so CPU deltas are meaningful across polls, plus a
+/// `Networks` (+ timestamp) so throughput is a real bytes/sec rate.
+pub struct TaskManager {
+    sys: Mutex<System>,
+    net: Mutex<NetState>,
+}
+
+struct NetState {
+    nets: Networks,
+    last: Instant,
+}
 
 impl TaskManager {
     pub fn new() -> Self {
-        Self(Mutex::new(System::new()))
+        Self {
+            sys: Mutex::new(System::new()),
+            net: Mutex::new(NetState { nets: Networks::new_with_refreshed_list(), last: Instant::now() }),
+        }
     }
 }
 
@@ -52,7 +65,7 @@ pub struct ProcInfo {
 impl TaskManager {
     /// Snapshot of all processes, heaviest (by memory) first.
     pub fn list(&self) -> Vec<ProcInfo> {
-        let mut sys = self.0.lock();
+        let mut sys = self.sys.lock();
         sys.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
@@ -89,23 +102,43 @@ impl TaskManager {
     /// delta since the previous call (0 on the very first call), averaged across
     /// cores (0–100).
     pub fn stats(&self) -> SysStats {
-        let mut sys = self.0.lock();
+        let mut sys = self.sys.lock();
         sys.refresh_cpu_usage();
         sys.refresh_memory();
         let total = sys.total_memory();
         let used = total.saturating_sub(sys.available_memory());
+        let swap_total = sys.total_swap();
+        let per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
+        let cpu_brand = sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
+        // Network throughput as a real bytes/sec rate (delta since last refresh).
+        let (net_rx_bps, net_tx_bps) = {
+            let mut net = self.net.lock();
+            net.nets.refresh();
+            let secs = net.last.elapsed().as_secs_f64().max(0.001);
+            net.last = Instant::now();
+            let rx: u64 = net.nets.iter().map(|(_, d)| d.received()).sum();
+            let tx: u64 = net.nets.iter().map(|(_, d)| d.transmitted()).sum();
+            ((rx as f64 / secs) as u64, (tx as f64 / secs) as u64)
+        };
         SysStats {
             cpu: sys.global_cpu_usage(),
+            per_core,
+            cpu_brand,
             mem_used_mb: used / 1_048_576,
             mem_total_mb: total / 1_048_576,
             mem_pct: if total > 0 { (used.saturating_mul(100) / total) as u32 } else { 0 },
+            swap_used_mb: sys.used_swap() / 1_048_576,
+            swap_total_mb: swap_total / 1_048_576,
             cores: sys.cpus().len(),
+            uptime_secs: System::uptime(),
+            net_rx_bps,
+            net_tx_bps,
         }
     }
 
     /// End a process by pid. Returns whether the signal was sent.
     pub fn kill(&self, pid: u32) -> bool {
-        let mut sys = self.0.lock();
+        let mut sys = self.sys.lock();
         let target = Pid::from(pid as usize);
         sys.refresh_processes(ProcessesToUpdate::Some(&[target]), true);
         sys.process(target).map(|p| p.kill()).unwrap_or(false)
@@ -140,15 +173,37 @@ fn flux_tree(pairs: &[(u32, Option<u32>)], current: u32) -> HashSet<u32> {
     tree
 }
 
-/// System-wide CPU + memory, for the task-manager graphs.
+/// System-wide CPU / memory / swap / network snapshot for the task manager.
 #[derive(Serialize, Debug, Clone, PartialEq, specta::Type)]
 pub struct SysStats {
     /// CPU usage % averaged across cores (0–100).
     pub cpu: f32,
+    /// Per-core usage % (0–100), in core order.
+    pub per_core: Vec<f32>,
+    /// CPU model name (e.g. "AMD Ryzen 9 …"), best-effort.
+    pub cpu_brand: String,
     pub mem_used_mb: u64,
     pub mem_total_mb: u64,
     pub mem_pct: u32,
+    pub swap_used_mb: u64,
+    pub swap_total_mb: u64,
     pub cores: usize,
+    /// System uptime, seconds.
+    pub uptime_secs: u64,
+    /// Network throughput, bytes/sec (summed across interfaces).
+    pub net_rx_bps: u64,
+    pub net_tx_bps: u64,
+}
+
+/// One GPU's live stats (NVIDIA via `nvidia-smi`).
+#[derive(Serialize, Debug, Clone, PartialEq, specta::Type)]
+pub struct GpuInfo {
+    pub name: String,
+    pub util_pct: f32,
+    pub mem_used_mb: u64,
+    pub mem_total_mb: u64,
+    pub temp_c: f32,
+    pub power_w: f32,
 }
 
 // ─── Commands ────────────────────────────────────────────────────────────────
@@ -166,6 +221,45 @@ pub fn tasks_stats(state: State<'_, TaskManager>) -> SysStats {
 #[tauri::command]
 pub fn tasks_kill(state: State<'_, TaskManager>, pid: u32) -> bool {
     state.kill(pid)
+}
+
+/// Live GPU stats via `nvidia-smi` (NVIDIA only). Empty on other GPUs / no driver
+/// / when nvidia-smi isn't on PATH — the UI just hides the GPU panel then.
+#[tauri::command]
+pub async fn gpu_stats() -> Vec<GpuInfo> {
+    tauri::async_runtime::spawn_blocking(query_nvidia).await.unwrap_or_default()
+}
+
+fn query_nvidia() -> Vec<GpuInfo> {
+    let Ok(out) = std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split(',').map(str::trim).collect();
+            if f.len() < 6 {
+                return None;
+            }
+            Some(GpuInfo {
+                name: f[0].to_string(),
+                util_pct: f[1].parse().unwrap_or(0.0),
+                mem_used_mb: f[2].parse().unwrap_or(0),
+                mem_total_mb: f[3].parse().unwrap_or(0),
+                temp_c: f[4].parse().unwrap_or(0.0),
+                power_w: f[5].parse().unwrap_or(0.0),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

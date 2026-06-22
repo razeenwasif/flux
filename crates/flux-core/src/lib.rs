@@ -679,6 +679,7 @@ pub fn run(intent: cli::LaunchIntent) {
             taskmgr::tasks_list,
             taskmgr::tasks_kill,
             taskmgr::tasks_stats,
+            taskmgr::gpu_stats,
             netspeed::netspeed_run,
             https::https_status,
             https::https_set_enabled,
