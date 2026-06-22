@@ -133,6 +133,15 @@ fn num_ctx() -> u32 {
     std::env::var("FLUX_OLLAMA_NUM_CTX").ok().and_then(|s| s.parse().ok()).unwrap_or(4096)
 }
 
+/// Output-token cap for free-text chat. Default `-1` = generate until the model's
+/// natural stop (or the context window fills), so long answers don't get cut off
+/// mid-sentence (it was a flat 1024 cap). Bounded by `num_ctx`. Set
+/// `FLUX_OLLAMA_NUM_PREDICT` to a positive value to cap runaway generations.
+/// Structured (JSON-schema) replies keep a tight 512 — those are always short.
+fn num_predict() -> i32 {
+    std::env::var("FLUX_OLLAMA_NUM_PREDICT").ok().and_then(|s| s.parse().ok()).unwrap_or(-1)
+}
+
 /// Extra Ollama `options` merged over the defaults, as a JSON object string in
 /// `FLUX_OLLAMA_OPTIONS`. This is the **speculative-decoding hook** (arXiv
 /// 2203.16487): draft-model / `num_*` knobs land here when the local Ollama
@@ -165,7 +174,7 @@ fn generate_body(model: &str, prompt: &str, format: Option<serde_json::Value>, s
     let options = merge_options(
         serde_json::json!({
             "temperature": if structured { 0.1 } else { 0.6 },
-            "num_predict": if structured { 512 } else { 1024 },
+            "num_predict": if structured { 512 } else { num_predict() },
             "num_ctx": num_ctx(),
         }),
         extra_options(),
@@ -286,6 +295,17 @@ mod tests {
         let b = generate_body("m", "hi", None, true);
         assert_eq!(b["stream"], true);
         assert!(b.get("format").is_none()); // streaming chat is free-text
+    }
+
+    #[test]
+    fn chat_lets_long_replies_finish() {
+        // Free-text chat no longer caps output at 1024 (the mid-sentence cut-off);
+        // default -1 lets the model finish, bounded by num_ctx.
+        let chat = generate_body("m", "explain in detail", None, true);
+        assert_eq!(chat["options"]["num_predict"], -1);
+        // Structured (JSON-schema) replies stay tightly bounded — they're short.
+        let structured = generate_body("m", "act", Some(serde_json::json!({ "type": "object" })), false);
+        assert_eq!(structured["options"]["num_predict"], 512);
     }
 
     #[test]

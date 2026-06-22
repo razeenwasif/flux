@@ -100,6 +100,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Gemma's chat replies cut off mid-answer** — free-text chat was capped at a flat
+  1024 output tokens, so longer answers stopped partway (you had to say "keep going").
+  The cap is now `-1` by default — she generates until she's actually done, bounded by
+  the context window. `FLUX_OLLAMA_NUM_PREDICT` sets a positive cap if you want to bound
+  it; structured JSON replies keep their tight 512. (If very long answers still clip,
+  raise `FLUX_OLLAMA_NUM_CTX` above 4096 — costs a little RAM.)
 - **Voice commands ignored after the wake ack** — `voiceRespond` bailed on `working()`,
   which includes `listening()` — and the voice pipeline sets `listening()` true *while
   handling the command*, so every spoken command rejected itself (and before the
