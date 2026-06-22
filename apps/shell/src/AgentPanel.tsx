@@ -36,6 +36,7 @@ import {
   spotifyLaunch,
   agentPlan,
   agentPlanSteps,
+  agentNextStep,
   agentRunAction,
   agentTaskStep,
   agentLens,
@@ -47,6 +48,7 @@ import {
   isStartUrl,
   onAgentStatus,
   type AgentAction,
+  type NextStep,
   type AgentStatus,
 } from "./ipc";
 import { activeId, activeWorkspace, agentModelName, filesPanelOpen, fluxStateSnapshot, openTab, pendingAsk, pendingLens, setAgentMenuOpen, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
@@ -127,8 +129,8 @@ const AgentPanel: Component = () => {
   // this resolver is set so the chain waits for the user's Apply/Run (true) or
   // Cancel (false) before moving to the next step. The existing approve/cancel
   // handlers resolve it.
-  let chainGate: ((ok: boolean) => void) | null = null;
-  const resolveChainGate = (ok: boolean) => { const g = chainGate; chainGate = null; g?.(ok); };
+  let chainGate: ((r: { ok: boolean; result: string }) => void) | null = null;
+  const resolveChainGate = (ok: boolean, result: string) => { const g = chainGate; chainGate = null; g?.({ ok, result }); };
   // Model picker (#81): the dropdown of locally-pulled Ollama models.
   const [models, setModels] = createSignal<string[]>([]);
   const [modelMenu, setModelMenu] = createSignal(false);
@@ -484,17 +486,17 @@ const AgentPanel: Component = () => {
       }
       const out = (await readBackTerminal(baseline)).trim();
       setFeed((f) => [...f, { role: "assistant", text: out ? `Terminal output:\n${out}` : "(ran in your terminal — no output captured; check the terminal)" }]);
-      resolveChainGate(true);
+      resolveChainGate(true, out || "(ran, no output captured)");
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
-      resolveChainGate(false);
+      resolveChainGate(false, String(e));
     } finally {
       setBusy(false);
     }
   };
   const cancelShell = (idx: number) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)));
-    resolveChainGate(false);
+    resolveChainGate(false, "the user cancelled the command");
   };
 
   // Natural-language → command. When a message reads like a request about the
@@ -537,6 +539,7 @@ const AgentPanel: Component = () => {
     "- Music (AudioPulse/Spotify): \"play <song>\", \"play my liked songs\", \"shuffle on\", \"skip\", \"pause\", \"launch spotify\".\n" +
     "- Page actions: \"/act <do something on this page>\" (one step) or \"/task <multi-step goal>\" (you plan steps the user approves). You can also chat grounded in the current page or all open tabs.\n" +
     "- Chain several of the above in one request: join steps with \"then\" / \"+\" — e.g. \"read src/foo.rs then fix the bug then run the tests\" or \"play my liked songs + shuffle on\". Each step runs in order; edits/commands still ask for approval.\n" +
+    "- Adaptive goal loop: \"/fix <goal>\" (e.g. \"/fix make the tests in src/foo.rs pass\") — you run one step, read the result, and re-plan: run → read the failure → edit a fix → re-run, until it's done or stuck. Each edit/command still asks for approval.\n" +
     "- Voice: always-on \"Hey Gemma\" + push-to-talk; the user can interrupt you by talking or the Stop button.\n" +
     "When asked what you can do, summarize the above. Don't claim abilities not listed.";
 
@@ -652,15 +655,15 @@ const AgentPanel: Component = () => {
       await writeTextFile(path, content);
       setCtxFiles((c) => c.map((f) => (f.path === path ? { ...f, content } : f)));
       setFeed((f) => [...f, { role: "action", text: `✓ Wrote ${path.split(/[/\\]/).pop()}.` }]);
-      resolveChainGate(true);
+      resolveChainGate(true, `applied the edit to ${path.split(/[/\\]/).pop()}`);
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
-      resolveChainGate(false);
+      resolveChainGate(false, String(e));
     }
   };
   const cancelEdit = (idx: number) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)));
-    resolveChainGate(false);
+    resolveChainGate(false, "the user cancelled the edit");
   };
 
   // "read the terminal" → pull the active terminal's scrollback into context.
@@ -738,6 +741,8 @@ const AgentPanel: Component = () => {
       "🔎 Search — “search …” · “open a new tab and search …”\n" +
       "🎵 Music — “play my liked songs” · “shuffle on” · “skip” · “launch spotify”\n" +
       "📄 Page — “/act <do X here>” · “/task <multi-step goal>” · ask about the page or all tabs\n" +
+      "🔗 Chains — join steps with “then”/“+”, e.g. “read foo.rs then fix the bug then run the tests”\n" +
+      "🛠 Fix loop — “/fix <goal>”, e.g. “/fix make the tests pass”; I run → read the failure → fix → re-run\n" +
       "🎙 Voice — “Hey Gemma” always-on + push-to-talk; talk over me or tap ■ Stop to interrupt";
     setFeed((fd) => [...fd, { role: "assistant", text: card }]);
     return "I can handle reminders, memory, terminal commands, system stats, web search, music, page actions, and voice. What would you like to do?";
@@ -899,6 +904,15 @@ const AgentPanel: Component = () => {
       if (task?.[1]) {
         setPrompt("");
         void runTask(task[1].trim());
+        return;
+      }
+      // "/fix <goal>" runs the adaptive tool loop — run → read the failure → fix →
+      // re-run, reacting to each result until done or stuck (#115 follow-up).
+      const fix = p.match(/^\/(?:fix|auto|iterate)\s+([\s\S]+)/i);
+      if (fix?.[1]) {
+        setPrompt("");
+        setFeed((f) => [...f, { role: "user", text: p }]);
+        void runAdaptiveTask(fix[1].trim());
         return;
       }
     }
@@ -1073,39 +1087,43 @@ const AgentPanel: Component = () => {
     FILE_RE.test(s) || TERM_RE.test(s) || REMEMBER_RE.test(s) || REMIND_RE.test(s) ||
     SYS_RE.test(s) || /^(?:play|pause|skip|resume|shuffle|launch|open)\b/i.test(s);
 
-  // If the previous step pushed an approval card, block until the user resolves it.
-  const awaitChainApproval = async (): Promise<boolean> => {
+  type StepOutcome = { ok: boolean; result: string };
+
+  // If the previous step pushed an approval card, block until the user resolves it,
+  // and surface the result (e.g. terminal output) so the loop can react to it.
+  const awaitChainApproval = async (): Promise<StepOutcome> => {
     const last = feed()[feed().length - 1];
     if (last?.pending && (last.role === "edit" || last.role === "shell")) {
-      return await new Promise<boolean>((res) => { chainGate = res; });
+      return await new Promise<StepOutcome>((res) => { chainGate = res; });
     }
-    return true; // nothing to approve (e.g. the edit couldn't be drafted) — carry on
+    return { ok: true, result: last?.text ?? "" }; // nothing to approve (e.g. edit couldn't be drafted)
   };
 
-  // Route one chain step to the matching tool. Returns false to abort the chain
-  // (the user cancelled an approval). Mirrors send()'s tool order, minus page actions.
-  const routeChainStep = async (raw: string): Promise<boolean> => {
+  // Route one step to the matching tool and return its outcome — `ok:false` aborts a
+  // chain (user cancelled); `result` (output / reply / status) feeds the adaptive
+  // loop's re-planning. Mirrors send()'s tool order, minus page actions.
+  const routeChainStep = async (raw: string): Promise<StepOutcome> => {
     const pc = raw.trim()
       .replace(/^\/?(?:hey\s+)?gemma[,:\s]+/i, "")
       .replace(/^(?:can|could|would|will)\s+you\s+/i, "")
       .replace(/^(?:please|kindly)\s+/i, "")
       .trim();
-    if (!pc) return true;
+    if (!pc) return { ok: true, result: "" };
     const shell = pc.match(SHELL_RE);
     if (shell?.[1]) { await runShellCmd(shell[1].trim()); return await awaitChainApproval(); }
-    if (await runMusic(raw)) return true;
+    if (await runMusic(raw)) return { ok: true, result: "music command done" };
     const search = pc.match(SEARCH_RE);
-    if (search?.[1]) { await runSearch(search[1]); return true; }
+    if (search?.[1]) return { ok: true, result: await runSearch(search[1]) };
     { const me = pc.match(EDIT_RE); if (me?.[1] && me[2]) { await runEdit(me[1], me[2]); return await awaitChainApproval(); } }
     { const mei = pc.match(EDIT_IT_RE); if (mei?.[1]) { const lf = lastCtxFile(); if (lf) { await runEdit(lf.path, mei[1]); return await awaitChainApproval(); } } }
-    if (TERM_RE.test(pc)) { runReadTerminal(); return true; }
+    if (TERM_RE.test(pc)) return { ok: true, result: runReadTerminal() };
     const rf = pc.match(FILE_RE);
-    if (rf?.[1]) { await runReadFile(rf[1]); return true; }
+    if (rf?.[1]) return { ok: true, result: await runReadFile(rf[1]) };
     const rem = pc.match(REMEMBER_RE);
-    if (rem?.[1]) { await runRemember(rem[1]); return true; }
+    if (rem?.[1]) return { ok: true, result: await runRemember(rem[1]) };
     const rmd = pc.match(REMIND_RE);
-    if (rmd?.[1]) { await runRemind(rmd[1]); return true; }
-    if (SYS_RE.test(pc)) { await runSysStats(); return true; }
+    if (rmd?.[1]) return { ok: true, result: await runRemind(rmd[1]) };
+    if (SYS_RE.test(pc)) return { ok: true, result: await runSysStats() };
     const sp = await maybeShellPlan(raw);
     if (sp !== null) return await awaitChainApproval();
     // Anything else: answer it as chat, streamed into one bubble.
@@ -1119,7 +1137,7 @@ const AgentPanel: Component = () => {
       setFeed((f) => f.map((it, i) => (i === idx ? { ...it, role: "error", text: String(e) } : it)));
     } finally { setBusy(false); }
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)));
-    return true;
+    return { ok: true, result: acc.trim() };
   };
 
   const runChain = async (steps: string[], goal: string): Promise<void> => {
@@ -1129,10 +1147,42 @@ const AgentPanel: Component = () => {
     try {
       for (let i = 0; i < steps.length; i++) {
         setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}/${steps.length}: ${steps[i]}` }]);
-        const ok = await routeChainStep(steps[i]!);
+        const { ok } = await routeChainStep(steps[i]!);
         if (!ok) { setFeed((f) => [...f, { role: "task", text: "⏹ Chain stopped (step cancelled)." }]); return; }
       }
       setFeed((f) => [...f, { role: "task", text: "✓ Chain complete." }]);
+    } finally {
+      chainGate = null;
+      setTaskRunning(false);
+    }
+  };
+
+  // Adaptive goal loop (#115 follow-up) — "/fix <goal>". Plan ONE step, run it,
+  // observe the result, re-plan: run → read the failure → fix → re-run, until the
+  // model says it's done / stuck or the step cap. Each step routes through the same
+  // tools (so edits/commands still ask for approval), and the result is fed back.
+  const MAX_FIX_STEPS = 10;
+  const runAdaptiveTask = async (goal: string): Promise<void> => {
+    if (taskRunning()) return;
+    setTaskRunning(true);
+    setFeed((f) => [...f, { role: "task", text: `▶ Goal: ${goal}` }]);
+    const history: string[] = [];
+    try {
+      for (let i = 0; i < MAX_FIX_STEPS; i++) {
+        setBusy(true);
+        let step: NextStep;
+        try { step = await agentNextStep(goal, history); } catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); return; } finally { setBusy(false); }
+        if (step.done || !step.command.trim()) {
+          setFeed((f) => [...f, { role: "task", text: `✓ ${step.summary?.trim() || "Done."}` }]);
+          return;
+        }
+        setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}: ${step.command}` }]);
+        const { ok, result } = await routeChainStep(step.command);
+        if (!ok) { setFeed((f) => [...f, { role: "task", text: "⏹ Stopped (step cancelled)." }]); return; }
+        // Cap each result so a long build log doesn't blow the model's context.
+        history.push(`STEP: ${step.command}\nRESULT: ${result.slice(0, 1500)}`);
+      }
+      setFeed((f) => [...f, { role: "task", text: `⏹ Hit the ${MAX_FIX_STEPS}-step limit — stopping.` }]);
     } finally {
       chainGate = null;
       setTaskRunning(false);

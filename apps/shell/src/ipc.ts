@@ -308,6 +308,10 @@ export const memoryPath = () => invoke<string>("memory_path_str");
 export const agentShellPlan = (prompt: string) => invoke<string | null>("agent_shell_plan", { prompt });
 /** Decompose a compound request into ordered single-action sub-commands (#115). */
 export const agentPlanSteps = (goal: string) => invoke<string[]>("agent_plan_steps", { goal });
+/** Adaptive loop: next command toward `goal` given the history of results so far. */
+export type NextStep = { command: string; done: boolean; summary: string };
+export const agentNextStep = (goal: string, history: string[]) =>
+  invoke<NextStep>("agent_next_step", { goal, history });
 /** Store (or clear, with "") the Picovoice (Porcupine) access key in the keyring. */
 export const porcupineSetKey = (key: string) => invoke<void>("porcupine_set_key", { key });
 export const porcupineHasKey = () => invoke<boolean>("porcupine_has_key");

@@ -227,6 +227,18 @@ pub struct EditPlan {
     pub edits: Vec<FileEdit>,
 }
 
+/// One iteration of an adaptive goal loop (#115 follow-up): the next command to run,
+/// or `done` with a summary when the goal is met / the model is stuck.
+#[derive(Serialize, Deserialize, Default)]
+pub struct NextStep {
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub done: bool,
+    #[serde(default)]
+    pub summary: String,
+}
+
 /// Planner: owns a backend, turns (user prompt, page text) into an action.
 pub struct AgentPlanner {
     backend: Box<dyn Inference>,
@@ -348,6 +360,41 @@ impl AgentPlanner {
             })
             .unwrap_or_default();
         Ok(steps)
+    }
+
+    /// Adaptive goal loop: given the GOAL and the history of commands + their results
+    /// so far, pick the SINGLE next command (read / edit / run / search), or set
+    /// `done` when the goal is met or it's stuck. This is what turns "fix the failing
+    /// tests" into run → read the failure → edit → re-run, reacting to each result.
+    pub fn plan_next_step(&self, goal: &str, history: &[String]) -> Result<NextStep, AgentError> {
+        let hist = if history.is_empty() { "(nothing done yet)".to_string() } else { history.join("\n\n") };
+        let prompt = format!(
+            "You are working toward a GOAL by issuing ONE command at a time and reacting to its \
+             result. Commands you can use, one per step:\n\
+             - read <path>            (load a file so you can see/edit it)\n\
+             - edit <path>: <change>  (propose an edit; the user approves a diff)\n\
+             - run <shell command>    (run in the terminal; you get the output back)\n\
+             - search <query>\n\
+             Look at the HISTORY and decide the SINGLE next command. REACT to results: if a command \
+             failed or a test didn't pass, read the relevant file and edit it to fix the cause, then \
+             re-run. Don't repeat a step that already succeeded. When the goal is achieved (e.g. the \
+             tests pass) OR you can't make progress, set done=true and explain in summary. Reply with \
+             EXACTLY ONE JSON object: {{\"command\":\"<next command, or empty if done>\",\"done\":<true|false>,\"summary\":\"<short status>\"}}.\n\n\
+             GOAL: {goal}\n\n\
+             HISTORY (oldest first):\n{hist}"
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "command": { "type": "string" },
+                "done": { "type": "boolean" },
+                "summary": { "type": "string" }
+            },
+            "required": ["command", "done", "summary"]
+        });
+        let raw = self.backend.complete(&prompt, Some(&schema))?;
+        let step: NextStep = serde_json::from_str(raw.trim())?;
+        Ok(step)
     }
 
     /// Plan a surgical edit to a file as search/replace pairs the frontend applies

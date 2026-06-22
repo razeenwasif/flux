@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Adaptive fix loop (#115)** — *"/fix &lt;goal&gt;"* (e.g. *"/fix make the tests in
+  src/foo.rs pass"*) runs an iterative agent loop: plan ONE step → run it → read the
+  result → re-plan, reacting to failures — run the tests, read the failure, edit a fix,
+  re-run — until the model says it's done/stuck or a 10-step cap. Each step routes
+  through the same tools, so edits/commands still ask for approval, and the step's
+  output (terminal text, edit status) is fed back into the next plan. (`agent_next_step`
+  / `plan_next_step` + `runAdaptiveTask`.)
 - **Multi-step chains (#115)** — chain Gemma's tools in one request: join steps with
   *"then"* / *"+"* (e.g. *"read src/foo.rs then fix the bug then run the tests"*, or
   *"play my liked songs + shuffle on"*). The request is decomposed into Flux-formatted

@@ -629,6 +629,17 @@ pub async fn agent_plan_steps(goal: String) -> Result<Vec<String>, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Adaptive goal loop: pick the next command given the goal + history of results so
+/// far (#115 follow-up — "run → read the failure → fix → re-run").
+#[tauri::command]
+pub async fn agent_next_step(goal: String, history: Vec<String>) -> Result<flux_agent::NextStep, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().plan_next_step(&goal, &history).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Plan a file edit (search/replace pairs) from a natural-language instruction. The
 /// frontend applies the edits, shows a diff, and writes only after the user approves.
 #[tauri::command]
