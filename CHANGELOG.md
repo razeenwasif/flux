@@ -7,6 +7,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Changed
+- **Terminal renders TUIs much better** — the terminal now uses a **GPU renderer**
+  (`@xterm/addon-webgl`, like Windows Terminal / VS Code) for crisp glyphs and smooth
+  scrolling, falling back to the DOM renderer if WebGL is unavailable; and `lineHeight`
+  is 1.0 so box-drawing frames (btop, vim, lazygit) connect without gaps. With the
+  bundled Nerd Font (#76), most TUIs now look right.
+
 ### Internal
 - **flux-term grid: scrollback + reflow (#9)** — the (future) WGPU terminal renderer's
   grid now keeps scrolled-off rows in a bounded ring buffer and re-wraps content on
