@@ -24,6 +24,22 @@ pub struct LaunchIntent {
     pub terminal: bool,
 }
 
+/// Running under WSL? Then the GUI lives in the native Windows build (the
+/// Linux/WebKitGTK build is dev-only — it can't position per-tab webviews), so a
+/// `flux <url>` launched from a WSL shell should be forwarded to `flux.exe` rather
+/// than spawning a second, broken Linux window (#20).
+pub fn in_wsl() -> bool {
+    if std::env::var_os("WSL_DISTRO_NAME").is_some() {
+        return true;
+    }
+    std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|s| {
+            let s = s.to_ascii_lowercase();
+            s.contains("microsoft") || s.contains("wsl")
+        })
+        .unwrap_or(false)
+}
+
 /// Parse argv. `Err` carries text to print (help/version/usage error) — the
 /// caller decides the exit code, keeping this function trivially testable.
 pub fn parse(args: impl Iterator<Item = String>) -> Result<LaunchIntent, (String, i32)> {
