@@ -13,9 +13,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   button on each boost to tweak its CSS inline, and an **All sites** view that lists and
   manages every boost across hosts (toggle / edit / delete). Still CSS-only by design
   (raw JS isn't exposed).
-- **Start page: show/hide widgets (#71)** — a **⚙** in the top corner opens a checklist
-  to hide widgets you don't use (Recent, Shortcuts, Top sites, Headlines, Scratchpad,
-  Calendar, Tasks, Quick actions); persisted locally. The clock/search hero always stays.
+- **Start page: customize widgets (#71)** — a **⚙** in the top corner opens a checklist
+  to **show/hide** widgets you don't use (Recent, Shortcuts, Top sites, Headlines,
+  Scratchpad, Calendar, Tasks, Quick actions) and **↑/↓ reorder** them; both persisted
+  locally (applied via CSS `order`, which the card grid honours). The clock/search hero
+  always stays first.
 - **Single-instance launch (#20)** — a second `flux <url>` (or a link opened from the
   OS) now adds tabs to the **already-running** Flux window and focuses it, instead of
   spawning a whole second process. Reuses the same argv parser as cold launch (so

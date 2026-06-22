@@ -123,6 +123,29 @@ const StartPage: Component<{
     localStorage.setItem("flux.start.hidden", JSON.stringify(next));
   };
   const [customizing, setCustomizing] = createSignal(false);
+  // Widget order (#71) — persisted key order; merged with WIDGETS so new widgets are
+  // appended and removed ones dropped. Applied via CSS `order` (the grid honours it);
+  // the clock/hero stays first (order 0, since widget orders are 1-based).
+  const readOrder = (): string[] => {
+    let saved: string[] = [];
+    try { saved = JSON.parse(localStorage.getItem("flux.start.order") || "[]"); } catch { saved = []; }
+    const keys = WIDGETS.map((w) => w.key);
+    const ordered = saved.filter((k) => keys.includes(k));
+    for (const k of keys) if (!ordered.includes(k)) ordered.push(k);
+    return ordered;
+  };
+  const [widgetOrder, setWidgetOrder] = createSignal<string[]>(readOrder());
+  const orderOf = (k: string) => widgetOrder().indexOf(k) + 1;
+  const orderedWidgets = () => widgetOrder().map((k) => WIDGETS.find((w) => w.key === k)).filter((w): w is { key: string; label: string } => !!w);
+  const moveWidget = (k: string, dir: -1 | 1) => {
+    const arr = [...widgetOrder()];
+    const i = arr.indexOf(k);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+    setWidgetOrder(arr);
+    localStorage.setItem("flux.start.order", JSON.stringify(arr));
+  };
   const [selectedCalDate, setSelectedCalDate] = createSignal<string | null>(null);
   const [todos, setTodos] = createSignal<Todo[]>([]);
   const [newTodo, setNewTodo] = createSignal("");
@@ -349,13 +372,15 @@ const StartPage: Component<{
       <Show when={customizing()}>
         <div class="shield-backdrop" onClick={() => setCustomizing(false)} />
         <div class="glass popover start-customize-pop">
-          <div class="ctx-label">Widgets</div>
-          <For each={WIDGETS}>
-            {(w) => (
-              <label class="start-customize-row">
+          <div class="ctx-label">Widgets — toggle to show/hide, ↑↓ to reorder</div>
+          <For each={orderedWidgets()}>
+            {(w, i) => (
+              <div class="start-customize-row">
                 <input type="checkbox" checked={widgetOn(w.key)} onChange={() => toggleWidget(w.key)} />
-                <span>{w.label}</span>
-              </label>
+                <span class="start-customize-name">{w.label}</span>
+                <button class="start-customize-move" disabled={i() === 0} title="Move up" onClick={() => moveWidget(w.key, -1)}>↑</button>
+                <button class="start-customize-move" disabled={i() === orderedWidgets().length - 1} title="Move down" onClick={() => moveWidget(w.key, 1)}>↓</button>
+              </div>
             )}
           </For>
         </div>
@@ -401,7 +426,7 @@ const StartPage: Component<{
         </div>
 
         {/* Recent tabs */}
-        <div class="glass start-card" style={{ display: widgetOn("recent") ? undefined : "none" }}>
+        <div class="glass start-card" style={{ display: widgetOn("recent") ? undefined : "none", order: orderOf("recent") }}>
           <div class="start-card-title">
             Recent
             <button class="start-card-link" title="Expand recent tabs" onClick={() => setExpandedWidget("recent")}>⤢ Expand</button>
@@ -424,7 +449,7 @@ const StartPage: Component<{
         </div>
 
         {/* Editable speed dial */}
-        <div class="glass start-card" style={{ display: widgetOn("shortcuts") ? undefined : "none" }}>
+        <div class="glass start-card" style={{ display: widgetOn("shortcuts") ? undefined : "none", order: orderOf("shortcuts") }}>
           <div class="start-card-title">
             Shortcuts
             <button class="start-card-link" title="Expand shortcuts" onClick={() => setExpandedWidget("shortcuts")}>⤢ Expand</button>
@@ -448,7 +473,7 @@ const StartPage: Component<{
 
         {/* Top sites */}
         <Show when={widgetOn("topsites") && topSites().length > 0}>
-          <div class="glass start-card">
+          <div class="glass start-card" style={{ order: orderOf("topsites") }}>
             <div class="start-card-title">
               Top sites
               <button class="start-card-link" title="Expand top sites" onClick={() => setExpandedWidget("topSites")}>⤢ Expand</button>
@@ -473,7 +498,7 @@ const StartPage: Component<{
         </Show>
 
         {/* Feed headlines (#72) */}
-        <div class="glass start-card" style={{ display: widgetOn("headlines") ? undefined : "none" }}>
+        <div class="glass start-card" style={{ display: widgetOn("headlines") ? undefined : "none", order: orderOf("headlines") }}>
           <div class="start-card-title">
             Headlines
             <span class="start-card-actions">
@@ -499,7 +524,7 @@ const StartPage: Component<{
         </div>
 
         {/* Scratchpad */}
-        <div class="glass start-card" style={{ display: widgetOn("scratchpad") ? undefined : "none" }}>
+        <div class="glass start-card" style={{ display: widgetOn("scratchpad") ? undefined : "none", order: orderOf("scratchpad") }}>
           <div class="start-card-title">
             Scratchpad
             <button class="start-card-link" title="Expand scratchpad" onClick={() => setExpandedWidget("scratch")}>⤢ Expand</button>
@@ -514,7 +539,7 @@ const StartPage: Component<{
         </div>
 
         {/* Calendar (Google via ICS, #114) + world clocks */}
-        <div class="glass start-card" style={{ display: widgetOn("calendar") ? undefined : "none" }}>
+        <div class="glass start-card" style={{ display: widgetOn("calendar") ? undefined : "none", order: orderOf("calendar") }}>
           <div class="start-card-title">
             {monthLabel()}
             <span class="start-card-actions">
@@ -569,7 +594,7 @@ const StartPage: Component<{
         </div>
 
         {/* Tasks (#114) — local, on-device */}
-        <div class="glass start-card" style={{ display: widgetOn("tasks") ? undefined : "none" }}>
+        <div class="glass start-card" style={{ display: widgetOn("tasks") ? undefined : "none", order: orderOf("tasks") }}>
           <div class="start-card-title">
             Tasks
             <span class="start-card-actions">
@@ -608,7 +633,7 @@ const StartPage: Component<{
         </div>
 
         {/* Quick actions */}
-        <div class="glass start-card" style={{ display: widgetOn("actions") ? undefined : "none" }}>
+        <div class="glass start-card" style={{ display: widgetOn("actions") ? undefined : "none", order: orderOf("actions") }}>
           <div class="start-card-title">
             Quick actions
             <button class="start-card-link" title="Expand quick actions" onClick={() => setExpandedWidget("actions")}>⤢ Expand</button>

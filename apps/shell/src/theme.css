@@ -1043,8 +1043,12 @@ body.resizing, body.busy { --glass-blur: none; }
 .start-customize { position: absolute; top: 14px; right: 16px; z-index: 3; width: 32px; height: 32px; border-radius: 9px; border: none; background: var(--glass-fill, rgba(26,22,64,0.6)); color: var(--flux-text-dim); font-size: 15px; cursor: pointer; }
 .start-customize:hover { color: var(--flux-text); }
 .start-customize-pop { position: absolute; top: 50px; right: 16px; z-index: 4; min-width: 180px; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
-.start-customize-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; font-size: 13px; color: var(--flux-text); cursor: pointer; }
+.start-customize-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; font-size: 13px; color: var(--flux-text); }
 .start-customize-row:hover { background: var(--flux-surface-2); }
+.start-customize-name { flex: 1; min-width: 0; }
+.start-customize-move { width: 22px; height: 22px; flex: none; border: none; border-radius: 6px; background: none; color: var(--flux-text-dim); cursor: pointer; font-size: 12px; }
+.start-customize-move:hover:not(:disabled) { background: var(--flux-surface); color: var(--flux-text); }
+.start-customize-move:disabled { opacity: 0.3; cursor: default; }
 
 .start {
   position: relative;
