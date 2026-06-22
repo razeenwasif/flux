@@ -22,6 +22,7 @@ import {
   type Component,
   type JSX,
 } from "solid-js";
+import { Portal } from "solid-js/web";
 import {
   fsCopy,
   fsCreateDir,
@@ -754,7 +755,9 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
       {/* Context menu */}
       <Show when={menu()}>
         {(m) => (
-          <>
+          // Portal to <body>: the content card's backdrop-filter is a containing block
+          // for position:fixed, which would otherwise offset/clip this menu off-screen.
+          <Portal>
             <div class="files-menu-backdrop" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
             <div class="files-menu" style={menuStyle(m())}>
               <For each={menuItems()}>
@@ -770,7 +773,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                 }
               </For>
             </div>
-          </>
+          </Portal>
         )}
       </Show>
 

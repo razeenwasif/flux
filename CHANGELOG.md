@@ -112,6 +112,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **File-explorer right-click menu didn't appear** — the context menu used
+  `position: fixed`, but it renders inside the glass content card whose
+  `backdrop-filter` is a containing block for fixed elements, so the menu landed
+  off-screen (it had always been broken; surfaced by the new "Open terminal here"
+  item). Now portalled to `<body>` like the agent menus.
 - **Gemma's chat replies cut off** — free-text chat was capped at a flat 1024 output
   tokens, so longer answers stopped partway (you had to say "keep going"). The default
   is now **2048** (up from 1024). NB: it is *not* `-1` — some Ollama/llama.cpp builds
