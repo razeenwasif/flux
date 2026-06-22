@@ -1189,14 +1189,28 @@ const AgentPanel: Component = () => {
     }
   };
 
+  // Split a request on explicit step connectors (" + ", " then ", " and then ", ";").
+  // `\s+\+\s+` (not bare "+") so "C++" / "a+b" aren't split.
+  const splitOnConnectors = (text: string): string[] =>
+    text
+      .split(/\s+(?:and\s+then|then|after\s+that)\s+|\s+\+\s+|\s*;\s*/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
   // Decide if `text` is a multi-step request and, if so, run it as a chain. Returns
   // true if it handled the message. Gated on a connector + a real first action so
   // single commands and chat fall through to normal routing.
   const maybeRunChain = async (text: string): Promise<boolean> => {
     if (taskRunning() || !CHAIN_CONNECTOR.test(text)) return false;
-    let steps: string[] = [];
-    setBusy(true);
-    try { steps = await agentPlanSteps(text); } catch { steps = []; } finally { setBusy(false); }
+    // Explicit connectors → split deterministically (no model round-trip, and it
+    // can't mis-decompose, e.g. "search rust async + remind me …" was getting
+    // swallowed whole by the search regex). Only ask the model when the literal
+    // split doesn't yield a clean multi-step request.
+    let steps = splitOnConnectors(text);
+    if (steps.length < 2 || !isActionStep(steps[0]!)) {
+      setBusy(true);
+      try { steps = await agentPlanSteps(text); } catch { steps = []; } finally { setBusy(false); }
+    }
     if (steps.length < 2 || !isActionStep(steps[0]!)) return false;
     await runChain(steps, text);
     return true;

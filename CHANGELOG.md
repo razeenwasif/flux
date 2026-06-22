@@ -17,9 +17,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   / `plan_next_step` + `runAdaptiveTask`.)
 - **Multi-step chains (#115)** — chain Gemma's tools in one request: join steps with
   *"then"* / *"+"* (e.g. *"read src/foo.rs then fix the bug then run the tests"*, or
-  *"play my liked songs + shuffle on"*). The request is decomposed into Flux-formatted
-  sub-commands (`agent_plan_steps`) and each is routed through the same tools as a typed
-  message, in order; edit/shell steps still show their approval card and the chain
+  *"play my liked songs + shuffle on"*). Explicit connectors are split directly (so
+  *"search rust async + remind me to read it tonight"* reliably becomes two steps
+  instead of being searched whole); only implicit phrasing falls back to the model
+  (`agent_plan_steps`). Each step is routed through the same tools as a typed message,
+  in order; edit/shell steps still show their approval card and the chain
   pauses there until you Apply/Run (continue) or Cancel (abort the rest). Works typed or
   by voice. Only fires on a connector + a real first action, so single commands and chat
   fall straight through.
