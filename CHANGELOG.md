@@ -34,6 +34,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Voice commands ignored after the wake ack** — `voiceRespond` bailed on `working()`,
+  which includes `listening()` — and the voice pipeline sets `listening()` true *while
+  handling the command*, so every spoken command rejected itself (and before the
+  `ttsSpeaking` fix it threw outright). Now it only bails on a real in-flight request.
+- **Gemma never reported terminal output** — the read-back baseline used the xterm
+  buffer *length*, but on a fresh terminal the prompt is near the top with empty rows
+  below, so it read below the output and saw nothing. Baseline is now the cursor row
+  (`baseY + cursorY`), so the command's echo + output are captured and reported back.
+- **TTS cut off at `<`** — many TTS backends parse `<…>` as SSML and stop speaking at
+  the `<` (e.g. "volatile `<dtype>`" stopped after "volatile"). `cleanForSpeech` now
+  drops angle brackets so the whole line is read.
+- **Empty chat replies ("(no response)")** — small local models sometimes return
+  nothing on a terse, symbol-heavy prompt under the big system preamble; chat now
+  retries once with the bare question before giving up.
 - **Chrome vanishing after fullscreen video** — exiting an HTML5 video fullscreen left
   the native page webview oversized, covering the bookmark bar / sidebar footer: on
   exit wry restores the webview to fill the parent window (Flux tiles bounds itself),

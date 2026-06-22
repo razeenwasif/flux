@@ -52,7 +52,7 @@ import { activeId, activeWorkspace, agentModelName, filesPanelOpen, fluxStateSna
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 import { micConstraints } from "./mic";
-import { activeTerminalText, activeTerminalLineCount, activeTerminalLinesFrom, runInActiveTerminal } from "./terminals";
+import { activeTerminalText, activeTerminalCursorLine, activeTerminalLinesFrom, runInActiveTerminal } from "./terminals";
 import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
@@ -464,9 +464,9 @@ const AgentPanel: Component = () => {
       let block: string | null = null;
       try { block = await shellGuard(cmd); } catch { block = null; }
       if (block) { setFeed((f) => [...f, { role: "error", text: block! }]); return; }
-      // Baseline BEFORE running so we read only this command's new output. -1 to
-      // include the prompt line the command echoes onto.
-      const baseline = Math.max(0, activeTerminalLineCount() - 1);
+      // Baseline = the prompt's cursor row BEFORE running, so we read exactly this
+      // command's echo + output (and nothing above it).
+      const baseline = activeTerminalCursorLine();
       const session = await runInActiveTerminal(cmd);
       if (session == null) {
         // Couldn't bring a terminal up — fall back to a headless run so the command
@@ -806,7 +806,10 @@ const AgentPanel: Component = () => {
   // return the reply text for the conductor to speak.
   const voiceRespond = async (transcript: string): Promise<string> => {
     const t = transcript.trim();
-    if (!t || working() || taskRunning()) return "";
+    // NB: don't gate on working() here — it includes listening()/speaking(), which
+    // the voice pipeline sets true *while handling this very command*, so it would
+    // reject every spoken command. Only bail if a real request/task is in flight.
+    if (!t || busy() || taskRunning()) return "";
     setFeed((f) => [...f, { role: "user", text: t }]);
     // Strip the wake word AND polite lead-ins ("can you", "please", "I want you
     // to", …) so spoken intents like "hey gemma, can you remind me to …" still
@@ -849,6 +852,8 @@ const AgentPanel: Component = () => {
     setBusy(true);
     try {
       await agentChatStream(cp, append);
+      // Retry once with the bare question if the model returned nothing (see send()).
+      if (!acc.trim()) await agentChatStream(t, append);
     } catch (e) {
       acc = String(e);
       setFeed((f) => f.map((it, i) => (i === idx ? { ...it, role: "error", text: acc } : it)));
@@ -979,6 +984,11 @@ const AgentPanel: Component = () => {
         if (scope() === "tabs") await agentChatTabsStream(cp, browserTabIds(), append);
         else await agentChatStream(cp, append);
         if (gen !== replyGen) return; // stopped mid-stream — don't finalize/speak
+        // Small local models sometimes return nothing on a terse, symbol-heavy
+        // prompt buried under the big system preamble. Give it one clean shot with
+        // just the bare question before giving up.
+        if (!acc.trim()) await agentChatStream(p, append);
+        if (gen !== replyGen) return;
         const text = acc.trim() || "(no response)";
         setFeed((f) =>
           f.map((it, i) => (i === idx ? { ...it, text } : it)),

@@ -47,11 +47,15 @@ export function activeTerminalText(maxLines = 400): { session: number; text: str
   return { session, text: lines.join("\n") };
 }
 
-/** Absolute scrollback line count — a baseline to read only a command's new output. */
-export function activeTerminalLineCount(): number {
+/** Absolute buffer row of the cursor (where the prompt sits) — the baseline to read
+ *  only a command's new output. NOT buffer length: on a fresh terminal the prompt is
+ *  near the top with empty rows below, so length-1 points below the output. */
+export function activeTerminalCursorLine(): number {
   const s = targetSession();
   const term = s != null ? registry.get(s) : null;
-  return term ? term.buffer.active.length : 0;
+  if (!term) return 0;
+  const buf = term.buffer.active;
+  return buf.baseY + buf.cursorY;
 }
 
 /** Active terminal's lines from `startLine` to the end (capped, trailing blanks trimmed). */

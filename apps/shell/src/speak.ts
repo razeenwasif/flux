@@ -69,6 +69,10 @@ let currentContext: AudioContext | null = null;
 export function cleanForSpeech(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, " code block ")
+    // Angle brackets first: many TTS backends parse `<…>` as SSML/markup and stop
+    // speaking at the `<` (e.g. "volatile <dtype>" cut off after "volatile"). Drop
+    // them so the rest of the line still gets read.
+    .replace(/[<>]/g, " ")
     .replace(/[*_`#>]+/g, "")
     .replace(/\[(.*?)\]\(.*?\)/g, "$1")
     .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, "")
