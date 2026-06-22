@@ -20,7 +20,7 @@ import { createSignal } from "solid-js";
 
 import { sttWhisper, voiceTranscribe, wakeTranscribe } from "./ipc";
 import { pushAudio as pushPorcupine, startPorcupine, stopPorcupine } from "./porcupine";
-import { micConstraints } from "./mic";
+import { micConstraints, micDeviceId, setMicDeviceId } from "./mic";
 import { speak, speaking as ttsSpeaking, stopSpeaking } from "./speak";
 
 const ENABLED_KEY = "flux.voice.heygemma";
@@ -253,15 +253,41 @@ async function handleUtterance(chunks: Float32Array[]) {
   }
 }
 
+/** Map a getUserMedia failure to a short, actionable reason. */
+function micErrorText(e: unknown): string {
+  const name = (e as { name?: string })?.name || "";
+  if (name === "NotAllowedError" || name === "SecurityError") return "mic permission denied — allow it in Windows/site settings";
+  if (name === "NotFoundError" || name === "OverconstrainedError") return "no microphone found";
+  if (name === "NotReadableError") return "mic is busy — another app may be using it";
+  return "couldn't start the microphone";
+}
+
 export async function startConversation(): Promise<boolean> {
   if (running) return true;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setVoiceStatus("no microphone access");
+    return false;
+  }
   try {
     // Honors the chosen mic + noise-suppression setting (Settings → Integrations);
     // echo cancellation on so barge-in doesn't hear Gemma's own voice.
     stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
-  } catch {
-    setVoiceStatus("mic denied");
-    return false;
+  } catch (e) {
+    // A selected mic that's since been unplugged/changed fails the exact-deviceId
+    // constraint — drop the dead selection and retry with the default device before
+    // giving up (this is the usual "clicking does nothing" cause).
+    if (micDeviceId()) {
+      setMicDeviceId("");
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
+      } catch (e2) {
+        setVoiceStatus(micErrorText(e2));
+        return false;
+      }
+    } else {
+      setVoiceStatus(micErrorText(e));
+      return false;
+    }
   }
   ctx = new AudioContext();
   rate = ctx.sampleRate;
@@ -298,13 +324,14 @@ export function stopConversation(): void {
 }
 
 /** Toggle the feature (persisted). Starts/stops the mic loop. */
-export async function setHeyGemmaEnabled(on: boolean): Promise<void> {
+export async function setHeyGemmaEnabled(on: boolean): Promise<boolean> {
   localStorage.setItem(ENABLED_KEY, on ? "1" : "0");
   setEnabledSig(on);
   if (on) {
     const ok = await startConversation();
     if (!ok) { setEnabledSig(false); localStorage.setItem(ENABLED_KEY, "0"); }
-  } else {
-    stopConversation();
+    return ok;
   }
+  stopConversation();
+  return true;
 }

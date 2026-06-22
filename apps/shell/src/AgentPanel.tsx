@@ -1330,7 +1330,11 @@ const AgentPanel: Component = () => {
             title={micLive() ? `Hey Gemma is on — ${voiceStatus()}` : "Turn on “Hey Gemma” always-on voice"}
             aria-label="Toggle Hey Gemma voice"
             style={{ "margin-left": "auto" }}
-            onClick={() => void setHeyGemmaEnabled(!heyGemmaEnabled())}
+            onClick={async () => {
+              const turningOn = !heyGemmaEnabled();
+              const ok = await setHeyGemmaEnabled(turningOn);
+              if (turningOn && !ok) setFeed((f) => [...f, { role: "error", text: `🎤 Couldn't start always-on voice — ${voiceStatus() || "microphone unavailable"}.` }]);
+            }}
           >
             <Show when={micLive()} fallback="🎙">
               <span class="agent-voice-dot" /> {listening() ? "●" : "🎙"}

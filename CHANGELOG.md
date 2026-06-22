@@ -121,6 +121,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Always-on voice wouldn't turn on (clicking did nothing)** — if your previously
+  selected microphone was unplugged/changed, the `deviceId: { exact }` constraint made
+  `getUserMedia` throw, so the toggle silently reverted. It now **falls back to the
+  default mic** (dropping the dead selection) and **surfaces the real reason** (mic
+  permission denied / no mic / mic busy) in the agent panel instead of failing quietly.
 - **File-explorer right-click menu didn't appear** — the context menu used
   `position: fixed`, but it renders inside the glass content card whose
   `backdrop-filter` is a containing block for fixed elements, so the menu landed
