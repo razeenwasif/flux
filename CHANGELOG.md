@@ -7,6 +7,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Multi-step chains (#115)** — chain Gemma's tools in one request: join steps with
+  *"then"* / *"+"* (e.g. *"read src/foo.rs then fix the bug then run the tests"*, or
+  *"play my liked songs + shuffle on"*). The request is decomposed into Flux-formatted
+  sub-commands (`agent_plan_steps`) and each is routed through the same tools as a typed
+  message, in order; edit/shell steps still show their approval card and the chain
+  pauses there until you Apply/Run (continue) or Cancel (abort the rest). Works typed or
+  by voice. Only fires on a connector + a real first action, so single commands and chat
+  fall straight through.
+
 ### Performance
 - **Idle polling pauses when hidden** — the panel refresh timers (downloads, shields,
   boosts, passwords, macros, tasks, resources, vault, omni dashboard, settings RAM

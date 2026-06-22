@@ -35,6 +35,7 @@ import {
   spotifyPlayPlaylist,
   spotifyLaunch,
   agentPlan,
+  agentPlanSteps,
   agentRunAction,
   agentTaskStep,
   agentLens,
@@ -122,6 +123,12 @@ const AgentPanel: Component = () => {
   const [taskAuto, setTaskAuto] = createSignal(false);
   const [taskStep, setTaskStep] = createSignal<{ action: AgentAction; n: number } | null>(null);
   let stepResolver: ((d: "approve" | "skip" | "stop") => void) | null = null;
+  // Multi-step chain (#115): when a chain step needs an approval card (edit / shell),
+  // this resolver is set so the chain waits for the user's Apply/Run (true) or
+  // Cancel (false) before moving to the next step. The existing approve/cancel
+  // handlers resolve it.
+  let chainGate: ((ok: boolean) => void) | null = null;
+  const resolveChainGate = (ok: boolean) => { const g = chainGate; chainGate = null; g?.(ok); };
   // Model picker (#81): the dropdown of locally-pulled Ollama models.
   const [models, setModels] = createSignal<string[]>([]);
   const [modelMenu, setModelMenu] = createSignal(false);
@@ -477,14 +484,18 @@ const AgentPanel: Component = () => {
       }
       const out = (await readBackTerminal(baseline)).trim();
       setFeed((f) => [...f, { role: "assistant", text: out ? `Terminal output:\n${out}` : "(ran in your terminal — no output captured; check the terminal)" }]);
+      resolveChainGate(true);
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
+      resolveChainGate(false);
     } finally {
       setBusy(false);
     }
   };
-  const cancelShell = (idx: number) =>
+  const cancelShell = (idx: number) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)));
+    resolveChainGate(false);
+  };
 
   // Natural-language → command. When a message reads like a request about the
   // user's machine/files (not just any "list"/"show"), ask the model to translate
@@ -525,6 +536,7 @@ const AgentPanel: Component = () => {
     "- Web search: \"search <x>\" / \"open a new tab and search <x>\".\n" +
     "- Music (AudioPulse/Spotify): \"play <song>\", \"play my liked songs\", \"shuffle on\", \"skip\", \"pause\", \"launch spotify\".\n" +
     "- Page actions: \"/act <do something on this page>\" (one step) or \"/task <multi-step goal>\" (you plan steps the user approves). You can also chat grounded in the current page or all open tabs.\n" +
+    "- Chain several of the above in one request: join steps with \"then\" / \"+\" — e.g. \"read src/foo.rs then fix the bug then run the tests\" or \"play my liked songs + shuffle on\". Each step runs in order; edits/commands still ask for approval.\n" +
     "- Voice: always-on \"Hey Gemma\" + push-to-talk; the user can interrupt you by talking or the Stop button.\n" +
     "When asked what you can do, summarize the above. Don't claim abilities not listed.";
 
@@ -640,12 +652,16 @@ const AgentPanel: Component = () => {
       await writeTextFile(path, content);
       setCtxFiles((c) => c.map((f) => (f.path === path ? { ...f, content } : f)));
       setFeed((f) => [...f, { role: "action", text: `✓ Wrote ${path.split(/[/\\]/).pop()}.` }]);
+      resolveChainGate(true);
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
+      resolveChainGate(false);
     }
   };
-  const cancelEdit = (idx: number) =>
+  const cancelEdit = (idx: number) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)));
+    resolveChainGate(false);
+  };
 
   // "read the terminal" → pull the active terminal's scrollback into context.
   const TERM_RE = /^(?:read|look at|show me|check|grab|capture|see)\s+(?:the\s+|my\s+)?terminal(?:\s+(?:output|buffer|scrollback|window))?\s*$|^what(?:'?s| does| is)?\s*(?:in|on)?\s*(?:the\s+|my\s+)?terminal(?:\s+say(?:ing)?)?\s*\??$|^terminal\s+(?:output|contents?)\s*$/i;
@@ -820,6 +836,8 @@ const AgentPanel: Component = () => {
       .replace(/^(?:please|kindly|hey|ok|okay)\s+/i, "")
       .replace(/^i(?:'?d| would)?\s+(?:like|want|need)\s+(?:you\s+)?to\s+/i, "")
       .trim();
+    // Multi-step chain (#115) — "play my liked songs + shuffle on", etc.
+    if (await maybeRunChain(stripped)) return "Okay, done.";
     const sh = stripped.match(SHELL_RE);
     if (sh?.[1]) return await runShellCmd(sh[1]);
     const musicReply = await handleMusic(t);
@@ -923,6 +941,10 @@ const AgentPanel: Component = () => {
         .replace(/^(?:please|kindly)\s+/i, "")
         .replace(/^i(?:'?d| would)?\s+(?:like|want|need)\s+(?:you\s+)?to\s+/i, "")
         .trim();
+      // Multi-step chain (#115) — "read foo.rs, fix the bug, then run the tests" →
+      // decompose + run each step. Only fires on a connector + a real first action,
+      // so single commands and chat fall straight through.
+      if (await maybeRunChain(pc)) return;
       // Shell command — "run …" / "execute …" / "/run …" (rm + destructive blocked).
       const shell = pc.match(SHELL_RE);
       if (shell?.[1]) { await runShellCmd(shell[1].trim()); return; }
@@ -1032,6 +1054,102 @@ const AgentPanel: Component = () => {
     stepResolver = null;
     setTaskStep(null);
     r?.(d);
+  };
+
+  // ── Multi-step chains (#115) ────────────────────────────────────────────────
+  // A compound request ("read foo.rs, fix the bug, then run the tests"; "play my
+  // liked songs + shuffle on") is decomposed into Flux-formatted sub-commands and
+  // each is routed through the same tools as a typed message. Side-effecting steps
+  // (edit / shell) surface their normal approval card; the chain pauses there until
+  // you Apply/Run (continue) or Cancel (abort the rest).
+
+  // Strong multi-step connectors — used to decide whether to even try decomposing,
+  // so ordinary single commands and chat questions aren't taxed with a round-trip.
+  const CHAIN_CONNECTOR = /(?:^|\s)(?:and\s+then|then|after\s+that)\s|\s\+\s|\s*;\s*\S/i;
+  // Does a step look like a concrete action (vs. plain chat)? Guards the trigger so a
+  // chatty "what's X and then Y" doesn't get treated as a chain.
+  const isActionStep = (s: string): boolean =>
+    SHELL_RE.test(s) || EDIT_RE.test(s) || EDIT_IT_RE.test(s) || SEARCH_RE.test(s) ||
+    FILE_RE.test(s) || TERM_RE.test(s) || REMEMBER_RE.test(s) || REMIND_RE.test(s) ||
+    SYS_RE.test(s) || /^(?:play|pause|skip|resume|shuffle|launch|open)\b/i.test(s);
+
+  // If the previous step pushed an approval card, block until the user resolves it.
+  const awaitChainApproval = async (): Promise<boolean> => {
+    const last = feed()[feed().length - 1];
+    if (last?.pending && (last.role === "edit" || last.role === "shell")) {
+      return await new Promise<boolean>((res) => { chainGate = res; });
+    }
+    return true; // nothing to approve (e.g. the edit couldn't be drafted) — carry on
+  };
+
+  // Route one chain step to the matching tool. Returns false to abort the chain
+  // (the user cancelled an approval). Mirrors send()'s tool order, minus page actions.
+  const routeChainStep = async (raw: string): Promise<boolean> => {
+    const pc = raw.trim()
+      .replace(/^\/?(?:hey\s+)?gemma[,:\s]+/i, "")
+      .replace(/^(?:can|could|would|will)\s+you\s+/i, "")
+      .replace(/^(?:please|kindly)\s+/i, "")
+      .trim();
+    if (!pc) return true;
+    const shell = pc.match(SHELL_RE);
+    if (shell?.[1]) { await runShellCmd(shell[1].trim()); return await awaitChainApproval(); }
+    if (await runMusic(raw)) return true;
+    const search = pc.match(SEARCH_RE);
+    if (search?.[1]) { await runSearch(search[1]); return true; }
+    { const me = pc.match(EDIT_RE); if (me?.[1] && me[2]) { await runEdit(me[1], me[2]); return await awaitChainApproval(); } }
+    { const mei = pc.match(EDIT_IT_RE); if (mei?.[1]) { const lf = lastCtxFile(); if (lf) { await runEdit(lf.path, mei[1]); return await awaitChainApproval(); } } }
+    if (TERM_RE.test(pc)) { runReadTerminal(); return true; }
+    const rf = pc.match(FILE_RE);
+    if (rf?.[1]) { await runReadFile(rf[1]); return true; }
+    const rem = pc.match(REMEMBER_RE);
+    if (rem?.[1]) { await runRemember(rem[1]); return true; }
+    const rmd = pc.match(REMIND_RE);
+    if (rmd?.[1]) { await runRemind(rmd[1]); return true; }
+    if (SYS_RE.test(pc)) { await runSysStats(); return true; }
+    const sp = await maybeShellPlan(raw);
+    if (sp !== null) return await awaitChainApproval();
+    // Anything else: answer it as chat, streamed into one bubble.
+    const idx = feed().length;
+    setFeed((f) => [...f, { role: "assistant", text: "" }]);
+    let acc = "";
+    setBusy(true);
+    try {
+      await agentChatStream(convoPrompt(raw), (c) => { acc += c; setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it))); });
+    } catch (e) {
+      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, role: "error", text: String(e) } : it)));
+    } finally { setBusy(false); }
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)));
+    return true;
+  };
+
+  const runChain = async (steps: string[], goal: string): Promise<void> => {
+    if (taskRunning()) return;
+    setTaskRunning(true);
+    setFeed((f) => [...f, { role: "task", text: `▶ ${steps.length} steps: ${steps.join(" → ")}` }]);
+    try {
+      for (let i = 0; i < steps.length; i++) {
+        setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}/${steps.length}: ${steps[i]}` }]);
+        const ok = await routeChainStep(steps[i]!);
+        if (!ok) { setFeed((f) => [...f, { role: "task", text: "⏹ Chain stopped (step cancelled)." }]); return; }
+      }
+      setFeed((f) => [...f, { role: "task", text: "✓ Chain complete." }]);
+    } finally {
+      chainGate = null;
+      setTaskRunning(false);
+    }
+  };
+
+  // Decide if `text` is a multi-step request and, if so, run it as a chain. Returns
+  // true if it handled the message. Gated on a connector + a real first action so
+  // single commands and chat fall through to normal routing.
+  const maybeRunChain = async (text: string): Promise<boolean> => {
+    if (taskRunning() || !CHAIN_CONNECTOR.test(text)) return false;
+    let steps: string[] = [];
+    setBusy(true);
+    try { steps = await agentPlanSteps(text); } catch { steps = []; } finally { setBusy(false); }
+    if (steps.length < 2 || !isActionStep(steps[0]!)) return false;
+    await runChain(steps, text);
+    return true;
   };
 
   const runTask = async (goal: string) => {

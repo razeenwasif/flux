@@ -617,6 +617,18 @@ pub async fn agent_shell_plan(prompt: String) -> Result<Option<String>, String> 
     .map_err(|e| e.to_string())?
 }
 
+/// Decompose a compound request into an ordered list of single-action sub-commands
+/// the frontend routes one at a time (#115 multi-step). One step back = a single
+/// action or a plain question.
+#[tauri::command]
+pub async fn agent_plan_steps(goal: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().plan_steps(&goal).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Plan a file edit (search/replace pairs) from a natural-language instruction. The
 /// frontend applies the edits, shows a diff, and writes only after the user approves.
 #[tauri::command]

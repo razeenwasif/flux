@@ -306,6 +306,8 @@ export const memoryWrite = (content: string) => invoke<void>("memory_write", { c
 export const memoryPath = () => invoke<string>("memory_path_str");
 /** Turn a natural request into a shell command (or null if it's conversational). */
 export const agentShellPlan = (prompt: string) => invoke<string | null>("agent_shell_plan", { prompt });
+/** Decompose a compound request into ordered single-action sub-commands (#115). */
+export const agentPlanSteps = (goal: string) => invoke<string[]>("agent_plan_steps", { goal });
 /** Store (or clear, with "") the Picovoice (Porcupine) access key in the keyring. */
 export const porcupineSetKey = (key: string) => invoke<void>("porcupine_set_key", { key });
 export const porcupineHasKey = () => invoke<boolean>("porcupine_has_key");

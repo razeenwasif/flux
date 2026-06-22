@@ -303,6 +303,53 @@ impl AgentPlanner {
         Ok(if cmd.is_empty() { None } else { Some(cmd) })
     }
 
+    /// Decompose a compound request ("read foo.rs, fix the bug, then run the tests";
+    /// "open Spotify + play my liked songs + shuffle on") into an ordered list of
+    /// single-action steps, each phrased the way Flux's own intents expect, so the
+    /// frontend can route them one at a time. A single action or a plain question
+    /// comes back as one step, unchanged.
+    pub fn plan_steps(&self, goal: &str) -> Result<Vec<String>, AgentError> {
+        let prompt = format!(
+            "Break the user's request into an ordered list of SINGLE-action steps for a \
+             browser assistant, each written as a short command. Use these forms when they fit:\n\
+             - read <path>              (pull a file into context)\n\
+             - edit <path>: <change>    (propose a file edit)\n\
+             - run <shell command>      (run in the terminal)\n\
+             - search <query>\n\
+             - play <song> / pause / skip / shuffle on    (music)\n\
+             - remind me to <x> [in/at <time>]\n\
+             - remember that <x>\n\
+             Keep each step to ONE action and preserve concrete names/paths from the request. \
+             Turn vague actions into the right form (\"fix the bug in foo.rs\" -> \"edit foo.rs: \
+             fix the bug\"). If the request is already a single action or just a question, return \
+             it as ONE step, verbatim. Reply with EXACTLY ONE JSON object.\n\
+             Examples:\n\
+             \"open spotify + play my liked songs + shuffle on\" -> {{\"steps\":[\"play my liked songs\",\"shuffle on\"]}}\n\
+             \"read src/foo.rs, fix the off-by-one, then run the tests\" -> {{\"steps\":[\"read src/foo.rs\",\"edit src/foo.rs: fix the off-by-one\",\"run the tests\"]}}\n\
+             \"what's the capital of France\" -> {{\"steps\":[\"what's the capital of France\"]}}\n\n\
+             REQUEST: {goal}"
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "steps": { "type": "array", "items": { "type": "string" } } },
+            "required": ["steps"]
+        });
+        let raw = self.backend.complete(&prompt, Some(&schema))?;
+        let v: serde_json::Value = serde_json::from_str(raw.trim())?;
+        let steps = v
+            .get("steps")
+            .and_then(|s| s.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Ok(steps)
+    }
+
     /// Plan a surgical edit to a file as search/replace pairs the frontend applies
     /// after the user approves a diff. The model copies exact snippets from the file,
     /// so we don't rely on it regenerating the whole thing (a small model would drop
