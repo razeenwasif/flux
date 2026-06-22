@@ -16,6 +16,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Bundled terminal font (#76)** — CaskaydiaCove (Cascadia Code) Nerd Font Mono is now
+  bundled (woff2, ~2.4 MB) and preferred by the terminal, so prompt/powerline/icon
+  glyphs render out of the box without installing a font. Falls back to installed
+  Nerd/programming fonts if you prefer them.
 - **Start page: Omni glance widget (#97)** — a card showing your local Omni index at a
   glance (pages indexed, vectors, embedder) with a one-tap link to the full dashboard.
   Toggle/reorder it like any widget.
@@ -108,12 +112,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
-- **Gemma's chat replies cut off mid-answer** — free-text chat was capped at a flat
-  1024 output tokens, so longer answers stopped partway (you had to say "keep going").
-  The cap is now `-1` by default — she generates until she's actually done, bounded by
-  the context window. `FLUX_OLLAMA_NUM_PREDICT` sets a positive cap if you want to bound
-  it; structured JSON replies keep their tight 512. (If very long answers still clip,
-  raise `FLUX_OLLAMA_NUM_CTX` above 4096 — costs a little RAM.)
+- **Gemma's chat replies cut off** — free-text chat was capped at a flat 1024 output
+  tokens, so longer answers stopped partway (you had to say "keep going"). The default
+  is now **2048** (up from 1024). NB: it is *not* `-1` — some Ollama/llama.cpp builds
+  treat `num_predict = -1` as a tiny value and cut off after a few words (the opposite
+  of "infinite"), so a generous positive is used. `FLUX_OLLAMA_NUM_PREDICT` overrides;
+  structured JSON replies keep their tight 512. (If long answers still clip, raise
+  `FLUX_OLLAMA_NUM_CTX` above 4096 — costs a little RAM.)
 - **Voice commands ignored after the wake ack** — `voiceRespond` bailed on `working()`,
   which includes `listening()` — and the voice pipeline sets `listening()` true *while
   handling the command*, so every spoken command rejected itself (and before the

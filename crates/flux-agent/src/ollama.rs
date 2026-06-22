@@ -133,13 +133,14 @@ fn num_ctx() -> u32 {
     std::env::var("FLUX_OLLAMA_NUM_CTX").ok().and_then(|s| s.parse().ok()).unwrap_or(4096)
 }
 
-/// Output-token cap for free-text chat. Default `-1` = generate until the model's
-/// natural stop (or the context window fills), so long answers don't get cut off
-/// mid-sentence (it was a flat 1024 cap). Bounded by `num_ctx`. Set
-/// `FLUX_OLLAMA_NUM_PREDICT` to a positive value to cap runaway generations.
-/// Structured (JSON-schema) replies keep a tight 512 — those are always short.
+/// Output-token cap for free-text chat. A generous **positive** default (2048, up
+/// from the old 1024) so long answers don't get cut off — but NOT `-1`: some Ollama/
+/// llama.cpp builds treat `num_predict = -1` as a tiny value and stop after a few
+/// words, the opposite of "infinite". Bounded by `num_ctx` regardless.
+/// `FLUX_OLLAMA_NUM_PREDICT` overrides (e.g. `-1` if your build handles it, or a
+/// smaller cap). Structured (JSON-schema) replies keep a tight 512 — always short.
 fn num_predict() -> i32 {
-    std::env::var("FLUX_OLLAMA_NUM_PREDICT").ok().and_then(|s| s.parse().ok()).unwrap_or(-1)
+    std::env::var("FLUX_OLLAMA_NUM_PREDICT").ok().and_then(|s| s.parse().ok()).unwrap_or(2048)
 }
 
 /// Extra Ollama `options` merged over the defaults, as a JSON object string in
@@ -302,7 +303,7 @@ mod tests {
         // Free-text chat no longer caps output at 1024 (the mid-sentence cut-off);
         // default -1 lets the model finish, bounded by num_ctx.
         let chat = generate_body("m", "explain in detail", None, true);
-        assert_eq!(chat["options"]["num_predict"], -1);
+        assert_eq!(chat["options"]["num_predict"], 2048);
         // Structured (JSON-schema) replies stay tightly bounded — they're short.
         let structured = generate_body("m", "act", Some(serde_json::json!({ "type": "object" })), false);
         assert_eq!(structured["options"]["num_predict"], 512);

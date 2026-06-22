@@ -15,6 +15,24 @@
                    and lift shadow.
    ════════════════════════════════════════════════════════════════════════ */
 
+/* Bundled Nerd Font (#76): CaskaydiaCove (Cascadia Code) Mono with Nerd-Font
+   glyphs, so terminal/prompt Private-Use-Area icons render without the user
+   installing a font. woff2 in public/fonts; the terminal's fontFamily prefers it. */
+@font-face {
+  font-family: "CaskaydiaCove NF";
+  src: url("/fonts/CaskaydiaCoveNerdFontMono-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "CaskaydiaCove NF";
+  src: url("/fonts/CaskaydiaCoveNerdFontMono-Bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* ── Velvet base (deep → near-black, royal-purple undertone) ── */
   --velvet-900: #07050f;   /* deepest, window corners */

@@ -81,7 +81,9 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
       // the platform monospace. (Bundling a Nerd Font for guaranteed icon
       // coverage is BACKLOG #76.)
       fontFamily:
-        '"JetBrains Mono", "FiraCode Nerd Font", "Hack Nerd Font", "Symbols Nerd Font", ' +
+        // Bundled CaskaydiaCove Nerd Font first (#76) — guarantees prompt/icon
+        // glyphs without a system install; then installed Nerd/programming fonts.
+        '"CaskaydiaCove NF", "JetBrains Mono", "FiraCode Nerd Font", "Hack Nerd Font", "Symbols Nerd Font", ' +
         '"DejaVu Sans Mono", "Noto Sans Mono", "Noto Color Emoji", "SF Mono", Menlo, ' +
         'Consolas, "Liberation Mono", monospace',
       fontSize: 13,
