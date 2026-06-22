@@ -4,7 +4,9 @@
  * and re-applied on every visit. A popover (not a page) so the active tab stays
  * the page the agent reads + boosts. CSS-only authoring (safe to inject).
  */
-import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, type Component } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import { boostAuthor, boostDelete, boostSetEnabled, boostsForHost, isStartUrl, type Boost } from "./ipc";
 import { activeTab } from "./store";
 
@@ -32,8 +34,7 @@ const Boosts: Component<{ initialOpen?: boolean }> = (props) => {
   createEffect(() => { if (open()) { host(); refresh(); } });
   createEffect(() => {
     if (!open()) return;
-    const t = window.setInterval(refresh, 2000);
-    onCleanup(() => clearInterval(t));
+    visibleInterval(refresh, 2000);
   });
 
   const apply = async () => {

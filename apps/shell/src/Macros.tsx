@@ -5,7 +5,9 @@
  * replay walks them back with waits. Best-effort (selectors drift on changed
  * pages) — the honest limit of record/replay.
  */
-import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, type Component } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import {
   macroCancelRecord,
   macroDelete,
@@ -33,10 +35,9 @@ const Macros: Component<{ initialOpen?: boolean }> = (props) => {
   };
   createEffect(() => {
     if (!open()) return;
-    refresh();
-    // Poll faster while recording so the live step count updates.
-    const t = window.setInterval(refresh, recording() ? 700 : 2000);
-    onCleanup(() => clearInterval(t));
+    // Poll faster while recording so the live step count updates (the effect
+    // re-runs when `recording()` flips, swapping the interval).
+    visibleInterval(refresh, recording() ? 700 : 2000);
   });
 
   const start = () => void macroStartRecord().then(() => { setName(""); refresh(); });

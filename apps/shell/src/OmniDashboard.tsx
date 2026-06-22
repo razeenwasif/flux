@@ -7,7 +7,9 @@
  * CSP blocks a direct fetch to `http://localhost:8080`). Clicking a site or a
  * ranked doc navigates this tab there.
  */
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import {
   omniIngestSetAuto,
   omniIngestStatus,
@@ -38,7 +40,6 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
   const [sites, setSites] = createSignal<OmniSite[]>(FALLBACK_SITES);
   const [error, setError] = createSignal<string | null>(null);
   const [autoIngest, setAutoIngest] = createSignal(false);
-  let timer: number | undefined;
 
   const toggleIngest = async () => {
     const next = !autoIngest();
@@ -60,12 +61,10 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
   };
 
   onMount(() => {
-    void tick();
     // Sites are static-ish — fetch once; keep the fallback if Omni is older / down.
     void omniSites().then((s) => { if (s.length) setSites(s); }).catch(() => {});
     void omniIngestStatus().then(setAutoIngest).catch(() => {});
-    timer = window.setInterval(() => void tick(), REFRESH_MS);
-    onCleanup(() => clearInterval(timer));
+    visibleInterval(() => void tick(), REFRESH_MS);
   });
 
   const cards = createMemo(() => {

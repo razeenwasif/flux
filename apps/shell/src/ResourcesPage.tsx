@@ -5,8 +5,9 @@
  * isn't cleanly attributable — this shows captured-DOM weight + live/sleeping
  * state, which is what's actionable here. Polls only while open.
  */
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
 import { memStatus, tabDomSizes, type MemInfo } from "./ipc";
+import { visibleInterval } from "./poll";
 import { activeId, activeWorkspace, isHibernated, tabs, updateTabTitle } from "./store";
 
 function hostOf(url: string): string | null {
@@ -25,9 +26,7 @@ const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackg
   onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Resources");
-    refresh();
-    const t = window.setInterval(refresh, 2500);
-    onCleanup(() => clearInterval(t));
+    visibleInterval(refresh, 2500);
   });
 
   // Browser tabs in the active workspace, heaviest first.

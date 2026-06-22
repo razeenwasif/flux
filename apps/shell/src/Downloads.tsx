@@ -5,6 +5,8 @@
  * downloads.rs; updates arrive over flux://download-updated.
  */
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import {
   downloadCancel,
   downloadOpen,
@@ -41,8 +43,7 @@ const Downloads: Component = () => {
   // bootstraps `active()` when a download starts.
   createEffect(() => {
     if (!open() && active() === 0) return;
-    const t = window.setInterval(refresh, 3000);
-    onCleanup(() => clearInterval(t));
+    visibleInterval(refresh, 3000);
   });
   const pct = (d: DownloadItem) => (d.total > 0 ? Math.min(100, Math.round((d.received / d.total) * 100)) : null);
 

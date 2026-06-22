@@ -8,6 +8,8 @@
  * actions; and a subtle flowing wave for the "flux" feel.
  */
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import {
   FEEDS_URL,
   HISTORY_URL,
@@ -122,8 +124,7 @@ const StartPage: Component<{
   };
 
   onMount(async () => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    onCleanup(() => clearInterval(timer));
+    visibleInterval(() => setNow(new Date()), 1000);
 
     try {
       const [def, engines] = await Promise.all([searchDefault(), searchEngines()]);

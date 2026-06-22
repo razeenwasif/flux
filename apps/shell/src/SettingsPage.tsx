@@ -6,7 +6,9 @@
  * localStorage) or behind flux-core commands — this page is just a tidy front end
  * over what already existed, plus the privacy controls that had no home here.
  */
-import { For, Show, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js";
+import { For, Show, createSignal, onMount, type Component, type JSX } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import {
   ARCHIVE_URL,
   BOOKMARKS_URL,
@@ -326,9 +328,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     void trackingStatus().then(setTracking).catch(() => {});
     void permissionsStatus().then(setBlockPerms).catch(() => {});
     const pollMem = () => void memStatus().then(setMem).catch(() => {});
-    pollMem();
-    const t = window.setInterval(pollMem, 3000);
-    onCleanup(() => window.clearInterval(t));
+    visibleInterval(pollMem, 3000);
   });
 
   const pickEngine = (id: string) => { setDefaultEngine(id); void searchSetDefault(id).catch(() => {}); };

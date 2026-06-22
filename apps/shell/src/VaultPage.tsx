@@ -8,6 +8,8 @@
  * (`vault_reveal`), never listed in bulk to the chrome.
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import {
   vaultAdd,
   vaultDisableMasterPassword,
@@ -69,11 +71,10 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   onMount(async () => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Passwords");
-    refresh();
-    const t = window.setInterval(refresh, 4000);
+    visibleInterval(refresh, 4000);
     const unLocked = await onVaultLocked(() => { setPw(null); refresh(); });
     const unReady = await onVaultReady(() => refresh());
-    onCleanup(() => { clearInterval(t); unLocked(); unReady(); });
+    onCleanup(() => { unLocked(); unReady(); });
   });
 
   const filtered = createMemo(() => {

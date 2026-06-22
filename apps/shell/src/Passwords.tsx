@@ -5,6 +5,8 @@
  * the full-page manager (flux://passwords) for browsing/editing everything.
  */
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import {
   VAULT_URL,
   onVaultLocked,
@@ -55,9 +57,7 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
   // timer). The locked-state badge stays fresh via the onVaultLocked event.
   createEffect(() => {
     if (!open()) return;
-    refresh();
-    const t = window.setInterval(refresh, 2500);
-    onCleanup(() => clearInterval(t));
+    visibleInterval(refresh, 2500);
   });
 
   const fill = (c: CredentialMeta) => {

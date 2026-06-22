@@ -3,7 +3,9 @@
  * live blocked-count badge; clicking opens a popover to toggle blocking globally
  * or for the current site, and to refresh the filter lists.
  */
-import { Show, createEffect, createSignal, onCleanup, type Component } from "solid-js";
+import { Show, createEffect, createSignal, type Component } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import {
   cookiesClearAll,
   cookiesClearSite,
@@ -73,9 +75,7 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
   });
   createEffect(() => {
     if (!open()) return;
-    poll();
-    const t = window.setInterval(poll, 2000);
-    onCleanup(() => clearInterval(t));
+    visibleInterval(poll, 2000);
   });
   const siteOn = () => {
     const h = host();

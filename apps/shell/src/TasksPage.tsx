@@ -5,7 +5,9 @@
  * flagged. DOM-rendered, polls only while open. CPU% is summed across cores and
  * reads 0 on the first poll (sysinfo needs two samples for a delta).
  */
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
+
+import { visibleInterval } from "./poll";
 import { tasksKill, tasksList, tasksStats, type ProcInfo, type SysStats } from "./ipc";
 import { activeId, updateTabTitle } from "./store";
 
@@ -67,9 +69,7 @@ const TasksPage: Component = () => {
   onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Task Manager");
-    refresh();
-    const t = window.setInterval(refresh, 2500);
-    onCleanup(() => clearInterval(t));
+    visibleInterval(refresh, 2500);
   });
 
   const sorted = createMemo(() => {

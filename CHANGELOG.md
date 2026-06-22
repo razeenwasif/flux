@@ -7,6 +7,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Performance
+- **Idle polling pauses when hidden** — the panel refresh timers (downloads, shields,
+  boosts, passwords, macros, tasks, resources, vault, omni dashboard, settings RAM
+  readout, start-page clock) used a bare `setInterval`, so a minimised / backgrounded
+  Flux kept hitting the backend every 2–4 s. A new `visibleInterval` primitive ticks
+  only while the document is visible and refreshes once on return — zero idle polling
+  when you're not looking at it. (`poll.ts`.)
+
 ### Added
 - **Gemma runs commands in your live terminal (#65)** — *"run cargo test"* / *"execute
   ls -la"* (or ask naturally, *"what's in my downloads"*) → a **▶ Run in terminal**
