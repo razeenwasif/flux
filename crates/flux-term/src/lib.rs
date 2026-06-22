@@ -75,4 +75,45 @@ mod tests {
         assert!(t.grid().row_text(0).starts_with('a'));
         assert!(t.grid().row_text(1).starts_with('b'));
     }
+
+    #[test]
+    fn rows_scroll_into_scrollback() {
+        let mut t = Terminal::new(10, 2); // 2 visible rows
+        t.advance(b"one\r\ntwo\r\nthree"); // "one" scrolls off when "three" arrives
+        assert_eq!(t.grid().row_text(0).trim_end(), "two");
+        assert_eq!(t.grid().row_text(1).trim_end(), "three");
+        assert_eq!(t.grid().scrollback_len(), 1);
+        assert!(t.grid().scrollback_row_text(0).unwrap().starts_with("one"));
+    }
+
+    #[test]
+    fn reflow_wider_rejoins_wrapped_line() {
+        let mut t = Terminal::new(10, 4);
+        t.advance(b"0123456789ABCDE"); // 15 chars → wraps at col 10
+        assert_eq!(t.grid().row_text(0), "0123456789");
+        assert!(t.grid().row_text(1).starts_with("ABCDE"));
+        t.resize(20, 4); // wider: the soft-wrapped line rejoins onto one row
+        assert!(t.grid().row_text(0).starts_with("0123456789ABCDE"));
+        assert_eq!(t.grid().row_text(1).trim_end(), "");
+    }
+
+    #[test]
+    fn reflow_narrower_splits_line() {
+        let mut t = Terminal::new(20, 4);
+        t.advance(b"0123456789ABCDE"); // fits on one row at width 20
+        assert!(t.grid().row_text(0).starts_with("0123456789ABCDE"));
+        t.resize(10, 4); // narrower: the line re-wraps across two rows
+        assert_eq!(t.grid().row_text(0), "0123456789");
+        assert!(t.grid().row_text(1).starts_with("ABCDE"));
+    }
+
+    #[test]
+    fn shrinking_rows_keeps_visible_content() {
+        let mut t = Terminal::new(20, 24);
+        t.advance(b"hello\r\nworld");
+        t.resize(20, 10); // blank space below → content stays on screen, not scrollback
+        assert!(t.grid().row_text(0).starts_with("hello"));
+        assert!(t.grid().row_text(1).starts_with("world"));
+        assert_eq!(t.grid().scrollback_len(), 0);
+    }
 }

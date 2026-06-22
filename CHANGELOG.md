@@ -7,6 +7,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Internal
+- **flux-term grid: scrollback + reflow (#9)** — the (future) WGPU terminal renderer's
+  grid now keeps scrolled-off rows in a bounded ring buffer and re-wraps content on
+  resize instead of clearing (soft-wrap flags → logical lines → re-split to the new
+  width). Pure logic, unit-tested. Not yet wired in — the shipping terminal is still
+  xterm.js; the GPU renderer (#7/#13) stays deferred until WGPU-under-webview
+  compositing is solved.
+
 ### Added
 - **Boosts: edit the CSS + manage every site (#49)** — the ✨ Boosts popover now has an
   **AI / CSS** toggle (let the agent write the CSS, or paste your own), an **✎ edit**

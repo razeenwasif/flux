@@ -25,7 +25,7 @@ grid/damage/renderer spine; these make it competitive with kitty/ghostty:
 |---|---|---|
 | 3 | P0 | PTY spawn + I/O loop in flux-core (`portable-pty`), env from `terminal_env`; one session per Terminal *tab* and one for the split *pane*; route bytes to `Terminal::advance` |
 | 7 | P0 | Glyph atlas: `swash` rasterization, subpixel positioning, theme color resolve, uniform-driven cell metrics (replaces shader constants) |
-| 9 | P1 | Scrollback ring buffer + reflow-preserving resize |
+| 9 | ✅ | **Scrollback ring buffer + reflow-preserving resize** (done, in `flux-term/grid.rs`): rows scrolled off the top go into a bounded `VecDeque` ring (`scrollback`, cap 10k) instead of being discarded; a per-row `wrapped` flag records soft-wraps so `resize` collapses scrollback+screen into logical lines and re-wraps them to the new width (joining/splitting), keeping the cursor at the end of content — no more clear-on-resize. Pure logic, unit-tested (scrollback capture, reflow wider-rejoin / narrower-split, no-loss row shrink). _Note:_ this is the **future WGPU renderer's** grid; the shipping terminal is xterm.js. The renderer (#7 atlas / #13 shaping) stays deferred — visual GPU work, unverifiable headless, and blocked on WGPU-under-webview compositing. |
 | 13 | P1 | Font shaping: ligatures + programming-font features via `swash`/`rustybuzz` (kitty parity) |
 | 14 | P2 | Kitty graphics protocol — inline images in the terminal (the agent can render charts into the shell) |
 | 15 | P1 | Splits and tabs *within* the terminal pane (ghostty-style), keyboard-driven |
