@@ -231,13 +231,18 @@ pub async fn gpu_stats() -> Vec<GpuInfo> {
 }
 
 fn query_nvidia() -> Vec<GpuInfo> {
-    let Ok(out) = std::process::Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-    else {
+    let mut cmd = std::process::Command::new("nvidia-smi");
+    cmd.args([
+        "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+        "--format=csv,noheader,nounits",
+    ]);
+    // Windows: don't flash a console window each poll (the task manager polls ~2s).
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let Ok(out) = cmd.output() else {
         return Vec::new();
     };
     if !out.status.success() {

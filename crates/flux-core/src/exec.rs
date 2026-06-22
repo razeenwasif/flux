@@ -86,10 +86,15 @@ pub async fn run_shell(command: String) -> Result<String, String> {
         if let Some(reason) = blocked_reason(&command) {
             return Err(reason);
         }
-        let out = shell_command(&command)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| format!("couldn't run the command: {e}"))?;
+        let mut cmd = shell_command(&command);
+        cmd.stdin(Stdio::null());
+        // Windows: this is the headless capture path — don't flash a console window.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        let out = cmd.output().map_err(|e| format!("couldn't run the command: {e}"))?;
         let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
         let err = String::from_utf8_lossy(&out.stderr);
         if !err.trim().is_empty() {

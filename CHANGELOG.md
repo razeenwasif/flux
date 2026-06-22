@@ -135,6 +135,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **A console window flashed repeatedly on launch (Windows)** — the task manager's GPU
+  poll spawned `nvidia-smi` without `CREATE_NO_WINDOW`, so a `C:\Windows\System32\
+  nvidia-smi.exe` console flashed open/closed every couple of seconds. Both that and
+  the headless `run_shell` fallback now spawn hidden, matching the rest of the app.
 - **Always-on voice wouldn't turn on (clicking did nothing)** — if your previously
   selected microphone was unplugged/changed, the `deviceId: { exact }` constraint made
   `getUserMedia` throw, so the toggle silently reverted. It now **falls back to the
