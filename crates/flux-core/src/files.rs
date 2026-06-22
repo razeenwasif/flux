@@ -240,6 +240,35 @@ pub async fn fs_search(root: String, query: String, limit: usize) -> Result<Vec<
         .map_err(|e| e.to_string())?
 }
 
+/// Fuzzy subsequence score (fzf-style): `None` if the query's chars don't all
+/// appear in order, else a score where higher = better (start / word-boundary /
+/// contiguous-run bonuses, shorter name preferred). Both args must be lowercased.
+fn fuzzy_score(needle: &str, hay: &str) -> Option<i32> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    let h: Vec<char> = hay.chars().collect();
+    let mut score = 0i32;
+    let mut hi = 0usize;
+    let mut prev: Option<usize> = None;
+    for nc in needle.chars() {
+        let pos = (hi..h.len()).find(|&i| h[i] == nc)?;
+        if pos == 0 {
+            score += 18; // start of the name
+        } else if !h[pos - 1].is_alphanumeric() {
+            score += 12; // right after a separator (word boundary)
+        }
+        if prev == Some(pos.wrapping_sub(1)) {
+            score += 8; // contiguous with the previous match
+        }
+        score += 2;
+        prev = Some(pos);
+        hi = pos + 1;
+    }
+    score -= (h.len() as i32) / 8; // mild shorter-is-better
+    Some(score)
+}
+
 fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, String> {
     let root = if root.is_empty() || root == "~" { home_dir() } else { root.to_string() };
     let q = query.trim().to_ascii_lowercase();
@@ -249,11 +278,12 @@ fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, 
     let canon = std::fs::canonicalize(&root).map_err(|e| format!("{root}: {e}"))?;
     const MAX_DEPTH: usize = 12;
     const MAX_VISIT: usize = 200_000;
-    let mut hits = Vec::new();
+    const CANDIDATE_CAP: usize = 4000; // collect more than `limit`, then rank + trim
+    let mut scored: Vec<(i32, SearchHit)> = Vec::new();
     let mut stack = vec![(canon, 0usize)];
     let mut visited = 0usize;
     while let Some((dir, depth)) = stack.pop() {
-        if hits.len() >= limit || visited >= MAX_VISIT {
+        if scored.len() >= CANDIDATE_CAP || visited >= MAX_VISIT {
             break;
         }
         let Ok(read) = std::fs::read_dir(&dir) else { continue };
@@ -263,18 +293,18 @@ fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, 
             let ft = ent.file_type().ok();
             let is_dir = ft.map(|t| t.is_dir()).unwrap_or(false);
             let is_link = ft.map(|t| t.is_symlink()).unwrap_or(false);
-            if name.to_ascii_lowercase().contains(&q) {
-                hits.push(SearchHit { path: clean(&ent.path()), name: name.clone(), is_dir });
-                if hits.len() >= limit {
-                    break;
-                }
+            if let Some(score) = fuzzy_score(&q, &name.to_ascii_lowercase()) {
+                scored.push((score, SearchHit { path: clean(&ent.path()), name: name.clone(), is_dir }));
             }
             if is_dir && !is_link && depth < MAX_DEPTH && !name.starts_with('.') && !SEARCH_SKIP.contains(&name.as_str()) {
                 stack.push((ent.path(), depth + 1));
             }
         }
     }
-    Ok(hits)
+    // Best score first; ties keep discovery order (stable sort).
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.truncate(limit);
+    Ok(scored.into_iter().map(|(_, h)| h).collect())
 }
 
 #[tauri::command]
@@ -856,6 +886,8 @@ mod search_tests {
         std::fs::write(base.join("sub/deep/beta.rs"), b"x").unwrap();
         std::fs::write(base.join("node_modules/pkg/alpha_dep.js"), b"x").unwrap();
 
+        std::fs::write(base.join("MyConfigFile.json"), b"x").unwrap();
+
         let root = base.to_string_lossy().into_owned();
         let hits = search_tree(&root, "alpha", 100).unwrap();
         let names: Vec<&str> = hits.iter().map(|h| h.name.as_str()).collect();
@@ -869,6 +901,12 @@ mod search_tests {
         assert!(search_tree(&root, "   ", 100).unwrap().is_empty());
         // Limit is honored.
         assert!(search_tree(&root, "a", 1).unwrap().len() <= 1);
+        // Fuzzy subsequence: "mcf" matches MyConfigFile (non-contiguous).
+        let fuzzy = search_tree(&root, "mcf", 100).unwrap();
+        assert!(fuzzy.iter().any(|h| h.name == "MyConfigFile.json"));
+        // The best fuzzy match ranks first: "config" → MyConfigFile, not alpha files.
+        let cfg = search_tree(&root, "config", 100).unwrap();
+        assert_eq!(cfg.first().map(|h| h.name.as_str()), Some("MyConfigFile.json"));
 
         let _ = std::fs::remove_dir_all(&base);
     }

@@ -1563,9 +1563,9 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 }
 
 /* ── Context menu ── */
-.files-menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.files-menu-backdrop { position: fixed; inset: 0; z-index: 9990; }
 .files-menu {
-  position: fixed; z-index: 41; min-width: 196px;
+  position: fixed; z-index: 9991; min-width: 196px; /* portalled — above the floating files panel (55) */
   padding: 5px; border-radius: 11px;
   background: var(--glass-panel, rgba(22,24,38,0.96));
   border: 1px solid var(--glass-rim, rgba(150,160,220,0.18));
