@@ -34,6 +34,9 @@ dashmap.workspace = true
 zeroize = "1"
 # Remember the window size/position across launches (open as you left it).
 tauri-plugin-window-state = "2"
+# Single-instance forwarding (#20): a second `flux <url>` adds tabs to the running
+# window instead of spawning a second process.
+tauri-plugin-single-instance = "2"
 # OS notifications for due reminders (Windows toast / Linux libnotify / macOS).
 tauri-plugin-notification = "2"
 # System + process memory readout, for memory-pressure tab eviction (#45).

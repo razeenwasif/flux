@@ -125,6 +125,27 @@ pub fn run(intent: cli::LaunchIntent) {
     enable_http3();
 
     tauri::Builder::default()
+        // Single-instance (#20): a second `flux <url>` forwards its URLs to the
+        // already-running window (open as tabs + focus it) instead of spawning a
+        // second process. Registered first so it intercepts before any other setup.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            use tauri::{Emitter, Manager};
+            // Reuse the same argv parser as cold launch; skip argv[0] (the exe path).
+            if let Ok(intent) = crate::cli::parse(argv.into_iter().skip(1)) {
+                for url in intent.urls {
+                    let _ = app.emit("flux://open-url", (url, false));
+                }
+                // `flux -t` on a second launch → open a terminal tab in the window.
+                if intent.terminal {
+                    let _ = app.emit("flux://shortcut", "new-terminal");
+                }
+            }
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.unminimize();
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+        }))
         // Persist + restore window size/position across launches (open as closed).
         .plugin(tauri_plugin_window_state::Builder::default().build())
         // OS notifications (used by the reminder scheduler).

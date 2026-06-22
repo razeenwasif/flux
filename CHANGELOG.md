@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Single-instance launch (#20)** — a second `flux <url>` (or a link opened from the
+  OS) now adds tabs to the **already-running** Flux window and focuses it, instead of
+  spawning a whole second process. Reuses the same argv parser as cold launch (so
+  multiple URLs and `-t` for a terminal tab work), via `tauri-plugin-single-instance`.
 - **Auto-archive stale tabs (#46)** — Settings → *Auto-archive stale tabs* (Off by
   default; 1–30 days): browser tabs left untouched that long are closed into a
   restorable **Archived Tabs** list (the 🗄 footer button, shown once anything's

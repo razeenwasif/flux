@@ -9,7 +9,8 @@
 //! for four flags. Revisit only if the surface grows (tracked in BACKLOG).
 //!
 //! Single-instance forwarding (second `flux <url>` adds a tab to the running
-//! window instead of spawning a new one) is BACKLOG #20.
+//! window instead of spawning a new one) is wired in `run()` via
+//! `tauri-plugin-single-instance`, reusing this same `parse` (#20).
 
 use serde::{Deserialize, Serialize};
 
