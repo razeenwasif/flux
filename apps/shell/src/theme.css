@@ -1509,6 +1509,16 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
   align-items: center; padding: 0 14px;
   cursor: default; user-select: none;
 }
+/* #88 recursive search: toggle + flat (non-virtualized) results rows. */
+.files-search-toggle { font-size: 14px; line-height: 1; }
+.files-search-toggle.on { color: var(--flux-teal); background: var(--flux-teal-dim); }
+.files-hit {
+  display: flex; align-items: center; gap: 8px; height: 30px;
+  padding: 0 14px; cursor: pointer; user-select: none;
+}
+.files-hit:hover { background: var(--flux-surface); }
+.files-hit-name { flex: none; max-width: 52%; color: var(--flux-text); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.files-hit-path { flex: 1; min-width: 0; color: var(--flux-text-mute); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .files-row:hover { background: var(--flux-surface); }
 .files-row.selected { background: var(--flux-teal-dim); box-shadow: inset 2px 0 0 0 var(--flux-teal); }
 .files-cell { font-size: 12.5px; overflow: hidden; }

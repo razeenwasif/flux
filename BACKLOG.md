@@ -187,7 +187,7 @@ further:
 | 90 | P2 | **OS-native drag-out** (drag a file into Explorer/mail/an editor). Attempted via `tauri-plugin-drag` then removed: on Windows the gesture fired and the OS returned `DRAGDROP_S_DROP`, but the file didn't land — the transfer is inside the crate's native OLE code, unreproducible from the Linux dev box. Revisit with a Windows debug loop; may need a custom CF_HDROP data object. In-app drag + cut/paste cover moving files meanwhile. |
 | 86 | P2 | **Stream/paginate pathological dirs** (100k+ entries): chunked `fs_list` instead of one JSON payload (the v1 acceptable-tradeoff noted in ADR 0006) |
 | 87 | ◐ | **Flux cross-links**: **"Open terminal here"** (done) — file-explorer context menu (folder or empty area) opens a Terminal tab `cd`'d to that dir (a terminal tab's `url` = its cwd). _Remaining:_ "Open in browser" for local files, a preview pane (text/image/pdf), agent file actions (summarize/rename-by-content). |
-| 88 | P2 | **Search within tree** (recursive, ranked by `flux-embed` #11) + fuzzy filename jump |
+| 88 | ◐ | **Search within tree** (done): the ⌕ toggle in the explorer flips the Filter box to recursive filename search of the subtree (`fs_search` — bounded BFS walk, case-insensitive substring, skips hidden + heavy dirs node_modules/.git/target/…, hit/depth/visit caps; unit-tested). Flat results list with relative folder + click-to-reveal. _Remaining:_ true fuzzy matching (it's substring) + `flux-embed` (#11) content/semantic ranking. |
 
 ## Epic: Research-driven optimization
 

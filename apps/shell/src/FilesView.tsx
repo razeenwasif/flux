@@ -29,6 +29,7 @@ import {
   fsCreateFile,
   fsDelete,
   fsList,
+  fsSearch,
   fsMove,
   fsOpen,
   fsQuickLocations,
@@ -42,6 +43,7 @@ import {
   pdfViewerUrl,
   type DirListing,
   type FileEntry,
+  type FsHit,
   type QuickLocation,
 } from "./ipc";
 import { openTab } from "./store";
@@ -62,6 +64,12 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const [places, setPlaces] = createSignal<QuickLocation[]>([]);
   const [sort, setSort] = createSignal<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   const [filter, setFilter] = createSignal("");
+  // Recursive search (#88): when on, the Filter box searches filenames under the
+  // current folder (subtree) instead of filtering just this directory.
+  const [recursive, setRecursive] = createSignal(false);
+  const [searchHits, setSearchHits] = createSignal<FsHit[]>([]);
+  const [searching, setSearching] = createSignal(false);
+  const searchMode = () => recursive() && filter().trim().length > 0;
   const [showHidden, setShowHidden] = createSignal(false);
 
   // Selection: a set of entry names (stable across sort/filter) plus a cursor +
@@ -476,6 +484,38 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     return { total: es.length, dirs, files: es.length - dirs };
   };
 
+  // Debounced recursive search (#88): query the subtree when in search mode.
+  let searchTimer: number | undefined;
+  createEffect(() => {
+    const q = filter().trim();
+    const dir = cwd();
+    if (!recursive() || !q) { setSearchHits([]); setSearching(false); return; }
+    setSearching(true);
+    clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => {
+      void fsSearch(dir, q, 500)
+        .then(setSearchHits)
+        .catch(() => setSearchHits([]))
+        .finally(() => setSearching(false));
+    }, 200);
+    onCleanup(() => clearTimeout(searchTimer));
+  });
+  const dirOf = (p: string): string => {
+    const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+    return i > 0 ? p.slice(0, i) : p;
+  };
+  // Path of a hit's folder, relative to the search root, for display.
+  const relDir = (p: string): string => {
+    const d = dirOf(p);
+    return d.startsWith(cwd()) ? d.slice(cwd().length).replace(/^[/\\]+/, "") || "." : d;
+  };
+  // Open a hit: a folder → go into it; a file → reveal it in its folder.
+  const openHit = (hit: FsHit) => {
+    setRecursive(false);
+    setFilter("");
+    navigate(hit.is_dir ? hit.path : dirOf(hit.path));
+  };
+
   // Context menu, built from what's under the cursor + current state.
   const openMenu = (e: MouseEvent, entry: FileEntry | null) => {
     e.preventDefault();
@@ -553,11 +593,16 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
         </div>
         <button class="files-act" title="New folder" onClick={() => startCreate("dir")}><NewFolderIcon /></button>
         <button class="files-act" title="Refresh" onClick={() => void refresh()}><RefreshIcon /></button>
+        <button
+          classList={{ "files-act": true, "files-search-toggle": true, on: recursive() }}
+          title={recursive() ? "Searching subfolders — click to filter this folder only" : "Search subfolders (recursive)"}
+          onClick={() => setRecursive((v) => !v)}
+        >⌕</button>
         <input
           class="files-search"
           value={filter()}
           onInput={(e) => setFilter(e.currentTarget.value)}
-          placeholder="Filter"
+          placeholder={recursive() ? "Search subfolders…" : "Filter"}
           spellcheck={false}
         />
       </div>
@@ -634,7 +679,24 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
             onDragOver={(e) => { if (dragPaths.length) { e.preventDefault(); setDropTarget(cwd()); } }}
             onDrop={(e) => { if (dragPaths.length) { e.preventDefault(); setDropTarget(null); void doMove(dragPaths, cwd()); } }}
           >
-            <Show when={!loading()} fallback={<div class="files-empty">Loading…</div>}>
+            <Show when={searchMode()}>
+              <Show when={!searching()} fallback={<div class="files-empty">Searching…</div>}>
+                <Show when={searchHits().length > 0} fallback={<div class="files-empty">No matches under this folder.</div>}>
+                  <For each={searchHits()}>
+                    {(hit) => (
+                      <div class="files-hit" title={hit.path} onClick={() => openHit(hit)}>
+                        <span class="file-icon" style={{ color: hit.is_dir ? "var(--flux-violet)" : "var(--flux-teal)" }}>
+                          {hit.is_dir ? <FolderIcon /> : <FileIcon />}
+                        </span>
+                        <span class="files-hit-name">{hit.name}</span>
+                        <span class="files-hit-path">{relDir(hit.path)}</span>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </Show>
+            </Show>
+            <Show when={!searchMode() && !loading()} fallback={<Show when={!searchMode()}><div class="files-empty">Loading…</div></Show>}>
               <Show when={!error()} fallback={<div class="files-empty files-err">{error()}</div>}>
                 <Show when={view().length > 0} fallback={<div class="files-empty">This folder is empty.</div>}>
                   <div class="files-spacer" style={{ height: `${view().length * ROW_H}px` }}>

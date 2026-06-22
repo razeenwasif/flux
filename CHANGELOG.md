@@ -16,6 +16,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Files: search subfolders (#88)** — the ⌕ toggle next to the explorer's Filter box
+  flips it from filtering the current folder to **recursively searching filenames** in
+  the whole subtree (case-insensitive, debounced; skips `node_modules`/`.git`/`target`
+  and other heavy/hidden dirs, bounded so big trees stay responsive). Each hit shows
+  its relative folder; click to jump there. (`fs_search`, unit-tested.)
 - **Bundled terminal font (#76)** — CaskaydiaCove (Cascadia Code) Nerd Font Mono is now
   bundled (woff2, ~2.4 MB) and preferred by the terminal, so prompt/powerline/icon
   glyphs render out of the box without installing a font. Falls back to installed

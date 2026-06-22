@@ -216,6 +216,67 @@ fn list_dir(path: &str) -> Result<DirListing, String> {
     })
 }
 
+/// One recursive-search hit (#88). Carries the full path (search results span many
+/// directories). Not specta-generated — the frontend has a matching hand-written type.
+#[derive(Serialize)]
+pub struct SearchHit {
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+}
+
+/// Heavy build/VCS dirs we never descend into during search — they're huge and
+/// rarely what the user is looking for.
+const SEARCH_SKIP: &[&str] =
+    &["node_modules", ".git", "target", "dist", "build", ".next", ".cache", "venv", ".venv", "__pycache__"];
+
+/// Recursively search filenames under `root` for a case-insensitive substring.
+/// Bounded (hit cap, depth cap, visited-node budget) so a huge tree can't hang the
+/// UI; skips hidden + heavy dirs and never follows symlinked dirs (loop-safe).
+#[tauri::command]
+pub async fn fs_search(root: String, query: String, limit: usize) -> Result<Vec<SearchHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || search_tree(&root, &query, limit.clamp(1, 2000)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, String> {
+    let root = if root.is_empty() || root == "~" { home_dir() } else { root.to_string() };
+    let q = query.trim().to_ascii_lowercase();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let canon = std::fs::canonicalize(&root).map_err(|e| format!("{root}: {e}"))?;
+    const MAX_DEPTH: usize = 12;
+    const MAX_VISIT: usize = 200_000;
+    let mut hits = Vec::new();
+    let mut stack = vec![(canon, 0usize)];
+    let mut visited = 0usize;
+    while let Some((dir, depth)) = stack.pop() {
+        if hits.len() >= limit || visited >= MAX_VISIT {
+            break;
+        }
+        let Ok(read) = std::fs::read_dir(&dir) else { continue };
+        for ent in read.flatten() {
+            visited += 1;
+            let name = ent.file_name().to_string_lossy().into_owned();
+            let ft = ent.file_type().ok();
+            let is_dir = ft.map(|t| t.is_dir()).unwrap_or(false);
+            let is_link = ft.map(|t| t.is_symlink()).unwrap_or(false);
+            if name.to_ascii_lowercase().contains(&q) {
+                hits.push(SearchHit { path: clean(&ent.path()), name: name.clone(), is_dir });
+                if hits.len() >= limit {
+                    break;
+                }
+            }
+            if is_dir && !is_link && depth < MAX_DEPTH && !name.starts_with('.') && !SEARCH_SKIP.contains(&name.as_str()) {
+                stack.push((ent.path(), depth + 1));
+            }
+        }
+    }
+    Ok(hits)
+}
+
 #[tauri::command]
 pub fn fs_home() -> String {
     home_dir()
@@ -777,4 +838,38 @@ fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
         p.to_string()
     };
     std::fs::write(&expanded, content).map_err(|e| format!("can't write {p}: {e}"))
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    #[test]
+    fn recursive_search_matches_and_skips() {
+        // Build a small tree in a unique temp dir.
+        let base = std::env::temp_dir().join(format!("flux_search_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sub/deep")).unwrap();
+        std::fs::create_dir_all(base.join("node_modules/pkg")).unwrap();
+        std::fs::write(base.join("alpha.txt"), b"x").unwrap();
+        std::fs::write(base.join("sub/ALPHA_two.md"), b"x").unwrap();
+        std::fs::write(base.join("sub/deep/beta.rs"), b"x").unwrap();
+        std::fs::write(base.join("node_modules/pkg/alpha_dep.js"), b"x").unwrap();
+
+        let root = base.to_string_lossy().into_owned();
+        let hits = search_tree(&root, "alpha", 100).unwrap();
+        let names: Vec<&str> = hits.iter().map(|h| h.name.as_str()).collect();
+        // Case-insensitive, recurses into normal subdirs…
+        assert!(names.contains(&"alpha.txt"));
+        assert!(names.contains(&"ALPHA_two.md"));
+        // …but never descends node_modules.
+        assert!(!names.iter().any(|n| n.contains("alpha_dep")));
+        // A non-matching query is empty; a blank query returns nothing.
+        assert!(search_tree(&root, "zzzznope", 100).unwrap().is_empty());
+        assert!(search_tree(&root, "   ", 100).unwrap().is_empty());
+        // Limit is honored.
+        assert!(search_tree(&root, "a", 1).unwrap().len() <= 1);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
