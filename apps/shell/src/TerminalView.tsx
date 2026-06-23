@@ -9,8 +9,8 @@
  * One instance per session: a Terminal tab passes its TabId; the vertical
  * column passes PANE_SESSION (0).
  */
-import { createEffect, onCleanup, onMount, type Component } from "solid-js";
-import type { Terminal as XTerm } from "@xterm/xterm";
+import { createEffect, createSignal, onCleanup, onMount, Show, type Component } from "solid-js";
+import type { Terminal as XTerm, IMarker, IDecoration } from "@xterm/xterm";
 import { Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
 import { registerTerminal, setActiveTerminal, unregisterTerminal } from "./terminals";
 import { openTab } from "./store";
@@ -45,6 +45,15 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
   let host!: HTMLDivElement;
   let termRef: XTerm | undefined;
   let fitRef: { fit: () => void } | undefined;
+
+  // Transient status line for shell-integration actions (#16: jump/copy feedback).
+  const [hint, setHint] = createSignal<string | null>(null);
+  let hintTimer: number | undefined;
+  const flash = (msg: string) => {
+    setHint(msg);
+    clearTimeout(hintTimer);
+    hintTimer = window.setTimeout(() => setHint(null), 1600);
+  };
 
   // Re-fit + re-focus when this terminal becomes the active tab again — it was
   // hidden (display:none) in the keep-alive layer (#73), so xterm needs to
@@ -124,6 +133,90 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
     fitRef = fit;
     registerTerminal(props.session, term); // let the agent read this terminal's buffer
 
+    // ── Shell integration (#16): OSC 133 prompt marks ───────────────────────
+    // When the shell sources Flux's integration snippet it emits OSC 133 around
+    // each prompt/command: `A` = prompt start, `B` = command input start,
+    // `C` = output start, `D;<exit>` = command finished. We capture them to:
+    //   · paint a per-command status bar in the gutter (running / exit 0 / fail)
+    //   · jump between prompts (Ctrl+Shift+↑/↓)
+    //   · copy the last command's output (Ctrl+Shift+E)
+    // No-op if the shell emits nothing (integration not sourced).
+    type Cmd = { marker: IMarker; deco: IDecoration | undefined; exit?: number };
+    let cmds: Cmd[] = [];
+    const live = (): Cmd[] => {
+      cmds = cmds.filter((c) => !c.marker.isDisposed && c.marker.line >= 0);
+      return cmds;
+    };
+    const barColor = (exit?: number) =>
+      exit === undefined ? "rgba(123, 97, 255, 0.5)" : exit === 0 ? "#7CF5B0" : "#ec4be0";
+    const paint = (c: Cmd) => {
+      const el = c.deco?.element;
+      if (!el) return;
+      // Set visual props only — leave xterm's inline position (top/left) intact.
+      el.style.width = "3px";
+      el.style.height = "100%";
+      el.style.marginLeft = "-6px";
+      el.style.borderRadius = "2px";
+      el.style.background = barColor(c.exit);
+      el.title = c.exit === undefined ? "running…" : c.exit === 0 ? "exit 0" : `exit ${c.exit}`;
+    };
+    const oscSub = term.parser.registerOscHandler(133, (data) => {
+      const [kind, arg] = data.split(";");
+      if (kind === "A") {
+        const marker = term.registerMarker(0);
+        if (marker) {
+          const deco = term.registerDecoration({ marker, x: 0, width: 1, layer: "top" });
+          const cmd: Cmd = { marker, deco };
+          deco?.onRender(() => paint(cmd));
+          live().push(cmd);
+        }
+      } else if (kind === "D") {
+        // Emitted just before the next prompt → belongs to the current prompt's command.
+        const code = arg !== undefined ? Number.parseInt(arg, 10) : 0;
+        const list = live();
+        const last = list[list.length - 1];
+        if (last) { last.exit = Number.isNaN(code) ? undefined : code; paint(last); }
+      }
+      return true; // 133 is ours — don't pass to the default handler
+    });
+
+    const jumpPrompt = (dir: -1 | 1) => {
+      const lines = live().map((c) => c.marker.line).filter((l) => l >= 0).sort((a, b) => a - b);
+      if (!lines.length) { flash("No prompts marked — is shell integration on?"); return; }
+      const top = term.buffer.active.viewportY;
+      let target: number | undefined;
+      if (dir < 0) { for (let i = lines.length - 1; i >= 0; i--) if (lines[i]! < top) { target = lines[i]; break; } }
+      else { for (const l of lines) if (l > top) { target = l; break; } }
+      if (target === undefined) { flash(dir < 0 ? "Top" : "Bottom"); return; }
+      term.scrollToLine(target);
+      flash(dir < 0 ? "↑ prompt" : "↓ prompt");
+    };
+
+    const copyLastOutput = async () => {
+      const list = live();
+      if (list.length < 2) { flash("No completed command yet"); return; }
+      const prev = list[list.length - 2]!.marker.line;
+      const cur = list[list.length - 1]!.marker.line;
+      if (prev < 0 || cur < 0) { flash("Output scrolled out of buffer"); return; }
+      const buf = term.buffer.active;
+      const lines: string[] = [];
+      for (let i = prev + 1; i < cur; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+      while (lines.length && !lines[lines.length - 1]!.trim()) lines.pop();
+      const text = lines.join("\n");
+      if (!text) { flash("Last command produced no output"); return; }
+      try { await navigator.clipboard.writeText(text); flash(`Copied ${lines.length} line${lines.length === 1 ? "" : "s"}`); }
+      catch { flash("Copy failed"); }
+    };
+
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown" || !e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return true;
+      const k = e.key.toLowerCase();
+      if (e.key === "ArrowUp") { e.preventDefault(); jumpPrompt(-1); return false; }
+      if (e.key === "ArrowDown") { e.preventDefault(); jumpPrompt(1); return false; }
+      if (k === "e") { e.preventDefault(); void copyLastOutput(); return false; }
+      return true;
+    });
+
     // Surface shell exit / spawn failure in the terminal itself, so a broken
     // shell shows a message instead of a silent blank pane.
     const unExit = await onTermExit((session) => {
@@ -158,6 +251,8 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
     onCleanup(() => {
       ro.disconnect();
       inputSub.dispose();
+      oscSub.dispose();
+      clearTimeout(hintTimer);
       unExit();
       unregisterTerminal(props.session);
       void terminalKill(props.session);
@@ -171,6 +266,22 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
         <LiquidBackground active={() => props.active ?? true} />
       </div>
       <div ref={host} style={{ position: "relative", "z-index": 1, width: "100%", height: "100%", padding: "8px" }} />
+      {/* #16: transient feedback for prompt jump / copy-output */}
+      <Show when={hint()}>
+        {(h) => (
+          <div
+            style={{
+              position: "absolute", bottom: "10px", right: "12px", "z-index": 2,
+              padding: "4px 10px", "border-radius": "8px", "font-size": "12px",
+              "font-family": "system-ui, sans-serif", color: "#eef0fb",
+              background: "rgba(26, 22, 64, 0.92)", border: "1px solid rgba(123, 97, 255, 0.4)",
+              "pointer-events": "none", "box-shadow": "0 4px 16px rgba(0,0,0,0.4)",
+            }}
+          >
+            {h()}
+          </div>
+        )}
+      </Show>
     </div>
   );
 };

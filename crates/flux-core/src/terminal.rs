@@ -26,6 +26,11 @@ use crate::state::FluxState;
 /// Reserved session id for the always-available vertical terminal column.
 pub const PANE_SESSION: u64 = 0;
 
+/// Bash OSC 133 shell-integration snippet (#16) — sourced via `bash --rcfile`
+/// so the embedded terminal gets prompt/command marks (status gutter, prompt
+/// jump, copy-last-output). Re-sources the user's own startup files first.
+const BASH_INTEGRATION: &str = include_str!("../assets/shell-integration.bash");
+
 /// One live PTY. Every field is behind a `Mutex` so `Session` is `Sync` and
 /// can live in the shared map (the PTY handles themselves are `Send`-only).
 struct Session {
@@ -113,6 +118,15 @@ pub fn terminal_spawn(
                 for a in ["--", "tmux", "new-session", "-A", "-s", &tmux_name] {
                     c.arg(a);
                 }
+            } else if integration_enabled() {
+                // Run bash inside WSL with Flux's OSC 133 integration (#16). The
+                // rcfile lives on the Windows side, so hand bash its /mnt path.
+                if let Some(rc) = integration_rcfile().as_deref().and_then(to_wsl_path) {
+                    for a in ["--", "bash", "--rcfile"] {
+                        c.arg(a);
+                    }
+                    c.arg(rc);
+                }
             }
         }
         c
@@ -124,6 +138,18 @@ pub fn terminal_spawn(
             c.arg(a);
         }
         c
+    } else if integration_enabled() && shell_is_bash(&shell) {
+        // Wrap bash so it sources Flux's OSC 133 integration (#16) on top of the
+        // user's own ~/.bashrc (which --rcfile would otherwise skip).
+        match integration_rcfile() {
+            Some(rc) => {
+                let mut c = CommandBuilder::new(&shell);
+                c.arg("--rcfile");
+                c.arg(rc.to_string_lossy().as_ref());
+                c
+            }
+            None => CommandBuilder::new(&shell),
+        }
     } else {
         CommandBuilder::new(&shell)
     };
@@ -270,6 +296,56 @@ fn persist_enabled() -> bool {
             v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
         })
         .unwrap_or(false)
+}
+
+/// Whether to auto-inject the OSC 133 shell integration (#16). Opt-out via
+/// `FLUX_NO_SHELL_INTEGRATION=1` (e.g. if it interferes with an exotic rc setup).
+fn integration_enabled() -> bool {
+    !std::env::var("FLUX_NO_SHELL_INTEGRATION")
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
+        })
+        .unwrap_or(false)
+}
+
+/// Is `shell` (a path or bare name) bash? Only bash is auto-wrapped today —
+/// other shells source the equivalent snippet manually (docs/shell-integration.md).
+fn shell_is_bash(shell: &str) -> bool {
+    std::path::Path::new(shell)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.eq_ignore_ascii_case("bash"))
+        .unwrap_or(false)
+}
+
+/// Materialise the bash integration snippet to a temp file once per process and
+/// return its path. `None` if it can't be written (integration is then skipped).
+fn integration_rcfile() -> Option<std::path::PathBuf> {
+    static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let dir = std::env::temp_dir().join("flux");
+        std::fs::create_dir_all(&dir).ok()?;
+        let p = dir.join("shell-integration.bash");
+        std::fs::write(&p, BASH_INTEGRATION).ok()?;
+        Some(p)
+    })
+    .clone()
+}
+
+/// Translate a Windows path to the WSL `/mnt/<drive>/…` form so a bash launched
+/// inside WSL can read the rcfile written on the Windows side. Assumes the
+/// default automount root (`/mnt`).
+#[cfg(windows)]
+fn to_wsl_path(p: &std::path::Path) -> Option<String> {
+    let s = p.to_string_lossy();
+    let b = s.as_bytes();
+    if b.len() >= 2 && b[1] == b':' {
+        let drive = (b[0] as char).to_ascii_lowercase();
+        Some(format!("/mnt/{}{}", drive, s[2..].replace('\\', "/")))
+    } else {
+        Some(s.replace('\\', "/"))
+    }
 }
 
 /// Is `tmux` available (in WSL on Windows, locally on Unix)? Cached — the check

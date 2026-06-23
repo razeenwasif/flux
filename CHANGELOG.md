@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Terminal: shell integration (OSC 133, #16)** — bash terminals now emit semantic
+  prompt marks (auto-injected via `bash --rcfile`, re-sourcing your `~/.bashrc`; opt out
+  with `FLUX_NO_SHELL_INTEGRATION=1`). Each command gets a **gutter status bar** (violet
+  running / green ok / magenta non-zero exit), **jump between prompts** with `Ctrl+Shift+↑/↓`,
+  and **copy the last command's output** with `Ctrl+Shift+E`. zsh/PowerShell snippets in
+  `docs/shell-integration.md`.
 - **Files: "Open in browser" + agent file actions (#87, closes the item)** — right-click a
   file for **Open in browser** (renders html/pdf/svg/images/text/media in a Flux tab via a
   `file://` URL; PDFs route through the built-in viewer), **Summarize with Gemma** (sends the
