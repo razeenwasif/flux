@@ -1351,6 +1351,7 @@ const App: Component = () => {
         onToggleTerminal={() => setTerminalOpen((v) => !v)}
         onToggleAgent={() => setAgentOpen((v) => !v)}
         onSaveToOmni={saveToOmni}
+        onToast={(m) => { setOmniToast(m); window.setTimeout(() => setOmniToast(null), 2800); }}
         onAiSearch={(q) => { if (aiAnswersOn()) { setAgentOpen(true); setPendingAsk(q); } }}
         onSwitchWorkspace={switchWorkspace}
         onNewWorkspace={newWorkspace}
@@ -1580,6 +1581,7 @@ interface SidebarProps {
   onToggleTerminal: () => void;
   onToggleAgent: () => void;
   onSaveToOmni: () => void;
+  onToast: (msg: string) => void;
   onAiSearch: (query: string) => void;
   onSwitchWorkspace: (id: number) => void;
   onNewWorkspace: () => void;
@@ -2231,7 +2233,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <div class="tab-list-head">
           <span class="sidebar-section">Tabs</span>
           <Show when={unpinnedTabs().some((t) => t.cluster) || groups().length > 0}>
-            <button class="group-topic" title="Group tabs by topic (from semantic clusters)" onClick={() => void groupByTopic()}>⊞ Group</button>
+            <button class="group-topic" title="Group tabs by topic (from semantic clusters)" onClick={async () => {
+              const n = await groupByTopic();
+              props.onToast(n > 0 ? `⊞ Grouped tabs into ${n} topic${n === 1 ? "" : "s"}` : "No clear topics yet — open a few related pages, let them load, then try again");
+            }}>⊞ Group</button>
           </Show>
         </div>
         <div class="tab-list">

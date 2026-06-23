@@ -135,6 +135,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **"Group by topic" did nothing** — it grouped from whatever clusters happened to
+  exist, so if they were stale or single-tab it silently created nothing. It now
+  re-embeds the open tabs from their current page content first (fresh clusters), then
+  groups, and shows a toast either way ("Grouped into N topics" or "no clear topics yet
+  — open a few related pages and try again").
 - **A console window flashed repeatedly on launch (Windows)** — the task manager's GPU
   poll spawned `nvidia-smi` without `CREATE_NO_WINDOW`, so a `C:\Windows\System32\
   nvidia-smi.exe` console flashed open/closed every couple of seconds. Both that and

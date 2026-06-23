@@ -20,6 +20,7 @@ import {
   groupUpdate,
   groupsFromClusters,
   groupsList,
+  tabsRecluster,
   foldersList,
   folderCreate,
   folderUpdate,
@@ -366,6 +367,10 @@ export async function toggleGroupCollapsed(g: TabGroup): Promise<void> {
   await refreshGroups();
 }
 export async function groupByTopic(): Promise<number> {
+  // Re-embed all tabs from their current captured page content first, so we group
+  // by *fresh* clusters — otherwise clicking did nothing when the clusters were
+  // stale or single-tab. tabsRecluster resolves once assignments are set.
+  await tabsRecluster().catch(() => {});
   const n = await groupsFromClusters().catch(() => 0);
   await refreshTabs(); // refreshTabs already refreshes groups + workspaces
   return n;
