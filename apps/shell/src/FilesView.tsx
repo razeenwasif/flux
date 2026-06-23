@@ -13,7 +13,9 @@
  */
 import {
   For,
+  Match,
   Show,
+  Switch,
   createEffect,
   createMemo,
   createSignal,
@@ -28,6 +30,7 @@ import {
   fsCreateDir,
   fsCreateFile,
   fsDelete,
+  attachmentRead,
   fsList,
   fsSearch,
   fsMove,
@@ -42,6 +45,7 @@ import {
   onFsChanged,
   pdfViewerUrl,
   type DirListing,
+  type DroppedAttachment,
   type FileEntry,
   type FsHit,
   type QuickLocation,
@@ -64,6 +68,12 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const [places, setPlaces] = createSignal<QuickLocation[]>([]);
   const [sort, setSort] = createSignal<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   const [filter, setFilter] = createSignal("");
+  // Preview pane (#87): when on, the single selected file previews on the right
+  // (image thumbnail / text contents; binaries → open in default app).
+  const [previewOpen, setPreviewOpen] = createSignal(localStorage.getItem("flux.files.preview") === "1");
+  const togglePreview = () => { const v = !previewOpen(); setPreviewOpen(v); localStorage.setItem("flux.files.preview", v ? "1" : "0"); };
+  type Preview = { state: "loading" | "ok" | "error" } & { att?: DroppedAttachment; err?: string };
+  const [preview, setPreview] = createSignal<Preview | null>(null);
   // Recursive search (#88): when on, the Filter box searches filenames under the
   // current folder (subtree) instead of filtering just this directory.
   const [recursive, setRecursive] = createSignal(false);
@@ -521,6 +531,29 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     navigate(hit.is_dir ? hit.path : dirOf(hit.path));
   };
 
+  // Preview pane (#87): the single selected file (not a folder), else nothing.
+  const previewTarget = createMemo((): FileEntry | null => {
+    if (!previewOpen()) return null;
+    const sel = [...selected()];
+    if (sel.length !== 1) return null;
+    const e = listing()?.entries.find((x) => x.name === sel[0]);
+    return e && !e.is_dir ? e : null;
+  });
+  let previewTimer: number | undefined;
+  createEffect(() => {
+    const t = previewTarget();
+    if (!t) { setPreview(null); return; }
+    const path = joinPath(cwd(), t.name);
+    setPreview({ state: "loading" });
+    clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      void attachmentRead(path)
+        .then((att) => setPreview({ state: "ok", att }))
+        .catch((e) => setPreview({ state: "error", err: String(e) }));
+    }, 120);
+    onCleanup(() => clearTimeout(previewTimer));
+  });
+
   // Context menu, built from what's under the cursor + current state.
   const openMenu = (e: MouseEvent, entry: FileEntry | null) => {
     e.preventDefault();
@@ -598,6 +631,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
         </div>
         <button class="files-act" title="New folder" onClick={() => startCreate("dir")}><NewFolderIcon /></button>
         <button class="files-act" title="Refresh" onClick={() => void refresh()}><RefreshIcon /></button>
+        <button classList={{ "files-act": true, on: previewOpen() }} title="Preview pane" onClick={togglePreview}>◰</button>
         <button
           classList={{ "files-act": true, "files-search-toggle": true, on: recursive() }}
           title={recursive() ? "Searching subfolders — click to filter this folder only" : "Search subfolders (recursive)"}
@@ -619,7 +653,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
         />
       </div>
 
-      <div class="files-body">
+      <div classList={{ "files-body": true, "preview-on": previewOpen() }}>
         {/* Quick-access rail (also drop targets for move) */}
         <nav class="files-rail">
           <div class="files-rail-section">Quick access</div>
@@ -807,6 +841,31 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
             </Show>
           </div>
         </main>
+
+        {/* Preview pane (#87) — the single selected file */}
+        <Show when={previewOpen()}>
+          <aside class="files-preview">
+            <Show when={preview()} fallback={<div class="files-preview-empty">Select a file to preview.</div>}>
+              {(p) => (
+                <Switch fallback={<div class="files-preview-empty">Loading…</div>}>
+                  <Match when={p().state === "ok" && p().att?.kind === "image"}>
+                    <img class="files-preview-img" src={p().att!.data_url} alt={p().att!.name} />
+                    <div class="files-preview-name" title={p().att!.name}>{p().att!.name}</div>
+                  </Match>
+                  <Match when={p().state === "ok" && p().att?.kind === "text"}>
+                    <pre class="files-preview-text">{p().att!.text.slice(0, 100_000)}</pre>
+                  </Match>
+                  <Match when={p().state === "error"}>
+                    <div class="files-preview-empty">
+                      <div>No inline preview for this file type.</div>
+                      <button class="files-btn" onClick={() => { const t = previewTarget(); if (t) void fsOpen(joinPath(cwd(), t.name)).catch((e) => toast(String(e), "err")); }}>Open in default app</button>
+                    </div>
+                  </Match>
+                </Switch>
+              )}
+            </Show>
+          </aside>
+        </Show>
       </div>
 
       {/* Status bar */}

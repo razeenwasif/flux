@@ -30,6 +30,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Files: preview pane (#87)** — toggle ◰ in the explorer to preview the selected
+  file on the right: image thumbnails, text/code contents, and an "Open in default app"
+  fallback for everything else. Reuses the existing `attachment_read` (images→data URL,
+  text→contents). Persisted toggle.
 - **Bring-your-own proxy (#63)** — Settings → Privacy & security → **Proxy (HTTP /
   SOCKS5)**: route page traffic through any proxy you supply (e.g. `socks5://127.0.0.1:1080`
   for an SSH `-D` tunnel, Cloudflare WARP, Tor, or a self-hosted Shadowsocks/Dante;

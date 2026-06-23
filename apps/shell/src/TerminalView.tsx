@@ -59,10 +59,11 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
 
   onMount(async () => {
     // Lazy chunk: xterm core + addons + css, all off the base bundle.
-    const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
+    const [{ Terminal }, { FitAddon }, { WebLinksAddon }, { WebglAddon }] = await Promise.all([
       import("@xterm/xterm"),
       import("@xterm/addon-fit"),
       import("@xterm/addon-web-links"),
+      import("@xterm/addon-webgl"),
       import("@xterm/xterm/css/xterm.css"),
     ]);
 
@@ -87,7 +88,9 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
         '"DejaVu Sans Mono", "Noto Sans Mono", "Noto Color Emoji", "SF Mono", Menlo, ' +
         'Consolas, "Liberation Mono", monospace',
       fontSize: 13,
-      lineHeight: 1.2,
+      // 1.0 so box-drawing / TUI frames (btop, vim, lazygit) connect seamlessly —
+      // the previous 1.2 left vertical gaps between cells that broke the lines.
+      lineHeight: 1.0,
       // xterm renders box-drawing, block, and powerline glyphs itself — fixes
       // the most common "special characters don't render" cases (├ │ └  )
       // even when the font lacks them.
@@ -105,6 +108,17 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon((_e, uri) => openInFlux(uri)));
     term.open(host);
+    // GPU-accelerated rendering (like Windows Terminal / VS Code) — crisper glyphs
+    // and far smoother scrolling for TUIs than the DOM fallback. Must load after
+    // open(). If the GL context is lost or init fails, dispose it and fall back to
+    // the DOM renderer rather than showing a blank pane.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch {
+      /* WebGL unavailable → DOM renderer (already active) */
+    }
     fit.fit();
     termRef = term; // expose to the active-tab effect (keep-alive re-fit/focus)
     fitRef = fit;

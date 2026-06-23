@@ -1457,6 +1457,13 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 /* `minmax(0, 1fr)` on the row: without it the implicit `auto` row grows to the
    listing's full height (clipped by overflow:hidden) and the list never scrolls. */
 .files-body { display: grid; grid-template-columns: 188px 1fr; grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
+.files-body.preview-on { grid-template-columns: 188px minmax(0, 1fr) minmax(240px, 340px); }
+/* #87 preview pane */
+.files-preview { border-left: 1px solid var(--flux-border); min-width: 0; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.files-preview-empty { margin: auto; display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; color: var(--flux-text-mute); font-size: 12.5px; }
+.files-preview-img { max-width: 100%; max-height: 55vh; object-fit: contain; border-radius: 8px; align-self: center; background: var(--flux-bg-raise, rgba(0,0,0,0.25)); }
+.files-preview-name { font-size: 11.5px; color: var(--flux-text-dim); text-align: center; word-break: break-all; }
+.files-preview-text { flex: 1; min-height: 0; overflow: auto; margin: 0; font-family: var(--flux-mono, monospace); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; color: var(--flux-text); }
 
 .files-rail {
   display: flex; flex-direction: column; gap: 1px;
