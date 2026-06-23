@@ -1764,6 +1764,12 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 
 .shields-sep { height: 1px; background: var(--glass-rim-soft); margin: 1px 0; }
 .shields-select { flex: none; font-size: 11.5px; padding: 3px 6px; border-radius: 7px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); }
+/* #63 proxy field */
+.set-proxy { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.set-proxy-in { width: 230px; font-size: 12px; padding: 5px 8px; border-radius: 7px; color: var(--flux-text); background: var(--flux-surface-2); border: 1px solid var(--glass-rim-soft); font-family: var(--flux-mono, monospace); }
+.set-proxy-in::placeholder { color: var(--flux-text-mute); }
+.set-proxy-msg { font-size: 10.5px; color: var(--flux-text-mute); }
+.set-proxy-msg.err { color: #ff8d8d; }
 
 /* Extension manager (BACKLOG #95) */
 .ext-row { padding: 6px 8px; border-radius: 8px; }

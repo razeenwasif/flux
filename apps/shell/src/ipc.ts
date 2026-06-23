@@ -555,6 +555,10 @@ export const leanSetSite = (host: string, on: boolean) => invoke<void>("lean_set
 // ─── HTTPS-only mode (BACKLOG #58) ──────────────────────────────────────────
 export const httpsStatus = () => invoke<HttpsStatus>("https_status");
 export const httpsSetEnabled = (on: boolean) => invoke<void>("https_set_enabled", { on });
+/** Outbound proxy (#63): the saved http://… / socks5://… endpoint, or null = direct. */
+export const proxyGet = () => invoke<string | null>("proxy_get");
+/** Save the proxy endpoint (null/empty = direct). Rejects a non-http/socks5 URL. */
+export const proxySet = (url: string | null) => invoke<void>("proxy_set", { url });
 /** Allow (or stop allowing) a host to stay on plain HTTP under HTTPS-only. */
 export const httpsAllowSite = (host: string, allow: boolean) =>
   invoke<void>("https_allow_site", { host, allow });

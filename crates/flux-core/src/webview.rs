@@ -119,6 +119,10 @@ pub async fn webview_open(
             builder = builder.data_directory(dir.join("containers").join(container.to_string()));
         }
     }
+    // Outbound proxy (#63), if configured — opt-in, so direct otherwise.
+    if let Some(proxy) = app.try_state::<crate::proxy::ProxyState>().and_then(|s| s.parsed()) {
+        builder = builder.proxy_url(proxy);
+    }
     let builder = builder
         .on_page_load(move |webview, payload| {
             let phase = match payload.event() {
@@ -481,13 +485,15 @@ pub async fn panel_open(
     let dark_flag = if dark { "window.__FLUX_DARK__ = true;\n" } else { "" };
     let init = format!("{dark_flag}{SHORTCUTS_JS}\n{DARKMODE_JS}\n{PANEL_BADGE_JS}");
     let app_for_load = app.clone();
-    let builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target))
-        .initialization_script(&init)
-        .on_page_load(move |_wv, payload| {
-            if matches!(payload.event(), PageLoadEvent::Finished) {
-                let _ = app_for_load.emit("flux://panel-loaded", (panel_id, payload.url().to_string()));
-            }
-        });
+    let mut builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target)).initialization_script(&init);
+    if let Some(proxy) = app.try_state::<crate::proxy::ProxyState>().and_then(|s| s.parsed()) {
+        builder = builder.proxy_url(proxy); // #63
+    }
+    let builder = builder.on_page_load(move |_wv, payload| {
+        if matches!(payload.event(), PageLoadEvent::Finished) {
+            let _ = app_for_load.emit("flux://panel-loaded", (panel_id, payload.url().to_string()));
+        }
+    });
     let scale = window.scale_factor().unwrap_or(1.0);
     let child = window
         .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(width.max(0.0), height.max(0.0)))

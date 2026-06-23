@@ -46,6 +46,8 @@ import {
   TASKS_URL,
   trackingSetLevel,
   trackingStatus,
+  proxyGet,
+  proxySet,
   type MemInfo,
   type SearchEngine,
 } from "./ipc";
@@ -306,6 +308,20 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   // Per-site privacy exceptions (#78): hosts the user opted out per feature.
   const [sitesOff, setSitesOff] = createSignal<string[]>([]); // shields disabled
   const [httpAllow, setHttpAllow] = createSignal<string[]>([]); // HTTPS-only exempt
+  // Outbound proxy (#63).
+  const [proxy, setProxy] = createSignal("");
+  const [proxyMsg, setProxyMsg] = createSignal("");
+  const [proxyErr, setProxyErr] = createSignal(false);
+  const saveProxy = async () => {
+    try {
+      await proxySet(proxy().trim() || null);
+      setProxyErr(false);
+      setProxyMsg(proxy().trim() ? "Saved — reload tabs to apply" : "Direct (no proxy)");
+    } catch (e) {
+      setProxyErr(true);
+      setProxyMsg(String(e).replace(/.*invalid|.*Error:?\s*/i, "").trim() || String(e));
+    }
+  };
   const [leanOn, setLeanOn] = createSignal<string[]>([]); // lean mode on
 
   const loadShields = () => void shieldsStatus().then((s) => { setShieldsOn(s.enabled); setBlocked(s.blocked); setSitesOff(s.sites_off); }).catch(() => {});
@@ -326,6 +342,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     void searchDefault().then(setDefaultEngine).catch(() => {});
     loadShields();
     loadHttps();
+    void proxyGet().then((p) => setProxy(p ?? "")).catch(() => {});
     loadLean();
     void trackingStatus().then(setTracking).catch(() => {});
     void permissionsStatus().then(setBlockPerms).catch(() => {});
@@ -393,6 +410,20 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Row label="HTTPS-only" hint="Upgrade http:// to https://; per-site exceptions are remembered.">
             <Toggle on={httpsOn()} onClick={toggleHttps} />
+          </Row>
+          <Row label="Proxy (HTTP / SOCKS5)" hint="Route page traffic through a proxy you supply — bring-your-own, e.g. socks5://127.0.0.1:1080 for an SSH -D tunnel / Cloudflare WARP / Tor, or http://host:port. Applies to new and reloaded tabs; empty = direct.">
+            <div class="set-proxy">
+              <input
+                class="set-proxy-in"
+                placeholder="socks5://127.0.0.1:1080"
+                value={proxy()}
+                spellcheck={false}
+                onInput={(e) => { setProxy(e.currentTarget.value); setProxyMsg(""); }}
+                onBlur={() => void saveProxy()}
+                onKeyDown={(e) => { if (e.key === "Enter") void saveProxy(); }}
+              />
+              <Show when={proxyMsg()}><span classList={{ "set-proxy-msg": true, err: proxyErr() }}>{proxyMsg()}</span></Show>
+            </div>
           </Row>
           <Row label="Tracking prevention" hint="How aggressively to block known tracking scripts.">
             <select class="shields-select" value={String(tracking())} onChange={(e) => setTrack(Number(e.currentTarget.value))}>

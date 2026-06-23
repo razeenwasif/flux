@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Bring-your-own proxy (#63)** — Settings → Privacy & security → **Proxy (HTTP /
+  SOCKS5)**: route page traffic through any proxy you supply (e.g. `socks5://127.0.0.1:1080`
+  for an SSH `-D` tunnel, Cloudflare WARP, Tor, or a self-hosted Shadowsocks/Dante;
+  `http://host:port` too). Applies to new and reloaded tabs; empty = direct. Validated
+  (only http/socks5 accepted) and persisted; a bad value safely degrades to direct. Flux
+  doesn't run a VPN — it points WebView2 at the endpoint you give it.
 - **Files: search subfolders (#88)** — the ⌕ toggle next to the explorer's Filter box
   flips it from filtering the current folder to **recursively searching filenames** in
   the whole subtree, **fuzzy-ranked** (fzf-style subsequence match with start /

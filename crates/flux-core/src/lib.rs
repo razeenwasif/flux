@@ -11,6 +11,7 @@ pub mod broker;
 pub mod cache;
 pub mod cli;
 pub mod commands;
+pub mod proxy;
 pub mod cookies;
 #[cfg(feature = "crsync")]
 pub mod crsync;
@@ -173,6 +174,11 @@ pub fn run(intent: cli::LaunchIntent) {
             // Files tab: live directory watchers + the file-op undo stack.
             app.manage(files::FsWatchers::default());
             app.manage(files::UndoStack::default());
+            // Optional outbound proxy (#63) — persisted endpoint, applied at webview creation.
+            app.manage(match app.path().app_data_dir().ok().map(|d| d.join("proxy.txt")) {
+                Some(p) => proxy::ProxyState::restore(p),
+                None => proxy::ProxyState::default(),
+            });
             // Content-blocker shields: the filter engine + per-site policy (#57).
             let filters_dir = app.path().app_data_dir().ok().map(|d| d.join("filters"));
             app.manage(boot_phase("shields.init", boot_started, || shields::ShieldsState::new(filters_dir)));
@@ -492,6 +498,8 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::agent_chat_stream,
             commands::agent_shell_plan,
             commands::agent_plan_steps,
+            proxy::proxy_get,
+            proxy::proxy_set,
             commands::agent_next_step,
             commands::agent_edit_plan,
             commands::agent_translate,
