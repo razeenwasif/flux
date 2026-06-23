@@ -32,7 +32,7 @@ import {
   fsCreateFile,
   fsDelete,
   attachmentRead,
-  fsList,
+  fsListStream,
   fsSearch,
   fsMove,
   fsOpen,
@@ -66,6 +66,8 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const [cwd, setCwd] = createSignal(props.path);
   const [listing, setListing] = createSignal<DirListing | null>(null);
   const [loading, setLoading] = createSignal(true);
+  // True while a huge dir is still streaming in after its first chunk (#86).
+  const [streaming, setStreaming] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [places, setPlaces] = createSignal<QuickLocation[]>([]);
   const [sort, setSort] = createSignal<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
@@ -123,34 +125,60 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     noticeTimer = window.setTimeout(() => setNotice(null), 3600);
   };
 
+  // Generation token: each (re)load bumps it so chunks from a superseded
+  // navigation are dropped instead of landing in the new directory's listing (#86).
+  let loadGen = 0;
   const load = async (path: string, selectName?: string) => {
+    const gen = ++loadGen;
     setLoading(true);
     setError(null);
+    let acc: FileEntry[] = [];
     try {
-      const l = await fsList(path);
-      setListing(l);
-      setCwd(l.path);
-      props.onPathChange(l.path);
-      void fsWatch(props.id, l.path).catch(() => {}); // live watch (#85)
-      setSelected(selectName ? new Set([selectName]) : new Set<string>());
-      setCursor(-1);
-      anchor = -1;
-      if (scroller) scroller.scrollTop = 0;
+      await fsListStream(path, (m) => {
+        if (gen !== loadGen) return; // a newer load superseded this one
+        if (m.kind === "head") {
+          setListing({ path: m.path, parent: m.parent, entries: [] });
+          setCwd(m.path);
+          props.onPathChange(m.path);
+          void fsWatch(props.id, m.path).catch(() => {}); // live watch (#85)
+          setSelected(selectName ? new Set([selectName]) : new Set<string>());
+          setCursor(-1);
+          anchor = -1;
+          if (scroller) scroller.scrollTop = 0;
+          setLoading(false); // directory exists → show the (filling) list
+          setStreaming(true);
+        } else if (m.kind === "entries") {
+          acc = acc.concat(m.entries);
+          setListing((l) => (l ? { ...l, entries: acc } : l));
+        } else if (m.kind === "done") {
+          setStreaming(false);
+        } else if (m.kind === "error") {
+          setError(m.message);
+        }
+      });
     } catch (e) {
-      setError(String(e));
+      if (gen === loadGen) setError(String(e));
     } finally {
-      setLoading(false);
+      if (gen === loadGen) { setLoading(false); setStreaming(false); }
     }
   };
   /** Reload the current directory, optionally selecting a freshly-made entry. */
   const refresh = (selectName?: string) => load(cwd(), selectName);
-  /** Re-list in place (external change / undo): keep scroll + selection. */
+  /** Re-list in place (external change / undo): keep scroll + selection. Buffers
+   *  the whole stream then swaps once, so an external change doesn't flicker. */
   const softRefresh = async () => {
+    const gen = ++loadGen;
+    let acc: FileEntry[] = [];
     try {
-      const l = await fsList(cwd());
-      setListing(l);
-      const names = new Set(l.entries.map((e) => e.name));
-      setSelected((prev) => new Set([...prev].filter((n) => names.has(n))));
+      await fsListStream(cwd(), (m) => {
+        if (gen !== loadGen) return;
+        if (m.kind === "entries") acc = acc.concat(m.entries);
+        else if (m.kind === "done") {
+          setListing((l) => (l ? { ...l, entries: acc } : l));
+          const names = new Set(acc.map((e) => e.name));
+          setSelected((prev) => new Set([...prev].filter((n) => names.has(n))));
+        }
+      });
     } catch {
       // Directory may have been removed out from under us — leave it as-is.
     }
@@ -956,7 +984,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
       {/* Status bar */}
       <div class="files-statusbar">
         <Show when={selected().size > 0} fallback={
-          <span>{counts().total} items · {counts().dirs} folders · {counts().files} files</span>
+          <span>
+            {counts().total} items · {counts().dirs} folders · {counts().files} files
+            <Show when={streaming()}> · loading more…</Show>
+          </span>
         }>
           <span>{selected().size} selected</span>
         </Show>

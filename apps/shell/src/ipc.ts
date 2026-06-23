@@ -935,6 +935,22 @@ export const onTabLoaded = (
 // ─── Filesystem explorer (Files tab) ────────────────────────────────────────
 // FileEntry / DirListing / QuickLocation are generated (bindings.gen) and aliased above.
 export const fsList = (path: string) => invoke<DirListing>("fs_list", { path });
+/** One frame of a streamed directory listing (#86); hand-mirrors Rust's `ListMsg`. */
+export type ListMsg =
+  | { kind: "head"; path: string; parent: string | null }
+  | { kind: "entries"; entries: FileEntry[] }
+  | { kind: "done"; total: number }
+  | { kind: "error"; message: string };
+/**
+ * Stream a directory listing in chunks (#86): `onMsg` fires per frame
+ * (head → entries… → done, or error), so a 100k-entry directory never arrives as
+ * one giant payload. Resolves when the stream ends.
+ */
+export const fsListStream = (path: string, onMsg: (m: ListMsg) => void): Promise<void> => {
+  const ch = new Channel<ListMsg>();
+  ch.onmessage = onMsg;
+  return invoke<void>("fs_list_stream", { path, onMsg: ch });
+};
 /** Recursive filename search under `root` (#88). Hand-written type (not specta). */
 export type FsHit = { path: string; name: string; is_dir: boolean };
 export const fsSearch = (root: string, query: string, limit = 500, semantic = false) =>

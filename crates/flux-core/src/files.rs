@@ -10,6 +10,7 @@ use std::path::Path;
 
 use parking_lot::Mutex;
 use serde::Serialize;
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
 
 /// One directory entry. Compact on purpose — see module docs.
@@ -214,6 +215,76 @@ fn list_dir(path: &str) -> Result<DirListing, String> {
         path: clean(&canon),
         entries,
     })
+}
+
+/// One frame of a streamed directory listing (#86). Sent over a Channel so a
+/// pathological directory (100k+ entries) is delivered in chunks instead of one
+/// giant JSON payload that stalls the UI. Hand-mirrored in `ipc.ts`.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ListMsg {
+    /// Sent first, once the directory opens — lets the UI set cwd / watch before
+    /// any entries arrive.
+    Head { path: String, parent: Option<String> },
+    /// A batch of up to `LIST_CHUNK` entries.
+    Entries { entries: Vec<FileEntry> },
+    /// Sent last: how many entries were streamed in total.
+    Done { total: usize },
+    /// Listing failed (canonicalize / read_dir). The command still resolves `Ok`.
+    Error { message: String },
+}
+
+/// Entries per streamed chunk. Big enough that small/medium dirs arrive in one
+/// or two frames, small enough that no single payload is huge.
+const LIST_CHUNK: usize = 2000;
+
+/// Stream a directory listing in chunks over a Channel (#86): a `Head` frame,
+/// then `Entries` frames of up to `LIST_CHUNK`, then `Done`. Reads the directory
+/// exactly once (no per-page re-scan). Replaces the single-payload `fs_list` for
+/// the explorer's main load path; `fs_list` stays for callers that want it whole.
+#[tauri::command]
+pub async fn fs_list_stream(path: String, on_msg: Channel<ListMsg>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(message) = stream_dir(&path, &on_msg) {
+            let _ = on_msg.send(ListMsg::Error { message });
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+fn stream_dir(path: &str, on_msg: &Channel<ListMsg>) -> Result<(), String> {
+    let path = if path.is_empty() || path == "~" { home_dir() } else { path.to_string() };
+    let canon = std::fs::canonicalize(&path).map_err(|e| format!("{path}: {e}"))?;
+    let read = std::fs::read_dir(&canon).map_err(|e| format!("{}: {e}", clean(&canon)))?;
+
+    on_msg
+        .send(ListMsg::Head { path: clean(&canon), parent: canon.parent().map(clean) })
+        .map_err(|e| e.to_string())?;
+
+    let mut chunk: Vec<FileEntry> = Vec::with_capacity(LIST_CHUNK);
+    let mut total = 0usize;
+    for ent in read.flatten() {
+        let name = ent.file_name().to_string_lossy().into_owned();
+        let ft = ent.file_type().ok();
+        chunk.push(FileEntry {
+            name,
+            is_dir: ft.map(|t| t.is_dir()).unwrap_or(false),
+            symlink: ft.map(|t| t.is_symlink()).unwrap_or(false),
+            size: None,
+            modified: None,
+        });
+        total += 1;
+        if chunk.len() >= LIST_CHUNK {
+            let batch = std::mem::replace(&mut chunk, Vec::with_capacity(LIST_CHUNK));
+            on_msg.send(ListMsg::Entries { entries: batch }).map_err(|e| e.to_string())?;
+        }
+    }
+    if !chunk.is_empty() {
+        on_msg.send(ListMsg::Entries { entries: chunk }).map_err(|e| e.to_string())?;
+    }
+    on_msg.send(ListMsg::Done { total }).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// One recursive-search hit (#88). Carries the full path (search results span many
@@ -950,6 +1021,57 @@ mod search_tests {
         // The best fuzzy match ranks first: "config" → MyConfigFile, not alpha files.
         let cfg = search_tree(&root, "config", 100).unwrap();
         assert_eq!(cfg.first().map(|h| h.name.as_str()), Some("MyConfigFile.json"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+    use std::sync::Arc;
+    use tauri::ipc::InvokeResponseBody;
+
+    /// `stream_dir` should send Head, then chunked Entries summing to the file
+    /// count, then a Done carrying that same total (#86).
+    #[test]
+    fn streams_head_chunks_then_done() {
+        let base = std::env::temp_dir().join(format!("flux_stream_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        // One more than a chunk so we exercise the multi-frame path.
+        let n = LIST_CHUNK + 7;
+        for i in 0..n {
+            std::fs::write(base.join(format!("f{i:05}.txt")), b"x").unwrap();
+        }
+
+        let frames: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = frames.clone();
+        let chan: Channel<ListMsg> = Channel::new(move |body: InvokeResponseBody| {
+            if let InvokeResponseBody::Json(s) = body {
+                sink.lock().push(serde_json::from_str(&s).unwrap());
+            }
+            Ok(())
+        });
+
+        stream_dir(&base.to_string_lossy(), &chan).unwrap();
+        let frames = frames.lock();
+
+        assert_eq!(frames.first().unwrap()["kind"], "head");
+        assert_eq!(frames.last().unwrap()["kind"], "done");
+        assert_eq!(frames.last().unwrap()["total"], n);
+
+        let streamed: usize = frames
+            .iter()
+            .filter(|f| f["kind"] == "entries")
+            .map(|f| f["entries"].as_array().unwrap().len())
+            .sum();
+        assert_eq!(streamed, n);
+        // No single chunk exceeds the cap.
+        assert!(frames
+            .iter()
+            .filter(|f| f["kind"] == "entries")
+            .all(|f| f["entries"].as_array().unwrap().len() <= LIST_CHUNK));
 
         let _ = std::fs::remove_dir_all(&base);
     }

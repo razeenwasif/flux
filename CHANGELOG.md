@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Files: streamed listing for huge directories (#86)** — `fs_list_stream` delivers a
+  directory in chunks over a Channel (head → entries… → done) instead of one giant JSON
+  payload, so a 100k-entry folder appears almost instantly and fills in progressively
+  ("loading more…" in the status bar). The directory is read once (no per-page re-scan);
+  navigations supersede in-flight streams via a generation token. Resolves the
+  single-payload tradeoff noted in ADR 0006.
 - **Terminal: shell integration (OSC 133, #16)** — bash terminals now emit semantic
   prompt marks (auto-injected via `bash --rcfile`, re-sourcing your `~/.bashrc`; opt out
   with `FLUX_NO_SHELL_INTEGRATION=1`). Each command gets a **gutter status bar** (violet

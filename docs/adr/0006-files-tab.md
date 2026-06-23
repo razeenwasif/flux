@@ -50,9 +50,11 @@ minimal premium UI) before the surface area of mutations. File operations
 - **Positive:** a fast, native file explorer that matches the velvet/glass UI;
   groundwork for Flux-native cross-links ("open in terminal here", agent file
   actions).
-- **Negative:** pathological directories (100k+ entries) make a large one-shot
+- ~~**Negative:** pathological directories (100k+ entries) make a large one-shot
   JSON payload; acceptable for v1 (virtualized rendering keeps the UI smooth),
-  paginate/stream later if needed.
+  paginate/stream later if needed.~~ **Resolved (#86):** `fs_list_stream` now
+  delivers the listing in 2k-entry chunks over a Channel (head → entries… → done),
+  reading the directory once; the explorer's main load + soft-refresh use it.
 - **Neutral:** read-only for now; write operations are a deliberate next step.
 
 ## Update (2026-06-14) — file operations shipped
