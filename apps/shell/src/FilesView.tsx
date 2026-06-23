@@ -26,6 +26,7 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import {
+  agentChat,
   fsCopy,
   fsCreateDir,
   fsCreateFile,
@@ -58,7 +59,8 @@ type SortKey = "name" | "size" | "modified";
 type Clipboard = { mode: "copy" | "cut"; paths: string[] } | null;
 type Menu = { x: number; y: number; entry: FileEntry | null } | null;
 type Creating = { kind: "dir" | "file"; value: string } | null;
-type Confirm = { title: string; body: string; danger: boolean; onYes: () => void } | null;
+type Confirm = { title: string; body: string; danger: boolean; yesLabel?: string; onYes: () => void } | null;
+type AiModal = { title: string; state: "loading" | "ok" | "error"; text?: string; err?: string } | null;
 
 const FilesView: Component<{ id: number; path: string; onPathChange: (p: string) => void; onOpenInTab: (url: string) => void }> = (props) => {
   const [cwd, setCwd] = createSignal(props.path);
@@ -97,6 +99,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const [creating, setCreating] = createSignal<Creating>(null);
   const [renaming, setRenaming] = createSignal<string | null>(null);
   const [confirm, setConfirm] = createSignal<Confirm>(null);
+  const [ai, setAi] = createSignal<AiModal>(null);
   const [notice, setNotice] = createSignal<{ kind: "ok" | "err"; text: string } | null>(null);
   const [dropTarget, setDropTarget] = createSignal<string | null>(null);
   let dragPaths: string[] = [];
@@ -370,6 +373,78 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     });
   };
 
+  // ── Cross-links + agent file actions (#87) ──
+  const openInBrowser = (entry: FileEntry) => {
+    setMenu(null);
+    const url = toFileUrl(joinPath(cwd(), entry.name));
+    void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url).catch((e) => toast(String(e), "err"));
+  };
+
+  // Read the selected file's text for the agent; returns null (after a toast/modal) if not readable.
+  const readForAgent = async (entry: FileEntry, title: string): Promise<DroppedAttachment | null> => {
+    const att = await attachmentRead(joinPath(cwd(), entry.name));
+    if (att.kind !== "text" || !att.text.trim()) {
+      setAi({ title, state: "error", err: "This file has no readable text to send to the agent." });
+      return null;
+    }
+    return att;
+  };
+
+  const summarize = (entry: FileEntry) => {
+    setMenu(null);
+    const title = `Summary — ${entry.name}`;
+    setAi({ title, state: "loading" });
+    void (async () => {
+      try {
+        const att = await readForAgent(entry, title);
+        if (!att) return;
+        const reply = await agentChat(
+          `Summarize the following file concisely — a couple of sentences, plus key points as bullets if useful. Do not repeat the file verbatim.\n\nFile: ${att.name}\n\n${att.text.slice(0, 24_000)}`,
+        );
+        setAi({ title, state: "ok", text: reply.trim() });
+      } catch (e) {
+        setAi({ title, state: "error", err: String(e) });
+      }
+    })();
+  };
+
+  const renameByContent = (entry: FileEntry) => {
+    setMenu(null);
+    const title = `Suggest a name — ${entry.name}`;
+    setAi({ title, state: "loading" });
+    void (async () => {
+      try {
+        const att = await readForAgent(entry, title);
+        if (!att) return;
+        const reply = await agentChat(
+          `Suggest ONE short, descriptive filename in kebab-case (lowercase words joined by hyphens, no spaces, no extension, at most 5 words) for the file below, based on its content. Reply with ONLY the filename — nothing else.\n\n${att.text.slice(0, 12_000)}`,
+        );
+        const ext = extOf(entry.name);
+        const suggested = safeBaseName(reply) + (ext ? "." + ext : "");
+        if (suggested === entry.name) { setAi({ title, state: "ok", text: `The current name already fits: “${entry.name}”.` }); return; }
+        setAi(null);
+        setConfirm({
+          title: "Rename by content?",
+          body: `Rename “${entry.name}” → “${suggested}”?`,
+          danger: false,
+          yesLabel: "Rename",
+          onYes: async () => {
+            setConfirm(null);
+            try {
+              await fsRename(joinPath(cwd(), entry.name), joinPath(cwd(), suggested));
+              await refresh();
+              toast(`Renamed to ${suggested}`);
+            } catch (e) {
+              toast(String(e), "err");
+            }
+          },
+        });
+      } catch (e) {
+        setAi({ title, state: "error", err: String(e) });
+      }
+    })();
+  };
+
   // ── Virtualization ──
   let scroller!: HTMLDivElement;
   let filesRoot!: HTMLDivElement;
@@ -447,6 +522,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const onKey = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement)?.tagName === "INPUT") return;
     if (creating() || renaming()) return;
+    if (ai()) { if (e.key === "Escape") setAi(null); return; }
     if (confirm()) { if (e.key === "Escape") setConfirm(null); return; }
     if (menu()) { if (e.key === "Escape") setMenu(null); return; }
 
@@ -571,8 +647,17 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
       ];
       if (!m.entry.is_dir)
         items.push({ label: "Open in default app", run: () => { setMenu(null); void fsOpen(joinPath(cwd(), m.entry!.name)).catch((e) => toast(String(e), "err")); } });
+      if (!m.entry.is_dir && BROWSER_EXTS.has(extOf(m.entry.name)))
+        items.push({ label: "Open in browser", run: () => openInBrowser(m.entry!) });
       if (m.entry.is_dir)
         items.push({ label: "Open terminal here", run: () => { setMenu(null); void openTab("terminal", joinPath(cwd(), m.entry!.name)); } });
+      if (!m.entry.is_dir && selCount <= 1) {
+        items.push(
+          "sep",
+          { label: "Summarize with Gemma", run: () => summarize(m.entry!) },
+          { label: "Rename by content…", run: () => renameByContent(m.entry!) },
+        );
+      }
       items.push("sep");
       if (selCount <= 1) items.push({ label: "Rename", key: "F2", run: startRename });
       items.push(
@@ -920,8 +1005,36 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
               <div class="files-confirm-actions">
                 <button class="files-btn" onClick={() => setConfirm(null)}>Cancel</button>
                 <button classList={{ "files-btn": true, primary: !c().danger, danger: c().danger }} onClick={c().onYes}>
-                  {c().danger ? "Delete" : "Move to Trash"}
+                  {c().yesLabel ?? (c().danger ? "Delete" : "Move to Trash")}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Show>
+
+      {/* Agent file actions — summary / status (#87) */}
+      <Show when={ai()}>
+        {(a) => (
+          <div class="files-confirm-backdrop" onClick={() => setAi(null)}>
+            <div class="files-ai" onClick={(e) => e.stopPropagation()}>
+              <div class="files-confirm-title">{a().title}</div>
+              <Switch>
+                <Match when={a().state === "loading"}>
+                  <div class="files-ai-body files-preview-empty">Asking Gemma…</div>
+                </Match>
+                <Match when={a().state === "error"}>
+                  <div class="files-ai-body files-preview-empty">{a().err}</div>
+                </Match>
+                <Match when={a().state === "ok"}>
+                  <div class="files-ai-body">{a().text}</div>
+                </Match>
+              </Switch>
+              <div class="files-confirm-actions">
+                <Show when={a().state === "ok" && a().text}>
+                  <button class="files-btn" onClick={() => { void navigator.clipboard.writeText(a().text!).then(() => toast("Copied")).catch(() => {}); }}>Copy</button>
+                </Show>
+                <button class="files-btn primary" onClick={() => setAi(null)}>Close</button>
               </div>
             </div>
           </div>
@@ -971,6 +1084,36 @@ const RailItem: Component<{
 const mod = (k: string): string => (navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+") + k;
 
 function plural(n: number): string { return n === 1 ? "" : "s"; }
+
+function extOf(name: string): string {
+  const i = name.lastIndexOf(".");
+  return i > 0 ? name.slice(i + 1).toLowerCase() : "";
+}
+
+// File types a browser tab can render directly — gate "Open in browser" on these.
+const BROWSER_EXTS = new Set([
+  "html", "htm", "pdf", "svg", "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
+  "txt", "md", "json", "xml", "csv", "log", "mp4", "webm", "mov", "mp3", "wav", "ogg",
+]);
+
+/** Turn a local OS path into a file:// URL (handles Windows drive paths + backslashes). */
+function toFileUrl(p: string): string {
+  let s = p.replace(/\\/g, "/");
+  if (!s.startsWith("/")) s = "/" + s; // C:/Users/… → /C:/Users/…
+  return "file://" + encodeURI(s);
+}
+
+/** Coerce a model-suggested filename into a safe, single base name (no ext, no path). */
+function safeBaseName(raw: string): string {
+  const first = (raw.split(/[\r\n]/)[0] ?? "").trim();
+  return first
+    .replace(/["'`*]/g, "")
+    .replace(/[\\/:]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/\.+$/, "")
+    .slice(0, 80)
+    .trim() || "untitled";
+}
 
 function sepOf(p: string): string { return p.includes("\\") ? "\\" : "/"; }
 

@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Files: "Open in browser" + agent file actions (#87, closes the item)** — right-click a
+  file for **Open in browser** (renders html/pdf/svg/images/text/media in a Flux tab via a
+  `file://` URL; PDFs route through the built-in viewer), **Summarize with Gemma** (sends the
+  file text to the local agent, shows the summary in a modal with Copy), and **Rename by
+  content…** (the agent proposes a kebab-case name; you confirm before the rename applies).
 - **Files: preview pane (#87)** — toggle ◰ in the explorer to preview the selected
   file on the right: image thumbnails, text/code contents, and an "Open in default app"
   fallback for everything else. Reuses the existing `attachment_read` (images→data URL,
