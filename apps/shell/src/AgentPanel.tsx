@@ -65,7 +65,7 @@ import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
-type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string; editPath?: string; editNew?: string; editDiff?: string; citations?: KbHit[] };
+type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string; editPath?: string; editNew?: string; editDiff?: string; citations?: KbHit[]; voice?: string };
 
 const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
@@ -1078,6 +1078,7 @@ const AgentPanel: Component = () => {
         await kbAnswer(p, (e) => {
           if (gen !== replyGen) return;
           if (e.kind === "sources") setFeed((f) => f.map((it, i) => (i === idx ? { ...it, citations: e.hits } : it)));
+          else if (e.kind === "voice") setFeed((f) => f.map((it, i) => (i === idx ? { ...it, voice: e.label } : it)));
           else if (e.kind === "token") { acc += e.text; setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + e.text } : it))); }
         });
         if (gen !== replyGen) return;
@@ -1478,6 +1479,7 @@ const AgentPanel: Component = () => {
               {(item, i) => (
                 <div classList={{ "agent-msg": true, [`agent-${item.role}`]: true }}>
                   <Show when={item.image}><img class="agent-thumb" src={item.image} alt="attachment" /></Show>
+                  <Show when={item.voice}><div class="agent-voice" title="A fine-tuned domain specialist answered">⚛ {item.voice} specialist</div></Show>
                   <div>{item.text}</div>
                   <Show when={item.citations?.length}>
                     <div class="agent-cites">

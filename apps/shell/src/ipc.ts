@@ -494,6 +494,7 @@ export const kbQuery = (query: string, k = 8, sources?: string[]) =>
 /** One frame of a streamed grounded answer (hand-mirrors the kb_answer events). */
 export type KbAnswerEvent =
   | { kind: "sources"; hits: KbHit[] }
+  | { kind: "voice"; label: string; model: string }
   | { kind: "token"; text: string }
   | { kind: "done" };
 /**

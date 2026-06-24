@@ -1784,6 +1784,8 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .nb-answer-card { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--flux-border); border-radius: 14px; padding: 18px 20px; }
 .nb-thinking { font-size: 13px; color: var(--flux-text-mute); }
 .nb-answer { font-size: 14px; line-height: 1.65; color: var(--flux-text); white-space: pre-wrap; word-break: break-word; }
+.nb-voice, .agent-voice { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; color: #2ff3ff; background: rgba(47,243,255,0.1); border: 1px solid rgba(47,243,255,0.3); border-radius: 999px; padding: 2px 9px; margin-bottom: 8px; }
+.agent-voice { margin-bottom: 5px; }
 .nb-cites { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--flux-border); }
 .nb-cites-title { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--flux-text-mute); margin-bottom: 8px; }
 .nb-cite { display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left; cursor: pointer; padding: 9px 10px; border-radius: 10px; background: none; border: 1px solid transparent; color: inherit; }

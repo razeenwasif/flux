@@ -24,6 +24,7 @@ const NotebookPage: Component = () => {
   const [q, setQ] = createSignal("");
   const [answer, setAnswer] = createSignal("");
   const [hits, setHits] = createSignal<KbHit[]>([]);
+  const [voice, setVoice] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false); // streaming an answer
   const [reindexing, setReindexing] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
@@ -71,10 +72,12 @@ const NotebookPage: Component = () => {
     setAsked(true);
     setAnswer("");
     setHits([]);
+    setVoice(null);
     setErr(null);
     try {
       await kbAnswer(query, (e) => {
         if (e.kind === "sources") setHits(e.hits);
+        else if (e.kind === "voice") setVoice(e.label);
         else if (e.kind === "token") setAnswer((a) => a + e.text);
       });
     } catch (e) {
@@ -177,6 +180,9 @@ const NotebookPage: Component = () => {
       {/* Answer + citations */}
       <Show when={asked()}>
         <div class="nb-answer-card">
+          <Show when={voice()}>
+            <div class="nb-voice" title="A fine-tuned domain specialist answered this">⚛ {voice()} specialist</div>
+          </Show>
           <Show when={answer()} fallback={<div class="nb-thinking">{busy() ? "Searching your knowledge base…" : ""}</div>}>
             <div class="nb-answer">{answer()}</div>
           </Show>

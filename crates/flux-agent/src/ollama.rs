@@ -25,8 +25,28 @@ fn endpoint() -> String {
     std::env::var("FLUX_OLLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.into())
 }
 
-/// The model the agent will use right now.
+thread_local! {
+    /// Per-thread model override for domain routing (#120). The agent runs each
+    /// completion on its own blocking thread, so forcing a model here routes just
+    /// that one call without touching the user's global choice or other threads.
+    static MODEL_OVERRIDE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with the agent model forced to `model` on THIS thread, restoring the
+/// previous value after — used to route an in-domain question to a specialist.
+pub fn with_model<T>(model: &str, f: impl FnOnce() -> T) -> T {
+    let prev = MODEL_OVERRIDE.with(|m| m.borrow_mut().replace(model.to_string()));
+    let out = f();
+    MODEL_OVERRIDE.with(|m| *m.borrow_mut() = prev);
+    out
+}
+
+/// The model the agent will use right now — a thread-local routing override wins,
+/// then the global runtime override, then `FLUX_MODEL` / the default.
 pub fn active_model() -> String {
+    if let Some(m) = MODEL_OVERRIDE.with(|m| m.borrow().clone()) {
+        return m;
+    }
     MODEL
         .read()
         .ok()

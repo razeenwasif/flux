@@ -23,6 +23,7 @@ use crate::feeds::{Feed, FeedItem};
 use crate::files::{DirListing, FileEntry, QuickLocation};
 use crate::kb::{KbHit, KbSourceStat, KbStatus};
 use crate::tui_apps::TuiApp;
+use crate::specialists::Specialist;
 use crate::history::HistoryEntry;
 use crate::https::HttpsStatus;
 use crate::leanmode::LeanStatus;
@@ -114,6 +115,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<KbSourceStat>(&c),
         specta::ts::export::<KbStatus>(&c),
         specta::ts::export::<TuiApp>(&c),
+        specta::ts::export::<Specialist>(&c),
         specta::ts::export::<SyncStatus>(&c),
         specta::ts::export::<SyncReport>(&c),
         specta::ts::export::<ArchiveEntryWire>(&c),

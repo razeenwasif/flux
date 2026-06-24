@@ -59,6 +59,7 @@ pub mod taskmgr;
 pub mod tombstone;
 pub mod tracking;
 pub mod state;
+pub mod specialists;
 pub mod terminal;
 pub mod todos;
 pub mod tui_apps;
@@ -763,6 +764,7 @@ pub fn run(intent: cli::LaunchIntent) {
             kb::kb_answer,
             kb::scroll_clip,
             kb::onyx_new_note,
+            specialists::agent_specialists,
             tui_apps::tui_apps_list,
             tui_apps::tui_apps_set,
             tui_apps::tui_apps_detect,

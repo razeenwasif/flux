@@ -778,7 +778,19 @@ pub async fn kb_answer(
         let mut sink = |tok: &str| {
             let _ = on_token.send(serde_json::json!({ "kind": "token", "text": tok }).to_string());
         };
-        let r = crate::agent_bridge::planner().chat_stream(&prompt, None, &mut sink);
+        // Route an in-domain question to a fine-tuned specialist voice (#120), if
+        // one is installed; surface which voice is answering, then force it for
+        // just this completion. Otherwise the default Gemma answers.
+        let voice = crate::specialists::route(&query);
+        if let Some(s) = &voice {
+            let _ = on_token.send(serde_json::json!({ "kind": "voice", "label": s.label, "model": s.model }).to_string());
+        }
+        let r = match &voice {
+            Some(s) => flux_agent::ollama::with_model(&s.model, || {
+                crate::agent_bridge::planner().chat_stream(&prompt, None, &mut sink)
+            }),
+            None => crate::agent_bridge::planner().chat_stream(&prompt, None, &mut sink),
+        };
         let _ = on_token.send(serde_json::json!({ "kind": "done" }).to_string());
         r.map(|_| ()).map_err(|e| e.to_string())
     })

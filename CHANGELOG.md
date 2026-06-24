@@ -30,6 +30,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Co-scientist specialist voices (#120)** — fine-tuned council-specialists models are now
+  routable. Flux auto-discovers any Ollama model named `<domain>-specialist:*` (physics / math /
+  cs) and, when a grounded Notebook / "✦ My notes" question carries enough of that domain's
+  vocabulary, answers it with the specialist instead of the default Gemma — shown as a "⚛ Physics
+  specialist" badge. Routing is per-answer (thread-local model override; the global pick is
+  untouched) and conservative; falls back to Gemma when no specialist is installed. New
+  `agent_specialists` lists what's available.
 - **Knowledge Base: Council briefs as a third source (#116)** — Gemma now also indexes your
   Council co-scientist debate briefs (`~/Research/debates/*.md`), so past hypotheses/debates
   are retrievable in the Notebook and "✦ My notes". Same Markdown pipeline as Onyx; the
