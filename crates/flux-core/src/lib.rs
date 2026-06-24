@@ -61,6 +61,7 @@ pub mod tracking;
 pub mod state;
 pub mod terminal;
 pub mod todos;
+pub mod tui_apps;
 pub mod vault;
 pub mod webview;
 
@@ -251,6 +252,16 @@ pub fn run(intent: cli::LaunchIntent) {
                     }
                 });
             }
+            // TUI app launcher — curated bar of the user's terminal apps.
+            let tui_apps_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("tui-apps.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-tui-apps.json"));
+            if let Some(parent) = tui_apps_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            app.manage(tui_apps::TuiAppsStore::empty(tui_apps_path));
             // Knowledge Base — local RAG over the user's corpora (ADR 0010).
             let kb_path = app
                 .path()
@@ -748,6 +759,9 @@ pub fn run(intent: cli::LaunchIntent) {
             kb::kb_set_source,
             kb::kb_query,
             kb::kb_answer,
+            tui_apps::tui_apps_list,
+            tui_apps::tui_apps_set,
+            tui_apps::tui_apps_detect,
             files::attachment_read,
             files::read_text_file,
             files::write_text_file,

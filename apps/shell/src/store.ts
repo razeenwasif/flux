@@ -5,6 +5,7 @@
  */
 import { createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
+import { setPendingCommand } from "./terminals";
 import {
   darkmodeSet,
   navSet,
@@ -740,6 +741,16 @@ export async function openTab(kind: TabKind, url?: string, isPrivate?: boolean, 
   if (!background) setActiveId(tab.id); // background tabs (middle/Ctrl-click) don't steal focus
   await refreshTabs();
   return tab;
+}
+
+/** Open a Terminal tab that auto-runs `cmd` once its shell is up (TUI app launcher,
+ *  #117). cwd seeds the terminal's working dir. The command is registered before
+ *  the tab mounts, so TerminalView runs it right after the PTY spawns (no race). */
+export async function openTerminalApp(cmd: string, cwd?: string): Promise<void> {
+  const tab = await tabCreate("terminal", cwd && cwd.trim() ? cwd.trim() : undefined);
+  if (cmd.trim()) setPendingCommand(tab.id, cmd.trim());
+  setActiveId(tab.id);
+  await refreshTabs();
 }
 
 export async function focusTab(id: number): Promise<void> {

@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Terminal apps launcher bar (#117)** — a curated, editable strip beside the native pages
+  bar with a chip per terminal/TUI app; clicking opens a new Terminal tab and auto-runs the
+  app's command (cwd-aware). Seeded on first run with onyx / scroll / council; the ✎ editor
+  adds/removes/reorders/renames apps (name · icon · command · working dir) and a ⌕ Scan pulls
+  candidate binaries from your bin dirs. Persisted server-side (`tui_apps_*`). Shares the pages-bar toggle.
 - **Agent panel: ask your notes & papers (#116)** — a third grounding scope, **✦ My notes**,
   next to "This page" / "All tabs" in the Liquid AI sidebar. With it on, your question is
   answered from the knowledge base (Onyx + Scroll) via `kb_answer`, streamed into the chat with

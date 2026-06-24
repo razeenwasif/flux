@@ -16,6 +16,19 @@ export function setTerminalOpener(fn: () => void): void {
   openTerminalFn = fn;
 }
 
+// A command to auto-run once a freshly-opened terminal's PTY is spawned (TUI app
+// launcher). Set before the tab mounts; TerminalView consumes it after spawn so
+// there's no race against the PTY being ready.
+const pendingCommand = new Map<number, string>();
+export function setPendingCommand(session: number, cmd: string): void {
+  pendingCommand.set(session, cmd);
+}
+export function takePendingCommand(session: number): string | null {
+  const cmd = pendingCommand.get(session) ?? null;
+  pendingCommand.delete(session);
+  return cmd;
+}
+
 export function registerTerminal(session: number, term: XTerm): void {
   registry.set(session, term);
   activeSession = session;

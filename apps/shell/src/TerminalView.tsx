@@ -12,7 +12,7 @@
 import { createEffect, createSignal, onCleanup, onMount, Show, type Component } from "solid-js";
 import type { Terminal as XTerm, IMarker, IDecoration } from "@xterm/xterm";
 import { Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
-import { registerTerminal, setActiveTerminal, unregisterTerminal } from "./terminals";
+import { registerTerminal, setActiveTerminal, takePendingCommand, unregisterTerminal } from "./terminals";
 import { openTab } from "./store";
 import LiquidBackground from "./LiquidBackground";
 
@@ -228,6 +228,9 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
     channel.onmessage = (bytes) => term.write(new Uint8Array(bytes));
     try {
       await terminalSpawn(props.session, term.cols, term.rows, channel);
+      // TUI app launcher (#117): run the queued command now the PTY is live.
+      const initCmd = takePendingCommand(props.session);
+      if (initCmd) void terminalWrite(props.session, new TextEncoder().encode(initCmd + "\r"));
     } catch (e) {
       term.write(
         `\r\n\x1b[38;2;236;75;224m⚠ Flux: couldn't start the shell\x1b[0m\r\n` +

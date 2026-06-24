@@ -56,6 +56,7 @@ import type {
   KbHit as GenKbHit,
   KbSourceStat as GenKbSourceStat,
   KbStatus as GenKbStatus,
+  TuiApp as GenTuiApp,
   HotRule as GenHotRule,
   HttpsStatus as GenHttpsStatus,
   InstalledExt as GenInstalledExt,
@@ -462,6 +463,14 @@ export const searchRemoveEngine = (id: string) => invoke<void>("search_remove_en
 /** Sentinel url for the native Omni dashboard page (no webview). */
 export const OMNI_URL = "flux://omni";
 export const NOTEBOOK_URL = "flux://notebook";
+// ─── TUI app launcher (#117) ────────────────────────────────────────────────
+export type TuiApp = GenTuiApp;
+/** The user's curated terminal-app list (seeded on first run). */
+export const tuiAppsList = () => invoke<TuiApp[]>("tui_apps_list");
+/** Replace the whole list (edits/reorder happen client-side, then save). */
+export const tuiAppsSet = (apps: TuiApp[]) => invoke<void>("tui_apps_set", { apps });
+/** Executable names found in the standard user bin dirs — a quick-add helper. */
+export const tuiAppsDetect = () => invoke<string[]>("tui_apps_detect");
 // ─── Knowledge Base / second brain (#116, ADR 0010) ─────────────────────────
 /** Per-source + overall index status for the Notebook view. */
 export const kbStatus = () => invoke<KbStatus>("kb_status");

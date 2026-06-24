@@ -141,6 +141,7 @@ const ArchivePage = lazy(() => import("./ArchivePage"));
 const FeedsPage = lazy(() => import("./FeedsPage"));
 const BookmarkBar = lazy(() => import("./BookmarkBar"));
 const PagesBar = lazy(() => import("./PagesBar"));
+const TuiAppsBar = lazy(() => import("./TuiAppsBar"));
 const AgentPanel = lazy(() => import("./AgentPanel"));
 const SyncPage = lazy(() => import("./SyncPage"));
 const AppsPage = lazy(() => import("./AppsPage"));
@@ -2776,6 +2777,7 @@ const ContentArea: Component<{
         (not an overlay) so the card shrinks and the native webview follows it. */}
     <Show when={pagesBarOpen()}>
       <Suspense><PagesBar /></Suspense>
+      <Suspense><TuiAppsBar /></Suspense>
     </Show>
     <div class="card" id="flux-web-area">
       {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
