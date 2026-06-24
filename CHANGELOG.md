@@ -30,6 +30,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Start page: daily briefing (#71, closes the item)** — a new widget where the local
+  agent (Gemma) condenses today's feed headlines into 3–5 bullets. Generated on demand
+  (✦ Brief me on today), cached per day so opening a new tab doesn't re-hit the model, with
+  ↻ Refresh to regenerate. Fully on-device — headlines never leave the machine.
 - **Terminal: in-column splits (#75)** — the dev terminal column can now hold several
   PTY panes at once. A hover toolbar (top-right) splits the focused pane, flips the layout
   between side-by-side and stacked (persisted), and closes the focused pane; click a pane

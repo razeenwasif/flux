@@ -7,10 +7,11 @@
  * (Open-Meteo); recent tabs; an editable speed dial (persisted); quick
  * actions; and a subtle flowing wave for the "flux" feel.
  */
-import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Match, Show, Switch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
 import { visibleInterval } from "./poll";
 import {
+  agentChat,
   FEEDS_URL,
   HISTORY_URL,
   OMNI_URL,
@@ -98,6 +99,40 @@ const StartPage: Component<{
   const [weather, setWeather] = createSignal<{ temp: number; code: number; city: string } | null>(null);
   const [headlines, setHeadlines] = createSignal<FeedItem[]>([]);
   const [topSites, setTopSites] = createSignal<TopSite[]>([]);
+  // Daily briefing (#71): the local agent (Gemma) condenses today's headlines into
+  // a few bullets. Generated on demand and cached per day so opening a new tab
+  // doesn't re-hit the model; "Refresh" regenerates. Stays fully local (privacy).
+  type Briefing = { state: "idle" | "loading" | "ok" | "error"; text?: string; error?: string };
+  const [briefing, setBriefing] = createSignal<Briefing>({ state: "idle" });
+  const BRIEF_KEY = "flux.start.briefing";
+  // Local YYYY-MM-DD, non-reactive (don't tie the briefing to the per-second clock).
+  const briefDay = () => dateStrOf(new Date());
+  // Restore today's cached briefing once headlines are in (don't auto-generate).
+  createEffect(() => {
+    if (!headlines().length || briefing().state !== "idle") return;
+    try {
+      const c = JSON.parse(localStorage.getItem(BRIEF_KEY) || "null");
+      if (c && c.date === briefDay() && c.text) setBriefing({ state: "ok", text: c.text });
+    } catch { /* ignore a bad cache entry */ }
+  });
+  const generateBriefing = async () => {
+    const hs = headlines().slice(0, 12);
+    if (!hs.length) return;
+    setBriefing({ state: "loading" });
+    const list = hs.map((h, i) => `${i + 1}. ${h.title} (${h.feed_title})`).join("\n");
+    try {
+      const reply = await agentChat(
+        "You are my news briefer. Summarise today's headlines below into 3–5 short bullet points, " +
+          "grouping related stories. Be concise and neutral. Reply with only the bullets, one per line starting with “• ”.\n\n" +
+          list,
+      );
+      const text = reply.trim();
+      setBriefing({ state: "ok", text });
+      localStorage.setItem(BRIEF_KEY, JSON.stringify({ date: briefDay(), text }));
+    } catch (e) {
+      setBriefing({ state: "error", error: String(e) });
+    }
+  };
   const [scratch, setScratch] = createSignal("");
   let scratchTimer: number | undefined;
   const [events, setEvents] = createSignal<CalEvent[]>([]);
@@ -111,6 +146,7 @@ const StartPage: Component<{
     { key: "shortcuts", label: "Shortcuts" },
     { key: "topsites", label: "Top sites" },
     { key: "headlines", label: "Headlines" },
+    { key: "briefing", label: "Daily briefing" },
     { key: "scratchpad", label: "Scratchpad" },
     { key: "calendar", label: "Calendar & clocks" },
     { key: "tasks", label: "Tasks" },
@@ -547,6 +583,35 @@ const StartPage: Component<{
               </For>
             </div>
           </Show>
+        </div>
+
+        {/* Daily briefing (#71) — local agent summary of the headlines */}
+        <div class="glass start-card" style={{ display: widgetOn("briefing") ? undefined : "none", order: orderOf("briefing") }}>
+          <div class="start-card-title">
+            Daily briefing
+            <Show when={briefing().state === "ok"}>
+              <button class="start-card-link" title="Regenerate from the latest headlines" onClick={generateBriefing}>↻ Refresh</button>
+            </Show>
+          </div>
+          <div class="start-card-body">
+            <Switch>
+              <Match when={headlines().length === 0}>
+                <div class="start-empty">Subscribe to feeds and Gemma will brief you on the day's headlines — privately, on-device.</div>
+              </Match>
+              <Match when={briefing().state === "loading"}>
+                <div class="start-empty">Gemma is reading the headlines…</div>
+              </Match>
+              <Match when={briefing().state === "error"}>
+                <div class="start-empty">Couldn't reach the local model. <button class="start-card-link" onClick={generateBriefing}>Retry</button></div>
+              </Match>
+              <Match when={briefing().state === "ok"}>
+                <div class="start-briefing">{briefing().text}</div>
+              </Match>
+              <Match when={briefing().state === "idle"}>
+                <button class="start-brief-btn" onClick={generateBriefing}>✦ Brief me on today</button>
+              </Match>
+            </Switch>
+          </div>
         </div>
 
         {/* Scratchpad */}

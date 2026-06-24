@@ -1376,6 +1376,14 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .start-row-label { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; color: var(--flux-text); }
 .start-fav { flex: none; width: 20px; height: 20px; display: grid; place-items: center; font-size: 11px; font-weight: 650; border-radius: 6px; background: rgba(255,255,255,0.06); color: var(--flux-text-dim); }
 .start-empty { font-size: 12px; color: var(--flux-text-mute); line-height: 1.6; }
+/* #71 daily briefing (local agent summary) */
+.start-briefing { font-size: 12.5px; line-height: 1.55; color: var(--flux-text-dim); white-space: pre-wrap; word-break: break-word; max-height: 168px; overflow: auto; }
+.start-brief-btn {
+  font-size: 12px; color: var(--flux-text); cursor: pointer; padding: 8px 12px;
+  border-radius: 9px; background: rgba(123, 97, 255, 0.16);
+  border: 1px solid rgba(123, 97, 255, 0.34); transition: background 0.15s, border-color 0.15s;
+}
+.start-brief-btn:hover { background: rgba(123, 97, 255, 0.28); border-color: rgba(47, 243, 255, 0.4); }
 
 .start-dial { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .start-tile-wrap { position: relative; }
