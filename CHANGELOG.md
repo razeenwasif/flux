@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Knowledge Base: in-app source locations (#116)** — set the Onyx vault path / Scroll URL
+  directly in the Notebook (inline editor on any source that can't be found), persisted in
+  Flux's config via `kb_set_source` — no more fragile `setx`/env-var propagation. Resolves a
+  Windows build pointing at a WSL vault: paste the `\\wsl.localhost\<distro>\…\OnyxVault`
+  UNC path and hit Save & index. In-app location wins over the env var; both beat autodetect.
 - **Knowledge Base: Scroll large-library + binary fixes (#116)** — the Scroll connector no
   longer fails with "response too big" (`/api/articles` returns every article's full text;
   read past ureq's 10 MB cap). Articles whose `content_markdown` is escaped PDF/binary are

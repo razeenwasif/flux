@@ -9,10 +9,14 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 
-import { fsOpen, kbAnswer, kbReindex, kbStatus, type KbHit, type KbStatus } from "./ipc";
+import { fsOpen, kbAnswer, kbReindex, kbSetSource, kbStatus, type KbHit, type KbStatus } from "./ipc";
 import { openTab } from "./store";
 
 const SOURCE_LABEL: Record<string, string> = { onyx: "Onyx vault", scroll: "Scroll papers" };
+const SOURCE_HINT: Record<string, string> = {
+  onyx: "Vault path — e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault",
+  scroll: "Scroll base URL — e.g. http://localhost:3131",
+};
 
 const NotebookPage: Component = () => {
   const [status, setStatus] = createSignal<KbStatus | null>(null);
@@ -23,9 +27,26 @@ const NotebookPage: Component = () => {
   const [reindexing, setReindexing] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
   const [asked, setAsked] = createSignal(false);
+  // Per-source location edit buffer (Onyx vault path / Scroll URL).
+  const [loc, setLoc] = createSignal<Record<string, string>>({});
 
   const refresh = () => void kbStatus().then(setStatus).catch(() => {});
   onMount(refresh);
+
+  // Save a source's location, then reindex just that source so the user sees it work.
+  const saveLocation = async (source: string) => {
+    const value = (loc()[source] ?? "").trim();
+    setErr(null);
+    setReindexing(true);
+    try {
+      await kbSetSource(source, value);
+      setStatus(await kbReindex(source));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setReindexing(false);
+    }
+  };
 
   const totalChunks = () => status()?.sources.reduce((n, s) => n + s.chunks, 0) ?? 0;
 
@@ -109,7 +130,26 @@ const NotebookPage: Component = () => {
         </Show>
       </div>
 
-      <Show when={totalChunks() === 0 && !reindexing()}>
+      {/* Fix a source that can't be located (vault path / server URL). */}
+      <For each={(status()?.sources ?? []).filter((s) => !!s.error)}>
+        {(s) => (
+          <div class="nb-fix">
+            <label class="nb-fix-label">{SOURCE_LABEL[s.source] ?? s.source} location</label>
+            <input
+              class="nb-fix-input"
+              placeholder={SOURCE_HINT[s.source] ?? ""}
+              value={loc()[s.source] ?? s.location ?? ""}
+              onInput={(e) => setLoc((m) => ({ ...m, [s.source]: e.currentTarget.value }))}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveLocation(s.source); } }}
+            />
+            <button class="nb-fix-save" disabled={reindexing()} onClick={() => void saveLocation(s.source)}>
+              Save &amp; index
+            </button>
+          </div>
+        )}
+      </For>
+
+      <Show when={totalChunks() === 0 && !reindexing() && !(status()?.sources ?? []).some((s) => s.error)}>
         <div class="nb-empty">
           Nothing indexed yet. Hit <b>↻ Reindex</b> to pull in your Onyx vault, then ask away.
         </div>

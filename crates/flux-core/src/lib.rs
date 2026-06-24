@@ -745,6 +745,7 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_search,
             kb::kb_status,
             kb::kb_reindex,
+            kb::kb_set_source,
             kb::kb_query,
             kb::kb_answer,
             files::attachment_read,

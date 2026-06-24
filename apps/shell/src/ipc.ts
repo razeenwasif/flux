@@ -467,6 +467,11 @@ export const NOTEBOOK_URL = "flux://notebook";
 export const kbStatus = () => invoke<KbStatus>("kb_status");
 /** (Re)build the index for one source (or all when omitted). Returns fresh status. */
 export const kbReindex = (source?: string) => invoke<KbStatus>("kb_reindex", { source });
+/** Point a source at a location (Onyx vault path / Scroll URL); empty clears it.
+ *  Persisted in Flux's config — the env-free way to index a vault that lives
+ *  elsewhere (e.g. a WSL UNC path from a Windows build). */
+export const kbSetSource = (source: string, location: string) =>
+  invoke<KbStatus>("kb_set_source", { source, location });
 /** Cosine top-k retrieval over the corpus (optionally restricted to `sources`). */
 export const kbQuery = (query: string, k = 8, sources?: string[]) =>
   invoke<KbHit[]>("kb_query", { query, k, sources });

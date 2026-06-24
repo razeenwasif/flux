@@ -62,6 +62,10 @@ struct KbData {
     /// source → last reindex error (e.g. "vault not found"), so the UI can explain a 0.
     #[serde(default)]
     errors: HashMap<String, String>,
+    /// source → user-set location override (Onyx vault path / Scroll base URL),
+    /// persisted in Flux's own config so it survives without fragile env vars.
+    #[serde(default)]
+    config: HashMap<String, String>,
 }
 
 impl Default for KbData {
@@ -72,6 +76,7 @@ impl Default for KbData {
             chunks: Vec::new(),
             last: HashMap::new(),
             errors: HashMap::new(),
+            config: HashMap::new(),
         }
     }
 }
@@ -98,6 +103,9 @@ pub struct KbSourceStat {
     /// Why the last reindex of this source found nothing (vault missing, server
     /// down, …), or `None` if it succeeded.
     pub error: Option<String>,
+    /// User-set location override (Onyx vault path / Scroll URL), if any — echoed
+    /// back so the Notebook UI can show what it's pointed at.
+    pub location: Option<String>,
 }
 
 #[derive(Serialize, Clone, specta::Type)]
@@ -201,10 +209,29 @@ impl KbStore {
                     chunks,
                     last_ms: d.last.get(s).copied().unwrap_or(0),
                     error: d.errors.get(s).cloned(),
+                    location: d.config.get(s).cloned(),
                 }
             })
             .collect();
         KbStatus { sources, embedder: embedder_name(d.embedder).to_string(), indexing: self.indexing.load(Ordering::Acquire) }
+    }
+
+    /// Persist a source's location override (Onyx vault path / Scroll URL). Empty
+    /// clears it (back to env/autodetect). Survives restarts in `kb-index.json` —
+    /// no fragile OS env var needed.
+    pub fn set_location(&self, source: &str, location: &str) {
+        self.hydrate();
+        {
+            let mut d = self.data.write();
+            let v = location.trim();
+            if v.is_empty() {
+                d.config.remove(source);
+            } else {
+                d.config.insert(source.to_string(), v.to_string());
+            }
+            d.errors.remove(source); // stale error; the next reindex repopulates
+        }
+        self.persist();
     }
 
     /// (Re)build the index for `source` (or every known source when `None`),
@@ -242,7 +269,8 @@ impl KbStore {
         }
 
         for src in targets {
-            let res = collect(src).and_then(|raw| self.reindex_source(src, embedder, raw));
+            let ov = self.data.read().config.get(src).cloned();
+            let res = collect(src, ov.as_deref()).and_then(|raw| self.reindex_source(src, embedder, raw));
             match res {
                 Ok(()) => {
                     let mut d = self.data.write();
@@ -410,10 +438,10 @@ fn strip_frontmatter(text: &str) -> &str {
 
 // ─── Connectors ───────────────────────────────────────────────────────────────
 
-fn collect(source: &str) -> Result<Vec<RawDoc>, String> {
+fn collect(source: &str, location: Option<&str>) -> Result<Vec<RawDoc>, String> {
     match source {
-        "onyx" => collect_onyx(),
-        "scroll" => collect_scroll(),
+        "onyx" => collect_onyx(location),
+        "scroll" => collect_scroll(location),
         other => Err(format!("no connector for source: {other}")),
     }
 }
@@ -421,11 +449,14 @@ fn collect(source: &str) -> Result<Vec<RawDoc>, String> {
 /// Onyx vault root: `$FLUX_ONYX_VAULT` (so Flux can index a vault that lives
 /// elsewhere — e.g. a Windows build pointing at `\\wsl.localhost\…\OnyxVault`),
 /// else `~/.config/onyx/config.toml` `last_vault`, else `~/OnyxVault`.
-fn onyx_vault() -> Option<PathBuf> {
-    if let Ok(v) = std::env::var("FLUX_ONYX_VAULT") {
-        let v = v.trim();
-        if !v.is_empty() && is_dir(Path::new(v)) {
-            return Some(PathBuf::from(v));
+fn onyx_vault(location: Option<&str>) -> Option<PathBuf> {
+    // In-app setting wins (the user just typed it), then the env var, then autodetect.
+    let env_v = std::env::var("FLUX_ONYX_VAULT").ok();
+    for cand in [location, env_v.as_deref()] {
+        if let Some(v) = cand.map(str::trim).filter(|v| !v.is_empty()) {
+            if is_dir(Path::new(v)) {
+                return Some(PathBuf::from(v));
+            }
         }
     }
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
@@ -454,22 +485,25 @@ fn is_dir(p: &Path) -> bool {
 }
 
 /// Read all `*.md` notes under the Onyx vault (skipping the `.onyx/` app dir).
-fn collect_onyx() -> Result<Vec<RawDoc>, String> {
+fn collect_onyx(location: Option<&str>) -> Result<Vec<RawDoc>, String> {
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
-    let root = onyx_vault().ok_or_else(|| {
-        match std::env::var("FLUX_ONYX_VAULT").ok().filter(|v| !v.trim().is_empty()) {
-            // Set but unusable — the most actionable case (wrong path, or WSL not running).
-            Some(v) => format!(
-                "FLUX_ONYX_VAULT is set to '{}' but that isn't an accessible directory. \
-For a WSL vault from a Windows build, make sure WSL is running and the UNC path is exact \
-(e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault). Relaunch Flux after `setx`.",
-                v.trim()
-            ),
-            None => format!(
-                "Onyx vault not found. Set FLUX_ONYX_VAULT to your vault path (looked at \
-{home}/.config/onyx/config.toml and {home}/OnyxVault)."
-            ),
-        }
+    let set = location
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .or_else(|| std::env::var("FLUX_ONYX_VAULT").ok().filter(|v| !v.trim().is_empty()));
+    let root = onyx_vault(location).ok_or_else(|| match set {
+        // Set but unusable — the most actionable case (wrong path, or WSL not running).
+        Some(v) => format!(
+            "Vault path '{}' isn't an accessible directory. For a WSL vault from a Windows \
+build, make sure WSL is running and the UNC path is exact (e.g. \
+\\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault).",
+            v.trim()
+        ),
+        None => format!(
+            "Onyx vault not found — set its path below (looked at {home}/.config/onyx/config.toml \
+and {home}/OnyxVault)."
+        ),
     })?;
     let mut out = Vec::new();
     walk_md(&root, &root, &mut out);
@@ -525,8 +559,13 @@ fn note_title(body: &str, filename: &str) -> String {
 // must be reachable (`scroll serve`, or the TUI is open); otherwise this source
 // is skipped on a full reindex.
 
-fn collect_scroll() -> Result<Vec<RawDoc>, String> {
-    let base = std::env::var("FLUX_SCROLL_URL").unwrap_or_else(|_| "http://localhost:3131".into());
+fn collect_scroll(location: Option<&str>) -> Result<Vec<RawDoc>, String> {
+    let base = location
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .or_else(|| std::env::var("FLUX_SCROLL_URL").ok().filter(|v| !v.trim().is_empty()))
+        .unwrap_or_else(|| "http://localhost:3131".into());
     let url = format!("{}/api/articles", base.trim_end_matches('/'));
     let resp = ureq::get(&url)
         .timeout(Duration::from_secs(30))
@@ -622,6 +661,23 @@ pub async fn kb_status(kb: State<'_, KbStore>) -> Result<KbStatus, String> {
 pub async fn kb_reindex(kb: State<'_, KbStore>, source: Option<String>) -> Result<KbStatus, String> {
     let kb = (*kb).clone();
     tauri::async_runtime::spawn_blocking(move || kb.reindex(source)).await.map_err(|e| e.to_string())?
+}
+
+/// Set a source's location (Onyx vault path / Scroll URL) — the robust, env-free
+/// way to point Flux at a vault that lives elsewhere (e.g. a WSL UNC path from a
+/// Windows build). Empty clears it.
+#[tauri::command]
+pub async fn kb_set_source(kb: State<'_, KbStore>, source: String, location: String) -> Result<KbStatus, String> {
+    if !SOURCES.contains(&source.as_str()) {
+        return Err(format!("unknown source: {source}"));
+    }
+    let kb = (*kb).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        kb.set_location(&source, &location);
+        kb.status()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
