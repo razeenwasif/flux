@@ -543,6 +543,15 @@ export const omniStats = async (): Promise<OmniStats> =>
 export const omniSites = async (): Promise<OmniSite[]> =>
   JSON.parse(await invoke<string>("omni_sites"));
 
+/** Omni's semantic graph (#119): nodes (docs, sized by PageRank) + cosine-neighbour
+ *  edges (`s`/`t` index into `nodes`). Hand-typed (the body is raw JSON from Omni). */
+export interface OmniGraphData {
+  nodes: { title: string; url: string; rank: number }[];
+  edges: { s: number; t: number; w: number }[];
+}
+export const omniGraph = async (n = 300, k = 6): Promise<OmniGraphData> =>
+  JSON.parse(await invoke<string>("omni_graph", { n, k }));
+
 /** A grounding source cited by a generative answer. */
 export interface OmniAnswerSource {
   n: number;

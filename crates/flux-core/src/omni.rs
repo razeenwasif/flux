@@ -46,6 +46,16 @@ pub async fn omni_sites(search: State<'_, SearchState>) -> Result<String, String
     fetch(format!("{}/sites", search.omni_base())).await
 }
 
+/// The Omni engine's semantic graph (`/graph`) — top-`n` docs by PageRank as
+/// nodes, edges to each node's top-`k` cosine neighbours — for the dashboard's
+/// Obsidian-style graph view. Proxied through Rust like the other Omni calls.
+#[tauri::command]
+pub async fn omni_graph(search: State<'_, SearchState>, n: Option<u32>, k: Option<u32>) -> Result<String, String> {
+    let n = n.unwrap_or(300).clamp(1, 1500);
+    let k = k.unwrap_or(6).clamp(1, 16);
+    fetch(format!("{}/graph?n={n}&k={k}", search.omni_base())).await
+}
+
 /// Stream a generative RAG answer for `query` from Omni's `/answer?stream=1`,
 /// relaying each Server-Sent-Event `data:` payload to the frontend over `on_token`
 /// as it arrives. Proxied through Rust (like the other Omni calls) so it dodges the

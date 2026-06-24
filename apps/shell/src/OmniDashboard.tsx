@@ -9,6 +9,7 @@
  */
 import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
 
+import OmniGraph from "./OmniGraph";
 import { visibleInterval } from "./poll";
 import {
   omniIngestSetAuto,
@@ -39,6 +40,7 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
   const [stats, setStats] = createSignal<OmniStats | null>(null);
   const [sites, setSites] = createSignal<OmniSite[]>(FALLBACK_SITES);
   const [error, setError] = createSignal<string | null>(null);
+  const [view, setView] = createSignal<"stats" | "graph">("stats");
   const [autoIngest, setAutoIngest] = createSignal(false);
 
   const toggleIngest = async () => {
@@ -88,6 +90,10 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
       <header class="omni-head">
         <span class="omni-brand"><span class="omni-spark">✦</span> Omni <span class="omni-sub">index dashboard</span></span>
         <span style={{ flex: 1 }} />
+        <div class="omni-viewtoggle">
+          <button classList={{ on: view() === "stats" }} onClick={() => setView("stats")}>Stats</button>
+          <button classList={{ on: view() === "graph" }} onClick={() => setView("graph")} title="Visualise the index as a semantic graph">Graph</button>
+        </div>
         <button
           onClick={toggleIngest}
           title="Auto-index every substantial page you visit into your Omni index (off by default — privacy-sensitive)"
@@ -112,6 +118,11 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
         </Show>
       </header>
 
+      <Show when={view() === "graph"}>
+        <OmniGraph onNavigate={props.onNavigate} />
+      </Show>
+
+      <Show when={view() === "stats"}>
       <Show
         when={stats()}
         fallback={
@@ -188,6 +199,7 @@ const OmniDashboard: Component<{ onNavigate: (url: string) => void }> = (props) 
             </section>
           </>
         )}
+      </Show>
       </Show>
     </div>
   );

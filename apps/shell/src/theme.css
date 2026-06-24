@@ -1796,6 +1796,16 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
   padding: 22px 26px 40px;
   color: var(--flux-text-dim);
 }
+/* #119 Omni graph view */
+.omni-viewtoggle { display: inline-flex; gap: 2px; margin-right: 10px; padding: 2px; border-radius: 8px; background: rgba(120,130,200,0.08); border: 1px solid var(--flux-border); }
+.omni-viewtoggle button { font-size: 12px; padding: 3px 12px; border-radius: 6px; cursor: pointer; color: var(--flux-text-mute); background: none; border: none; }
+.omni-viewtoggle button.on { color: #0b0a1d; background: linear-gradient(135deg, var(--flux-teal), var(--flux-violet)); font-weight: 600; }
+.omni-graph { position: relative; width: 100%; height: calc(100vh - 150px); min-height: 360px; border-radius: var(--flux-radius-card, 14px); overflow: hidden; border: 1px solid var(--flux-border); background: radial-gradient(120% 120% at 50% 40%, rgba(20,16,48,0.6), rgba(7,5,15,0.85)); }
+.omni-graph-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.omni-graph-canvas:active { cursor: grabbing; }
+.omni-graph-hud { position: absolute; top: 10px; left: 12px; display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--flux-text-mute); background: rgba(10,8,24,0.6); padding: 4px 10px; border-radius: 999px; pointer-events: auto; }
+.omni-graph-err { color: var(--flux-magenta, #ec4be0); }
+.omni-graph-tip { position: absolute; bottom: 12px; left: 12px; right: 12px; font-size: 12px; color: var(--flux-text); background: rgba(10,8,24,0.82); border: 1px solid rgba(47,243,255,0.25); padding: 6px 12px; border-radius: 8px; pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .omni::-webkit-scrollbar { width: 10px; }
 .omni::-webkit-scrollbar-thumb { background: rgba(150,160,220,0.18); border-radius: 5px; }
 

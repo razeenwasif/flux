@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Omni dashboard: semantic graph view (#119)** — a new **Graph** toggle in the Omni
+  dashboard renders an Obsidian-style force-directed map of the index: top documents by
+  PageRank as nodes (sized by rank), linked to their nearest neighbours by embedding. Drag
+  nodes, scroll to zoom, pan the canvas, hover for titles, click a node to open it. Data comes
+  from a new Omni `/graph` endpoint (separate omni repo), proxied through Rust (`omni_graph`).
 - **Agent write access to Scroll & Onyx (#118)** — ask Gemma in the sidebar to **clip an
   article to Scroll** ("clip this page to scroll", "clip https://… to scroll tags: ai, rl") —
   it POSTs Scroll's /clip so Scroll scrapes + stores it — and to **save notes to Onyx**
