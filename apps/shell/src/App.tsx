@@ -20,6 +20,7 @@
 import { For, Match, Show, Suspense, Switch, createEffect, createMemo, createSignal, lazy, onCleanup, onMount, type Component } from "solid-js";
 import { Portal } from "solid-js/web";
 import {
+  NOTEBOOK_URL,
   OMNI_URL,
   VAULT_URL,
   HISTORY_URL,
@@ -126,6 +127,7 @@ const StartPage = lazy(() => import("./StartPage"));
 const Extensions = lazy(() => import("./Extensions"));
 const FilesView = lazy(() => import("./FilesView"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
+const NotebookPage = lazy(() => import("./NotebookPage"));
 const VaultPage = lazy(() => import("./VaultPage"));
 const HistoryPage = lazy(() => import("./HistoryPage"));
 const BookmarksPage = lazy(() => import("./BookmarksPage"));
@@ -1178,6 +1180,7 @@ const App: Component = () => {
     { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
+    { id: "notebook", label: "Open Notebook (ask your notes)", icon: "✦", run: () => go(NOTEBOOK_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
@@ -2853,6 +2856,9 @@ const ContentArea: Component<{
         {/* Before the generic start match — `flux://omni` is also a `flux://` url. */}
         <Match when={activeTab()?.url === OMNI_URL}>
           <OmniDashboard onNavigate={props.onNavigate} />
+        </Match>
+        <Match when={activeTab()?.url === NOTEBOOK_URL}>
+          <NotebookPage />
         </Match>
         <Match when={activeTab()?.url === VAULT_URL}>
           <VaultPage onNavigate={props.onNavigate} />

@@ -53,6 +53,9 @@ import type {
   DirListing as GenDirListing,
   DownloadItem as GenDownloadItem,
   FileEntry as GenFileEntry,
+  KbHit as GenKbHit,
+  KbSourceStat as GenKbSourceStat,
+  KbStatus as GenKbStatus,
   HotRule as GenHotRule,
   HttpsStatus as GenHttpsStatus,
   InstalledExt as GenInstalledExt,
@@ -144,6 +147,9 @@ export type Boost = GenBoost;
 export type DownloadItem = GenDownloadItem;
 export type FileEntry = GenFileEntry;
 export type DirListing = GenDirListing;
+export type KbHit = GenKbHit;
+export type KbSourceStat = GenKbSourceStat;
+export type KbStatus = GenKbStatus;
 export type QuickLocation = GenQuickLocation;
 export type SyncStatus = GenSyncStatus;
 export type SyncReport = GenSyncReport;
@@ -455,6 +461,35 @@ export const searchRemoveEngine = (id: string) => invoke<void>("search_remove_en
 
 /** Sentinel url for the native Omni dashboard page (no webview). */
 export const OMNI_URL = "flux://omni";
+export const NOTEBOOK_URL = "flux://notebook";
+// ─── Knowledge Base / second brain (#116, ADR 0010) ─────────────────────────
+/** Per-source + overall index status for the Notebook view. */
+export const kbStatus = () => invoke<KbStatus>("kb_status");
+/** (Re)build the index for one source (or all when omitted). Returns fresh status. */
+export const kbReindex = (source?: string) => invoke<KbStatus>("kb_reindex", { source });
+/** Cosine top-k retrieval over the corpus (optionally restricted to `sources`). */
+export const kbQuery = (query: string, k = 8, sources?: string[]) =>
+  invoke<KbHit[]>("kb_query", { query, k, sources });
+/** One frame of a streamed grounded answer (hand-mirrors the kb_answer events). */
+export type KbAnswerEvent =
+  | { kind: "sources"; hits: KbHit[] }
+  | { kind: "token"; text: string }
+  | { kind: "done" };
+/**
+ * Grounded, streamed answer over the knowledge base (#116): `onEvent` fires with
+ * the cited sources first, then answer tokens, then done. Resolves when complete.
+ */
+export const kbAnswer = (
+  query: string,
+  onEvent: (e: KbAnswerEvent) => void,
+  sources?: string[],
+): Promise<void> => {
+  const ch = new Channel<string>();
+  ch.onmessage = (raw) => {
+    try { onEvent(JSON.parse(raw) as KbAnswerEvent); } catch { /* skip a bad frame */ }
+  };
+  return invoke<void>("kb_answer", { query, sources, onToken: ch });
+};
 
 export interface OmniStats {
   live_docs: number;

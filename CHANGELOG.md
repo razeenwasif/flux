@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Notebook view — ask your own knowledge (#116)** — `flux://notebook` (Ctrl+K → "Open
+  Notebook"): a NotebookLM-style page where you ask a question and Gemma answers grounded in
+  your indexed corpora, streaming the reply with clickable **citation chips** that open the
+  source note. Shows per-source index status (docs/chunks/last-indexed) + a one-click Reindex.
+  Onyx vault wired; Scroll papers next.
 - **Knowledge Base backend — Gemma as a private second brain (#116, ADR 0010)** — new
   `crate::kb`: a local RAG vector store (flux-embed, persisted to `<app_data>/kb/kb-index.json`)
   with an **Onyx vault connector** (`~/OnyxVault/**/*.md`, frontmatter-aware, chunked, incremental
