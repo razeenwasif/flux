@@ -47,6 +47,7 @@ import {
   panelsList,
   panelAdd,
   panelRemove,
+  panelReorder,
   containersList,
   containerCreate,
   containerUpdate,
@@ -196,6 +197,13 @@ export async function unpinPanel(id: number): Promise<void> {
   if (activePanelIdB() === id) setActivePanelIdB(null);
   await panelRemove(id).catch(() => {});
   await refreshPanels();
+}
+/** Reorder pinned panels (drag in the app rail): apply optimistically, persist. */
+export function reorderPanels(ids: number[]): void {
+  const byId = new Map(panels().map((p) => [p.id, p]));
+  const next = ids.map((i) => byId.get(i)).filter((p): p is WebPanel => !!p);
+  if (next.length === panels().length) setPanels(next);
+  void panelReorder(ids).catch(() => void refreshPanels());
 }
 /** Toggle a panel in the top slot. If it was in the bottom split, move it up. */
 export function togglePanel(id: number): void {

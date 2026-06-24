@@ -119,11 +119,16 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
       ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2);
       ctx.fill();
     }
-    // labels: prominent nodes + whatever's hovered
-    ctx.fillStyle = "#c9cde8";
-    ctx.font = `${12 / cam.scale}px system-ui, sans-serif`;
-    for (const a of nodes) {
-      if (a.r > 6 || a === hoverNode) {
+    // labels: off by default — only the hovered node (and its direct neighbours).
+    if (hoverNode) {
+      ctx.fillStyle = "#c9cde8";
+      ctx.font = `${12 / cam.scale}px system-ui, sans-serif`;
+      const lit = new Set<GNode>([hoverNode]);
+      for (const e of edges) {
+        if (nodes[e.s] === hoverNode && nodes[e.t]) lit.add(nodes[e.t]!);
+        if (nodes[e.t] === hoverNode && nodes[e.s]) lit.add(nodes[e.s]!);
+      }
+      for (const a of lit) {
         const t = a.title.length > 36 ? a.title.slice(0, 35) + "…" : a.title;
         ctx.fillText(t, a.x + a.r + 3 / cam.scale, a.y + 4 / cam.scale);
       }

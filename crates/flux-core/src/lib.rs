@@ -509,6 +509,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::panels_list,
             commands::panel_add,
             commands::panel_remove,
+            commands::panel_reorder,
             commands::containers_list,
             commands::container_create,
             commands::container_update,

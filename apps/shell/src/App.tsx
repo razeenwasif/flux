@@ -199,6 +199,7 @@ import {
   pinPanel,
   unpinPanel,
   togglePanel,
+  reorderPanels,
   togglePanelBottom,
   closePanel,
   closePanelB,
@@ -1630,6 +1631,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [picker, setPicker] = createSignal(false);
   const [address, setAddress] = createSignal("");
   const [panel, setPanel] = createSignal<FooterPanel>(null);
+  // Drag-to-reorder pinned web panels in the app rail.
+  const [dragPanel, setDragPanel] = createSignal<number | null>(null);
+  const [dropPanel, setDropPanel] = createSignal<number | null>(null);
+  const dropOnPanel = (targetId: number) => {
+    const from = dragPanel();
+    setDragPanel(null);
+    setDropPanel(null);
+    if (from == null || from === targetId) return;
+    const ids = panels().map((p) => p.id).filter((i) => i !== from);
+    const at = ids.indexOf(targetId);
+    ids.splice(at < 0 ? ids.length : at, 0, from);
+    reorderPanels(ids);
+  };
   const [bmFlash, setBmFlash] = createSignal("");
   const [boostsLoaded, setBoostsLoaded] = createSignal(false);
   const [macrosLoaded, setMacrosLoaded] = createSignal(false);
@@ -1981,9 +1995,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <For each={panels()}>
             {(p) => (
               <button
-                classList={{ "app-rail-icon": true, active: activePanelId() === p.id }}
+                classList={{ "app-rail-icon": true, active: activePanelId() === p.id, dragging: dragPanel() === p.id, "drop-into": dropPanel() === p.id }}
                 title={p.title || p.url}
+                draggable={true}
                 onClick={() => togglePanel(p.id)}
+                onDragStart={(e) => { setDragPanel(p.id); e.dataTransfer!.effectAllowed = "move"; }}
+                onDragOver={(e) => { if (dragPanel() != null) { e.preventDefault(); setDropPanel(p.id); } }}
+                onDragLeave={() => { if (dropPanel() === p.id) setDropPanel(null); }}
+                onDrop={(e) => { e.preventDefault(); dropOnPanel(p.id); }}
+                onDragEnd={() => { setDragPanel(null); setDropPanel(null); }}
               >
                 <PanelIcon url={p.url} />
                 <Show when={(panelBadges[p.id] ?? 0) > 0}>

@@ -405,6 +405,9 @@ body.resizing, body.busy { --glass-blur: none; }
   background: rgba(255,255,255,0.05); border: 1px solid var(--glass-rim-soft);
 }
 .app-rail-icon img { width: 18px; height: 18px; border-radius: 3px; }
+.app-rail-icon[draggable="true"] { cursor: grab; }
+.app-rail-icon.dragging { opacity: 0.4; }
+.app-rail-icon.drop-into { border-color: var(--flux-teal); box-shadow: 0 0 0 2px rgba(47,243,255,0.4); }
 /* Unread badge bubble (#48) — phone-style red pip on the panel rail icon. */
 .app-rail-badge {
   position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px;

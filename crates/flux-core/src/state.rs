@@ -557,6 +557,13 @@ impl FluxState {
         self.panels.write().retain(|p| p.id != id);
     }
 
+    /// Reorder the panels to match `ids` (drag-to-reorder in the app rail). Ids not
+    /// present are kept in their relative order at the end; unknown ids ignored.
+    pub fn panel_reorder(&self, ids: Vec<u32>) {
+        let mut panels = self.panels.write();
+        panels.sort_by_key(|p| ids.iter().position(|&i| i == p.id).unwrap_or(usize::MAX));
+    }
+
     /// Update a panel's title from its loaded page (best-effort).
     pub fn panel_set_title(&self, id: u32, title: String) {
         if let Some(p) = self.panels.write().iter_mut().find(|p| p.id == id) {

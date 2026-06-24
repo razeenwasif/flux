@@ -372,6 +372,13 @@ pub fn panel_remove(state: State<'_, FluxState>, id: u32) {
     state.persist();
 }
 
+/// Reorder pinned panels to match `ids` (drag-to-reorder in the app rail).
+#[tauri::command]
+pub fn panel_reorder(state: State<'_, FluxState>, ids: Vec<u32>) {
+    state.panel_reorder(ids);
+    state.persist();
+}
+
 // ─── DOM snapshot ingestion (tab webview → Rust) ────────────────────────────
 //
 // Plain JSON args, NOT a raw ArrayBuffer body. Real pages set restrictive CSPs

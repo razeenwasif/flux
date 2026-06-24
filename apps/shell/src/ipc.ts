@@ -244,6 +244,7 @@ export const workspaceDelete = (id: number) => invoke<number[]>("workspace_delet
 export const panelsList = () => invoke<WebPanel[]>("panels_list");
 export const panelAdd = (url: string, title: string) => invoke<WebPanel>("panel_add", { url, title });
 export const panelRemove = (id: number) => invoke<void>("panel_remove", { id });
+export const panelReorder = (ids: number[]) => invoke<void>("panel_reorder", { ids });
 // Panel webview (its own native child webview; not part of the tab lifecycle).
 export const panelOpen = (panelId: number, url: string, r: Rect) =>
   invoke<void>("panel_open", { panelId, url, x: r.x, y: r.y, width: r.width, height: r.height });

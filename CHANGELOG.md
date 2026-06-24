@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Drag-to-reorder pinned web panels** — drag the app-rail icons to reorder your pinned
+  sites (persisted via a new `panel_reorder`); the drop target highlights teal.
+- **Agent panel: "📎 Clip to Scroll" chip** — a one-tap hint (shown when a page is open) that
+  clips the current page into Scroll.
+- **Graph view: labels on hover only (#119)** — site names are hidden by default; hovering a
+  node reveals its label and its direct neighbours', keeping the map clean.
 - **Omni dashboard: semantic graph view (#119)** — a new **Graph** toggle in the Omni
   dashboard renders an Obsidian-style force-directed map of the index: top documents by
   PageRank as nodes (sized by rank), linked to their nearest neighbours by embedding. Drag

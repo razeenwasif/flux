@@ -1562,6 +1562,9 @@ const AgentPanel: Component = () => {
           <button class="agent-chip" disabled={working()} onClick={() => void send("Summarize this in a few clear bullet points.")}>Summarize</button>
           <button class="agent-chip" disabled={working()} onClick={() => void send("What are the key points and any action items?")}>Key points</button>
           <button class="agent-chip" disabled={working()} onClick={() => void send("Explain this like I'm new to the topic.")}>Explain</button>
+          <Show when={activePageUrl()}>
+            <button class="agent-chip" disabled={working()} title="Save this page to your Scroll library" onClick={() => void send("clip this page to scroll")}>📎 Clip to Scroll</button>
+          </Show>
         </div>
         <Show when={attachment()}>
           {(a) => (
