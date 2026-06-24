@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Terminal: resizable splits + keep the column on terminal tabs** — split panes in the
+  dev-terminal column now have draggable seams (drag to resize; weight shifts between the two
+  neighbours, works for both side-by-side and stacked layouts). The terminal column also stays
+  visible when a Terminal *tab* is active (e.g. after launching a TUI app), instead of vanishing —
+  the column is your persistent shell, the tab lives alongside it.
 - **Terminal apps: more defaults + seed migration (#117)** — the launcher now seeds
   audiopulse, boxtube, kata, mamba, forge, lazygit, conduit, mirage, tuxedo (alongside
   onyx/scroll/council). A seed-version bump merges the new entries into an existing list
