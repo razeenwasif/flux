@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Terminal: in-column splits (#75)** — the dev terminal column can now hold several
+  PTY panes at once. A hover toolbar (top-right) splits the focused pane, flips the layout
+  between side-by-side and stacked (persisted), and closes the focused pane; click a pane
+  to focus it (teal-ringed). Each pane is its own shell with the OSC 133 integration; the
+  app's Terminal *tabs* still cover the tabbed-terminal case.
 - **Files: streamed listing for huge directories (#86)** — `fs_list_stream` delivers a
   directory in chunks over a Channel (head → entries… → done) instead of one giant JSON
   payload, so a 100k-entry folder appears almost instantly and fills in progressively

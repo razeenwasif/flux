@@ -823,7 +823,20 @@ body.resizing, body.busy { --glass-blur: none; }
    hidden ones don't add implicit grid rows to the card. */
 .term-layer { position: absolute; inset: 0; }
 
-.terminal-col { grid-area: term; min-width: 0; padding: var(--flux-frame-pad); padding-left: 0; }
+.terminal-col { grid-area: term; min-width: 0; padding: var(--flux-frame-pad); padding-left: 0; position: relative; min-height: 0; }
+/* #75 in-column splits: panes laid out row/column; controls float on hover. */
+.term-col-panes { width: 100%; height: 100%; display: flex; gap: 6px; }
+.term-pane { flex: 1 1 0; min-width: 0; min-height: 0; position: relative; }
+.term-pane.active .terminal-surface { border-color: rgba(47, 243, 255, 0.55); box-shadow: var(--glass-shadow), inset 0 1px 0 0 rgba(47, 243, 255, 0.12), 0 0 0 1px rgba(47, 243, 255, 0.25); }
+.term-col-bar { position: absolute; top: calc(var(--flux-frame-pad) + 6px); right: 12px; z-index: 4; display: flex; gap: 4px; opacity: 0.28; transition: opacity 0.15s; }
+.terminal-col:hover .term-col-bar { opacity: 1; }
+.term-col-btn {
+  width: 22px; height: 22px; display: grid; place-items: center; cursor: pointer;
+  font-size: 12px; line-height: 1; color: #c9cde8; border-radius: 6px;
+  background: rgba(10, 8, 24, 0.82); border: 1px solid rgba(47, 243, 255, 0.22);
+}
+.term-col-btn:hover { background: rgba(123, 97, 255, 0.28); color: #eef0fb; }
+.term-col-btn.danger:hover { background: rgba(236, 75, 224, 0.3); border-color: rgba(236, 75, 224, 0.5); }
 .terminal-surface {
   width: 100%; height: 100%;
   position: relative;

@@ -2971,16 +2971,81 @@ const WebPanelPane: Component = () => {
 
 // ─── Vertical terminal column ───────────────────────────────────────────────
 
-/** Right-side vertical terminal (ADR 0002 / 0003): a persistent PTY session
- *  (PANE_SESSION) rendered with xterm.js, alongside whatever you're browsing.
- *  This is the always-available dev terminal. */
-const TerminalColumn: Component = () => (
-  <section class="terminal-col">
-    <div class="terminal-surface">
-      <TerminalView session={PANE_SESSION} />
-    </div>
-  </section>
-);
+/** Reserved session-id range for the column's *extra* split panes (#75). Tab ids
+ *  start at 1 and climb slowly; PANE_SESSION is 0 — so a high base never collides. */
+const COL_PANE_BASE = 0xf000_0000;
+
+/** Right-side vertical terminal (ADR 0002 / 0003): the always-available dev
+ *  terminal. The first pane is the persistent PANE_SESSION; #75 adds splits —
+ *  the column can hold several PTY panes side-by-side or stacked, each its own
+ *  shell, with a hover toolbar to split / flip orientation / close the focused
+ *  pane. (Extra panes are session-local; they reset if the column is hidden.) */
+const TerminalColumn: Component = () => {
+  const [panes, setPanes] = createSignal<number[]>([PANE_SESSION]);
+  const [active, setActive] = createSignal(PANE_SESSION);
+  const [dir, setDir] = createSignal<"row" | "col">(
+    localStorage.getItem("flux.term.split") === "row" ? "row" : "col",
+  );
+  let paneSeq = COL_PANE_BASE;
+
+  const split = () => {
+    const id = ++paneSeq;
+    setPanes((p) => {
+      const i = p.indexOf(active());
+      const next = [...p];
+      next.splice(i < 0 ? p.length : i + 1, 0, id); // insert after the focused pane
+      return next;
+    });
+    setActive(id);
+  };
+  const closePane = (id: number) => {
+    setPanes((p) => {
+      if (p.length <= 1) return p; // keep at least one pane alive
+      const i = p.indexOf(id);
+      const next = p.filter((x) => x !== id);
+      if (active() === id) setActive(next[Math.min(i, next.length - 1)]!);
+      return next; // TerminalView's onCleanup kills that pane's PTY on unmount
+    });
+  };
+  const toggleDir = () =>
+    setDir((d) => {
+      const n = d === "row" ? "col" : "row";
+      localStorage.setItem("flux.term.split", n);
+      return n;
+    });
+
+  return (
+    <section class="terminal-col">
+      <div class="term-col-panes" style={{ "flex-direction": dir() === "row" ? "row" : "column" }}>
+        <For each={panes()}>
+          {(s) => (
+            <div
+              classList={{ "term-pane": true, active: panes().length > 1 && active() === s }}
+              onPointerDown={() => setActive(s)}
+            >
+              <div class="terminal-surface">
+                <TerminalView session={s} active={active() === s} />
+              </div>
+            </div>
+          )}
+        </For>
+      </div>
+      <div class="term-col-bar">
+        <button class="term-col-btn" title="Split terminal" onClick={split}>⊞</button>
+        <button
+          class="term-col-btn"
+          title={dir() === "row" ? "Stack panes vertically" : "Place panes side by side"}
+          onClick={toggleDir}
+        >
+          {dir() === "row" ? "▭" : "▯"}
+        </button>
+        <Show when={panes().length > 1}>
+          <button class="term-col-btn danger" title="Close focused pane" onClick={() => closePane(active())}>✕</button>
+        </Show>
+      </div>
+    </section>
+  );
+};
 
 // ─── Flux Agent panel ───────────────────────────────────────────────────────
 
