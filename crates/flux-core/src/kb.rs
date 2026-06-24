@@ -424,7 +424,7 @@ fn collect(source: &str) -> Result<Vec<RawDoc>, String> {
 fn onyx_vault() -> Option<PathBuf> {
     if let Ok(v) = std::env::var("FLUX_ONYX_VAULT") {
         let v = v.trim();
-        if !v.is_empty() && Path::new(v).is_dir() {
+        if !v.is_empty() && is_dir(Path::new(v)) {
             return Some(PathBuf::from(v));
         }
     }
@@ -436,7 +436,7 @@ fn onyx_vault() -> Option<PathBuf> {
             if let Some(rest) = l.strip_prefix("last_vault") {
                 if let Some((_, v)) = rest.split_once('=') {
                     let v = v.trim().trim_matches('"').trim();
-                    if !v.is_empty() && Path::new(v).is_dir() {
+                    if !v.is_empty() && is_dir(Path::new(v)) {
                         return Some(PathBuf::from(v));
                     }
                 }
@@ -444,18 +444,32 @@ fn onyx_vault() -> Option<PathBuf> {
         }
     }
     let def = Path::new(&home).join("OnyxVault");
-    def.is_dir().then_some(def)
+    is_dir(&def).then_some(def)
+}
+
+/// Directory existence check that tolerates UNC / WSL `\\wsl.localhost\…` shares,
+/// where `is_dir()` can spuriously return false — fall back to opening it.
+fn is_dir(p: &Path) -> bool {
+    p.is_dir() || std::fs::read_dir(p).is_ok()
 }
 
 /// Read all `*.md` notes under the Onyx vault (skipping the `.onyx/` app dir).
 fn collect_onyx() -> Result<Vec<RawDoc>, String> {
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
     let root = onyx_vault().ok_or_else(|| {
-        format!(
-            "Onyx vault not found. Set FLUX_ONYX_VAULT to your vault path (looked at \
-$FLUX_ONYX_VAULT, {home}/.config/onyx/config.toml, and {home}/OnyxVault). If Flux runs on \
-Windows and the vault is in WSL, point it at e.g. \\\\wsl.localhost\\<distro>\\home\\you\\OnyxVault."
-        )
+        match std::env::var("FLUX_ONYX_VAULT").ok().filter(|v| !v.trim().is_empty()) {
+            // Set but unusable — the most actionable case (wrong path, or WSL not running).
+            Some(v) => format!(
+                "FLUX_ONYX_VAULT is set to '{}' but that isn't an accessible directory. \
+For a WSL vault from a Windows build, make sure WSL is running and the UNC path is exact \
+(e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault). Relaunch Flux after `setx`.",
+                v.trim()
+            ),
+            None => format!(
+                "Onyx vault not found. Set FLUX_ONYX_VAULT to your vault path (looked at \
+{home}/.config/onyx/config.toml and {home}/OnyxVault)."
+            ),
+        }
     })?;
     let mut out = Vec::new();
     walk_md(&root, &root, &mut out);
@@ -514,12 +528,19 @@ fn note_title(body: &str, filename: &str) -> String {
 fn collect_scroll() -> Result<Vec<RawDoc>, String> {
     let base = std::env::var("FLUX_SCROLL_URL").unwrap_or_else(|_| "http://localhost:3131".into());
     let url = format!("{}/api/articles", base.trim_end_matches('/'));
-    let body = ureq::get(&url)
-        .timeout(Duration::from_secs(6))
+    let resp = ureq::get(&url)
+        .timeout(Duration::from_secs(30))
         .call()
-        .map_err(|e| format!("Scroll not reachable at {url} (run `scroll serve` or open the app): {e}"))?
-        .into_string()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Scroll not reachable at {url} (run `scroll serve` or open the app): {e}"))?;
+    // `into_string()` caps at 10 MB; Scroll returns the full text of every article
+    // (incl. large PDFs), so read via the reader with a generous cap instead.
+    const MAX_BODY: u64 = 256 * 1024 * 1024;
+    let mut body = String::new();
+    use std::io::Read;
+    resp.into_reader()
+        .take(MAX_BODY)
+        .read_to_string(&mut body)
+        .map_err(|e| format!("reading Scroll response: {e}"))?;
     parse_scroll(&body)
 }
 
@@ -546,7 +567,10 @@ fn parse_scroll(body: &str) -> Result<Vec<RawDoc>, String> {
         let mtime = djb2(updated);
         let summary = a.get("ai_summary").and_then(|x| x.as_str()).unwrap_or("");
         let content = a.get("content_markdown").and_then(|x| x.as_str()).unwrap_or("");
-        // Cap pathological bodies (some Scroll PDFs inline huge/binary content).
+        // Some Scroll PDFs store escaped binary in content_markdown — useless to
+        // embed and it pollutes retrieval. Keep the summary (if any) and drop the body.
+        let content = if looks_binary(content) { "" } else { content };
+        // Cap pathological-but-textual bodies.
         let content: String = content.chars().take(200_000).collect();
         let body = if summary.is_empty() { content } else { format!("{summary}\n\n{content}") };
         if body.trim().is_empty() {
@@ -555,6 +579,21 @@ fn parse_scroll(body: &str) -> Result<Vec<RawDoc>, String> {
         out.push(RawDoc { doc_id: id.to_string(), title, path, mtime, body });
     }
     Ok(out)
+}
+
+/// Heuristic: does this look like binary/escaped-blob content rather than prose?
+/// (>10% control/replacement chars in a leading sample.) Used to drop Scroll's
+/// raw-PDF articles before embedding.
+fn looks_binary(s: &str) -> bool {
+    let sample: Vec<char> = s.chars().take(4000).collect();
+    if sample.is_empty() {
+        return false;
+    }
+    let bad = sample
+        .iter()
+        .filter(|c| !matches!(**c, '\n' | '\r' | '\t') && (c.is_control() || **c == '\u{fffd}'))
+        .count();
+    bad * 100 / sample.len() > 10
 }
 
 /// Tiny stable string hash (djb2) — a content-change sentinel for incremental sync.
@@ -682,6 +721,17 @@ mod tests {
         // Wrapped shape: {"articles":[…]}
         let wrapped = r#"{"articles":[{"id":"b1","title":"T","content_markdown":"body"}]}"#;
         assert_eq!(parse_scroll(wrapped).unwrap().len(), 1);
+
+        // A binary/PDF-blob body is dropped, but a summary keeps the article.
+        // ` ` in the JSON source decodes to NUL chars (control) → looks_binary.
+        let blob = "\\u0000".repeat(500);
+        let with_sum = format!(r#"[{{"id":"c1","title":"PDF","ai_summary":"the gist","content_markdown":"{blob}"}}]"#);
+        let docs = parse_scroll(&with_sum).unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].body.trim(), "the gist", "binary body dropped, summary kept");
+        let no_sum = format!(r#"[{{"id":"c2","title":"PDF","content_markdown":"{blob}"}}]"#);
+        assert!(parse_scroll(&no_sum).unwrap().is_empty(), "binary body + no summary → skipped");
+        assert!(looks_binary(&"\u{0}".repeat(500)) && !looks_binary("plain readable text"));
         // djb2 is stable + sensitive to change (drives incremental skip).
         assert_eq!(djb2("2026-06-01"), djb2("2026-06-01"));
         assert_ne!(djb2("2026-06-01"), djb2("2026-06-02"));

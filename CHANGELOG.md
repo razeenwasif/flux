@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Knowledge Base: Scroll large-library + binary fixes (#116)** — the Scroll connector no
+  longer fails with "response too big" (`/api/articles` returns every article's full text;
+  read past ureq's 10 MB cap). Articles whose `content_markdown` is escaped PDF/binary are
+  detected and dropped (their `ai_summary` is still indexed) so they don't pollute retrieval.
+  The Onyx "vault not found" error now echoes the exact `FLUX_ONYX_VAULT` value it tried.
 - **Knowledge Base: explain an empty index + vault override (#116)** — a source that finds
   nothing now says *why* in the Notebook status (e.g. "Onyx vault not found", "Scroll not
   reachable") instead of a silent `0 docs`. New `FLUX_ONYX_VAULT` env override points Flux at
