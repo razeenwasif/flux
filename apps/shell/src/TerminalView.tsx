@@ -41,7 +41,7 @@ const THEME = {
   brightWhite: "#eef0fb",
 } as const;
 
-const TerminalView: Component<{ session: number; active?: boolean }> = (props) => {
+const TerminalView: Component<{ session: number; active?: boolean; background?: boolean }> = (props) => {
   let host!: HTMLDivElement;
   let termRef: XTerm | undefined;
   let fitRef: { fit: () => void } | undefined;
@@ -265,9 +265,14 @@ const TerminalView: Component<{ session: number; active?: boolean }> = (props) =
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden", "border-radius": "inherit", background: THEME.background }}>
-      <div style={{ position: "absolute", inset: 0, "z-index": 0, "pointer-events": "none", opacity: 0.6 }}>
-        <LiquidBackground active={() => props.active ?? true} />
-      </div>
+      {/* The WebGL shader backdrop is decorative; skip it when the column is split
+          (props.background=false) so split panes don't each hold a WebGL2 context —
+          too many contexts white-out other GPU-composited glass surfaces (#75). */}
+      <Show when={props.background ?? true}>
+        <div style={{ position: "absolute", inset: 0, "z-index": 0, "pointer-events": "none", opacity: 0.6 }}>
+          <LiquidBackground active={() => props.active ?? true} />
+        </div>
+      </Show>
       <div ref={host} style={{ position: "relative", "z-index": 1, width: "100%", height: "100%", padding: "8px" }} />
       {/* #16: transient feedback for prompt jump / copy-output */}
       <Show when={hint()}>

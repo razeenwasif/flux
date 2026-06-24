@@ -2821,7 +2821,9 @@ const ContentArea: Component<{
       <For each={terminalIds()}>
         {(id) => (
           <div class="term-layer" style={{ display: activeTab()?.id === id ? "block" : "none" }}>
-            <TerminalView session={id} active={activeTab()?.id === id} />
+            {/* Only the visible terminal tab draws the WebGL backdrop — hidden
+                keep-alive tabs would otherwise each hold a WebGL2 context (#75). */}
+            <TerminalView session={id} active={activeTab()?.id === id} background={activeTab()?.id === id} />
           </div>
         )}
       </For>
@@ -3076,7 +3078,7 @@ const TerminalColumn: Component = () => {
                 onPointerDown={() => setActive(s)}
               >
                 <div class="terminal-surface">
-                  <TerminalView session={s} active={active() === s} />
+                  <TerminalView session={s} active={active() === s} background={panes().length === 1} />
                 </div>
               </div>
             </>

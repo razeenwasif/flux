@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Fix: terminal splits white-ing out the agent panel** — each terminal pane was running a
+  WebGL2 shader backdrop (LiquidBackground) on top of the xterm WebGL renderer, so splitting
+  (and the now-persistent column + TUI-app tabs) stacked enough WebGL contexts to make
+  WebView2 mis-composite other glass surfaces white. The decorative backdrop is now drawn only
+  for a single (unsplit) column pane and the visible terminal tab — hidden/extra panes no
+  longer each hold a context.
 - **Terminal: resizable splits + keep the column on terminal tabs** — split panes in the
   dev-terminal column now have draggable seams (drag to resize; weight shifts between the two
   neighbours, works for both side-by-side and stacked layouts). The terminal column also stays
