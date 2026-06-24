@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Agent panel: ask your notes & papers (#116)** — a third grounding scope, **✦ My notes**,
+  next to "This page" / "All tabs" in the Liquid AI sidebar. With it on, your question is
+  answered from the knowledge base (Onyx + Scroll) via `kb_answer`, streamed into the chat with
+  clickable citation chips (Onyx notes open the file, Scroll papers open the source). The
+  Notebook page stays the dedicated view; this is the quick in-conversation path.
 - **Knowledge Base: in-app source locations (#116)** — set the Onyx vault path / Scroll URL
   directly in the Notebook (inline editor on any source that can't be found), persisted in
   Flux's config via `kb_set_source` — no more fragile `setx`/env-var propagation. Resolves a

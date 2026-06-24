@@ -963,6 +963,12 @@ body.resizing, body.busy { --glass-blur: none; }
 }
 .agent-scope.on { border-color: var(--flux-violet); color: var(--flux-text); background: linear-gradient(160deg, rgba(123,97,255,0.18), var(--flux-surface)); }
 .agent-scope-n { font-size: 10px; background: var(--flux-violet); color: #fff; border-radius: 999px; padding: 0 6px; }
+/* KB citations under a grounded answer (#116) */
+.agent-cites { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.agent-cite { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; cursor: pointer; font-size: 10.5px; color: var(--flux-text-dim); padding: 3px 8px 3px 4px; border-radius: 999px; background: var(--flux-surface); border: 1px solid var(--flux-border); }
+.agent-cite:hover { border-color: var(--flux-teal); color: var(--flux-text); }
+.agent-cite-n { flex: 0 0 auto; width: 15px; height: 15px; display: grid; place-items: center; font-size: 9px; font-weight: 700; color: #0b0a1d; background: var(--flux-teal); border-radius: 50%; }
+.agent-cite-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
 .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .agent-chip {
   font-size: 11.5px; padding: 4px 10px; border-radius: 999px;

@@ -10,6 +10,9 @@ import {
   agentChat,
   agentChatStream,
   agentChatTabsStream,
+  kbAnswer,
+  type KbHit,
+  fsOpen,
   agentShellPlan,
   runShell,
   shellGuard,
@@ -60,7 +63,7 @@ import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
-type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string; editPath?: string; editNew?: string; editDiff?: string };
+type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string; editPath?: string; editNew?: string; editDiff?: string; citations?: KbHit[] };
 
 const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
@@ -117,7 +120,7 @@ const AgentPanel: Component = () => {
   });
   // Chat-with-page/tabs (#34): "page" grounds in the active tab; "tabs" grounds
   // in every open browser tab in the active workspace.
-  const [scope, setScope] = createSignal<"page" | "tabs">("page");
+  const [scope, setScope] = createSignal<"page" | "tabs" | "notes">("page");
   // Multi-step tasks (#A): the iterative agent loop. `taskRunning` gates input;
   // `taskAuto` = "run all" (auto-approve non-stop steps); `taskStep` holds the
   // step currently awaiting Approve/Skip/Stop in step-through mode.
@@ -1003,6 +1006,23 @@ const AgentPanel: Component = () => {
         } else {
           setFeed((f) => [...f, { role: "plan", text: describeAction(action), action, pending: true }]);
         }
+      } else if (scope() === "notes") {
+        // Ground the answer in the knowledge base (Onyx + Scroll) with citations
+        // (#116). Uses kb_answer directly (its own grounded prompt), not the page
+        // preamble; sources arrive first, then tokens stream into one bubble.
+        const gen = ++replyGen;
+        const idx = feed().length;
+        setFeed((f) => [...f, { role: "assistant", text: "" }]);
+        let acc = "";
+        await kbAnswer(p, (e) => {
+          if (gen !== replyGen) return;
+          if (e.kind === "sources") setFeed((f) => f.map((it, i) => (i === idx ? { ...it, citations: e.hits } : it)));
+          else if (e.kind === "token") { acc += e.text; setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + e.text } : it))); }
+        });
+        if (gen !== replyGen) return;
+        const text = acc.trim() || "(no relevant notes found — try Reindex in the Notebook)";
+        setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text } : it)));
+        void speak(text);
       } else {
         // Stream the reply token-by-token into one assistant bubble (#82) so the
         // answer renders live. Nothing else appends to the feed during the await,
@@ -1038,6 +1058,12 @@ const AgentPanel: Component = () => {
     }
   };
   const run = (e: SubmitEvent) => { e.preventDefault(); void send(prompt().trim()); };
+
+  // Open a KB citation: Scroll articles (http) in a tab, Onyx notes (paths) in the OS.
+  const openCitation = (h: KbHit) => {
+    if (/^https?:\/\//i.test(h.path)) void openTab("browser", h.path);
+    else if (h.path) void fsOpen(h.path).catch(() => {});
+  };
 
   // Approve a previewed action → execute it on the page (#8).
   const approve = async (idx: number, action: AgentAction) => {
@@ -1392,6 +1418,18 @@ const AgentPanel: Component = () => {
                 <div classList={{ "agent-msg": true, [`agent-${item.role}`]: true }}>
                   <Show when={item.image}><img class="agent-thumb" src={item.image} alt="attachment" /></Show>
                   <div>{item.text}</div>
+                  <Show when={item.citations?.length}>
+                    <div class="agent-cites">
+                      <For each={item.citations}>
+                        {(h, n) => (
+                          <button class="agent-cite" title={`[${n() + 1}] ${h.title} — open ${h.path}`} onClick={() => openCitation(h)}>
+                            <span class="agent-cite-n">{n() + 1}</span>
+                            <span class="agent-cite-title">{h.title}</span>
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
                   <Show when={item.role === "plan" && item.pending && item.action}>
                     <div class="agent-approve">
                       <button class="agent-approve-yes" onClick={() => void approve(i(), item.action!)}>✓ Approve</button>
@@ -1457,6 +1495,7 @@ const AgentPanel: Component = () => {
         <div class="agent-context">
           <button classList={{ "agent-scope": true, on: scope() === "page" }} title="Answer using the current page" onClick={() => setScope("page")}>📄 This page</button>
           <button classList={{ "agent-scope": true, on: scope() === "tabs" }} title="Answer across all open tabs in this space" onClick={() => setScope("tabs")}>🗂 All tabs <Show when={scope() === "tabs"}><span class="agent-scope-n">{browserTabIds().length}</span></Show></button>
+          <button classList={{ "agent-scope": true, on: scope() === "notes" }} title="Answer from your notes & papers (Onyx + Scroll), with citations" onClick={() => setScope("notes")}>✦ My notes</button>
         </div>
         <div class="agent-chips">
           <button class="agent-chip" disabled={working()} onClick={() => void send("Summarize this in a few clear bullet points.")}>Summarize</button>
@@ -1511,7 +1550,7 @@ const AgentPanel: Component = () => {
             <input
               value={prompt()}
               onInput={(e) => setPrompt(e.currentTarget.value)}
-              placeholder={taskRunning() ? "task running…" : working() ? "thinking…" : attachment() ? "Ask about the attachment…" : scope() === "tabs" ? "Ask across tabs · /act · /task" : "Ask · attach 📎 · /act · /task"}
+              placeholder={taskRunning() ? "task running…" : working() ? "thinking…" : attachment() ? "Ask about the attachment…" : scope() === "notes" ? "Ask your notes & papers…" : scope() === "tabs" ? "Ask across tabs · /act · /task" : "Ask · attach 📎 · /act · /task"}
               disabled={working() || taskRunning()}
               style={{ flex: "1", "min-width": "0", padding: "10px 12px", border: working() ? "none" : undefined }}
             />
