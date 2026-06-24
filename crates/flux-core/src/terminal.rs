@@ -311,6 +311,8 @@ fn integration_enabled() -> bool {
 
 /// Is `shell` (a path or bare name) bash? Only bash is auto-wrapped today —
 /// other shells source the equivalent snippet manually (docs/shell-integration.md).
+/// Only the Unix cmd-builder consults this; on Windows the WSL branch forces bash.
+#[cfg(not(windows))]
 fn shell_is_bash(shell: &str) -> bool {
     std::path::Path::new(shell)
         .file_stem()

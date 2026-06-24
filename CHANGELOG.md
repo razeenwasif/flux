@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Knowledge Base: Scroll connector (#116)** — the second brain now also indexes your
+  **Scroll** read-later library (articles + papers) via its `localhost:3131/api/articles`
+  endpoint (override with `FLUX_SCROLL_URL`; reindex skips it gracefully if Scroll isn't
+  running). `ai_summary` is embedded alongside the body; Notebook citations to a Scroll
+  article open the original source in a tab, while Onyx citations open the note file. A
+  **Notebook** chip is now pinned first on the pages bar.
 - **Notebook view — ask your own knowledge (#116)** — `flux://notebook` (Ctrl+K → "Open
   Notebook"): a NotebookLM-style page where you ask a question and Gemma answers grounded in
   your indexed corpora, streaming the reply with clickable **citation chips** that open the

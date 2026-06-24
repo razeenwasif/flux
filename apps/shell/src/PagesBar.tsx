@@ -13,6 +13,7 @@ import {
   BOOKMARKS_URL,
   FEEDS_URL,
   HISTORY_URL,
+  NOTEBOOK_URL,
   OMNI_URL,
   RESOURCES_URL,
   SESSIONS_URL,
@@ -24,6 +25,7 @@ import {
 } from "./ipc";
 
 const PAGES: { icon: string; label: string; url: string }[] = [
+  { icon: "✦", label: "Notebook", url: NOTEBOOK_URL },
   { icon: "🗃", label: "Sessions", url: SESSIONS_URL },
   { icon: "📚", label: "Archive", url: ARCHIVE_URL },
   { icon: "📰", label: "Feeds", url: FEEDS_URL },

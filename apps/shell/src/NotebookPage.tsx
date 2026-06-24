@@ -10,6 +10,7 @@
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 
 import { fsOpen, kbAnswer, kbReindex, kbStatus, type KbHit, type KbStatus } from "./ipc";
+import { openTab } from "./store";
 
 const SOURCE_LABEL: Record<string, string> = { onyx: "Onyx vault", scroll: "Scroll papers" };
 
@@ -59,6 +60,13 @@ const NotebookPage: Component = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  // Onyx citations are file paths (open the .md); Scroll citations are article
+  // URLs (open the source in a browser tab).
+  const openCitation = (h: KbHit) => {
+    if (/^https?:\/\//i.test(h.path)) void openTab("browser", h.path);
+    else if (h.path) void fsOpen(h.path).catch(() => {});
   };
 
   const fmtAgo = (ms: number): string => {
@@ -134,7 +142,7 @@ const NotebookPage: Component = () => {
                   <button
                     class="nb-cite"
                     title={`Open ${h.path}`}
-                    onClick={() => void fsOpen(h.path).catch(() => {})}
+                    onClick={() => openCitation(h)}
                   >
                     <span class="nb-cite-n">{i() + 1}</span>
                     <span class="nb-cite-body">

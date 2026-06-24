@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -96,8 +96,8 @@ pub struct KbStatus {
     pub indexing: bool,
 }
 
-/// Sources Flux knows how to pull. v1 ships Onyx; Scroll is next.
-pub const SOURCES: &[&str] = &["onyx"];
+/// Sources Flux knows how to pull (Onyx vault notes, Scroll papers).
+pub const SOURCES: &[&str] = &["onyx", "scroll"];
 
 /// A document yielded by a connector, before chunking/embedding.
 struct RawDoc {
@@ -224,9 +224,18 @@ impl KbStore {
         }
 
         for src in targets {
-            let raw = collect(src)?;
-            self.reindex_source(src, embedder, raw)?;
-            self.data.write().last.insert(src.to_string(), now_ms());
+            match collect(src) {
+                Ok(raw) => {
+                    self.reindex_source(src, embedder, raw)?;
+                    self.data.write().last.insert(src.to_string(), now_ms());
+                }
+                // In "reindex all" mode an unreachable source (e.g. Scroll's server
+                // not running) shouldn't abort the others — skip it, keep going.
+                Err(e) if source.is_none() => {
+                    tracing::warn!(target: "flux::kb", source = src, "skipped: {e}");
+                }
+                Err(e) => return Err(e),
+            }
         }
         self.persist();
         Ok(())
@@ -380,6 +389,7 @@ fn strip_frontmatter(text: &str) -> &str {
 fn collect(source: &str) -> Result<Vec<RawDoc>, String> {
     match source {
         "onyx" => collect_onyx(),
+        "scroll" => collect_scroll(),
         other => Err(format!("no connector for source: {other}")),
     }
 }
@@ -452,6 +462,69 @@ fn note_title(body: &str, filename: &str) -> String {
         }
     }
     filename.strip_suffix(".md").or_else(|| filename.strip_suffix(".MD")).unwrap_or(filename).to_string()
+}
+
+// ─── Scroll connector (read-later / research papers) ──────────────────────────
+//
+// Scroll (a TUI) serves its library over HTTP (`localhost:3131/api/articles`),
+// like Omni — so Flux talks to it the same way (no SQLite dep, no DB locking
+// against the live app). Override the base with `FLUX_SCROLL_URL`. The server
+// must be reachable (`scroll serve`, or the TUI is open); otherwise this source
+// is skipped on a full reindex.
+
+fn collect_scroll() -> Result<Vec<RawDoc>, String> {
+    let base = std::env::var("FLUX_SCROLL_URL").unwrap_or_else(|_| "http://localhost:3131".into());
+    let url = format!("{}/api/articles", base.trim_end_matches('/'));
+    let body = ureq::get(&url)
+        .timeout(Duration::from_secs(6))
+        .call()
+        .map_err(|e| format!("Scroll not reachable at {url} (run `scroll serve` or open the app): {e}"))?
+        .into_string()
+        .map_err(|e| e.to_string())?;
+    parse_scroll(&body)
+}
+
+/// Parse Scroll's `/api/articles` JSON (a bare array, or `{articles:[…]}`) into
+/// RawDocs. The article `url` becomes the citation link; `ai_summary` (if any) is
+/// prepended to the body so a short summary is always embedded.
+fn parse_scroll(body: &str) -> Result<Vec<RawDoc>, String> {
+    let v: serde_json::Value = serde_json::from_str(body).map_err(|e| e.to_string())?;
+    let arr = v
+        .as_array()
+        .or_else(|| v.get("articles").and_then(|a| a.as_array()))
+        .ok_or("unexpected Scroll response shape (no article array)")?;
+    let mut out = Vec::new();
+    for a in arr {
+        let id = a.get("id").and_then(|x| x.as_str()).unwrap_or("");
+        if id.is_empty() {
+            continue;
+        }
+        let title = a.get("title").and_then(|x| x.as_str()).unwrap_or("Untitled").to_string();
+        let path = a.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        // mtime only needs to *change* when the article changes (used for equality,
+        // not ordering) → a stable hash of updated_at is enough for incremental.
+        let updated = a.get("updated_at").and_then(|x| x.as_str()).unwrap_or("");
+        let mtime = djb2(updated);
+        let summary = a.get("ai_summary").and_then(|x| x.as_str()).unwrap_or("");
+        let content = a.get("content_markdown").and_then(|x| x.as_str()).unwrap_or("");
+        // Cap pathological bodies (some Scroll PDFs inline huge/binary content).
+        let content: String = content.chars().take(200_000).collect();
+        let body = if summary.is_empty() { content } else { format!("{summary}\n\n{content}") };
+        if body.trim().is_empty() {
+            continue;
+        }
+        out.push(RawDoc { doc_id: id.to_string(), title, path, mtime, body });
+    }
+    Ok(out)
+}
+
+/// Tiny stable string hash (djb2) — a content-change sentinel for incremental sync.
+fn djb2(s: &str) -> u64 {
+    let mut h: u64 = 5381;
+    for b in s.bytes() {
+        h = (h << 5).wrapping_add(h).wrapping_add(b as u64);
+    }
+    h
 }
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
@@ -552,6 +625,27 @@ mod tests {
     fn note_title_prefers_first_heading() {
         assert_eq!(note_title("---\na: b\n---\n\n# Real Title\nbody", "file.md"), "Real Title");
         assert_eq!(note_title("no heading here", "My Note.md"), "My Note");
+    }
+
+    #[test]
+    fn parses_scroll_articles_both_shapes_and_skips_empty() {
+        let bare = r#"[
+            {"id":"a1","title":"Diffusion Models","url":"https://x/1","updated_at":"2026-06-01T10:00:00","ai_summary":"a primer","content_markdown":"long body about denoising"},
+            {"id":"a2","title":"Empty","url":"https://x/2","updated_at":"t","content_markdown":""},
+            {"id":"","title":"No id","content_markdown":"skip me"}
+        ]"#;
+        let docs = parse_scroll(bare).unwrap();
+        assert_eq!(docs.len(), 1, "empty-body + missing-id rows are skipped");
+        assert_eq!(docs[0].doc_id, "a1");
+        assert!(docs[0].body.starts_with("a primer"), "ai_summary is prepended");
+        assert_eq!(docs[0].path, "https://x/1");
+
+        // Wrapped shape: {"articles":[…]}
+        let wrapped = r#"{"articles":[{"id":"b1","title":"T","content_markdown":"body"}]}"#;
+        assert_eq!(parse_scroll(wrapped).unwrap().len(), 1);
+        // djb2 is stable + sensitive to change (drives incremental skip).
+        assert_eq!(djb2("2026-06-01"), djb2("2026-06-01"));
+        assert_ne!(djb2("2026-06-01"), djb2("2026-06-02"));
     }
 
     #[test]
