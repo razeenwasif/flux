@@ -30,6 +30,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Terminal apps: more defaults + seed migration (#117)** — the launcher now seeds
+  audiopulse, boxtube, kata, mamba, forge, lazygit, conduit, mirage, tuxedo (alongside
+  onyx/scroll/council). A seed-version bump merges the new entries into an existing list
+  once, by id, without clobbering your renames/reorders or re-adding ones you deleted.
 - **Terminal apps launcher bar (#117)** — a curated, editable strip beside the native pages
   bar with a chip per terminal/TUI app; clicking opens a new Terminal tab and auto-runs the
   app's command (cwd-aware). Seeded on first run with onyx / scroll / council; the ✎ editor
