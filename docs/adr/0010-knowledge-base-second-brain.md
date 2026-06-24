@@ -57,9 +57,18 @@ KbIndex { embedder, docs, chunks }                          // persisted JSON
 ### Connectors
 
 A small `Connector` surface per source that yields `(doc_id, title, path, mtime,
-text)` documents. **Incremental**: skip docs whose `mtime` is unchanged. v1 ships
-the **Onyx** connector (vault path from `~/.config/onyx/config.toml` `last_vault`,
-default `~/OnyxVault`; skip `.onyx/`); **Scroll** follows (SQLite read).
+text)` documents. **Incremental**: skip docs whose `mtime` is unchanged.
+
+- **Onyx**: vault from `$FLUX_ONYX_VAULT`, else `~/.config/onyx/config.toml`
+  `last_vault`, else `~/OnyxVault`; skips `.onyx/`. The env override matters when
+  Flux and the vault live on different OSes — e.g. a **Windows** Flux build indexing
+  a vault in **WSL** points `FLUX_ONYX_VAULT` at `\\wsl.localhost\<distro>\home\you\OnyxVault`.
+- **Scroll**: over its HTTP API (`$FLUX_SCROLL_URL`, default `localhost:3131`) — no
+  SQLite dep, no locking against the live app; the server must be reachable.
+
+A failed source is recorded (`KbSourceStat.error`) and surfaced in the Notebook UI
+so a `0 docs` always explains itself (vault missing, server down, …); a full
+reindex skips a failed source instead of aborting the others.
 
 ### Commands
 

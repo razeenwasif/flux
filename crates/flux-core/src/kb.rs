@@ -59,11 +59,20 @@ struct KbData {
     chunks: Vec<KbChunk>,
     /// source → epoch-ms of its last reindex.
     last: HashMap<String, u64>,
+    /// source → last reindex error (e.g. "vault not found"), so the UI can explain a 0.
+    #[serde(default)]
+    errors: HashMap<String, String>,
 }
 
 impl Default for KbData {
     fn default() -> Self {
-        KbData { embedder: Embedder::Hash, docs: Vec::new(), chunks: Vec::new(), last: HashMap::new() }
+        KbData {
+            embedder: Embedder::Hash,
+            docs: Vec::new(),
+            chunks: Vec::new(),
+            last: HashMap::new(),
+            errors: HashMap::new(),
+        }
     }
 }
 
@@ -86,6 +95,9 @@ pub struct KbSourceStat {
     pub docs: u32,
     pub chunks: u32,
     pub last_ms: u64,
+    /// Why the last reindex of this source found nothing (vault missing, server
+    /// down, …), or `None` if it succeeded.
+    pub error: Option<String>,
 }
 
 #[derive(Serialize, Clone, specta::Type)]
@@ -183,7 +195,13 @@ impl KbStore {
             .iter()
             .map(|&s| {
                 let (docs, chunks) = by.get(s).copied().unwrap_or((0, 0));
-                KbSourceStat { source: s.to_string(), docs, chunks, last_ms: d.last.get(s).copied().unwrap_or(0) }
+                KbSourceStat {
+                    source: s.to_string(),
+                    docs,
+                    chunks,
+                    last_ms: d.last.get(s).copied().unwrap_or(0),
+                    error: d.errors.get(s).cloned(),
+                }
             })
             .collect();
         KbStatus { sources, embedder: embedder_name(d.embedder).to_string(), indexing: self.indexing.load(Ordering::Acquire) }
@@ -224,17 +242,23 @@ impl KbStore {
         }
 
         for src in targets {
-            match collect(src) {
-                Ok(raw) => {
-                    self.reindex_source(src, embedder, raw)?;
-                    self.data.write().last.insert(src.to_string(), now_ms());
+            let res = collect(src).and_then(|raw| self.reindex_source(src, embedder, raw));
+            match res {
+                Ok(()) => {
+                    let mut d = self.data.write();
+                    d.last.insert(src.to_string(), now_ms());
+                    d.errors.remove(src); // cleared on success
                 }
-                // In "reindex all" mode an unreachable source (e.g. Scroll's server
-                // not running) shouldn't abort the others — skip it, keep going.
-                Err(e) if source.is_none() => {
+                Err(e) => {
+                    // Record the reason so the UI can explain a 0 (vault missing,
+                    // Scroll server down, …). In "reindex all" mode a failed source
+                    // doesn't abort the others.
+                    self.data.write().errors.insert(src.to_string(), e.clone());
+                    if source.is_some() {
+                        return Err(e);
+                    }
                     tracing::warn!(target: "flux::kb", source = src, "skipped: {e}");
                 }
-                Err(e) => return Err(e),
             }
         }
         self.persist();
@@ -394,8 +418,16 @@ fn collect(source: &str) -> Result<Vec<RawDoc>, String> {
     }
 }
 
-/// Onyx vault root: `~/.config/onyx/config.toml` `last_vault`, else `~/OnyxVault`.
+/// Onyx vault root: `$FLUX_ONYX_VAULT` (so Flux can index a vault that lives
+/// elsewhere — e.g. a Windows build pointing at `\\wsl.localhost\…\OnyxVault`),
+/// else `~/.config/onyx/config.toml` `last_vault`, else `~/OnyxVault`.
 fn onyx_vault() -> Option<PathBuf> {
+    if let Ok(v) = std::env::var("FLUX_ONYX_VAULT") {
+        let v = v.trim();
+        if !v.is_empty() && Path::new(v).is_dir() {
+            return Some(PathBuf::from(v));
+        }
+    }
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
     let cfg = Path::new(&home).join(".config/onyx/config.toml");
     if let Ok(s) = std::fs::read_to_string(&cfg) {
@@ -417,7 +449,14 @@ fn onyx_vault() -> Option<PathBuf> {
 
 /// Read all `*.md` notes under the Onyx vault (skipping the `.onyx/` app dir).
 fn collect_onyx() -> Result<Vec<RawDoc>, String> {
-    let root = onyx_vault().ok_or("Onyx vault not found (looked at ~/.config/onyx/config.toml and ~/OnyxVault)")?;
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    let root = onyx_vault().ok_or_else(|| {
+        format!(
+            "Onyx vault not found. Set FLUX_ONYX_VAULT to your vault path (looked at \
+$FLUX_ONYX_VAULT, {home}/.config/onyx/config.toml, and {home}/OnyxVault). If Flux runs on \
+Windows and the vault is in WSL, point it at e.g. \\\\wsl.localhost\\<distro>\\home\\you\\OnyxVault."
+        )
+    })?;
     let mut out = Vec::new();
     walk_md(&root, &root, &mut out);
     Ok(out)

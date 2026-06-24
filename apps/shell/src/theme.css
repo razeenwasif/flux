@@ -1702,6 +1702,8 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .nb-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
 .nb-source-chip { display: flex; flex-direction: column; padding: 7px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--flux-border); }
 .nb-source-chip.empty { opacity: 0.5; }
+.nb-source-chip.error { opacity: 1; border-color: rgba(236, 75, 224, 0.45); }
+.nb-source-err { font-size: 10.5px; color: var(--flux-magenta, #ec4be0); max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nb-source-name { font-size: 12.5px; color: var(--flux-text); font-weight: 600; }
 .nb-source-stat { font-size: 10.5px; color: var(--flux-text-mute); }
 .nb-embedder { margin-left: auto; font-size: 10.5px; color: var(--flux-text-mute); border: 1px solid var(--flux-border); border-radius: 999px; padding: 2px 9px; }

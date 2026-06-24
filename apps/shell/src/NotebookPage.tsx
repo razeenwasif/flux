@@ -91,9 +91,14 @@ const NotebookPage: Component = () => {
       <div class="nb-sources">
         <For each={status()?.sources ?? []}>
           {(s) => (
-            <div class="nb-source-chip" classList={{ empty: s.chunks === 0 }}>
+            <div class="nb-source-chip" classList={{ empty: s.chunks === 0, error: !!s.error }} title={s.error ?? undefined}>
               <span class="nb-source-name">{SOURCE_LABEL[s.source] ?? s.source}</span>
-              <span class="nb-source-stat">{s.docs} docs · {s.chunks} chunks · {fmtAgo(s.last_ms)}</span>
+              <Show
+                when={!s.error}
+                fallback={<span class="nb-source-err">{s.error}</span>}
+              >
+                <span class="nb-source-stat">{s.docs} docs · {s.chunks} chunks · {fmtAgo(s.last_ms)}</span>
+              </Show>
             </div>
           )}
         </For>

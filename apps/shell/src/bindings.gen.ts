@@ -162,7 +162,7 @@ export type KbHit = { source: string; doc_id: string; title: string; path: strin
 /**
  * Per-source counts for the Notebook view's status strip.
  */
-export type KbSourceStat = { source: string; docs: number; chunks: number; last_ms: number }
+export type KbSourceStat = { source: string; docs: number; chunks: number; last_ms: number; error: string | null }
 export type KbStatus = { sources: KbSourceStat[]; embedder: string; indexing: boolean }
 export type SyncStatus = { folder: string | null; unlocked: boolean; last_ms: number; auto: boolean }
 export type SyncReport = { bookmarks_added: number; sessions_added: number; history_added: number }

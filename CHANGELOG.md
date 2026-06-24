@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Knowledge Base: explain an empty index + vault override (#116)** — a source that finds
+  nothing now says *why* in the Notebook status (e.g. "Onyx vault not found", "Scroll not
+  reachable") instead of a silent `0 docs`. New `FLUX_ONYX_VAULT` env override points Flux at
+  a vault that lives elsewhere — notably a Windows Flux build indexing a WSL vault via
+  `\\wsl.localhost\<distro>\home\you\OnyxVault`. A failed source no longer aborts a full reindex.
 - **Knowledge Base: Scroll connector (#116)** — the second brain now also indexes your
   **Scroll** read-later library (articles + papers) via its `localhost:3131/api/articles`
   endpoint (override with `FLUX_SCROLL_URL`; reindex skips it gracefully if Scroll isn't
