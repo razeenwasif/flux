@@ -116,8 +116,8 @@ pub struct KbStatus {
     pub indexing: bool,
 }
 
-/// Sources Flux knows how to pull (Onyx vault notes, Scroll papers).
-pub const SOURCES: &[&str] = &["onyx", "scroll"];
+/// Sources Flux knows how to pull (Onyx vault notes, Scroll papers, Council briefs).
+pub const SOURCES: &[&str] = &["onyx", "scroll", "council"];
 
 /// A document yielded by a connector, before chunking/embedding.
 struct RawDoc {
@@ -448,6 +448,7 @@ fn collect(source: &str, location: Option<&str>) -> Result<Vec<RawDoc>, String> 
     match source {
         "onyx" => collect_onyx(location),
         "scroll" => collect_scroll(location),
+        "council" => collect_council(location),
         other => Err(format!("no connector for source: {other}")),
     }
 }
@@ -543,8 +544,12 @@ fn walk_md(root: &Path, dir: &Path, out: &mut Vec<RawDoc>) {
     }
 }
 
-/// First `#` heading, else the filename without `.md`.
+/// A frontmatter `title:`/`question:` (Council briefs lead with `question:`),
+/// else the first `#` heading, else the filename without `.md`.
 fn note_title(body: &str, filename: &str) -> String {
+    if let Some(t) = frontmatter_value(body, &["title", "question"]) {
+        return t;
+    }
     for line in strip_frontmatter(body).lines() {
         let l = line.trim_start();
         if let Some(h) = l.strip_prefix('#') {
@@ -555,6 +560,56 @@ fn note_title(body: &str, filename: &str) -> String {
         }
     }
     filename.strip_suffix(".md").or_else(|| filename.strip_suffix(".MD")).unwrap_or(filename).to_string()
+}
+
+/// First matching `key: value` in a leading YAML frontmatter block (capped length).
+fn frontmatter_value(body: &str, keys: &[&str]) -> Option<String> {
+    let t = body.strip_prefix('\u{feff}').unwrap_or(body);
+    let rest = t.strip_prefix("---\n")?;
+    let end = rest.find("\n---")?;
+    for line in rest[..end].lines() {
+        if let Some((k, v)) = line.split_once(':') {
+            if keys.iter().any(|key| k.trim().eq_ignore_ascii_case(key)) {
+                let v = v.trim().trim_matches('"').trim();
+                if !v.is_empty() {
+                    return Some(v.chars().take(120).collect());
+                }
+            }
+        }
+    }
+    None
+}
+
+// ─── Council connector (co-scientist debate briefs) ──────────────────────────
+//
+// Council writes each /discover run as a Markdown brief in `~/Research/debates`
+// (YAML frontmatter `question:` + the debate body) — so it indexes just like the
+// Onyx vault. Override the dir with the in-app location or `$FLUX_COUNCIL_DIR`.
+
+fn council_dir(location: Option<&str>) -> Option<PathBuf> {
+    let env_v = std::env::var("FLUX_COUNCIL_DIR").ok();
+    for cand in [location, env_v.as_deref()] {
+        if let Some(v) = cand.map(str::trim).filter(|v| !v.is_empty()) {
+            if is_dir(Path::new(v)) {
+                return Some(PathBuf::from(v));
+            }
+        }
+    }
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
+    let def = Path::new(&home).join("Research/debates");
+    is_dir(&def).then_some(def)
+}
+
+fn collect_council(location: Option<&str>) -> Result<Vec<RawDoc>, String> {
+    let root = council_dir(location).ok_or_else(|| {
+        match location.map(str::trim).filter(|v| !v.is_empty()).map(str::to_string).or_else(|| std::env::var("FLUX_COUNCIL_DIR").ok().filter(|v| !v.trim().is_empty())) {
+            Some(v) => format!("Council briefs path '{}' isn't an accessible directory (WSL running? UNC path exact?).", v.trim()),
+            None => "Council briefs not found — set the path below (looked at $FLUX_COUNCIL_DIR and ~/Research/debates).".to_string(),
+        }
+    })?;
+    let mut out = Vec::new();
+    walk_md(&root, &root, &mut out);
+    Ok(out)
 }
 
 // ─── Scroll connector (read-later / research papers) ──────────────────────────
@@ -851,6 +906,14 @@ mod tests {
     fn note_title_prefers_first_heading() {
         assert_eq!(note_title("---\na: b\n---\n\n# Real Title\nbody", "file.md"), "Real Title");
         assert_eq!(note_title("no heading here", "My Note.md"), "My Note");
+    }
+
+    #[test]
+    fn note_title_uses_frontmatter_question_for_council_briefs() {
+        let brief = "---\nquestion: How does the threshold theorem work?\ngenerated: 2026-06-09\n---\n\n# Synthesis\nbody";
+        assert_eq!(note_title(brief, "2026-06-09-x.md"), "How does the threshold theorem work?");
+        // `title:` also wins over a heading.
+        assert_eq!(note_title("---\ntitle: My Title\n---\n\n# Heading\n", "f.md"), "My Title");
     }
 
     #[test]

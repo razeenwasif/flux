@@ -12,10 +12,11 @@ import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import { fsOpen, kbAnswer, kbReindex, kbSetSource, kbStatus, type KbHit, type KbStatus } from "./ipc";
 import { openTab } from "./store";
 
-const SOURCE_LABEL: Record<string, string> = { onyx: "Onyx vault", scroll: "Scroll papers" };
+const SOURCE_LABEL: Record<string, string> = { onyx: "Onyx vault", scroll: "Scroll papers", council: "Council briefs" };
 const SOURCE_HINT: Record<string, string> = {
   onyx: "Vault path — e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault",
   scroll: "Scroll base URL — e.g. http://localhost:3131",
+  council: "Briefs dir — e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\Research\\debates",
 };
 
 const NotebookPage: Component = () => {

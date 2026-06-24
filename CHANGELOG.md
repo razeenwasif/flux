@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Knowledge Base: Council briefs as a third source (#116)** — Gemma now also indexes your
+  Council co-scientist debate briefs (`~/Research/debates/*.md`), so past hypotheses/debates
+  are retrievable in the Notebook and "✦ My notes". Same Markdown pipeline as Onyx; the
+  brief's `question:` frontmatter becomes the title. Override the dir with `FLUX_COUNCIL_DIR`
+  or the in-app location field.
 - **Drag-to-reorder pinned web panels** — drag the app-rail icons to reorder your pinned
   sites (persisted via a new `panel_reorder`); the drop target highlights teal.
 - **Agent panel: "📎 Clip to Scroll" chip** — a one-tap hint (shown when a page is open) that
