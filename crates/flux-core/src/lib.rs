@@ -759,6 +759,8 @@ pub fn run(intent: cli::LaunchIntent) {
             kb::kb_set_source,
             kb::kb_query,
             kb::kb_answer,
+            kb::scroll_clip,
+            kb::onyx_new_note,
             tui_apps::tui_apps_list,
             tui_apps::tui_apps_set,
             tui_apps::tui_apps_detect,

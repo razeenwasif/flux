@@ -49,6 +49,8 @@ import {
   webviewCapture,
   onScreenshot,
   isStartUrl,
+  scrollClip,
+  onyxNewNote,
   onAgentStatus,
   type AgentAction,
   type NextStep,
@@ -898,6 +900,62 @@ const AgentPanel: Component = () => {
     if (recent && !feed().length) loadSession(recent);
   });
 
+  // The active browser tab's URL (for "clip this page"), or null.
+  const activePageUrl = (): string | null => {
+    const t = tabs().find((x) => x.id === activeId());
+    return t && t.kind === "browser" && !isStartUrl(t.url) ? t.url : null;
+  };
+
+  // "clip <url|this page> to scroll [tags: a, b]" → write access to Scroll (#118).
+  const tryClipToScroll = async (text: string): Promise<boolean> => {
+    if (!/\bclip\b/i.test(text) || !/\bscroll\b/i.test(text)) return false;
+    let url = text.match(/https?:\/\/[^\s)]+/i)?.[0] ?? null;
+    if (!url) url = activePageUrl();
+    if (!url) {
+      setFeed((f) => [...f, { role: "error", text: 'Give me a URL to clip, or open the article first ("clip this page to scroll").' }]);
+      return true;
+    }
+    const tags = text.match(/\btags?\b\s*[:=]?\s*([^\n]+)$/i)?.[1]?.replace(/\band\b/gi, ",").replace(/\s+/g, " ").trim();
+    setFeed((f) => [...f, { role: "task", text: "📎 Clipping to Scroll…" }]);
+    try {
+      const r = await scrollClip(url, tags);
+      setFeed((f) => [...f, { role: "action", text: `✓ ${r}${tags ? ` · tags: ${tags}` : ""}` }]);
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+    }
+    return true;
+  };
+
+  // "save (this answer | <text>) to onyx [as <title>]" → write a note to the vault (#118).
+  const trySaveToOnyx = async (text: string): Promise<boolean> => {
+    if (!/\bonyx\b/i.test(text) || !/\b(save|note|remember|add|write)\b/i.test(text)) return false;
+    const asTitle = text.match(/\bas\s+"?([^"\n]+?)"?\s*$/i)?.[1]?.trim();
+    let content = "";
+    if (/\b(that|this answer|the answer|your answer|last answer)\b/i.test(text)) {
+      content = [...feed()].reverse().find((it) => it.role === "assistant")?.text ?? "";
+      if (!content.trim()) {
+        setFeed((f) => [...f, { role: "error", text: "No previous answer to save — ask me something first, then \"save that to Onyx\"." }]);
+        return true;
+      }
+    } else {
+      // Everything after "… to onyx" (minus a trailing "as <title>") is the note body.
+      content = text.replace(/^.*?\bto\s+onyx\b/i, "").replace(/\bas\s+"?[^"\n]+"?\s*$/i, "").replace(/^[\s:–-]+/, "").trim();
+      if (!content) {
+        setFeed((f) => [...f, { role: "error", text: 'Tell me what to save, e.g. "save to Onyx: gravity-wave detector notes…" or "save that to Onyx".' }]);
+        return true;
+      }
+    }
+    const title = asTitle || content.split("\n")[0]!.slice(0, 60).trim() || "Note";
+    setFeed((f) => [...f, { role: "task", text: "📝 Saving to Onyx…" }]);
+    try {
+      const path = await onyxNewNote(title, content);
+      setFeed((f) => [...f, { role: "action", text: `✓ Saved to Onyx: ${title}\n${path}` }]);
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+    }
+    return true;
+  };
+
   const send = async (p: string) => {
     const att = attachment();
     if ((!p && !att) || working() || taskRunning()) return;
@@ -993,6 +1051,9 @@ const AgentPanel: Component = () => {
       if (STATE_RE.test(pc)) { runState(); return; }
       { const mv = pc.match(VARS_RE); if (mv) { runVars(mv[1]); return; } }
       { const mi = pc.match(INSPECT_RE); if (mi?.[1]) { runInspect(mi[1]); return; } }
+      // Write access to the user's corpora (#118): clip to Scroll / save to Onyx.
+      if (await tryClipToScroll(p)) return;
+      if (await trySaveToOnyx(p)) return;
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,

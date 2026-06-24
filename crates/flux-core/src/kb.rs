@@ -234,6 +234,12 @@ impl KbStore {
         self.persist();
     }
 
+    /// The user-set location override for `source` (vault path / Scroll URL), if any.
+    pub fn source_location(&self, source: &str) -> Option<String> {
+        self.hydrate();
+        self.data.read().config.get(source).cloned()
+    }
+
     /// (Re)build the index for `source` (or every known source when `None`),
     /// incrementally — documents whose mtime is unchanged keep their chunks.
     pub fn reindex(&self, source: Option<String>) -> Result<KbStatus, String> {
@@ -559,14 +565,20 @@ fn note_title(body: &str, filename: &str) -> String {
 // must be reachable (`scroll serve`, or the TUI is open); otherwise this source
 // is skipped on a full reindex.
 
-fn collect_scroll(location: Option<&str>) -> Result<Vec<RawDoc>, String> {
-    let base = location
+/// Scroll's base URL: in-app override → `$FLUX_SCROLL_URL` → `localhost:3131`.
+fn scroll_base(location: Option<&str>) -> String {
+    location
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string)
         .or_else(|| std::env::var("FLUX_SCROLL_URL").ok().filter(|v| !v.trim().is_empty()))
-        .unwrap_or_else(|| "http://localhost:3131".into());
-    let url = format!("{}/api/articles", base.trim_end_matches('/'));
+        .unwrap_or_else(|| "http://localhost:3131".into())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn collect_scroll(location: Option<&str>) -> Result<Vec<RawDoc>, String> {
+    let url = format!("{}/api/articles", scroll_base(location));
     let resp = ureq::get(&url)
         .timeout(Duration::from_secs(30))
         .call()
@@ -733,6 +745,86 @@ Sources:\n{ctx}\nQuestion: {query}\n\nGrounded answer (with [n] citations):"
     )
 }
 
+// ─── Write access — let the agent add to the user's corpora (#118) ────────────
+
+/// Clip an article URL into Scroll (the agent's "clip this to Scroll"). POSTs the
+/// `/clip` form Scroll already serves, so Scroll does the scraping/storing.
+/// `tags` is a comma-separated list (optional).
+#[tauri::command]
+pub async fn scroll_clip(kb: State<'_, KbStore>, url: String, tags: Option<String>) -> Result<String, String> {
+    let url = url.trim().to_string();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(format!("'{url}' isn't a web URL"));
+    }
+    let base = scroll_base(kb.source_location("scroll").as_deref());
+    let endpoint = format!("{base}/clip");
+    let tags = tags.unwrap_or_default().trim().to_string();
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let mut form: Vec<(&str, &str)> = vec![("url", url.as_str())];
+        if !tags.is_empty() {
+            form.push(("tags", tags.as_str()));
+        }
+        ureq::post(&endpoint)
+            .timeout(Duration::from_secs(40)) // Scroll scrapes the page synchronously
+            .send_form(&form)
+            .map_err(|e| format!("Scroll clip failed at {endpoint} (is `scroll serve` running?): {e}"))?;
+        Ok(format!("Clipped to Scroll: {url}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Create a new Markdown note in the Onyx vault (the agent's "save this to Onyx").
+/// Returns the written path. Never overwrites — disambiguates with a numeric suffix.
+#[tauri::command]
+pub async fn onyx_new_note(kb: State<'_, KbStore>, title: String, content: String, folder: Option<String>) -> Result<String, String> {
+    let location = kb.source_location("onyx");
+    tauri::async_runtime::spawn_blocking(move || write_onyx_note(location.as_deref(), &title, &content, folder.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn write_onyx_note(location: Option<&str>, title: &str, content: &str, folder: Option<&str>) -> Result<String, String> {
+    let root = onyx_vault(location).ok_or_else(|| {
+        "Onyx vault not found — set its path in the Notebook first.".to_string()
+    })?;
+    let dir = match folder.map(str::trim).filter(|f| !f.is_empty()) {
+        Some(f) => root.join(f),
+        None => root,
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let base = sanitize_note_name(title);
+    let mut path = dir.join(format!("{base}.md"));
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{base} {n}.md"));
+        n += 1;
+    }
+    // Lead with an H1 title unless the content already opens with a heading.
+    let body = if content.trim_start().starts_with('#') {
+        content.trim_start().to_string()
+    } else {
+        format!("# {}\n\n{}\n", title.trim(), content.trim())
+    };
+    std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Filesystem-safe note base name from a title (no path separators / illegal chars).
+fn sanitize_note_name(title: &str) -> String {
+    let first = title.lines().next().unwrap_or("").trim();
+    let cleaned: String = first
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '-' } else { c })
+        .collect();
+    let cleaned = cleaned.trim_matches(|c: char| c == '.' || c == '-' || c.is_whitespace());
+    if cleaned.is_empty() {
+        "Untitled note".to_string()
+    } else {
+        cleaned.chars().take(80).collect::<String>().trim_end_matches(['-', ' ', '.']).to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -759,6 +851,27 @@ mod tests {
     fn note_title_prefers_first_heading() {
         assert_eq!(note_title("---\na: b\n---\n\n# Real Title\nbody", "file.md"), "Real Title");
         assert_eq!(note_title("no heading here", "My Note.md"), "My Note");
+    }
+
+    #[test]
+    fn writes_onyx_note_without_overwriting() {
+        let dir = std::env::temp_dir().join(format!("flux-onyxwrite-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let vault = dir.to_string_lossy().into_owned();
+
+        let p1 = write_onyx_note(Some(&vault), "My Idea: a/b?", "first body", None).unwrap();
+        assert!(p1.ends_with("My Idea- a-b.md"), "illegal chars sanitized: {p1}");
+        assert!(std::fs::read_to_string(&p1).unwrap().starts_with("# My Idea"));
+        // Same title again → disambiguated, original kept.
+        let p2 = write_onyx_note(Some(&vault), "My Idea: a/b?", "second body", None).unwrap();
+        assert_ne!(p1, p2);
+        assert!(p2.contains("My Idea- a-b 2.md"));
+        // Folder is created.
+        let p3 = write_onyx_note(Some(&vault), "Note", "x", Some("Inbox")).unwrap();
+        assert!(p3.contains("Inbox"));
+        assert_eq!(sanitize_note_name("   ...  "), "Untitled note");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

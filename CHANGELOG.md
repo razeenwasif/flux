@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Agent write access to Scroll & Onyx (#118)** — ask Gemma in the sidebar to **clip an
+  article to Scroll** ("clip this page to scroll", "clip https://… to scroll tags: ai, rl") —
+  it POSTs Scroll's /clip so Scroll scrapes + stores it — and to **save notes to Onyx**
+  ("save that to Onyx", "save to Onyx: …[as <title>]") which writes a Markdown note into your
+  vault (never overwriting). Backends `scroll_clip` / `onyx_new_note` honour the in-app
+  Scroll-URL / vault-path you set in the Notebook.
 - **Fix: terminal splits white-ing out the agent panel** — each terminal pane was running a
   WebGL2 shader backdrop (LiquidBackground) on top of the xterm WebGL renderer, so splitting
   (and the now-persistent column + TUI-app tabs) stacked enough WebGL contexts to make

@@ -471,6 +471,12 @@ export const tuiAppsList = () => invoke<TuiApp[]>("tui_apps_list");
 export const tuiAppsSet = (apps: TuiApp[]) => invoke<void>("tui_apps_set", { apps });
 /** Executable names found in the standard user bin dirs — a quick-add helper. */
 export const tuiAppsDetect = () => invoke<string[]>("tui_apps_detect");
+// ─── Corpus write access (#118) — let the agent add to Scroll / Onyx ────────
+/** Clip a URL into Scroll (POSTs its /clip form; Scroll scrapes + stores). */
+export const scrollClip = (url: string, tags?: string) => invoke<string>("scroll_clip", { url, tags });
+/** Create a Markdown note in the Onyx vault; returns the written path. */
+export const onyxNewNote = (title: string, content: string, folder?: string) =>
+  invoke<string>("onyx_new_note", { title, content, folder });
 // ─── Knowledge Base / second brain (#116, ADR 0010) ─────────────────────────
 /** Per-source + overall index status for the Notebook view. */
 export const kbStatus = () => invoke<KbStatus>("kb_status");
