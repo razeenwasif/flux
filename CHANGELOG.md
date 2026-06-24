@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Agent-aware terminal — explain / fix a failed command (#121)** — when a command exits
+  non-zero (detected via the OSC 133 marks), the terminal shows a "⚠ exit N · ✦ Explain · ⚙ Fix"
+  bar. **Explain** asks Gemma why it failed (answer in an overlay); **Fix** proposes a corrected
+  command and types it at your prompt (Ctrl-U-cleared) for you to review and run. Fully local;
+  needs shell integration on. A browser-and-shell feature no other browser has.
 - **Co-scientist specialist voices (#120)** — fine-tuned council-specialists models are now
   routable. Flux auto-discovers any Ollama model named `<domain>-specialist:*` (physics / math /
   cs) and, when a grounded Notebook / "✦ My notes" question carries enough of that domain's

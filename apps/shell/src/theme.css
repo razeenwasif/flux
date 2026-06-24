@@ -880,6 +880,16 @@ body.resizing, body.busy { --glass-blur: none; }
 .term-seam { flex: 0 0 6px; align-self: stretch; cursor: row-resize; border-radius: 3px; background: transparent; transition: background 0.12s; }
 .term-seam.vert { cursor: col-resize; }
 .term-seam:hover, .term-seam:active { background: rgba(47, 243, 255, 0.3); }
+/* #121 agent-aware terminal: explain/fix a failed command */
+.term-fail { position: absolute; bottom: 10px; left: 12px; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 10px; background: rgba(26,22,64,0.95); border: 1px solid rgba(236,75,224,0.45); box-shadow: 0 4px 16px rgba(0,0,0,0.45); font-family: system-ui, sans-serif; }
+.term-fail-x { font-size: 11.5px; color: #ec4be0; font-weight: 600; }
+.term-fail-btn { font-size: 11.5px; color: #eef0fb; cursor: pointer; padding: 3px 9px; border-radius: 7px; background: rgba(123,97,255,0.2); border: 1px solid rgba(123,97,255,0.4); }
+.term-fail-btn:hover { background: rgba(123,97,255,0.35); }
+.term-fail-dismiss { font-size: 11px; color: #9aa0c4; cursor: pointer; background: none; border: none; padding: 2px 4px; }
+.term-ai { position: absolute; bottom: 10px; left: 12px; right: 12px; max-height: 55%; z-index: 4; display: flex; flex-direction: column; border-radius: 12px; background: rgba(16,12,40,0.97); border: 1px solid rgba(47,243,255,0.3); box-shadow: 0 8px 30px rgba(0,0,0,0.5); font-family: system-ui, sans-serif; }
+.term-ai-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; font-size: 12px; color: #2ff3ff; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.term-ai-close { background: none; border: none; color: #9aa0c4; cursor: pointer; font-size: 12px; }
+.term-ai-body { padding: 10px 12px; overflow: auto; font-size: 12.5px; line-height: 1.5; color: #d7daf0; white-space: pre-wrap; word-break: break-word; }
 .term-pane.active .terminal-surface { border-color: rgba(47, 243, 255, 0.55); box-shadow: var(--glass-shadow), inset 0 1px 0 0 rgba(47, 243, 255, 0.12), 0 0 0 1px rgba(47, 243, 255, 0.25); }
 .term-col-bar { position: absolute; top: calc(var(--flux-frame-pad) + 6px); right: 12px; z-index: 4; display: flex; gap: 4px; opacity: 0.28; transition: opacity 0.15s; }
 .terminal-col:hover .term-col-bar { opacity: 1; }

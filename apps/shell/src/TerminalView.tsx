@@ -11,7 +11,7 @@
  */
 import { createEffect, createSignal, onCleanup, onMount, Show, type Component } from "solid-js";
 import type { Terminal as XTerm, IMarker, IDecoration } from "@xterm/xterm";
-import { Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
+import { agentChat, agentShellPlan, Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
 import { registerTerminal, setActiveTerminal, takePendingCommand, unregisterTerminal } from "./terminals";
 import { openTab } from "./store";
 import LiquidBackground from "./LiquidBackground";
@@ -54,6 +54,13 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
     clearTimeout(hintTimer);
     hintTimer = window.setTimeout(() => setHint(null), 1600);
   };
+
+  // Agent-aware terminal (#121): when a command exits non-zero, offer explain/fix.
+  const [failedExit, setFailedExit] = createSignal<number | null>(null);
+  const [aiBusy, setAiBusy] = createSignal(false);
+  const [aiText, setAiText] = createSignal<string | null>(null);
+  let explainRef: (() => void) | undefined;
+  let fixRef: (() => void) | undefined;
 
   // Re-fit + re-focus when this terminal becomes the active tab again — it was
   // hidden (display:none) in the keep-alive layer (#73), so xterm needs to
@@ -176,9 +183,54 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
         const list = live();
         const last = list[list.length - 1];
         if (last) { last.exit = Number.isNaN(code) ? undefined : code; paint(last); }
+        // Drive the explain/fix affordance off the just-finished command's status.
+        setFailedExit(Number.isNaN(code) ? null : code);
       }
       return true; // 133 is ours — don't pass to the default handler
     });
+
+    // The last command's block (its prompt line + output), for the agent (#121).
+    const lastBlock = (): string => {
+      const list = live();
+      if (list.length < 2) return "";
+      const prev = list[list.length - 2]!.marker.line;
+      const cur = list[list.length - 1]!.marker.line;
+      if (prev < 0 || cur < 0) return "";
+      const buf = term.buffer.active;
+      const lines: string[] = [];
+      for (let i = prev; i < cur; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+      while (lines.length && !lines[lines.length - 1]!.trim()) lines.pop();
+      return lines.join("\n").slice(0, 4000);
+    };
+    // Explain the failure (chat) — shown in an overlay.
+    explainRef = () => {
+      const block = lastBlock();
+      if (!block) { flash("Nothing to explain yet"); return; }
+      setAiText(null);
+      setAiBusy(true);
+      void agentChat(`A shell command just failed in my terminal. Explain briefly why, and how to fix it. Command and output:\n\n${block}`)
+        .then((r) => setAiText(r.trim() || "(no response)"))
+        .catch((e) => setAiText(`Couldn't reach the agent: ${e}`))
+        .finally(() => setAiBusy(false));
+    };
+    // Propose a corrected command and type it at the prompt (review + Enter to run).
+    fixRef = () => {
+      const block = lastBlock();
+      if (!block) { flash("Nothing to fix yet"); return; }
+      setAiBusy(true);
+      void agentShellPlan(`Fix this failing shell command. Reply with ONLY the corrected command.\n\n${block}`)
+        .then((cmd) => {
+          if (cmd && cmd.trim()) {
+            // Ctrl-U clears the current line first, then type the fix (no Enter).
+            void terminalWrite(props.session, new TextEncoder().encode(String.fromCharCode(0x15) + cmd.trim()));
+            flash("✓ Fix typed — review & press Enter");
+          } else {
+            flash("No fix suggested");
+          }
+        })
+        .catch((e) => flash(String(e)))
+        .finally(() => setAiBusy(false));
+    };
 
     const jumpPrompt = (dir: -1 | 1) => {
       const lines = live().map((c) => c.marker.line).filter((l) => l >= 0).sort((a, b) => a - b);
@@ -274,6 +326,30 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
         </div>
       </Show>
       <div ref={host} style={{ position: "relative", "z-index": 1, width: "100%", height: "100%", padding: "8px" }} />
+
+      {/* #121: a command just failed → offer to explain / fix it with the agent. */}
+      <Show when={(failedExit() ?? 0) !== 0 && !aiText() && !aiBusy()}>
+        <div class="term-fail">
+          <span class="term-fail-x">⚠ exit {failedExit()}</span>
+          <button class="term-fail-btn" onClick={() => explainRef?.()}>✦ Explain</button>
+          <button class="term-fail-btn" onClick={() => fixRef?.()}>⚙ Fix</button>
+          <button class="term-fail-dismiss" title="Dismiss" onClick={() => setFailedExit(null)}>✕</button>
+        </div>
+      </Show>
+
+      {/* Explanation overlay (the agent's answer about the failure). */}
+      <Show when={aiBusy() || aiText()}>
+        <div class="term-ai">
+          <div class="term-ai-head">
+            <span>✦ Gemma</span>
+            <button class="term-ai-close" onClick={() => { setAiText(null); setAiBusy(false); }}>✕</button>
+          </div>
+          <Show when={!aiBusy()} fallback={<div class="term-ai-body">Looking at the error…</div>}>
+            <div class="term-ai-body">{aiText()}</div>
+          </Show>
+        </div>
+      </Show>
+
       {/* #16: transient feedback for prompt jump / copy-output */}
       <Show when={hint()}>
         {(h) => (
