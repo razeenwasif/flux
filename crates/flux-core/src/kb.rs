@@ -1,0 +1,587 @@
+//! Knowledge Base — local RAG over the user's own corpora (ADR 0010).
+//!
+//! A "second brain": connectors pull documents from the user's other tools
+//! (Onyx vault notes today; Scroll papers next), chunk + embed them with
+//! `crate::embedding` (Ollama `embeddinggemma`, hashing fallback), and a
+//! brute-force cosine search grounds the Gemma agent's answers *with citations*.
+//! Fully local — no corpus leaves the machine. Mirrors `archive.rs`'s on-disk
+//! embedded-vector-store pattern, persisted to `<app_data>/kb/kb-index.json`.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use tauri::ipc::Channel;
+use tauri::State;
+
+use crate::embedding::{self, Embedder};
+
+fn default_embedder() -> Embedder {
+    Embedder::Hash
+}
+
+/// One embedded chunk of a source document. The embedding is persisted (model
+/// embeddings are network calls — don't recompute per load) and tagged with the
+/// embedder that produced it, so the corpus re-embeds if the embedder changes.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct KbChunk {
+    pub source: String,
+    pub doc_id: String,
+    pub title: String,
+    pub path: String,
+    pub ord: usize,
+    pub text: String,
+    #[serde(default)]
+    embedding: Vec<f32>,
+    #[serde(default = "default_embedder")]
+    embedder: Embedder,
+}
+
+/// Per-document record — drives listing + incremental reindex (skip unchanged mtimes).
+#[derive(Serialize, Deserialize, Clone)]
+pub struct KbDoc {
+    pub source: String,
+    pub doc_id: String,
+    pub title: String,
+    pub path: String,
+    pub mtime: u64,
+    pub n_chunks: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct KbData {
+    embedder: Embedder,
+    docs: Vec<KbDoc>,
+    chunks: Vec<KbChunk>,
+    /// source → epoch-ms of its last reindex.
+    last: HashMap<String, u64>,
+}
+
+impl Default for KbData {
+    fn default() -> Self {
+        KbData { embedder: Embedder::Hash, docs: Vec::new(), chunks: Vec::new(), last: HashMap::new() }
+    }
+}
+
+/// A search hit (wire type) — metadata + a snippet, never the whole corpus.
+#[derive(Serialize, Clone, specta::Type)]
+pub struct KbHit {
+    pub source: String,
+    pub doc_id: String,
+    pub title: String,
+    pub path: String,
+    pub snippet: String,
+    /// Relevance 0–100.
+    pub score: u32,
+}
+
+/// Per-source counts for the Notebook view's status strip.
+#[derive(Serialize, Clone, specta::Type)]
+pub struct KbSourceStat {
+    pub source: String,
+    pub docs: u32,
+    pub chunks: u32,
+    pub last_ms: u64,
+}
+
+#[derive(Serialize, Clone, specta::Type)]
+pub struct KbStatus {
+    pub sources: Vec<KbSourceStat>,
+    /// "model" or "hash" — which embedder the corpus is on.
+    pub embedder: String,
+    pub indexing: bool,
+}
+
+/// Sources Flux knows how to pull. v1 ships Onyx; Scroll is next.
+pub const SOURCES: &[&str] = &["onyx"];
+
+/// A document yielded by a connector, before chunking/embedding.
+struct RawDoc {
+    doc_id: String,
+    title: String,
+    path: String,
+    mtime: u64,
+    body: String,
+}
+
+/// Cheap-to-clone handle (Arcs inside) so a command can move it into a blocking task.
+#[derive(Clone)]
+pub struct KbStore {
+    path: Option<PathBuf>,
+    data: Arc<RwLock<KbData>>,
+    hydrated: Arc<AtomicBool>,
+    indexing: Arc<AtomicBool>,
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+fn snippet(text: &str, n: usize) -> String {
+    let s: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    s.chars().take(n).collect()
+}
+
+fn embedder_name(e: Embedder) -> &'static str {
+    match e {
+        Embedder::Model => "model",
+        Embedder::Hash => "hash",
+    }
+}
+
+impl Default for KbStore {
+    fn default() -> Self {
+        KbStore {
+            path: None,
+            data: Arc::new(RwLock::new(KbData::default())),
+            hydrated: Arc::new(AtomicBool::new(false)),
+            indexing: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl KbStore {
+    pub fn empty(path: PathBuf) -> Self {
+        KbStore { path: Some(path), ..Default::default() }
+    }
+
+    /// Load the persisted index from disk (idempotent).
+    pub fn hydrate(&self) {
+        if self.hydrated.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let Some(path) = &self.path else { return };
+        if let Ok(json) = std::fs::read_to_string(path) {
+            if let Ok(data) = serde_json::from_str::<KbData>(&json) {
+                *self.data.write() = data;
+            }
+        }
+    }
+
+    fn persist(&self) {
+        let Some(path) = &self.path else { return };
+        let json = { serde_json::to_string(&*self.data.read()).ok() };
+        if let Some(json) = json {
+            let _ = std::fs::write(path, json);
+        }
+    }
+
+    pub fn status(&self) -> KbStatus {
+        let d = self.data.read();
+        let mut by: HashMap<&str, (u32, u32)> = HashMap::new();
+        for doc in &d.docs {
+            by.entry(&doc.source).or_default().0 += 1;
+        }
+        for ch in &d.chunks {
+            by.entry(&ch.source).or_default().1 += 1;
+        }
+        let sources = SOURCES
+            .iter()
+            .map(|&s| {
+                let (docs, chunks) = by.get(s).copied().unwrap_or((0, 0));
+                KbSourceStat { source: s.to_string(), docs, chunks, last_ms: d.last.get(s).copied().unwrap_or(0) }
+            })
+            .collect();
+        KbStatus { sources, embedder: embedder_name(d.embedder).to_string(), indexing: self.indexing.load(Ordering::Acquire) }
+    }
+
+    /// (Re)build the index for `source` (or every known source when `None`),
+    /// incrementally — documents whose mtime is unchanged keep their chunks.
+    pub fn reindex(&self, source: Option<String>) -> Result<KbStatus, String> {
+        self.hydrate();
+        if self.indexing.swap(true, Ordering::AcqRel) {
+            return Err("an index build is already running".into());
+        }
+        let result = self.reindex_inner(source);
+        self.indexing.store(false, Ordering::Release);
+        result.map(|_| self.status())
+    }
+
+    fn reindex_inner(&self, source: Option<String>) -> Result<(), String> {
+        let targets: Vec<&str> = match &source {
+            Some(s) => {
+                if !SOURCES.contains(&s.as_str()) {
+                    return Err(format!("unknown source: {s}"));
+                }
+                vec![s.as_str()]
+            }
+            None => SOURCES.to_vec(),
+        };
+
+        // Pick the embedder once. If it changed since the last build, the whole
+        // corpus must re-embed (cosine is only meaningful within one embedder).
+        let embedder = embedding::current();
+        let embedder_changed = self.data.read().embedder != embedder;
+        if embedder_changed {
+            let mut d = self.data.write();
+            d.docs.clear();
+            d.chunks.clear();
+            d.embedder = embedder;
+        }
+
+        for src in targets {
+            let raw = collect(src)?;
+            self.reindex_source(src, embedder, raw)?;
+            self.data.write().last.insert(src.to_string(), now_ms());
+        }
+        self.persist();
+        Ok(())
+    }
+
+    fn reindex_source(&self, src: &str, embedder: Embedder, raw: Vec<RawDoc>) -> Result<(), String> {
+        // Which docs are unchanged (same mtime) → keep; which are new/changed → rebuild.
+        let existing: HashMap<String, u64> = {
+            let d = self.data.read();
+            d.docs.iter().filter(|x| x.source == src).map(|x| (x.doc_id.clone(), x.mtime)).collect()
+        };
+        let present: std::collections::HashSet<String> = raw.iter().map(|r| r.doc_id.clone()).collect();
+
+        let mut new_docs: Vec<KbDoc> = Vec::new();
+        let mut new_chunks: Vec<KbChunk> = Vec::new();
+        for doc in &raw {
+            if existing.get(&doc.doc_id) == Some(&doc.mtime) {
+                continue; // unchanged → its chunks are kept below
+            }
+            let texts = chunk_text(&doc.body);
+            if texts.is_empty() {
+                new_docs.push(KbDoc {
+                    source: src.into(),
+                    doc_id: doc.doc_id.clone(),
+                    title: doc.title.clone(),
+                    path: doc.path.clone(),
+                    mtime: doc.mtime,
+                    n_chunks: 0,
+                });
+                continue;
+            }
+            let vecs = embedding::embed_batch(&texts, embedder)
+                .ok_or("embedding model unavailable (is Ollama running?)")?;
+            for (ord, (text, embedding)) in texts.into_iter().zip(vecs).enumerate() {
+                new_chunks.push(KbChunk {
+                    source: src.into(),
+                    doc_id: doc.doc_id.clone(),
+                    title: doc.title.clone(),
+                    path: doc.path.clone(),
+                    ord,
+                    text,
+                    embedding,
+                    embedder,
+                });
+            }
+            new_docs.push(KbDoc {
+                source: src.into(),
+                doc_id: doc.doc_id.clone(),
+                title: doc.title.clone(),
+                path: doc.path.clone(),
+                mtime: doc.mtime,
+                n_chunks: new_chunks.iter().filter(|c| c.doc_id == doc.doc_id).count(),
+            });
+        }
+
+        // Merge: drop this source's docs/chunks that were rebuilt or removed, keep
+        // the unchanged ones, then append the freshly built set.
+        let mut d = self.data.write();
+        let rebuilt: std::collections::HashSet<String> = new_docs.iter().map(|x| x.doc_id.clone()).collect();
+        d.docs.retain(|x| {
+            x.source != src || (present.contains(&x.doc_id) && !rebuilt.contains(&x.doc_id))
+        });
+        d.chunks.retain(|x| {
+            x.source != src || (present.contains(&x.doc_id) && !rebuilt.contains(&x.doc_id))
+        });
+        d.docs.extend(new_docs);
+        d.chunks.extend(new_chunks);
+        Ok(())
+    }
+
+    /// Cosine top-`k` over the corpus (optionally restricted to `sources`).
+    pub fn query(&self, query: &str, k: usize, sources: Option<Vec<String>>) -> Result<Vec<KbHit>, String> {
+        self.hydrate();
+        let embedder = self.data.read().embedder;
+        let qv = embedding::embed_with(query, embedder).ok_or("embedding model unavailable")?;
+        let d = self.data.read();
+        let allow = sources.as_ref();
+        let mut scored: Vec<(f32, &KbChunk)> = d
+            .chunks
+            .iter()
+            .filter(|c| allow.map(|a| a.iter().any(|s| s == &c.source)).unwrap_or(true))
+            .map(|c| (embedding::cosine(&qv, &c.embedding), c))
+            .filter(|(s, _)| *s > 0.0)
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(scored
+            .into_iter()
+            .take(k.clamp(1, 50))
+            .map(|(score, c)| KbHit {
+                source: c.source.clone(),
+                doc_id: c.doc_id.clone(),
+                title: c.title.clone(),
+                path: c.path.clone(),
+                snippet: snippet(&c.text, 240),
+                score: (score.clamp(0.0, 1.0) * 100.0).round() as u32,
+            })
+            .collect())
+    }
+}
+
+// ─── Chunking ───────────────────────────────────────────────────────────────
+
+/// Split a document body into ~200-word chunks on paragraph boundaries (skipping
+/// YAML frontmatter), capped so a pathological note can't explode the index.
+fn chunk_text(body: &str) -> Vec<String> {
+    const TARGET_WORDS: usize = 200;
+    const MAX_CHUNKS: usize = 200;
+    let body = strip_frontmatter(body);
+    let mut chunks = Vec::new();
+    let mut cur = String::new();
+    let mut words = 0usize;
+    for para in body.split("\n\n") {
+        let para = para.trim();
+        if para.is_empty() {
+            continue;
+        }
+        let w = para.split_whitespace().count();
+        if words + w > TARGET_WORDS && !cur.is_empty() {
+            chunks.push(std::mem::take(&mut cur));
+            words = 0;
+            if chunks.len() >= MAX_CHUNKS {
+                break;
+            }
+        }
+        if !cur.is_empty() {
+            cur.push_str("\n\n");
+        }
+        cur.push_str(para);
+        words += w;
+    }
+    if !cur.trim().is_empty() && chunks.len() < MAX_CHUNKS {
+        chunks.push(cur);
+    }
+    chunks
+}
+
+/// Drop a leading `---\n…\n---` YAML frontmatter block.
+fn strip_frontmatter(text: &str) -> &str {
+    let t = text.strip_prefix('\u{feff}').unwrap_or(text);
+    if let Some(rest) = t.strip_prefix("---\n") {
+        if let Some(end) = rest.find("\n---") {
+            let after = &rest[end + 4..];
+            return after.trim_start_matches(['\n', '\r']);
+        }
+    }
+    t
+}
+
+// ─── Connectors ───────────────────────────────────────────────────────────────
+
+fn collect(source: &str) -> Result<Vec<RawDoc>, String> {
+    match source {
+        "onyx" => collect_onyx(),
+        other => Err(format!("no connector for source: {other}")),
+    }
+}
+
+/// Onyx vault root: `~/.config/onyx/config.toml` `last_vault`, else `~/OnyxVault`.
+fn onyx_vault() -> Option<PathBuf> {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
+    let cfg = Path::new(&home).join(".config/onyx/config.toml");
+    if let Ok(s) = std::fs::read_to_string(&cfg) {
+        for line in s.lines() {
+            let l = line.trim();
+            if let Some(rest) = l.strip_prefix("last_vault") {
+                if let Some((_, v)) = rest.split_once('=') {
+                    let v = v.trim().trim_matches('"').trim();
+                    if !v.is_empty() && Path::new(v).is_dir() {
+                        return Some(PathBuf::from(v));
+                    }
+                }
+            }
+        }
+    }
+    let def = Path::new(&home).join("OnyxVault");
+    def.is_dir().then_some(def)
+}
+
+/// Read all `*.md` notes under the Onyx vault (skipping the `.onyx/` app dir).
+fn collect_onyx() -> Result<Vec<RawDoc>, String> {
+    let root = onyx_vault().ok_or("Onyx vault not found (looked at ~/.config/onyx/config.toml and ~/OnyxVault)")?;
+    let mut out = Vec::new();
+    walk_md(&root, &root, &mut out);
+    Ok(out)
+}
+
+fn walk_md(root: &Path, dir: &Path, out: &mut Vec<RawDoc>) {
+    let Ok(read) = std::fs::read_dir(dir) else { return };
+    for ent in read.flatten() {
+        let path = ent.path();
+        let name = ent.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue; // skip .onyx/, .git/, dotfiles
+        }
+        let ft = ent.file_type().ok();
+        if ft.map(|t| t.is_dir()).unwrap_or(false) {
+            walk_md(root, &path, out);
+        } else if name.to_ascii_lowercase().ends_with(".md") {
+            let Ok(body) = std::fs::read_to_string(&path) else { continue };
+            let mtime = ent
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let doc_id = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().into_owned();
+            let title = note_title(&body, &name);
+            out.push(RawDoc { doc_id, title, path: path.to_string_lossy().into_owned(), mtime, body });
+        }
+    }
+}
+
+/// First `#` heading, else the filename without `.md`.
+fn note_title(body: &str, filename: &str) -> String {
+    for line in strip_frontmatter(body).lines() {
+        let l = line.trim_start();
+        if let Some(h) = l.strip_prefix('#') {
+            let t = h.trim_start_matches('#').trim();
+            if !t.is_empty() {
+                return t.to_string();
+            }
+        }
+    }
+    filename.strip_suffix(".md").or_else(|| filename.strip_suffix(".MD")).unwrap_or(filename).to_string()
+}
+
+// ─── Commands ─────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn kb_status(kb: State<'_, KbStore>) -> Result<KbStatus, String> {
+    let kb = (*kb).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        kb.hydrate();
+        kb.status()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn kb_reindex(kb: State<'_, KbStore>, source: Option<String>) -> Result<KbStatus, String> {
+    let kb = (*kb).clone();
+    tauri::async_runtime::spawn_blocking(move || kb.reindex(source)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn kb_query(kb: State<'_, KbStore>, query: String, k: Option<usize>, sources: Option<Vec<String>>) -> Result<Vec<KbHit>, String> {
+    let kb = (*kb).clone();
+    tauri::async_runtime::spawn_blocking(move || kb.query(&query, k.unwrap_or(8), sources)).await.map_err(|e| e.to_string())?
+}
+
+/// Grounded, streamed answer (NotebookLM-style): retrieve top-k, prompt the local
+/// agent with the numbered sources, stream the reply over `on_token` as JSON
+/// events — `{kind:"sources",hits}` first, then `{kind:"token",text}`, then
+/// `{kind:"done"}` (like `omni_answer`). The frontend renders citations + tokens.
+#[tauri::command]
+pub async fn kb_answer(
+    kb: State<'_, KbStore>,
+    query: String,
+    sources: Option<Vec<String>>,
+    on_token: Channel<String>,
+) -> Result<(), String> {
+    let kb = (*kb).clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let hits = kb.query(&query, 8, sources)?;
+        // Sources first, so the UI can show citations immediately.
+        let _ = on_token.send(serde_json::json!({ "kind": "sources", "hits": hits }).to_string());
+        if hits.is_empty() {
+            let _ = on_token.send(serde_json::json!({ "kind": "token", "text": "I couldn't find anything in your knowledge base for that. Try reindexing your sources." }).to_string());
+            let _ = on_token.send(serde_json::json!({ "kind": "done" }).to_string());
+            return Ok(());
+        }
+        let prompt = build_prompt(&query, &hits);
+        let mut sink = |tok: &str| {
+            let _ = on_token.send(serde_json::json!({ "kind": "token", "text": tok }).to_string());
+        };
+        let r = crate::agent_bridge::planner().chat_stream(&prompt, None, &mut sink);
+        let _ = on_token.send(serde_json::json!({ "kind": "done" }).to_string());
+        r.map(|_| ()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Build the grounded prompt: instructions + numbered source excerpts + question.
+fn build_prompt(query: &str, hits: &[KbHit]) -> String {
+    let mut ctx = String::new();
+    for (i, h) in hits.iter().enumerate() {
+        ctx.push_str(&format!("[{}] {} — {}\n{}\n\n", i + 1, h.title, h.source, snippet(&h.snippet, 600)));
+    }
+    format!(
+        "You are the user's research co-scientist. Answer the question using ONLY the numbered \
+sources below, which come from the user's own notes and papers. Cite the sources you use inline \
+as [n]. If the sources don't cover the question, say so plainly — do not invent facts.\n\n\
+Sources:\n{ctx}\nQuestion: {query}\n\nGrounded answer (with [n] citations):"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_frontmatter_and_chunks_paragraphs() {
+        let body = "---\ntags:\n  - x\n---\n\nFirst para about rust ownership.\n\nSecond para.";
+        let stripped = strip_frontmatter(body);
+        assert!(stripped.starts_with("First para"));
+        let chunks = chunk_text(body);
+        assert!(!chunks.is_empty());
+        assert!(chunks.iter().all(|c| !c.contains("tags:")));
+    }
+
+    #[test]
+    fn long_body_splits_into_multiple_chunks() {
+        // ~250 single-word paragraphs → more than one ~200-word chunk.
+        let body = (0..250).map(|i| format!("word{i}")).collect::<Vec<_>>().join("\n\n");
+        let chunks = chunk_text(&body);
+        assert!(chunks.len() >= 2, "expected multiple chunks, got {}", chunks.len());
+    }
+
+    #[test]
+    fn note_title_prefers_first_heading() {
+        assert_eq!(note_title("---\na: b\n---\n\n# Real Title\nbody", "file.md"), "Real Title");
+        assert_eq!(note_title("no heading here", "My Note.md"), "My Note");
+    }
+
+    #[test]
+    fn reindex_and_query_rank_related_higher() {
+        // Build a tiny vault-like index by hand (hash embedder, no Ollama needed).
+        let dir = std::env::temp_dir().join(format!("flux-kb-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+
+        let raw = vec![
+            RawDoc { doc_id: "a.md".into(), title: "Rust".into(), path: "/a.md".into(), mtime: 1, body: "memory safety in rust, the borrow checker and lifetimes".into() },
+            RawDoc { doc_id: "b.md".into(), title: "Cooking".into(), path: "/b.md".into(), mtime: 1, body: "tomato basil pasta recipe with garlic and olive oil".into() },
+        ];
+        store.reindex_source("onyx", Embedder::Hash, raw).unwrap();
+        store.data.write().embedder = Embedder::Hash;
+
+        let hits = store.query("rust ownership and borrowing", 5, None).unwrap();
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].title, "Rust", "the rust note should rank first");
+
+        // Incremental: same mtime → chunks unchanged (no re-embed needed).
+        let before = store.data.read().chunks.len();
+        let same = vec![RawDoc { doc_id: "a.md".into(), title: "Rust".into(), path: "/a.md".into(), mtime: 1, body: "changed but mtime same".into() }];
+        store.reindex_source("onyx", Embedder::Hash, same).unwrap();
+        // a.md kept (mtime unchanged), b.md removed (absent from this batch).
+        assert!(store.data.read().chunks.iter().any(|c| c.doc_id == "a.md"));
+        assert!(!store.data.read().chunks.iter().any(|c| c.doc_id == "b.md"));
+        assert!(store.data.read().chunks.len() <= before);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

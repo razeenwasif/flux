@@ -21,6 +21,7 @@ use crate::downloads::DownloadItem;
 use crate::extensions::{ContentScript, InstalledExt, Manifest, ToolbarButton, UiContrib};
 use crate::feeds::{Feed, FeedItem};
 use crate::files::{DirListing, FileEntry, QuickLocation};
+use crate::kb::{KbHit, KbSourceStat, KbStatus};
 use crate::history::HistoryEntry;
 use crate::https::HttpsStatus;
 use crate::leanmode::LeanStatus;
@@ -108,6 +109,9 @@ pub fn generate_ts() -> String {
         specta::ts::export::<FileEntry>(&c),
         specta::ts::export::<DirListing>(&c),
         specta::ts::export::<QuickLocation>(&c),
+        specta::ts::export::<KbHit>(&c),
+        specta::ts::export::<KbSourceStat>(&c),
+        specta::ts::export::<KbStatus>(&c),
         specta::ts::export::<SyncStatus>(&c),
         specta::ts::export::<SyncReport>(&c),
         specta::ts::export::<ArchiveEntryWire>(&c),

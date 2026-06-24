@@ -155,6 +155,15 @@ export type DirListing = { path: string; parent: string | null; entries: FileEnt
  * A pinned spot in the left rail.
  */
 export type QuickLocation = { name: string; path: string; kind: string }
+/**
+ * A search hit (wire type) — metadata + a snippet, never the whole corpus.
+ */
+export type KbHit = { source: string; doc_id: string; title: string; path: string; snippet: string; score: number }
+/**
+ * Per-source counts for the Notebook view's status strip.
+ */
+export type KbSourceStat = { source: string; docs: number; chunks: number; last_ms: number }
+export type KbStatus = { sources: KbSourceStat[]; embedder: string; indexing: boolean }
 export type SyncStatus = { folder: string | null; unlocked: boolean; last_ms: number; auto: boolean }
 export type SyncReport = { bookmarks_added: number; sessions_added: number; history_added: number }
 /**

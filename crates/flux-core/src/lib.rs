@@ -25,6 +25,7 @@ pub mod feeds;
 pub mod files;
 pub mod hibernate;
 pub mod history;
+pub mod kb;
 pub mod leanmode;
 pub mod lens;
 pub mod macros;
@@ -247,6 +248,24 @@ pub fn run(intent: cli::LaunchIntent) {
                 std::thread::spawn(move || {
                     if let Some(a) = handle.try_state::<archive::ArchiveStore>() {
                         boot_phase("archive.hydrate", boot_started, || a.hydrate());
+                    }
+                });
+            }
+            // Knowledge Base — local RAG over the user's corpora (ADR 0010).
+            let kb_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("kb").join("kb-index.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-kb.json"));
+            if let Some(parent) = kb_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            app.manage(boot_phase("kb.empty", boot_started, || kb::KbStore::empty(kb_path)));
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    if let Some(k) = handle.try_state::<kb::KbStore>() {
+                        boot_phase("kb.hydrate", boot_started, || k.hydrate());
                     }
                 });
             }
@@ -724,6 +743,10 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_list,
             files::fs_list_stream,
             files::fs_search,
+            kb::kb_status,
+            kb::kb_reindex,
+            kb::kb_query,
+            kb::kb_answer,
             files::attachment_read,
             files::read_text_file,
             files::write_text_file,

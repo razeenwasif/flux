@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Knowledge Base backend — Gemma as a private second brain (#116, ADR 0010)** — new
+  `crate::kb`: a local RAG vector store (flux-embed, persisted to `<app_data>/kb/kb-index.json`)
+  with an **Onyx vault connector** (`~/OnyxVault/**/*.md`, frontmatter-aware, chunked, incremental
+  by mtime). Commands: `kb_status`, `kb_reindex`, `kb_query` (cosine top-k) and `kb_answer` —
+  a grounded, streamed answer that cites the user's own notes as `[n]`. Fully on-device;
+  retrieval works even without Ollama (hash-embedder fallback). Notebook UI + Scroll source next.
 - **Start page: daily briefing (#71, closes the item)** — a new widget where the local
   agent (Gemma) condenses today's feed headlines into 3–5 bullets. Generated on demand
   (✦ Brief me on today), cached per day so opening a new tab doesn't re-hit the model, with
