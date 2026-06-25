@@ -49,6 +49,7 @@ import type {
   CalFeed as GenCalFeed,
   LocalEvent as GenLocalEvent,
   CurrencyRates as GenCurrencyRates,
+  ShellHistHit as GenShellHistHit,
   ContentScript as GenContentScript,
   CookieStatus as GenCookieStatus,
   CredentialMeta as GenCredentialMeta,
@@ -881,6 +882,14 @@ export const calEventDelete = (id: number) => invoke<void>("cal_event_delete", {
 export type CurrencyRates = GenCurrencyRates;
 /** Live ECB reference rates (frankfurter.app); `rates[code]` = units per 1 `base`. */
 export const currencyRates = (base: string) => invoke<CurrencyRates>("currency_rates", { base });
+
+// ─── Semantic shell-history search (BACKLOG #122) ────────────────────────────
+export type ShellHistHit = GenShellHistHit;
+/** Rank shell history by meaning (empty query → most recent). Auto-indexes first run. */
+export const shellHistorySearch = (query: string, limit?: number) =>
+  invoke<ShellHistHit[]>("shell_history_search", { query, limit: limit ?? null });
+/** Rebuild the history corpus from ~/.bash_history + ~/.zsh_history; returns the count. */
+export const shellHistoryReindex = () => invoke<number>("shell_history_reindex");
 
 // ─── Local tasks / to-dos (BACKLOG #114) ─────────────────────────────────────
 export const todosList = () => invoke<Todo[]>("todos_list");

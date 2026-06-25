@@ -604,6 +604,12 @@ export { mapPanelOpen, setMapPanelOpen, mapQuery };
 // popout, like the file explorer. Opened from the toolbar 📓 button.
 const [kbPanelOpen, setKbPanelOpen] = createSignal(false);
 export { kbPanelOpen, setKbPanelOpen };
+// Semantic shell-history search overlay (#122) — Ctrl+Shift+R / command palette.
+const [shellHistOpen, setShellHistOpen] = createSignal(false);
+export { shellHistOpen, setShellHistOpen };
+// Split-view picker overlay (#43) — center-screen, so it must gate the webview.
+const [splitPickerOpen, setSplitPickerOpen] = createSignal(false);
+export { splitPickerOpen, setSplitPickerOpen };
 
 // An agent-panel dropdown (model picker / past chats) is open. Native page
 // webviews are an OS layer above the chrome, so a dropdown rendered over the page

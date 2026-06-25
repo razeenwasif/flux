@@ -116,6 +116,7 @@ import TerminalView from "./TerminalView";
 import { setTerminalOpener } from "./terminals";
 import { keyToAction } from "./shortcuts";
 import FindBar from "./FindBar";
+import ShellHistory from "./ShellHistory";
 import Downloads from "./Downloads";
 import Shields from "./Shields";
 import type { PaletteAction } from "./CommandPalette";
@@ -171,6 +172,10 @@ import {
   mapPanelOpen,
   kbPanelOpen,
   setKbPanelOpen,
+  shellHistOpen,
+  setShellHistOpen,
+  splitPickerOpen,
+  setSplitPickerOpen,
   agentMenuOpen,
   homeModalOpen,
   setMapPanelOpen,
@@ -451,7 +456,7 @@ const App: Component = () => {
     // Ctrl+B tmux prefix, …) and must reach the shell. Only claim chords that
     // don't collide — shifted/alt variants, the terminal toggle, and tab nav.
     const terminalSafe = new Set([
-      "toggle-terminal", "toggle-agent", "new-terminal", "next-tab", "prev-tab", "back", "forward",
+      "toggle-terminal", "toggle-agent", "new-terminal", "next-tab", "prev-tab", "back", "forward", "shell-history",
     ]);
     const inTerminal = () => !!(document.activeElement as HTMLElement | null)?.closest?.(".xterm");
     const onKey = (e: KeyboardEvent) => {
@@ -704,7 +709,7 @@ const App: Component = () => {
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = splitDragging() || panelDragging();
-    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen();
+    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || shellHistOpen() || splitPickerOpen();
     const panes = overlay ? [] : paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
@@ -795,7 +800,7 @@ const App: Component = () => {
     // Reader / Files popout / command palette are full overlays that must sit above
     // everything — including the web panel's own native webview layer.
     const hidden =
-      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen();
+      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen() || shellHistOpen() || splitPickerOpen();
     syncSlot("top", top, hidden ? null : panelViewRect());
     syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
   });
@@ -1225,6 +1230,7 @@ const App: Component = () => {
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "notebook", label: "Open Notebook (ask your notes)", icon: "✦", run: () => go(NOTEBOOK_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
+    { id: "shell-history", label: "Search shell history (by meaning)", icon: "⌘", run: () => setShellHistOpen(true) },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
@@ -1274,6 +1280,7 @@ const App: Component = () => {
       case "back": navActive(webviewBack); return true;
       case "forward": navActive(webviewForward); return true;
       case "save-to-omni": void saveToOmni(); return true;
+      case "shell-history": setShellHistOpen(true); return true;
       case "zoom-in": zoom("in"); return true;
       case "zoom-out": zoom("out"); return true;
       case "zoom-reset": zoom("reset"); return true;
@@ -1521,6 +1528,8 @@ const App: Component = () => {
       <Show when={paletteOpen()}>
         <Suspense><CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} /></Suspense>
       </Show>
+      {/* Semantic shell-history search (#122) — Ctrl+Shift+R; self-gated overlay. */}
+      <ShellHistory />
 
       {/* Right-click "open in new tab" menu for links in internal DOM pages. */}
       <LinkMenu onOpen={(url, background) => void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {})} />
@@ -1704,7 +1713,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [address, setAddress] = createSignal("");
   const [panel, setPanel] = createSignal<FooterPanel>(null);
   // Split-view picker (#43 follow-up) — choose which open tab tiles beside this one.
-  const [splitPicker, setSplitPicker] = createSignal(false);
+  // Store-backed so the webview-gating effects can hide the page beneath it.
+  const splitPicker = splitPickerOpen;
+  const setSplitPicker = setSplitPickerOpen;
   const splitCandidates = () =>
     tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url) && t.id !== activeId());
   const doSplit = (rightId: number) => { const left = activeId(); setSplitPicker(false); if (left != null) startSplit(left, rightId); };

@@ -24,6 +24,7 @@ export type ShortcutAction =
   | "back"
   | "forward"
   | "save-to-omni"
+  | "shell-history"
   | "zoom-in"
   | "zoom-out"
   | "zoom-reset"
@@ -58,6 +59,7 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
     if (k === "t") return "new-terminal";
     if (k === "a") return "toggle-agent";
     if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
+    if (k === "r") return "shell-history"; // Ctrl/Cmd+Shift+R → semantic shell-history search
     if (k === "+") return "zoom-in"; // Ctrl+Shift+= (a.k.a. Ctrl++)
     if (k === "f") return "focus-mode"; // Ctrl+Shift+F → focus/compact mode
     if (e.key === "Tab") return "prev-tab";

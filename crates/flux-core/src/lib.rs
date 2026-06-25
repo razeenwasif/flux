@@ -9,6 +9,7 @@ pub mod bookmarks;
 pub mod boosts;
 pub mod calendar;
 pub mod currency;
+pub mod shellhist;
 pub mod broker;
 pub mod cache;
 pub mod cli;
@@ -346,6 +347,8 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("todos.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-todos.json"));
             app.manage(boot_phase("todos.restore", boot_started, || todos::TodoStore::restore(todos_path)));
+            // Semantic shell-history search (#122) — corpus built lazily on first use.
+            app.manage(shellhist::ShellHistStore::default());
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -589,6 +592,8 @@ pub fn run(intent: cli::LaunchIntent) {
             calendar::cal_event_update,
             calendar::cal_event_delete,
             currency::currency_rates,
+            shellhist::shell_history_search,
+            shellhist::shell_history_reindex,
             todos::todos_list,
             todos::todo_add,
             todos::todo_toggle,

@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Semantic shell-history search (Ctrl+Shift+R)** — find a past command by *meaning*, not
+  substring: "convert a video to webm", "that long ffmpeg one", "git undo last commit". Reads
+  your real `~/.bash_history` + `~/.zsh_history` (through the terminal's shell, so it works
+  across the WSL boundary), embeds each unique command locally with `flux-embed` (instant,
+  on-device, no model), and ranks by a hybrid of embedding similarity + keyword/token boosts.
+  Pick a result to drop it at the active terminal's prompt (you press Enter) — or it's copied
+  if no terminal is open. Also in the command palette. New `shell_history_search` /
+  `shell_history_reindex` commands.
 - **Split view: a one-tap picker** — a ◫ button in the page-actions row tiles the current
   page beside another tab. It opens a picker listing your other open web pages (pick one to
   split with) plus **New blank tab** (opens a fresh navigable pane on the right). Toggles off

@@ -103,6 +103,21 @@ export async function runInActiveTerminal(cmd: string): Promise<number | null> {
   return s;
 }
 
+/** Insert a command at the active terminal's prompt WITHOUT running it (no `\r`),
+ *  so the user can review/edit before pressing Enter. Opens a terminal if none is
+ *  live. Returns the session, or null if no terminal could be brought up. */
+export async function insertInActiveTerminal(cmd: string): Promise<number | null> {
+  const wasOpen = hasTerminal();
+  if (!wasOpen) openTerminalFn?.();
+  for (let i = 0; i < 30 && !hasTerminal(); i++) await new Promise((r) => setTimeout(r, 100));
+  if (!hasTerminal()) return null;
+  if (!wasOpen) await new Promise((r) => setTimeout(r, 500));
+  const s = targetSession();
+  if (s == null) return null;
+  await terminalWrite(s, new TextEncoder().encode(cmd));
+  return s;
+}
+
 export function hasTerminal(): boolean {
   return registry.size > 0;
 }
