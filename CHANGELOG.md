@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Contradiction / novelty check on save (#124)** — when you save a note to Onyx via the
+  agent ("save that to Onyx"), Flux now checks it against your knowledge base and posts a verdict:
+  ⚠ contradicts / ↔ overlaps / ➕ adds to / ✦ new — with a one-line explanation and clickable
+  links to the related notes. `kb_check` retrieves the closest existing items and has the agent
+  judge; fully local, best-effort (never blocks the save).
 - **Ambient connections rail (#123)** — a slim toggleable column (Ctrl+K → "Show connections
   rail") that, as you browse, surfaces your own related Onyx notes / Scroll papers / Council
   debates for the current page — the second brain compounding passively. `kb_related` embeds the

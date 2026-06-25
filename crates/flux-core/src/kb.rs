@@ -825,6 +825,64 @@ pub async fn kb_answer(
     .map_err(|e| e.to_string())?
 }
 
+/// Result of a save-time novelty/contradiction check (#124).
+#[derive(Serialize, Clone, specta::Type)]
+pub struct KbCheck {
+    /// "novel" | "contradicts" | "overlaps" | "adds" | "none" — drives the badge.
+    pub verdict: String,
+    /// A one/two-sentence assessment from the agent (empty when novel/none).
+    pub note: String,
+    /// The related existing items the assessment is about.
+    pub related: Vec<KbHit>,
+}
+
+/// Check a newly-saved item against the knowledge base (#124): is it new, does it
+/// contradict / duplicate an existing note, or does it add to one? Research
+/// integrity for the co-scientist. Returns a verdict, a short note, and the
+/// related items (for citations).
+#[tauri::command]
+pub async fn kb_check(kb: State<'_, KbStore>, text: String) -> Result<KbCheck, String> {
+    let kb = (*kb).clone();
+    let query: String = text.chars().take(2000).collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        let related: Vec<KbHit> = kb.query(&query, 5, None)?.into_iter().filter(|h| h.score >= 50).collect();
+        if related.is_empty() {
+            return Ok(KbCheck {
+                verdict: "novel".into(),
+                note: "New to your knowledge base — nothing closely related found.".into(),
+                related: Vec::new(),
+            });
+        }
+        let mut ctx = String::new();
+        for (i, h) in related.iter().enumerate() {
+            ctx.push_str(&format!("[{}] {} — {}\n{}\n\n", i + 1, h.title, h.source, snippet(&h.snippet, 500)));
+        }
+        let prompt = format!(
+            "I just saved this note to my knowledge base:\n\n{query}\n\nHere are the most related \
+existing notes:\n\n{ctx}\nReply with EXACTLY one word on the first line — CONTRADICTS, DUPLICATES, \
+ADDS, or UNRELATED — then on the next line a single concise sentence explaining, referencing the \
+related notes as [n]."
+        );
+        let raw = crate::agent_bridge::planner().chat(&prompt, None).map_err(|e| e.to_string())?;
+        let raw = raw.trim();
+        let first = raw.lines().next().unwrap_or("").trim().to_ascii_lowercase();
+        let verdict = if first.contains("contradict") {
+            "contradicts"
+        } else if first.contains("duplicat") {
+            "overlaps"
+        } else if first.contains("add") {
+            "adds"
+        } else {
+            "none"
+        };
+        // The explanation is everything after the verdict word/line.
+        let note = raw.splitn(2, '\n').nth(1).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| raw.to_string());
+        Ok(KbCheck { verdict: verdict.into(), note, related })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Build the grounded prompt: instructions + numbered source excerpts + question.
 fn build_prompt(query: &str, hits: &[KbHit]) -> String {
     let mut ctx = String::new();

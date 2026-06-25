@@ -11,6 +11,7 @@ import {
   agentChatStream,
   agentChatTabsStream,
   kbAnswer,
+  kbCheck,
   type KbHit,
   fsOpen,
   agentShellPlan,
@@ -950,6 +951,13 @@ const AgentPanel: Component = () => {
     try {
       const path = await onyxNewNote(title, content);
       setFeed((f) => [...f, { role: "action", text: `✓ Saved to Onyx: ${title}\n${path}` }]);
+      // Research-integrity check (#124): does this contradict / duplicate / add to
+      // what's already in the KB? Best-effort — never blocks the save.
+      try {
+        const chk = await kbCheck(content);
+        const icon = chk.verdict === "contradicts" ? "⚠" : chk.verdict === "overlaps" ? "↔" : chk.verdict === "adds" ? "➕" : "✦";
+        setFeed((f) => [...f, { role: "assistant", text: `${icon} ${chk.note}`, citations: chk.related.length ? chk.related : undefined }]);
+      } catch { /* check is best-effort */ }
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
     }

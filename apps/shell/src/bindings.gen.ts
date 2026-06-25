@@ -165,6 +165,10 @@ export type KbHit = { source: string; doc_id: string; title: string; path: strin
 export type KbSourceStat = { source: string; docs: number; chunks: number; last_ms: number; error: string | null; location: string | null }
 export type KbStatus = { sources: KbSourceStat[]; embedder: string; indexing: boolean }
 /**
+ * Result of a save-time novelty/contradiction check (#124).
+ */
+export type KbCheck = { verdict: string; note: string; related: KbHit[] }
+/**
  * One launchable terminal app.
  */
 export type TuiApp = { id: string; name: string; icon: string; cmd: string; cwd: string }

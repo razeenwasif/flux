@@ -56,6 +56,7 @@ import type {
   KbHit as GenKbHit,
   KbSourceStat as GenKbSourceStat,
   KbStatus as GenKbStatus,
+  KbCheck as GenKbCheck,
   ServiceStatus as GenServiceStatus,
   TuiApp as GenTuiApp,
   HotRule as GenHotRule,
@@ -485,6 +486,9 @@ export const scrollClip = (url: string, tags?: string) => invoke<string>("scroll
 /** Create a Markdown note in the Onyx vault; returns the written path. */
 export const onyxNewNote = (title: string, content: string, folder?: string) =>
   invoke<string>("onyx_new_note", { title, content, folder });
+/** Novelty / contradiction check of `text` against the KB (#124). */
+export type KbCheck = GenKbCheck;
+export const kbCheck = (text: string) => invoke<KbCheck>("kb_check", { text });
 // ─── Knowledge Base / second brain (#116, ADR 0010) ─────────────────────────
 /** Per-source + overall index status for the Notebook view. */
 export const kbStatus = () => invoke<KbStatus>("kb_status");
