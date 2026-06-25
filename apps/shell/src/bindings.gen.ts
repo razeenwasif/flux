@@ -177,6 +177,16 @@ export type TuiApp = { id: string; name: string; icon: string; cmd: string; cwd:
  */
 export type Specialist = { domain: string; label: string; model: string }
 export type ServiceStatus = { name: string; label: string; running: boolean }
+/**
+ * Structured playback state for the mini-player bubble (#125). `/me/player`
+ * returns 204 (→ `None` → default) when there's no active device, so polling this
+ * never trips the no-device auto-launch.
+ */
+export type SpotifyState = { playing: boolean; track: string; artist: string; art: string; progress_ms: number; duration_ms: number; volume: number; shuffle: boolean; repeat: string; has_device: boolean }
+/**
+ * One of the user's playlists (for the bubble's playlist menu).
+ */
+export type SpotifyPlaylist = { name: string; uri: string; art: string }
 export type SyncStatus = { folder: string | null; unlocked: boolean; last_ms: number; auto: boolean }
 export type SyncReport = { bookmarks_added: number; sessions_added: number; history_added: number }
 /**

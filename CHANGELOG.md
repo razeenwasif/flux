@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Floating music bubble — AudioPulse/Spotify mini-player (#125)** — a Siri-style orb pinned
+  to Flux's right edge that expands on hover into a rounded player: play/pause, prev/next, shuffle,
+  repeat, volume, album art + now-playing, and a **playlist menu** (pick a playlist → it plays).
+  Drives the same Spotify Connect playback AudioPulse uses (reuses Flux's Spotify backend; new
+  `spotify_state` / `spotify_playlists` / `spotify_play_context`). The orb breathes while playing;
+  a real beat-synced visualiser is next. Purple/pink/indigo; toggle via Ctrl+K → "music bubble".
 - **Contradiction / novelty check on save (#124)** — when you save a note to Onyx via the
   agent ("save that to Onyx"), Flux now checks it against your knowledge base and posts a verdict:
   ⚠ contradicts / ↔ overlaps / ➕ adds to / ✦ new — with a one-line explanation and clickable

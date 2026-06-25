@@ -143,6 +143,7 @@ const BookmarkBar = lazy(() => import("./BookmarkBar"));
 const PagesBar = lazy(() => import("./PagesBar"));
 const TuiAppsBar = lazy(() => import("./TuiAppsBar"));
 const ConnectionsRail = lazy(() => import("./ConnectionsRail"));
+const MusicBubble = lazy(() => import("./MusicBubble"));
 const AgentPanel = lazy(() => import("./AgentPanel"));
 const SyncPage = lazy(() => import("./SyncPage"));
 const AppsPage = lazy(() => import("./AppsPage"));
@@ -303,6 +304,9 @@ const App: Component = () => {
   // Ambient connections rail (#123) — on by default; toggled via the palette.
   const [connectOpen, setConnectOpen] = createSignal(localStorage.getItem("flux.connect.open") !== "0");
   createEffect(() => localStorage.setItem("flux.connect.open", connectOpen() ? "1" : "0"));
+  // Floating music bubble (#125) — on by default; toggled via the palette.
+  const [musicOpen, setMusicOpen] = createSignal(localStorage.getItem("flux.music.open") !== "0");
+  createEffect(() => localStorage.setItem("flux.music.open", musicOpen() ? "1" : "0"));
   // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
   const [focusMode, setFocusMode] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
@@ -1185,6 +1189,7 @@ const App: Component = () => {
     { id: "bookmark-bar", label: bookmarkBarOpen() ? "Hide bookmark bar" : "Show bookmark bar", icon: "🔖", run: () => setBookmarkBarOpen(!bookmarkBarOpen()) },
     { id: "pages-bar", label: pagesBarOpen() ? "Hide pages bar" : "Show pages bar", icon: "🗂️", run: () => setPagesBarOpen(!pagesBarOpen()) },
     { id: "connect-rail", label: connectOpen() ? "Hide connections rail" : "Show connections rail", icon: "✦", run: () => setConnectOpen(!connectOpen()) },
+    { id: "music-bubble", label: musicOpen() ? "Hide music bubble" : "Show music bubble", icon: "🎵", run: () => setMusicOpen(!musicOpen()) },
     { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
@@ -1425,6 +1430,10 @@ const App: Component = () => {
       </Show>
       <Show when={connectColVisible()}>
         <Suspense><ConnectionsRail /></Suspense>
+      </Show>
+      {/* Floating music bubble (#125) — position:fixed, lives over the chrome. */}
+      <Show when={musicOpen() && !focusMode()}>
+        <Suspense><MusicBubble /></Suspense>
       </Show>
 
       {/* Pane splitters — drag to resize (BACKLOG #27). */}

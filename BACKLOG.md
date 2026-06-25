@@ -11,6 +11,7 @@ Priorities: **P0** = blocks the core demo loop · **P1** = v0.1 release · **P2*
 
 | # | P | Item |
 |---|---|---|
+| 125 | ◐ | **Floating music bubble (AudioPulse/Spotify)** — right-edge orb → hover-expand mini-player (play/pause/skip/vol/shuffle/repeat + playlist menu + now-playing), driving the same Spotify Connect playback AudioPulse uses via Flux's spotify backend (`spotify_state`/`spotify_playlists`/`spotify_play_context`). Purple/pink/indigo, breathing orb. **Player core done.** _Remaining:_ real beat-synced visualiser via a PulseAudio-monitor→FFT→WebSocket bridge; webview-overlap dim-on-expand. |
 | 121 | ✓ | **Agent-aware terminal — explain / fix** (done) — non-zero exit shows a ⚠ bar with ✦ Explain (Gemma diagnoses the failure in an overlay) and ⚙ Fix (`agent_shell_plan` proposes a corrected command, typed at the prompt for review + Enter). Uses the OSC 133 marks + last-command block; fully local. |
 | 122 | P2 | **Semantic shell-history palette** — embed shell history with `flux-embed`; find a past command by meaning ("that ffmpeg command from last week"), not substring. |
 | 123 | ✓ | **Ambient "connects to your knowledge" rail** (done) — as you read a page, embed its text and passively surface your own related Onyx notes / Scroll papers / Council debates in a slim rail. The second brain compounding without being queried. Reuses KB + embeddings. |

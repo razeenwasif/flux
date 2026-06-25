@@ -58,6 +58,8 @@ import type {
   KbStatus as GenKbStatus,
   KbCheck as GenKbCheck,
   ServiceStatus as GenServiceStatus,
+  SpotifyState as GenSpotifyState,
+  SpotifyPlaylist as GenSpotifyPlaylist,
   TuiApp as GenTuiApp,
   HotRule as GenHotRule,
   HttpsStatus as GenHttpsStatus,
@@ -362,6 +364,15 @@ export const spotifyPlayLiked = () => invoke<string>("spotify_play_liked");
 export const spotifyPlayPlaylist = (name: string) => invoke<string>("spotify_play_playlist", { name });
 /** Launch AudioPulse (Linux/WSL build) so its Spotify Connect device comes online. */
 export const spotifyLaunch = () => invoke<string>("spotify_launch");
+// ─── Mini-player bubble (#125) — structured state + playlists ────────────────
+export type SpotifyState = GenSpotifyState;
+export type SpotifyPlaylist = GenSpotifyPlaylist;
+/** Structured now-playing for the bubble (default/empty when no active device). */
+export const spotifyState = () => invoke<SpotifyState>("spotify_state");
+/** The user's playlists, for the bubble's menu. */
+export const spotifyPlaylists = () => invoke<SpotifyPlaylist[]>("spotify_playlists");
+/** Play a playlist/album by exact Spotify URI. */
+export const spotifyPlayContext = (uri: string) => invoke<string>("spotify_play_context", { uri });
 /**
  * Streaming chat (BACKLOG #82): calls `onToken` for each chunk as the model
  * generates it, resolving with the full reply when done. The sidebar renders

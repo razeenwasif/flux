@@ -17,7 +17,7 @@ use std::sync::{Mutex, RwLock};
 use std::time::Duration;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
@@ -474,6 +474,116 @@ fn launch_audiopulse() -> Result<String, String> {
         *g = Some((pair.master, child));
     }
     Ok("▶ Launched AudioPulse — give it a second to come online.".to_string())
+}
+
+/// Structured playback state for the mini-player bubble (#125). `/me/player`
+/// returns 204 (→ `None` → default) when there's no active device, so polling this
+/// never trips the no-device auto-launch.
+#[derive(Serialize, Clone, Default, specta::Type)]
+pub struct SpotifyState {
+    pub playing: bool,
+    pub track: String,
+    pub artist: String,
+    /// Album-art URL (largest), or empty.
+    pub art: String,
+    pub progress_ms: i64,
+    pub duration_ms: i64,
+    pub volume: i64,
+    pub shuffle: bool,
+    /// "off" | "context" | "track".
+    pub repeat: String,
+    pub has_device: bool,
+}
+
+#[tauri::command]
+pub async fn spotify_state() -> Result<SpotifyState, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let Some(v) = api("GET", "/me/player", &[], None)? else {
+            return Ok(SpotifyState::default()); // 204 — nothing active
+        };
+        let item = v.get("item");
+        let first_str = |val: Option<&Value>, key: &str| {
+            val.and_then(|i| i.get(key)).and_then(|x| x.as_str()).unwrap_or("").to_string()
+        };
+        let artist = item
+            .and_then(|i| i.get("artists"))
+            .and_then(|a| a.as_array())
+            .and_then(|a| a.first())
+            .and_then(|a| a.get("name"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        let art = item
+            .and_then(|i| i.get("album"))
+            .and_then(|al| al.get("images"))
+            .and_then(|im| im.as_array())
+            .and_then(|a| a.first())
+            .and_then(|im| im.get("url"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        let device = v.get("device");
+        Ok(SpotifyState {
+            playing: v.get("is_playing").and_then(|x| x.as_bool()).unwrap_or(false),
+            track: first_str(item, "name"),
+            artist,
+            art,
+            progress_ms: v.get("progress_ms").and_then(|x| x.as_i64()).unwrap_or(0),
+            duration_ms: item.and_then(|i| i.get("duration_ms")).and_then(|x| x.as_i64()).unwrap_or(0),
+            volume: device.and_then(|d| d.get("volume_percent")).and_then(|x| x.as_i64()).unwrap_or(0),
+            shuffle: v.get("shuffle_state").and_then(|x| x.as_bool()).unwrap_or(false),
+            repeat: v.get("repeat_state").and_then(|x| x.as_str()).unwrap_or("off").to_string(),
+            has_device: device.is_some(),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// One of the user's playlists (for the bubble's playlist menu).
+#[derive(Serialize, Clone, specta::Type)]
+pub struct SpotifyPlaylist {
+    pub name: String,
+    pub uri: String,
+    pub art: String,
+}
+
+#[tauri::command]
+pub async fn spotify_playlists() -> Result<Vec<SpotifyPlaylist>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let v = api("GET", "/me/playlists", &[("limit", "50")], None)?.ok_or("empty playlists response")?;
+        let items = v.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+        Ok(items
+            .iter()
+            .filter_map(|p| {
+                let name = p.get("name")?.as_str()?.to_string();
+                let uri = p.get("uri")?.as_str()?.to_string();
+                let art = p
+                    .get("images")
+                    .and_then(|im| im.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|im| im.get("url"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Some(SpotifyPlaylist { name, uri, art })
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Play a playlist/album/artist context by its Spotify URI (exact — the bubble
+/// menu passes the uri it got from `spotify_playlists`).
+#[tauri::command]
+pub async fn spotify_play_context(uri: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        api("PUT", "/me/player/play", &[], Some(json!({ "context_uri": uri })))?;
+        Ok("▶".into())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The currently-playing track, or a note that nothing's playing.
