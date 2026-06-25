@@ -48,12 +48,14 @@ impl SearchState {
     /// user pointed Omni; `FLUX_OMNI_URL` overrides; defaults to localhost:8080.
     pub fn omni_base(&self) -> String {
         if let Ok(u) = std::env::var("FLUX_OMNI_URL") {
-            return u.trim_end_matches('/').to_string();
+            return http_for_loopback(u.trim_end_matches('/').to_string());
         }
         let cfg = self.config.read();
-        cfg.engine(&cfg.default_id)
+        let base = cfg
+            .engine(&cfg.default_id)
             .and_then(|e| origin_of(&e.search_template))
-            .unwrap_or_else(|| "http://localhost:8080".into())
+            .unwrap_or_else(|| "http://localhost:8080".into());
+        http_for_loopback(base)
     }
 
     /// The default engine's suggestions endpoint for `query`, if it defines one.
@@ -71,6 +73,19 @@ fn parse_opensearch(body: &str) -> Vec<String> {
         .and_then(|v| v.get(1).and_then(|a| a.as_array()).cloned())
         .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).take(8).collect())
         .unwrap_or_default()
+}
+
+/// A local Omni serves plain HTTP — never TLS — so downgrade an `https://`
+/// loopback origin to `http://` (the default search-engine template the Omni base
+/// is derived from may be https, which would make every Omni API call refuse/fail).
+fn http_for_loopback(base: String) -> String {
+    if let Some(rest) = base.strip_prefix("https://") {
+        let host = rest.split([':', '/']).next().unwrap_or("");
+        if matches!(host, "localhost" | "127.0.0.1" | "0.0.0.0" | "[::1]" | "::1") {
+            return format!("http://{rest}");
+        }
+    }
+    base
 }
 
 /// `"http://host:port/search?q={query}"` → `"http://host:port"`.
@@ -151,4 +166,18 @@ pub fn search_remove_engine(state: State<'_, SearchState>, id: String) -> Result
         cfg.engines.retain(|e| e.id != id);
     }
     state.persist()
+}
+
+#[cfg(test)]
+mod omni_base_tests {
+    use super::http_for_loopback;
+
+    #[test]
+    fn downgrades_loopback_https_to_http_only() {
+        assert_eq!(http_for_loopback("https://localhost:8080".into()), "http://localhost:8080");
+        assert_eq!(http_for_loopback("https://127.0.0.1:8080".into()), "http://127.0.0.1:8080");
+        // http stays http; a real remote https host is left alone.
+        assert_eq!(http_for_loopback("http://localhost:8080".into()), "http://localhost:8080");
+        assert_eq!(http_for_loopback("https://omni.example.com".into()), "https://omni.example.com");
+    }
 }

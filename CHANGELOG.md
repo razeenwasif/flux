@@ -269,6 +269,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Fix: Omni dashboard/graph used `https://localhost:8080`** — `omni_base()` inherits its
+  scheme from the default search-engine template, which can be https; a local Omni serves plain
+  HTTP, so every call refused/failed. Loopback origins are now forced to `http://`.
 - **"Group by topic" did nothing** — it grouped from whatever clusters happened to
   exist, so if they were stale or single-tab it silently created nothing. It now
   re-embeds the open tabs from their current page content first (fresh clusters), then
