@@ -7,6 +7,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Editable calendar + Gemma calendar control** — the calendar is no longer read-only.
+  A new **on-device event store** (`cal_events.json`) backs full **add / edit / delete /
+  drag-to-move** in the expanded week grid: click an empty slot to create, click an event
+  to edit, drag a block to reschedule (15-min snap, overlap-aware), **+ New** in the
+  toolbar, and an editor with title / all-day / date / start–end / location / notes.
+  Google ICS-feed events stay read-only (shown muted; clicking opens a read-only view).
+  **Gemma can now read and write your calendar**: "what's on my calendar today / this
+  week / friday", "schedule lunch with Sam tomorrow at noon for 1h", "move my standup to
+  10am", "cancel the dentist appointment" — she manages Flux-local events and reads the
+  ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
+
 ### Changed
 - **Expanded calendar is now a Google-Calendar-style time grid** — the home calendar's
   **⤢ Expand** opens a **Week / Day** view with an hours×days grid, events placed as

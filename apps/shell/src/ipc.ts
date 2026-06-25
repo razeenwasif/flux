@@ -47,6 +47,7 @@ import type {
   Boost as GenBoost,
   CalEvent as GenCalEvent,
   CalFeed as GenCalFeed,
+  LocalEvent as GenLocalEvent,
   ContentScript as GenContentScript,
   CookieStatus as GenCookieStatus,
   CredentialMeta as GenCredentialMeta,
@@ -126,6 +127,7 @@ export type SpeedResult = GenSpeedResult;
 export type ArchiveMeta = GenArchiveMeta;
 export type CalFeed = GenCalFeed;
 export type CalEvent = GenCalEvent;
+export type LocalEvent = GenLocalEvent;
 export type Todo = GenTodo;
 // Batch 3 (BACKLOG #12): misc command structs. `MacroStep`/`ExtManifest`/
 // `ExtContentScript`/`ArchiveEntry` keep their established frontend names as
@@ -838,8 +840,41 @@ export const calList = () => invoke<CalFeed[]>("cal_list");
 /** Subscribe to a calendar's secret ICS URL (validated on add). */
 export const calAdd = (url: string, name?: string) => invoke<CalFeed>("cal_add", { url, name: name ?? null });
 export const calRemove = (id: number) => invoke<void>("cal_remove", { id });
-/** Fetch + parse all subscribed calendars; events sorted by date. */
+/** Fetch + parse all subscribed calendars (+ local events), sorted by date. */
 export const calEvents = () => invoke<CalEvent[]>("cal_events");
+
+// ─── Local (editable) calendar events (BACKLOG #114) ─────────────────────────
+/** List just the on-device events (no ICS overlay) — used by the agent. */
+export const calLocalEvents = () => invoke<LocalEvent[]>("cal_local_events");
+export interface CalEventFields {
+  title: string;
+  date: string; // YYYY-MM-DD
+  start?: string; // HH:MM or ""
+  end?: string; // HH:MM or ""
+  location?: string;
+  notes?: string;
+}
+export const calEventAdd = (e: CalEventFields) =>
+  invoke<LocalEvent>("cal_event_add", {
+    title: e.title,
+    date: e.date,
+    start: e.start ?? null,
+    end: e.end ?? null,
+    location: e.location ?? null,
+    notes: e.notes ?? null,
+  });
+/** Patch a local event — only the provided fields change (so a drag sends just date/start/end). */
+export const calEventUpdate = (id: number, patch: Partial<CalEventFields>) =>
+  invoke<LocalEvent>("cal_event_update", {
+    id,
+    title: patch.title ?? null,
+    date: patch.date ?? null,
+    start: patch.start ?? null,
+    end: patch.end ?? null,
+    location: patch.location ?? null,
+    notes: patch.notes ?? null,
+  });
+export const calEventDelete = (id: number) => invoke<void>("cal_event_delete", { id });
 
 // ─── Local tasks / to-dos (BACKLOG #114) ─────────────────────────────────────
 export const todosList = () => invoke<Todo[]>("todos_list");

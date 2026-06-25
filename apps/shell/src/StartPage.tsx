@@ -8,6 +8,7 @@
  * actions; and a subtle flowing wave for the "flux" feel.
  */
 import { For, Match, Show, Switch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { Portal } from "solid-js/web";
 
 import { visibleInterval } from "./poll";
 import {
@@ -17,6 +18,9 @@ import {
   OMNI_URL,
   calAdd,
   calEvents,
+  calEventAdd,
+  calEventUpdate,
+  calEventDelete,
   feedItems,
   historyRecent,
   omniStats,
@@ -209,6 +213,10 @@ const StartPage: Component<{
   const [calAnchor, setCalAnchor] = createSignal(
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
   );
+  // Event editor draft (add/edit/read-only view) + live drag-to-move state (#91b).
+  type EvtDraft = { id: number | null; title: string; date: string; start: string; end: string; location: string; notes: string; allDay: boolean; readonly: boolean; calendar: string };
+  const [editing, setEditing] = createSignal<EvtDraft | null>(null);
+  const [drag, setDrag] = createSignal<{ id: number; title: string; date: string; startMin: number; durMin: number } | null>(null);
   const [todos, setTodos] = createSignal<Todo[]>([]);
   const [newTodo, setNewTodo] = createSignal("");
 
@@ -420,6 +428,76 @@ const StartPage: Component<{
     flush();
     return out;
   };
+
+  // ── Add / edit / delete / drag-to-move (local events only) ───────────────────
+  const clampN = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+  const minToHHMM = (m: number) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
+  const openNewEvent = (date: string, startMin = 9 * 60) => {
+    const s = clampN(startMin, 0, 23 * 60);
+    setEditing({ id: null, title: "", date, start: minToHHMM(s), end: minToHHMM(Math.min(s + 60, 23 * 60 + 59)), location: "", notes: "", allDay: false, readonly: false, calendar: "" });
+  };
+  const openEvent = (e: CalEvent) => {
+    setEditing({ id: e.editable ? e.id : null, title: e.summary, date: e.date, start: e.time, end: e.end, location: e.location, notes: e.notes, allDay: !e.time, readonly: !e.editable, calendar: e.calendar });
+  };
+  const patchDraft = (p: Partial<EvtDraft>) => setEditing((d) => (d ? { ...d, ...p } : d));
+  const saveEvent = () => {
+    const d = editing();
+    if (!d || !d.title.trim()) return;
+    const fields = { title: d.title.trim(), date: d.date, start: d.allDay ? "" : d.start, end: d.allDay ? "" : d.end, location: d.location, notes: d.notes };
+    const p = d.id != null ? calEventUpdate(d.id, fields) : calEventAdd(fields);
+    void p.then(() => { setEditing(null); loadEvents(); }).catch((err) => console.error("save event", err));
+  };
+  const deleteEvent = () => {
+    const d = editing();
+    if (!d || d.id == null) return;
+    void calEventDelete(d.id).then(() => { setEditing(null); loadEvents(); }).catch((err) => console.error("delete event", err));
+  };
+
+  let bodyEl: HTMLDivElement | undefined;
+  let dragMoved = false;
+  const GUTTER = 56;
+  // Pointer-drag a local event to a new day/time (15-min snap). No move = a click → edit.
+  const beginDrag = (e: PointerEvent, ev: CalEvent) => {
+    if (!ev.editable || !bodyEl || e.button !== 0) return;
+    e.preventDefault();
+    const cols = calDays().length;
+    const startMin = minsOf(ev.time);
+    const durMin = (ev.end ? Math.max(minsOf(ev.end), startMin + 20) : startMin + 50) - startMin;
+    const r0 = bodyEl.getBoundingClientRect();
+    const grabOffset = ((e.clientY - r0.top) / HOUR_H) * 60 - startMin;
+    dragMoved = false;
+    setDrag({ id: ev.id, title: ev.summary, date: ev.date, startMin, durMin });
+    const move = (me: PointerEvent) => {
+      const r = bodyEl!.getBoundingClientRect();
+      const colW = (r.width - GUTTER) / cols;
+      const idx = clampN(Math.floor((me.clientX - r.left - GUTTER) / colW), 0, cols - 1);
+      const sm = clampN(Math.round((((me.clientY - r.top) / HOUR_H) * 60 - grabOffset) / 15) * 15, 0, 24 * 60 - durMin);
+      const date = calDays()[idx]!;
+      if (Math.abs(me.clientY - e.clientY) > 4 || Math.abs(me.clientX - e.clientX) > 4) dragMoved = true;
+      setDrag({ id: ev.id, title: ev.summary, date, startMin: sm, durMin });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const d = drag();
+      setDrag(null);
+      if (dragMoved && d) {
+        void calEventUpdate(d.id, { date: d.date, start: minToHHMM(d.startMin), end: minToHHMM(d.startMin + d.durMin) })
+          .then(() => loadEvents()).catch((err) => console.error("move event", err));
+      } else {
+        openEvent(ev); // a click, not a drag → open the editor
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  // Click empty space in a day column → new event at that (hour-snapped) time.
+  const onColumnClick = (e: MouseEvent, date: string) => {
+    if (dragMoved) { dragMoved = false; return; }
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    openNewEvent(date, Math.floor(((e.clientY - r.top) / HOUR_H)) * 60);
+  };
+
   let weekScroll: HTMLDivElement | undefined;
   // Scroll the grid to ~7am when the calendar modal opens (so the day starts in view).
   createEffect(() => {
@@ -435,6 +513,7 @@ const StartPage: Component<{
         <button class="cal-week-todaybtn" onClick={calToday}>Today</button>
         <button class="cal-week-nav" title="Next" onClick={() => calStep(1)}>›</button>
         <span class="cal-week-title">{calTitle()}</span>
+        <button class="cal-week-new" title="New event" onClick={() => openNewEvent(calView() === "day" ? calAnchor() : todayStr())}>+ New</button>
         <div class="cal-week-views">
           <button classList={{ on: calView() === "day" }} onClick={() => setCalView("day")}>Day</button>
           <button classList={{ on: calView() === "week" }} onClick={() => setCalView("week")}>Week</button>
@@ -458,7 +537,7 @@ const StartPage: Component<{
             {(d) => (
               <div class="cal-week-allday-col">
                 <For each={allDayFor(d)}>
-                  {(e) => <div class="cal-allday-chip" title={`${e.summary}${e.location ? ` · ${e.location}` : ""}`}>{e.summary}</div>}
+                  {(e) => <button classList={{ "cal-allday-chip": true, ics: !e.editable }} title={`${e.summary}${e.location ? ` · ${e.location}` : ""}`} onClick={() => openEvent(e)}>{e.summary}</button>}
                 </For>
               </div>
             )}
@@ -466,38 +545,77 @@ const StartPage: Component<{
         </div>
       </Show>
       <div class="cal-week-scroll" ref={weekScroll}>
-        <div class="cal-week-body" style={{ height: `${24 * HOUR_H}px`, "--cols": calDays().length, "--hour-h": `${HOUR_H}px` }}>
+        <div class="cal-week-body" ref={bodyEl} style={{ height: `${24 * HOUR_H}px`, "--cols": calDays().length, "--hour-h": `${HOUR_H}px` }}>
           <div class="cal-week-times">
             <For each={HOURS}>{(h) => <div class="cal-week-hour"><span>{hourLabel(h)}</span></div>}</For>
           </div>
           <For each={calDays()}>
             {(d) => (
-              <div classList={{ "cal-week-col": true, today: d === todayStr() }}>
+              <div classList={{ "cal-week-col": true, today: d === todayStr() }} onClick={(e) => onColumnClick(e, d)}>
                 <Show when={d === todayStr()}>
                   <div class="cal-now-line" style={{ top: `${(nowMins() / 60) * HOUR_H}px` }} />
                 </Show>
                 <For each={packDay(d)}>
                   {(b) => (
                     <button
-                      class="cal-evt"
+                      classList={{ "cal-evt": true, ics: !b.e.editable, ghosted: drag()?.id === b.e.id }}
                       style={{
                         top: `${(b.s / 60) * HOUR_H}px`,
                         height: `${Math.max(((b.en - b.s) / 60) * HOUR_H - 2, 16)}px`,
                         left: `calc(${(b.col / b.ncols) * 100}% + 2px)`,
                         width: `calc(${(1 / b.ncols) * 100}% - 4px)`,
                       }}
-                      title={`${b.e.time}${b.e.end ? `–${b.e.end}` : ""} · ${b.e.summary}${b.e.location ? ` · ${b.e.location}` : ""}`}
+                      title={`${b.e.time}${b.e.end ? `–${b.e.end}` : ""} · ${b.e.summary}${b.e.location ? ` · ${b.e.location}` : ""}${b.e.editable ? " · drag to move" : ` · ${b.e.calendar} (read-only)`}`}
+                      onPointerDown={(pe) => beginDrag(pe, b.e)}
+                      onClick={(ce) => { ce.stopPropagation(); if (!b.e.editable) openEvent(b.e); }}
                     >
                       <span class="cal-evt-time">{b.e.time}</span>
                       <span class="cal-evt-title">{b.e.summary}</span>
                     </button>
                   )}
                 </For>
+                <Show when={drag() && drag()!.date === d}>
+                  <div class="cal-evt cal-evt-ghost" style={{ top: `${(drag()!.startMin / 60) * HOUR_H}px`, height: `${(drag()!.durMin / 60) * HOUR_H}px` }}>
+                    <span class="cal-evt-time">{minToHHMM(drag()!.startMin)}</span>
+                    <span class="cal-evt-title">{drag()!.title}</span>
+                  </div>
+                </Show>
               </div>
             )}
           </For>
         </div>
       </div>
+      <Show when={editing()}>
+        <Portal>
+          <div class="evt-editor-backdrop" onClick={() => setEditing(null)} onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }}>
+            <div class="evt-editor glass" onClick={(e) => e.stopPropagation()}>
+              <div class="evt-editor-head">{editing()!.readonly ? editing()!.calendar || "Event" : editing()!.id != null ? "Edit event" : "New event"}</div>
+              <input class="evt-in evt-title" placeholder="Add title" value={editing()!.title} disabled={editing()!.readonly} autofocus onInput={(e) => patchDraft({ title: e.currentTarget.value })} />
+              <label class="evt-allday"><input type="checkbox" checked={editing()!.allDay} disabled={editing()!.readonly} onChange={(e) => patchDraft({ allDay: e.currentTarget.checked })} /> All day</label>
+              <div class="evt-row">
+                <input class="evt-in" type="date" value={editing()!.date} disabled={editing()!.readonly} onInput={(e) => patchDraft({ date: e.currentTarget.value })} />
+                <Show when={!editing()!.allDay}>
+                  <input class="evt-in evt-time" type="time" value={editing()!.start} disabled={editing()!.readonly} onInput={(e) => patchDraft({ start: e.currentTarget.value })} />
+                  <span class="evt-dash">–</span>
+                  <input class="evt-in evt-time" type="time" value={editing()!.end} disabled={editing()!.readonly} onInput={(e) => patchDraft({ end: e.currentTarget.value })} />
+                </Show>
+              </div>
+              <input class="evt-in" placeholder="Location" value={editing()!.location} disabled={editing()!.readonly} onInput={(e) => patchDraft({ location: e.currentTarget.value })} />
+              <textarea class="evt-in evt-notes" placeholder="Notes" value={editing()!.notes} disabled={editing()!.readonly} onInput={(e) => patchDraft({ notes: e.currentTarget.value })} />
+              <div class="evt-editor-foot">
+                <Show when={editing()!.id != null && !editing()!.readonly}>
+                  <button class="evt-del" onClick={deleteEvent}>Delete</button>
+                </Show>
+                <span class="evt-foot-sp" />
+                <button class="evt-cancel" onClick={() => setEditing(null)}>{editing()!.readonly ? "Close" : "Cancel"}</button>
+                <Show when={!editing()!.readonly}>
+                  <button class="evt-save" disabled={!editing()!.title.trim()} onClick={saveEvent}>Save</button>
+                </Show>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      </Show>
     </div>
   );
 

@@ -93,7 +93,12 @@ export type CalFeed = { id: number; url: string; name: string }
 /**
  * One event, in the feed's own calendar terms (no tz conversion).
  */
-export type CalEvent = { calendar: string; summary: string; date: string; time: string; end: string; location: string; sort_key: number }
+export type CalEvent = { calendar: string; summary: string; date: string; time: string; end: string; location: string; sort_key: number; id: number; editable: boolean; notes: string }
+/**
+ * A Flux-local calendar event (on-device, fully editable). Distinct from a
+ * read-only ICS `CalEvent` — these are what the grid editor and Gemma write to.
+ */
+export type LocalEvent = { id: number; title: string; date: string; start: string; end: string; location: string; notes: string }
 export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string }
 /**
  * One unified search result (BACKLOG #66): an open tab, a bookmark, or a

@@ -52,6 +52,11 @@ import {
   isStartUrl,
   scrollClip,
   onyxNewNote,
+  calEvents,
+  calLocalEvents,
+  calEventAdd,
+  calEventUpdate,
+  calEventDelete,
   onAgentStatus,
   type AgentAction,
   type NextStep,
@@ -534,6 +539,7 @@ const AgentPanel: Component = () => {
   const CAPABILITIES =
     "Your capabilities in Flux (these run via the app, not just talk — tell the user the exact phrasing when helpful):\n" +
     "- Reminders & to-dos: \"remind me to <x> in 10 min / at 3pm / tomorrow\"; \"what are my reminders\". They fire with an OS notification + spoken alert even if the panel is closed.\n" +
+    "- Calendar: \"what's on my calendar today / this week / friday\" reads your schedule (your Google ICS feed + Flux-local events); \"schedule lunch with Sam tomorrow at noon for 1h\" / \"add a dentist appointment friday 3pm\" creates an event; \"move my standup to 10am\"; \"cancel the dentist appointment\". You can add/move/delete events you created in Flux (Google-feed events are read-only — say so if asked to change one).\n" +
     "- Long-term memory: \"remember that <x>\" saves a fact you'll recall in future chats; \"what do you remember\".\n" +
     "- Run commands in the user's live terminal (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command. On approval it runs in their real terminal session (their cwd/env) and you read the output back — so you can edit a file, run the tests, read the result, and fix it.\n" +
     "- Read files into context: \"read src/foo.rs\" / \"look at <path>\" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); \"forget the files\" clears. You can also drag a file from the explorer onto the panel.\n" +
@@ -964,6 +970,189 @@ const AgentPanel: Component = () => {
     return true;
   };
 
+  // ── Calendar (#114): Gemma reads + writes the home calendar (local events) ───
+  const pad2c = (n: number) => String(n).padStart(2, "0");
+  const isoOf = (d: Date) => `${d.getFullYear()}-${pad2c(d.getMonth() + 1)}-${pad2c(d.getDate())}`;
+  const hmOf = (d: Date) => `${pad2c(d.getHours())}:${pad2c(d.getMinutes())}`;
+  const WEEKDAYS_L = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const MONTHS_L = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const dayLabelOf = (iso: string) => {
+    const d = new Date(`${iso}T00:00`);
+    const t = isoOf(new Date());
+    if (iso === t) return "Today";
+    if (iso === isoOf(new Date(Date.now() + 864e5))) return "Tomorrow";
+    return d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+  };
+
+  /** Parse a date/time/duration out of a scheduling phrase. Returns the matched
+   *  date/start/end plus the remaining text (the event title). */
+  const parseEventSpec = (input: string): { date: string; start: string; end: string; title: string } => {
+    let rest = input;
+    const now = new Date();
+    let date: Date | null = null;
+    let start: string = "";
+    let durMin = 60;
+    const cut = (re: RegExp) => { const m = rest.match(re); if (m) { rest = (rest.slice(0, m.index) + rest.slice(m.index! + m[0].length)).replace(/\s{2,}/g, " ").trim(); } return m; };
+
+    // Duration — "for 90 min" / "for 2 hours".
+    { const m = cut(/\bfor\s+(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b/i); if (m) { const n = Number(m[1]); durMin = /^h/i.test(m[2]!) ? Math.round(n * 60) : Math.round(n); } }
+
+    // Date — today / tomorrow / weekday / "next week" / month-day.
+    if (cut(/\btoday\b/i)) date = new Date(now);
+    else if (cut(/\btomorrow\b/i)) date = new Date(now.getTime() + 864e5);
+    else {
+      const wd = cut(new RegExp(`\\b(next\\s+|this\\s+|on\\s+)?(${WEEKDAYS_L.join("|")})\\b`, "i"));
+      if (wd) {
+        const target = WEEKDAYS_L.indexOf(wd[2]!.toLowerCase());
+        let delta = (target - now.getDay() + 7) % 7;
+        if (/next/i.test(wd[1] ?? "")) delta += 7;
+        date = new Date(now.getTime() + delta * 864e5);
+      } else if (cut(/\bnext\s+week\b/i)) {
+        date = new Date(now.getTime() + 7 * 864e5);
+      } else {
+        const mo = cut(new RegExp(`\\b(?:on\\s+)?(${MONTHS_L.join("|")})\\w*\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, "i"))
+          || cut(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTHS_L.join("|")})\\w*\\b`, "i"));
+        if (mo) {
+          const firstIsMonth = MONTHS_L.includes(mo[1]!.slice(0, 3).toLowerCase());
+          const monIdx = MONTHS_L.indexOf((firstIsMonth ? mo[1]! : mo[2]!).slice(0, 3).toLowerCase());
+          const dayNum = Number(firstIsMonth ? mo[2]! : mo[1]!);
+          let y = now.getFullYear();
+          if (new Date(y, monIdx, dayNum).getTime() < now.getTime() - 864e5) y += 1; // already passed → next year
+          date = new Date(y, monIdx, dayNum);
+        }
+      }
+    }
+
+    // Time — "at 3[:30] pm" / "3pm" / "noon" / "midnight".
+    if (cut(/\b(?:at\s+)?noon\b/i)) start = "12:00";
+    else if (cut(/\b(?:at\s+)?midnight\b/i)) start = "00:00";
+    else {
+      const tm = cut(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) || cut(/\bat\s+(\d{1,2})(?::(\d{2}))?\b/i);
+      if (tm) {
+        let h = Number(tm[1]); const mi = tm[2] ? Number(tm[2]) : 0; const ap = (tm[3] ?? "").toLowerCase();
+        if (ap === "pm" && h < 12) h += 12;
+        if (ap === "am" && h === 12) h = 0;
+        start = `${pad2c(h)}:${pad2c(mi)}`;
+      }
+    }
+
+    if (!date) {
+      // No explicit date: if a time was given and it's already past today, use tomorrow.
+      date = new Date(now);
+      if (start) { const [h, m] = start.split(":").map(Number); const cand = new Date(now); cand.setHours(h!, m!, 0, 0); if (cand.getTime() <= now.getTime()) date = new Date(now.getTime() + 864e5); }
+    }
+    let end = "";
+    if (start) { const [h, m] = start.split(":").map(Number); const e = new Date(0); e.setHours(h!, (m ?? 0) + durMin, 0, 0); end = hmOf(e); }
+    // Clean leftover connective words from the title.
+    const title = rest.replace(/^(?:to|for|about|:|-|–)\s+/i, "").replace(/\b(?:on|in|to)\s+(?:my\s+)?calendar\b/gi, "").replace(/\s{2,}/g, " ").trim();
+    return { date: isoOf(date), start, end, title };
+  };
+
+  const calRange = (text: string): { lo: string; hi: string; label: string } => {
+    const today = new Date();
+    const t = isoOf(today);
+    if (/\btomorrow\b/i.test(text)) { const d = isoOf(new Date(Date.now() + 864e5)); return { lo: d, hi: d, label: "tomorrow" }; }
+    if (/\b(this\s+)?week\b|\bnext\s+7\b|\bcoming\s+up\b|\bupcoming\b/i.test(text)) return { lo: t, hi: isoOf(new Date(Date.now() + 7 * 864e5)), label: "this week" };
+    for (let i = 0; i < 7; i++) {
+      if (new RegExp(`\\b${WEEKDAYS_L[i]}\\b`, "i").test(text)) {
+        const delta = (i - today.getDay() + 7) % 7;
+        const d = isoOf(new Date(Date.now() + delta * 864e5));
+        return { lo: d, hi: d, label: dayLabelOf(d) };
+      }
+    }
+    if (/\btoday\b|\bright now\b/i.test(text)) return { lo: t, hi: t, label: "today" };
+    return { lo: t, hi: isoOf(new Date(Date.now() + 7 * 864e5)), label: "the next 7 days" };
+  };
+
+  /** Read the calendar — "what's on my calendar today / this week / friday". */
+  const tryCalendarQuery = async (text: string): Promise<boolean> => {
+    if (!/\b(calendar|schedule|agenda|events?|meetings?|appointments?|free|busy)\b/i.test(text)) return false;
+    if (!/\b(what|whats|what'?s|show|list|any|anything|do i have|free|busy|when|view|my)\b/i.test(text)) return false;
+    const { lo, hi, label } = calRange(text);
+    setFeed((f) => [...f, { role: "task", text: "📅 Checking your calendar…" }]);
+    let evs;
+    try { evs = (await calEvents()).filter((e) => e.date >= lo && e.date <= hi); }
+    catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); return true; }
+    if (!evs.length) { const msg = `You're free ${label}. 🎉`; setFeed((f) => [...f, { role: "assistant", text: msg }]); return true; }
+    const groups: { date: string; items: typeof evs }[] = [];
+    for (const e of evs) { const g = groups.at(-1); if (g && g.date === e.date) g.items.push(e); else groups.push({ date: e.date, items: [e] }); }
+    const body = groups.map((g) => `**${dayLabelOf(g.date)}**\n` + g.items.map((e) => `• ${e.time ? `${e.time}${e.end ? `–${e.end}` : ""}` : "all-day"} — ${e.summary}${e.location ? ` (${e.location})` : ""}`).join("\n")).join("\n\n");
+    setFeed((f) => [...f, { role: "assistant", text: `Here's your schedule for ${label}:\n\n${body}` }]);
+    return true;
+  };
+
+  /** Add a local event — "schedule lunch with Sam friday at noon for 90 min". */
+  const tryCalendarAdd = async (text: string): Promise<boolean> => {
+    const m = text.match(/^(?:schedule|book|plan|add|create|put|set\s*up|new)\b\s*(?:an?\s+)?(?:event|meeting|appointment|call)?\s*[:\-]?\s*([\s\S]+)/i);
+    if (!m?.[1]) return false;
+    const spec = parseEventSpec(m[1]);
+    // Only treat as a calendar add if we found a date/time or the user said "calendar/event".
+    if (!spec.start && !/\b(calendar|event|meeting|appointment|all[\s-]?day|today|tomorrow|next|on)\b/i.test(text)) return false;
+    if (!spec.title) { setFeed((f) => [...f, { role: "error", text: "What should I call the event?" }]); return true; }
+    setFeed((f) => [...f, { role: "task", text: "📅 Adding to your calendar…" }]);
+    try {
+      const ev = await calEventAdd({ title: spec.title, date: spec.date, start: spec.start, end: spec.end });
+      const when = spec.start ? `${dayLabelOf(spec.date)} at ${spec.start}${spec.end ? `–${spec.end}` : ""}` : `${dayLabelOf(spec.date)} (all day)`;
+      setFeed((f) => [...f, { role: "action", text: `✓ Added "${ev.title}" — ${when}` }]);
+    } catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); }
+    return true;
+  };
+
+  /** Find local events whose title contains `q` (case-insensitive). */
+  const findLocalByTitle = async (q: string) => {
+    const all = await calLocalEvents();
+    const needle = q.toLowerCase().trim();
+    return all.filter((e) => e.title.toLowerCase().includes(needle));
+  };
+
+  /** Delete a local event — "cancel my dentist appointment". */
+  const tryCalendarDelete = async (text: string): Promise<boolean> => {
+    if (!/\b(calendar|event|meeting|appointment)\b/i.test(text)) return false;
+    const m = text.match(/^(?:delete|cancel|remove|clear)\s+(?:the\s+|my\s+)?(?:event\s+|meeting\s+|appointment\s+)?(.+?)(?:\s+(?:event|meeting|appointment))?(?:\s+(?:from|on|in|off)\s+(?:my\s+)?calendar)?\s*$/i);
+    if (!m?.[1]) return false;
+    const q = m[1].replace(/\b(?:event|meeting|appointment)\b/gi, "").trim();
+    if (!q) return false;
+    const hits = await findLocalByTitle(q);
+    if (!hits.length) { setFeed((f) => [...f, { role: "assistant", text: `I couldn't find a calendar event matching "${q}". (I can only edit events you added in Flux — Google-feed events are read-only.)` }]); return true; }
+    if (hits.length > 1) { setFeed((f) => [...f, { role: "assistant", text: `I found ${hits.length} matching events:\n${hits.map((e) => `• ${e.title} — ${dayLabelOf(e.date)}${e.start ? ` ${e.start}` : ""}`).join("\n")}\nWhich one? Be more specific.` }]); return true; }
+    const ev = hits[0]!;
+    try { await calEventDelete(ev.id); setFeed((f) => [...f, { role: "action", text: `✓ Deleted "${ev.title}" (${dayLabelOf(ev.date)}).` }]); }
+    catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); }
+    return true;
+  };
+
+  /** Move a local event — "move my standup to tomorrow at 10am". */
+  const tryCalendarMove = async (text: string): Promise<boolean> => {
+    const m = text.match(/^(?:move|reschedule|shift|push|change)\s+(?:the\s+|my\s+)?(.+?)\s+to\s+([\s\S]+)$/i);
+    if (!m?.[1] || !m[2]) return false;
+    if (!/\b(calendar|event|meeting|appointment)\b/i.test(text) && !parseEventSpec(m[2]).start) return false;
+    const q = m[1].replace(/\b(?:event|meeting|appointment)\b/gi, "").trim();
+    const hits = await findLocalByTitle(q);
+    if (!hits.length) { setFeed((f) => [...f, { role: "assistant", text: `I couldn't find an event matching "${q}" to move. (Only Flux-added events are editable.)` }]); return true; }
+    if (hits.length > 1) { setFeed((f) => [...f, { role: "assistant", text: `Several events match "${q}" — which? ${hits.map((e) => e.title).join(", ")}` }]); return true; }
+    const ev = hits[0]!;
+    const spec = parseEventSpec(`x ${m[2]}`); // prefix so leftover title is ignored
+    const patch: { date: string; start?: string; end?: string } = { date: spec.date };
+    if (spec.start) {
+      // Preserve the original duration if known.
+      const origDur = ev.start && ev.end ? (Number(ev.end.slice(0, 2)) * 60 + Number(ev.end.slice(3))) - (Number(ev.start.slice(0, 2)) * 60 + Number(ev.start.slice(3))) : 60;
+      patch.start = spec.start;
+      const [h, mm] = spec.start.split(":").map(Number); const e = new Date(0); e.setHours(h!, (mm ?? 0) + origDur, 0, 0); patch.end = hmOf(e);
+    }
+    try { await calEventUpdate(ev.id, patch); setFeed((f) => [...f, { role: "action", text: `✓ Moved "${ev.title}" to ${dayLabelOf(spec.date)}${spec.start ? ` at ${spec.start}` : ""}.` }]); }
+    catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); }
+    return true;
+  };
+
+  /** Calendar dispatcher — query / add / move / delete. Returns true if handled. */
+  const tryCalendar = async (text: string): Promise<boolean> => {
+    if (await tryCalendarQuery(text)) return true;
+    if (await tryCalendarMove(text)) return true;
+    if (await tryCalendarDelete(text)) return true;
+    if (await tryCalendarAdd(text)) return true;
+    return false;
+  };
+
   const send = async (p: string) => {
     const att = attachment();
     if ((!p && !att) || working() || taskRunning()) return;
@@ -1053,6 +1242,9 @@ const AgentPanel: Component = () => {
       const rmd = pc.match(REMIND_RE);
       if (rmd?.[1]) { await runRemind(rmd[1]); return; }
       if (REMINDERS_LIST_RE.test(pc)) { await runListReminders(); return; }
+      // Calendar (#114) — "what's on my calendar", "schedule lunch tomorrow at noon",
+      // "move my standup to 10am", "cancel the dentist appointment". Local events only.
+      if (await tryCalendar(pc)) return;
       if (SYS_RE.test(pc)) { await runSysStats(); return; }
       if (HELP_RE.test(pc)) { runHelp(); return; }
       // #4 UI introspection (check state/vars before the broad "inspect <selector>").

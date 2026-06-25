@@ -46,6 +46,29 @@ pub struct CalEvent {
     pub location: String,
     /// `YYYYMMDDHHMM` — monotonic key for sorting / bucketing by calendar date.
     pub sort_key: u64,
+    /// Local-event id (`0` for read-only ICS events). Editable rows carry their
+    /// `LocalEventStore` id so the UI/agent can move/edit/delete them.
+    pub id: u64,
+    /// True for Flux-local events (add/edit/delete/drag); false for ICS feeds.
+    pub editable: bool,
+    /// Free-text notes (local events only; "" for ICS).
+    pub notes: String,
+}
+
+/// A Flux-local calendar event (on-device, fully editable). Distinct from a
+/// read-only ICS `CalEvent` — these are what the grid editor and Gemma write to.
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
+pub struct LocalEvent {
+    pub id: u64,
+    pub title: String,
+    /// `YYYY-MM-DD`.
+    pub date: String,
+    /// `HH:MM` start, or "" for an all-day event.
+    pub start: String,
+    /// `HH:MM` end, or "".
+    pub end: String,
+    pub location: String,
+    pub notes: String,
 }
 
 #[derive(Default)]
@@ -90,6 +113,88 @@ impl CalStore {
             let _ = std::fs::create_dir_all(dir);
         }
         if let Ok(json) = serde_json::to_string(&*self.feeds.read()) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+}
+
+/// On-device store of Flux-local calendar events (add/edit/delete/drag, and the
+/// surface Gemma writes to). Persisted as JSON; same shape as `TodoStore`.
+#[derive(Default)]
+pub struct LocalEventStore {
+    items: RwLock<Vec<LocalEvent>>,
+    next_id: AtomicU64,
+    path: Option<PathBuf>,
+}
+
+impl LocalEventStore {
+    pub fn restore(path: PathBuf) -> Self {
+        let items: Vec<LocalEvent> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let next = items.iter().map(|e| e.id).max().unwrap_or(0) + 1;
+        Self { items: RwLock::new(items), next_id: AtomicU64::new(next), path: Some(path) }
+    }
+
+    pub fn list(&self) -> Vec<LocalEvent> {
+        self.items.read().clone()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add(&self, title: String, date: String, start: String, end: String, location: String, notes: String) -> LocalEvent {
+        let ev = LocalEvent {
+            id: self.next_id.fetch_add(1, Ordering::Relaxed),
+            title,
+            date,
+            start,
+            end,
+            location,
+            notes,
+        };
+        self.items.write().push(ev.clone());
+        self.save();
+        ev
+    }
+
+    /// Overwrite only the fields that are `Some` (so a drag can move just date/time).
+    #[allow(clippy::too_many_arguments)]
+    pub fn update(
+        &self,
+        id: u64,
+        title: Option<String>,
+        date: Option<String>,
+        start: Option<String>,
+        end: Option<String>,
+        location: Option<String>,
+        notes: Option<String>,
+    ) -> Option<LocalEvent> {
+        let out = {
+            let mut items = self.items.write();
+            let e = items.iter_mut().find(|e| e.id == id)?;
+            if let Some(v) = title { e.title = v; }
+            if let Some(v) = date { e.date = v; }
+            if let Some(v) = start { e.start = v; }
+            if let Some(v) = end { e.end = v; }
+            if let Some(v) = location { e.location = v; }
+            if let Some(v) = notes { e.notes = v; }
+            e.clone()
+        };
+        self.save();
+        Some(out)
+    }
+
+    pub fn remove(&self, id: u64) {
+        self.items.write().retain(|e| e.id != id);
+        self.save();
+    }
+
+    fn save(&self) {
+        let Some(path) = &self.path else { return };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(json) = serde_json::to_string(&*self.items.read()) {
             let _ = std::fs::write(path, json);
         }
     }
@@ -244,6 +349,33 @@ fn make_event(day: i64, s: &DtParts, title: &str, location: &str, end: &str, cal
         end: end.to_string(),
         location: location.to_string(),
         sort_key: (y as u64) * 100_000_000 + (m as u64) * 1_000_000 + (d as u64) * 10_000 + s.hhmm,
+        id: 0,
+        editable: false,
+        notes: String::new(),
+    }
+}
+
+/// `YYYY-MM-DD` + `HH:MM` → the same `YYYYMMDDHHMM` sort key `make_event` produces.
+fn sort_key_of(date: &str, time: &str) -> u64 {
+    let d: u64 = date.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0);
+    let t: String = time.chars().filter(|c| c.is_ascii_digit()).collect();
+    let hhmm: u64 = if t.len() >= 4 { t[..4].parse().unwrap_or(0) } else { 0 };
+    d * 10_000 + hhmm
+}
+
+/// A Flux-local event rendered as a (editable) `CalEvent` for the unified grid.
+fn local_to_cal(e: &LocalEvent) -> CalEvent {
+    CalEvent {
+        calendar: "Flux".to_string(),
+        summary: e.title.clone(),
+        date: e.date.clone(),
+        time: e.start.clone(),
+        end: e.end.clone(),
+        location: e.location.clone(),
+        sort_key: sort_key_of(&e.date, &e.start),
+        id: e.id,
+        editable: true,
+        notes: e.notes.clone(),
     }
 }
 
@@ -491,8 +623,9 @@ pub fn cal_remove(store: State<'_, CalStore>, id: u64) {
 /// Fetch + parse every subscribed calendar; returns events sorted by date. A
 /// failing feed is skipped (one dead URL doesn't blank the widget).
 #[tauri::command]
-pub async fn cal_events(store: State<'_, CalStore>) -> Result<Vec<CalEvent>, String> {
+pub async fn cal_events(store: State<'_, CalStore>, local: State<'_, LocalEventStore>) -> Result<Vec<CalEvent>, String> {
     let feeds = store.list();
+    let locals = local.list();
     tauri::async_runtime::spawn_blocking(move || {
         let mut all = Vec::new();
         for f in &feeds {
@@ -500,12 +633,69 @@ pub async fn cal_events(store: State<'_, CalStore>) -> Result<Vec<CalEvent>, Str
                 all.extend(parse_events(&ics, &f.name));
             }
         }
+        // Cap the (potentially huge) ICS set first, then always keep local events.
         all.sort_by_key(|e| e.sort_key);
         all.truncate(MAX_EVENTS);
+        all.extend(locals.iter().map(local_to_cal));
+        all.sort_by_key(|e| e.sort_key);
         Ok(all)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// List the Flux-local events (without the ICS overlay) — for the agent.
+#[tauri::command]
+pub fn cal_local_events(local: State<'_, LocalEventStore>) -> Vec<LocalEvent> {
+    local.list()
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn cal_event_add(
+    local: State<'_, LocalEventStore>,
+    title: String,
+    date: String,
+    start: Option<String>,
+    end: Option<String>,
+    location: Option<String>,
+    notes: Option<String>,
+) -> Result<LocalEvent, String> {
+    let title = title.trim().to_string();
+    if title.is_empty() {
+        return Err("event needs a title".into());
+    }
+    if date.len() != 10 || date.as_bytes()[4] != b'-' {
+        return Err("date must be YYYY-MM-DD".into());
+    }
+    Ok(local.add(
+        title,
+        date,
+        start.unwrap_or_default(),
+        end.unwrap_or_default(),
+        location.unwrap_or_default(),
+        notes.unwrap_or_default(),
+    ))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn cal_event_update(
+    local: State<'_, LocalEventStore>,
+    id: u64,
+    title: Option<String>,
+    date: Option<String>,
+    start: Option<String>,
+    end: Option<String>,
+    location: Option<String>,
+    notes: Option<String>,
+) -> Result<LocalEvent, String> {
+    local.update(id, title, date, start, end, location, notes).ok_or_else(|| "no such event".to_string())
+}
+
+#[tauri::command]
+pub fn cal_event_delete(local: State<'_, LocalEventStore>, id: u64) {
+    local.remove(id);
 }
 
 #[cfg(test)]
@@ -516,6 +706,40 @@ mod tests {
 
     fn day(y: i64, m: u32, d: u32) -> i64 {
         days_from_civil(y, m, d)
+    }
+
+    #[test]
+    fn local_store_crud_and_partial_update() {
+        let store = LocalEventStore::default(); // no path → in-memory
+        let e = store.add("Dentist".into(), "2026-06-26".into(), "09:00".into(), "09:30".into(), "Clinic".into(), "".into());
+        assert_eq!(store.list().len(), 1);
+        // A drag = move date+time only; other fields untouched.
+        let moved = store
+            .update(e.id, None, Some("2026-06-27".into()), Some("10:00".into()), Some("10:30".into()), None, None)
+            .unwrap();
+        assert_eq!(moved.title, "Dentist");
+        assert_eq!(moved.date, "2026-06-27");
+        assert_eq!(moved.start, "10:00");
+        assert_eq!(moved.location, "Clinic"); // preserved
+        store.remove(e.id);
+        assert!(store.list().is_empty());
+    }
+
+    #[test]
+    fn local_event_sort_key_matches_ics() {
+        // A 10:00 local event must sort exactly like the equivalent ICS occurrence.
+        let cal = local_to_cal(&LocalEvent {
+            id: 7,
+            title: "Sync".into(),
+            date: "2026-06-19".into(),
+            start: "10:00".into(),
+            end: "11:00".into(),
+            location: String::new(),
+            notes: String::new(),
+        });
+        assert_eq!(cal.sort_key, 202606191000);
+        assert!(cal.editable);
+        assert_eq!(cal.id, 7);
     }
 
     #[test]

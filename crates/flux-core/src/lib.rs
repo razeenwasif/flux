@@ -331,6 +331,13 @@ pub fn run(intent: cli::LaunchIntent) {
                 .map(|d| d.join("calendars.json"))
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-calendars.json"));
             app.manage(boot_phase("calendar.restore", boot_started, || calendar::CalStore::restore(cal_path)));
+            // Local calendar events (#114) — on-device, editable, Gemma-writable.
+            let cal_events_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("cal_events.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-cal-events.json"));
+            app.manage(boot_phase("calevents.restore", boot_started, || calendar::LocalEventStore::restore(cal_events_path)));
             // Local tasks / to-dos (#114) — on-device task list.
             let todos_path = app
                 .path()
@@ -576,6 +583,10 @@ pub fn run(intent: cli::LaunchIntent) {
             calendar::cal_add,
             calendar::cal_remove,
             calendar::cal_events,
+            calendar::cal_local_events,
+            calendar::cal_event_add,
+            calendar::cal_event_update,
+            calendar::cal_event_delete,
             todos::todos_list,
             todos::todo_add,
             todos::todo_toggle,

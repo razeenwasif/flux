@@ -14,7 +14,7 @@
 use crate::archive::{ArchiveEntryWire, ArchiveMeta};
 use crate::bookmarks::Bookmark;
 use crate::boosts::Boost;
-use crate::calendar::{CalEvent, CalFeed};
+use crate::calendar::{CalEvent, CalFeed, LocalEvent};
 use crate::commands::{OmniHit, ReaderBlock, ShellSnapshot};
 use crate::cookies::CookieStatus;
 use crate::downloads::DownloadItem;
@@ -84,6 +84,7 @@ pub fn generate_ts() -> String {
         // Calendar + tasks (BACKLOG #114).
         specta::ts::export::<CalFeed>(&c),
         specta::ts::export::<CalEvent>(&c),
+        specta::ts::export::<LocalEvent>(&c),
         specta::ts::export::<Todo>(&c),
         // Misc command structs (BACKLOG #12, batch 3): shields/privacy,
         // permissions, vault, extensions, macros, boosts, downloads, files,

@@ -1492,6 +1492,41 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .cal-evt:hover { filter: brightness(1.1); z-index: 4; }
 .cal-evt-time { font-size: 10px; opacity: 0.85; font-variant-numeric: tabular-nums; }
 .cal-evt-title { font-size: 12px; font-weight: 600; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; }
+/* Local events drag; ICS feed events are read-only (no grab cursor, muted tint). */
+.cal-evt { cursor: grab; touch-action: none; }
+.cal-evt:active { cursor: grabbing; }
+.cal-evt.ics { cursor: pointer; background: linear-gradient(135deg, rgba(100, 116, 139, 0.85), rgba(71, 85, 105, 0.8)); border-left-color: rgba(255, 255, 255, 0.35); }
+.cal-evt.ghosted { opacity: 0.32; }
+.cal-evt-ghost { pointer-events: none; z-index: 6; opacity: 0.92; outline: 2px dashed rgba(255, 255, 255, 0.7); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+.cal-week-new { height: 30px; padding: 0 12px; border-radius: 8px; background: linear-gradient(135deg, var(--flux-violet), var(--flux-teal)); border: none; color: #fff; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.cal-week-new:hover { filter: brightness(1.08); }
+.cal-allday-chip { border: none; cursor: pointer; text-align: left; font-family: inherit; }
+.cal-allday-chip.ics { background: linear-gradient(135deg, rgba(100, 116, 139, 0.9), rgba(71, 85, 105, 0.85)); }
+
+/* Event editor (add / edit / read-only view) — Portal'd above the calendar modal. */
+.evt-editor-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 6vh 5vw; }
+.evt-editor { width: min(420px, 94vw); display: flex; flex-direction: column; gap: 10px; padding: 18px; border-radius: 14px; border: 1px solid var(--glass-rim-soft); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); }
+.evt-editor-head { font-size: 15px; font-weight: 700; color: var(--flux-text); }
+.evt-in { width: 100%; padding: 8px 10px; border-radius: 8px; background: var(--flux-surface); border: 1px solid var(--flux-border); color: var(--flux-text); font-size: 13px; font-family: inherit; }
+.evt-in:focus { outline: none; border-color: var(--flux-teal); }
+.evt-in:disabled { opacity: 0.7; cursor: default; }
+.evt-title { font-size: 15px; font-weight: 600; }
+.evt-allday { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--flux-text-mute); cursor: pointer; }
+.evt-allday input { accent-color: var(--flux-violet); }
+.evt-row { display: flex; align-items: center; gap: 8px; }
+.evt-row .evt-in[type="date"] { flex: 1; }
+.evt-time { width: auto; flex: none; }
+.evt-dash { color: var(--flux-text-mute); }
+.evt-notes { min-height: 64px; resize: vertical; }
+.evt-editor-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.evt-foot-sp { flex: 1; }
+.evt-editor-foot button { height: 32px; padding: 0 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--flux-border); }
+.evt-del { background: none; color: #ff6b81; border-color: rgba(255, 107, 129, 0.4) !important; }
+.evt-del:hover { background: rgba(255, 107, 129, 0.12); }
+.evt-cancel { background: var(--flux-surface); color: var(--flux-text); }
+.evt-save { background: linear-gradient(135deg, var(--flux-violet), var(--flux-teal)); color: #fff; border: none !important; }
+.evt-save:disabled { opacity: 0.5; cursor: default; }
+.evt-save:not(:disabled):hover { filter: brightness(1.08); }
 
 /* ── Liquid glass, extended to the search hero + expanded-widget modals ───── */
 .start-search {
