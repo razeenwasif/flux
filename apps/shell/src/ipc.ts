@@ -498,6 +498,8 @@ export const kbSetSource = (source: string, location: string) =>
 /** Cosine top-k retrieval over the corpus (optionally restricted to `sources`). */
 export const kbQuery = (query: string, k = 8, sources?: string[]) =>
   invoke<KbHit[]>("kb_query", { query, k, sources });
+/** KB items related to the currently-open page (ambient connections rail, #123). */
+export const kbRelated = (limit = 6) => invoke<KbHit[]>("kb_related", { limit });
 /** One frame of a streamed grounded answer (hand-mirrors the kb_answer events). */
 export type KbAnswerEvent =
   | { kind: "sources"; hits: KbHit[] }

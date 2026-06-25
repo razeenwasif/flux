@@ -765,6 +765,7 @@ pub fn run(intent: cli::LaunchIntent) {
             kb::kb_reindex,
             kb::kb_set_source,
             kb::kb_query,
+            kb::kb_related,
             kb::kb_answer,
             kb::scroll_clip,
             kb::onyx_new_note,

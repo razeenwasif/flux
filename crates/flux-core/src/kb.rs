@@ -753,6 +753,33 @@ pub async fn kb_query(kb: State<'_, KbStore>, query: String, k: Option<usize>, s
     tauri::async_runtime::spawn_blocking(move || kb.query(&query, k.unwrap_or(8), sources)).await.map_err(|e| e.to_string())?
 }
 
+/// Ambient "connects to your knowledge" (#123): items from the KB related to the
+/// currently-open page, queried with the page's captured text. Returns only
+/// genuinely-related hits (score-thresholded) so the rail stays quiet on a page
+/// nothing in your corpus touches.
+#[tauri::command]
+pub async fn kb_related(
+    kb: State<'_, KbStore>,
+    state: State<'_, crate::state::FluxState>,
+    limit: Option<usize>,
+) -> Result<Vec<KbHit>, String> {
+    // Pull the page text out before the blocking task (Arc-cheap, like agent_chat).
+    let text = state.active_snapshot().map(|s| std::sync::Arc::clone(&s.text));
+    let Some(text) = text else { return Ok(Vec::new()) };
+    let query: String = text.chars().take(2400).collect();
+    if query.trim().chars().count() < 40 {
+        return Ok(Vec::new()); // too little context to match meaningfully
+    }
+    let kb = (*kb).clone();
+    let limit = limit.unwrap_or(6).clamp(1, 20);
+    tauri::async_runtime::spawn_blocking(move || {
+        let hits = kb.query(&query, limit, None)?;
+        Ok(hits.into_iter().filter(|h| h.score >= 45).collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Grounded, streamed answer (NotebookLM-style): retrieve top-k, prompt the local
 /// agent with the numbered sources, stream the reply over `on_token` as JSON
 /// events — `{kind:"sources",hits}` first, then `{kind:"token",text}`, then

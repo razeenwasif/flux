@@ -30,6 +30,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Ambient connections rail (#123)** — a slim toggleable column (Ctrl+K → "Show connections
+  rail") that, as you browse, surfaces your own related Onyx notes / Scroll papers / Council
+  debates for the current page — the second brain compounding passively. `kb_related` embeds the
+  page's captured text and runs a score-thresholded `kb_query`; the rail refreshes on each
+  navigation and tab switch; click an item to open it. Fully local.
 - **Terminal "Explain" speaks the diagnosis** — the agent-aware terminal's ✦ Explain now reads
   its answer aloud via the configured TTS voice (closing the overlay stops it).
 - **Auto-start local services (Omni / Scroll)** — on boot Flux probes Omni (`:8080`) and Scroll

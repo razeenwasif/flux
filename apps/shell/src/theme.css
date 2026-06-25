@@ -912,6 +912,21 @@ body.resizing, body.busy { --glass-blur: none; }
 
 /* ── Agent panel (liquid glass) ── */
 .agent { grid-area: agent; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--flux-frame-pad); padding-left: 0; }
+/* #123 ambient connections rail */
+.connect-rail { grid-area: connect; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--flux-frame-pad); padding-left: 0; gap: 8px; }
+.connect-head { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; font-weight: 600; color: var(--flux-text); padding: 2px 4px; }
+.connect-spark { color: var(--flux-violet); }
+.connect-refresh { background: none; border: none; color: var(--flux-text-mute); cursor: pointer; font-size: 13px; }
+.connect-refresh:hover { color: var(--flux-text); }
+.connect-empty { font-size: 11.5px; color: var(--flux-text-mute); line-height: 1.5; padding: 8px 6px; }
+.connect-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+.connect-item { display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer; padding: 8px 9px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--flux-border); color: inherit; }
+.connect-item:hover { border-color: rgba(123,97,255,0.4); background: rgba(123,97,255,0.08); }
+.connect-item-top { display: flex; align-items: center; gap: 6px; }
+.connect-item-ico { flex: none; font-size: 12px; }
+.connect-item-title { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--flux-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connect-item-score { flex: none; font-size: 9.5px; color: var(--flux-teal); border: 1px solid rgba(47,243,255,0.3); border-radius: 999px; padding: 0 5px; }
+.connect-item-snip { font-size: 10.5px; color: var(--flux-text-mute); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .agent-inner {
   position: relative; /* anchor the ambient effects layer (.agent-fx) */
   display: flex; flex-direction: column; gap: 11px;

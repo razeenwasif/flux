@@ -142,6 +142,7 @@ const FeedsPage = lazy(() => import("./FeedsPage"));
 const BookmarkBar = lazy(() => import("./BookmarkBar"));
 const PagesBar = lazy(() => import("./PagesBar"));
 const TuiAppsBar = lazy(() => import("./TuiAppsBar"));
+const ConnectionsRail = lazy(() => import("./ConnectionsRail"));
 const AgentPanel = lazy(() => import("./AgentPanel"));
 const SyncPage = lazy(() => import("./SyncPage"));
 const AppsPage = lazy(() => import("./AppsPage"));
@@ -299,6 +300,9 @@ const App: Component = () => {
   // Let the agent bring up a terminal before running a command in it (#65).
   setTerminalOpener(() => setTerminalOpen(true));
   const [agentOpen, setAgentOpen] = createSignal(true);
+  // Ambient connections rail (#123) — off by default; toggled via the palette.
+  const [connectOpen, setConnectOpen] = createSignal(localStorage.getItem("flux.connect.open") === "1");
+  createEffect(() => localStorage.setItem("flux.connect.open", connectOpen() ? "1" : "0"));
   // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
   const [focusMode, setFocusMode] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
@@ -308,6 +312,7 @@ const App: Component = () => {
   const [sidebarW, setSidebarW] = createSignal(loadW("flux.w.sidebar", 252));
   const [terminalW, setTerminalW] = createSignal(loadW("flux.w.terminal", 440));
   const [agentW, setAgentW] = createSignal(loadW("flux.w.agent", 372));
+  const [connectW] = createSignal(loadW("flux.w.connect", 250));
 
   // Live rect of the content card, in CSS (logical) px relative to the window.
   // Native tab webviews are positioned to match it (BACKLOG #2).
@@ -1179,6 +1184,7 @@ const App: Component = () => {
     { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
     { id: "bookmark-bar", label: bookmarkBarOpen() ? "Hide bookmark bar" : "Show bookmark bar", icon: "🔖", run: () => setBookmarkBarOpen(!bookmarkBarOpen()) },
     { id: "pages-bar", label: pagesBarOpen() ? "Hide pages bar" : "Show pages bar", icon: "🗂️", run: () => setPagesBarOpen(!pagesBarOpen()) },
+    { id: "connect-rail", label: connectOpen() ? "Hide connections rail" : "Show connections rail", icon: "✦", run: () => setConnectOpen(!connectOpen()) },
     { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
@@ -1265,7 +1271,7 @@ const App: Component = () => {
   const SIDEBAR_RAIL = 72; // --flux-sidebar-w-min
   const MIN_CONTENT = 460; // narrowest content card we'll keep before shedding a pane
   const responsive = createMemo(() => {
-    if (focusMode()) return { sidebar: false, panel: false, terminal: false, agent: false };
+    if (focusMode()) return { sidebar: false, panel: false, terminal: false, agent: false, connect: false };
     // What the user wants open (same conditions as the non-responsive layout used).
     const want = {
       sidebar: sidebarOpen(),
@@ -1274,18 +1280,20 @@ const App: Component = () => {
       // Keep the dev terminal column up even on a terminal *tab* — the column is
       // the persistent shell; a launched TUI app tab lives alongside it.
       terminal: terminalOpen(),
+      connect: connectOpen(),
     };
-    const out = { sidebar: false, agent: false, panel: false, terminal: false };
+    const out = { sidebar: false, agent: false, panel: false, terminal: false, connect: false };
     // Content card + the always-present sidebar rail are reserved first.
     let used = MIN_CONTENT + SIDEBAR_RAIL;
     const w = winW();
     // Allocate width in PRIORITY order (kept longest first): the sidebar's expansion,
-    // then agent, then web panel, then terminal — the reverse of the shed order.
+    // then agent, then web panel, then terminal, then the connections rail (shed first).
     const order: [keyof typeof want, number][] = [
       ["sidebar", sidebarW() - SIDEBAR_RAIL], // extra beyond the rail it already has
       ["agent", agentW()],
       ["panel", panelWidth()],
       ["terminal", terminalW()],
+      ["connect", connectW()],
     ];
     for (const [k, extra] of order) {
       if (want[k] && used + extra <= w) { out[k] = true; used += extra; }
@@ -1298,16 +1306,18 @@ const App: Component = () => {
   const termColVisible = () => responsive().terminal;
   const panelColVisible = () => responsive().panel;
   const agentColVisible = () => responsive().agent;
+  const connectColVisible = () => responsive().connect;
 
   const columns = () =>
     focusMode()
-      ? "0px 1fr 0px 0px 0px" // focus/compact mode (#55): content only
+      ? "0px 1fr 0px 0px 0px 0px" // focus/compact mode (#55): content only
       : [
           responsive().sidebar ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
           "1fr",
           panelColVisible() ? `${panelWidth()}px` : "0px",
           termColVisible() ? `${terminalW()}px` : "0px",
           agentColVisible() ? `${agentW()}px` : "0px",
+          connectColVisible() ? `${connectW()}px` : "0px",
         ].join(" ");
 
   // Drag a pane's splitter. `sign` is +1 when dragging right grows the pane
@@ -1345,7 +1355,7 @@ const App: Component = () => {
       style={{
         "grid-template-columns": columns(),
         "grid-template-rows": "var(--flux-titlebar-h) 1fr",
-        "grid-template-areas": `"title title title title title" "side content webpanel term agent"`,
+        "grid-template-areas": `"title title title title title title" "side content webpanel term agent connect"`,
       }}
     >
       <TitleBar />
@@ -1412,6 +1422,9 @@ const App: Component = () => {
       </Show>
       <Show when={agentColVisible()}>
         <Suspense><AgentPanel /></Suspense>
+      </Show>
+      <Show when={connectColVisible()}>
+        <Suspense><ConnectionsRail /></Suspense>
       </Show>
 
       {/* Pane splitters — drag to resize (BACKLOG #27). */}
