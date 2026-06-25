@@ -373,6 +373,16 @@ export const spotifyState = () => invoke<SpotifyState>("spotify_state");
 export const spotifyPlaylists = () => invoke<SpotifyPlaylist[]>("spotify_playlists");
 /** Play a playlist/album by exact Spotify URI. */
 export const spotifyPlayContext = (uri: string) => invoke<string>("spotify_play_context", { uri });
+/** One audio-level frame from the visualiser helper (#126). */
+export type VizFrame = { e: number; bass: number; mid: number; treble: number };
+/** Stream real audio levels (PulseAudio monitor → FFT-ish) for the bubble's
+ *  beat-synced visualiser; `onFrame` fires ~40fps. Resolves when the stream ends.
+ *  Lazily starts the `audioviz` helper if it isn't running. */
+export const audivizStream = (onFrame: (f: VizFrame) => void): Promise<void> => {
+  const ch = new Channel<string>();
+  ch.onmessage = (raw) => { try { onFrame(JSON.parse(raw) as VizFrame); } catch { /* skip bad frame */ } };
+  return invoke<void>("audioviz_stream", { onFrame: ch });
+};
 /**
  * Streaming chat (BACKLOG #82): calls `onToken` for each chunk as the model
  * generates it, resolving with the full reply when done. The sidebar renders

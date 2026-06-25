@@ -936,6 +936,17 @@ body.resizing, body.busy { --glass-blur: none; }
 .music-orb-eq i:nth-child(3){ height: 8px; animation-delay: .4s; }
 @keyframes music-eq { 0%,100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
 
+/* Real beat-synced visualiser (#126): CSS vars (--viz-e/bass/mid/treble, 0..1) are
+   written by the audioviz stream ~40fps; the orb scales + glows to the actual beat. */
+.music.viz.playing:not(.expanded) { animation: none; } /* viz replaces the synthetic breathe */
+.music.viz:not(.expanded) { box-shadow: 0 8px 30px rgba(123,97,255,0.35), 0 0 calc(8px + var(--viz-e,0) * 30px) rgba(236,75,224, calc(0.18 + var(--viz-e,0) * 0.55)); }
+.music.viz .music-orb { transform: scale(calc(1 + var(--viz-e,0) * 0.16)); filter: saturate(calc(1 + var(--viz-e,0) * 0.6)) brightness(calc(1 + var(--viz-e,0) * 0.35)); transition: transform .05s linear, filter .05s linear; }
+.music.viz .music-orb-glow { opacity: calc(0.25 + var(--viz-e,0) * 0.7); }
+.music.viz .music-orb-eq i { animation: none; transition: height .06s linear; transform: none; }
+.music.viz .music-orb-eq i:nth-child(1) { height: calc(3px + var(--viz-bass,0) * 13px); }
+.music.viz .music-orb-eq i:nth-child(2) { height: calc(3px + var(--viz-mid,0) * 13px); }
+.music.viz .music-orb-eq i:nth-child(3) { height: calc(3px + var(--viz-treble,0) * 13px); }
+
 .music-body { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 7px 10px; opacity: 0; pointer-events: none; overflow: hidden; background: rgba(14,10,30,0.55); transition: opacity .2s; }
 .music.expanded .music-body { opacity: 1; pointer-events: auto; }
 .music-track { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 0; }

@@ -3,6 +3,7 @@
 
 pub mod agent_bridge;
 pub mod archive;
+pub mod audioviz;
 pub mod bindings;
 pub mod bookmarks;
 pub mod boosts;
@@ -709,6 +710,7 @@ pub fn run(intent: cli::LaunchIntent) {
             spotify::spotify_state,
             spotify::spotify_playlists,
             spotify::spotify_play_context,
+            audioviz::audioviz_stream,
             spotify::spotify_shuffle,
             spotify::spotify_repeat,
             spotify::spotify_volume,

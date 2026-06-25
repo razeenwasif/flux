@@ -6,10 +6,11 @@
  * The orb breathes while playing (real beat-synced visualiser is #126).
  * Palette: purple / pink / indigo.
  */
-import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import {
+  audivizStream,
   spotifyLaunch,
   spotifyNext,
   spotifyPause,
@@ -37,7 +38,33 @@ const MusicBubble: Component = () => {
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [playlists, setPlaylists] = createSignal<SpotifyPlaylist[]>([]);
   const [toast, setToast] = createSignal<string | null>(null);
+  const [vizLive, setVizLive] = createSignal(false);
   const expanded = () => hovering() || menuOpen();
+
+  // Real beat-synced visualiser (#126): the audioviz helper streams audio levels;
+  // we write them straight to CSS vars on the orb (bypassing Solid for the 40fps
+  // hot path) so the orb scales/glows to the actual beat. Starts on first play.
+  let rootEl: HTMLDivElement | undefined;
+  let vizOn = false;
+  let vizWatch: number | undefined;
+  const onFrame = (f: { e: number; bass: number; mid: number; treble: number }) => {
+    if (rootEl) {
+      rootEl.style.setProperty("--viz-e", f.e.toFixed(3));
+      rootEl.style.setProperty("--viz-bass", f.bass.toFixed(3));
+      rootEl.style.setProperty("--viz-mid", f.mid.toFixed(3));
+      rootEl.style.setProperty("--viz-treble", f.treble.toFixed(3));
+    }
+    if (!vizLive()) setVizLive(true);
+    clearTimeout(vizWatch);
+    vizWatch = window.setTimeout(() => setVizLive(false), 1200); // settle if frames stop
+  };
+  const startViz = () => {
+    if (vizOn) return;
+    vizOn = true;
+    void audivizStream(onFrame)
+      .catch(() => {})
+      .finally(() => { vizOn = false; setVizLive(false); if (st()?.playing) window.setTimeout(startViz, 3000); });
+  };
 
   let toastT: number | undefined;
   const flash = (msg: string) => { setToast(msg); clearTimeout(toastT); toastT = window.setTimeout(() => setToast(null), 3200); };
@@ -55,7 +82,10 @@ const MusicBubble: Component = () => {
   const loadPlaylists = () => void spotifyPlaylists().then(setPlaylists).catch((e) => flash(String(e)));
 
   onMount(() => { void poll().then(schedule); loadPlaylists(); });
-  onCleanup(() => { clearTimeout(timer); clearTimeout(toastT); clearTimeout(leaveT); });
+  // Kick the visualiser stream the first time something is playing (so the helper
+  // only taps audio once there's music — not the whole time Flux is open).
+  createEffect(() => { if (st()?.playing) startViz(); });
+  onCleanup(() => { clearTimeout(timer); clearTimeout(toastT); clearTimeout(leaveT); clearTimeout(vizWatch); });
 
   let leaveT: number | undefined;
   const enter = () => { clearTimeout(leaveT); if (!hovering()) { setHovering(true); void poll(); } };
@@ -89,7 +119,7 @@ const MusicBubble: Component = () => {
     <div class="music-wrap" onMouseEnter={enter} onMouseLeave={leave}>
       <Show when={toast()}><div class="music-toast">{toast()}</div></Show>
 
-      <div classList={{ music: true, expanded: expanded(), playing: playing(), dormant: !reachable() }}>
+      <div ref={rootEl} classList={{ music: true, expanded: expanded(), playing: playing(), dormant: !reachable(), viz: vizLive() }}>
         <div class="music-orb" style={{ "background-image": artBg() }}>
           <div class="music-orb-glow" />
           <Show when={!expanded() && playing()}>

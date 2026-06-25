@@ -30,6 +30,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Music bubble: real beat-synced visualiser (#126)** — the orb now pulses to the *actual*
+  audio. A tiny WSL helper (`tools/audioviz`, single Go binary, no deps) taps the PulseAudio
+  monitor, computes energy + bass/mid/treble, and streams it as SSE ~40fps; Flux relays it
+  (`audioviz_stream`, lazily starting the helper on first play) and the orb scales/glows + the
+  EQ bars dance to the beat. Works for any audio, no Spotify API. One-time build:
+  `go build -o ~/.local/bin/audioviz ./tools/audioviz`.
 - **Floating music bubble — AudioPulse/Spotify mini-player (#125)** — a Siri-style orb pinned
   to Flux's right edge that expands on hover into a rounded player: play/pause, prev/next, shuffle,
   repeat, volume, album art + now-playing, and a **playlist menu** (pick a playlist → it plays).
