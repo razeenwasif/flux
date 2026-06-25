@@ -175,9 +175,13 @@ fn api(method: &str, path: &str, query: &[(&str, &str)], body: Option<Value>) ->
             req = req.query(k, v);
         }
         req = req.set("Authorization", &format!("Bearer {token}"));
-        let res = match &body {
-            Some(b) => req.send_json(b.clone()),
-            None => req.call(),
+        let res = match (&body, method) {
+            (Some(b), _) => req.send_json(b.clone()),
+            // Spotify's PUT/POST control endpoints (pause, next, …) reject a
+            // bodyless request with 411 Length Required — send an explicit empty
+            // body so a `Content-Length: 0` header is set. GET stays bodyless.
+            (None, "PUT" | "POST") => req.send_bytes(&[]),
+            (None, _) => req.call(),
         };
         match res {
             Ok(resp) => {

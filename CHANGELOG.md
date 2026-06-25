@@ -285,6 +285,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Fix: Spotify control buttons returned 411** — bodyless PUT/POST control calls (pause, next,
+  prev, shuffle, repeat, volume) hit `ureq`'s `.call()` with no `Content-Length`, which Spotify
+  rejects with `411 Length Required`. They now send an explicit empty body. Fixes the music bubble
+  *and* the agent's existing Spotify controls.
 - **Music bubble: feedback + vertical layout + device control (#125)** — every action now
   surfaces its result/error as a toast (previously failures were silent — usually "no active
   device"); a "Start ▶" button appears when there's no Spotify device (launches AudioPulse); and
