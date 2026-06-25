@@ -285,6 +285,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Music bubble: feedback + vertical layout + device control (#125)** — every action now
+  surfaces its result/error as a toast (previously failures were silent — usually "no active
+  device"); a "Start ▶" button appears when there's no Spotify device (launches AudioPulse); and
+  the expanded player is now a tall **vertical strip** (the bubble stretches up/down) instead of a
+  square card, with a Portal'd playlist menu that survives the mouse leaving the strip.
 - **Fix: service auto-start was unreliable** — Omni/Scroll are now launched in the shell's
   foreground (spawn-and-don't-wait) instead of `nohup … &`, whose backgrounded job could die
   with the transient one-shot WSL session. The shell host process keeps the server (and the WSL
