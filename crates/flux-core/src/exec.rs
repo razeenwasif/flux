@@ -41,7 +41,7 @@ pub fn blocked_reason(cmd: &str) -> Option<String> {
 
 /// Build the command in the right shell: an explicit `FLUX_EXEC_SHELL`/`FLUX_SHELL`,
 /// else WSL on Windows (matching the embedded terminal) / `sh` elsewhere.
-fn shell_command(cmd: &str) -> Command {
+pub(crate) fn shell_command(cmd: &str) -> Command {
     if let Some(sh) = std::env::var("FLUX_EXEC_SHELL").ok().or_else(|| std::env::var("FLUX_SHELL").ok()).filter(|s| !s.trim().is_empty()) {
         let low = sh.to_ascii_lowercase();
         let mut c = Command::new(&sh);

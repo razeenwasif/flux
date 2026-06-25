@@ -46,6 +46,7 @@ pub mod reminders;
 pub mod rpc;
 pub mod screenshot;
 pub mod search;
+pub mod services;
 pub mod session;
 pub mod sessions;
 pub mod porcupine;
@@ -281,6 +282,9 @@ pub fn run(intent: cli::LaunchIntent) {
                     }
                 });
             }
+            // Auto-start the user's local services (Omni / Scroll) if they're down,
+            // off-thread so a slow probe never delays boot. Opt out: FLUX_NO_AUTOSTART=1.
+            std::thread::spawn(services::autostart_down_services);
             // Per-site boosts (#49) — agent-authored CSS/JS injected per host.
             let boosts_path = app
                 .path()
@@ -765,6 +769,8 @@ pub fn run(intent: cli::LaunchIntent) {
             kb::scroll_clip,
             kb::onyx_new_note,
             specialists::agent_specialists,
+            services::services_status,
+            services::services_start,
             tui_apps::tui_apps_list,
             tui_apps::tui_apps_set,
             tui_apps::tui_apps_detect,

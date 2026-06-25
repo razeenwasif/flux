@@ -9,7 +9,7 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 
-import { fsOpen, kbAnswer, kbReindex, kbSetSource, kbStatus, type KbHit, type KbStatus } from "./ipc";
+import { fsOpen, kbAnswer, kbReindex, kbSetSource, kbStatus, servicesStart, servicesStatus, type KbHit, type KbStatus, type ServiceStatus } from "./ipc";
 import { openTab } from "./store";
 
 const SOURCE_LABEL: Record<string, string> = { onyx: "Onyx vault", scroll: "Scroll papers", council: "Council briefs" };
@@ -25,6 +25,7 @@ const NotebookPage: Component = () => {
   const [answer, setAnswer] = createSignal("");
   const [hits, setHits] = createSignal<KbHit[]>([]);
   const [voice, setVoice] = createSignal<string | null>(null);
+  const [services, setServices] = createSignal<ServiceStatus[]>([]);
   const [busy, setBusy] = createSignal(false); // streaming an answer
   const [reindexing, setReindexing] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
@@ -33,7 +34,12 @@ const NotebookPage: Component = () => {
   const [loc, setLoc] = createSignal<Record<string, string>>({});
 
   const refresh = () => void kbStatus().then(setStatus).catch(() => {});
-  onMount(refresh);
+  const refreshServices = () => void servicesStatus().then(setServices).catch(() => {});
+  onMount(() => { refresh(); refreshServices(); });
+  const startService = async (name: string) => {
+    try { await servicesStart(name); } catch { /* best-effort */ }
+    setTimeout(refreshServices, 1500); // give it a moment to come up
+  };
 
   // Save a source's location, then reindex just that source so the user sees it work.
   const saveLocation = async (source: string) => {
@@ -133,6 +139,23 @@ const NotebookPage: Component = () => {
           </span>
         </Show>
       </div>
+
+      {/* Local services (auto-started on boot; manual start if down). */}
+      <Show when={services().length > 0}>
+        <div class="nb-services">
+          <span class="nb-services-label">Services</span>
+          <For each={services()}>
+            {(s) => (
+              <span class="nb-svc" classList={{ down: !s.running }}>
+                <span class="nb-svc-dot" />{s.label}
+                <Show when={!s.running}>
+                  <button class="nb-svc-start" onClick={() => void startService(s.name)}>Start</button>
+                </Show>
+              </span>
+            )}
+          </For>
+        </div>
+      </Show>
 
       {/* Fix a source that can't be located (vault path / server URL). */}
       <For each={(status()?.sources ?? []).filter((s) => !!s.error)}>

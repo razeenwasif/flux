@@ -56,6 +56,7 @@ import type {
   KbHit as GenKbHit,
   KbSourceStat as GenKbSourceStat,
   KbStatus as GenKbStatus,
+  ServiceStatus as GenServiceStatus,
   TuiApp as GenTuiApp,
   HotRule as GenHotRule,
   HttpsStatus as GenHttpsStatus,
@@ -472,6 +473,12 @@ export const tuiAppsList = () => invoke<TuiApp[]>("tui_apps_list");
 export const tuiAppsSet = (apps: TuiApp[]) => invoke<void>("tui_apps_set", { apps });
 /** Executable names found in the standard user bin dirs — a quick-add helper. */
 export const tuiAppsDetect = () => invoke<string[]>("tui_apps_detect");
+// ─── Local background services (Omni / Scroll auto-start) ───────────────────
+export type ServiceStatus = GenServiceStatus;
+/** Running state of the managed local services (Omni, Scroll). */
+export const servicesStatus = () => invoke<ServiceStatus[]>("services_status");
+/** Manually start a service by name; returns true if it kicked one off. */
+export const servicesStart = (name: string) => invoke<boolean>("services_start", { name });
 // ─── Corpus write access (#118) — let the agent add to Scroll / Onyx ────────
 /** Clip a URL into Scroll (POSTs its /clip form; Scroll scrapes + stores). */
 export const scrollClip = (url: string, tags?: string) => invoke<string>("scroll_clip", { url, tags });

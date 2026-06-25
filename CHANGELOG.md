@@ -30,6 +30,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   compositing is solved.
 
 ### Added
+- **Terminal "Explain" speaks the diagnosis** — the agent-aware terminal's ✦ Explain now reads
+  its answer aloud via the configured TTS voice (closing the overlay stops it).
+- **Auto-start local services (Omni / Scroll)** — on boot Flux probes Omni (`:8080`) and Scroll
+  (`:3131`) and, if down, launches them via your shell (so they start inside WSL on a Windows
+  build), backgrounded so they outlive Flux. Opt out with `FLUX_NO_AUTOSTART=1`; override the
+  commands with `FLUX_OMNI_START` / `FLUX_SCROLL_START`. The Notebook shows a Services strip with
+  status + a manual Start.
 - **Agent-aware terminal — explain / fix a failed command (#121)** — when a command exits
   non-zero (detected via the OSC 133 marks), the terminal shows a "⚠ exit N · ✦ Explain · ⚙ Fix"
   bar. **Explain** asks Gemma why it failed (answer in an overlay); **Fix** proposes a corrected

@@ -14,6 +14,7 @@ import type { Terminal as XTerm, IMarker, IDecoration } from "@xterm/xterm";
 import { agentChat, agentShellPlan, Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
 import { registerTerminal, setActiveTerminal, takePendingCommand, unregisterTerminal } from "./terminals";
 import { openTab } from "./store";
+import { speak, stopSpeaking } from "./speak";
 import LiquidBackground from "./LiquidBackground";
 
 /** Velvet-matched 16-color palette + teal cursor (theme.css alignment). */
@@ -209,7 +210,7 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
       setAiText(null);
       setAiBusy(true);
       void agentChat(`A shell command just failed in my terminal. Explain briefly why, and how to fix it. Command and output:\n\n${block}`)
-        .then((r) => setAiText(r.trim() || "(no response)"))
+        .then((r) => { const t = r.trim() || "(no response)"; setAiText(t); void speak(t); })
         .catch((e) => setAiText(`Couldn't reach the agent: ${e}`))
         .finally(() => setAiBusy(false));
     };
@@ -342,7 +343,7 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
         <div class="term-ai">
           <div class="term-ai-head">
             <span>✦ Gemma</span>
-            <button class="term-ai-close" onClick={() => { setAiText(null); setAiBusy(false); }}>✕</button>
+            <button class="term-ai-close" onClick={() => { stopSpeaking(); setAiText(null); setAiBusy(false); }}>✕</button>
           </div>
           <Show when={!aiBusy()} fallback={<div class="term-ai-body">Looking at the error…</div>}>
             <div class="term-ai-body">{aiText()}</div>

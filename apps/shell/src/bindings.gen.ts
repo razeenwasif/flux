@@ -172,6 +172,7 @@ export type TuiApp = { id: string; name: string; icon: string; cmd: string; cwd:
  * A discovered specialist available to route to.
  */
 export type Specialist = { domain: string; label: string; model: string }
+export type ServiceStatus = { name: string; label: string; running: boolean }
 export type SyncStatus = { folder: string | null; unlocked: boolean; last_ms: number; auto: boolean }
 export type SyncReport = { bookmarks_added: number; sessions_added: number; history_added: number }
 /**
