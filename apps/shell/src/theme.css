@@ -2705,6 +2705,9 @@ input[type="checkbox"].pdf-fw, input[type="radio"].pdf-fw { accent-color: var(--
 .files-panel-body { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .files-panel-body > * { height: 100%; }
 
+/* Notebook (KB) popout — the second brain in a glass pane, like the files popout. */
+.kb-panel { width: min(1040px, 93vw); height: min(780px, 90vh); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55); border: 1px solid var(--glass-rim-soft); }
+
 /* Google Maps popout — like the files popout but bigger. */
 .map-panel-backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, 0.42); display: flex; justify-content: center; align-items: center; padding: 3vh 3vw; }
 .map-panel { width: min(1200px, 95vw); height: min(840px, 92vh); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); border: 1px solid var(--glass-rim-soft); }

@@ -600,6 +600,10 @@ export function applyAudiopulseDir(): void {
 const [mapPanelOpen, setMapPanelOpen] = createSignal(false);
 const [mapQuery, setMapQueryRaw] = createSignal(localStorage.getItem("flux.map.query") ?? "");
 export { mapPanelOpen, setMapPanelOpen, mapQuery };
+// Notebook / KB floating pane (#116) — the second-brain (Onyx + Scroll) in a glass
+// popout, like the file explorer. Opened from the toolbar 📓 button.
+const [kbPanelOpen, setKbPanelOpen] = createSignal(false);
+export { kbPanelOpen, setKbPanelOpen };
 
 // An agent-panel dropdown (model picker / past chats) is open. Native page
 // webviews are an OS layer above the chrome, so a dropdown rendered over the page

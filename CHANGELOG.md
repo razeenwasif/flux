@@ -28,11 +28,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Changed
-- **Toolbar: Notebook (KB) launcher replaces the Maps button** — the left nav cluster's
-  🗺 Maps button is now a 📓 **Notebook** launcher that focuses-or-opens `flux://notebook`,
-  your Onyx + Scroll knowledge base — a first-class entry point to the second brain, next
-  to the file explorer (files = your filesystem, Notebook = your knowledge). Maps lives on
-  as a home widget; the map panel itself is unchanged.
+- **Toolbar: Notebook (KB) pane replaces the Maps button** — the left nav cluster's 🗺 Maps
+  button is now a 📓 **Notebook** button that opens your Onyx + Scroll knowledge base as a
+  **floating glass pane** (like the file explorer) — a first-class entry to the second brain
+  next to files (files = your filesystem, Notebook = your knowledge). ⤢ promotes it to a full
+  `flux://notebook` tab; Esc / click-outside closes. Maps lives on as a home widget.
 - **Expanded calendar is now a Google-Calendar-style time grid** — the home calendar's
   **⤢ Expand** opens a **Week / Day** view with an hours×days grid, events placed as
   positioned blocks (overlap-aware column packing, so concurrent meetings sit side by

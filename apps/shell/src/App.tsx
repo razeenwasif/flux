@@ -169,6 +169,8 @@ import {
   filesPanelPath,
   setFilesPanelPath,
   mapPanelOpen,
+  kbPanelOpen,
+  setKbPanelOpen,
   agentMenuOpen,
   homeModalOpen,
   setMapPanelOpen,
@@ -414,7 +416,7 @@ const App: Component = () => {
     if (boundsRaf) return;
     boundsRaf = requestAnimationFrame(() => {
       boundsRaf = 0;
-      if (splitDragging() || panelDragging() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen()) return;
+      if (splitDragging() || panelDragging() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen()) return;
       for (const p of paneLayout()) wv(webviewSetBounds(p.tab.id, p.rect));
     });
   };
@@ -463,7 +465,7 @@ const App: Component = () => {
       // Handled outside the chord table so it isn't forwarded from focused pages
       // (they use Esc themselves).
       if (e.key === "Escape" && !inTerminal()) {
-        if (filesPanelOpen() || mapPanelOpen()) {
+        if (filesPanelOpen() || mapPanelOpen() || kbPanelOpen()) {
           closeFilesPanel();
           return;
         }
@@ -702,7 +704,7 @@ const App: Component = () => {
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = splitDragging() || panelDragging();
-    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen();
+    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen();
     const panes = overlay ? [] : paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
@@ -739,7 +741,7 @@ const App: Component = () => {
             await webviewSetBounds(id, r);
             openingWebviews.delete(id);
             openedWebviews.add(id);
-            if (readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen() || splitDragging() || panelDragging()) {
+            if (readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || splitDragging() || panelDragging()) {
               shown.delete(id);
               await webviewHide(id);
               return;
@@ -793,7 +795,7 @@ const App: Component = () => {
     // Reader / Files popout / command palette are full overlays that must sit above
     // everything — including the web panel's own native webview layer.
     const hidden =
-      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen();
+      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen();
     syncSlot("top", top, hidden ? null : panelViewRect());
     syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
   });
@@ -1135,7 +1137,7 @@ const App: Component = () => {
     setPaletteOpen(false);
     const t = activeTab();
     // Don't re-show the webview if the files panel is still covering it.
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !filesPanelOpen() && !mapPanelOpen()) wv(webviewShow(t.id));
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !filesPanelOpen() && !mapPanelOpen() && !kbPanelOpen()) wv(webviewShow(t.id));
   };
 
   // Files panel — imperative show/hide, matching the palette pattern exactly.
@@ -1158,9 +1160,22 @@ const App: Component = () => {
     if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
     setMapPanelOpen(true);
   };
-  // KB launcher (#116) — focus the Notebook (your Onyx + Scroll knowledge) if it's
-  // already open, otherwise open it in a new tab. The toolbar's second-brain entry.
-  const openNotebook = () => {
+  // KB pane (#116) — the Notebook (Onyx + Scroll second brain) as a glass popout,
+  // like the file explorer. Hide the active webview while it's up (it's a native
+  // layer above the card), same as the files/map panels.
+  const openKbPanel = () => {
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
+    setKbPanelOpen(true);
+  };
+  const closeKbPanel = () => {
+    setKbPanelOpen(false);
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen()) wv(webviewShow(t.id));
+  };
+  // Promote the pane to a full tab (⤢) — focus an open Notebook tab or open one.
+  const openNotebookTab = () => {
+    closeKbPanel();
     const existing = tabs().find((t) => t.url === NOTEBOOK_URL);
     if (existing) void focusTab(existing.id);
     else void openTab("browser", NOTEBOOK_URL);
@@ -1183,6 +1198,13 @@ const App: Component = () => {
   createEffect(() => {
     if (!mapPanelOpen()) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeMapPanel(); };
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => document.removeEventListener("keydown", onKey));
+  });
+  // Esc closes the Notebook (KB) pane while it's open.
+  createEffect(() => {
+    if (!kbPanelOpen()) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeKbPanel(); };
     document.addEventListener("keydown", onKey);
     onCleanup(() => document.removeEventListener("keydown", onKey));
   });
@@ -1396,7 +1418,7 @@ const App: Component = () => {
         onToggleBookmark={toggleBookmark}
         isBookmarked={() => bookmarkedId() != null}
         onToggleFilesPanel={() => filesPanelOpen() ? closeFilesPanel() : openFilesPanel()}
-        onOpenNotebook={openNotebook}
+        onOpenNotebook={() => kbPanelOpen() ? closeKbPanel() : openKbPanel()}
       />
       <ContentArea
         onNavigate={go}
@@ -1520,6 +1542,25 @@ const App: Component = () => {
                   onPathChange={setFilesPanelPath}
                   onOpenInTab={(url) => { closeFilesPanel(); go(url); }}
                 />
+              </Suspense>
+            </div>
+          </div>
+        </div>
+      </Show>
+      {/* Notebook (KB) popout — the Onyx + Scroll second brain in a glass pane,
+          like the files popout. ⤢ promotes it to a full tab; click outside / Esc closes. */}
+      <Show when={kbPanelOpen()}>
+        <div class="files-panel-backdrop" onClick={() => closeKbPanel()}>
+          <div class="kb-panel glass" onClick={(e) => e.stopPropagation()}>
+            <div class="files-panel-head">
+              <span class="files-panel-title">📓 Notebook</span>
+              <span style={{ flex: 1 }} />
+              <button class="files-panel-x" title="Open as a full tab" onClick={() => openNotebookTab()}>⤢</button>
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => closeKbPanel()}>✕</button>
+            </div>
+            <div class="files-panel-body">
+              <Suspense>
+                <NotebookPage />
               </Suspense>
             </div>
           </div>
@@ -2067,7 +2108,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Show>
           <button class="icon-btn" title="Home (new tab page)" onClick={() => props.onNavigate("flux://start")}>⌂</button>
           <button classList={{ "icon-btn": true, active: filesPanelOpen() }} title="File explorer" onClick={props.onToggleFilesPanel}>🗁</button>
-          <button classList={{ "icon-btn": true, active: activeId() != null && tabs().find((t) => t.id === activeId())?.url === NOTEBOOK_URL }} title="Notebook — your knowledge base (Onyx + Scroll)" onClick={props.onOpenNotebook}>📓</button>
+          <button classList={{ "icon-btn": true, active: kbPanelOpen() }} title="Notebook — your knowledge base (Onyx + Scroll)" onClick={props.onOpenNotebook}>📓</button>
           <span style={{ flex: 1 }} />
         </Show>
       </div>
