@@ -462,8 +462,11 @@ const StartPage: Component<{
   let bodyEl: HTMLDivElement | undefined;
   let dragMoved = false;
   const GUTTER = 56;
-  // Pointer-drag a local event to a new day/time (15-min snap). No move = a click → edit.
-  const beginDrag = (e: PointerEvent, ev: CalEvent) => {
+  // Mouse-drag a local event to a new day/time (15-min snap). No move = a click →
+  // edit. Uses mouse (not pointer) events: pointermove isn't reliably delivered to
+  // window during a button press on every webview engine (WebKitGTK especially),
+  // which left drags dead — mouse events work everywhere.
+  const beginDrag = (e: MouseEvent, ev: CalEvent) => {
     if (!ev.editable || !bodyEl || e.button !== 0) return;
     e.preventDefault();
     const cols = calDays().length;
@@ -473,18 +476,18 @@ const StartPage: Component<{
     const grabOffset = ((e.clientY - r0.top) / HOUR_H) * 60 - startMin;
     dragMoved = false;
     setDrag({ id: ev.id, title: ev.summary, date: ev.date, startMin, durMin });
-    const move = (me: PointerEvent) => {
+    const move = (me: MouseEvent) => {
       const r = bodyEl!.getBoundingClientRect();
       const colW = (r.width - GUTTER) / cols;
       const idx = clampN(Math.floor((me.clientX - r.left - GUTTER) / colW), 0, cols - 1);
       const sm = clampN(Math.round((((me.clientY - r.top) / HOUR_H) * 60 - grabOffset) / 15) * 15, 0, 24 * 60 - durMin);
       const date = calDays()[idx]!;
-      if (Math.abs(me.clientY - e.clientY) > 4 || Math.abs(me.clientX - e.clientX) > 4) dragMoved = true;
+      if (Math.abs(me.clientY - e.clientY) > 3 || Math.abs(me.clientX - e.clientX) > 3) dragMoved = true;
       setDrag({ id: ev.id, title: ev.summary, date, startMin: sm, durMin });
     };
     const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
       const d = drag();
       setDrag(null);
       if (dragMoved && d) {
@@ -493,9 +496,12 @@ const StartPage: Component<{
       } else {
         openEvent(ev); // a click, not a drag → open the editor
       }
+      // Clear AFTER the trailing click fires, so a drag that ends over empty column
+      // space doesn't also open the new-event dialog (onColumnClick reads this).
+      setTimeout(() => { dragMoved = false; }, 0);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
   };
   // Click empty space in a day column → new event at that (hour-snapped) time.
   const onColumnClick = (e: MouseEvent, date: string) => {
@@ -572,7 +578,7 @@ const StartPage: Component<{
                         width: `calc(${(1 / b.ncols) * 100}% - 4px)`,
                       }}
                       title={`${b.e.time}${b.e.end ? `–${b.e.end}` : ""} · ${b.e.summary}${b.e.location ? ` · ${b.e.location}` : ""}${b.e.editable ? " · drag to move" : ` · ${b.e.calendar} (read-only)`}`}
-                      onPointerDown={(pe) => beginDrag(pe, b.e)}
+                      onMouseDown={(pe) => beginDrag(pe, b.e)}
                       onClick={(ce) => { ce.stopPropagation(); if (!b.e.editable) openEvent(b.e); }}
                     >
                       <span class="cal-evt-time">{b.e.time}</span>
@@ -1007,7 +1013,7 @@ const StartPage: Component<{
           <button class="start-map-cover" title="Open Maps" onClick={() => props.onOpenMap()}>
             <iframe
               class="start-map-frame"
-              src="https://www.openstreetmap.org/export/embed.html?bbox=112,-44.5,154.5,-9.5&layer=mapnik"
+              src="https://www.google.com/maps?q=Australia&z=3&output=embed"
               title="Australia"
               loading="lazy"
               tabindex={-1}
