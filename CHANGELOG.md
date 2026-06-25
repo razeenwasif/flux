@@ -269,6 +269,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Fix: service auto-start was unreliable** — Omni/Scroll are now launched in the shell's
+  foreground (spawn-and-don't-wait) instead of `nohup … &`, whose backgrounded job could die
+  with the transient one-shot WSL session. The shell host process keeps the server (and the WSL
+  session) alive and survives Flux closing.
 - **Fix: Omni dashboard/graph used `https://localhost:8080`** — `omni_base()` inherits its
   scheme from the default search-engine template, which can be https; a local Omni serves plain
   HTTP, so every call refused/failed. Loopback origins are now forced to `http://`.

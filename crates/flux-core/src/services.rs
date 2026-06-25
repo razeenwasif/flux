@@ -73,25 +73,27 @@ fn is_up(s: &Service) -> bool {
     }
 }
 
-/// Launch a service's start command, backgrounded so it outlives this call and
-/// Flux itself. Best-effort: returns an error only if the shell couldn't spawn.
+/// Launch a service's start command. We spawn it in the FOREGROUND of the shell
+/// process and simply don't wait on it: the shell (e.g. `wsl.exe`) stays alive
+/// hosting the long-running server, which keeps the WSL session up and survives
+/// Flux closing (a dropped `Child` is never killed). This is more reliable than
+/// `nohup … &`, whose orphaned job can die with the transient one-shot session.
 fn start(s: &Service) -> Result<(), String> {
     let user_cmd = std::env::var(s.start_env)
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| s.start_default.to_string());
-    // nohup + background so the shell returns immediately and the service survives
-    // both this shell exiting and Flux closing.
-    let line = format!("nohup {user_cmd} >/dev/null 2>&1 &");
-    let mut cmd = crate::exec::shell_command(&line);
+    let mut cmd = crate::exec::shell_command(&user_cmd);
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW (no console flash)
     }
+    // spawn() (not output()/wait) returns immediately; we drop the Child, which
+    // does NOT kill it — the server keeps running.
     cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't start {}: {e}", s.name))
 }
 
