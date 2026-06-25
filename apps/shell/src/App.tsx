@@ -300,8 +300,8 @@ const App: Component = () => {
   // Let the agent bring up a terminal before running a command in it (#65).
   setTerminalOpener(() => setTerminalOpen(true));
   const [agentOpen, setAgentOpen] = createSignal(true);
-  // Ambient connections rail (#123) — off by default; toggled via the palette.
-  const [connectOpen, setConnectOpen] = createSignal(localStorage.getItem("flux.connect.open") === "1");
+  // Ambient connections rail (#123) — on by default; toggled via the palette.
+  const [connectOpen, setConnectOpen] = createSignal(localStorage.getItem("flux.connect.open") !== "0");
   createEffect(() => localStorage.setItem("flux.connect.open", connectOpen() ? "1" : "0"));
   // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
   const [focusMode, setFocusMode] = createSignal(false);
@@ -312,7 +312,7 @@ const App: Component = () => {
   const [sidebarW, setSidebarW] = createSignal(loadW("flux.w.sidebar", 252));
   const [terminalW, setTerminalW] = createSignal(loadW("flux.w.terminal", 440));
   const [agentW, setAgentW] = createSignal(loadW("flux.w.agent", 372));
-  const [connectW] = createSignal(loadW("flux.w.connect", 250));
+  const [connectW] = createSignal(loadW("flux.w.connect", 212));
 
   // Live rect of the content card, in CSS (logical) px relative to the window.
   // Native tab webviews are positioned to match it (BACKLOG #2).
