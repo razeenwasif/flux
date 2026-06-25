@@ -1528,6 +1528,50 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .evt-save:disabled { opacity: 0.5; cursor: default; }
 .evt-save:not(:disabled):hover { filter: brightness(1.08); }
 
+/* ── Calculator widget (#127) ────────────────────────────────────────────── */
+.calc { display: flex; flex-direction: column; gap: 6px; outline: none; }
+.calc-display { background: var(--flux-surface); border: 1px solid var(--flux-border); border-radius: 9px; padding: 6px 10px; }
+.calc-expr { width: 100%; background: none; border: none; color: var(--flux-text); font-size: 19px; text-align: right; font-variant-numeric: tabular-nums; font-family: var(--flux-mono, ui-monospace, monospace); }
+.calc-expr:focus { outline: none; }
+.calc-preview { text-align: right; color: var(--flux-teal); font-size: 12px; min-height: 15px; font-variant-numeric: tabular-nums; }
+.calc-grid, .calc-row-sci { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+.calc-sci-head { display: flex; gap: 6px; }
+.calc-deg { flex: 1; padding: 5px; border-radius: 7px; background: var(--flux-surface); border: 1px solid var(--flux-border); color: var(--flux-text-mute); font-size: 11px; font-weight: 700; letter-spacing: .03em; cursor: pointer; }
+.calc-deg.on { background: var(--flux-violet); color: #fff; border-color: transparent; }
+.calc-btn { padding: 9px 0; border-radius: 8px; background: var(--flux-surface); border: 1px solid var(--flux-border); color: var(--flux-text); font-size: 14px; cursor: pointer; font-variant-numeric: tabular-nums; transition: border-color .12s, filter .12s; }
+.calc-btn:hover { border-color: var(--flux-teal); }
+.calc-btn:active { filter: brightness(1.25); }
+.calc-op { color: var(--flux-teal); font-weight: 600; }
+.calc-fn { font-size: 12px; color: var(--flux-violet); padding: 8px 0; }
+.calc-clear { color: #ff6b81; }
+.calc-eq { background: linear-gradient(135deg, var(--flux-violet), var(--flux-teal)); color: #fff; border: none; font-weight: 700; }
+.calc-modal-wrap { width: 100%; max-width: 360px; margin: 0 auto; }
+
+/* ── Unit / currency converter widget (#127) ─────────────────────────────── */
+.conv { display: flex; flex-direction: column; gap: 9px; }
+.conv-cat-sel, .conv-unit, .conv-amt { background: var(--flux-surface); border: 1px solid var(--flux-border); color: var(--flux-text); border-radius: 8px; font-size: 12.5px; font-family: inherit; }
+.conv-cat-sel { padding: 6px 8px; }
+.conv-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.conv-tab { background: var(--flux-surface); border: 1px solid var(--flux-border); color: var(--flux-text-mute); border-radius: 7px; padding: 5px 11px; font-size: 12px; cursor: pointer; }
+.conv-tab:hover { border-color: var(--flux-teal); }
+.conv-tab.on { background: var(--flux-violet); color: #fff; border-color: transparent; }
+.conv-body { display: flex; align-items: center; gap: 8px; }
+.conv-side { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.conv-amt { padding: 9px 10px; font-size: 17px; width: 100%; box-sizing: border-box; text-align: right; font-variant-numeric: tabular-nums; }
+.conv-amt:focus, .conv-unit:focus, .conv-cat-sel:focus { outline: none; border-color: var(--flux-teal); }
+.conv-unit { padding: 7px 8px; width: 100%; box-sizing: border-box; }
+.conv-result { background: var(--flux-surface); border: 1px solid var(--glass-rim-soft); border-radius: 8px; padding: 9px 10px; font-size: 17px; color: var(--flux-teal); font-weight: 700; min-height: 38px; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.conv-swap { background: var(--flux-surface); border: 1px solid var(--flux-border); color: var(--flux-text); border-radius: 50%; width: 30px; height: 30px; cursor: pointer; flex: none; font-size: 15px; }
+.conv-swap:hover { border-color: var(--flux-teal); color: var(--flux-teal); }
+.conv-note { font-size: 11px; color: var(--flux-text-mute); text-align: center; }
+.conv-full { width: 100%; max-width: 460px; margin: 0 auto; }
+
+/* ── Maps widget (#127) — Australia cover opens the full map panel ────────── */
+.start-map-cover { position: relative; display: block; width: 100%; height: 158px; border: none; padding: 0; border-radius: 10px; overflow: hidden; cursor: pointer; background: var(--flux-surface); }
+.start-map-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: none; pointer-events: none; }
+.start-map-label { position: absolute; left: 0; right: 0; bottom: 0; padding: 9px 11px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.62)); color: #fff; font-size: 13px; font-weight: 600; text-align: left; }
+.start-map-cover:hover .start-map-label { background: linear-gradient(transparent, rgba(124, 92, 255, 0.72)); }
+
 /* ── Liquid glass, extended to the search hero + expanded-widget modals ───── */
 .start-search {
   background:

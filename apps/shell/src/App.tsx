@@ -1395,6 +1395,7 @@ const App: Component = () => {
         onNavigate={go}
         onNewTerminal={() => void openTab("terminal")}
         onToggleAgent={() => setAgentOpen(true)}
+        onOpenMap={openMapPanel}
         onSleepBackground={sleepBackgroundTabs}
       />
       <Show when={panelColVisible()}>
@@ -2812,6 +2813,7 @@ const ContentArea: Component<{
   onNavigate: (url: string) => void;
   onNewTerminal: () => void;
   onToggleAgent: () => void;
+  onOpenMap: () => void;
   onSleepBackground: () => void;
 }> = (props) => {
   // Keyed by id (primitive) so the list is stable across unrelated tab updates.
@@ -2956,6 +2958,7 @@ const ContentArea: Component<{
             onNavigate={props.onNavigate}
             onNewTerminal={props.onNewTerminal}
             onToggleAgent={props.onToggleAgent}
+            onOpenMap={props.onOpenMap}
           />
         </Match>
       </Switch>

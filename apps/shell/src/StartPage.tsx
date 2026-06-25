@@ -41,6 +41,8 @@ import {
 } from "./ipc";
 import { activeId, focusTab, liquidBg, setHomeModalOpen, tabs } from "./store";
 import LiquidBackground from "./LiquidBackground";
+import Calculator from "./Calculator";
+import Converter from "./Converter";
 
 /** Hostname without `www.`, best-effort. */
 function hostOf(url: string): string {
@@ -66,7 +68,7 @@ interface Shortcut {
   tint: string;
 }
 
-type ExpandedWidget = "recent" | "shortcuts" | "topSites" | "headlines" | "scratch" | "calendar" | "tasks" | "actions" | null;
+type ExpandedWidget = "recent" | "shortcuts" | "topSites" | "headlines" | "scratch" | "calendar" | "tasks" | "actions" | "calc" | "convert" | null;
 
 const TINTS = ["#7b61ff", "#ec4be0", "#2ff3ff", "#ff9f45", "#ff6b4a", "#9d8df1", "#5bc0eb", "#7cf5b0"];
 
@@ -94,6 +96,7 @@ const StartPage: Component<{
   onNavigate: (url: string) => void;
   onNewTerminal: () => void;
   onToggleAgent: () => void;
+  onOpenMap: () => void;
 }> = (props) => {
   const [query, setQuery] = createSignal("");
   // Liquid backdrop (#77): falls back to the SVG wave if WebGL2/shader fails.
@@ -158,6 +161,9 @@ const StartPage: Component<{
     { key: "scratchpad", label: "Scratchpad" },
     { key: "calendar", label: "Calendar & clocks" },
     { key: "tasks", label: "Tasks" },
+    { key: "calc", label: "Calculator" },
+    { key: "convert", label: "Unit converter" },
+    { key: "map", label: "Maps" },
     { key: "omni", label: "Omni index" },
     { key: "actions", label: "Quick actions" },
   ];
@@ -970,6 +976,47 @@ const StartPage: Component<{
           <Show when={openTodos() > 0}><div class="start-todo-count">{openTodos()} open</div></Show>
         </div>
 
+        {/* Calculator (#130) — compact; expands to a scientific calculator. */}
+        <div class="glass start-card" style={{ display: widgetOn("calc") ? undefined : "none", order: orderOf("calc") }}>
+          <div class="start-card-title">
+            Calculator
+            <button class="start-card-link" title="Scientific calculator" onClick={() => setExpandedWidget("calc")}>⤢ Scientific</button>
+          </div>
+          <div class="start-card-body">
+            <Calculator />
+          </div>
+        </div>
+
+        {/* Unit converter (#130) — length/mass/temp/…; expands with currency. */}
+        <div class="glass start-card" style={{ display: widgetOn("convert") ? undefined : "none", order: orderOf("convert") }}>
+          <div class="start-card-title">
+            Unit converter
+            <button class="start-card-link" title="All categories + currency" onClick={() => setExpandedWidget("convert")}>⤢ Expand</button>
+          </div>
+          <div class="start-card-body">
+            <Converter />
+          </div>
+        </div>
+
+        {/* Maps (#130) — Australia cover; opens the full map panel. */}
+        <div class="glass start-card start-map-card" style={{ display: widgetOn("map") ? undefined : "none", order: orderOf("map") }}>
+          <div class="start-card-title">
+            Maps
+            <button class="start-card-link" title="Open maps" onClick={() => props.onOpenMap()}>⤢ Open</button>
+          </div>
+          <button class="start-map-cover" title="Open Maps" onClick={() => props.onOpenMap()}>
+            <iframe
+              class="start-map-frame"
+              src="https://www.openstreetmap.org/export/embed.html?bbox=112,-44.5,154.5,-9.5&layer=mapnik"
+              title="Australia"
+              loading="lazy"
+              tabindex={-1}
+              aria-hidden="true"
+            />
+            <span class="start-map-label">🗺 Open Maps</span>
+          </button>
+        </div>
+
         {/* Omni index glance (#97) */}
         <div class="glass start-card" style={{ display: widgetOn("omni") ? undefined : "none", order: orderOf("omni") }}>
           <div class="start-card-title">
@@ -1027,6 +1074,8 @@ const StartPage: Component<{
                   : expandedWidget() === "scratch" ? "Scratchpad"
                   : expandedWidget() === "tasks" ? "Tasks"
                   : expandedWidget() === "actions" ? "Quick actions"
+                  : expandedWidget() === "calc" ? "Scientific calculator"
+                  : expandedWidget() === "convert" ? "Unit & currency converter"
                   : monthLabel()}
               </span>
               <button class="files-panel-x" title="Close (Esc)" onClick={() => setExpandedWidget(null)}>✕</button>
@@ -1096,6 +1145,12 @@ const StartPage: Component<{
                     <button class="start-action" onClick={() => { setExpandedWidget(null); props.onNavigate(OMNI_URL); }}><span class="start-action-icon" style={{ color: "var(--flux-teal)" }}>✦</span> Omni index</button>
                     <button class="start-action" onClick={() => { setExpandedWidget(null); props.onNavigate(HISTORY_URL); }}><span class="start-action-icon">🕘</span> History</button>
                   </div>
+                </Show>
+                <Show when={expandedWidget() === "calc"}>
+                  <div class="calc-modal-wrap"><Calculator scientific /></div>
+                </Show>
+                <Show when={expandedWidget() === "convert"}>
+                  <Converter full />
                 </Show>
               </div>
             </Show>

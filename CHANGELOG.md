@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Calculator, unit-converter & maps home widgets** — three new start-page widgets
+  (toggle/reorder like the rest). **Calculator**: a compact keypad that expands (⤢
+  Scientific) into a full scientific calculator — trig (DEG/RAD), ln/log, √, powers,
+  factorial, π/e, parentheses, ANS — backed by a small safe expression evaluator (no
+  `eval`). **Unit converter**: length / mass / temperature / volume / area / speed /
+  time / data, plus a live **currency** converter (ECB rates via a new `currency_rates`
+  backend command — frankfurter.app, no key, no user data). **Maps**: an Australia cover
+  that opens the full map panel (the toolbar 🗺 still works too).
 - **Editable calendar + Gemma calendar control** — the calendar is no longer read-only.
   A new **on-device event store** (`cal_events.json`) backs full **add / edit / delete /
   drag-to-move** in the expanded week grid: click an empty slot to create, click an event

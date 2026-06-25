@@ -48,6 +48,7 @@ import type {
   CalEvent as GenCalEvent,
   CalFeed as GenCalFeed,
   LocalEvent as GenLocalEvent,
+  CurrencyRates as GenCurrencyRates,
   ContentScript as GenContentScript,
   CookieStatus as GenCookieStatus,
   CredentialMeta as GenCredentialMeta,
@@ -875,6 +876,11 @@ export const calEventUpdate = (id: number, patch: Partial<CalEventFields>) =>
     notes: patch.notes ?? null,
   });
 export const calEventDelete = (id: number) => invoke<void>("cal_event_delete", { id });
+
+// ─── Currency rates for the converter widget (#127) ──────────────────────────
+export type CurrencyRates = GenCurrencyRates;
+/** Live ECB reference rates (frankfurter.app); `rates[code]` = units per 1 `base`. */
+export const currencyRates = (base: string) => invoke<CurrencyRates>("currency_rates", { base });
 
 // ─── Local tasks / to-dos (BACKLOG #114) ─────────────────────────────────────
 export const todosList = () => invoke<Todo[]>("todos_list");

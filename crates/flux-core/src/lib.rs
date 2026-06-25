@@ -8,6 +8,7 @@ pub mod bindings;
 pub mod bookmarks;
 pub mod boosts;
 pub mod calendar;
+pub mod currency;
 pub mod broker;
 pub mod cache;
 pub mod cli;
@@ -587,6 +588,7 @@ pub fn run(intent: cli::LaunchIntent) {
             calendar::cal_event_add,
             calendar::cal_event_update,
             calendar::cal_event_delete,
+            currency::currency_rates,
             todos::todos_list,
             todos::todo_add,
             todos::todo_toggle,
