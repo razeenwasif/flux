@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Split view: a one-tap picker** — a ◫ button in the page-actions row tiles the current
+  page beside another tab. It opens a picker listing your other open web pages (pick one to
+  split with) plus **New blank tab** (opens a fresh navigable pane on the right). Toggles off
+  to merge. Complements the existing drag-a-tab-to-the-right-edge gesture; both drive the
+  same split engine (draggable seam, per-pane toolbars).
 - **Calculator, unit-converter & maps home widgets** — three new start-page widgets
   (toggle/reorder like the rest). **Calculator**: a compact keypad that expands (⤢
   Scientific) into a full scientific calculator — trig (DEG/RAD), ln/log, √, powers,

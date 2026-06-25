@@ -1703,6 +1703,23 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [picker, setPicker] = createSignal(false);
   const [address, setAddress] = createSignal("");
   const [panel, setPanel] = createSignal<FooterPanel>(null);
+  // Split-view picker (#43 follow-up) — choose which open tab tiles beside this one.
+  const [splitPicker, setSplitPicker] = createSignal(false);
+  const splitCandidates = () =>
+    tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url) && t.id !== activeId());
+  const doSplit = (rightId: number) => { const left = activeId(); setSplitPicker(false); if (left != null) startSplit(left, rightId); };
+  const doSplitNew = async () => {
+    const left = activeId();
+    setSplitPicker(false);
+    if (left == null) return;
+    // Open a real (navigable) blank webview in the background, then tile it on the right.
+    try {
+      const t = await openTab("browser", "about:blank", false, true);
+      startSplit(left, t.id);
+    } catch (err) {
+      console.error("split: new tab", err);
+    }
+  };
   // Drag-to-reorder pinned web panels in the app rail.
   const [dragPanel, setDragPanel] = createSignal<number | null>(null);
   const [dropPanel, setDropPanel] = createSignal<number | null>(null);
@@ -2250,12 +2267,39 @@ const Sidebar: Component<SidebarProps> = (props) => {
             >
               {props.isBookmarked() ? "★" : "☆"}
             </button>
+            <button type="button" classList={{ "icon-btn": true, active: splitPair() != null }} title={splitPair() != null ? "Exit split view" : "Split view — tile this page with another tab"} onClick={() => splitPair() != null ? clearSplit() : setSplitPicker(true)}>◫</button>
             <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
             <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
             <button type="button" class="icon-btn" title="Translate this page" onClick={() => props.onTranslate()}>🌐</button>
             <button type="button" class="icon-btn" title="Save for offline (read later)" onClick={() => props.onArchive()}>📚</button>
             <button type="button" class="icon-btn" title="Save this page to Omni (Ctrl+Shift+O)" onClick={() => props.onSaveToOmni()}>✦</button>
           </div>
+        </Show>
+
+        {/* Split-view picker — pick a tab to tile beside the current page, or open a
+            fresh blank pane. Portaled to <body> so the glass card isn't clipped. */}
+        <Show when={splitPicker()}>
+          <Portal>
+            <div class="split-picker-backdrop" onClick={() => setSplitPicker(false)} onKeyDown={(e) => { if (e.key === "Escape") setSplitPicker(false); }}>
+              <div class="split-picker glass" onClick={(e) => e.stopPropagation()}>
+                <div class="split-picker-head">◫ Split with…</div>
+                <div class="split-picker-list">
+                  <For each={splitCandidates()} fallback={<div class="split-picker-empty">No other web pages open.</div>}>
+                    {(t) => (
+                      <button class="split-picker-item" onClick={() => doSplit(t.id)}>
+                        <Favicon tab={t} />
+                        <span class="split-picker-label">{t.title || t.url}</span>
+                      </button>
+                    )}
+                  </For>
+                  <button class="split-picker-item split-picker-new" onClick={doSplitNew}>
+                    <span class="split-picker-newico">＋</span>
+                    <span class="split-picker-label">New blank tab</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Portal>
         </Show>
 
         {/* Find-in-page (#33) — also sidebar-resident, for the same reason. */}
