@@ -1158,6 +1158,13 @@ const App: Component = () => {
     if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
     setMapPanelOpen(true);
   };
+  // KB launcher (#116) — focus the Notebook (your Onyx + Scroll knowledge) if it's
+  // already open, otherwise open it in a new tab. The toolbar's second-brain entry.
+  const openNotebook = () => {
+    const existing = tabs().find((t) => t.url === NOTEBOOK_URL);
+    if (existing) void focusTab(existing.id);
+    else void openTab("browser", NOTEBOOK_URL);
+  };
   const closeMapPanel = () => {
     setMapPanelOpen(false);
     const t = activeTab();
@@ -1389,7 +1396,7 @@ const App: Component = () => {
         onToggleBookmark={toggleBookmark}
         isBookmarked={() => bookmarkedId() != null}
         onToggleFilesPanel={() => filesPanelOpen() ? closeFilesPanel() : openFilesPanel()}
-        onToggleMapPanel={() => mapPanelOpen() ? closeMapPanel() : openMapPanel()}
+        onOpenNotebook={openNotebook}
       />
       <ContentArea
         onNavigate={go}
@@ -1627,7 +1634,7 @@ interface SidebarProps {
   onToggleBookmark: () => void;
   isBookmarked: () => boolean;
   onToggleFilesPanel: () => void;
-  onToggleMapPanel: () => void;
+  onOpenNotebook: () => void;
 }
 
 type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | "notes" | "archived" | null;
@@ -2060,7 +2067,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Show>
           <button class="icon-btn" title="Home (new tab page)" onClick={() => props.onNavigate("flux://start")}>⌂</button>
           <button classList={{ "icon-btn": true, active: filesPanelOpen() }} title="File explorer" onClick={props.onToggleFilesPanel}>🗁</button>
-          <button classList={{ "icon-btn": true, active: mapPanelOpen() }} title="Maps" onClick={props.onToggleMapPanel}>🗺</button>
+          <button classList={{ "icon-btn": true, active: activeId() != null && tabs().find((t) => t.id === activeId())?.url === NOTEBOOK_URL }} title="Notebook — your knowledge base (Onyx + Scroll)" onClick={props.onOpenNotebook}>📓</button>
           <span style={{ flex: 1 }} />
         </Show>
       </div>
