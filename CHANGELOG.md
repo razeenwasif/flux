@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Changed
+- **Expanded calendar is now a Google-Calendar-style time grid** — the home calendar's
+  **⤢ Expand** opens a **Week / Day** view with an hours×days grid, events placed as
+  positioned blocks (overlap-aware column packing, so concurrent meetings sit side by
+  side), an all-day row, a live red **now** line, and ‹ › / **Today** navigation. Click a
+  day header to drop into Day view. Uses the new `DTEND` end-times so blocks show real
+  duration. (Was "I want the expanded calendar to resemble Google Calendar so I can see
+  all my events lined up for the day and week".)
 - **Task manager rebuilt btop-style (full page)** — `flux://tasks` is now a full-page
   system monitor: **CPU** overall graph + **per-core** load bars + model name, **RAM +
   swap** bars with a graph, **network** throughput (↓/↑ bytes/sec with a graph), and a
@@ -291,6 +298,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Expanded home widgets no longer hide behind the web panel** — a start-page widget's
+  expand modal is plain HTML, but a pinned **web panel is a native child webview that the
+  OS composites *above* all page content**, so no `z-index` could cover it. The modal now
+  flags `homeModalOpen`, and App hides the panel webview(s) while any widget is expanded
+  (same mechanism as reader / files popout). (Was "the expanded panes get covered by the
+  web app panel".)
 - **Calendar: show recurring events + fix the cap dropping upcoming ones** — the ICS parser now
   expands `RRULE` recurrences (FREQ=DAILY/WEEKLY/MONTHLY/YEARLY with INTERVAL/COUNT/UNTIL, weekly
   BYDAY, and EXDATE) within a window from today, instead of emitting only each series' first

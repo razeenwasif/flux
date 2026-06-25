@@ -1452,6 +1452,47 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .cal-day-event { display: flex; gap: 12px; padding: 6px 8px; border-radius: 8px; }
 .cal-day-event:hover { background: var(--flux-surface); }
 
+/* ── Expanded calendar — Google-Calendar-style day/week time grid (#91) ────── */
+.cal-modal.cal-week-modal { width: min(1180px, 96vw); height: 86vh; }
+.cal-week { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.cal-week-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--glass-rim-soft); flex: none; }
+.cal-week-nav, .cal-week-todaybtn { background: var(--flux-surface); border: 1px solid var(--flux-border); color: var(--flux-text); border-radius: 8px; cursor: pointer; line-height: 1; }
+.cal-week-nav { width: 30px; height: 30px; font-size: 18px; display: grid; place-items: center; }
+.cal-week-todaybtn { height: 30px; padding: 0 12px; font-size: 13px; font-weight: 600; }
+.cal-week-nav:hover, .cal-week-todaybtn:hover { border-color: var(--flux-teal); color: var(--flux-teal); }
+.cal-week-title { font-size: 15px; font-weight: 700; color: var(--flux-text); margin-left: 6px; }
+.cal-week-views { margin-left: auto; display: flex; background: var(--flux-surface); border: 1px solid var(--flux-border); border-radius: 8px; overflow: hidden; }
+.cal-week-views button { background: none; border: none; color: var(--flux-text-mute); padding: 6px 14px; cursor: pointer; font-size: 12.5px; font-weight: 600; }
+.cal-week-views button.on { background: var(--flux-violet); color: #fff; }
+
+.cal-week-head { display: grid; grid-template-columns: 56px repeat(var(--cols), minmax(0, 1fr)); border-bottom: 1px solid var(--glass-rim-soft); flex: none; }
+.cal-week-gutter-h { border-right: 1px solid var(--glass-rim-soft); }
+.cal-week-dayhead { background: none; border: none; border-left: 1px solid var(--glass-rim-soft); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; color: var(--flux-text-mute); }
+.cal-week-dayhead:hover { background: var(--flux-surface); }
+.cal-week-dow { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.cal-week-dom { font-size: 18px; font-weight: 700; color: var(--flux-text); width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; }
+.cal-week-dayhead.today .cal-week-dom { background: var(--flux-violet); color: #fff; }
+.cal-week-dayhead.today .cal-week-dow { color: var(--flux-violet); }
+
+.cal-week-allday { display: grid; grid-template-columns: 56px repeat(var(--cols), minmax(0, 1fr)); border-bottom: 1px solid var(--glass-rim-soft); flex: none; max-height: 84px; overflow-y: auto; }
+.cal-week-allday-label { font-size: 10px; color: var(--flux-text-mute); text-align: right; padding: 5px 6px 0 0; text-transform: uppercase; letter-spacing: .03em; }
+.cal-week-allday-col { border-left: 1px solid var(--glass-rim-soft); padding: 3px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cal-allday-chip { font-size: 11px; background: linear-gradient(135deg, var(--flux-violet), var(--flux-teal)); color: #fff; border-radius: 5px; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cal-week-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.cal-week-body { display: grid; grid-template-columns: 56px repeat(var(--cols), minmax(0, 1fr)); position: relative; }
+.cal-week-times { display: flex; flex-direction: column; }
+.cal-week-hour { height: var(--hour-h); position: relative; }
+.cal-week-hour span { position: absolute; top: -7px; right: 8px; font-size: 10px; color: var(--flux-text-mute); font-variant-numeric: tabular-nums; }
+.cal-week-col { position: relative; border-left: 1px solid var(--glass-rim-soft); background-image: repeating-linear-gradient(to bottom, var(--glass-rim-soft) 0 1px, transparent 1px var(--hour-h)); }
+.cal-week-col.today { background-color: rgba(124, 92, 255, 0.05); }
+.cal-now-line { position: absolute; left: 0; right: 0; height: 2px; background: #ff5a6e; z-index: 3; }
+.cal-now-line::before { content: ""; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #ff5a6e; }
+.cal-evt { position: absolute; border: none; border-radius: 6px; padding: 2px 6px; text-align: left; cursor: pointer; overflow: hidden; display: flex; flex-direction: column; background: linear-gradient(135deg, rgba(124, 92, 255, 0.92), rgba(56, 189, 248, 0.86)); color: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); border-left: 3px solid rgba(255, 255, 255, 0.5); z-index: 2; }
+.cal-evt:hover { filter: brightness(1.1); z-index: 4; }
+.cal-evt-time { font-size: 10px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.cal-evt-title { font-size: 12px; font-weight: 600; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; }
+
 /* ── Liquid glass, extended to the search hero + expanded-widget modals ───── */
 .start-search {
   background:

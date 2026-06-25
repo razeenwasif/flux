@@ -170,6 +170,7 @@ import {
   setFilesPanelPath,
   mapPanelOpen,
   agentMenuOpen,
+  homeModalOpen,
   setMapPanelOpen,
   mapQuery,
   setMapQuery,
@@ -792,7 +793,7 @@ const App: Component = () => {
     // Reader / Files popout / command palette are full overlays that must sit above
     // everything — including the web panel's own native webview layer.
     const hidden =
-      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen();
+      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen();
     syncSlot("top", top, hidden ? null : panelViewRect());
     syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
   });

@@ -523,6 +523,11 @@ export { pendingAsk, setPendingAsk };
 // captures the active page, and identifies it with the local vision model.
 const [pendingLens, setPendingLens] = createSignal(false);
 export { pendingLens, setPendingLens };
+// True while a start-page widget is expanded into its full-screen modal (#90).
+// Native web-panel webviews are an OS layer ABOVE all HTML, so z-index can't put
+// the modal over them — App hides the panel webviews while this is set instead.
+const [homeModalOpen, setHomeModalOpen] = createSignal(false);
+export { homeModalOpen, setHomeModalOpen };
 
 // Bookmark bar (#22): a chip row docked under the content card. Persisted,
 // default on. Toggling resizes the card → the webview relayout follows.

@@ -35,7 +35,7 @@ import {
   type FeedItem,
   type Todo,
 } from "./ipc";
-import { activeId, focusTab, liquidBg, tabs } from "./store";
+import { activeId, focusTab, liquidBg, setHomeModalOpen, tabs } from "./store";
 import LiquidBackground from "./LiquidBackground";
 
 /** Hostname without `www.`, best-effort. */
@@ -139,6 +139,10 @@ const StartPage: Component<{
   const [addingCal, setAddingCal] = createSignal(false);
   const [newCalUrl, setNewCalUrl] = createSignal("");
   const [expandedWidget, setExpandedWidget] = createSignal<ExpandedWidget>(null);
+  // Bridge the modal's open state to App so it hides the native web-panel webviews
+  // while a widget is expanded (z-index can't cover them — see store #90).
+  createEffect(() => setHomeModalOpen(expandedWidget() !== null));
+  onCleanup(() => setHomeModalOpen(false));
   // Show/hide widgets (#71) — persisted list of hidden widget keys (the clock + hero
   // are always shown). `Customize` toggles a checklist popover.
   const WIDGETS: { key: string; label: string }[] = [
@@ -199,6 +203,12 @@ const StartPage: Component<{
       : { background: v }; // a CSS color or gradient
   };
   const [selectedCalDate, setSelectedCalDate] = createSignal<string | null>(null);
+  // Expanded calendar: Google-Calendar-style time grid (#91). View mode + the
+  // anchor date the week/day is computed from (init once, not from reactive now()).
+  const [calView, setCalView] = createSignal<"week" | "day">("week");
+  const [calAnchor, setCalAnchor] = createSignal(
+    `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
+  );
   const [todos, setTodos] = createSignal<Todo[]>([]);
   const [newTodo, setNewTodo] = createSignal("");
 
@@ -318,21 +328,6 @@ const StartPage: Component<{
   const dayLabel = (date: string) =>
     date === todayStr() ? "Today" : new Date(`${date}T00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
   const eventListTitle = () => selectedCalDate() ? dayLabel(selectedCalDate()!) : "Upcoming";
-  /** All events from today onward, grouped by date, for the expanded view. */
-  const groupedEvents = (): { date: string; items: CalEvent[] }[] => {
-    const groups: { date: string; items: CalEvent[] }[] = [];
-    for (const e of events().filter((ev) => ev.date >= todayStr())) {
-      const g = groups.at(-1);
-      if (g && g.date === e.date) g.items.push(e);
-      else groups.push({ date: e.date, items: [e] });
-    }
-    return groups;
-  };
-  const visibleEventGroups = (): { date: string; items: CalEvent[] }[] => {
-    const selected = selectedCalDate();
-    if (!selected) return groupedEvents();
-    return [{ date: selected, items: eventsForDate(selected) }];
-  };
   const selectCalDay = (day: number) => {
     const date = dateForDay(day);
     setSelectedCalDate((cur) => cur === date ? null : date);
@@ -371,6 +366,140 @@ const StartPage: Component<{
     if (!url) return;
     void calAdd(url).then(() => { setNewCalUrl(""); setAddingCal(false); loadEvents(); }).catch(() => {});
   };
+
+  // ── Expanded calendar: Google-Calendar-style day/week grid (#91) ─────────────
+  const HOUR_H = 46; // px per hour row
+  const HOURS = Array.from({ length: 24 }, (_, h) => h);
+  const minsOf = (t: string) => { const [h, m] = t.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+  const addDaysStr = (date: string, n: number) => { const d = new Date(`${date}T00:00`); d.setDate(d.getDate() + n); return dateStrOf(d); };
+  const startOfWeekStr = (date: string) => addDaysStr(date, -new Date(`${date}T00:00`).getDay());
+  const calDays = () => calView() === "week"
+    ? Array.from({ length: 7 }, (_, i) => addDaysStr(startOfWeekStr(calAnchor()), i))
+    : [calAnchor()];
+  const calStep = (dir: number) => setCalAnchor((a) => addDaysStr(a, dir * (calView() === "week" ? 7 : 1)));
+  const calToday = () => setCalAnchor(todayStr());
+  const dowShort = (date: string) => new Date(`${date}T00:00`).toLocaleDateString([], { weekday: "short" });
+  const monthDay = (date: string) => new Date(`${date}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
+  const calTitle = () => {
+    if (calView() === "day") return dayLabel(calAnchor());
+    const ds = calDays();
+    const first = ds[0]!, last = ds[ds.length - 1]!;
+    const a = new Date(`${first}T00:00`), b = new Date(`${last}T00:00`);
+    const right = a.getMonth() === b.getMonth() ? String(b.getDate()) : monthDay(last);
+    return `${monthDay(first)} – ${right}, ${b.getFullYear()}`;
+  };
+  const hourLabel = (h: number) => h === 0 ? "" : h === 12 ? "12 PM" : h < 12 ? `${h} AM` : `${h - 12} PM`;
+  const nowMins = () => now().getHours() * 60 + now().getMinutes();
+  const allDayFor = (date: string) => eventsForDate(date).filter((e) => !e.time);
+  /** Pack a day's timed events into overlap-aware columns (GCal-style). */
+  const packDay = (date: string) => {
+    const items = eventsForDate(date)
+      .filter((e) => e.time)
+      .map((e) => ({ e, s: minsOf(e.time), en: e.end ? Math.max(minsOf(e.end), minsOf(e.time) + 20) : minsOf(e.time) + 50 }))
+      .sort((a, b) => a.s - b.s || a.en - b.en);
+    const out: { e: CalEvent; s: number; en: number; col: number; ncols: number }[] = [];
+    let cluster: typeof items = [];
+    let clusterEnd = -1;
+    const flush = () => {
+      const cols: number[] = []; // last end-time per column
+      const placed: { it: (typeof items)[number]; col: number }[] = [];
+      for (const it of cluster) {
+        let c = cols.findIndex((end) => end <= it.s);
+        if (c === -1) { c = cols.length; cols.push(it.en); } else { cols[c] = it.en; }
+        placed.push({ it, col: c });
+      }
+      for (const p of placed) out.push({ ...p.it, col: p.col, ncols: cols.length });
+      cluster = [];
+      clusterEnd = -1;
+    };
+    for (const it of items) {
+      if (cluster.length && it.s >= clusterEnd) flush();
+      cluster.push(it);
+      clusterEnd = Math.max(clusterEnd, it.en);
+    }
+    flush();
+    return out;
+  };
+  let weekScroll: HTMLDivElement | undefined;
+  // Scroll the grid to ~7am when the calendar modal opens (so the day starts in view).
+  createEffect(() => {
+    if (expandedWidget() === "calendar" && weekScroll) {
+      const el = weekScroll;
+      requestAnimationFrame(() => { el.scrollTop = 7 * HOUR_H; });
+    }
+  });
+  const CalWeek: Component = () => (
+    <div class="cal-week">
+      <div class="cal-week-toolbar">
+        <button class="cal-week-nav" title="Previous" onClick={() => calStep(-1)}>‹</button>
+        <button class="cal-week-todaybtn" onClick={calToday}>Today</button>
+        <button class="cal-week-nav" title="Next" onClick={() => calStep(1)}>›</button>
+        <span class="cal-week-title">{calTitle()}</span>
+        <div class="cal-week-views">
+          <button classList={{ on: calView() === "day" }} onClick={() => setCalView("day")}>Day</button>
+          <button classList={{ on: calView() === "week" }} onClick={() => setCalView("week")}>Week</button>
+        </div>
+      </div>
+      <div class="cal-week-head" style={{ "--cols": calDays().length }}>
+        <div class="cal-week-gutter-h" />
+        <For each={calDays()}>
+          {(d) => (
+            <button classList={{ "cal-week-dayhead": true, today: d === todayStr() }} onClick={() => { setCalView("day"); setCalAnchor(d); }}>
+              <span class="cal-week-dow">{dowShort(d)}</span>
+              <span class="cal-week-dom">{Number(d.slice(8, 10))}</span>
+            </button>
+          )}
+        </For>
+      </div>
+      <Show when={calDays().some((d) => allDayFor(d).length > 0)}>
+        <div class="cal-week-allday" style={{ "--cols": calDays().length }}>
+          <div class="cal-week-allday-label">all-day</div>
+          <For each={calDays()}>
+            {(d) => (
+              <div class="cal-week-allday-col">
+                <For each={allDayFor(d)}>
+                  {(e) => <div class="cal-allday-chip" title={`${e.summary}${e.location ? ` · ${e.location}` : ""}`}>{e.summary}</div>}
+                </For>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+      <div class="cal-week-scroll" ref={weekScroll}>
+        <div class="cal-week-body" style={{ height: `${24 * HOUR_H}px`, "--cols": calDays().length, "--hour-h": `${HOUR_H}px` }}>
+          <div class="cal-week-times">
+            <For each={HOURS}>{(h) => <div class="cal-week-hour"><span>{hourLabel(h)}</span></div>}</For>
+          </div>
+          <For each={calDays()}>
+            {(d) => (
+              <div classList={{ "cal-week-col": true, today: d === todayStr() }}>
+                <Show when={d === todayStr()}>
+                  <div class="cal-now-line" style={{ top: `${(nowMins() / 60) * HOUR_H}px` }} />
+                </Show>
+                <For each={packDay(d)}>
+                  {(b) => (
+                    <button
+                      class="cal-evt"
+                      style={{
+                        top: `${(b.s / 60) * HOUR_H}px`,
+                        height: `${Math.max(((b.en - b.s) / 60) * HOUR_H - 2, 16)}px`,
+                        left: `calc(${(b.col / b.ncols) * 100}% + 2px)`,
+                        width: `calc(${(1 / b.ncols) * 100}% - 4px)`,
+                      }}
+                      title={`${b.e.time}${b.e.end ? `–${b.e.end}` : ""} · ${b.e.summary}${b.e.location ? ` · ${b.e.location}` : ""}`}
+                    >
+                      <span class="cal-evt-time">{b.e.time}</span>
+                      <span class="cal-evt-title">{b.e.summary}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            )}
+          </For>
+        </div>
+      </div>
+    </div>
+  );
 
   // ── Tasks (#114) ───────────────────────────────────────────────────────────
   const addTodo = (ev: SubmitEvent) => {
@@ -770,7 +899,7 @@ const StartPage: Component<{
           opens here instead of resizing the grid. */}
       <Show when={expandedWidget()}>
         <div class="cal-modal-backdrop" onClick={() => setExpandedWidget(null)} onKeyDown={(e) => { if (e.key === "Escape") setExpandedWidget(null); }}>
-          <div class="cal-modal glass" onClick={(e) => e.stopPropagation()}>
+          <div classList={{ "cal-modal": true, glass: true, "cal-week-modal": expandedWidget() === "calendar" }} onClick={(e) => e.stopPropagation()}>
             <div class="cal-modal-head">
               <span class="cal-modal-title">
                 {expandedWidget() === "recent" ? "Recent tabs"
@@ -785,35 +914,7 @@ const StartPage: Component<{
               <button class="files-panel-x" title="Close (Esc)" onClick={() => setExpandedWidget(null)}>✕</button>
             </div>
             <Show when={expandedWidget() === "calendar"}>
-              <div class="cal-modal-body">
-                <div class="cal-modal-grid">
-                  <CalendarGrid modal />
-                </div>
-                <div class="cal-modal-events">
-                  <Show when={visibleEventGroups().some((g) => g.items.length > 0)} fallback={<div class="start-empty">{selectedCalDate() ? "No events for this day." : "No upcoming events."}</div>}>
-                    <For each={visibleEventGroups().filter((g) => g.items.length > 0)}>
-                      {(g) => (
-                        <div class="cal-day-group">
-                          <div class="cal-day-header">{dayLabel(g.date)}</div>
-                          <For each={g.items}>
-                            {(e) => (
-                              <div class="cal-day-event">
-                                <span class="cal-event-time">{e.time || "all-day"}</span>
-                                <div class="cal-event-main">
-                                  <span class="cal-event-title">{e.summary}</span>
-                                  <Show when={e.location || e.calendar}>
-                                    <span class="cal-event-sub">{[e.calendar, e.location].filter(Boolean).join(" · ")}</span>
-                                  </Show>
-                                </div>
-                              </div>
-                            )}
-                          </For>
-                        </div>
-                      )}
-                    </For>
-                  </Show>
-                </div>
-              </div>
+              <CalWeek />
             </Show>
             <Show when={expandedWidget() !== "calendar"}>
               <div class="widget-modal-body">
