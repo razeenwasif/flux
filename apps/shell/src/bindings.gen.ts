@@ -93,7 +93,7 @@ export type CalFeed = { id: number; url: string; name: string }
 /**
  * One event, in the feed's own calendar terms (no tz conversion).
  */
-export type CalEvent = { calendar: string; summary: string; date: string; time: string; location: string; sort_key: number }
+export type CalEvent = { calendar: string; summary: string; date: string; time: string; end: string; location: string; sort_key: number }
 export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string }
 /**
  * One unified search result (BACKLOG #66): an open tab, a bookmark, or a

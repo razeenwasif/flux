@@ -291,6 +291,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Calendar: show recurring events + fix the cap dropping upcoming ones** — the ICS parser now
+  expands `RRULE` recurrences (FREQ=DAILY/WEEKLY/MONTHLY/YEARLY with INTERVAL/COUNT/UNTIL, weekly
+  BYDAY, and EXDATE) within a window from today, instead of emitting only each series' first
+  instance — so weekly meetings etc. now appear on every upcoming date. Events are windowed to
+  ~today−14…+180d so the 500→1500 cap keeps what's *upcoming* rather than the oldest history.
+  Also captures DTEND for the day/week view. (Was "not all my Google Calendar events showed up".)
 - **Fix: Spotify control buttons returned 411** — bodyless PUT/POST control calls (pause, next,
   prev, shuffle, repeat, volume) hit `ureq`'s `.call()` with no `Content-Length`, which Spotify
   rejects with `411 Length Required`. They now send an explicit empty body. Fixes the music bubble

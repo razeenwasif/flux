@@ -22,7 +22,7 @@ use tauri::State;
 
 const MAX_ICS_BYTES: u64 = 4 * 1024 * 1024;
 /// Cap events returned to the widget (a busy calendar can have thousands).
-const MAX_EVENTS: usize = 500;
+const MAX_EVENTS: usize = 1500;
 
 /// A subscribed calendar (its ICS URL). Only this is persisted.
 #[derive(Serialize, Deserialize, Clone, specta::Type)]
@@ -41,6 +41,8 @@ pub struct CalEvent {
     pub date: String,
     /// `HH:MM` start time, or "" for an all-day event.
     pub time: String,
+    /// `HH:MM` end time (same day), or "" if unknown/all-day.
+    pub end: String,
     pub location: String,
     /// `YYYYMMDDHHMM` — monotonic key for sorting / bucketing by calendar date.
     pub sort_key: u64,
@@ -128,16 +130,35 @@ fn unfold(ics: &str) -> String {
     ics.replace("\r\n ", "").replace("\r\n\t", "").replace("\n ", "").replace("\n\t", "")
 }
 
-/// Parse all VEVENTs into the widget's calendar-term events.
+/// Past/future window (in days from today) we expand events into. Recurring
+/// events are expanded across this range; one-off events outside it are dropped
+/// so the cap keeps what's relevant (an upcoming calendar, not ancient history).
+const WINDOW_BACK_DAYS: i64 = 14;
+const WINDOW_FWD_DAYS: i64 = 180;
+/// Hard cap on occurrences per recurring series (defensive against runaway rules).
+const MAX_OCCURRENCES: usize = 400;
+
+/// Parse all VEVENTs into the widget's events, expanding RRULE recurrences within
+/// the window. Handles FREQ=DAILY/WEEKLY/MONTHLY with INTERVAL/COUNT/UNTIL,
+/// BYDAY (weekly), and EXDATE — which covers essentially all Google-Calendar
+/// recurring events.
 fn parse_events(ics: &str, cal_name: &str) -> Vec<CalEvent> {
+    parse_events_at(ics, cal_name, today_epoch_days())
+}
+
+fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
     let unfolded = unfold(ics);
+    let lo = today - WINDOW_BACK_DAYS;
+    let hi = today + WINDOW_FWD_DAYS;
     let mut out = Vec::new();
+
     let mut in_event = false;
     let mut summary = String::new();
     let mut location = String::new();
-    let mut date = String::new();
-    let mut time = String::new();
-    let mut sort_key = 0u64;
+    let mut start: Option<DtParts> = None;
+    let mut end_time = String::new();
+    let mut rrule = String::new();
+    let mut exdates: Vec<i64> = Vec::new();
 
     for line in unfolded.lines() {
         let line = line.trim_end_matches('\r');
@@ -145,21 +166,16 @@ fn parse_events(ics: &str, cal_name: &str) -> Vec<CalEvent> {
             in_event = true;
             summary.clear();
             location.clear();
-            date.clear();
-            time.clear();
-            sort_key = 0;
+            end_time.clear();
+            rrule.clear();
+            exdates.clear();
+            start = None;
             continue;
         }
         if line == "END:VEVENT" {
-            if !date.is_empty() {
-                out.push(CalEvent {
-                    calendar: cal_name.to_string(),
-                    summary: if summary.is_empty() { "(untitled)".into() } else { summary.clone() },
-                    date: date.clone(),
-                    time: time.clone(),
-                    location: location.clone(),
-                    sort_key,
-                });
+            if let Some(s) = start.take() {
+                let title = if summary.is_empty() { "(untitled)".into() } else { summary.clone() };
+                emit_occurrences(&title, &location, &end_time, &s, &rrule, &exdates, cal_name, lo, hi, &mut out);
             }
             in_event = false;
             continue;
@@ -167,18 +183,21 @@ fn parse_events(ics: &str, cal_name: &str) -> Vec<CalEvent> {
         if !in_event {
             continue;
         }
-        // Split "NAME;params:value" into (name+params, value) on the first ':'.
         let Some(colon) = line.find(':') else { continue };
         let (key, value) = (&line[..colon], &line[colon + 1..]);
         let name = key.split(';').next().unwrap_or(key);
         match name {
             "SUMMARY" => summary = decode_text(value),
             "LOCATION" => location = decode_text(value),
-            "DTSTART" => {
-                let (d, t, k) = parse_dt(value);
-                date = d;
-                time = t;
-                sort_key = k;
+            "DTSTART" => start = parse_dt(value),
+            "DTEND" => end_time = parse_dt(value).map(|p| p.time).unwrap_or_default(),
+            "RRULE" => rrule = value.to_string(),
+            "EXDATE" => {
+                for part in value.split(',') {
+                    if let Some(p) = parse_dt(part) {
+                        exdates.push(p.days);
+                    }
+                }
             }
             _ => {}
         }
@@ -186,23 +205,251 @@ fn parse_events(ics: &str, cal_name: &str) -> Vec<CalEvent> {
     out
 }
 
-/// `DTSTART` value → (`YYYY-MM-DD`, `HH:MM` or "", sort key `YYYYMMDDHHMM`).
-/// Handles `20260619`, `20260619T100000Z`, `20260619T100000`.
-fn parse_dt(value: &str) -> (String, String, u64) {
+/// A parsed DTSTART: calendar date pieces + the time-of-day + epoch-day index.
+#[derive(Clone)]
+struct DtParts {
+    days: i64,     // days since 1970-01-01
+    time: String,  // "HH:MM" or "" (all-day)
+    hhmm: u64,     // HHMM as a number for the sort key (0 for all-day)
+}
+
+/// `DTSTART`/`EXDATE` value → DtParts. Handles `20260619`, `20260619T100000Z`,
+/// `20260619T100000`. `None` if it isn't a date.
+fn parse_dt(value: &str) -> Option<DtParts> {
     let v: String = value.chars().take_while(|c| c.is_ascii_digit() || *c == 'T').collect();
     let digits: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
     if digits.len() < 8 {
-        return (String::new(), String::new(), 0);
+        return None;
     }
-    let (y, m, d) = (&digits[0..4], &digits[4..6], &digits[6..8]);
-    let date = format!("{y}-{m}-{d}");
+    let y: i64 = digits[0..4].parse().ok()?;
+    let m: u32 = digits[4..6].parse().ok()?;
+    let d: u32 = digits[6..8].parse().ok()?;
     let has_time = v.contains('T') && digits.len() >= 12;
-    let (hh, mm) = if has_time { (&digits[8..10], &digits[10..12]) } else { ("", "") };
-    let time = if has_time { format!("{hh}:{mm}") } else { String::new() };
-    let key: u64 = format!("{y}{m}{d}{}{}", if has_time { hh } else { "00" }, if has_time { mm } else { "00" })
-        .parse()
-        .unwrap_or(0);
-    (date, time, key)
+    let (time, hhmm) = if has_time {
+        (format!("{}:{}", &digits[8..10], &digits[10..12]), digits[8..12].parse().unwrap_or(0))
+    } else {
+        (String::new(), 0)
+    };
+    Some(DtParts { days: days_from_civil(y, m, d), time, hhmm })
+}
+
+/// Build a CalEvent for a single occurrence on `day`.
+fn make_event(day: i64, s: &DtParts, title: &str, location: &str, end: &str, cal: &str) -> CalEvent {
+    let (y, m, d) = civil_from_days(day);
+    CalEvent {
+        calendar: cal.to_string(),
+        summary: title.to_string(),
+        date: format!("{y:04}-{m:02}-{d:02}"),
+        time: s.time.clone(),
+        end: end.to_string(),
+        location: location.to_string(),
+        sort_key: (y as u64) * 100_000_000 + (m as u64) * 1_000_000 + (d as u64) * 10_000 + s.hhmm,
+    }
+}
+
+/// Expand a (possibly recurring) event into its in-window occurrences.
+#[allow(clippy::too_many_arguments)]
+fn emit_occurrences(
+    title: &str,
+    location: &str,
+    end: &str,
+    s: &DtParts,
+    rrule: &str,
+    exdates: &[i64],
+    cal: &str,
+    lo: i64,
+    hi: i64,
+    out: &mut Vec<CalEvent>,
+) {
+    let push = |day: i64, out: &mut Vec<CalEvent>| {
+        if day >= lo && day <= hi && !exdates.contains(&day) {
+            out.push(make_event(day, s, title, location, end, cal));
+        }
+    };
+    if rrule.is_empty() {
+        push(s.days, out);
+        return;
+    }
+    // Parse the rule.
+    let mut freq = "";
+    let mut interval: i64 = 1;
+    let mut count: Option<usize> = None;
+    let mut until: Option<i64> = None;
+    let mut bydays: Vec<i64> = Vec::new();
+    for part in rrule.split(';') {
+        let Some((k, v)) = part.split_once('=') else { continue };
+        match k.to_ascii_uppercase().as_str() {
+            "FREQ" => freq = match v.to_ascii_uppercase().as_str() {
+                "DAILY" => "DAILY",
+                "WEEKLY" => "WEEKLY",
+                "MONTHLY" => "MONTHLY",
+                "YEARLY" => "YEARLY",
+                _ => "",
+            },
+            "INTERVAL" => interval = v.parse().unwrap_or(1).max(1),
+            "COUNT" => count = v.parse().ok(),
+            "UNTIL" => until = parse_dt(v).map(|p| p.days),
+            "BYDAY" => bydays = v.split(',').filter_map(parse_weekday).collect(),
+            _ => {}
+        }
+    }
+    let until = until.unwrap_or(hi).min(hi);
+    let mut emitted = 0usize;
+    let mut cap = MAX_OCCURRENCES;
+    let mut bump = |day: i64, out: &mut Vec<CalEvent>| -> bool {
+        // Returns false to stop (COUNT reached). Counts every real occurrence from
+        // the series start, but only pushes those inside the window.
+        if count.is_some_and(|c| emitted >= c) {
+            return false;
+        }
+        emitted += 1;
+        push(day, out);
+        true
+    };
+
+    // Without a COUNT we don't need to track occurrences from the series start, so
+    // fast-forward to near the window — otherwise a daily-since-2020 rule would burn
+    // the occurrence cap before ever reaching today.
+    let ff = count.is_none();
+    match freq {
+        "DAILY" => {
+            let mut day = s.days;
+            if ff && day < lo {
+                day += ((lo - day + interval - 1) / interval) * interval;
+            }
+            while day <= until && cap > 0 {
+                if !bump(day, out) {
+                    break;
+                }
+                day += interval;
+                cap -= 1;
+            }
+        }
+        "WEEKLY" => {
+            let week_days: Vec<i64> = if bydays.is_empty() { vec![weekday(s.days)] } else { bydays.clone() };
+            let mut week_start = s.days - weekday(s.days); // Sunday of the start week
+            if ff && week_start < lo - 7 {
+                week_start += ((lo - 7 - week_start) / (7 * interval)) * 7 * interval;
+            }
+            'weeks: while week_start <= until && cap > 0 {
+                for &wd in &week_days {
+                    let day = week_start + wd;
+                    if day < s.days {
+                        continue; // earlier in the first week, before DTSTART
+                    }
+                    if day > until {
+                        continue;
+                    }
+                    if !bump(day, out) {
+                        break 'weeks;
+                    }
+                    cap -= 1;
+                    if cap == 0 {
+                        break 'weeks;
+                    }
+                }
+                week_start += 7 * interval;
+            }
+        }
+        "MONTHLY" => {
+            let (y, m, d) = civil_from_days(s.days);
+            let mut i: i64 = 0;
+            if ff {
+                let (ly, lm, _) = civil_from_days(lo);
+                let start_month = y * 12 + (m as i64 - 1);
+                let lo_month = ly * 12 + (lm as i64 - 1);
+                if lo_month > start_month {
+                    i = (lo_month - start_month) / interval;
+                }
+            }
+            loop {
+                let total = (y * 12 + (m as i64 - 1)) + i * interval;
+                let (yy, mm) = (total.div_euclid(12), (total.rem_euclid(12) + 1) as u32);
+                let dd = d.min(days_in_month(yy, mm));
+                let day = days_from_civil(yy, mm, dd);
+                if day > until || cap == 0 {
+                    break;
+                }
+                if !bump(day, out) {
+                    break;
+                }
+                i += 1;
+                cap -= 1;
+            }
+        }
+        "YEARLY" => {
+            let (y, m, d) = civil_from_days(s.days);
+            for i in 0..MAX_OCCURRENCES as i64 {
+                let day = days_from_civil(y + i * interval, m, d.min(days_in_month(y + i * interval, m)));
+                if day > until {
+                    break;
+                }
+                if !bump(day, out) {
+                    break;
+                }
+            }
+        }
+        _ => push(s.days, out), // unknown FREQ → at least the first instance
+    }
+}
+
+/// ICS BYDAY token (SU,MO,…; an optional ±N prefix is ignored) → weekday 0=Sun..6=Sat.
+fn parse_weekday(tok: &str) -> Option<i64> {
+    let day = tok.trim().trim_start_matches(|c: char| c == '+' || c == '-' || c.is_ascii_digit());
+    Some(match day.to_ascii_uppercase().as_str() {
+        "SU" => 0, "MO" => 1, "TU" => 2, "WE" => 3, "TH" => 4, "FR" => 5, "SA" => 6,
+        _ => return None,
+    })
+}
+
+/// Weekday of an epoch-day index, 0=Sunday..6=Saturday.
+fn weekday(days: i64) -> i64 {
+    (days.rem_euclid(7) + 4).rem_euclid(7)
+}
+
+fn is_leap(y: i64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
+fn days_in_month(y: i64, m: u32) -> u32 {
+    match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => if is_leap(y) { 29 } else { 28 },
+        _ => 30,
+    }
+}
+
+/// Days since 1970-01-01 for a civil date (Howard Hinnant's algorithm).
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (if m > 2 { m - 3 } else { m + 9 }) as i64;
+    let doy = (153 * mp + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// Inverse of `days_from_civil` → (year, month, day).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// Today as an epoch-day index (UTC — good enough for an at-a-glance calendar).
+fn today_epoch_days() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| (d.as_secs() / 86_400) as i64)
+        .unwrap_or(0)
 }
 
 /// Decode the iCalendar text escapes (`\n`, `\,`, `\;`, `\\`).
@@ -267,9 +514,13 @@ mod tests {
 
     const ICS: &str = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Team sync\r\nDTSTART:20260619T100000Z\r\nLOCATION:Room 4\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nSUMMARY:All day off\r\nDTSTART;VALUE=DATE:20260620\r\nEND:VEVENT\r\nEND:VCALENDAR";
 
+    fn day(y: i64, m: u32, d: u32) -> i64 {
+        days_from_civil(y, m, d)
+    }
+
     #[test]
     fn parses_timed_and_all_day() {
-        let ev = parse_events(ICS, "Work");
+        let ev = parse_events_at(ICS, "Work", day(2026, 6, 15));
         assert_eq!(ev.len(), 2);
         assert_eq!(ev[0].summary, "Team sync");
         assert_eq!(ev[0].date, "2026-06-19");
@@ -283,10 +534,45 @@ mod tests {
 
     #[test]
     fn unfolds_continuation_lines() {
-        // RFC 5545 folds with a single leading space on the continuation line.
         let folded = "BEGIN:VEVENT\r\nSUMMARY:Long title that\r\n wraps\r\nDTSTART:20260101\r\nEND:VEVENT";
-        let ev = parse_events(folded, "C");
+        let ev = parse_events_at(folded, "C", day(2026, 1, 1));
         assert_eq!(ev[0].summary, "Long title thatwraps");
+    }
+
+    #[test]
+    fn civil_date_roundtrips() {
+        assert_eq!(civil_from_days(days_from_civil(2026, 6, 25)), (2026, 6, 25));
+        assert_eq!(weekday(days_from_civil(1970, 1, 1)), 4); // 1970-01-01 was a Thursday
+        assert_eq!(days_in_month(2024, 2), 29); // leap
+        assert_eq!(days_in_month(2026, 2), 28);
+    }
+
+    #[test]
+    fn expands_daily_rrule_count() {
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Standup\r\nDTSTART:20260610T090000\r\nRRULE:FREQ=DAILY;COUNT=5\r\nEND:VEVENT";
+        let ev = parse_events_at(ics, "W", day(2026, 6, 10));
+        assert_eq!(ev.len(), 5);
+        assert_eq!(ev[0].date, "2026-06-10");
+        assert_eq!(ev[4].date, "2026-06-14");
+        assert!(ev.iter().all(|e| e.time == "09:00" && e.summary == "Standup"));
+    }
+
+    #[test]
+    fn expands_weekly_byday_and_honours_exdate() {
+        // Mon+Wed weekly from 2026-06-01, with one Wednesday excluded.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Class\r\nDTSTART:20260601T140000\r\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=6\r\nEXDATE:20260603T140000\r\nEND:VEVENT";
+        let ev = parse_events_at(ics, "W", day(2026, 6, 1));
+        assert_eq!(ev.len(), 5); // 6 occurrences minus the excluded Wed
+        assert!(ev.iter().all(|e| e.summary == "Class" && e.date != "2026-06-03"));
+    }
+
+    #[test]
+    fn windows_infinite_recurrence_to_upcoming_only() {
+        // Daily since 2020, forever — viewed in 2026 we get the window, not 6 years.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Daily\r\nDTSTART:20200101T080000\r\nRRULE:FREQ=DAILY\r\nEND:VEVENT";
+        let ev = parse_events_at(ics, "D", day(2026, 6, 15));
+        assert!(ev.len() > 150 && ev.len() < 220, "got {}", ev.len()); // ~195-day window
+        assert!(ev.iter().all(|e| e.date.as_str() >= "2026-06-01")); // nothing from 2020
     }
 
     #[test]
