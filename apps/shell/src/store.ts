@@ -613,6 +613,9 @@ export { splitPickerOpen, setSplitPickerOpen };
 // Semantic find overlay (#126) — find-by-meaning in-page / across tabs.
 const [semFindOpen, setSemFindOpen] = createSignal(false);
 export { semFindOpen, setSemFindOpen };
+// Watched-pages panel (#128) — semantic change monitor list.
+const [watchPanelOpen, setWatchPanelOpen] = createSignal(false);
+export { watchPanelOpen, setWatchPanelOpen };
 
 // An agent-panel dropdown (model picker / past chats) is open. Native page
 // webviews are an OS layer above the chrome, so a dropdown rendered over the page

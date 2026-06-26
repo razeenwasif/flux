@@ -94,6 +94,8 @@ import {
   webviewShow,
   webviewStop,
   webviewFind,
+  watchAdd,
+  watchIsWatched,
   panelOpen,
   panelSetBounds,
   panelShow,
@@ -118,6 +120,7 @@ import { keyToAction } from "./shortcuts";
 import FindBar from "./FindBar";
 import ShellHistory from "./ShellHistory";
 import SemanticFind from "./SemanticFind";
+import WatchPanel from "./WatchPanel";
 import Downloads from "./Downloads";
 import Shields from "./Shields";
 import type { PaletteAction } from "./CommandPalette";
@@ -179,6 +182,8 @@ import {
   setSplitPickerOpen,
   semFindOpen,
   setSemFindOpen,
+  watchPanelOpen,
+  setWatchPanelOpen,
   agentMenuOpen,
   homeModalOpen,
   setMapPanelOpen,
@@ -712,7 +717,7 @@ const App: Component = () => {
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = splitDragging() || panelDragging();
-    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen();
+    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen() || watchPanelOpen();
     const panes = overlay ? [] : paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
@@ -803,7 +808,7 @@ const App: Component = () => {
     // Reader / Files popout / command palette are full overlays that must sit above
     // everything — including the web panel's own native webview layer.
     const hidden =
-      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen();
+      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen() || watchPanelOpen();
     syncSlot("top", top, hidden ? null : panelViewRect());
     syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
   });
@@ -1235,6 +1240,7 @@ const App: Component = () => {
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
     { id: "semantic-find", label: "Semantic find (by meaning · across tabs)", icon: "✦", run: () => setSemFindOpen(true) },
     { id: "shell-history", label: "Search shell history (by meaning)", icon: "⌘", run: () => setShellHistOpen(true) },
+    { id: "watches", label: "Watched pages (change monitor)", icon: "👁", run: () => setWatchPanelOpen(true) },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
@@ -1536,6 +1542,8 @@ const App: Component = () => {
       <ShellHistory />
       {/* Semantic find (#126) — find-by-meaning in-page / across tabs. */}
       <SemanticFind />
+      {/* Watched pages (#128) — semantic change monitor list. */}
+      <WatchPanel />
 
       {/* Right-click "open in new tab" menu for links in internal DOM pages. */}
       <LinkMenu onOpen={(url, background) => void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {})} />
@@ -1722,6 +1730,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Store-backed so the webview-gating effects can hide the page beneath it.
   const splitPicker = splitPickerOpen;
   const setSplitPicker = setSplitPickerOpen;
+  // Page-watch (#128) — is the active page being monitored? Re-checked on tab change.
+  const [watched, setWatched] = createSignal(false);
+  createEffect(() => {
+    const t = activeTab();
+    if (t?.kind === "browser" && !isStartUrl(t.url)) void watchIsWatched(t.url).then(setWatched).catch(() => setWatched(false));
+    else setWatched(false);
+  });
+  const toggleWatch = () => {
+    const t = activeTab();
+    if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
+    if (watched()) { setWatchPanelOpen(true); return; } // already watching → manage in the panel
+    void watchAdd(t.url, t.title || t.url).then(() => setWatched(true)).catch(() => {});
+  };
   const splitCandidates = () =>
     tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url) && t.id !== activeId());
   const doSplit = (rightId: number) => { const left = activeId(); setSplitPicker(false); if (left != null) startSplit(left, rightId); };
@@ -2289,6 +2310,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
             <button type="button" class="icon-btn" title="Translate this page" onClick={() => props.onTranslate()}>🌐</button>
             <button type="button" class="icon-btn" title="Save for offline (read later)" onClick={() => props.onArchive()}>📚</button>
+            <button type="button" classList={{ "icon-btn": true, active: watched() }} title={watched() ? "Watching for changes — click to manage" : "Watch this page for changes"} onClick={toggleWatch}>👁</button>
             <button type="button" class="icon-btn" title="Save this page to Omni (Ctrl+Shift+O)" onClick={() => props.onSaveToOmni()}>✦</button>
           </div>
         </Show>

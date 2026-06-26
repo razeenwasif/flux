@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Watch a page for semantic changes** — hit 👁 in the toolbar to pin a page; a background
+  scheduler re-fetches it on an interval, extracts the readable text, and compares it to the
+  last baseline by **embedding** — so it reports what *meaningfully* changed (a section added,
+  a claim removed), not a noisy character diff. Changes fire an OS notification and show in a
+  **Watched pages** panel (command palette → "Watched pages") with the added/removed passages
+  marked +/−. Fully local — the only network is fetching the page you asked it to watch. New
+  `watch_*` commands + `flux://watch-changed` event.
 - **Semantic find — in-page + across tabs** — a find-by-*meaning* companion to Ctrl+F: ask
   "where does it explain the pricing" and it ranks the page's passages by embedding (not
   string) match, with a **This page / All tabs** toggle to search every open tab at once.

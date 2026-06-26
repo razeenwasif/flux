@@ -51,6 +51,7 @@ import type {
   CurrencyRates as GenCurrencyRates,
   ShellHistHit as GenShellHistHit,
   FindHit as GenFindHit,
+  WatchItem as GenWatchItem,
   ContentScript as GenContentScript,
   CookieStatus as GenCookieStatus,
   CredentialMeta as GenCredentialMeta,
@@ -895,6 +896,19 @@ export const shellHistorySearch = (query: string, limit?: number) =>
   invoke<ShellHistHit[]>("shell_history_search", { query, limit: limit ?? null });
 /** Rebuild the history corpus from ~/.bash_history + ~/.zsh_history; returns the count. */
 export const shellHistoryReindex = () => invoke<number>("shell_history_reindex");
+
+// ─── Watch a page for semantic changes (BACKLOG #128) ────────────────────────
+export type WatchItem = GenWatchItem;
+export const watchList = () => invoke<WatchItem[]>("watch_list");
+export const watchIsWatched = (url: string) => invoke<boolean>("watch_is_watched", { url });
+export const watchAdd = (url: string, title: string, intervalSecs?: number) =>
+  invoke<WatchItem>("watch_add", { url, title, intervalSecs: intervalSecs ?? null });
+export const watchRemove = (id: number) => invoke<void>("watch_remove", { id });
+export const watchMarkSeen = (id: number) => invoke<void>("watch_mark_seen", { id });
+export const watchCheckNow = (id: number) => invoke<WatchItem | null>("watch_check_now", { id });
+/** Fired when a watched page's content semantically changed. */
+export const onWatchChanged = (cb: (w: WatchItem) => void): Promise<UnlistenFn> =>
+  listen<WatchItem>("flux://watch-changed", (e) => cb(e.payload));
 
 // ─── Semantic find — in-page + across tabs (BACKLOG #126) ────────────────────
 export type FindHit = GenFindHit;

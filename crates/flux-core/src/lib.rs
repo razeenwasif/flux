@@ -11,6 +11,7 @@ pub mod calendar;
 pub mod currency;
 pub mod shellhist;
 pub mod semfind;
+pub mod watch;
 pub mod broker;
 pub mod cache;
 pub mod cli;
@@ -350,6 +351,14 @@ pub fn run(intent: cli::LaunchIntent) {
             app.manage(boot_phase("todos.restore", boot_started, || todos::TodoStore::restore(todos_path)));
             // Semantic shell-history search (#122) — corpus built lazily on first use.
             app.manage(shellhist::ShellHistStore::default());
+            // Page-watch (#128) — semantic change monitor + background scheduler.
+            let watch_path = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("watches.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("flux-watches.json"));
+            app.manage(boot_phase("watch.restore", boot_started, || watch::WatchStore::restore(watch_path)));
+            watch::start_scheduler(app.handle().clone());
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -596,6 +605,12 @@ pub fn run(intent: cli::LaunchIntent) {
             shellhist::shell_history_search,
             shellhist::shell_history_reindex,
             semfind::semantic_find,
+            watch::watch_list,
+            watch::watch_is_watched,
+            watch::watch_add,
+            watch::watch_remove,
+            watch::watch_mark_seen,
+            watch::watch_check_now,
             todos::todos_list,
             todos::todo_add,
             todos::todo_toggle,

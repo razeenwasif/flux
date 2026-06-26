@@ -108,6 +108,10 @@ export type ShellHistHit = { command: string; score: number; source: string; ts:
  * One ranked passage match.
  */
 export type FindHit = { tab_id: number; title: string; url: string; passage: string; score: number }
+/**
+ * UI-facing view (no baseline text — that can be large).
+ */
+export type WatchItem = { id: number; url: string; title: string; interval_secs: number; last_checked_ms: number; last_change_ms: number; added: string[]; removed: string[]; error: string | null; seen: boolean }
 export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string }
 /**
  * One unified search result (BACKLOG #66): an open tab, a bookmark, or a
