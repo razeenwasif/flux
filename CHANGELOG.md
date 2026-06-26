@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Weekly research digest in the Notebook** — Gemma reviews everything you added to your
+  knowledge base this week (Onyx notes written, Scroll papers clipped, Council debates) and
+  writes a private briefing: **Threads** (this week's themes), **Connections** (non-obvious
+  links between items), and **Open questions** (what to follow up). Generated on demand,
+  cached per ISO week, fully local. Backed by a new true `indexed_at` timestamp on KB docs
+  (the connector `mtime` is a change-key, not a clock) and a `kb_recent` command.
 - **Semantic shell-history search (Ctrl+Shift+R)** — find a past command by *meaning*, not
   substring: "convert a video to webm", "that long ffmpeg one", "git undo last commit". Reads
   your real `~/.bash_history` + `~/.zsh_history` (through the terminal's shell, so it works

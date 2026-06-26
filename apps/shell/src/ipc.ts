@@ -59,6 +59,7 @@ import type {
   KbHit as GenKbHit,
   KbSourceStat as GenKbSourceStat,
   KbStatus as GenKbStatus,
+  KbRecentItem as GenKbRecentItem,
   KbCheck as GenKbCheck,
   ServiceStatus as GenServiceStatus,
   SpotifyState as GenSpotifyState,
@@ -516,7 +517,10 @@ export type KbCheck = GenKbCheck;
 export const kbCheck = (text: string) => invoke<KbCheck>("kb_check", { text });
 // ─── Knowledge Base / second brain (#116, ADR 0010) ─────────────────────────
 /** Per-source + overall index status for the Notebook view. */
+export type KbRecentItem = GenKbRecentItem;
 export const kbStatus = () => invoke<KbStatus>("kb_status");
+/** Docs added to the KB in the last `days` (default 7) — weekly digest input (#125). */
+export const kbRecent = (days = 7) => invoke<KbRecentItem[]>("kb_recent", { days });
 /** (Re)build the index for one source (or all when omitted). Returns fresh status. */
 export const kbReindex = (source?: string) => invoke<KbStatus>("kb_reindex", { source });
 /** Point a source at a location (Onyx vault path / Scroll URL); empty clears it.

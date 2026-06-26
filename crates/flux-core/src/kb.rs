@@ -50,6 +50,12 @@ pub struct KbDoc {
     pub path: String,
     pub mtime: u64,
     pub n_chunks: usize,
+    /// Epoch-ms when Flux first indexed this doc (or last rebuilt it after a
+    /// change). Unlike `mtime` (a connector-specific change key — e.g. Scroll
+    /// hashes its `updated` field), this is a real clock time, so it powers the
+    /// weekly digest's "what you added this week" (#125). `0` for pre-#125 docs.
+    #[serde(default)]
+    pub indexed_at: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -114,6 +120,18 @@ pub struct KbStatus {
     /// "model" or "hash" — which embedder the corpus is on.
     pub embedder: String,
     pub indexing: bool,
+}
+
+/// A recently-indexed document, for the weekly digest (#125).
+#[derive(Serialize, Clone, specta::Type)]
+pub struct KbRecentItem {
+    pub source: String,
+    pub title: String,
+    pub path: String,
+    /// Epoch-ms when Flux indexed it.
+    pub indexed_at: u64,
+    /// First-chunk excerpt (so the digest has substance, not just titles).
+    pub snippet: String,
 }
 
 /// Sources Flux knows how to pull (Onyx vault notes, Scroll papers, Council briefs).
@@ -214,6 +232,33 @@ impl KbStore {
             })
             .collect();
         KbStatus { sources, embedder: embedder_name(d.embedder).to_string(), indexing: self.indexing.load(Ordering::Acquire) }
+    }
+
+    /// Documents indexed within the last `days`, newest first (for the weekly
+    /// digest #125). Each carries a first-chunk excerpt so the summary has substance.
+    pub fn recent(&self, days: u64, cap: usize) -> Vec<KbRecentItem> {
+        let d = self.data.read();
+        let cutoff = now_ms().saturating_sub(days.saturating_mul(86_400_000));
+        let mut docs: Vec<&KbDoc> = d.docs.iter().filter(|x| x.indexed_at > 0 && x.indexed_at >= cutoff).collect();
+        docs.sort_by(|a, b| b.indexed_at.cmp(&a.indexed_at));
+        docs.truncate(cap);
+        docs.into_iter()
+            .map(|doc| {
+                let snippet = d
+                    .chunks
+                    .iter()
+                    .find(|c| c.source == doc.source && c.doc_id == doc.doc_id && c.ord == 0)
+                    .map(|c| c.text.chars().take(240).collect::<String>())
+                    .unwrap_or_default();
+                KbRecentItem {
+                    source: doc.source.clone(),
+                    title: doc.title.clone(),
+                    path: doc.path.clone(),
+                    indexed_at: doc.indexed_at,
+                    snippet,
+                }
+            })
+            .collect()
     }
 
     /// Persist a source's location override (Onyx vault path / Scroll URL). Empty
@@ -322,6 +367,7 @@ impl KbStore {
                     path: doc.path.clone(),
                     mtime: doc.mtime,
                     n_chunks: 0,
+                    indexed_at: now_ms(),
                 });
                 continue;
             }
@@ -346,6 +392,7 @@ impl KbStore {
                 path: doc.path.clone(),
                 mtime: doc.mtime,
                 n_chunks: new_chunks.iter().filter(|c| c.doc_id == doc.doc_id).count(),
+                indexed_at: now_ms(),
             });
         }
 
@@ -719,6 +766,19 @@ pub async fn kb_status(kb: State<'_, KbStore>) -> Result<KbStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
         kb.hydrate();
         kb.status()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Documents added to the KB within the last `days` (default 7) — the weekly
+/// research digest's raw material (#125).
+#[tauri::command]
+pub async fn kb_recent(kb: State<'_, KbStore>, days: Option<u64>) -> Result<Vec<KbRecentItem>, String> {
+    let kb = (*kb).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        kb.hydrate();
+        kb.recent(days.unwrap_or(7), 80)
     })
     .await
     .map_err(|e| e.to_string())

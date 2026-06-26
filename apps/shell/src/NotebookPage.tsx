@@ -9,7 +9,7 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 
-import { fsOpen, kbAnswer, kbReindex, kbSetSource, kbStatus, servicesStart, servicesStatus, type KbHit, type KbStatus, type ServiceStatus } from "./ipc";
+import { agentChat, fsOpen, kbAnswer, kbRecent, kbReindex, kbSetSource, kbStatus, servicesStart, servicesStatus, type KbHit, type KbStatus, type ServiceStatus } from "./ipc";
 import { openTab } from "./store";
 
 const SOURCE_LABEL: Record<string, string> = { onyx: "Onyx vault", scroll: "Scroll papers", council: "Council briefs" };
@@ -33,9 +33,55 @@ const NotebookPage: Component = () => {
   // Per-source location edit buffer (Onyx vault path / Scroll URL).
   const [loc, setLoc] = createSignal<Record<string, string>>({});
 
+  // Weekly research digest (#125) — Gemma reviews what you indexed/clipped/debated
+  // this week and writes a private briefing. Cached per ISO week so it's generated
+  // on demand, not on every open. Fully local (agentChat → Gemma).
+  type Digest = { state: "idle" | "loading" | "ok" | "empty" | "error"; text?: string; error?: string };
+  const [digest, setDigest] = createSignal<Digest>({ state: "idle" });
+  const DIGEST_KEY = "flux.kb.digest";
+  const weekKey = () => {
+    const d = new Date();
+    const onejan = new Date(d.getFullYear(), 0, 1);
+    const week = Math.ceil(((d.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7);
+    return `${d.getFullYear()}-W${week}`;
+  };
+  const generateDigest = async () => {
+    if (digest().state === "loading") return;
+    setDigest({ state: "loading" });
+    try {
+      const items = await kbRecent(7);
+      if (!items.length) { setDigest({ state: "empty" }); return; }
+      const list = items
+        .map((i) => `- [${SOURCE_LABEL[i.source] ?? i.source}] ${i.title}${i.snippet ? ` — ${i.snippet.replace(/\s+/g, " ").trim()}` : ""}`)
+        .join("\n");
+      const prompt =
+        "You are my private research companion. Below is everything I added to my knowledge base this week " +
+        "(notes I wrote, papers I clipped, debates I ran). Write a short weekly briefing in Markdown with these sections:\n" +
+        "**Threads** — the main topics/themes this week, one line each.\n" +
+        "**Connections** — non-obvious links between different items worth noticing.\n" +
+        "**Open questions** — what's unresolved or worth following up next.\n" +
+        "Reference items by title, be specific, and keep it tight — no preamble or sign-off.\n\nThis week's items:\n" +
+        list;
+      const reply = await agentChat(prompt);
+      const text = reply.trim();
+      setDigest({ state: "ok", text });
+      localStorage.setItem(DIGEST_KEY, JSON.stringify({ week: weekKey(), text }));
+    } catch (e) {
+      setDigest({ state: "error", error: String(e) });
+    }
+  };
+
   const refresh = () => void kbStatus().then(setStatus).catch(() => {});
   const refreshServices = () => void servicesStatus().then(setServices).catch(() => {});
-  onMount(() => { refresh(); refreshServices(); });
+  onMount(() => {
+    refresh();
+    refreshServices();
+    // Restore this week's cached digest (don't auto-generate).
+    try {
+      const c = JSON.parse(localStorage.getItem(DIGEST_KEY) || "null");
+      if (c && c.week === weekKey() && c.text) setDigest({ state: "ok", text: c.text });
+    } catch { /* ignore a bad cache entry */ }
+  });
   const startService = async (name: string) => {
     try { await servicesStart(name); } catch { /* best-effort */ }
     setTimeout(refreshServices, 1500); // give it a moment to come up
@@ -181,6 +227,28 @@ const NotebookPage: Component = () => {
           Nothing indexed yet. Hit <b>↻ Reindex</b> to pull in your Onyx vault, then ask away.
         </div>
       </Show>
+
+      {/* Weekly research digest (#125) — what you added this week, synthesised. */}
+      <div class="nb-digest">
+        <div class="nb-digest-head">
+          <span class="nb-digest-title">📅 This week in your knowledge base</span>
+          <button class="nb-digest-go" disabled={digest().state === "loading"} onClick={() => void generateDigest()}>
+            {digest().state === "loading" ? "Writing…" : digest().state === "ok" ? "↻ Regenerate" : "Generate digest"}
+          </button>
+        </div>
+        <Show when={digest().state === "idle"}>
+          <div class="nb-digest-hint">Let Gemma review what you indexed, clipped, and debated this week — threads, connections, and open questions. Stays on your machine.</div>
+        </Show>
+        <Show when={digest().state === "empty"}>
+          <div class="nb-digest-hint">Nothing new indexed in the last 7 days. Clip a paper to Scroll or add an Onyx note, then ↻ Reindex.</div>
+        </Show>
+        <Show when={digest().state === "error"}>
+          <div class="nb-err">{digest().error}</div>
+        </Show>
+        <Show when={digest().state === "ok"}>
+          <div class="nb-digest-body">{digest().text}</div>
+        </Show>
+      </div>
 
       {/* Ask box */}
       <div class="nb-ask">

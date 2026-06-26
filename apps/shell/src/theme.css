@@ -2021,6 +2021,15 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .nb-source-stat { font-size: 10.5px; color: var(--flux-text-mute); }
 .nb-embedder { margin-left: auto; font-size: 10.5px; color: var(--flux-text-mute); border: 1px solid var(--flux-border); border-radius: 999px; padding: 2px 9px; }
 .nb-empty { font-size: 13px; color: var(--flux-text-mute); padding: 14px 16px; border: 1px dashed var(--flux-border); border-radius: 12px; margin-bottom: 16px; }
+/* Weekly research digest (#125) */
+.nb-digest { border: 1px solid var(--flux-border); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; background: linear-gradient(150deg, rgba(124, 92, 255, 0.06), transparent 70%); }
+.nb-digest-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.nb-digest-title { font-size: 13.5px; font-weight: 700; color: var(--flux-text); }
+.nb-digest-go { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--flux-border); background: var(--flux-surface); color: var(--flux-text); font-size: 12.5px; font-weight: 600; cursor: pointer; flex: none; }
+.nb-digest-go:hover:not(:disabled) { border-color: var(--flux-violet); color: var(--flux-violet); }
+.nb-digest-go:disabled { opacity: 0.6; cursor: default; }
+.nb-digest-hint { font-size: 12.5px; color: var(--flux-text-mute); margin-top: 8px; line-height: 1.5; }
+.nb-digest-body { font-size: 14px; line-height: 1.65; color: var(--flux-text); white-space: pre-wrap; word-break: break-word; margin-top: 12px; }
 .nb-ask { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 14px; }
 .nb-input { flex: 1; min-height: 56px; max-height: 160px; resize: vertical; padding: 12px 14px; font: inherit; font-size: 13.5px; color: var(--flux-text); background: rgba(10, 8, 24, 0.5); border: 1px solid var(--flux-border); border-radius: 12px; }
 .nb-input:focus { outline: none; border-color: var(--flux-teal); }
