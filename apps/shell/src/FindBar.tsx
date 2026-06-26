@@ -7,7 +7,7 @@
  */
 import { Show, createSignal, type Component } from "solid-js";
 import { webviewFind } from "./ipc";
-import { activeId, findMatches, setFindMatches, setFindOpen } from "./store";
+import { activeId, findMatches, setFindMatches, setFindOpen, setSemFindOpen } from "./store";
 
 const FindBar: Component = () => {
   const [query, setQuery] = createSignal("");
@@ -67,6 +67,7 @@ const FindBar: Component = () => {
       </Show>
       <button class="find-nav" title="Previous (Shift+Enter)" onClick={() => run(false)}>‹</button>
       <button class="find-nav" title="Next (Enter)" onClick={() => run(true)}>›</button>
+      <button class="find-nav find-sem" title="Semantic find — by meaning, across tabs" onClick={() => { close(); setSemFindOpen(true); }}>✦</button>
       <button class="find-nav" title="Close (Esc)" onClick={close}>✕</button>
     </div>
   );

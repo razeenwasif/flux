@@ -117,6 +117,7 @@ import { setTerminalOpener } from "./terminals";
 import { keyToAction } from "./shortcuts";
 import FindBar from "./FindBar";
 import ShellHistory from "./ShellHistory";
+import SemanticFind from "./SemanticFind";
 import Downloads from "./Downloads";
 import Shields from "./Shields";
 import type { PaletteAction } from "./CommandPalette";
@@ -176,6 +177,8 @@ import {
   setShellHistOpen,
   splitPickerOpen,
   setSplitPickerOpen,
+  semFindOpen,
+  setSemFindOpen,
   agentMenuOpen,
   homeModalOpen,
   setMapPanelOpen,
@@ -709,7 +712,7 @@ const App: Component = () => {
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = splitDragging() || panelDragging();
-    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || shellHistOpen() || splitPickerOpen();
+    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen();
     const panes = overlay ? [] : paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
@@ -800,7 +803,7 @@ const App: Component = () => {
     // Reader / Files popout / command palette are full overlays that must sit above
     // everything — including the web panel's own native webview layer.
     const hidden =
-      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen() || shellHistOpen() || splitPickerOpen();
+      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen();
     syncSlot("top", top, hidden ? null : panelViewRect());
     syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
   });
@@ -1230,6 +1233,7 @@ const App: Component = () => {
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "notebook", label: "Open Notebook (ask your notes)", icon: "✦", run: () => go(NOTEBOOK_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
+    { id: "semantic-find", label: "Semantic find (by meaning · across tabs)", icon: "✦", run: () => setSemFindOpen(true) },
     { id: "shell-history", label: "Search shell history (by meaning)", icon: "⌘", run: () => setShellHistOpen(true) },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
@@ -1530,6 +1534,8 @@ const App: Component = () => {
       </Show>
       {/* Semantic shell-history search (#122) — Ctrl+Shift+R; self-gated overlay. */}
       <ShellHistory />
+      {/* Semantic find (#126) — find-by-meaning in-page / across tabs. */}
+      <SemanticFind />
 
       {/* Right-click "open in new tab" menu for links in internal DOM pages. */}
       <LinkMenu onOpen={(url, background) => void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {})} />

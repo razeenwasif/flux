@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Semantic find — in-page + across tabs** — a find-by-*meaning* companion to Ctrl+F: ask
+  "where does it explain the pricing" and it ranks the page's passages by embedding (not
+  string) match, with a **This page / All tabs** toggle to search every open tab at once.
+  Picking a result switches to that tab and uses the same native `window.find` to scroll +
+  highlight the passage. Reuses the per-tab captured DOM text + the local embedder (Ollama
+  model → hashing fallback) with keyword boosts. Open it from the ✦ in the find bar or the
+  command palette. New `semantic_find` command.
 - **Weekly research digest in the Notebook** — Gemma reviews everything you added to your
   knowledge base this week (Onyx notes written, Scroll papers clipped, Council debates) and
   writes a private briefing: **Threads** (this week's themes), **Connections** (non-obvious

@@ -50,6 +50,7 @@ import type {
   LocalEvent as GenLocalEvent,
   CurrencyRates as GenCurrencyRates,
   ShellHistHit as GenShellHistHit,
+  FindHit as GenFindHit,
   ContentScript as GenContentScript,
   CookieStatus as GenCookieStatus,
   CredentialMeta as GenCredentialMeta,
@@ -894,6 +895,12 @@ export const shellHistorySearch = (query: string, limit?: number) =>
   invoke<ShellHistHit[]>("shell_history_search", { query, limit: limit ?? null });
 /** Rebuild the history corpus from ~/.bash_history + ~/.zsh_history; returns the count. */
 export const shellHistoryReindex = () => invoke<number>("shell_history_reindex");
+
+// ─── Semantic find — in-page + across tabs (BACKLOG #126) ────────────────────
+export type FindHit = GenFindHit;
+/** Rank passages across `tabIds` by meaning (pass [activeId] for in-page, all tabs for across). */
+export const semanticFind = (query: string, tabIds: number[], limit?: number) =>
+  invoke<FindHit[]>("semantic_find", { query, tabIds, limit: limit ?? null });
 
 // ─── Local tasks / to-dos (BACKLOG #114) ─────────────────────────────────────
 export const todosList = () => invoke<Todo[]>("todos_list");

@@ -610,6 +610,9 @@ export { shellHistOpen, setShellHistOpen };
 // Split-view picker overlay (#43) — center-screen, so it must gate the webview.
 const [splitPickerOpen, setSplitPickerOpen] = createSignal(false);
 export { splitPickerOpen, setSplitPickerOpen };
+// Semantic find overlay (#126) — find-by-meaning in-page / across tabs.
+const [semFindOpen, setSemFindOpen] = createSignal(false);
+export { semFindOpen, setSemFindOpen };
 
 // An agent-panel dropdown (model picker / past chats) is open. Native page
 // webviews are an OS layer above the chrome, so a dropdown rendered over the page

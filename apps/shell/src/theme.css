@@ -336,6 +336,25 @@ body.resizing, body.busy { --glass-blur: none; }
 .shellhist-empty { padding: 22px 16px; text-align: center; color: var(--flux-text-mute); font-size: 13px; }
 .shellhist-foot { padding: 8px 14px; border-top: 1px solid var(--glass-rim-soft); font-size: 11px; color: var(--flux-text-mute); flex: none; }
 
+/* Semantic find (#126) — find-by-meaning overlay, in-page / across tabs. */
+.semfind-backdrop { position: fixed; inset: 0; z-index: 92; background: rgba(0, 0, 0, 0.42); display: flex; align-items: flex-start; justify-content: center; padding-top: 10vh; }
+.semfind { width: min(720px, 95vw); max-height: 70vh; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; border: 1px solid var(--glass-rim-soft); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55); }
+.semfind-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--glass-rim-soft); flex: none; }
+.semfind-ico { color: var(--flux-violet); font-size: 16px; flex: none; }
+.semfind-input { flex: 1; min-width: 0; background: none; border: none; color: var(--flux-text); font-size: 15px; }
+.semfind-input:focus { outline: none; }
+.semfind-scope { display: flex; flex: none; background: var(--flux-surface); border: 1px solid var(--flux-border); border-radius: 8px; overflow: hidden; }
+.semfind-scope button { background: none; border: none; color: var(--flux-text-mute); padding: 5px 11px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.semfind-scope button.on { background: var(--flux-violet); color: #fff; }
+.semfind-list { overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+.semfind-item { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 8px; background: none; border: none; cursor: pointer; text-align: left; width: 100%; min-width: 0; }
+.semfind-item.sel, .semfind-item:hover { background: var(--flux-surface); }
+.semfind-passage { font-size: 13px; line-height: 1.5; color: var(--flux-text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.semfind-tab { font-size: 11px; color: var(--flux-teal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.semfind-empty { padding: 22px 16px; text-align: center; color: var(--flux-text-mute); font-size: 13px; }
+.semfind-foot { padding: 8px 14px; border-top: 1px solid var(--glass-rim-soft); font-size: 11px; color: var(--flux-text-mute); flex: none; }
+.find-sem { color: var(--flux-violet); }
+
 /* Split-view picker (#43) — choose the tab to tile beside the current page. */
 .split-picker-backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.4); display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; }
 .split-picker { width: min(420px, 92vw); max-height: 70vh; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; border: 1px solid var(--glass-rim-soft); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55); }

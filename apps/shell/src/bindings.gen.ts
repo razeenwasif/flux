@@ -104,6 +104,10 @@ export type CurrencyRates = { base: string; date: string; rates: { [key: string]
  * One ranked match returned to the UI.
  */
 export type ShellHistHit = { command: string; score: number; source: string; ts: number | null }
+/**
+ * One ranked passage match.
+ */
+export type FindHit = { tab_id: number; title: string; url: string; passage: string; score: number }
 export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string }
 /**
  * One unified search result (BACKLOG #66): an open tab, a bookmark, or a

@@ -10,6 +10,7 @@ pub mod boosts;
 pub mod calendar;
 pub mod currency;
 pub mod shellhist;
+pub mod semfind;
 pub mod broker;
 pub mod cache;
 pub mod cli;
@@ -594,6 +595,7 @@ pub fn run(intent: cli::LaunchIntent) {
             currency::currency_rates,
             shellhist::shell_history_search,
             shellhist::shell_history_reindex,
+            semfind::semantic_find,
             todos::todos_list,
             todos::todo_add,
             todos::todo_toggle,
