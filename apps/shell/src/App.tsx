@@ -122,6 +122,9 @@ import ShellHistory from "./ShellHistory";
 import SemanticFind from "./SemanticFind";
 import WatchPanel from "./WatchPanel";
 import TrackerGraph from "./TrackerGraph";
+import AppDock from "./AppDock";
+import AppPane from "./AppPane";
+import { FLUX_APPS } from "./apps";
 import Downloads from "./Downloads";
 import Shields from "./Shields";
 import type { PaletteAction } from "./CommandPalette";
@@ -187,6 +190,7 @@ import {
   setWatchPanelOpen,
   trackerGraphOpen,
   setTrackerGraphOpen,
+  openAppIds,
   agentMenuOpen,
   homeModalOpen,
   setMapPanelOpen,
@@ -720,7 +724,7 @@ const App: Component = () => {
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = splitDragging() || panelDragging();
-    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen() || watchPanelOpen() || trackerGraphOpen();
+    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen() || watchPanelOpen() || trackerGraphOpen() || openAppIds().length > 0;
     const panes = overlay ? [] : paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
@@ -811,7 +815,7 @@ const App: Component = () => {
     // Reader / Files popout / command palette are full overlays that must sit above
     // everything — including the web panel's own native webview layer.
     const hidden =
-      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen() || watchPanelOpen() || trackerGraphOpen();
+      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen() || watchPanelOpen() || trackerGraphOpen() || openAppIds().length > 0;
     syncSlot("top", top, hidden ? null : panelViewRect());
     syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
   });
@@ -1550,6 +1554,14 @@ const App: Component = () => {
       <WatchPanel />
       {/* Tracker graph (#129) — privacy viz of third-party requests. */}
       <TrackerGraph />
+      {/* Pinned apps (#131): bottom-right launcher + a floating pane per open app. */}
+      <AppDock />
+      <For each={openAppIds()}>
+        {(id, i) => {
+          const app = FLUX_APPS.find((a) => a.id === id);
+          return app ? <AppPane app={app} index={i()} /> : null;
+        }}
+      </For>
 
       {/* Right-click "open in new tab" menu for links in internal DOM pages. */}
       <LinkMenu onOpen={(url, background) => void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {})} />

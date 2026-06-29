@@ -336,6 +336,29 @@ body.resizing, body.busy { --glass-blur: none; }
 .shellhist-empty { padding: 22px 16px; text-align: center; color: var(--flux-text-mute); font-size: 13px; }
 .shellhist-foot { padding: 8px 14px; border-top: 1px solid var(--glass-rim-soft); font-size: 11px; color: var(--flux-text-mute); flex: none; }
 
+/* App dock (#131) — bottom-right launcher for the user's pinned web apps. */
+.appdock { position: fixed; right: 14px; bottom: 18px; z-index: 60; display: flex; flex-direction: column; gap: 8px; }
+.appdock-btn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--glass-rim-soft); background: var(--glass-fill); backdrop-filter: blur(12px); display: grid; place-items: center; cursor: pointer; position: relative; transition: transform .12s, border-color .12s; padding: 0; }
+.appdock-btn:hover { transform: translateX(-3px) scale(1.05); border-color: var(--flux-violet); }
+.appdock-btn.on { border-color: var(--flux-teal); }
+.appdock-btn.on::after { content: ""; position: absolute; left: -4px; top: 50%; transform: translateY(-50%); width: 5px; height: 5px; border-radius: 50%; background: var(--flux-teal); box-shadow: 0 0 6px var(--flux-teal); }
+.appdock-fav { border-radius: 7px; object-fit: cover; }
+.appdock-mono { border-radius: 7px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 13px; }
+
+/* Floating app pane — movable + resizable iframe window. */
+.apppane { position: fixed; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; border: 1px solid var(--glass-rim-soft); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55); }
+.apppane.focused { border-color: rgba(124, 92, 255, 0.55); }
+.apppane-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--glass-rim-soft); cursor: move; flex: none; user-select: none; }
+.apppane-name { font-size: 13px; font-weight: 700; color: var(--flux-text); }
+.apppane-host { font-size: 11px; color: var(--flux-text-mute); }
+.apppane-sp { flex: 1; }
+.apppane-btn { width: 26px; height: 26px; border-radius: 7px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; font-size: 13px; }
+.apppane-btn:hover { background: var(--flux-surface); color: var(--flux-text); }
+.apppane-frame { flex: 1; width: 100%; border: none; background: #fff; }
+.apppane-frame.noevents { pointer-events: none; }
+.apppane-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; }
+.apppane-resize::after { content: ""; position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; border-right: 2px solid var(--flux-text-mute); border-bottom: 2px solid var(--flux-text-mute); border-radius: 0 0 3px 0; }
+
 /* Tracker graph (#129) — privacy viz overlay. */
 .trk-backdrop { position: fixed; inset: 0; z-index: 92; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 4vh 4vw; }
 .trk-panel { width: min(1200px, 95vw); height: min(820px, 90vh); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; border: 1px solid var(--glass-rim-soft); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); }

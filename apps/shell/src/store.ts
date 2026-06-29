@@ -619,6 +619,11 @@ export { watchPanelOpen, setWatchPanelOpen };
 // Tracker graph overlay (#129) — privacy viz of third-party requests.
 const [trackerGraphOpen, setTrackerGraphOpen] = createSignal(false);
 export { trackerGraphOpen, setTrackerGraphOpen };
+// Pinned-app launcher (#131) — which app panes are open + which has focus (for
+// Gemma's context). App panes are iframe overlays, so they gate the webview.
+const [openAppIds, setOpenAppIds] = createSignal<string[]>([]);
+const [focusedAppId, setFocusedAppId] = createSignal<string | null>(null);
+export { openAppIds, setOpenAppIds, focusedAppId, setFocusedAppId };
 
 // An agent-panel dropdown (model picker / past chats) is open. Native page
 // webviews are an OS layer above the chrome, so a dropdown rendered over the page

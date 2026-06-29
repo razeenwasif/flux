@@ -62,7 +62,8 @@ import {
   type NextStep,
   type AgentStatus,
 } from "./ipc";
-import { activeId, activeWorkspace, agentModelName, filesPanelOpen, fluxStateSnapshot, openTab, pendingAsk, pendingLens, setAgentMenuOpen, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
+import { activeId, activeWorkspace, agentModelName, filesPanelOpen, fluxStateSnapshot, focusedAppId, openTab, pendingAsk, pendingLens, setAgentMenuOpen, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
+import { FLUX_APPS } from "./apps";
 import AgentAurora from "./AgentAurora";
 import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
 import { micConstraints } from "./mic";
@@ -539,6 +540,7 @@ const AgentPanel: Component = () => {
   const CAPABILITIES =
     "Your capabilities in Flux (these run via the app, not just talk — tell the user the exact phrasing when helpful):\n" +
     "- Reminders & to-dos: \"remind me to <x> in 10 min / at 3pm / tomorrow\"; \"what are my reminders\". They fire with an OS notification + spoken alert even if the panel is closed.\n" +
+    "- The user's own apps (pinned in the bottom-right dock): Nexus (ML training console), Prism (AutoML + entity resolution), Vector (issue tracker), Oracle (plant ID). When one is open you get its full guide — help with its features, workflows, and results.\n" +
     "- Calendar: \"what's on my calendar today / this week / friday\" reads your schedule (your Google ICS feed + Flux-local events); \"schedule lunch with Sam tomorrow at noon for 1h\" / \"add a dentist appointment friday 3pm\" creates an event; \"move my standup to 10am\"; \"cancel the dentist appointment\". You can add/move/delete events you created in Flux (Google-feed events are read-only — say so if asked to change one).\n" +
     "- Long-term memory: \"remember that <x>\" saves a fact you'll recall in future chats; \"what do you remember\".\n" +
     "- Run commands in the user's live terminal (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command. On approval it runs in their real terminal session (their cwd/env) and you read the output back — so you can edit a file, run the tests, read the result, and fix it.\n" +
@@ -572,10 +574,18 @@ const AgentPanel: Component = () => {
     return `Files the user has open / asked you to read (use them to answer):\n${blocks.join("\n\n")}\n\n`;
   };
 
+  // When one of the user's pinned apps is open + focused, give Gemma that app's
+  // guide so she can actually help with it (#131).
+  const appContext = (): string => {
+    const app = FLUX_APPS.find((a) => a.id === focusedAppId());
+    if (!app) return "";
+    return `The user is currently using **${app.name}** (${app.url}), one of their pinned apps. Here's how it works — use it to assist them:\n${app.guide}\n\n`;
+  };
+
   const convoPrompt = (current: string): string => {
     const mem = memText().trim();
     const p0 = persona() ? `${persona()}\n\n` : "";
-    const preamble = `${p0}${CAPABILITIES}\n\n` + filesContext() + (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
+    const preamble = `${p0}${CAPABILITIES}\n\n` + appContext() + filesContext() + (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
     const turns = feed().filter((it) => it.role === "user" || it.role === "assistant");
     const prior = (turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns).slice(-8);
     if (!prior.length) return preamble ? `${preamble}User: ${current}` : current;
