@@ -67,16 +67,21 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
         // Per request: block trackers/ads (shields), else upgrade http→https
         // (HTTPS-only), else allow.
         let verdict = move |url: &str, source: &str, ty: &str| -> win::Decision {
-            if let Some(s) = policy_app.try_state::<crate::shields::ShieldsState>() {
-                if s.should_block(url, source, ty) {
-                    return win::Decision::Block;
-                }
-            }
+            let shields_block = policy_app
+                .try_state::<crate::shields::ShieldsState>()
+                .is_some_and(|s| s.should_block(url, source, ty));
             // Lean mode (#105): extra heavy-script blocking for opted-in sites.
-            if let Some(l) = policy_app.try_state::<crate::leanmode::LeanState>() {
-                if l.should_block(url, source, ty) {
-                    return win::Decision::Block;
-                }
+            let lean_block = !shields_block
+                && policy_app
+                    .try_state::<crate::leanmode::LeanState>()
+                    .is_some_and(|l| l.should_block(url, source, ty));
+            let blocked = shields_block || lean_block;
+            // Tracker graph (#129): record this first-party → third-party contact.
+            if let Some(t) = policy_app.try_state::<crate::trackers::TrackerStore>() {
+                t.record(source, url, blocked);
+            }
+            if blocked {
+                return win::Decision::Block;
             }
             if let Some(h) = policy_app.try_state::<crate::https::HttpsState>() {
                 if let Some(secure) = h.upgrade(url) {

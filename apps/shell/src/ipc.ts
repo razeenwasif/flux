@@ -52,6 +52,7 @@ import type {
   ShellHistHit as GenShellHistHit,
   FindHit as GenFindHit,
   WatchItem as GenWatchItem,
+  TrackerGraph as GenTrackerGraph,
   ContentScript as GenContentScript,
   CookieStatus as GenCookieStatus,
   CredentialMeta as GenCredentialMeta,
@@ -909,6 +910,12 @@ export const watchCheckNow = (id: number) => invoke<WatchItem | null>("watch_che
 /** Fired when a watched page's content semantically changed. */
 export const onWatchChanged = (cb: (w: WatchItem) => void): Promise<UnlistenFn> =>
   listen<WatchItem>("flux://watch-changed", (e) => cb(e.payload));
+
+// ─── Tracker graph (BACKLOG #129) ────────────────────────────────────────────
+export type TrackerGraph = GenTrackerGraph;
+/** Live first-party → third-party request graph (fills as you browse). */
+export const trackerGraph = () => invoke<TrackerGraph>("tracker_graph");
+export const trackerClear = () => invoke<void>("tracker_clear");
 
 // ─── Semantic find — in-page + across tabs (BACKLOG #126) ────────────────────
 export type FindHit = GenFindHit;

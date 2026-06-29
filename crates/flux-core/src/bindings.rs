@@ -19,6 +19,7 @@ use crate::currency::CurrencyRates;
 use crate::shellhist::ShellHistHit;
 use crate::semfind::FindHit;
 use crate::watch::WatchItem;
+use crate::trackers::{TrackerEdge, TrackerGraph, TrackerNode};
 use crate::commands::{OmniHit, ReaderBlock, ShellSnapshot};
 use crate::cookies::CookieStatus;
 use crate::downloads::DownloadItem;
@@ -93,6 +94,9 @@ pub fn generate_ts() -> String {
         specta::ts::export::<ShellHistHit>(&c),
         specta::ts::export::<FindHit>(&c),
         specta::ts::export::<WatchItem>(&c),
+        specta::ts::export::<TrackerNode>(&c),
+        specta::ts::export::<TrackerEdge>(&c),
+        specta::ts::export::<TrackerGraph>(&c),
         specta::ts::export::<Todo>(&c),
         // Misc command structs (BACKLOG #12, batch 3): shields/privacy,
         // permissions, vault, extensions, macros, boosts, downloads, files,

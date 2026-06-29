@@ -112,6 +112,9 @@ export type FindHit = { tab_id: number; title: string; url: string; passage: str
  * UI-facing view (no baseline text — that can be large).
  */
 export type WatchItem = { id: number; url: string; title: string; interval_secs: number; last_checked_ms: number; last_change_ms: number; added: string[]; removed: string[]; error: string | null; seen: boolean }
+export type TrackerNode = { id: string; kind: string; requests: number; blocked: number; degree: number }
+export type TrackerEdge = { source: number; target: number; requests: number; blocked: number }
+export type TrackerGraph = { nodes: TrackerNode[]; edges: TrackerEdge[] }
 export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string }
 /**
  * One unified search result (BACKLOG #66): an open tab, a bookmark, or a

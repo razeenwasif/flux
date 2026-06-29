@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Tracker graph (privacy viz)** — a force-directed map (command palette → "Tracker graph")
+  of which third-party domains each site you visit talks to. The request interceptor records
+  every first-party → third-party contact (and whether shields blocked it); ubiquitous
+  trackers surface as high-degree hubs, edges/nodes tint red where blocked. Drag, zoom, click
+  a domain to open it. Live + in-memory (fills as you browse; **Clear** resets), nothing
+  persisted or sent anywhere. New `tracker_graph` / `tracker_clear` commands.
 - **Watch a page for semantic changes** — hit 👁 in the toolbar to pin a page; a background
   scheduler re-fetches it on an interval, extracts the readable text, and compares it to the
   last baseline by **embedding** — so it reports what *meaningfully* changed (a section added,

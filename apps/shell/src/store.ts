@@ -616,6 +616,9 @@ export { semFindOpen, setSemFindOpen };
 // Watched-pages panel (#128) — semantic change monitor list.
 const [watchPanelOpen, setWatchPanelOpen] = createSignal(false);
 export { watchPanelOpen, setWatchPanelOpen };
+// Tracker graph overlay (#129) — privacy viz of third-party requests.
+const [trackerGraphOpen, setTrackerGraphOpen] = createSignal(false);
+export { trackerGraphOpen, setTrackerGraphOpen };
 
 // An agent-panel dropdown (model picker / past chats) is open. Native page
 // webviews are an OS layer above the chrome, so a dropdown rendered over the page

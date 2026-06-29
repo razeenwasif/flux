@@ -12,6 +12,7 @@ pub mod currency;
 pub mod shellhist;
 pub mod semfind;
 pub mod watch;
+pub mod trackers;
 pub mod broker;
 pub mod cache;
 pub mod cli;
@@ -359,6 +360,8 @@ pub fn run(intent: cli::LaunchIntent) {
                 .unwrap_or_else(|_| std::path::PathBuf::from("flux-watches.json"));
             app.manage(boot_phase("watch.restore", boot_started, || watch::WatchStore::restore(watch_path)));
             watch::start_scheduler(app.handle().clone());
+            // Tracker graph (#129) — live first-party→third-party request map.
+            app.manage(trackers::TrackerStore::default());
             // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
             app.manage(leanmode::LeanState::new());
             // Built-in task manager (#107) — system process monitor.
@@ -611,6 +614,8 @@ pub fn run(intent: cli::LaunchIntent) {
             watch::watch_remove,
             watch::watch_mark_seen,
             watch::watch_check_now,
+            trackers::tracker_graph,
+            trackers::tracker_clear,
             todos::todos_list,
             todos::todo_add,
             todos::todo_toggle,
