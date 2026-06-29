@@ -39,6 +39,16 @@ pub struct ShellSnapshot {
 
 /// One startup/refresh payload for the shell chrome. This replaces the previous
 /// fanout of tab_list + tab_active + groups/folders/workspaces/panels/containers.
+/// Save the window's size/position (via the window-state plugin) **then** close it.
+/// The titlebar ✕ calls this instead of a raw `destroy()`, which skips the plugin's
+/// save-on-close and lost the restore-on-next-launch geometry.
+#[tauri::command]
+pub fn close_main_window(app: AppHandle, window: tauri::WebviewWindow) {
+    use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+    let _ = app.save_window_state(StateFlags::all());
+    let _ = window.destroy();
+}
+
 #[tauri::command]
 pub fn shell_snapshot(state: State<'_, FluxState>) -> ShellSnapshot {
     ShellSnapshot {

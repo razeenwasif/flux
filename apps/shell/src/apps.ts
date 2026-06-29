@@ -104,6 +104,7 @@ export const FLUX_APPS: FluxApp[] = [
     host: "oracle-neuro-sym.web.app",
     tagline: "AI plant identification (neuro-symbolic)",
     tint: "#7cf5b0",
+    iconAsset: "/app-oracle.svg",
     guide: `# Oracle — AI-powered plant identification platform
 **What it is:** A web app that identifies plant species from photos with a deep-learning backend, returning confidence-ranked species with Grad-CAM heatmaps and GBIF/Wikipedia citations, and saving discoveries to a personal herbarium. Free tier (5 IDs/day), pro subscription, developer API, and agentic ecological reports.
 **Key features / workflows:**

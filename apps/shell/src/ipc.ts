@@ -22,9 +22,11 @@ const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in 
 export const win = {
   minimize: () => inTauri() && void getCurrentWindow().minimize(),
   toggleMaximize: () => inTauri() && void getCurrentWindow().toggleMaximize(),
-  // destroy() force-closes; close() only emits closeRequested (which wasn't
-  // closing the borderless multi-webview window).
-  close: () => inTauri() && void getCurrentWindow().destroy(),
+  // Save the window geometry (window-state plugin) then force-close. A raw
+  // destroy() force-closes but skips the plugin's save, so the window forgot its
+  // size; close() emits closeRequested but doesn't actually close the borderless
+  // multi-webview window. The backend command does both: save, then destroy.
+  close: () => inTauri() && void invoke("close_main_window").catch(() => getCurrentWindow().destroy()),
   startDragging: () => inTauri() && void getCurrentWindow().startDragging(),
   startResize: (dir: ResizeDir) => inTauri() && void getCurrentWindow().startResizeDragging(dir),
 };
