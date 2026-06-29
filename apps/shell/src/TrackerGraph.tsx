@@ -16,7 +16,7 @@ type GNode = {
   r: number; id: string; kind: string; requests: number; blocked: number; color: string;
 };
 
-const TrackerGraph: Component = () => {
+const TrackerGraphView: Component = () => {
   let canvas!: HTMLCanvasElement;
   let wrap!: HTMLDivElement;
   const [empty, setEmpty] = createSignal(false);
@@ -198,7 +198,6 @@ const TrackerGraph: Component = () => {
   onCleanup(() => { cancelAnimationFrame(raf); ro?.disconnect(); });
 
   return (
-    <Show when={trackerGraphOpen()}>
       <Portal>
         <div class="trk-backdrop" onClick={() => setTrackerGraphOpen(false)} onKeyDown={(e) => { if (e.key === "Escape") setTrackerGraphOpen(false); }}>
           <div class="trk-panel glass" onClick={(e) => e.stopPropagation()}>
@@ -224,8 +223,16 @@ const TrackerGraph: Component = () => {
           </div>
         </div>
       </Portal>
-    </Show>
   );
 };
+
+// Only mount the canvas view (and its onMount/ResizeObserver) when actually open,
+// so the refs exist — otherwise resize() reads clientWidth on an undefined ref and
+// throws on every load, breaking sibling chrome (music bubble, bars, …).
+const TrackerGraph: Component = () => (
+  <Show when={trackerGraphOpen()}>
+    <TrackerGraphView />
+  </Show>
+);
 
 export default TrackerGraph;
