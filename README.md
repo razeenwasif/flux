@@ -102,6 +102,21 @@ flux -t                    # open with a terminal tab focused
 flux --help
 ```
 
+### Terminal apps (TUI bar)
+
+Flux's TUI bar launches your terminal apps (Onyx, Scroll, Council, AudioPulse,
+…) in a one-click Terminal tab. The chip list is seeded automatically, but the
+binaries are separate projects. On a fresh machine, install them all with:
+
+```sh
+./tools/setup-tui-apps.sh           # clone (or pull) + build everything
+./tools/setup-tui-apps.sh onyx kata # just these
+```
+
+It reads `tools/tui-apps.json` (each app's repo + build command) and installs
+the binaries onto your PATH. Edit that manifest to add/adjust apps; apps without
+a `repo` are local-only and need a git remote (or a manual copy) to travel.
+
 ## UI / UX
 
 The shell follows an **Arc-style vertical layout** (ADR 0002) with a

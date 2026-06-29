@@ -1,0 +1,17 @@
+{
+  "_comment": "Manifest of the user's terminal apps that pair with Flux's TUI bar (#117). tools/setup-tui-apps.sh clones each repo (or pulls if present) and runs its build so the binary lands on PATH. Flux already seeds the chip list (tui_apps.rs seed_defaults), so the bar is pre-populated; this just installs the actual binaries. Fields: name, cmd (binary the chip runs), dir (clone target), repo (git URL — empty = local-only, can't travel until you add a remote), pkg (Homebrew formula for third-party tools), build (shell run inside dir; should install to PATH).",
+  "apps": [
+    { "name": "Onyx",       "cmd": "onyx",       "dir": "~/Onyx",       "repo": "git@github.com:razeenwasif/onyx.git",         "build": "cargo install --path ." },
+    { "name": "Scroll",     "cmd": "scroll",     "dir": "~/Scroll",     "repo": "",                                            "build": "cargo install --path ." },
+    { "name": "Council",    "cmd": "council",    "dir": "~/Council",    "repo": "git@github.com:razeenwasif/council.git",      "build": "bun install && bun run build && bun link" },
+    { "name": "AudioPulse", "cmd": "audiopulse", "dir": "~/AudioPulse", "repo": "git@github.com:razeenwasif/audiopulse.git",   "build": "go install ./..." },
+    { "name": "BoxTube",    "cmd": "boxtube",    "dir": "~/BoxTube",    "repo": "git@github.com:razeenwasif/boxtube-tui.git",  "build": "make install && make link" },
+    { "name": "Kata",       "cmd": "katacode",   "dir": "~/Kata",       "repo": "git@github.com:razeenwasif/Kata.git",         "build": "cargo install --path ." },
+    { "name": "Mamba",      "cmd": "mamba",      "dir": "~/Mamba",      "repo": "git@github.com:razeenwasif/mamba.git",        "build": "cargo install --path ." },
+    { "name": "Canopy",     "cmd": "canopy",     "dir": "~/Canopy",     "repo": "git@github.com:razeenwasif/Canopy.git",       "build": "cargo install --path ." },
+    { "name": "Forge",      "cmd": "forge",      "dir": "~/Forge",      "repo": "",                                            "build": "cargo install --path ." },
+    { "name": "Conduit",    "cmd": "conduit",    "dir": "~/Conduit",    "repo": "",                                            "build": "cargo install --path ." },
+    { "name": "Tuxedo",     "cmd": "tuxedo",     "dir": "~/tuxedo",     "repo": "https://github.com/webstonehq/tuxedo",        "build": "cargo install --path ." },
+    { "name": "LazyGit",    "cmd": "lazygit",    "dir": "",             "repo": "",  "pkg": "lazygit",                         "build": "" }
+  ]
+}

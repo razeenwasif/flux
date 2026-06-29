@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **TUI-apps bootstrap (`tools/setup-tui-apps.sh`)** — pull Flux on a new machine (e.g. a
+  Mac) and one command clones + builds all your terminal apps (Onyx, Scroll, Council,
+  AudioPulse, Kata, …) onto your PATH, driven by a `tools/tui-apps.json` manifest (per-app
+  repo + build command). Idempotent (re-run to update); macOS + Linux. The TUI-bar chips are
+  already seeded by Flux, so they light up once the binaries are installed.
 - **Pinned app dock + floating app panes** — a vertical launcher in the bottom-right corner
   for your own web apps (Nexus, Prism, Vector, Oracle), using each app's favicon. Clicking
   opens the app as a **movable + resizable floating pane** (multiple can stack). Each app
