@@ -886,6 +886,19 @@ body.resizing, body.busy { --glass-blur: none; }
   box-shadow: var(--glass-shadow), var(--glass-inset);
 }
 
+/* Split view (#43): each half renders its tab's DOM page (or sits under a tiled
+   webview). Absolutely positioned over the card, same single-cell grid so the
+   page fills + can scroll. */
+.split-dom-pane {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  overflow: auto;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+}
+
 /* ── Bookmark bar (#22): chip row docked under the card ── */
 .bookmark-bar {
   flex: none; height: 32px; margin-top: 6px;

@@ -126,8 +126,10 @@ export const splitPanes = (): [TabMeta, TabMeta] | null => {
   if (a == null || (p[0] !== a && p[1] !== a)) return null;
   const l = tabs().find((t) => t.id === p[0]);
   const r = tabs().find((t) => t.id === p[1]);
-  const ok = (t?: TabMeta) =>
-    !!t && t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url);
+  // Any "page" tab in this workspace is splittable — real web pages (tiled native
+  // webview) AND Flux's internal DOM pages (home, tasks, …, rendered into the
+  // half by ContentArea). Terminals/files stay excluded.
+  const ok = (t?: TabMeta) => !!t && t.kind === "browser" && t.workspace === activeWorkspace();
   return ok(l) && ok(r) ? [l as TabMeta, r as TabMeta] : null;
 };
 

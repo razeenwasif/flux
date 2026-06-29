@@ -1255,6 +1255,7 @@ const App: Component = () => {
     { id: "shell-history", label: "Search shell history (by meaning)", icon: "⌘", run: () => setShellHistOpen(true) },
     { id: "watches", label: "Watched pages (change monitor)", icon: "👁", run: () => setWatchPanelOpen(true) },
     { id: "tracker-graph", label: "Tracker graph (privacy viz)", icon: "🕸", run: () => setTrackerGraphOpen(true) },
+    { id: "split", label: splitPair() != null ? "Exit split view" : "Split view (tile with another tab)", icon: "◫", run: () => splitPair() != null ? clearSplit() : setSplitPickerOpen(true) },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
@@ -1772,7 +1773,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     void watchAdd(t.url, t.title || t.url).then(() => setWatched(true)).catch(() => {});
   };
   const splitCandidates = () =>
-    tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url) && t.id !== activeId());
+    tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && t.id !== activeId());
   const doSplit = (rightId: number) => { const left = activeId(); setSplitPicker(false); if (left != null) startSplit(left, rightId); };
   const doSplitNew = async () => {
     const left = activeId();
@@ -2351,7 +2352,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <div class="split-picker glass" onClick={(e) => e.stopPropagation()}>
                 <div class="split-picker-head">◫ Split with…</div>
                 <div class="split-picker-list">
-                  <For each={splitCandidates()} fallback={<div class="split-picker-empty">No other web pages open.</div>}>
+                  <For each={splitCandidates()} fallback={<div class="split-picker-empty">No other pages open to split with.</div>}>
                     {(t) => (
                       <button class="split-picker-item" onClick={() => doSplit(t.id)}>
                         <Favicon tab={t} />
@@ -2977,6 +2978,55 @@ const ContentArea: Component<{
 }> = (props) => {
   // Keyed by id (primitive) so the list is stable across unrelated tab updates.
   const terminalIds = createMemo(() => tabs().filter((t) => t.kind === "terminal").map((t) => t.id));
+
+  // The internal (DOM) page for a tab — Flux's own pages render here; a real web
+  // page falls through to the placeholder its native webview overlays. Parameterized
+  // by tab so split view can render BOTH panes' pages, not just the active one (#43).
+  const pageFor = (tab: () => TabMeta | null | undefined) => (
+    <Switch
+      fallback={
+        <span style={{ "text-align": "center", "line-height": 1.8 }}>
+          <strong style={{ color: "var(--flux-text)" }}>{tab()?.title || "Flux"}</strong>
+          <br />
+          loading…
+        </span>
+      }
+    >
+      <Match when={tab()?.kind === "files"}>
+        {/* Key on the tab id (stable) so navigation patching the tab object doesn't
+            remount FilesView into a reload loop — only a tab switch should. */}
+        <Show when={tab()?.id} keyed>
+          {(id) => (
+            <FilesView
+              id={id}
+              path={tabs().find((t) => t.id === id)?.url ?? ""}
+              onPathChange={(p) => { updateTabUrl(id, p); updateTabTitle(id, basename(p)); }}
+              onOpenInTab={props.onNavigate}
+            />
+          )}
+        </Show>
+      </Match>
+      <Match when={tab()?.url === OMNI_URL}><OmniDashboard onNavigate={props.onNavigate} /></Match>
+      <Match when={tab()?.url === NOTEBOOK_URL}><NotebookPage /></Match>
+      <Match when={tab()?.url === VAULT_URL}><VaultPage onNavigate={props.onNavigate} /></Match>
+      <Match when={tab()?.url === HISTORY_URL}><HistoryPage onNavigate={props.onNavigate} /></Match>
+      <Match when={tab()?.url === BOOKMARKS_URL}><BookmarksPage onNavigate={props.onNavigate} /></Match>
+      <Match when={tab()?.url === SESSIONS_URL}><SessionsPage onNavigate={props.onNavigate} /></Match>
+      <Match when={tab()?.url === RESOURCES_URL}><ResourcesPage onNavigate={props.onNavigate} onSleepBackground={props.onSleepBackground} /></Match>
+      <Match when={tab()?.url === TASKS_URL}><TasksPage /></Match>
+      <Match when={tab()?.url === SPEEDTEST_URL}><SpeedtestPage /></Match>
+      <Match when={tab()?.url === PERMISSIONS_URL}><PermissionsPage /></Match>
+      <Match when={tab()?.url?.startsWith(PDF_URL)}><PdfViewer /></Match>
+      <Match when={tab()?.url === ARCHIVE_URL}><ArchivePage onNavigate={props.onNavigate} /></Match>
+      <Match when={tab()?.url === FEEDS_URL}><FeedsPage /></Match>
+      <Match when={tab()?.url === SYNC_URL}><SyncPage /></Match>
+      <Match when={tab()?.url === APPS_URL}><AppsPage /></Match>
+      <Match when={tab()?.url === SETTINGS_URL}><SettingsPage onNavigate={props.onNavigate} /></Match>
+      <Match when={tab() && isStartUrl(tab()!.url)}>
+        <StartPage onNavigate={props.onNavigate} onNewTerminal={props.onNewTerminal} onToggleAgent={props.onToggleAgent} onOpenMap={props.onOpenMap} />
+      </Match>
+    </Switch>
+  );
   return (
   <main class="content">
     {/* Pages bar: quick-access native-page chips docked above the card. A sibling
@@ -3033,94 +3083,17 @@ const ContentArea: Component<{
       </For>
       <Show when={activeTab()?.kind !== "terminal"}>
       <Suspense>
-      <Switch
-        fallback={
-          /* Browser tab with a real page — the native webview overlays this. */
-          <span style={{ "text-align": "center", "line-height": 1.8 }}>
-            <strong style={{ color: "var(--flux-text)" }}>{activeTab()?.title || "Flux"}</strong>
-            <br />
-            loading…
-          </span>
-        }
-      >
-        <Match when={activeTab()?.kind === "files"}>
-          {/* Key on the tab *id* (stable), NOT the tab object: onPathChange
-              patches the tab (new object ref), and keying on the object would
-              remount FilesView on every navigation → an infinite reload loop.
-              The id only changes when you switch tabs, which is when we *do*
-              want a fresh mount. */}
-          <Show when={activeTab()?.id} keyed>
-            {(id) => (
-              <FilesView
-                id={id}
-                path={tabs().find((t) => t.id === id)?.url ?? ""}
-                onPathChange={(p) => {
-                  updateTabUrl(id, p);
-                  updateTabTitle(id, basename(p));
-                }}
-                onOpenInTab={props.onNavigate}
-              />
-            )}
-          </Show>
-        </Match>
-        {/* Before the generic start match — `flux://omni` is also a `flux://` url. */}
-        <Match when={activeTab()?.url === OMNI_URL}>
-          <OmniDashboard onNavigate={props.onNavigate} />
-        </Match>
-        <Match when={activeTab()?.url === NOTEBOOK_URL}>
-          <NotebookPage />
-        </Match>
-        <Match when={activeTab()?.url === VAULT_URL}>
-          <VaultPage onNavigate={props.onNavigate} />
-        </Match>
-        <Match when={activeTab()?.url === HISTORY_URL}>
-          <HistoryPage onNavigate={props.onNavigate} />
-        </Match>
-        <Match when={activeTab()?.url === BOOKMARKS_URL}>
-          <BookmarksPage onNavigate={props.onNavigate} />
-        </Match>
-        <Match when={activeTab()?.url === SESSIONS_URL}>
-          <SessionsPage onNavigate={props.onNavigate} />
-        </Match>
-        <Match when={activeTab()?.url === RESOURCES_URL}>
-          <ResourcesPage onNavigate={props.onNavigate} onSleepBackground={props.onSleepBackground} />
-        </Match>
-        <Match when={activeTab()?.url === TASKS_URL}>
-          <TasksPage />
-        </Match>
-        <Match when={activeTab()?.url === SPEEDTEST_URL}>
-          <SpeedtestPage />
-        </Match>
-        <Match when={activeTab()?.url === PERMISSIONS_URL}>
-          <PermissionsPage />
-        </Match>
-        <Match when={activeTab()?.url?.startsWith(PDF_URL)}>
-          <PdfViewer />
-        </Match>
-        <Match when={activeTab()?.url === ARCHIVE_URL}>
-          <ArchivePage onNavigate={props.onNavigate} />
-        </Match>
-        <Match when={activeTab()?.url === FEEDS_URL}>
-          <FeedsPage />
-        </Match>
-        <Match when={activeTab()?.url === SYNC_URL}>
-          <SyncPage />
-        </Match>
-        <Match when={activeTab()?.url === APPS_URL}>
-          <AppsPage />
-        </Match>
-        <Match when={activeTab()?.url === SETTINGS_URL}>
-          <SettingsPage onNavigate={props.onNavigate} />
-        </Match>
-        <Match when={activeTab() && isStartUrl(activeTab()!.url)}>
-          <StartPage
-            onNavigate={props.onNavigate}
-            onNewTerminal={props.onNewTerminal}
-            onToggleAgent={props.onToggleAgent}
-            onOpenMap={props.onOpenMap}
-          />
-        </Match>
-      </Switch>
+        {/* Split view (#43): two DOM halves, each rendering its tab's internal page
+            (a real web page falls through to the placeholder its tiled webview
+            overlays). Accessors keep navigation reactive without remounting. */}
+        <Show when={splitPanes()} fallback={pageFor(activeTab)}>
+          <div class="split-dom-pane" style={{ left: "0", width: `calc(${Math.min(80, Math.max(20, splitRatio() * 100))}% - 4px)` }}>
+            {pageFor(() => splitPanes()?.[0])}
+          </div>
+          <div class="split-dom-pane" style={{ left: `calc(${Math.min(80, Math.max(20, splitRatio() * 100))}% + 4px)`, right: "0" }}>
+            {pageFor(() => splitPanes()?.[1])}
+          </div>
+        </Show>
       </Suspense>
       </Show>
     </div>

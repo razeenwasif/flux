@@ -372,6 +372,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Split view works for Flux's own pages** — you can now tile the home page, task manager,
+  Notebook, history, etc. (not just web pages). Internal pages are DOM-rendered, not native
+  webviews, so the old tiling (which only positioned webviews) showed nothing for them; the
+  content card now renders each split pane's page into its half. Trigger it from the command
+  palette ("Split view"), the tab right-click menu, or dragging a tab to the right edge.
 - **Web-panel resize divider is grabbable** — it sat on the seam between the content and
   panel native webviews (which capture the pointer), so it couldn't be dragged. Now a
   reserved 8px gutter on the panel's left edge holds the divider in an uncovered gap.
