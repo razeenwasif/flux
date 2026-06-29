@@ -15,6 +15,8 @@ export type FluxApp = {
   tagline: string;
   /** Accent colour for the monogram fallback. */
   tint: string;
+  /** Bundled icon (served from /public), preferred over the remote favicon. */
+  iconAsset?: string;
   /** Full usage guide (Markdown) — given to Gemma when this app is in use. */
   guide: string;
 };
@@ -27,6 +29,7 @@ export const FLUX_APPS: FluxApp[] = [
     host: "nexus-cluster.web.app",
     tagline: "Real-time ML training console for your cluster",
     tint: "#7b61ff",
+    iconAsset: "/app-nexus.svg",
     guide: `# Nexus — Real-time ML training console for distributed clusters
 **What it is:** A web control plane + monitoring dashboard for personal ML training clusters. Register machines as "devices," spawn training pods on demand, submit runs, and watch metrics stream live — replacing manual SSH + tmux with one-click device management and visual analytics. Firebase + Python daemons.
 **Key features / workflows:**
@@ -52,6 +55,7 @@ export const FLUX_APPS: FluxApp[] = [
     host: "prism-automl.web.app",
     tagline: "GPU-powered AutoML & entity resolution",
     tint: "#2ff3ff",
+    iconAsset: "/app-prism.svg",
     guide: `# Prism — GPU-powered AutoML & entity resolution platform
 **What it is:** A GPU-aware AutoML suite for end-to-end data science — dataset upload → profiling → cleaning → feature engineering → model selection → hyperparameter search → evaluation — plus a record-linkage engine for matching/merging duplicate records via semantic similarity + supervised classification. React dashboard + REST API.
 **Key features / workflows:**
