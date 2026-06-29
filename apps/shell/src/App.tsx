@@ -424,10 +424,13 @@ const App: Component = () => {
       const ratio = Math.min(0.8, Math.max(0.2, splitRatio()));
       const lw = Math.round(rect.width * ratio - SPLIT_GAP / 2);
       const rw = Math.round(rect.width - lw - SPLIT_GAP);
-      return [
-        { tab: pair[0], rect: { x: rect.x, y: rect.y, width: lw, height: rect.height } },
-        { tab: pair[1], rect: { x: rect.x + lw + SPLIT_GAP, y: rect.y, width: rw, height: rect.height } },
-      ];
+      const out: { tab: TabMeta; rect: Rect }[] = [];
+      // Only real web pages get a tiled webview; Flux's internal pages (any
+      // flux:// url) render as DOM into their half — feeding them here would open
+      // a black native webview over the page.
+      if (!isStartUrl(pair[0].url)) out.push({ tab: pair[0], rect: { x: rect.x, y: rect.y, width: lw, height: rect.height } });
+      if (!isStartUrl(pair[1].url)) out.push({ tab: pair[1], rect: { x: rect.x + lw + SPLIT_GAP, y: rect.y, width: rw, height: rect.height } });
+      return out;
     }
     const act = activeTab();
     if (act?.kind === "browser" && !isStartUrl(act.url)) return [{ tab: act, rect }];
