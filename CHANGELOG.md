@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Pinned app dock + floating app panes** — a vertical launcher in the bottom-right corner
+  for your own web apps (Nexus, Prism, Vector, Oracle), using each app's favicon. Clicking
+  opens the app as a **movable + resizable floating pane** (multiple can stack). Each app
+  ships a usage guide that Gemma reads when its pane is focused, so she can help with the
+  app's features and results; she's also told the apps exist in every chat.
 - **Tracker graph (privacy viz)** — a force-directed map (command palette → "Tracker graph")
   of which third-party domains each site you visit talks to. The request interceptor records
   every first-party → third-party contact (and whether shields blocked it); ubiquitous
@@ -362,6 +367,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Web-panel resize divider is grabbable** — it sat on the seam between the content and
+  panel native webviews (which capture the pointer), so it couldn't be dragged. Now a
+  reserved 8px gutter on the panel's left edge holds the divider in an uncovered gap.
 - **Expanded home widgets no longer hide behind the web panel** — a start-page widget's
   expand modal is plain HTML, but a pinned **web panel is a native child webview that the
   OS composites *above* all page content**, so no `z-index` could cover it. The modal now
