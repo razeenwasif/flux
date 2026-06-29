@@ -293,7 +293,10 @@ body.resizing, body.busy { --glass-blur: none; }
   background: var(--glass-rim-soft);
 }
 .webpanel-vdiv:hover::after { background: var(--flux-accent, var(--glass-rim)); }
-.panel-divider { left: auto; transform: translateX(50%); }
+.panel-divider { left: auto; transform: none; }
+/* Sits in the reserved 8px panel gutter — show a clear grabbable line. */
+.panel-divider::after { inset: 0 2px; }
+.panel-divider:hover::after, body.resizing .panel-divider::after { background: rgba(47, 243, 255, 0.45); }
 .panel-toolbar {
   position: absolute; top: 0; left: 0; right: 0; z-index: 6;
   height: 34px; display: flex; align-items: center; gap: 4px;

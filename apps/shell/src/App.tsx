@@ -407,8 +407,14 @@ const App: Component = () => {
     if (!r || r.width < 1 || r.height < PANEL_TOOLBAR + 1) return null;
     return { x: r.x, y: r.y + PANEL_TOOLBAR, width: r.width, height: Math.max(0, r.height - PANEL_TOOLBAR) };
   };
-  const panelViewRect = (): Rect | null => slotViewRect("flux-panel-area", activePanelId() != null);
-  const panelViewRectB = (): Rect | null => slotViewRect("flux-panel-area-b", activePanelIdB() != null);
+  // Reserve a grab gutter on the panel's left edge so the resize divider sits in a
+  // gap no native webview covers (same idea as the split seam's SPLIT_GAP). Without
+  // it the divider is pinned under the panel webview and can't be grabbed.
+  const PANEL_GUTTER = 8;
+  const insetLeft = (r: Rect | null, px: number): Rect | null =>
+    r ? { ...r, x: r.x + px, width: Math.max(0, r.width - px) } : null;
+  const panelViewRect = (): Rect | null => insetLeft(slotViewRect("flux-panel-area", activePanelId() != null), PANEL_GUTTER);
+  const panelViewRectB = (): Rect | null => insetLeft(slotViewRect("flux-panel-area-b", activePanelIdB() != null), PANEL_GUTTER);
   const paneLayout = (): { tab: TabMeta; rect: Rect }[] => {
     if (readerOpen()) return []; // reader view covers the card; hide the page
     const rect = mainRect();
@@ -1458,7 +1464,11 @@ const App: Component = () => {
       <Show when={panelColVisible()}>
         <div
           class="pane-splitter panel-divider"
-          style={{ right: `${(agentColVisible() ? agentW() : 0) + (termColVisible() ? terminalW() : 0) + panelWidth()}px` }}
+          style={{
+            right: `${(agentColVisible() ? agentW() : 0) + (termColVisible() ? terminalW() : 0) + panelWidth() - PANEL_GUTTER}px`,
+            width: `${PANEL_GUTTER}px`,
+            transform: "none",
+          }}
           title="Drag to resize the web panel"
           onPointerDown={(e) => {
             e.preventDefault();
