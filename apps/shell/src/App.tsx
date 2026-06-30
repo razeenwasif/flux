@@ -410,7 +410,7 @@ const App: Component = () => {
   // Reserve a grab gutter on the panel's left edge so the resize divider sits in a
   // gap no native webview covers (same idea as the split seam's SPLIT_GAP). Without
   // it the divider is pinned under the panel webview and can't be grabbed.
-  const PANEL_GUTTER = 8;
+  const PANEL_GUTTER = 14;
   const insetLeft = (r: Rect | null, px: number): Rect | null =>
     r ? { ...r, x: r.x + px, width: Math.max(0, r.width - px) } : null;
   const panelViewRect = (): Rect | null => insetLeft(slotViewRect("flux-panel-area", activePanelId() != null), PANEL_GUTTER);

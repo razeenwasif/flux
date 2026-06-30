@@ -377,9 +377,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   webviews, so the old tiling (which only positioned webviews) showed nothing for them; the
   content card now renders each split pane's page into its half. Trigger it from the command
   palette ("Split view"), the tab right-click menu, or dragging a tab to the right edge.
-- **Web-panel resize divider is grabbable** — it sat on the seam between the content and
-  panel native webviews (which capture the pointer), so it couldn't be dragged. Now a
-  reserved 8px gutter on the panel's left edge holds the divider in an uncovered gap.
+- **Web-panel resize divider is grabbable** — it sits in a reserved gutter on the panel's
+  left edge (out of the native webview's pointer-capturing layer), but the gutter was a
+  too-thin, fully-invisible 8px strip jammed against the webview, so it was impossible to
+  find or hit on the native build. Widened to 14px with a faint persistent grip line that
+  brightens on hover — now visibly draggable.
 - **Expanded home widgets no longer hide behind the web panel** — a start-page widget's
   expand modal is plain HTML, but a pinned **web panel is a native child webview that the
   OS composites *above* all page content**, so no `z-index` could cover it. The modal now
