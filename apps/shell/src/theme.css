@@ -298,17 +298,18 @@ body.resizing, body.busy { --glass-blur: none; }
    so a faint resting line keeps it discoverable (an invisible strip was
    impossible to find/grab on the native build). */
 .panel-divider::after {
-  inset: 14% auto;
+  inset: 12% auto;
   left: 50%;
-  width: 3px;
+  width: 4px;
   transform: translateX(-50%);
   border-radius: 3px;
-  background: var(--glass-rim-soft);
+  background: rgba(47, 243, 255, 0.32);
+  box-shadow: 0 0 6px rgba(47, 243, 255, 0.18);
 }
 .panel-divider:hover::after, body.resizing .panel-divider::after {
-  width: 4px;
-  background: rgba(47, 243, 255, 0.6);
-  box-shadow: 0 0 10px rgba(47, 243, 255, 0.35);
+  width: 5px;
+  background: rgba(47, 243, 255, 0.7);
+  box-shadow: 0 0 12px rgba(47, 243, 255, 0.4);
 }
 .panel-toolbar {
   position: absolute; top: 0; left: 0; right: 0; z-index: 6;
