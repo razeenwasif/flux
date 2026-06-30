@@ -3132,6 +3132,28 @@ const WebPanelPane: Component = () => {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+  // Resize the panel's width by dragging the toolbar grip. The edge divider sits
+  // in a reserved gutter that the native webview covers on the WebView2 build
+  // (so it's invisible/ungrabbable there); the toolbar is the one HTML strip the
+  // webview is provably inset from, so a grip here is always hittable. Hiding the
+  // webview on drag-start (panelDragging) lets the pointer track freely after.
+  const startWidthDrag = (e: PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    document.body.classList.add("resizing");
+    setPanelDragging(true);
+    const startX = e.clientX;
+    const startW = panelWidth();
+    const move = (ev: PointerEvent) => setPanelWidth(startW - (ev.clientX - startX));
+    const up = () => {
+      setPanelDragging(false);
+      document.body.classList.remove("resizing");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   const slot = (
     id: string,
     p: WebPanel,
@@ -3140,6 +3162,7 @@ const WebPanelPane: Component = () => {
   ) => (
     <div class="webpanel-surface" id={id} style={{ "flex-grow": String(grow()) }}>
       <div class="panel-toolbar">
+        <span class="panel-wgrip" title="Drag to resize the panel" onPointerDown={startWidthDrag}>⋮⋮</span>
         <span class="panel-title" title={p.url}>{p.title || p.url}</span>
         <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p.id, p.url)}>⟳</button>
         <button class="panel-btn" title="Close panel" onClick={onClose}>✕</button>

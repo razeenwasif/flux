@@ -318,6 +318,16 @@ body.resizing, body.busy { --glass-blur: none; }
   background: var(--flux-popover-fill);
   border-bottom: 1px solid var(--glass-rim-soft);
 }
+/* Width-resize grip in the panel toolbar (the one HTML strip the native webview
+   never covers — the edge divider is unreliable there). */
+.panel-wgrip {
+  flex: none; width: 18px; height: 24px; margin-left: -4px;
+  display: grid; place-items: center;
+  letter-spacing: -2px; font-size: 12px; line-height: 1;
+  color: var(--flux-text-mute); cursor: col-resize;
+  border-radius: 6px; user-select: none;
+}
+.panel-wgrip:hover { color: var(--flux-teal); background: var(--flux-surface-2); }
 .panel-placeholder { position: absolute; inset: 34px 0 0; }
 .panel-title { flex: 1; min-width: 0; font-size: 12px; color: var(--flux-text-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .panel-btn { flex: none; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 13px; color: var(--flux-text-dim); }
