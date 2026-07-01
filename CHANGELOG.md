@@ -372,6 +372,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   (added to the wake regex + the Vosk wake grammar) alongside *"hey gemma"*.
 
 ### Fixed
+- **Flux reopens windowed at its last size (never fullscreen)** — the window-state plugin
+  was restoring the *maximized* flag, so once you'd ever maximized it, Flux relaunched
+  maximized (looking full-screen with the custom title bar) and appeared to "forget" its
+  size. Now we skip the plugin's auto-restore for the main window and restore only its
+  size + position, so it always reopens at the last floating (un-maximized) geometry. The
+  save still tracks everything, so the windowed size is preserved even if you close while
+  maximized.
 - **Split view works for Flux's own pages** — you can now tile the home page, task manager,
   Notebook, history, etc. (not just web pages). Internal pages are DOM-rendered, not native
   webviews, so the old tiling (which only positioned webviews) showed nothing for them; the

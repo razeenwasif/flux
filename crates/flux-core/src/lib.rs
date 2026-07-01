@@ -157,11 +157,30 @@ pub fn run(intent: cli::LaunchIntent) {
                 let _ = win.set_focus();
             }
         }))
-        // Persist + restore window size/position across launches (open as closed).
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Persist + restore window size/position across launches. We skip the
+        // plugin's auto-restore for "main" and restore it ourselves (SIZE|POSITION
+        // only, in setup) so Flux always reopens *windowed* at its last floating
+        // size — never maximized/fullscreen. The save still tracks all flags, so
+        // the un-maximized size is preserved even if you close while maximized.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .skip_initial_state("main")
+                .build(),
+        )
         // OS notifications (used by the reminder scheduler).
         .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
+            // Restore the main window to its last *windowed* geometry only (size +
+            // position), so it never reopens maximized/fullscreen. Runs before the
+            // event loop pumps, so the geometry is set before the window is shown.
+            {
+                use tauri_plugin_window_state::{StateFlags, WindowExt};
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.restore_state(StateFlags::SIZE | StateFlags::POSITION);
+                    let _ = win.unmaximize();
+                    let _ = win.set_fullscreen(false);
+                }
+            }
             // Background reminder scheduler — fires due reminders even with the
             // agent panel closed (event + OS toast).
             reminders::start_scheduler(app.handle().clone());
