@@ -254,12 +254,37 @@ body.resizing, body.busy { --glass-blur: none; }
 /* Web panel (#48): its own grid pane beside the main content card. */
 .webpanel-pane {
   grid-area: webpanel;
+  position: relative;
   min-width: 0;
   min-height: 0;
   padding: var(--flux-frame-pad);
   padding-left: 0;
   display: flex;
   flex-direction: column;
+}
+/* Resize handle pinned to the pane's own left edge, inside the reserved gutter
+   the native webview is inset from. Full-height, visible cyan line, grabbable. */
+.panel-edge-resize {
+  position: absolute;
+  top: var(--flux-frame-pad); bottom: var(--flux-frame-pad); left: 0;
+  width: 14px; z-index: 8;
+  cursor: col-resize;
+}
+.panel-edge-resize::after {
+  content: "";
+  position: absolute;
+  top: 12%; bottom: 12%; left: 50%;
+  width: 4px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: rgba(47, 243, 255, 0.32);
+  box-shadow: 0 0 6px rgba(47, 243, 255, 0.18);
+  transition: background .15s var(--ease-soft), width .15s var(--ease-soft);
+}
+.panel-edge-resize:hover::after, body.resizing .panel-edge-resize::after {
+  width: 5px;
+  background: rgba(47, 243, 255, 0.7);
+  box-shadow: 0 0 12px rgba(47, 243, 255, 0.4);
 }
 .webpanel-surface {
   position: relative;
@@ -293,24 +318,6 @@ body.resizing, body.busy { --glass-blur: none; }
   background: var(--glass-rim-soft);
 }
 .webpanel-vdiv:hover::after { background: var(--flux-accent, var(--glass-rim)); }
-.panel-divider { left: auto; transform: none; cursor: col-resize; }
-/* Sits in the reserved panel gutter, jammed against the native webview's edge,
-   so a faint resting line keeps it discoverable (an invisible strip was
-   impossible to find/grab on the native build). */
-.panel-divider::after {
-  inset: 12% auto;
-  left: 50%;
-  width: 4px;
-  transform: translateX(-50%);
-  border-radius: 3px;
-  background: rgba(47, 243, 255, 0.32);
-  box-shadow: 0 0 6px rgba(47, 243, 255, 0.18);
-}
-.panel-divider:hover::after, body.resizing .panel-divider::after {
-  width: 5px;
-  background: rgba(47, 243, 255, 0.7);
-  box-shadow: 0 0 12px rgba(47, 243, 255, 0.4);
-}
 .panel-toolbar {
   position: absolute; top: 0; left: 0; right: 0; z-index: 6;
   height: 34px; display: flex; align-items: center; gap: 4px;
@@ -318,16 +325,6 @@ body.resizing, body.busy { --glass-blur: none; }
   background: var(--flux-popover-fill);
   border-bottom: 1px solid var(--glass-rim-soft);
 }
-/* Width-resize grip in the panel toolbar (the one HTML strip the native webview
-   never covers — the edge divider is unreliable there). */
-.panel-wgrip {
-  flex: none; width: 18px; height: 24px; margin-left: -4px;
-  display: grid; place-items: center;
-  letter-spacing: -2px; font-size: 12px; line-height: 1;
-  color: var(--flux-text-mute); cursor: col-resize;
-  border-radius: 6px; user-select: none;
-}
-.panel-wgrip:hover { color: var(--flux-teal); background: var(--flux-surface-2); }
 .panel-placeholder { position: absolute; inset: 34px 0 0; }
 .panel-title { flex: 1; min-width: 0; font-size: 12px; color: var(--flux-text-dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .panel-btn { flex: none; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 13px; color: var(--flux-text-dim); }

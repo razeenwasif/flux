@@ -384,12 +384,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   webviews, so the old tiling (which only positioned webviews) showed nothing for them; the
   content card now renders each split pane's page into its half. Trigger it from the command
   palette ("Split view"), the tab right-click menu, or dragging a tab to the right edge.
-- **Web panel is resizable via a toolbar grip** — the old edge divider sat in a reserved
-  gutter that the native WebView2 layer actually covers (so it was invisible *and*
-  ungrabbable on the real build). Moved the resize handle (`⋮⋮`) into the panel toolbar —
-  the one HTML strip the webview is provably inset from (its title/reload/close buttons live
-  there) — so it's always visible and hittable. Drag it left/right to resize; the webview
-  hides during the drag so the pointer tracks freely.
+- **Web panel resize handle sits on the panel's edge** — the handle is now a full-height
+  cyan line anchored to the pane's *own* left edge, so it's always at the panel boundary. The
+  previous shell-level divider positioned itself by summing column widths but omitted the
+  connections-rail width, so with that rail open it drifted into the middle of the panel;
+  anchoring the handle inside the pane removes the width-math entirely. It lives in the
+  reserved gutter the native webview is inset from (so it's visible and grabbable) and the
+  webview hides while dragging so the pointer tracks freely.
 - **Expanded home widgets no longer hide behind the web panel** — a start-page widget's
   expand modal is plain HTML, but a pinned **web panel is a native child webview that the
   OS composites *above* all page content**, so no `z-index` could cover it. The modal now
