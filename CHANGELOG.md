@@ -77,6 +77,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Changed
+- **Refactor: one overlay registry for webview hiding** — the four hand-rolled boolean
+  chains that decided "hide the native webviews, an overlay is open" (tiling effect, panel
+  effect, relayout guard, post-open re-check) drifted apart and kept dropping newer overlay
+  flags — the root cause of the buried-home-widget and hidden-split-view bugs. All overlay
+  flags are now OR'd once in `pageOverlayActive()` (store.ts); the effects read only that.
+  Adding an overlay is now a one-line registration. Also fixes two latent cases the old
+  chains missed: a webview finishing its async open under an app pane / newer overlay would
+  show on top of it, and an expanded home widget didn't hide a split-view neighbour's page.
 - **Toolbar: Notebook (KB) pane replaces the Maps button** — the left nav cluster's 🗺 Maps
   button is now a 📓 **Notebook** button that opens your Onyx + Scroll knowledge base as a
   **floating glass pane** (like the file explorer) — a first-class entry to the second brain

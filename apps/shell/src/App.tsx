@@ -180,19 +180,13 @@ import {
   mapPanelOpen,
   kbPanelOpen,
   setKbPanelOpen,
-  shellHistOpen,
   setShellHistOpen,
   splitPickerOpen,
   setSplitPickerOpen,
-  semFindOpen,
   setSemFindOpen,
-  watchPanelOpen,
   setWatchPanelOpen,
-  trackerGraphOpen,
   setTrackerGraphOpen,
   openAppIds,
-  agentMenuOpen,
-  homeModalOpen,
   setMapPanelOpen,
   mapQuery,
   setMapQuery,
@@ -221,6 +215,7 @@ import {
   setPanelSplitRatio,
   panelDragging,
   setPanelDragging,
+  pageOverlayActive,
   pinPanel,
   unpinPanel,
   togglePanel,
@@ -333,6 +328,12 @@ const App: Component = () => {
   // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
   const [focusMode, setFocusMode] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  // Overlay registry (store.ts pageOverlayActive) + the one App-local overlay
+  // flag. Every webview show/hide decision reads THESE, never a hand-rolled
+  // boolean chain — chains drifted apart and dropped newer flags (the split-view
+  // and home-widget hide bugs).
+  const overlayActive = () => pageOverlayActive() || paletteOpen();
+  const uiDragging = () => splitDragging() || panelDragging();
 
   // Resizable pane widths (px), persisted across sessions (BACKLOG #27).
   const loadW = (k: string, d: number) => Number(localStorage.getItem(k)) || d;
@@ -445,7 +446,7 @@ const App: Component = () => {
     if (boundsRaf) return;
     boundsRaf = requestAnimationFrame(() => {
       boundsRaf = 0;
-      if (splitDragging() || panelDragging() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen()) return;
+      if (uiDragging() || overlayActive()) return;
       for (const p of paneLayout()) wv(webviewSetBounds(p.tab.id, p.rect));
     });
   };
@@ -732,8 +733,8 @@ const App: Component = () => {
     relayoutTick(); // subscribe: forced re-tile (e.g. after fullscreen-video exit)
     splitRatio(); // subscribe: re-tile when the seam moves
     panelWidth(); // subscribe: re-tile when the panel divider moves
-    const dragging = splitDragging() || panelDragging();
-    const overlay = readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen() || watchPanelOpen() || trackerGraphOpen() || openAppIds().length > 0;
+    const dragging = uiDragging();
+    const overlay = overlayActive();
     const panes = overlay ? [] : paneLayout();
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
@@ -770,7 +771,7 @@ const App: Component = () => {
             await webviewSetBounds(id, r);
             openingWebviews.delete(id);
             openedWebviews.add(id);
-            if (readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || splitDragging() || panelDragging()) {
+            if (overlayActive() || uiDragging()) {
               shown.delete(id);
               await webviewHide(id);
               return;
@@ -823,8 +824,9 @@ const App: Component = () => {
     const bottom = activePanelB();
     // Reader / Files popout / command palette are full overlays that must sit above
     // everything — including the web panel's own native webview layer.
-    const hidden =
-      panelDragging() || focusMode() || readerOpen() || filesPanelOpen() || mapPanelOpen() || kbPanelOpen() || paletteOpen() || agentMenuOpen() || homeModalOpen() || shellHistOpen() || splitPickerOpen() || semFindOpen() || watchPanelOpen() || trackerGraphOpen() || openAppIds().length > 0;
+    // focusMode hides the panel *column* (not a page overlay); panel drags hide
+    // only the panel webviews (split-seam drags don't touch this pane).
+    const hidden = panelDragging() || focusMode() || overlayActive();
     syncSlot("top", top, hidden ? null : panelViewRect());
     syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
   });

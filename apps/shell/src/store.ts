@@ -633,6 +633,28 @@ export { openAppIds, setOpenAppIds, focusedAppId, setFocusedAppId };
 // while this is set, like the other chrome overlays.
 const [agentMenuOpen, setAgentMenuOpen] = createSignal(false);
 export { agentMenuOpen, setAgentMenuOpen };
+
+// ─── Overlay registry ────────────────────────────────────────────────────────
+// THE single source of truth for "an HTML overlay must cover the page area".
+// Native tab webviews are an OS layer above ALL chrome HTML — z-index can't put
+// an overlay over them, so the tiling/panel effects hide the webviews whenever
+// any of these is open. Every full-card overlay flag MUST be OR'd in here (plus
+// paletteOpen, which is App-local and composed in App.tsx); the effects read
+// only this. Forgetting a flag here is the bug class that hid split view and
+// buried expanded home widgets — don't re-grow per-effect boolean chains.
+export const pageOverlayActive = (): boolean =>
+  readerOpen() ||
+  filesPanelOpen() ||
+  mapPanelOpen() ||
+  kbPanelOpen() ||
+  agentMenuOpen() ||
+  homeModalOpen() ||
+  shellHistOpen() ||
+  splitPickerOpen() ||
+  semFindOpen() ||
+  watchPanelOpen() ||
+  trackerGraphOpen() ||
+  openAppIds().length > 0;
 export function setMapQuery(q: string): void {
   setMapQueryRaw(q);
   localStorage.setItem("flux.map.query", q);
