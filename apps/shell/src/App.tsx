@@ -79,7 +79,6 @@ import {
   webviewHibernate,
   webviewHide,
   webviewNavigate,
-  webviewOpen,
   webviewReload,
   webviewZoom,
   webviewExtractReader,
@@ -90,17 +89,11 @@ import {
   omniIngestActive,
   omniAnswer,
   type OmniAnswerSource,
-  webviewSetBounds,
   webviewShow,
   webviewStop,
   webviewFind,
   watchAdd,
   watchIsWatched,
-  panelOpen,
-  panelSetBounds,
-  panelShow,
-  panelHide,
-  panelClose,
   panelNavigate,
   workspaceActive,
   workspaceDelete,
@@ -216,6 +209,9 @@ import {
   panelDragging,
   setPanelDragging,
   pageOverlayActive,
+} from "./store";
+import { createWebviewTiling } from "./tiling";
+import {
   pinPanel,
   unpinPanel,
   togglePanel,
@@ -342,9 +338,6 @@ const App: Component = () => {
   const [agentW, setAgentW] = createSignal(loadW("flux.w.agent", 372));
   const [connectW] = createSignal(loadW("flux.w.connect", 212));
 
-  // Live rect of the content card, in CSS (logical) px relative to the window.
-  // Native tab webviews are positioned to match it (BACKLOG #2).
-  const [contentRect, setContentRect] = createSignal<Rect | null>(null);
   // Window width drives the responsive pane-shedding (#28). Tracked from the window
   // resize event only (not layout changes) so it can't feed back into the columns
   // it sizes. Initialised to the current width.
@@ -353,103 +346,15 @@ const App: Component = () => {
   // restored tabs so they aren't treated as stale on the first auto-archive sweep.
   createEffect(() => { const t = activeTab(); if (t?.kind === "browser") touchTabUrl(t.url); });
   createEffect(() => { seedTabAccess(tabs().filter((t) => t.kind === "browser").map((t) => t.url)); });
-  // Bumped to force the webview tiling effects to re-apply bounds even when the
-  // card rect hasn't changed. Needed because exiting an HTML5 video fullscreen
-  // leaves the native webview oversized (covering the bookmark bar / footer) and
-  // fires no window resize, so nothing would otherwise re-tile it back down.
-  const [relayoutTick, setRelayoutTick] = createSignal(0);
-  const forceRelayout = () => setRelayoutTick((n) => n + 1);
-  const openedWebviews = new Set<number>();
-  const openingWebviews = new Set<number>();
-  // Webview ids currently shown (visible panes). Lets the layout effect issue
-  // show/hide IPC only on transitions, not once per tab on every resize frame.
-  const shown = new Set<number>();
-  // Last time each tab was the active one (ms) — drives tab hibernation (#45).
-  const lastActive = new Map<number, number>();
+  // Webview tiling (rect math, measurement, show/hide reconciliation, panel
+  // slots) lives in tiling.ts — App supplies its local overlay/drag/focus
+  // accessors and keeps the returned liveness bookkeeping for hibernation,
+  // navigation and workspace switches.
+  const { openedWebviews, openingWebviews, lastActive, wv, forgetWebview, scheduleRelayout, forceRelayout, paneLayout } =
+    createWebviewTiling({ overlayActive, uiDragging, focusMode });
   // Last finished URL per tab — the "from" of the next navigation, for training
   // the predictive-prefetch Markov model (#103).
   const prevUrlByTab = new Map<number, string>();
-
-  // Fire-and-forget a webview command, surfacing failures (the search/position
-  // bug is hard to see otherwise — check the devtools console).
-  const wv = (p: Promise<unknown>) => void p.catch((e) => console.error("[flux webview]", e));
-  const forgetWebview = (id: number) => {
-    openedWebviews.delete(id);
-    openingWebviews.delete(id);
-    shown.delete(id);
-  };
-
-  // Read the content-card rect fresh from the DOM (never a stale signal).
-  const readRect = (): Rect | null => {
-    const el = document.getElementById("flux-web-area");
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    if (r.width < 1 || r.height < 1) return null;
-    return { x: r.x, y: r.y, width: r.width, height: r.height };
-  };
-
-  // The pane layout (#43): normally the active browser tab fills the card; when
-  // a split is active and one of the pair is focused, the two pair tabs tile
-  // left | right at `splitRatio` with a small gap the DOM splitter sits in.
-  const SPLIT_GAP = 8;
-  // Web panel (#48) geometry: the panel is its own grid pane beside the content
-  // card; its native webview sits below a DOM toolbar.
-  const PANEL_TOOLBAR = 34; // DOM toolbar height atop the panel
-  const mainRect = (): Rect | null => {
-    return readRect();
-  };
-  // Each split slot is a DOM element (toolbar + native-webview region); the webview
-  // is tiled below the toolbar of its slot's box, so a vertical split is just two
-  // boxes the native layer follows.
-  const slotViewRect = (elId: string, active: boolean): Rect | null => {
-    const el = document.getElementById(elId);
-    if (!el || !active) return null;
-    const r = el.getBoundingClientRect();
-    if (!r || r.width < 1 || r.height < PANEL_TOOLBAR + 1) return null;
-    return { x: r.x, y: r.y + PANEL_TOOLBAR, width: r.width, height: Math.max(0, r.height - PANEL_TOOLBAR) };
-  };
-  // Reserve a grab gutter on the panel's left edge so the resize divider sits in a
-  // gap no native webview covers (same idea as the split seam's SPLIT_GAP). Without
-  // it the divider is pinned under the panel webview and can't be grabbed.
-  const PANEL_GUTTER = 14;
-  const insetLeft = (r: Rect | null, px: number): Rect | null =>
-    r ? { ...r, x: r.x + px, width: Math.max(0, r.width - px) } : null;
-  const panelViewRect = (): Rect | null => insetLeft(slotViewRect("flux-panel-area", activePanelId() != null), PANEL_GUTTER);
-  const panelViewRectB = (): Rect | null => insetLeft(slotViewRect("flux-panel-area-b", activePanelIdB() != null), PANEL_GUTTER);
-  const paneLayout = (): { tab: TabMeta; rect: Rect }[] => {
-    if (readerOpen()) return []; // reader view covers the card; hide the page
-    const rect = mainRect();
-    if (!rect) return [];
-    const pair = splitPanes();
-    if (pair) {
-      const ratio = Math.min(0.8, Math.max(0.2, splitRatio()));
-      const lw = Math.round(rect.width * ratio - SPLIT_GAP / 2);
-      const rw = Math.round(rect.width - lw - SPLIT_GAP);
-      const out: { tab: TabMeta; rect: Rect }[] = [];
-      // Only real web pages get a tiled webview; Flux's internal pages (any
-      // flux:// url) render as DOM into their half — feeding them here would open
-      // a black native webview over the page.
-      if (!isStartUrl(pair[0].url)) out.push({ tab: pair[0], rect: { x: rect.x, y: rect.y, width: lw, height: rect.height } });
-      if (!isStartUrl(pair[1].url)) out.push({ tab: pair[1], rect: { x: rect.x + lw + SPLIT_GAP, y: rect.y, width: rw, height: rect.height } });
-      return out;
-    }
-    const act = activeTab();
-    if (act?.kind === "browser" && !isStartUrl(act.url)) return [{ tab: act, rect }];
-    return [];
-  };
-
-  // Coalesce webview bounds updates to one IPC call per animation frame — a
-  // resize fires dozens of layout changes/sec, and one IPC each was the lag.
-  // Pane-aware: repositions every tiled pane, not just the active tab.
-  let boundsRaf = 0;
-  const scheduleRelayout = () => {
-    if (boundsRaf) return;
-    boundsRaf = requestAnimationFrame(() => {
-      boundsRaf = 0;
-      if (uiDragging() || overlayActive()) return;
-      for (const p of paneLayout()) wv(webviewSetBounds(p.tab.id, p.rect));
-    });
-  };
 
   // Materialize CLI launch intent exactly once (`flux <url> -t`).
   onMount(async () => {
@@ -695,140 +600,6 @@ const App: Component = () => {
       unBadge();
     });
 
-    // Track the content-card rect: ResizeObserver catches every layout change
-    // (window resize, sidebar collapse, panel toggles, pane resize) in one place.
-    const el = document.getElementById("flux-web-area");
-    if (el) {
-      const measure = () => setContentRect(readRect());
-      const ro = new ResizeObserver(measure);
-      ro.observe(el);
-      window.addEventListener("resize", measure);
-      // Recover the layout after a video leaves fullscreen: the host window regains
-      // focus / fires a fullscreenchange, but no resize, so we re-measure AND force a
-      // bounds re-apply to shrink the page webview off the bottom chrome again.
-      const recover = () => { measure(); forceRelayout(); };
-      window.addEventListener("focus", recover);
-      document.addEventListener("visibilitychange", recover);
-      document.addEventListener("fullscreenchange", recover);
-      document.addEventListener("webkitfullscreenchange", recover);
-      measure();
-      onCleanup(() => {
-        ro.disconnect();
-        window.removeEventListener("resize", measure);
-        window.removeEventListener("focus", recover);
-        document.removeEventListener("visibilitychange", recover);
-        document.removeEventListener("fullscreenchange", recover);
-        document.removeEventListener("webkitfullscreenchange", recover);
-      });
-    }
-  });
-
-  // Sync native webviews to the pane layout (#2/#43): show the tiled pane(s) at
-  // their rects, hide every other browser tab's webview. `flux://start` tabs get
-  // no webview — the dashboard renders in the card. While the split seam is being
-  // dragged, hide all panes so the DOM splitter can track the pointer (a native
-  // webview is a separate OS layer that would otherwise eat the mouse).
-  createEffect(() => {
-    contentRect(); // subscribe: re-run on any layout change
-    relayoutTick(); // subscribe: forced re-tile (e.g. after fullscreen-video exit)
-    splitRatio(); // subscribe: re-tile when the seam moves
-    panelWidth(); // subscribe: re-tile when the panel divider moves
-    const dragging = uiDragging();
-    const overlay = overlayActive();
-    const panes = overlay ? [] : paneLayout();
-    const liveIds = new Set(panes.map((p) => p.tab.id));
-    // Hide only what's currently shown but shouldn't be (or everything mid-drag).
-    // Crucially this issues NO hide IPC on a pure resize — `shown` already matches
-    // `liveIds`, so the loop is a no-op and only the throttled bounds update runs.
-    for (const id of [...shown]) {
-      if (dragging || !liveIds.has(id)) {
-        wv(webviewHide(id));
-        shown.delete(id);
-      }
-    }
-    if (dragging || overlay) return; // panes re-show when the drag/overlay ends
-    let needRelayout = false;
-    for (const p of panes) {
-      const id = p.tab.id;
-      if (openedWebviews.has(id)) {
-        if (!shown.has(id)) {
-          wv(webviewShow(id)); // only on transition into view
-          shown.add(id);
-        }
-        needRelayout = true; // throttled bounds for resize/seam follow
-      } else if (!openingWebviews.has(id)) {
-        openingWebviews.add(id);
-        setHibernated(id, false); // (re)opening = waking from sleep (#45)
-        lastActive.set(id, Date.now());
-        const r = p.rect;
-        webviewOpen(id, p.tab.url, r)
-          .then(async () => {
-            if (!openingWebviews.has(id)) {
-              shown.delete(id);
-              await webviewHibernate(id);
-              return;
-            }
-            await webviewSetBounds(id, r);
-            openingWebviews.delete(id);
-            openedWebviews.add(id);
-            if (overlayActive() || uiDragging()) {
-              shown.delete(id);
-              await webviewHide(id);
-              return;
-            }
-            shown.add(id);
-            await webviewShow(id);
-          })
-          .catch((e) => {
-            openingWebviews.delete(id);
-            openedWebviews.delete(id);
-            shown.delete(id);
-            console.error("[flux webview] open failed:", e);
-          });
-      }
-    }
-    if (needRelayout) scheduleRelayout();
-  });
-
-  // Web panel (#48): manage the single open panel's webview — positioned in its
-  // own grid pane beside the content card. Switching panels closes the old one;
-  // hidden mid-divider-drag.
-  const opened: { top: number | null; bottom: number | null } = { top: null, bottom: null };
-  // Reconcile one split slot's native webview against the panel it should show and
-  // the rect it should occupy (null rect = keep alive but hidden behind an overlay).
-  const syncSlot = (slot: "top" | "bottom", p: WebPanel | null, rect: Rect | null) => {
-    const prev = opened[slot];
-    if (prev != null && prev !== (p?.id ?? null)) {
-      wv(panelClose(prev));
-      opened[slot] = null;
-    }
-    if (!p) return;
-    if (!rect) {
-      wv(panelHide(p.id));
-      return;
-    }
-    if (opened[slot] === p.id) {
-      wv(panelSetBounds(p.id, rect));
-      wv(panelShow(p.id));
-    } else {
-      opened[slot] = p.id;
-      wv(panelOpen(p.id, p.url, rect).then(() => panelSetBounds(p.id, rect)));
-    }
-  };
-  createEffect(() => {
-    contentRect();
-    relayoutTick(); // subscribe: forced re-tile (e.g. after fullscreen-video exit)
-    panelWidth(); // subscribe: re-position on resize / divider drag
-    panelSplitRatio(); // subscribe: re-tile both slots when the split moves
-    const top = activePanel();
-    const bottom = activePanelB();
-    // Reader / Files popout / command palette are full overlays that must sit above
-    // everything — including the web panel's own native webview layer.
-    // focusMode hides the panel *column* (not a page overlay); panel drags hide
-    // only the panel webviews (split-seam drags don't touch this pane).
-    const hidden = panelDragging() || focusMode() || overlayActive();
-    syncSlot("top", top, hidden ? null : panelViewRect());
-    syncSlot("bottom", bottom, hidden ? null : panelViewRectB());
   });
 
   // Capture a tab's scroll/form state the moment you switch away from it (#45),

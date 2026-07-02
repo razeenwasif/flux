@@ -77,6 +77,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Changed
+- **Refactor: webview tiling extracted to `tiling.ts`** — the geometry engine that glues
+  native webviews to the DOM chrome (content-card measurement, split/panel rect math, the
+  show/hide reconciliation effects, and the layout constants `SPLIT_GAP`/`PANEL_TOOLBAR`/
+  `PANEL_GUTTER`) now lives in one module, `createWebviewTiling()`, instead of being spread
+  through App.tsx (−230 lines). App supplies its overlay/drag/focus accessors and keeps the
+  returned liveness bookkeeping (opened/opening sets, `lastActive`) for hibernation and
+  workspace switching. Pure extraction — no behavior change.
 - **Refactor: one overlay registry for webview hiding** — the four hand-rolled boolean
   chains that decided "hide the native webviews, an overlay is open" (tiling effect, panel
   effect, relayout guard, post-open re-check) drifted apart and kept dropping newer overlay
