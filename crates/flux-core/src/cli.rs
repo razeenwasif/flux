@@ -16,8 +16,7 @@ use serde::{Deserialize, Serialize};
 
 /// What the user asked for at launch. Managed into Tauri state; the shell
 /// pulls it once on mount (`launch_intent` command) and materializes tabs.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct LaunchIntent {
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]pub struct LaunchIntent {
     /// URLs to open as Browser tabs, in argv order.
     pub urls: Vec<String>,
     /// `--terminal`: also open (and focus) a Terminal tab.

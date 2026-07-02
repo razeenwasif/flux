@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 /// };
 /// assert_eq!(mine.search_url("rust lang"), "https://search.example.com/?q=rust%20lang");
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct SearchEngine {
     /// Stable id (used by `default_id`, set/remove).
     pub id: String,
@@ -59,7 +59,7 @@ impl SearchEngine {
 }
 
 /// The result of resolving omnibox input.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Resolution {
     /// Input was a URL/host → go straight there.

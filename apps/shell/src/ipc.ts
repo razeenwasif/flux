@@ -109,6 +109,19 @@ import type {
   VaultStatus as GenVaultStatus,
   WebPanel as GenWebPanel,
   Workspace as GenWorkspace,
+  LaunchIntent as GenLaunchIntent,
+  ChromeProfilePreview as GenChromeProfilePreview,
+  ChromeBookmark as GenChromeBookmark,
+  AgentAction as GenAgentAction,
+  EditPlan as GenEditPlan,
+  NextStep as GenNextStep,
+  Reminder as GenReminder,
+  SearchEngine as GenSearchEngine,
+  Resolution as GenResolution,
+  MemInfo as GenMemInfo,
+  HibernateCandidate as GenHibernateCandidate,
+  EvictionRank as GenEvictionRank,
+  PrefetchHint as GenPrefetchHint,
 } from "./bindings.gen";
 export type ClusterTag = GenClusterTag;
 export type TabKind = GenTabKind;
@@ -181,32 +194,10 @@ export const tabSetFolder = (tabId: number, folder: number | null) =>
 export const tabRename = (tabId: number, name: string | null) =>
   invoke<void>("tab_rename", { tabId, name: name || null });
 
-export interface LaunchIntent {
-  urls: string[];
-  terminal: boolean;
-}
-
-export interface ChromeProfilePreview {
-  dir: string;
-  name: string;
-  bookmark_count: number;
-  extension_count: number;
-  has_saved_tab_groups: boolean;
-}
-
-export interface ChromeBookmark {
-  name: string;
-  url: string;
-  folder: string;
-}
-
-export type AgentAction =
-  | { action: "click"; selector: string; reason: string }
-  | { action: "extract_table"; selector: string; format: "csv" | "json" }
-  | { action: "type"; selector: string; text: string }
-  | { action: "reveal"; selector: string }
-  | { action: "refuse"; reason: string }
-  | { action: "finish"; summary: string };
+export type LaunchIntent = GenLaunchIntent;
+export type ChromeProfilePreview = GenChromeProfilePreview;
+export type ChromeBookmark = GenChromeBookmark;
+export type AgentAction = GenAgentAction;
 
 // ─── Commands ────────────────────────────────────────────────────────────
 
@@ -309,12 +300,12 @@ export const shellGuard = (command: string) => invoke<string | null>("shell_guar
 export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
 /** Write a text file (WSL-aware) — only after the user approves an edit. */
 export const writeTextFile = (path: string, content: string) => invoke<void>("write_text_file", { path, content });
-export type EditPlan = { summary: string; edits: { search: string; replace: string }[] };
+export type EditPlan = GenEditPlan;
 /** Plan a file edit (search/replace) from an instruction; the UI diffs + approves. */
 export const agentEditPlan = (path: string, content: string, instruction: string) =>
   invoke<EditPlan>("agent_edit_plan", { path, content, instruction });
 /** Persistent reminders (backend-scheduled; fire even with the panel closed). */
-export type ReminderRow = { id: string; text: string; due: number | null; fired?: boolean; created?: number };
+export type ReminderRow = GenReminder;
 export const remindersList = () => invoke<ReminderRow[]>("reminders_list");
 export const remindersAdd = (id: string, text: string, due: number | null, created: number) =>
   invoke<void>("reminders_add", { id, text, due, created });
@@ -333,7 +324,7 @@ export const agentShellPlan = (prompt: string) => invoke<string | null>("agent_s
 /** Decompose a compound request into ordered single-action sub-commands (#115). */
 export const agentPlanSteps = (goal: string) => invoke<string[]>("agent_plan_steps", { goal });
 /** Adaptive loop: next command toward `goal` given the history of results so far. */
-export type NextStep = { command: string; done: boolean; summary: string };
+export type NextStep = GenNextStep;
 export const agentNextStep = (goal: string, history: string[]) =>
   invoke<NextStep>("agent_next_step", { goal, history });
 /** Store (or clear, with "") the Picovoice (Porcupine) access key in the keyring. */
@@ -468,17 +459,8 @@ export const onFindResult = (
 
 // ─── Search (pluggable backend) ─────────────────────────────────────────────
 
-export interface SearchEngine {
-  id: string;
-  name: string;
-  keyword: string | null;
-  search_template: string;
-  suggest_template: string | null;
-}
-
-export type Resolution =
-  | { kind: "navigate"; url: string }
-  | { kind: "search"; engine: string; url: string };
+export type SearchEngine = GenSearchEngine;
+export type Resolution = GenResolution;
 
 /** Resolve omnibox input → final URL (navigate vs search vs keyword). */
 export const searchResolve = (input: string) => invoke<Resolution>("search_resolve", { input });
@@ -965,7 +947,7 @@ export const onNetspeedProgress = (cb: (p: NetProgress) => void): Promise<Unlist
   listen<NetProgress>("flux://netspeed-progress", (e) => cb(e.payload));
 
 // ─── Predictive prefetch (BACKLOG #103) ──────────────────────────────────────
-export interface PrefetchHint { host: string; confidence: number }
+export type PrefetchHint = GenPrefetchHint;
 /** Record a navigation transition so the model can learn (`from` may be ""). */
 export const prefetchRecord = (from: string, to: string) =>
   invoke<void>("prefetch_record", { from, to });
@@ -981,8 +963,8 @@ export const webviewPreconnect = (tabId: number, hosts: string[]) =>
 export const webviewDevtools = (tabId: number) => invoke<void>("webview_devtools", { tabId });
 
 // ─── Belady/Markov hibernation ranking (BACKLOG #106) ────────────────────────
-export interface HibernateCandidate { tab_id: number; url: string; idle_secs: number }
-export interface EvictionRank { tab_id: number; score: number; protected: boolean }
+export type HibernateCandidate = GenHibernateCandidate;
+export type EvictionRank = GenEvictionRank;
 /** Rank background tabs worst-first for hibernation (least likely needed next). */
 export const hibernateRank = (currentUrl: string, candidates: HibernateCandidate[]) =>
   invoke<EvictionRank[]>("hibernate_rank", { currentUrl, candidates });
@@ -1011,12 +993,7 @@ export const webviewHibernate = (tabId: number) => invoke<void>("webview_hiberna
 /** Snapshot a tab's scroll/form state before it sleeps, to restore on wake. #45 */
 export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capture_state", { tabId });
 
-export interface MemInfo {
-  total_mb: number;
-  available_mb: number;
-  process_mb: number;
-  available_pct: number;
-}
+export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */
 export const memStatus = () => invoke<MemInfo>("mem_status");
 export type SystemStats = { cpuPct: number; memTotalMb: number; memUsedMb: number; memPct: number; top: { name: string; memMb: number; cpu: number }[] };

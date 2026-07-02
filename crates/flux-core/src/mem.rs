@@ -25,8 +25,7 @@ impl Default for SysMon {
     }
 }
 
-#[derive(Serialize)]
-pub struct MemInfo {
+#[derive(Serialize, specta::Type)]pub struct MemInfo {
     pub total_mb: u64,
     pub available_mb: u64,
     /// Flux's own resident set, MiB (0 if unavailable).

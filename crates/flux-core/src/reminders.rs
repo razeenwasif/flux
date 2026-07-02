@@ -16,8 +16,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Reminder {
+#[derive(Serialize, Deserialize, Clone, specta::Type)]pub struct Reminder {
     pub id: String,
     pub text: String,
     pub due: Option<i64>, // epoch ms; None = an undated to-do

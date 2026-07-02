@@ -88,6 +88,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Changed
+- **Specta type tail generated (BACKLOG #12, batch 4)** — 15 more IPC types are now
+  codegen'd from Rust instead of hand-mirrored in `ipc.ts`: LaunchIntent, Reminder, MemInfo,
+  hibernation/eviction/prefetch structs, SearchEngine/Resolution (flux-search),
+  AgentAction/EditPlan/NextStep (flux-agent), and the Chrome-import types. Only shapes with
+  no Rust struct at all (Omni dashboard passthrough JSON, ad-hoc channel payloads) remain
+  hand-written. Also caught one real drift: `NextStep`'s fields are `#[serde(default)]`, so
+  the true wire type is optional — the UI now handles that.
 - **Typed error foundation (`error.rs`, BACKLOG #132)** — new `FluxError` (thiserror) with
   named kinds (Io/Json/Http/NotFound/Locked/Invalid/Other) and `From<FluxError> for String`,
   so commands keep their `Result<T, String>` IPC contract while internals get `?` instead of

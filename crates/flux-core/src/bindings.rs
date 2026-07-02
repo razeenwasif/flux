@@ -49,6 +49,11 @@ use crate::sync::{SyncReport, SyncStatus};
 use crate::taskmgr::{GpuInfo, ProcInfo, SysStats};
 use crate::todos::Todo;
 use crate::vault::{CredentialMeta, VaultStatus};
+use crate::cli::LaunchIntent;
+use crate::hibernate::{EvictionRank, HibernateCandidate};
+use crate::mem::MemInfo;
+use crate::prefetch::PrefetchHint;
+use crate::reminders::Reminder;
 
 /// Path to the generated bindings, relative to the crate root (= CWD under
 /// `cargo test`/`cargo run`).
@@ -141,6 +146,23 @@ pub fn generate_ts() -> String {
         specta::ts::export::<SyncStatus>(&c),
         specta::ts::export::<SyncReport>(&c),
         specta::ts::export::<ArchiveEntryWire>(&c),
+        // The #12 tail (batch 4): launch intent, reminders, memory/prefetch/
+        // hibernation, search config, agent plans, Chrome import.
+        specta::ts::export::<LaunchIntent>(&c),
+        specta::ts::export::<Reminder>(&c),
+        specta::ts::export::<MemInfo>(&c),
+        specta::ts::export::<HibernateCandidate>(&c),
+        specta::ts::export::<EvictionRank>(&c),
+        specta::ts::export::<PrefetchHint>(&c),
+        specta::ts::export::<flux_search::SearchEngine>(&c),
+        specta::ts::export::<flux_search::Resolution>(&c),
+        specta::ts::export::<flux_agent::AgentAction>(&c),
+        specta::ts::export::<flux_agent::ExtractFormat>(&c),
+        specta::ts::export::<flux_agent::FileEdit>(&c),
+        specta::ts::export::<flux_agent::EditPlan>(&c),
+        specta::ts::export::<flux_agent::NextStep>(&c),
+        specta::ts::export::<flux_import::chrome::ProfilePreview>(&c),
+        specta::ts::export::<flux_import::chrome::Bookmark>(&c),
     ];
     let mut out = String::from(HEADER);
     for p in parts {

@@ -32,7 +32,8 @@ fn user_data_roots() -> Vec<PathBuf> {
     roots
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[specta(rename = "ChromeProfilePreview")] // avoid TS-name clash; matches ipc.ts
 pub struct ProfilePreview {
     /// Absolute profile directory — pass back to the import commands.
     pub dir: String,
@@ -76,7 +77,8 @@ pub fn discover_profiles() -> Result<Vec<ProfilePreview>, ImportError> {
 
 /// A flattened bookmark: folder hierarchy preserved as a path string so the
 /// Flux bookmark store can rebuild the tree (or just display the path).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[specta(rename = "ChromeBookmark")] // flux-core has its own Bookmark wire type
 pub struct Bookmark {
     pub name: String,
     pub url: String,

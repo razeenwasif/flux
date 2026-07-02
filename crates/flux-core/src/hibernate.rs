@@ -83,8 +83,7 @@ pub fn hibernate_capture(store: State<'_, HibernateStore>, tab_id: TabId, state:
 // turning "least recently used" into "least likely to be needed soon."
 
 /// A background tab the frontend is considering hibernating.
-#[derive(Deserialize)]
-pub struct HibernateCandidate {
+#[derive(Deserialize, specta::Type)]pub struct HibernateCandidate {
     pub tab_id: TabId,
     /// The tab's current page URL (its host drives the prediction match).
     pub url: String,
@@ -93,8 +92,7 @@ pub struct HibernateCandidate {
 }
 
 /// One candidate's eviction priority. Higher `score` → evict sooner.
-#[derive(Serialize, Debug, PartialEq)]
-pub struct EvictionRank {
+#[derive(Serialize, Debug, PartialEq, specta::Type)]pub struct EvictionRank {
     pub tab_id: TabId,
     pub score: f64,
     /// The model expects you back here next → shown as "kept" in the UI.

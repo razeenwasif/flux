@@ -1470,15 +1470,17 @@ const AgentPanel: Component = () => {
         setBusy(true);
         let step: NextStep;
         try { step = await agentNextStep(goal, history); } catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); return; } finally { setBusy(false); }
-        if (step.done || !step.command.trim()) {
+        // The wire type mirrors Rust's #[serde(default)] fields as optional.
+        const command = step.command ?? "";
+        if (step.done || !command.trim()) {
           setFeed((f) => [...f, { role: "task", text: `✓ ${step.summary?.trim() || "Done."}` }]);
           return;
         }
-        setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}: ${step.command}` }]);
-        const { ok, result } = await routeChainStep(step.command);
+        setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}: ${command}` }]);
+        const { ok, result } = await routeChainStep(command);
         if (!ok) { setFeed((f) => [...f, { role: "task", text: "⏹ Stopped (step cancelled)." }]); return; }
         // Cap each result so a long build log doesn't blow the model's context.
-        history.push(`STEP: ${step.command}\nRESULT: ${result.slice(0, 1500)}`);
+        history.push(`STEP: ${command}\nRESULT: ${result.slice(0, 1500)}`);
       }
       setFeed((f) => [...f, { role: "task", text: `⏹ Hit the ${MAX_FIX_STEPS}-step limit — stopping.` }]);
     } finally {

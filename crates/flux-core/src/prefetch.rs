@@ -58,8 +58,7 @@ impl Default for PrefetchModel {
 }
 
 /// A predicted next host worth preconnecting, with the model's confidence (%).
-#[derive(Serialize, Clone, Debug, PartialEq)]
-pub struct PrefetchHint {
+#[derive(Serialize, Clone, Debug, PartialEq, specta::Type)]pub struct PrefetchHint {
     pub host: String,
     pub confidence: u32,
 }

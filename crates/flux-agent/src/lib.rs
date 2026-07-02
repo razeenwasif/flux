@@ -28,7 +28,7 @@ pub enum AgentError {
 
 /// The closed action vocabulary. Adding a variant = adding a capability;
 /// each one must come with a compile template and a policy review.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum AgentAction {
     /// "Find the unsubscribe link and click it."
@@ -46,7 +46,7 @@ pub enum AgentAction {
     Finish { summary: String },
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum ExtractFormat {
     Csv,
@@ -214,14 +214,14 @@ ws          ::= [ \t\n]*
 "#;
 
 /// One surgical file edit: replace the first occurrence of `search` with `replace`.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
 pub struct FileEdit {
     pub search: String,
     pub replace: String,
 }
 
 /// A planned set of edits the frontend applies after the user approves the diff.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, specta::Type)]
 pub struct EditPlan {
     pub summary: String,
     pub edits: Vec<FileEdit>,
@@ -229,7 +229,7 @@ pub struct EditPlan {
 
 /// One iteration of an adaptive goal loop (#115 follow-up): the next command to run,
 /// or `done` with a summary when the goal is met / the model is stuck.
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, specta::Type)]
 pub struct NextStep {
     #[serde(default)]
     pub command: String,

@@ -223,3 +223,69 @@ export type SyncReport = { bookmarks_added: number; sessions_added: number; hist
  * private embedding fields).
  */
 export type ArchiveEntryWire = { id: number; url: string; title: string; saved_ms: number; text: string }
+/**
+ * What the user asked for at launch. Managed into Tauri state; the shell
+ * pulls it once on mount (`launch_intent` command) and materializes tabs.
+ */
+export type LaunchIntent = { urls: string[]; terminal: boolean }
+export type Reminder = { id: string; text: string; due: number | null; fired?: boolean; created?: number }
+export type MemInfo = { total_mb: number; available_mb: number; process_mb: number; available_pct: number }
+/**
+ * A background tab the frontend is considering hibernating.
+ */
+export type HibernateCandidate = { tab_id: number; url: string; idle_secs: number }
+/**
+ * One candidate's eviction priority. Higher `score` → evict sooner.
+ */
+export type EvictionRank = { tab_id: number; score: number; protected: boolean }
+/**
+ * A predicted next host worth preconnecting, with the model's confidence (%).
+ */
+export type PrefetchHint = { host: string; confidence: number }
+/**
+ * A search engine, defined entirely by templates. `{query}` in a template is
+ * replaced with the percent-encoded query.
+ * 
+ * Example (the user's own engine):
+ * ```
+ * # use flux_search::SearchEngine;
+ * let mine = SearchEngine {
+ * id: "flux".into(),
+ * name: "Flux Search".into(),
+ * keyword: Some("f".into()),
+ * search_template: "https://search.example.com/?q={query}".into(),
+ * suggest_template: Some("https://search.example.com/ac?q={query}".into()),
+ * };
+ * assert_eq!(mine.search_url("rust lang"), "https://search.example.com/?q=rust%20lang");
+ * ```
+ */
+export type SearchEngine = { id: string; name: string; keyword?: string | null; search_template: string; suggest_template?: string | null }
+/**
+ * The result of resolving omnibox input.
+ */
+export type Resolution = { kind: "navigate"; url: string } | { kind: "search"; engine: string; url: string }
+/**
+ * The closed action vocabulary. Adding a variant = adding a capability;
+ * each one must come with a compile template and a policy review.
+ */
+export type AgentAction = { action: "click"; selector: string; reason: string } | { action: "extract_table"; selector: string; format: ExtractFormat } | { action: "type"; selector: string; text: string } | { action: "reveal"; selector: string } | { action: "refuse"; reason: string } | { action: "finish"; summary: string }
+export type ExtractFormat = "csv" | "json"
+/**
+ * One surgical file edit: replace the first occurrence of `search` with `replace`.
+ */
+export type FileEdit = { search: string; replace: string }
+/**
+ * A planned set of edits the frontend applies after the user approves the diff.
+ */
+export type EditPlan = { summary: string; edits: FileEdit[] }
+/**
+ * One iteration of an adaptive goal loop (#115 follow-up): the next command to run,
+ * or `done` with a summary when the goal is met / the model is stuck.
+ */
+export type NextStep = { command?: string; done?: boolean; summary?: string }
+export type ChromeProfilePreview = { dir: string; name: string; bookmark_count: number; extension_count: number; has_saved_tab_groups: boolean }
+/**
+ * A flattened bookmark: folder hierarchy preserved as a path string so the
+ * Flux bookmark store can rebuild the tree (or just display the path).
+ */
+export type ChromeBookmark = { name: string; url: string; folder: string }

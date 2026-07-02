@@ -6,4 +6,6 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# TS type generation (BACKLOG #12) — wire types cross the IPC boundary.
+specta = { version = "1", features = ["serde"] }
 serde.workspace = true

@@ -1905,6 +1905,7 @@ dependencies = [
  "llama-cpp-2",
  "serde",
  "serde_json",
+ "specta",
  "thiserror 2.0.18",
  "tracing",
  "ureq",
@@ -1985,6 +1986,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "specta",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -1994,6 +1996,7 @@ name = "flux-search"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "specta",
 ]
 
 [[package]]
