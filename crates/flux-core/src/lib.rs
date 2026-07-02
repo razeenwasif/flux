@@ -48,6 +48,7 @@ pub mod omni;
 pub mod pdf;
 pub mod peek;
 pub mod permissions;
+pub mod persist;
 pub mod prefetch;
 pub mod pwa;
 pub mod reminders;

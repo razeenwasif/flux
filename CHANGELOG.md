@@ -77,6 +77,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Changed
+- **All stores now save atomically (`persist.rs`)** — every feature store (bookmarks,
+  history, calendar, todos, sessions, feeds, extensions, permissions, sync config, the
+  encrypted vault blob, …23 sites) wrote its JSON with a bare `fs::write`, so a crash or
+  power loss mid-write could truncate the file and silently wipe that store on next boot.
+  New `persist::write_atomic`/`save_json[_pretty]` helpers stage to a temp file in the same
+  directory and rename over the target (atomic on NTFS and POSIX): readers now see the old
+  file or the new one, never a torn mix. Same best-effort error contract as before.
 - **Refactor: `commands.rs` split by domain** — the 1060-line, 69-command module is now
   three: `commands.rs` (shell chrome: tabs, groups, folders, workspaces, containers, web
   panels, clustering), `dom.rs` (DOM snapshot ingestion + the context-aware terminal env

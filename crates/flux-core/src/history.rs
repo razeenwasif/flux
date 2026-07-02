@@ -233,9 +233,7 @@ impl HistoryStore {
             let _ = std::fs::create_dir_all(dir);
         }
         let snapshot: Vec<HistoryEntry> = self.entries.read().values().cloned().collect();
-        if let Ok(json) = serde_json::to_string(&snapshot) {
-            let _ = std::fs::write(path, json);
-        }
+        crate::persist::save_json(path, &snapshot);
     }
 }
 

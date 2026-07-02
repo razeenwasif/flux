@@ -161,10 +161,9 @@ impl VaultState {
         let guard = self.open.read();
         let u = guard.as_ref().ok_or("vault is locked")?;
         let blob = u.vault.encrypt(&u.dk).map_err(|e| e.to_string())?;
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&self.path, blob).map_err(|e| e.to_string())
+        // The vault blob is the one file whose loss is unrecoverable — atomic
+        // replace means a crash mid-save can never truncate it.
+        crate::persist::write_atomic(&self.path, &blob).map_err(|e| e.to_string())
     }
 
     /// Run `f` against the decrypted vault, or error if locked. Touches activity.

@@ -149,9 +149,7 @@ impl PermState {
 
     fn persist(&self) {
         let Some(path) = &self.path else { return };
-        if let Ok(json) = serde_json::to_string_pretty(&self.list()) {
-            let _ = std::fs::write(path, json);
-        }
+        crate::persist::save_json_pretty(path, &self.list());
     }
 }
 

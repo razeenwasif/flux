@@ -161,9 +161,7 @@ impl SyncState {
             last_ms: *self.last_ms.read(),
             auto: self.auto(),
         };
-        if let Ok(json) = serde_json::to_string_pretty(&cfg) {
-            let _ = std::fs::write(path, json);
-        }
+        crate::persist::save_json_pretty(path, &cfg);
     }
 
     fn status(&self) -> SyncStatus {

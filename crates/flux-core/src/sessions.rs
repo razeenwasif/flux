@@ -143,9 +143,7 @@ impl SessionStore {
             let _ = std::fs::create_dir_all(dir);
         }
         let snapshot = Persisted { items: self.items.read().clone(), tombstones: self.tombstones.read().clone() };
-        if let Ok(json) = serde_json::to_string(&snapshot) {
-            let _ = std::fs::write(path, json);
-        }
+        crate::persist::save_json(path, &snapshot);
     }
 }
 
@@ -223,10 +221,7 @@ impl SnapshotStore {
         let json = serde_json::to_string(&*snaps).ok();
         drop(snaps);
         if let (Some(path), Some(json)) = (&self.path, json) {
-            if let Some(dir) = path.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let _ = std::fs::write(path, json);
+            let _ = crate::persist::write_atomic(path, json.as_bytes());
         }
     }
 }

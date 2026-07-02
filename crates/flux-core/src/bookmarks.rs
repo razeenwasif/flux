@@ -231,9 +231,7 @@ impl BookmarkStore {
             let _ = std::fs::create_dir_all(dir);
         }
         let snapshot = Persisted { items: self.items.read().clone(), tombstones: self.tombstones.read().clone() };
-        if let Ok(json) = serde_json::to_string(&snapshot) {
-            let _ = std::fs::write(path, json);
-        }
+        crate::persist::save_json(path, &snapshot);
     }
 }
 

@@ -51,12 +51,7 @@ pub fn load(path: &Path) -> Session {
 }
 
 pub fn save(path: &Path, session: &Session) {
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(json) = serde_json::to_string_pretty(session) {
-        let _ = std::fs::write(path, json);
-    }
+    crate::persist::save_json_pretty(path, session);
 }
 
 #[cfg(test)]

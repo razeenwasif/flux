@@ -36,11 +36,8 @@ impl SearchState {
     }
 
     fn persist(&self) -> Result<(), String> {
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
         let json = serde_json::to_vec_pretty(&*self.config.read()).map_err(|e| e.to_string())?;
-        std::fs::write(&self.path, json).map_err(|e| e.to_string())
+        crate::persist::write_atomic(&self.path, &json).map_err(|e| e.to_string())
     }
 
     /// Origin of the Omni engine (`scheme://host[:port]`) for the `flux://omni`

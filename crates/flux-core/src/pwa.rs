@@ -73,9 +73,7 @@ impl PwaStore {
 
     fn persist(&self) {
         if let Some(path) = &self.path {
-            if let Ok(json) = serde_json::to_string_pretty(&*self.apps.read()) {
-                let _ = std::fs::write(path, json);
-            }
+            crate::persist::save_json_pretty(path, &*self.apps.read());
         }
     }
 }

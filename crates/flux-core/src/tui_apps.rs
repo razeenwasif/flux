@@ -139,9 +139,7 @@ impl TuiAppsStore {
     fn persist(&self) {
         let Some(path) = &self.path else { return };
         let file = TuiAppsFile { seed_version: self.seed_version.load(Ordering::Acquire), apps: self.apps.lock().clone() };
-        if let Ok(json) = serde_json::to_string_pretty(&file) {
-            let _ = std::fs::write(path, json);
-        }
+        crate::persist::save_json_pretty(path, &file);
     }
 
     pub fn list(&self) -> Vec<TuiApp> {

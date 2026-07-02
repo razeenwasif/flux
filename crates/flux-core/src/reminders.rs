@@ -50,7 +50,8 @@ fn load(app: &AppHandle) -> Vec<Reminder> {
 
 fn save(app: &AppHandle, rs: &[Reminder]) -> Result<(), String> {
     let p = store_path(app)?;
-    std::fs::write(p, serde_json::to_string_pretty(rs).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    let json = serde_json::to_string_pretty(rs).map_err(|e| e.to_string())?;
+    crate::persist::write_atomic(&p, json.as_bytes()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

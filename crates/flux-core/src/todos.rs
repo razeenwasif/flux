@@ -91,12 +91,7 @@ impl TodoStore {
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Ok(json) = serde_json::to_string(&*self.items.read()) {
-            let _ = std::fs::write(path, json);
-        }
+        crate::persist::save_json(path, &*self.items.read());
     }
 }
 

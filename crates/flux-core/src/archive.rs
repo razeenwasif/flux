@@ -110,9 +110,7 @@ fn meta(e: &ArchiveEntry, score: u32) -> ArchiveMeta {
 
 fn write_json(path: &Option<PathBuf>, entries: &[ArchiveEntry]) {
     if let Some(path) = path {
-        if let Ok(json) = serde_json::to_string(entries) {
-            let _ = std::fs::write(path, json);
-        }
+        crate::persist::save_json(path, entries);
     }
 }
 
