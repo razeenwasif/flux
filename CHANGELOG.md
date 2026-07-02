@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Ad/tracker blocking on Linux (WebKitGTK content blocker)** — network-level shields were
+  Windows-only (WebView2's request hook); on the Linux build they silently did nothing (only
+  cosmetic hiding worked). Shields now also exports its filter lists as **WebKit
+  content-blocker JSON** (`flux_filter::to_content_blocker_json`, seeded from the bundled
+  list at first boot, upgraded to full EasyList + EasyPrivacy on refresh, capped at 75k rules
+  with exceptions preserved), which WebKitGTK compiles natively via `UserContentFilterStore`
+  and enforces inside the engine — attached to every tab/peek webview, compiled once per run.
+  Same JSON will serve WKWebView if Flux lands on macOS. Known trade-off vs Windows: the
+  declarative path has no per-request callback, so the tracker graph and HTTPS-only upgrades
+  stay Windows-only. Conversion + persistence unit-tested (6 new tests); FFI compile-verified
+  on Linux.
 - **TUI-apps bootstrap (`tools/setup-tui-apps.sh`)** — pull Flux on a new machine (e.g. a
   Mac) and one command clones + builds all your terminal apps (Onyx, Scroll, Council,
   AudioPulse, Kata, …) onto your PATH, driven by a `tools/tui-apps.json` manifest (per-app

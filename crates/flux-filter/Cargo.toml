@@ -9,5 +9,6 @@ license.workspace = true
 # Brave's adblock engine: parses EasyList/uBO filter syntax and matches network
 # requests + cosmetic (element-hiding) rules. Pure Rust → unit-testable here,
 # independent of the native webview wiring.
-adblock = "0.12"
+adblock = { version = "0.12", features = ["content-blocking"] }
 serde.workspace = true
+serde_json.workspace = true

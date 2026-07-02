@@ -40,6 +40,12 @@ const LISTS: &[(&str, &str)] = &[
 /// Re-fetch a cached list once it's older than this.
 const MAX_AGE_DAYS: u64 = 5;
 
+/// Filename of the WebKit content-blocker JSON inside `filters_dir`.
+const CB_JSON_FILE: &str = "webkit-cb.json";
+/// WebKit refuses to compile very large rule sets (Safari documents 150k);
+/// stay well under it — the hot ~10% of EasyList does the real blocking anyway.
+const CB_MAX_RULES: usize = 75_000;
+
 pub struct ShieldsState {
     filter: RwLock<Filter>,
     /// Page hosts where the user turned shields OFF (allowlist).
@@ -71,7 +77,7 @@ impl ShieldsState {
     /// Start with the bundled default list (fast — parsing the big lists is
     /// deferred to [`refresh`](Self::refresh) on a background thread).
     pub fn new(filters_dir: Option<PathBuf>) -> Self {
-        Self {
+        let s = Self {
             filter: RwLock::new(Filter::from_list(DEFAULT_FILTERS)),
             off_for: DashMap::new(),
             enabled: AtomicBool::new(true),
@@ -79,7 +85,15 @@ impl ShieldsState {
             decisions: TtlCache::new(DECISION_CACHE_CAP, Some(DECISION_CACHE_TTL)),
             fired_rules: DashMap::new(),
             filters_dir,
+        };
+        // Seed the content-blocker JSON from the bundled list so the native
+        // layer (WebKitGTK) has rules before the first background refresh
+        // lands — webviews open in the same boot tick. Cheap: the bundled
+        // list is small. refresh() overwrites it with the full lists.
+        if s.content_blocker_json().is_none() {
+            s.write_content_blocker(DEFAULT_FILTERS);
         }
+        s
     }
 
     /// Fetch any stale/missing upstream lists, then rebuild the filter from the
@@ -109,6 +123,29 @@ impl ShieldsState {
         }
         self.install_filter(Filter::from_list(&text));
         tracing::info!(target: "flux::shields", "content-filter lists refreshed ({} bytes of rules)", text.len());
+        self.write_content_blocker(&text);
+    }
+
+    /// Persist the rules as WebKit content-blocker JSON (`webkit-cb.json`) —
+    /// the *native* blocking layer for engines with no per-request hook:
+    /// WebKitGTK compiles it via `UserContentFilterStore` (see `netfilter`),
+    /// and the same file serves WKWebView if Flux lands on macOS. Written on
+    /// every platform (cheap, keeps this testable); only consumed off Windows.
+    fn write_content_blocker(&self, rules: &str) {
+        let Some(dir) = &self.filters_dir else { return };
+        match flux_filter::to_content_blocker_json(rules, CB_MAX_RULES) {
+            Some(json) => {
+                let _ = crate::persist::write_atomic(&dir.join(CB_JSON_FILE), json.as_bytes());
+                tracing::info!(target: "flux::shields", bytes = json.len(), "content-blocker JSON written");
+            }
+            None => tracing::warn!(target: "flux::shields", "no rules translated to content-blocker JSON"),
+        }
+    }
+
+    /// Path of the persisted content-blocker JSON, if it has been produced.
+    pub fn content_blocker_json(&self) -> Option<PathBuf> {
+        let p = self.filters_dir.as_ref()?.join(CB_JSON_FILE);
+        p.exists().then_some(p)
     }
 
     /// Swap in a rebuilt rule set and invalidate the decision cache — every
@@ -368,5 +405,21 @@ mod tests {
         assert_eq!(host_of("https://a.b.com/x?y"), Some("a.b.com"));
         assert_eq!(host_of("http://user@h.com:8080/p"), Some("h.com"));
         assert_eq!(host_of("not a url"), None);
+    }
+
+    #[test]
+    fn content_blocker_json_written_and_discoverable() {
+        let dir = std::env::temp_dir().join(format!("flux-shields-cb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = ShieldsState::new(Some(dir.clone()));
+        // new() seeds the JSON from the bundled list, before any refresh.
+        assert!(s.content_blocker_json().is_some(), "seeded at construction");
+        s.write_content_blocker("||ads.example.com^\n@@||example.com/ok.js\n");
+        let p = s.content_blocker_json().expect("JSON persisted");
+        let rules: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).expect("valid JSON");
+        assert!(rules.iter().any(|r| r["action"]["type"] == "block"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

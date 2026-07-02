@@ -2,10 +2,20 @@
 //!
 //! Bridges the tested `flux-filter` / `shields` engine to the platform webview's
 //! request pipeline — the part that can only be verified at runtime on the real
-//! backend. On Windows, WebView2's `WebResourceRequested` (the only
-//! network-level hook the native webview exposes) asks `ShieldsState` per
-//! request and answers blocked ones with a 403, so nothing downloads. Off
-//! Windows it's a no-op — the WebKitGTK interceptor is a follow-up.
+//! backend.
+//!
+//! **Windows (WebView2):** `WebResourceRequested` (the only network-level hook
+//! the engine exposes) asks `ShieldsState` per request and answers blocked ones
+//! with a 403, so nothing downloads. Callback-driven → also feeds the tracker
+//! graph and HTTPS-only upgrades.
+//!
+//! **Linux (WebKitGTK):** the engine exposes no per-request callback; instead
+//! it *natively compiles* declarative rules. Shields persists its lists as
+//! WebKit content-blocker JSON (`webkit-cb.json`); this module compiles that
+//! once per app run via `UserContentFilterStore` and attaches the compiled
+//! filter to every webview's `UserContentManager`. Blocking runs inside
+//! WebKit itself. Trade-off vs Windows: no per-request verdicts, so the
+//! tracker graph and HTTPS-only upgrades don't populate on this path.
 //!
 //! The COM usage was compile-verified against `x86_64-pc-windows-msvc`; only its
 //! runtime behavior needs a Windows smoke test. The `flux::netfilter` tracing
@@ -16,7 +26,7 @@ use tauri::AppHandle;
 
 /// Install the content-blocker interceptor on a freshly-created tab webview.
 pub fn install(app: &AppHandle, webview: &Webview) {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     {
         let app = app.clone();
         let r = webview.with_webview(move |platform| wire(&app, platform));
@@ -24,7 +34,7 @@ pub fn install(app: &AppHandle, webview: &Webview) {
             tracing::warn!(target: "flux::netfilter", "with_webview failed: {e}");
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = (app, webview);
     }
@@ -34,7 +44,7 @@ pub fn install(app: &AppHandle, webview: &Webview) {
 /// #50) — peeks are their own window, not a `tab-*` child webview, so they'd
 /// otherwise miss shields/HTTPS-only/lean entirely.
 pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     {
         let app = app.clone();
         let r = window.with_webview(move |platform| wire(&app, platform));
@@ -42,10 +52,26 @@ pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
             tracing::warn!(target: "flux::netfilter", "with_webview (window) failed: {e}");
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = (app, window);
     }
+}
+
+/// Attach the compiled shields content blocker to a fresh WebKitGTK webview.
+/// Runs on the GTK main thread (where `with_webview` puts us) — required by
+/// both the filter store and the thread-local compile state in `gtk`.
+#[cfg(target_os = "linux")]
+fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
+    use tauri::Manager;
+    let Some(shields) = app.try_state::<crate::shields::ShieldsState>() else { return };
+    let Some(json_path) = shields.content_blocker_json() else {
+        tracing::warn!(target: "flux::netfilter", "no content-blocker JSON yet; webview unfiltered");
+        return;
+    };
+    // The compiled-filter cache lives next to the JSON source.
+    let store_dir = json_path.with_file_name("cb-store");
+    gtk::attach(&json_path, &store_dir, &platform.inner());
 }
 
 /// Wire the WebView2 `WebResourceRequested` interceptor with Flux's policy.
@@ -94,6 +120,148 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
             Ok(()) => tracing::info!(target: "flux::netfilter", "interceptor installed"),
             Err(e) => tracing::warn!(target: "flux::netfilter", "install failed: {e}"),
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod gtk {
+    //! One-time compile of the shields content-blocker JSON via WebKit's
+    //! `UserContentFilterStore`, attached to every webview. The safe
+    //! `webkit2gtk` crate doesn't wrap the filter-store API, so this uses the
+    //! `-sys` FFI directly. Everything here runs on the GTK main thread: the
+    //! store's async save completes on the main loop, so a `thread_local`
+    //! state machine is sound and lock-free.
+
+    use std::cell::RefCell;
+    use std::ffi::CString;
+    use std::path::Path;
+
+    use glib::translate::ToGlibPtr;
+    use glib_sys::{g_bytes_new, g_bytes_unref, g_error_free, gpointer, GError};
+    use gobject_sys::{g_object_ref, g_object_unref, GObject};
+    use webkit2gtk_sys::{
+        webkit_user_content_filter_store_new, webkit_user_content_filter_store_save,
+        webkit_user_content_filter_store_save_finish, webkit_user_content_manager_add_filter,
+        webkit_web_view_get_user_content_manager, WebKitUserContentFilter,
+        WebKitUserContentManager, WebKitWebView,
+    };
+
+    /// Identifier the compiled rule set is cached under in the store dir —
+    /// WebKit skips recompilation when the source bytes are unchanged.
+    const FILTER_ID: &[u8] = b"flux-shields\0";
+
+    enum CbState {
+        /// No compile started yet.
+        Untried,
+        /// Compile in flight; managers (each `g_object_ref`'d) waiting for it.
+        Compiling(Vec<*mut WebKitUserContentManager>),
+        /// Compiled — one process-lifetime ref held, attach directly.
+        Ready(*mut WebKitUserContentFilter),
+        /// Compile failed; don't retry every webview (log once, run unfiltered).
+        Failed,
+    }
+
+    thread_local! {
+        static STATE: RefCell<CbState> = const { RefCell::new(CbState::Untried) };
+    }
+
+    /// Attach the shields filter to `wv`'s content manager, kicking off the
+    /// one-time async compile on first call. Main thread only.
+    pub fn attach(json_path: &Path, store_dir: &Path, wv: &webkit2gtk::WebView) {
+        let wv_ptr: *mut WebKitWebView = wv.to_glib_none().0;
+        if wv_ptr.is_null() {
+            return;
+        }
+        let ucm = unsafe { webkit_web_view_get_user_content_manager(wv_ptr) };
+        if ucm.is_null() {
+            return;
+        }
+        STATE.with(|s| {
+            let mut state = s.borrow_mut();
+            match &mut *state {
+                CbState::Ready(filter) => unsafe {
+                    webkit_user_content_manager_add_filter(ucm, *filter);
+                },
+                CbState::Compiling(pending) => unsafe {
+                    // Keep the manager alive until the compile lands — the
+                    // webview could be closed before then.
+                    g_object_ref(ucm.cast::<GObject>());
+                    pending.push(ucm);
+                },
+                CbState::Failed => {}
+                CbState::Untried => {
+                    let Ok(json) = std::fs::read(json_path) else {
+                        tracing::warn!(target: "flux::netfilter", "content-blocker JSON unreadable");
+                        *state = CbState::Failed;
+                        return;
+                    };
+                    let _ = std::fs::create_dir_all(store_dir);
+                    let Ok(dir_c) = CString::new(store_dir.to_string_lossy().as_bytes()) else {
+                        *state = CbState::Failed;
+                        return;
+                    };
+                    unsafe {
+                        let store = webkit_user_content_filter_store_new(dir_c.as_ptr());
+                        if store.is_null() {
+                            *state = CbState::Failed;
+                            return;
+                        }
+                        let bytes = g_bytes_new(json.as_ptr().cast(), json.len());
+                        g_object_ref(ucm.cast::<GObject>());
+                        // The store ref is released in `saved` (its source object).
+                        webkit_user_content_filter_store_save(
+                            store,
+                            FILTER_ID.as_ptr().cast(),
+                            bytes,
+                            std::ptr::null_mut(),
+                            Some(saved),
+                            std::ptr::null_mut(),
+                        );
+                        g_bytes_unref(bytes);
+                        tracing::info!(
+                            target: "flux::netfilter",
+                            bytes = json.len(),
+                            "compiling WebKit content blocker"
+                        );
+                        *state = CbState::Compiling(vec![ucm]);
+                    }
+                }
+            }
+        });
+    }
+
+    /// Async-save completion: attach the compiled filter to every webview that
+    /// opened while compiling, and cache it for all future ones.
+    unsafe extern "C" fn saved(src: *mut GObject, res: *mut gio_sys::GAsyncResult, _ud: gpointer) {
+        let mut err: *mut GError = std::ptr::null_mut();
+        let filter = webkit_user_content_filter_store_save_finish(src.cast(), res, &mut err);
+        if !err.is_null() {
+            let msg = std::ffi::CStr::from_ptr((*err).message).to_string_lossy().into_owned();
+            g_error_free(err);
+            tracing::warn!(target: "flux::netfilter", "content-blocker compile failed: {msg}");
+        }
+        STATE.with(|s| {
+            let mut state = s.borrow_mut();
+            let pending = match std::mem::replace(&mut *state, CbState::Failed) {
+                CbState::Compiling(p) => p,
+                other => {
+                    *state = other; // shouldn't happen; restore
+                    Vec::new()
+                }
+            };
+            for ucm in pending {
+                if !filter.is_null() {
+                    webkit_user_content_manager_add_filter(ucm, filter);
+                }
+                g_object_unref(ucm.cast::<GObject>());
+            }
+            if !filter.is_null() {
+                // Hold the compiled filter for the life of the process.
+                *state = CbState::Ready(filter);
+                tracing::info!(target: "flux::netfilter", "WebKit content blocker active");
+            }
+        });
+        g_object_unref(src); // the store — created in attach, owned by this callback
     }
 }
 

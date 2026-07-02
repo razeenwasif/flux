@@ -89,6 +89,17 @@ ureq = { version = "2", default-features = false, features = ["tls", "gzip"] }
 
 # Windows-only: DWM rounded corners (the window is opaque, so CSS can't round
 # it). Cross-verified against the x86_64-pc-windows-msvc target.
+# WebKitGTK content-blocker wiring (Linux shields parity). The safe webkit2gtk
+# crate doesn't wrap UserContentFilterStore, so netfilter uses the -sys FFI;
+# versions pinned to what wry already pulls in (feature-unified).
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+webkit2gtk-sys = { version = "=2.0.2", features = ["v2_40"] }
+glib = "0.18"
+glib-sys = "0.18"
+gio-sys = "0.18"
+gobject-sys = "0.18"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Storage_FileSystem"] }
 # Content-blocker request interceptor (#57/#91): WebView2's `WebResourceRequested`

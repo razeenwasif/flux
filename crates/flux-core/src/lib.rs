@@ -149,7 +149,6 @@ fn init_core_state(app: &tauri::App, intent: cli::LaunchIntent, boot_started: st
     // Background reminder scheduler — fires due reminders even with the
     // agent panel closed (event + OS toast).
     reminders::start_scheduler(app.handle().clone());
-    let boot_started = std::time::Instant::now();
     // Single source of truth, injected into every command. Restored
     // from the persisted session so tabs survive a restart (#19).
     let session_path = app

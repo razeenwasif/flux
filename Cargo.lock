@@ -1926,6 +1926,10 @@ dependencies = [
  "flux-import",
  "flux-search",
  "flux-vault",
+ "gio-sys",
+ "glib",
+ "glib-sys",
+ "gobject-sys",
  "image",
  "keyring",
  "libloading 0.8.9",
@@ -1950,6 +1954,8 @@ dependencies = [
  "tracing-subscriber",
  "trash",
  "ureq",
+ "webkit2gtk",
+ "webkit2gtk-sys",
  "webview2-com",
  "windows 0.61.3",
  "windows-sys 0.59.0",
@@ -1970,6 +1976,7 @@ version = "0.1.0"
 dependencies = [
  "adblock",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

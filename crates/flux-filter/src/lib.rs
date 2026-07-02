@@ -144,6 +144,48 @@ impl Filter {
     }
 }
 
+/// Convert an EasyList/uBO filter list to **WebKit content-blocker JSON** — the
+/// declarative format WebKitGTK (Linux) and WKWebView (macOS) compile natively.
+/// This is how Flux blocks network requests on engines that expose no
+/// per-request hook like WebView2's `WebResourceRequested` (ADR 0007 follow-up):
+/// the engine itself enforces the rules, no callback needed.
+///
+/// Only a subset of uBO syntax translates (adblock's per-rule `TryInto`);
+/// untranslatable rules are dropped silently — the JSON is a best-effort
+/// *native* layer, not a replacement for the full engine. `max_rules` caps the
+/// output because WebKit refuses to compile very large rule sets (Safari's
+/// documented limit is 150k). Exception (`ignore-previous-rules`) entries sort
+/// after the block rules, so a truncation can only drop exceptions' *blockers*,
+/// never strand a block without its exception... the cap is applied to the
+/// block-rule prefix first for that reason.
+///
+/// Returns `None` when nothing translated (or on parse failure).
+pub fn to_content_blocker_json(list: &str, max_rules: usize) -> Option<String> {
+    // Debug mode is required by `into_content_blocking` (it needs raw lines).
+    let mut set = FilterSet::new(true);
+    let lines: Vec<String> = list.lines().map(String::from).collect();
+    set.add_filters(&lines, ParseOptions::default());
+    let (rules, _used) = set.into_content_blocking().ok()?;
+    if rules.is_empty() {
+        return None;
+    }
+    // `into_content_blocking` emits block rules first, then the first-party
+    // document exception + ignore-previous rules. Cap by trimming from the
+    // *front* block-rule region so exceptions always survive.
+    let n_tail = rules
+        .iter()
+        .rev()
+        .take_while(|r| matches!(r.action.typ, adblock::content_blocking::CbType::IgnorePreviousRules))
+        .count();
+    let out: Vec<&adblock::content_blocking::CbRule> = if rules.len() > max_rules {
+        let keep_blocks = max_rules.saturating_sub(n_tail);
+        rules[..keep_blocks].iter().chain(rules[rules.len() - n_tail..].iter()).collect()
+    } else {
+        rules.iter().collect()
+    };
+    serde_json::to_string(&out).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +262,53 @@ mod tests {
         assert_eq!(f.cosmetic_css("https://other.com/p"), ""); // different site
         f.set_enabled(false);
         assert_eq!(f.cosmetic_css("https://example.com/p"), ""); // disabled
+    }
+
+    // ── WebKit content-blocker conversion ────────────────────────────────────
+
+    #[test]
+    fn cb_json_translates_block_rules() {
+        let json = to_content_blocker_json("||ads.example.com^\n", 1000).expect("some rules");
+        let rules: Vec<serde_json::Value> = serde_json::from_str(&json).expect("valid JSON");
+        assert!(!rules.is_empty());
+        assert!(rules.iter().any(|r| {
+            r["action"]["type"] == "block"
+                && r["trigger"]["url-filter"].as_str().unwrap_or("").contains("ads\\.example\\.com")
+        }));
+    }
+
+    #[test]
+    fn cb_json_exceptions_sort_after_blocks() {
+        let json = to_content_blocker_json(
+            "||ads.example.com^\n@@||example.com/allowed/ads.js\n",
+            1000,
+        )
+        .expect("some rules");
+        let rules: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        let first_ignore = rules.iter().position(|r| r["action"]["type"] == "ignore-previous-rules");
+        let last_block = rules.iter().rposition(|r| r["action"]["type"] == "block");
+        if let (Some(i), Some(b)) = (first_ignore, last_block) {
+            assert!(i > b, "ignore-previous-rules must come after blocks (i={i}, b={b})");
+        }
+    }
+
+    #[test]
+    fn cb_json_none_for_empty_or_garbage() {
+        assert!(to_content_blocker_json("", 1000).is_none());
+        assert!(to_content_blocker_json("! just a comment\n", 1000).is_none());
+    }
+
+    #[test]
+    fn cb_json_cap_keeps_exceptions() {
+        // 20 block rules + 1 exception, capped to 5 total: exceptions survive.
+        let mut list = String::new();
+        for i in 0..20 {
+            list.push_str(&format!("||ads{i}.example.com^\n"));
+        }
+        list.push_str("@@||example.com/allowed/ads.js\n");
+        let json = to_content_blocker_json(&list, 5).expect("some rules");
+        let rules: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert!(rules.len() <= 5);
+        assert!(rules.iter().any(|r| r["action"]["type"] == "ignore-previous-rules"));
     }
 }
