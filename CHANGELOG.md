@@ -77,6 +77,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Changed
+- **Typed error foundation (`error.rs`, BACKLOG #132)** — new `FluxError` (thiserror) with
+  named kinds (Io/Json/Http/NotFound/Locked/Invalid/Other) and `From<FluxError> for String`,
+  so commands keep their `Result<T, String>` IPC contract while internals get `?` instead of
+  `.map_err(|e| e.to_string())` chains and matchable error kinds. `currency.rs` and `pdf.rs`
+  migrated as the pattern exemplars; the rest migrate opportunistically as modules are
+  touched.
 - **Boot sequence decomposed into named phases** — `run()`'s 330-line setup closure is now
   ten ordered `init_*` functions (`restore_window_geometry`, `init_core_state`,
   `init_privacy`, `init_extensions`, `init_page_intel`, `init_knowledge`,

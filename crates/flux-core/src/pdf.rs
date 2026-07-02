@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use base64::Engine as _;
 
+use crate::error::{FluxError, FluxResult};
+
 /// Largest PDF we'll load into the viewer; bigger → the UI offers "download" instead.
 const MAX_PDF_BYTES: usize = 32 * 1024 * 1024;
 
@@ -21,19 +23,20 @@ pub async fn pdf_fetch(url: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || fetch(&url))
         .await
         .map_err(|e| e.to_string())?
+        .map_err(String::from)
 }
 
-fn fetch(url: &str) -> Result<String, String> {
+fn fetch(url: &str) -> FluxResult<String> {
     let buf = if url.starts_with("http://") || url.starts_with("https://") {
         fetch_http(url)?
     } else {
         fetch_file(url)?
     };
     if buf.is_empty() {
-        return Err("empty response".into());
+        return Err(FluxError::Http("empty response".into()));
     }
     if buf.len() > MAX_PDF_BYTES {
-        return Err(format!("PDF too large (> {} MB)", MAX_PDF_BYTES / 1024 / 1024));
+        return Err(FluxError::Invalid(format!("PDF too large (> {} MB)", MAX_PDF_BYTES / 1024 / 1024)));
     }
     Ok(base64::engine::general_purpose::STANDARD.encode(&buf))
 }
@@ -54,18 +57,19 @@ pub async fn pdf_save(app: tauri::AppHandle, data_b64: String, filename: String)
     tauri::async_runtime::spawn_blocking(move || save_bytes(&dir, &data_b64, &filename))
         .await
         .map_err(|e| e.to_string())?
+        .map_err(String::from)
 }
 
-fn save_bytes(dir: &std::path::Path, data_b64: &str, filename: &str) -> Result<String, String> {
+fn save_bytes(dir: &std::path::Path, data_b64: &str, filename: &str) -> FluxResult<String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_b64.as_bytes())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| FluxError::Invalid(e.to_string()))?;
     if bytes.len() > MAX_PDF_BYTES {
-        return Err("edited PDF too large to save".into());
+        return Err(FluxError::Invalid("edited PDF too large to save".into()));
     }
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(dir)?;
     let path = dedup_path(dir, &sanitize(filename));
-    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    std::fs::write(&path, &bytes)?;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -102,26 +106,19 @@ fn dedup_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
     candidate
 }
 
-fn fetch_http(url: &str) -> Result<Vec<u8>, String> {
+fn fetch_http(url: &str) -> FluxResult<Vec<u8>> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(60))
         .build();
-    let resp = agent
-        .get(url)
-        .set("User-Agent", "Mozilla/5.0")
-        .call()
-        .map_err(|e| e.to_string())?;
+    let resp = agent.get(url).set("User-Agent", "Mozilla/5.0").call()?;
     let mut buf = Vec::new();
-    resp.into_reader()
-        .take((MAX_PDF_BYTES + 1) as u64)
-        .read_to_end(&mut buf)
-        .map_err(|e| e.to_string())?;
+    resp.into_reader().take((MAX_PDF_BYTES + 1) as u64).read_to_end(&mut buf)?;
     Ok(buf)
 }
 
-fn fetch_file(url: &str) -> Result<Vec<u8>, String> {
-    std::fs::read(file_url_to_path(url)).map_err(|e| e.to_string())
+fn fetch_file(url: &str) -> FluxResult<Vec<u8>> {
+    Ok(std::fs::read(file_url_to_path(url))?)
 }
 
 /// Best-effort `file://` URL (or bare path) → filesystem path. Handles

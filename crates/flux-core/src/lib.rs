@@ -27,6 +27,7 @@ pub mod darkmode;
 pub mod exec;
 pub mod downloads;
 pub mod embedding;
+pub mod error;
 pub mod extensions;
 pub mod favicon;
 pub mod feeds;
