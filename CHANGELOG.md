@@ -77,6 +77,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Changed
+- **Boot sequence decomposed into named phases** — `run()`'s 330-line setup closure is now
+  ten ordered `init_*` functions (`restore_window_geometry`, `init_core_state`,
+  `init_privacy`, `init_extensions`, `init_page_intel`, `init_knowledge`,
+  `init_user_content`, `init_sessions_history`, `init_vault`, `finish_boot`), each with a
+  doc comment saying what it wires. Boot order is unchanged and now readable at a glance;
+  adding a store means editing one named phase instead of scrolling a god-closure.
 - **No production panics left in flux-core** — audited every `unwrap`/`expect` outside test
   code (release builds abort the whole browser on panic). Three real ones fixed: a failed
   GGUF model load now falls back to Ollama instead of aborting at boot; `watch_add` no
