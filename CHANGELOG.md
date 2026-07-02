@@ -77,6 +77,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Changed
+- **Refactor: `commands.rs` split by domain** — the 1060-line, 69-command module is now
+  three: `commands.rs` (shell chrome: tabs, groups, folders, workspaces, containers, web
+  panels, clustering), `dom.rs` (DOM snapshot ingestion + the context-aware terminal env
+  bridge), and `agent.rs` (Gemma chat/stream/plan/execute + semantic omni-search). Pure
+  moves — every command name, signature, and the generated TS bindings are unchanged
+  (`bindings_up_to_date` still green; all 146 tests pass).
 - **Refactor: webview tiling extracted to `tiling.ts`** — the geometry engine that glues
   native webviews to the DOM chrome (content-card measurement, split/panel rect math, the
   show/hide reconciliation effects, and the layout constants `SPLIT_GAP`/`PANEL_TOOLBAR`/

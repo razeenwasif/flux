@@ -16,7 +16,9 @@ pub mod trackers;
 pub mod broker;
 pub mod cache;
 pub mod cli;
+pub mod agent;
 pub mod commands;
+pub mod dom;
 pub mod proxy;
 pub mod cookies;
 #[cfg(feature = "crsync")]
@@ -508,8 +510,8 @@ pub fn run(intent: cli::LaunchIntent) {
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("fluxtab")
                 .invoke_handler(tauri::generate_handler![
-                    commands::dom_publish,
-                    commands::chrome_open_url,
+                    dom::dom_publish,
+                    dom::chrome_open_url,
                     peek::peek_open,
                     peek::chrome_peek_url,
                     peek::peek_promote,
@@ -517,9 +519,9 @@ pub fn run(intent: cli::LaunchIntent) {
                     peek::peek_close,
                     macros::macro_record_step,
                     broker::ext_broker_call,
-                    commands::chrome_key,
-                    commands::find_result,
-                    commands::reader_publish,
+                    dom::chrome_key,
+                    dom::find_result,
+                    dom::reader_publish,
                     hibernate::hibernate_capture
                 ])
                 .build(),
@@ -539,7 +541,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::group_create,
             commands::group_update,
             commands::group_delete,
-            commands::chrome_focus,
+            dom::chrome_focus,
             commands::tab_set_group,
             commands::folders_list,
             commands::folder_create,
@@ -567,29 +569,29 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::launch_intent,
             commands::chrome_import_preview,
             commands::chrome_import_bookmarks,
-            commands::dom_active_bytes,
-            commands::tab_dom_sizes,
-            commands::terminal_env,
-            commands::agent_status,
-            commands::agent_execute,
-            commands::agent_plan,
-            commands::agent_task_step,
-            commands::agent_run_action,
-            commands::agent_chat,
-            commands::agent_chat_stream,
-            commands::agent_shell_plan,
-            commands::agent_plan_steps,
+            dom::dom_active_bytes,
+            dom::tab_dom_sizes,
+            dom::terminal_env,
+            agent::agent_status,
+            agent::agent_execute,
+            agent::agent_plan,
+            agent::agent_task_step,
+            agent::agent_run_action,
+            agent::agent_chat,
+            agent::agent_chat_stream,
+            agent::agent_shell_plan,
+            agent::agent_plan_steps,
             proxy::proxy_get,
             proxy::proxy_set,
-            commands::agent_next_step,
-            commands::agent_edit_plan,
-            commands::agent_translate,
-            commands::agent_chat_tabs,
-            commands::agent_chat_tabs_stream,
-            commands::agent_models,
-            commands::agent_model,
-            commands::agent_set_model,
-            commands::omni_search,
+            agent::agent_next_step,
+            agent::agent_edit_plan,
+            agent::agent_translate,
+            agent::agent_chat_tabs,
+            agent::agent_chat_tabs_stream,
+            agent::agent_models,
+            agent::agent_model,
+            agent::agent_set_model,
+            agent::omni_search,
             commands::tabs_recluster,
             terminal::terminal_spawn,
             terminal::terminal_write,
