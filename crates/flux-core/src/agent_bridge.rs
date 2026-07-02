@@ -16,9 +16,15 @@ fn make_backend() -> Box<dyn Inference> {
         Ok("llama") => {
             let model = std::env::var("FLUX_MODEL_PATH")
                 .unwrap_or_else(|_| "models/gemma-4-12b-it-q4_k_m.gguf".into());
-            Box::new(
-                flux_agent::llama::LlamaBackend::load(&model).expect("failed to load GGUF model"),
-            )
+            // A missing/corrupt GGUF must not abort the whole browser
+            // (panic="abort" in release): fall back to Ollama and keep booting.
+            match flux_agent::llama::LlamaBackend::load(&model) {
+                Ok(b) => Box::new(b),
+                Err(e) => {
+                    tracing::error!(target: "flux::agent", model, error = %e, "GGUF load failed; falling back to Ollama");
+                    Box::new(OllamaBackend::new())
+                }
+            }
         }
         // Default: talk to the local Ollama server (FLUX_MODEL / FLUX_OLLAMA_URL).
         _ => {

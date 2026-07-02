@@ -99,8 +99,7 @@ impl BoostStore {
     pub fn save(&self, id: Option<u64>, host: String, name: String, css: String, js: String, enabled: bool) -> Boost {
         let host = norm(&host).to_string();
         let mut g = self.inner.write();
-        let boost = if let Some(id) = id.filter(|id| g.iter().any(|b| b.id == *id)) {
-            let b = g.iter_mut().find(|b| b.id == id).unwrap();
+        let boost = if let Some(b) = id.and_then(|id| g.iter_mut().find(|b| b.id == id)) {
             b.host = host;
             b.name = name;
             b.css = css;

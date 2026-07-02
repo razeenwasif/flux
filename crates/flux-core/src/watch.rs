@@ -129,11 +129,13 @@ impl WatchStore {
             Ok(t) => (t, None),
             Err(e) => (String::new(), Some(e)),
         };
-        let id = {
+        // Build the item under the same write guard that inserts the entry — a
+        // re-read after releasing the lock could race a concurrent remove.
+        let item = {
             let mut inner = self.inner.write();
             let id = inner.next_id;
             inner.next_id += 1;
-            inner.entries.push(WatchEntry {
+            let entry = WatchEntry {
                 id,
                 url,
                 title,
@@ -146,11 +148,13 @@ impl WatchStore {
                 removed: Vec::new(),
                 error,
                 seen: true,
-            });
-            id
+            };
+            let item = entry.to_item();
+            inner.entries.push(entry);
+            item
         };
         self.save();
-        self.inner.read().entries.iter().find(|e| e.id == id).map(|e| e.to_item()).unwrap()
+        item
     }
 
     pub fn remove(&self, id: u64) {

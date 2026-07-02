@@ -77,6 +77,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Changed
+- **No production panics left in flux-core** — audited every `unwrap`/`expect` outside test
+  code (release builds abort the whole browser on panic). Three real ones fixed: a failed
+  GGUF model load now falls back to Ollama instead of aborting at boot; `watch_add` no
+  longer re-reads its entry after releasing the lock (a racing remove could panic a
+  command); a boost save dropped its redundant find-again unwrap. The two that remain are
+  deliberate fail-fast boot/codegen guards (`tauri::run`, specta export).
 - **All stores now save atomically (`persist.rs`)** — every feature store (bookmarks,
   history, calendar, todos, sessions, feeds, extensions, permissions, sync config, the
   encrypted vault blob, …23 sites) wrote its JSON with a bare `fs::write`, so a crash or
