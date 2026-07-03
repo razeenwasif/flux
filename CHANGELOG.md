@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Downloads work on Linux (WebKitGTK hook, #34 follow-up)** — the download manager was
+  WebView2-only; on the Linux build a download just vanished. WebKitGTK's `download-started`
+  signal (hooked once per shared web context) now routes downloads to your OS Downloads
+  folder with numbered de-duplication (`file (1).zip`), feeds the same live model as
+  Windows — the footer ⬇ popover shows real-time progress via `flux://download-updated` —
+  and supports cancel. Pause/resume remain Windows-only (WebKitGTK has no pause API).
 - **Flux-styled permission prompts (#38)** — when a site asks for camera / microphone /
   location / notifications / clipboard and there's no remembered decision, Flux no longer
   falls back to the engine's native dialog. The WebView2 request is **deferred** and a glass

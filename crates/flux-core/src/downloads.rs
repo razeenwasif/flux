@@ -1,11 +1,17 @@
-//! Download manager (BACKLOG #34). Intercepts WebView2's `DownloadStarting`,
-//! tracks each download's progress + state, and exposes a list + controls
-//! (cancel / pause / resume / open / reveal) to the chrome's downloads popover.
+//! Download manager (BACKLOG #34). Intercepts the engine's download-start
+//! hook, tracks each download's progress + state, and exposes a list +
+//! controls (cancel / pause / resume / open / reveal) to the chrome's
+//! downloads popover.
 //!
-//! The COM lives behind `#[cfg(windows)]` (WebView2). Live download operations
-//! are COM objects bound to the UI thread, so they're held in a UI-thread
-//! `thread_local` and controlled via `run_on_main_thread`; the cross-platform
-//! `DownloadState` (the serializable model) is what the rest of Flux sees.
+//! **Windows:** WebView2 `DownloadStarting` COM events behind `#[cfg(windows)]`.
+//! **Linux:** WebKitGTK's `download-started` signal behind
+//! `#[cfg(target_os = "linux")]` — same model, same `flux://download-updated`
+//! event; pause/resume are Windows-only (WebKitGTK's API has no pause).
+//!
+//! Live download handles are UI-thread objects on both engines, so they're
+//! held in UI-thread `thread_local`s and controlled via `run_on_main_thread`;
+//! the cross-platform `DownloadState` (the serializable model) is what the
+//! rest of Flux sees.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -88,11 +94,13 @@ impl DownloadState {
     }
 }
 
-/// Install the DownloadStarting interceptor on a freshly-created tab webview.
+/// Install the download interceptor on a freshly-created tab webview.
 pub fn install(app: &AppHandle, webview: &Webview) {
     #[cfg(windows)]
     win::install(app.clone(), webview);
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    gtk::install(app.clone(), webview);
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = (app, webview);
     }
@@ -127,7 +135,9 @@ pub fn download_reveal(state: State<'_, DownloadState>, id: u64) -> Result<(), S
 pub fn download_cancel(app: AppHandle, id: u64) {
     #[cfg(windows)]
     win::control(&app, id, Action::Cancel);
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    gtk::cancel(&app, id);
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = (app, id);
     }
@@ -159,6 +169,165 @@ enum Action {
     Cancel,
     Pause,
     Resume,
+}
+
+#[cfg(target_os = "linux")]
+mod gtk {
+    //! WebKitGTK `download-started` hook (#34 follow-up). The signal lives on
+    //! the `WebKitWebContext`, which webviews share — so it's connected once
+    //! per context (pointer-keyed set) and covers every tab using it. On
+    //! `decide-destination` the download routes to the OS Downloads dir with a
+    //! numbered dedup, matching wry's convention of passing a plain path to
+    //! `set_destination`. Progress / finished / failed update the shared
+    //! `DownloadState` and emit `flux://download-updated`, mirroring the
+    //! Windows path. All of it runs on the GTK main thread (signals + the
+    //! `run_on_main_thread`-marshalled cancel), so the registries are plain
+    //! `thread_local`s. WebKitGTK has no pause/resume — those stay no-ops.
+
+    use std::cell::RefCell;
+    use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
+
+    use tauri::webview::Webview;
+    use tauri::{AppHandle, Emitter, Manager};
+    use glib::object::ObjectType as _;
+    use webkit2gtk::{Download, DownloadExt, URIRequestExt, URIResponseExt, WebContextExt, WebViewExt};
+
+    use super::DownloadState;
+
+    thread_local! {
+        /// Contexts whose `download-started` is already hooked (ptr-keyed).
+        static HOOKED: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+        /// Live downloads by Flux id, for cancel. Removed on finish/fail.
+        static OPS: RefCell<HashMap<u64, Download>> = RefCell::new(HashMap::new());
+    }
+
+    pub fn install(app: AppHandle, webview: &Webview) {
+        let _ = webview.with_webview(move |platform| {
+            let wv = platform.inner();
+            let Some(ctx) = wv.context() else { return };
+            let key = ctx.as_ptr() as usize;
+            if !HOOKED.with(|h| h.borrow_mut().insert(key)) {
+                return; // this context is already wired (shared across tabs)
+            }
+            ctx.connect_download_started(move |_ctx, dl| on_started(&app, dl));
+            tracing::info!(target: "flux::downloads", "WebKitGTK download hook installed");
+        });
+    }
+
+    /// Where downloads land: the OS Downloads dir, app-data fallback.
+    fn download_dir(app: &AppHandle) -> PathBuf {
+        app.path()
+            .download_dir()
+            .or_else(|_| app.path().app_data_dir().map(|d| d.join("downloads")))
+            .unwrap_or_else(|_| PathBuf::from("."))
+    }
+
+    /// Keep a suggested filename to one safe path component.
+    fn sanitize(name: &str) -> String {
+        let base = name.rsplit(['/', '\\']).next().unwrap_or(name).trim();
+        if base.is_empty() { "download".into() } else { base.to_string() }
+    }
+
+    /// `name.ext` → first free of `name.ext`, `name (1).ext`, `name (2).ext`…
+    fn dedup(dir: &std::path::Path, name: &str) -> PathBuf {
+        let candidate = dir.join(name);
+        if !candidate.exists() {
+            return candidate;
+        }
+        let (stem, ext) = match name.rsplit_once('.') {
+            Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+            _ => (name.to_string(), String::new()),
+        };
+        for n in 1..10_000 {
+            let p = dir.join(format!("{stem} ({n}){ext}"));
+            if !p.exists() {
+                return p;
+            }
+        }
+        candidate
+    }
+
+    fn on_started(app: &AppHandle, dl: &Download) {
+        let url = dl.request().and_then(|r| r.uri()).map(|u| u.to_string()).unwrap_or_default();
+        // Register on decide-destination — that's when the filename is known.
+        // id slot shared between the closures below; set exactly once.
+        let id_slot = std::rc::Rc::new(std::cell::Cell::new(0u64));
+
+        let app_d = app.clone();
+        let url_d = url.clone();
+        let id_a = id_slot.clone();
+        dl.connect_decide_destination(move |dl, suggested| {
+            let dir = download_dir(&app_d);
+            let _ = std::fs::create_dir_all(&dir);
+            let path = dedup(&dir, &sanitize(suggested));
+            dl.set_destination(&path.to_string_lossy());
+            if let Some(state) = app_d.try_state::<DownloadState>() {
+                let total = dl.response().map(|r| r.content_length()).unwrap_or(0);
+                let filename = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                let id = state.add(url_d.clone(), filename, path.to_string_lossy().into_owned(), total);
+                id_a.set(id);
+                OPS.with(|m| m.borrow_mut().insert(id, dl.clone()));
+                let _ = app_d.emit("flux://download-updated", id);
+            }
+            true // destination handled — don't run the engine default
+        });
+
+        let app_p = app.clone();
+        let id_b = id_slot.clone();
+        dl.connect_received_data(move |dl, _len| {
+            let id = id_b.get();
+            if id == 0 { return; }
+            if let Some(state) = app_p.try_state::<DownloadState>() {
+                let total = dl.response().map(|r| r.content_length()).unwrap_or(0);
+                state.update(id, dl.received_data_length(), total, "in_progress");
+            }
+            let _ = app_p.emit("flux://download-updated", id);
+        });
+
+        // `failed` always precedes `finished` on error/cancel — flag it so the
+        // finished handler doesn't overwrite "interrupted" with "completed".
+        let failed = std::rc::Rc::new(std::cell::Cell::new(false));
+        let app_f = app.clone();
+        let id_c = id_slot.clone();
+        let failed_f = failed.clone();
+        dl.connect_failed(move |_dl, _err| {
+            failed_f.set(true);
+            let id = id_c.get();
+            if id == 0 { return; }
+            if let Some(state) = app_f.try_state::<DownloadState>() {
+                state.update(id, 0, 0, "interrupted");
+            }
+            OPS.with(|m| { m.borrow_mut().remove(&id); });
+            let _ = app_f.emit("flux://download-updated", id);
+        });
+
+        let app_e = app.clone();
+        let id_d = id_slot;
+        dl.connect_finished(move |dl| {
+            let id = id_d.get();
+            if id == 0 { return; }
+            if !failed.get() {
+                if let Some(state) = app_e.try_state::<DownloadState>() {
+                    let got = dl.received_data_length();
+                    state.update(id, got, got, "completed");
+                }
+            }
+            OPS.with(|m| { m.borrow_mut().remove(&id); });
+            let _ = app_e.emit("flux://download-updated", id);
+        });
+    }
+
+    /// Cancel a live download from a command thread, marshalled to the UI thread.
+    pub fn cancel(app: &AppHandle, id: u64) {
+        let _ = app.run_on_main_thread(move || {
+            OPS.with(|m| {
+                if let Some(dl) = m.borrow().get(&id) {
+                    dl.cancel();
+                }
+            });
+        });
+    }
 }
 
 #[cfg(test)]
