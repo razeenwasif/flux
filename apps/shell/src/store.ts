@@ -634,6 +634,19 @@ export { openAppIds, setOpenAppIds, focusedAppId, setFocusedAppId };
 const [agentMenuOpen, setAgentMenuOpen] = createSignal(false);
 export { agentMenuOpen, setAgentMenuOpen };
 
+// Deferred permission Asks (#38) — the engine is paused on each until the
+// chrome's permission bar answers. A queue: pages can fire several at once
+// (mic + camera). NOT an overlay — the bar docks above the content card, so
+// the webview shrinks instead of being hidden.
+const [permAsks, setPermAsks] = createSignal<import("./ipc").PermAsk[]>([]);
+export { permAsks };
+export function pushPermAsk(a: import("./ipc").PermAsk): void {
+  setPermAsks((q) => (q.some((x) => x.id === a.id) ? q : [...q, a]));
+}
+export function removePermAsk(id: number): void {
+  setPermAsks((q) => q.filter((x) => x.id !== id));
+}
+
 // ─── Overlay registry ────────────────────────────────────────────────────────
 // THE single source of truth for "an HTML overlay must cover the page area".
 // Native tab webviews are an OS layer above ALL chrome HTML — z-index can't put

@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Flux-styled permission prompts (#38)** — when a site asks for camera / microphone /
+  location / notifications / clipboard and there's no remembered decision, Flux no longer
+  falls back to the engine's native dialog. The WebView2 request is **deferred** and a glass
+  **permission bar** docks above the content card (a sibling, so the page shrinks — nothing
+  fights the native webview layer): *"site.com wants to use your microphone"* with
+  **Allow** / **Block**, a **Remember for this site** checkbox (writes to the #38 store, so
+  next time it's silent), and ✕ to deny just once. Multiple simultaneous asks queue with a
+  "+N more" hint. Windows/WebView2; the deferral is completed on the UI thread
+  (`permission_answer` → main-thread pending registry). COM surface compile-verified against
+  `x86_64-pc-windows-msvc`.
 - **Ad/tracker blocking on Linux (WebKitGTK content blocker)** — network-level shields were
   Windows-only (WebView2's request hook); on the Linux build they silently did nothing (only
   cosmetic hiding worked). Shields now also exports its filter lists as **WebKit

@@ -875,6 +875,7 @@ pub fn run(intent: cli::LaunchIntent) {
             permissions::permissions_set,
             permissions::permissions_clear_host,
             permissions::permissions_clear_all,
+            permissions::permission_answer,
             extensions::ext_install,
             extensions::ext_list,
             extensions::ext_set_enabled,

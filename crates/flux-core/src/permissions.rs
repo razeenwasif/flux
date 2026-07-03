@@ -2,10 +2,14 @@
 //!
 //! A per-site, per-kind permission store for camera / microphone / geolocation /
 //! notifications (+ clipboard, others), plus the legacy global "block all"
-//! switch from #58. The native engine still shows its own prompt for the
-//! **Ask** (default) case; a remembered **Allow**/**Deny** short-circuits it on
-//! WebView2 via `PermissionRequested`. The frontend manager (`flux://permissions`)
-//! lists every remembered decision and lets the user change or revoke it.
+//! switch from #58. A remembered **Allow**/**Deny** short-circuits the engine on
+//! WebView2 via `PermissionRequested`. The **Ask** (default) case shows a
+//! Flux-styled prompt: the event is deferred (`GetDeferral`), a
+//! `flux://permission-ask` event carries `{id, host, kind}` to the shell, and
+//! the chrome's permission bar answers via `permission_answer`, which completes
+//! the deferral on the main thread (COM objects stay on the UI thread — the
+//! pending registry is a main-thread `thread_local`). The frontend manager
+//! (`flux://permissions`) lists every remembered decision.
 //!
 //! Decisions persist to `permissions.json`. The policy resolution is a pure
 //! function ([`PermState::effective`]) so it's unit-tested independent of the
@@ -59,6 +63,15 @@ pub struct SitePerm {
     pub host: String,
     pub kind: PermKind,
     pub decision: PermDecision,
+}
+
+/// A live Ask, sent to the shell as the `flux://permission-ask` payload. The
+/// shell answers with `permission_answer(id, …)`.
+#[derive(Clone, Serialize, Debug, specta::Type)]
+pub struct PermAsk {
+    pub id: u64,
+    pub host: String,
+    pub kind: PermKind,
 }
 
 pub struct PermState {
@@ -196,6 +209,33 @@ pub fn permissions_clear_all(state: State<'_, PermState>) {
     state.clear_all();
 }
 
+/// Answer a deferred Ask from the chrome's permission bar. `remember` writes
+/// the decision to the store, so the engine short-circuits next time; without
+/// it the answer applies to this one request. Completing the deferral must
+/// happen on the UI thread that owns the COM objects.
+#[tauri::command]
+pub fn permission_answer(
+    app: AppHandle,
+    state: State<'_, PermState>,
+    id: u64,
+    host: String,
+    kind: PermKind,
+    allow: bool,
+    remember: bool,
+) {
+    if remember && !host.is_empty() {
+        state.set(host, kind, if allow { PermDecision::Allow } else { PermDecision::Deny });
+    }
+    #[cfg(windows)]
+    {
+        let _ = app.run_on_main_thread(move || win::resolve_ask(id, allow));
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, id, allow);
+    }
+}
+
 /// Host of a URL (`https://a.b/c` → `a.b`), dependency-free.
 pub fn host_of(url: &str) -> Option<&str> {
     let after = url.split("://").nth(1).unwrap_or(url);
@@ -206,9 +246,14 @@ pub fn host_of(url: &str) -> Option<&str> {
 
 #[cfg(windows)]
 mod win {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use tauri::webview::Webview;
-    use tauri::{AppHandle, Manager};
+    use tauri::{AppHandle, Emitter, Manager};
     use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2Deferral, ICoreWebView2PermissionRequestedEventArgs,
         COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CAMERA,
         COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ, COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION,
         COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
@@ -217,7 +262,19 @@ mod win {
     use webview2_com::PermissionRequestedEventHandler;
     use windows::core::PWSTR;
 
-    use super::{Effective, PermKind, PermState};
+    use super::{Effective, PermAsk, PermKind, PermState};
+
+    /// Monotonic ids for deferred Asks (shared across webviews).
+    static NEXT_ASK: AtomicU64 = AtomicU64::new(1);
+
+    thread_local! {
+        /// Deferred Asks awaiting the user's answer. COM objects are not `Send`
+        /// — every touch (the event handler, and `resolve_ask` via
+        /// `run_on_main_thread`) happens on the UI thread, so a plain
+        /// `thread_local` map is sound and lock-free.
+        static PENDING: RefCell<HashMap<u64, (ICoreWebView2PermissionRequestedEventArgs, ICoreWebView2Deferral)>> =
+            RefCell::new(HashMap::new());
+    }
 
     fn map_kind(k: i32) -> PermKind {
         match k {
@@ -256,16 +313,39 @@ mod win {
                     PermKind::Other
                 };
 
-                // Allow/Deny per the store; leave default so WebView2 prompts on Ask.
                 match state.effective(&host, kind) {
                     Effective::Allow => { let _ = args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW); }
                     Effective::Deny => { let _ = args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY); }
-                    Effective::Prompt => {}
+                    // Ask: defer the engine and show Flux's own prompt — the
+                    // chrome's permission bar answers via `permission_answer`.
+                    // If the deferral can't be taken, fall through to the
+                    // engine's native prompt (old behavior).
+                    Effective::Prompt => {
+                        if let Ok(deferral) = args.GetDeferral() {
+                            let id = NEXT_ASK.fetch_add(1, Ordering::Relaxed);
+                            PENDING.with(|p| p.borrow_mut().insert(id, (args.clone(), deferral)));
+                            let _ = app.emit("flux://permission-ask", PermAsk { id, host, kind });
+                        }
+                    }
                 }
                 Ok(())
             }));
             let mut token: i64 = 0;
             let _ = core.add_PermissionRequested(&handler, &mut token);
+        });
+    }
+
+    /// Complete a deferred Ask with the user's answer. UI thread only
+    /// (`permission_answer` routes here via `run_on_main_thread`). Unknown ids
+    /// (already answered / stale after a reload) are ignored.
+    pub fn resolve_ask(id: u64, allow: bool) {
+        PENDING.with(|p| {
+            let Some((args, deferral)) = p.borrow_mut().remove(&id) else { return };
+            unsafe {
+                let state = if allow { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY };
+                let _ = args.SetState(state);
+                let _ = deferral.Complete();
+            }
         });
     }
 }

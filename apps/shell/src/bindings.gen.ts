@@ -145,6 +145,11 @@ export type PermDecision = "ask" | "allow" | "deny"
  * One remembered decision, for the manager UI + persistence.
  */
 export type SitePerm = { host: string; kind: PermKind; decision: PermDecision }
+/**
+ * A live Ask, sent to the shell as the `flux://permission-ask` payload. The
+ * shell answers with `permission_answer(id, …)`.
+ */
+export type PermAsk = { id: number; host: string; kind: PermKind }
 export type CredentialMeta = { id: string; name: string; urls: string[]; username: string; has_totp: boolean }
 export type VaultStatus = { available: boolean; locked: boolean; protection: string; source: string; count: number; autolock_minutes: number }
 export type ContentScript = { matches: string[]; js?: string[]; css?: string[]; run_at?: string }

@@ -53,6 +53,7 @@ import {
   launchIntent,
   onClustersUpdated,
   onExtOpenTab,
+  onPermissionAsk,
   onFindResult,
   onFullscreenChanged,
   onShortcut,
@@ -209,8 +210,10 @@ import {
   panelDragging,
   setPanelDragging,
   pageOverlayActive,
+  pushPermAsk,
 } from "./store";
 import { createWebviewTiling } from "./tiling";
+import PermissionBar from "./PermissionBar";
 import {
   pinPanel,
   unpinPanel,
@@ -377,6 +380,9 @@ const App: Component = () => {
     // An extension called flux.tabs.open (#94) — the shell owns webview
     // geometry, so the broker emits an intent and we open the tab here.
     const unExtOpen = await onExtOpenTab((url) => void openTab("browser", url));
+    // A page hit a permission Ask (#38) — queue it for the permission bar,
+    // which answers the deferred engine request.
+    const unPermAsk = await onPermissionAsk(pushPermAsk);
     // App keyboard shortcuts (#18). Capture phase so we win over child widgets
     // (e.g. xterm's own key handler) when the chrome/terminal is focused; the
     // injected shortcuts.js handles the case where a page webview has focus and
@@ -592,6 +598,7 @@ const App: Component = () => {
     onCleanup(() => {
       unClusters();
       unExtOpen();
+      unPermAsk();
       unShortcut();
       unFullscreen();
       unOpenUrl();
@@ -2784,6 +2791,9 @@ const ContentArea: Component<{
       <Suspense><PagesBar /></Suspense>
       <Suspense><TuiAppsBar /></Suspense>
     </Show>
+    {/* Permission bar (#38): answers a deferred engine permission Ask. Also a
+        sibling — never an overlay over the native webview. */}
+    <PermissionBar />
     <div class="card" id="flux-web-area">
       {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
       <Show when={readerOpen()}>

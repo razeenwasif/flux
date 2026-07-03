@@ -80,6 +80,7 @@ import type {
   OmniHit as GenOmniHit,
   PermDecision as GenPermDecision,
   PermKind as GenPermKind,
+  PermAsk as GenPermAsk,
   QuickLocation as GenQuickLocation,
   ReaderBlock as GenReaderBlock,
   ShieldsStatus as GenShieldsStatus,
@@ -688,6 +689,14 @@ export const permissionsSet = (host: string, kind: PermKind, decision: PermDecis
   invoke<void>("permissions_set", { host, kind, decision });
 export const permissionsClearHost = (host: string) => invoke<void>("permissions_clear_host", { host });
 export const permissionsClearAll = () => invoke<void>("permissions_clear_all");
+/** A page hit Ask — the engine is deferred until the chrome's permission bar
+ *  answers (Windows/WebView2; other engines keep their native prompt). */
+export type PermAsk = GenPermAsk;
+export const onPermissionAsk = (cb: (a: PermAsk) => void): Promise<UnlistenFn> =>
+  listen<PermAsk>("flux://permission-ask", (e) => cb(e.payload));
+/** Resolve a deferred Ask. `remember` persists the decision for the site. */
+export const permissionAnswer = (id: number, host: string, kind: PermKind, allow: boolean, remember: boolean) =>
+  invoke<void>("permission_answer", { id, host, kind, allow, remember });
 
 // ─── Password vault (BACKLOG #61, ADR 0009) ──────────────────────────────────
 // Metadata only — passwords never come to the chrome except via vault_reveal

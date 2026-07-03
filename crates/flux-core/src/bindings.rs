@@ -38,7 +38,7 @@ use crate::https::HttpsStatus;
 use crate::leanmode::LeanStatus;
 use crate::macros::{Macro, MacroStatus, Step};
 use crate::netspeed::SpeedResult;
-use crate::permissions::{PermDecision, PermKind, SitePerm};
+use crate::permissions::{PermAsk, PermDecision, PermKind, SitePerm};
 use crate::pwa::PwaApp;
 use crate::sessions::{DaySnapshot, SavedSession, SavedTab};
 use crate::shields::{HotRule, ShieldsStatus};
@@ -118,6 +118,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<PermKind>(&c),
         specta::ts::export::<PermDecision>(&c),
         specta::ts::export::<SitePerm>(&c),
+        specta::ts::export::<PermAsk>(&c),
         specta::ts::export::<CredentialMeta>(&c),
         specta::ts::export::<VaultStatus>(&c),
         specta::ts::export::<ContentScript>(&c),

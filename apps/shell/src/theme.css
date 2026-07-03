@@ -933,6 +933,36 @@ body.resizing, body.busy { --glass-blur: none; }
 
 /* Pages bar — quick-access native-page strip above the card (mirrors the bookmark
    bar but docked above, so margin-bottom). Horizontal + horizontally scrollable. */
+/* Permission bar (#38): a deferred engine Ask, docked above the content card
+   (sibling — the card + webview shrink; never an overlay over the OS layer). */
+.perm-bar {
+  flex: none; height: 38px; margin-bottom: 6px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 12px;
+  border: 1px solid rgba(47, 243, 255, 0.28); border-radius: 10px;
+  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+  box-shadow: 0 0 14px rgba(47, 243, 255, 0.10) inset;
+  font-size: 12.5px; color: var(--flux-text);
+}
+.perm-ico { flex: none; font-size: 15px; }
+.perm-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.perm-text b { color: var(--flux-teal); font-weight: 600; }
+.perm-more { flex: none; font-size: 11px; color: var(--flux-text-mute); }
+.perm-remember {
+  flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; color: var(--flux-text-dim); cursor: pointer; user-select: none;
+}
+.perm-remember input { accent-color: var(--flux-teal); }
+.perm-btn {
+  flex: none; padding: 4px 14px; border-radius: 8px; border: 1px solid var(--glass-rim-soft);
+  background: var(--flux-surface-2); color: var(--flux-text); font-size: 12px; cursor: pointer;
+}
+.perm-btn.allow { background: var(--flux-teal-dim); border-color: rgba(47, 243, 255, 0.4); }
+.perm-btn.allow:hover { background: rgba(47, 243, 255, 0.28); }
+.perm-btn.deny:hover { background: #c0392b; border-color: #c0392b; color: #fff; }
+.perm-btn.dismiss { width: 26px; padding: 4px 0; color: var(--flux-text-mute); background: none; border: none; }
+.perm-btn.dismiss:hover { color: var(--flux-text); }
+
 .pages-bar {
   flex: none; height: 32px; margin-bottom: 6px;
   display: flex; align-items: center; gap: 6px;
