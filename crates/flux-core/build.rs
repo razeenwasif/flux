@@ -24,6 +24,10 @@ fn main() {
                     "hibernate_capture",
                     "reader_publish",
                     "panel_badge",
+                    "vault_page_info",
+                    "vault_fill_page",
+                    "vault_suggest_password",
+                    "vault_save_from_page",
                 ])
                 .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands),
         ),

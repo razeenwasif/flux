@@ -54,6 +54,7 @@ import {
   onClustersUpdated,
   onExtOpenTab,
   onPermissionAsk,
+  onVaultSaved,
   onFindResult,
   onFullscreenChanged,
   onShortcut,
@@ -383,6 +384,11 @@ const App: Component = () => {
     // A page hit a permission Ask (#38) — queue it for the permission bar,
     // which answers the deferred engine request.
     const unPermAsk = await onPermissionAsk(pushPermAsk);
+    // The password sentinel saved a sign-up credential (#61) — confirm it.
+    const unVaultSaved = await onVaultSaved((host) => {
+      setOmniToast(`🔑 Password for ${host} saved to your vault`);
+      window.setTimeout(() => setOmniToast(null), 2800);
+    });
     // App keyboard shortcuts (#18). Capture phase so we win over child widgets
     // (e.g. xterm's own key handler) when the chrome/terminal is focused; the
     // injected shortcuts.js handles the case where a page webview has focus and
@@ -599,6 +605,7 @@ const App: Component = () => {
       unClusters();
       unExtOpen();
       unPermAsk();
+      unVaultSaved();
       unShortcut();
       unFullscreen();
       unOpenUrl();

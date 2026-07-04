@@ -722,6 +722,9 @@ export const onVaultLocked = (cb: () => void): Promise<UnlistenFn> =>
 /** Fires when keychain-mode vault hydration finishes after startup. */
 export const onVaultReady = (cb: () => void): Promise<UnlistenFn> =>
   listen("flux://vault-ready", () => cb());
+/** Fires when the page sentinel saved a credential (registration sign-up). */
+export const onVaultSaved = (cb: (host: string) => void): Promise<UnlistenFn> =>
+  listen<string>("flux://vault-saved", (e) => cb(e.payload));
 export const vaultList = () => invoke<CredentialMeta[]>("vault_list");
 export const vaultForHost = (host: string) => invoke<CredentialMeta[]>("vault_for_host", { host });
 /** Reveal one password (explicit user action). */

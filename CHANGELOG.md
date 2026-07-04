@@ -8,6 +8,21 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Password sentinel: strong-password suggestions + one-click autofill (#61 follow-up)** —
+  the vault now watches every page for password forms (SPA-aware). On a **registration**
+  form (`autocomplete="new-password"`, password+confirm pair, or sign-up wording) a small
+  in-page chip offers **"✦ Use a strong password"**: the Rust vault generates a 20-char
+  password (OS-CSPRNG, rejection-sampled, no ambiguous glyphs — unit-tested), fills the
+  password + confirm fields, and **saves it to your vault when you actually sign up**
+  (with the username you entered; a chrome toast confirms). On a **login** form with a
+  saved match, a **"🔑 Fill · user"** chip one-click-autofills via the existing
+  Rust-injects-into-page path — the password never passes through chrome JS. Privacy/
+  security: top-level documents only (nothing shows in iframes), the calling tab is
+  identified from its webview label (a page can only ever act on itself), the chips are
+  dismissible per page, and suggestions require the vault to be unlocked so the
+  save-on-submit promise always holds. New page commands `vault_page_info` /
+  `vault_fill_page` / `vault_suggest_password` / `vault_save_from_page` (fluxtab plugin);
+  `flux_vault::generate_password` with 3 new unit tests.
 - **Downloads work on Linux (WebKitGTK hook, #34 follow-up)** — the download manager was
   WebView2-only; on the Linux build a download just vanished. WebKitGTK's `download-started`
   signal (hooked once per shared web context) now routes downloads to your OS Downloads

@@ -307,6 +307,60 @@ pub fn new_key() -> [u8; 32] {
     random_bytes::<32>()
 }
 
+// ─── Password generation (#61 follow-up: suggest-on-registration) ───────────
+
+/// Character classes a generated password always draws from. Ambiguous glyphs
+/// (`l/I/1`, `O/0`) are excluded — suggested passwords sometimes get typed by
+/// hand (second device, TV keyboards).
+const GEN_LOWER: &[u8] = b"abcdefghijkmnopqrstuvwxyz";
+const GEN_UPPER: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
+const GEN_DIGIT: &[u8] = b"23456789";
+const GEN_SYMBOL: &[u8] = b"!@#$%^&*-_=+?";
+
+/// Generate a strong random password: OS-CSPRNG, rejection-sampled (no modulo
+/// bias), with at least one of each class mixed in at random positions.
+/// `len` is clamped to 8..=128; the suggested default is 20 (~119 bits from a
+/// 62+13-glyph pool).
+pub fn generate_password(len: usize) -> String {
+    let len = len.clamp(8, 128);
+    let pool: Vec<u8> =
+        [GEN_LOWER, GEN_UPPER, GEN_DIGIT, GEN_SYMBOL].concat();
+    let mut rng = rand::rngs::OsRng;
+
+    let mut out: Vec<u8> = (0..len).map(|_| draw(&mut rng, &pool)).collect();
+    // Guarantee one of each class, splatted at distinct random positions.
+    let mut positions: Vec<usize> = Vec::with_capacity(4);
+    for set in [GEN_LOWER, GEN_UPPER, GEN_DIGIT, GEN_SYMBOL] {
+        loop {
+            let p = draw_uniform(&mut rng, len);
+            if !positions.contains(&p) {
+                positions.push(p);
+                out[p] = draw(&mut rng, set);
+                break;
+            }
+        }
+    }
+    String::from_utf8(out).expect("generator charset is ASCII")
+}
+
+/// One glyph, uniform over `set` — rejection-sampled (no modulo bias).
+fn draw(rng: &mut rand::rngs::OsRng, set: &[u8]) -> u8 {
+    set[draw_uniform(rng, set.len())]
+}
+
+/// Uniform index in `0..len`: draw bytes, keep those below the largest
+/// multiple of `len`.
+fn draw_uniform(rng: &mut rand::rngs::OsRng, len: usize) -> usize {
+    let cap = 256 - (256 % len);
+    loop {
+        let mut b = [0u8; 1];
+        rng.fill_bytes(&mut b);
+        if (b[0] as usize) < cap {
+            return b[0] as usize % len;
+        }
+    }
+}
+
 // ─── Master-password key wrapping (Argon2id) ─────────────────────────────────
 
 /// The data key wrapped by a master-password-derived key — persisted to disk
@@ -649,5 +703,34 @@ jRQjwtU=\n=+uGW\n-----END PGP MESSAGE-----\n";
         assert_eq!(c.password, "pp");
         // Wrong passphrase fails (not a panic).
         assert!(Vault::new().import(PGP_FIXTURE.as_bytes(), "export.pgp", Some("wrong")).is_err());
+    }
+
+    #[test]
+    fn generated_password_has_length_and_all_classes() {
+        for len in [8, 20, 64, 128] {
+            let p = generate_password(len);
+            assert_eq!(p.len(), len);
+            assert!(p.bytes().any(|b| GEN_LOWER.contains(&b)), "lower in {p}");
+            assert!(p.bytes().any(|b| GEN_UPPER.contains(&b)), "upper in {p}");
+            assert!(p.bytes().any(|b| GEN_DIGIT.contains(&b)), "digit in {p}");
+            assert!(p.bytes().any(|b| GEN_SYMBOL.contains(&b)), "symbol in {p}");
+        }
+    }
+
+    #[test]
+    fn generated_password_clamps_and_varies() {
+        assert_eq!(generate_password(1).len(), 8); // clamped up
+        assert_eq!(generate_password(9999).len(), 128); // clamped down
+        // Two draws colliding at 20 chars ≈ impossible; a collision means the
+        // RNG plumbing is broken.
+        assert_ne!(generate_password(20), generate_password(20));
+    }
+
+    #[test]
+    fn generated_password_avoids_ambiguous_glyphs() {
+        let p = generate_password(128);
+        for bad in ['l', 'I', '1', 'O', '0'] {
+            assert!(!p.contains(bad), "ambiguous {bad} in {p}");
+        }
     }
 }

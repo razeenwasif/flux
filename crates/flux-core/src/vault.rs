@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use zeroize::Zeroizing;
 
 use flux_vault::{Credential, KeyWrap, Vault};
@@ -508,4 +508,120 @@ fn host_of(url: &str) -> String {
     let s = s.split(['/', '?', '#']).next().unwrap_or(s);
     let s = s.rsplit('@').next().unwrap_or(s);
     s.split(':').next().unwrap_or(s).to_ascii_lowercase()
+}
+
+// ─── Page sentinel (#61 follow-up) ───────────────────────────────────────────
+// Commands the injected passwords.js may call (fluxtab plugin). The calling
+// tab is identified from the webview's OWN label (`tab-{id}`) — page-supplied
+// ids are never trusted, so a page can only ever act on itself.
+
+/// What the sentinel needs to decide which chip to show on a login form.
+#[derive(serde::Serialize, Clone, specta::Type)]
+pub struct PageVaultInfo {
+    pub unlocked: bool,
+    /// Saved credentials matching the calling tab's host.
+    pub count: u32,
+    /// Username of the first match, for the chip label ("Fill · user@…").
+    pub username: String,
+}
+
+/// The calling webview's tab id (`tab-{id}` label), or an error for any other
+/// webview (panels, peeks, the chrome itself).
+fn caller_tab(webview: &tauri::Webview) -> Result<u64, String> {
+    webview
+        .label()
+        .strip_prefix("tab-")
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| "not a tab webview".into())
+}
+
+fn tab_host(app: &AppHandle, tab_id: u64) -> Result<String, String> {
+    app.try_state::<crate::state::FluxState>()
+        .and_then(|s| s.tabs.get(&tab_id).map(|t| host_of(&t.url)))
+        .ok_or_else(|| "no such tab".into())
+}
+
+/// Sentinel probe: is the vault unlocked, and do any credentials match the
+/// calling tab's host? Leaks no secrets — count + username only (the same
+/// metadata the chrome's Passwords popover shows).
+#[tauri::command]
+pub fn vault_page_info(
+    app: AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, VaultState>,
+) -> PageVaultInfo {
+    let locked_out = PageVaultInfo { unlocked: false, count: 0, username: String::new() };
+    let Ok(tab) = caller_tab(&webview) else { return locked_out };
+    let Ok(host) = tab_host(&app, tab) else { return locked_out };
+    state
+        .read_open(|v| {
+            let matches = v.matches(&host);
+            PageVaultInfo {
+                unlocked: true,
+                count: matches.len() as u32,
+                username: matches.first().map(|c| c.username.clone()).unwrap_or_default(),
+            }
+        })
+        .unwrap_or(locked_out)
+}
+
+/// Fill the calling tab's login form with its best-matching credential —
+/// the sentinel chip's click action. Same injection path as `vault_fill`
+/// (the password goes Rust → page, never through the chrome).
+#[tauri::command]
+pub fn vault_fill_page(
+    app: AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, VaultState>,
+) -> Result<(), String> {
+    let tab = caller_tab(&webview)?;
+    let host = tab_host(&app, tab)?;
+    let id = state
+        .read_open(|v| v.matches(&host).first().map(|c| c.id.clone()))?
+        .ok_or_else(|| format!("no credential matches {host}"))?;
+    vault_fill(app, state, tab, id)
+}
+
+/// A strong password for a registration form (#61 follow-up). Requires the
+/// vault to be unlocked so the paired `vault_save_from_page` on submit can
+/// actually keep the promise of remembering it.
+#[tauri::command]
+pub fn vault_suggest_password(state: State<'_, VaultState>) -> Result<String, String> {
+    state.read_open(|_| ())?; // unlocked check + activity touch
+    Ok(flux_vault::generate_password(20))
+}
+
+/// Save a credential the sentinel captured on registration submit. Host comes
+/// from the calling tab (label-derived), never from the page.
+#[tauri::command]
+pub fn vault_save_from_page(
+    app: AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, VaultState>,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    if password.is_empty() {
+        return Err("empty password".into());
+    }
+    let tab = caller_tab(&webview)?;
+    let host = tab_host(&app, tab)?;
+    if host.is_empty() {
+        return Err("no host".into());
+    }
+    let url = format!("https://{host}");
+    let cred = Credential {
+        id: Credential::stable_id(&host, &username, &url),
+        name: host.clone(),
+        urls: vec![url],
+        username,
+        password,
+        totp: String::new(),
+        notes: String::new(),
+        created_ms: 0,
+    };
+    state.write_open(|v| v.upsert(cred))?;
+    // Nudge the chrome (toast + Passwords popover refresh).
+    let _ = app.emit("flux://vault-saved", host);
+    Ok(())
 }

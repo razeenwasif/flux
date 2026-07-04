@@ -59,6 +59,11 @@ const MACRO_REC_JS: &str = include_str!("../assets/macro-record.js");
 /// document_start via the `window.__FLUX_DARK__` flag the init script stamps.
 pub(crate) const DARKMODE_JS: &str = include_str!("../assets/darkmode.js");
 
+/// passwords.js: the password sentinel (#61 follow-up) — detects registration
+/// vs login forms, offers a vault-generated strong password (saved on submit)
+/// or one-click autofill via the fluxtab vault_* page commands.
+const PASSWORDS_JS: &str = include_str!("../assets/passwords.js");
+
 fn label(tab: TabId) -> String {
     format!("tab-{tab}")
 }
@@ -101,7 +106,7 @@ pub async fn webview_open(
         ""
     };
     let init = format!(
-        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{macro_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}\n{NAV_JS}\n{NEWTAB_JS}\n{PIP_JS}\n{MACRO_REC_JS}"
+        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{macro_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}\n{NAV_JS}\n{NEWTAB_JS}\n{PIP_JS}\n{MACRO_REC_JS}\n{PASSWORDS_JS}"
     );
 
     // Private tabs (#59) use an in-memory session; container tabs (#59) use a
