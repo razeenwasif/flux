@@ -153,6 +153,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   dead). All page commands now live in the fluxtab handler *and* the ACL; `peek_open` moved to
   the app handler where it belongs. A new **`fluxtab_acl` guard test** parses both source lists
   and fails the build on any future drift, in either direction.
+- **Dead `flux://panel-loaded` emit removed + event-parity guard** — a companion audit of
+  backend→frontend `flux://…` events (Rust `emit`/`emit_to` vs the shell's `listen`) found one
+  one-sided signal: `panel-loaded` was emitted when a web panel finished loading but nothing
+  listened — a harmless-but-dead emit, now removed. A new **`event_parity` guard test** scans
+  both trees and asserts every emitted event has a listener and vice-versa (allowlist for
+  intentional one-way signals), so a renamed/typo'd event — which fails silently, the listener
+  simply never firing — can't ship. No dead *listeners* were found.
 
 ### Changed
 - **Specta type tail generated (BACKLOG #12, batch 4)** — 15 more IPC types are now

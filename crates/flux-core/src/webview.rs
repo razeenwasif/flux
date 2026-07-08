@@ -489,16 +489,10 @@ pub async fn panel_open(
     let dark = app.try_state::<crate::darkmode::DarkState>().map(|s| s.is_on()).unwrap_or(false);
     let dark_flag = if dark { "window.__FLUX_DARK__ = true;\n" } else { "" };
     let init = format!("{dark_flag}{SHORTCUTS_JS}\n{DARKMODE_JS}\n{PANEL_BADGE_JS}");
-    let app_for_load = app.clone();
     let mut builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target)).initialization_script(&init);
     if let Some(proxy) = app.try_state::<crate::proxy::ProxyState>().and_then(|s| s.parsed()) {
         builder = builder.proxy_url(proxy); // #63
     }
-    let builder = builder.on_page_load(move |_wv, payload| {
-        if matches!(payload.event(), PageLoadEvent::Finished) {
-            let _ = app_for_load.emit("flux://panel-loaded", (panel_id, payload.url().to_string()));
-        }
-    });
     let scale = window.scale_factor().unwrap_or(1.0);
     let child = window
         .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(width.max(0.0), height.max(0.0)))
