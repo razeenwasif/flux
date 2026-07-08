@@ -179,7 +179,7 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
         <div class="vault-body">
           {/* List */}
           <div class="vault-list">
-            <Show when={filtered().length > 0} fallback={<div class="vault-empty">{list().length === 0 ? "No logins yet — add one or import from Proton Pass." : "No matches."}</div>}>
+            <Show when={filtered().length > 0} fallback={<div class="vault-empty">{list().length === 0 ? "No logins yet — add one or import from Proton Pass, Chrome, or Bitwarden." : "No matches."}</div>}>
               <For each={filtered()}>
                 {(c) => (
                   <button classList={{ "vault-item": true, sel: selId() === c.id }} onClick={() => void select(c)}>
@@ -209,8 +209,8 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
             </Show>
 
             <Show when={pane() === "import"}>
-              <h3>Import from Proton Pass</h3>
-              <p class="vault-hint">Export your vault from Proton Pass (CSV, ZIP, or PGP) and give the file path. Proton has no live sync, so re-import to refresh.</p>
+              <h3>Import passwords</h3>
+              <p class="vault-hint">Export from <b>Proton Pass</b> (CSV, ZIP, PGP, JSON), <b>Chrome</b> (Settings → Passwords → Export, CSV), or <b>Bitwarden</b> (unencrypted CSV/JSON) and give the file path. The format is detected automatically. No live sync — re-import to refresh.</p>
               <label class="vault-field"><span>File path</span><input class="vault-input" placeholder="/path/to/export.csv (.zip / .pgp / .json)" value={impPath()} onInput={(e) => setImpPath(e.currentTarget.value)} /></label>
               <Show when={isPgp()}>
                 <label class="vault-field"><span>PGP passphrase</span><input class="vault-input" type="password" value={impPass()} onInput={(e) => setImpPass(e.currentTarget.value)} /></label>

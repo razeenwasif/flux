@@ -647,6 +647,12 @@ export function removePermAsk(id: number): void {
   setPermAsks((q) => q.filter((x) => x.id !== id));
 }
 
+// "Save password?" prompt (BACKLOG #61 follow-up) — the sentinel captured a
+// manually-typed login on submit. One at a time (latest wins); docks above the
+// content card like the permission bar. The captured password stays in Rust.
+const [savePrompt, setSavePrompt] = createSignal<import("./ipc").VaultSavePrompt | null>(null);
+export { savePrompt, setSavePrompt };
+
 // ─── Overlay registry ────────────────────────────────────────────────────────
 // THE single source of truth for "an HTML overlay must cover the page area".
 // Native tab webviews are an OS layer above ALL chrome HTML — z-index can't put

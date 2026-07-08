@@ -55,6 +55,7 @@ import {
   onExtOpenTab,
   onPermissionAsk,
   onVaultSaved,
+  onVaultSavePrompt,
   onFindResult,
   onFullscreenChanged,
   onShortcut,
@@ -212,9 +213,11 @@ import {
   setPanelDragging,
   pageOverlayActive,
   pushPermAsk,
+  setSavePrompt,
 } from "./store";
 import { createWebviewTiling } from "./tiling";
 import PermissionBar from "./PermissionBar";
+import SavePasswordBar from "./SavePasswordBar";
 import {
   pinPanel,
   unpinPanel,
@@ -389,6 +392,8 @@ const App: Component = () => {
       setOmniToast(`🔑 Password for ${host} saved to your vault`);
       window.setTimeout(() => setOmniToast(null), 2800);
     });
+    // Sentinel captured a manually-typed login (#61) — raise the save bar.
+    const unSavePrompt = await onVaultSavePrompt(setSavePrompt);
     // App keyboard shortcuts (#18). Capture phase so we win over child widgets
     // (e.g. xterm's own key handler) when the chrome/terminal is focused; the
     // injected shortcuts.js handles the case where a page webview has focus and
@@ -606,6 +611,7 @@ const App: Component = () => {
       unExtOpen();
       unPermAsk();
       unVaultSaved();
+      unSavePrompt();
       unShortcut();
       unFullscreen();
       unOpenUrl();
@@ -2801,6 +2807,7 @@ const ContentArea: Component<{
     {/* Permission bar (#38): answers a deferred engine permission Ask. Also a
         sibling — never an overlay over the native webview. */}
     <PermissionBar />
+    <SavePasswordBar />
     <div class="card" id="flux-web-area">
       {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
       <Show when={readerOpen()}>

@@ -8,6 +8,27 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Save-password prompt for manually-typed logins (#61 follow-up)** — the sentinel used to
+  only remember passwords it generated. Now, when you submit a login (or sign-up) form with
+  a password Flux didn't fill or generate, it captures the credential and — if it's genuinely
+  new for that site — raises a glass **"Save password for site.com?"** bar above the content
+  card (**Save**/**Update**, **Not now**, **Never** for this site). Same trust model as the
+  rest of the sentinel: the password is held only in Rust between submit and your answer, the
+  host comes from the tab's webview label (never the page), and a per-site **never-save** list
+  is persisted. New commands `vault_offer_save` (fluxtab) + `vault_save_confirm` /
+  `vault_save_dismiss` / `vault_never_save`.
+- **Credential picker when several logins match (#61 follow-up)** — the **"🔑 Fill"** chip used
+  to silently fill the first match when a site had more than one saved login. It now expands
+  into an in-page picker listing each username; choosing one fills that credential via a new
+  host-validated `vault_fill_page_id` (a page still can't coax a fill for an unrelated entry).
+  Single-match sites are unchanged (one-click fill). New page command `vault_page_matches`.
+- **Chrome & Bitwarden password import (#61 follow-up)** — the importer (was Proton-only) now
+  auto-detects and ingests **Chrome** password CSV, **Bitwarden** CSV, and **Bitwarden** JSON
+  (unencrypted) alongside Proton's CSV/ZIP/PGP/JSON — format detected from content, no vendor
+  picker. Bitwarden's `login_*` CSV columns and its `items[].login{uris,uri}` JSON shape are
+  mapped to Flux credentials; trashed/non-login items are skipped and an *encrypted* Bitwarden
+  export fails with a clear "re-export unencrypted" message. 4 new unit tests. The vault
+  Import pane copy now names all three sources.
 - **Password sentinel: strong-password suggestions + one-click autofill (#61 follow-up)** —
   the vault now watches every page for password forms (SPA-aware). On a **registration**
   form (`autocomplete="new-password"`, password+confirm pair, or sign-up wording) a small
@@ -117,6 +138,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   week / friday", "schedule lunch with Sam tomorrow at noon for 1h", "move my standup to
   10am", "cancel the dentist appointment" — she manages Flux-local events and reads the
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
+
+### Fixed
+- **Page-callable vault + panel-badge commands were never dispatched** — `panel_badge` and the
+  password sentinel's `vault_page_info` / `vault_fill_page` / `vault_suggest_password` /
+  `vault_save_from_page` were declared in the fluxtab ACL (build.rs) but registered in the
+  wrong `generate_handler!` (or none): Tauri routes `plugin:fluxtab|cmd` **only** through the
+  fluxtab plugin handler with no fallback to the app handler, so every call 404'd at runtime
+  and the page-side `.catch()` swallowed the error — the sentinel chips silently never
+  appeared and panel unread-badges never updated. All page-callable commands now live in the
+  fluxtab plugin handler. (Found while extending the sentinel; a "compile-verified, never
+  runtime-tested" gap.)
 
 ### Changed
 - **Specta type tail generated (BACKLOG #12, batch 4)** — 15 more IPC types are now

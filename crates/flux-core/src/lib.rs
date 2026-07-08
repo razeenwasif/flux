@@ -589,7 +589,21 @@ pub fn run(intent: cli::LaunchIntent) {
                     dom::chrome_key,
                     dom::find_result,
                     dom::reader_publish,
-                    hibernate::hibernate_capture
+                    hibernate::hibernate_capture,
+                    // Page-callable and therefore MUST live in the fluxtab plugin
+                    // handler: `plugin:fluxtab|cmd` dispatches only via
+                    // `extend_api("fluxtab", …)` with no fallback to the app
+                    // handler (tauri webview/mod.rs). panel_badge + the vault
+                    // sentinel commands were declared in build.rs's ACL list but
+                    // never registered here, so they silently 404'd at runtime.
+                    webview::panel_badge,
+                    vault::vault_page_info,
+                    vault::vault_fill_page,
+                    vault::vault_suggest_password,
+                    vault::vault_save_from_page,
+                    vault::vault_page_matches,
+                    vault::vault_fill_page_id,
+                    vault::vault_offer_save
                 ])
                 .build(),
         )
@@ -747,7 +761,6 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_close,
             webview::webview_debug,
             webview::panel_open,
-            webview::panel_badge,
             webview::panel_set_bounds,
             webview::panel_show,
             webview::panel_hide,
@@ -893,6 +906,9 @@ pub fn run(intent: cli::LaunchIntent) {
             vault::vault_set_master_password,
             vault::vault_disable_master_password,
             vault::vault_set_autolock,
+            vault::vault_save_confirm,
+            vault::vault_save_dismiss,
+            vault::vault_never_save,
             files::fs_list,
             files::fs_list_stream,
             files::fs_search,

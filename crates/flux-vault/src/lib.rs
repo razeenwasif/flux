@@ -158,10 +158,76 @@ impl Vault {
             .map_err(|_| VaultError::Import("file isn't text — if it's a PGP export, provide the passphrase".into()))?;
         let trimmed = text.trim_start();
         if trimmed.starts_with('{') || trimmed.starts_with('[') {
-            self.import_proton(text)
+            self.import_json(text)
         } else {
             self.import_csv(text)
         }
+    }
+
+    /// Dispatch a JSON export to the right vendor parser by peeking at its
+    /// shape: Proton nests logins under `vaults`, Bitwarden under a flat
+    /// `items` array. Unknown shapes fall through to the Proton parser (a
+    /// no-op that returns 0 rather than erroring on an empty/foreign file).
+    pub fn import_json(&mut self, json: &str) -> Result<usize, VaultError> {
+        let probe: serde_json::Value = serde_json::from_str(json)?;
+        if probe.get("vaults").is_some() {
+            self.import_proton(json)
+        } else if probe.get("items").is_some() {
+            self.import_bitwarden(json)
+        } else {
+            self.import_proton(json)
+        }
+    }
+
+    /// Import a **Bitwarden** JSON export (unencrypted account or org export).
+    /// Keeps only login items (`type == 1`), skips items in the trash, and is
+    /// tolerant of the `login.uris[].uri` vs older `login.uri` shapes. Returns
+    /// a clear error for an *encrypted* export (needs the Bitwarden account
+    /// key, which we don't have).
+    pub fn import_bitwarden(&mut self, json: &str) -> Result<usize, VaultError> {
+        let export: bitwarden::Export = serde_json::from_str(json)?;
+        if export.encrypted {
+            return Err(VaultError::Import(
+                "this Bitwarden export is encrypted — re-export as an *unencrypted* .json".into(),
+            ));
+        }
+        let mut n = 0;
+        for item in &export.items {
+            // type 1 = login; skip trashed items (deletedDate set).
+            if item.item_type != 1 || item.deleted_date.is_some() {
+                continue;
+            }
+            let Some(login) = &item.login else { continue };
+            let urls: Vec<String> = login
+                .uris
+                .iter()
+                .filter_map(|u| u.uri.as_deref())
+                .chain(login.uri.as_deref())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if login.password.trim().is_empty() && login.username.trim().is_empty() {
+                continue; // not a real login
+            }
+            let name = if item.name.trim().is_empty() {
+                urls.first().map(|u| host_of(u)).unwrap_or_default()
+            } else {
+                item.name.clone()
+            };
+            let first = urls.first().cloned().unwrap_or_default();
+            self.upsert(Credential {
+                id: Credential::stable_id(&name, &login.username, &first),
+                name,
+                urls,
+                username: login.username.clone(),
+                password: login.password.clone(),
+                totp: login.totp.clone().unwrap_or_default(),
+                notes: item.notes.clone().unwrap_or_default(),
+                created_ms: 0,
+            });
+            n += 1;
+        }
+        Ok(n)
     }
 
     /// Import a Proton Pass **CSV** export. Maps columns by header name (so order
@@ -172,14 +238,16 @@ impl Vault {
         let col = |names: &[&str]| -> Option<usize> {
             headers.iter().position(|h| names.iter().any(|n| h.trim().eq_ignore_ascii_case(n)))
         };
+        // Header aliases span Proton, Chrome (`name,url,username,password,note`),
+        // and Bitwarden CSV (`login_uri,login_username,login_password,login_totp`).
         let (i_name, i_url, i_user, i_email, i_pass, i_note, i_totp, i_type) = (
             col(&["name", "title"]),
-            col(&["url", "urls", "website"]),
-            col(&["username", "login", "user"]),
+            col(&["url", "urls", "website", "login_uri", "login_uris"]),
+            col(&["username", "login", "user", "login_username"]),
             col(&["email"]),
-            col(&["password", "pass"]),
+            col(&["password", "pass", "login_password"]),
             col(&["note", "notes"]),
-            col(&["totp", "otp", "otpauth", "totpuri"]),
+            col(&["totp", "otp", "otpauth", "totpuri", "login_totp"]),
             col(&["type"]),
         );
 
@@ -251,7 +319,7 @@ impl Vault {
         let mut s = String::new();
         zip.by_index(pick).map_err(|e| VaultError::Import(e.to_string()))?.read_to_string(&mut s).map_err(|e| VaultError::Import(e.to_string()))?;
         if is_json {
-            self.import_proton(&s)
+            self.import_json(&s)
         } else {
             self.import_csv(&s)
         }
@@ -515,6 +583,53 @@ mod proton {
     }
 }
 
+// ─── Bitwarden export schema (defensive subset) ──────────────────────────────
+
+mod bitwarden {
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    pub struct Export {
+        #[serde(default)]
+        pub encrypted: bool,
+        #[serde(default)]
+        pub items: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    pub struct Item {
+        #[serde(rename = "type", default)]
+        pub item_type: i32,
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub notes: Option<String>,
+        #[serde(rename = "deletedDate", default)]
+        pub deleted_date: Option<String>,
+        #[serde(default)]
+        pub login: Option<Login>,
+    }
+    #[derive(Deserialize, Default)]
+    pub struct Login {
+        #[serde(default)]
+        pub username: String,
+        #[serde(default)]
+        pub password: String,
+        #[serde(default)]
+        pub totp: Option<String>,
+        /// Modern exports: a list of `{ uri, match }`.
+        #[serde(default)]
+        pub uris: Vec<Uri>,
+        /// Older exports carried a single `uri`.
+        #[serde(default)]
+        pub uri: Option<String>,
+    }
+    #[derive(Deserialize)]
+    pub struct Uri {
+        #[serde(default)]
+        pub uri: Option<String>,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -644,6 +759,78 @@ mod tests {
         assert_eq!(gh.notes, "work");
         let eo = v.entries.iter().find(|c| c.name == "EmailOnly").unwrap();
         assert_eq!(eo.username, "me@x.io"); // email fallback
+    }
+
+    #[test]
+    fn import_chrome_csv() {
+        // Chrome's password export: name,url,username,password,note (no type col).
+        let csv = "name,url,username,password,note\n\
+            github.com,https://github.com/login,octocat,p1,\n\
+            news.ycombinator.com,https://news.ycombinator.com/,hnuser,p2,my hn\n";
+        let mut v = Vault::new();
+        assert_eq!(v.import(csv.as_bytes(), "Chrome Passwords.csv", None).unwrap(), 2);
+        let gh = v.entries.iter().find(|c| c.name == "github.com").unwrap();
+        assert_eq!(gh.username, "octocat");
+        assert_eq!(gh.password, "p1");
+        assert!(gh.matches_host("github.com"));
+    }
+
+    #[test]
+    fn import_bitwarden_csv() {
+        // Bitwarden CSV headers use login_* field names + a type column.
+        let csv = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n\
+            ,,login,GitHub,work note,,0,https://github.com,octocat,p1,otpauth://totp/x\n\
+            ,,note,A secure note,body,,0,,,,\n\
+            ,,card,My Visa,,,0,,,,\n\
+            ,,login,GitLab,,,0,https://gitlab.com,glab,p2,\n";
+        let mut v = Vault::new();
+        let n = v.import(csv.as_bytes(), "bitwarden_export.csv", None).unwrap();
+        assert_eq!(n, 2); // logins only (note + card skipped by the type column)
+        let gh = v.entries.iter().find(|c| c.name == "GitHub").unwrap();
+        assert_eq!(gh.username, "octocat");
+        assert_eq!(gh.password, "p1");
+        assert_eq!(gh.totp, "otpauth://totp/x");
+        assert_eq!(gh.notes, "work note");
+        assert!(v.entries.iter().any(|c| c.name == "GitLab"));
+    }
+
+    #[test]
+    fn import_bitwarden_json() {
+        let json = r#"{
+          "encrypted": false,
+          "folders": [],
+          "items": [
+            { "type": 1, "name": "GitHub", "notes": "work",
+              "login": { "username": "octocat", "password": "p1", "totp": "otpauth://x",
+                "uris": [{ "match": null, "uri": "https://github.com" }] } },
+            { "type": 2, "name": "A note", "notes": "secret", "secureNote": { "type": 0 } },
+            { "type": 1, "name": "Trashed", "deletedDate": "2026-01-01T00:00:00.000Z",
+              "login": { "username": "old", "password": "nope", "uris": [] } },
+            { "type": 1, "name": "Legacy", "login": { "username": "leg", "password": "p2", "uri": "https://legacy.io" } }
+          ]
+        }"#;
+        let mut v = Vault::new();
+        // Detected as Bitwarden (items, no vaults) even via the generic entry point.
+        let n = v.import(json.as_bytes(), "bitwarden.json", None).unwrap();
+        assert_eq!(n, 2); // GitHub + Legacy; note skipped (type 2), Trashed skipped (deletedDate)
+        let gh = v.entries.iter().find(|c| c.name == "GitHub").unwrap();
+        assert_eq!(gh.username, "octocat");
+        assert_eq!(gh.password, "p1");
+        assert_eq!(gh.totp, "otpauth://x");
+        assert!(gh.matches_host("github.com"));
+        let legacy = v.entries.iter().find(|c| c.name == "Legacy").unwrap();
+        assert!(legacy.matches_host("legacy.io")); // older single `uri` shape
+        // Re-import dedupes.
+        v.import(json.as_bytes(), "bitwarden.json", None).unwrap();
+        assert_eq!(v.entries.len(), 2);
+    }
+
+    #[test]
+    fn import_bitwarden_encrypted_errors_clearly() {
+        let json = r#"{ "encrypted": true, "items": [] }"#;
+        let err = Vault::new().import(json.as_bytes(), "bw.json", None).unwrap_err();
+        assert!(matches!(err, VaultError::Import(_)));
+        assert!(err.to_string().contains("encrypted"));
     }
 
     #[test]

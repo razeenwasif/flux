@@ -131,6 +131,38 @@
     placeChip();
   }
 
+  // A vertical picker (same anchor/positioning as the chip) listing several
+  // matching credentials; `onPick(item)` fires with the chosen {id,username,name}.
+  function showMenu(anchor, items, onPick) {
+    removeChip();
+    chipAnchor = anchor;
+    chip = document.createElement("div");
+    chip.id = "__flux_pw_chip";
+    chip.style.cssText =
+      "position:fixed;z-index:2147483646;display:flex;flex-direction:column;gap:2px;" +
+      "padding:6px;border-radius:9px;font:12.5px system-ui,sans-serif;min-width:180px;max-width:280px;" +
+      "background:rgba(16,14,28,.97);color:#e8e6f4;border:1px solid rgba(47,243,255,.35);" +
+      "box-shadow:0 6px 24px rgba(0,0,0,.45);user-select:none;";
+    var head = document.createElement("div");
+    head.textContent = "🔑 Choose a login";
+    head.style.cssText = "opacity:.6;padding:2px 6px 4px;font-size:11.5px;";
+    chip.appendChild(head);
+    items.forEach(function (it) {
+      var row = document.createElement("div");
+      row.textContent = it.username || it.name || "saved login";
+      row.title = it.name || "";
+      row.style.cssText =
+        "padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+      row.addEventListener("mouseenter", function () { row.style.background = "rgba(47,243,255,.14)"; });
+      row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+      row.addEventListener("click", function () { removeChip(); onPick(it); });
+      chip.appendChild(row);
+    });
+    chip.addEventListener("mousedown", function (e) { e.preventDefault(); }); // keep field focus
+    document.documentElement.appendChild(chip);
+    placeChip();
+  }
+
   addEventListener("scroll", placeChip, { passive: true, capture: true });
   addEventListener("resize", placeChip, { passive: true });
 
@@ -167,7 +199,13 @@
     });
   }
 
-  // ── Login: one-click fill ──────────────────────────────────────────────────
+  // ── Login: one-click fill (picker when >1 credential matches) ───────────────
+  function fillFirst(pw) {
+    handled.add(pw);
+    removeChip();
+    call("vault_fill_page").catch(function () {});
+  }
+
   function offerFill(pw) {
     call("vault_page_info").then(function (info) {
       if (!info || !info.unlocked || !info.count) return;
@@ -175,12 +213,37 @@
       var who = info.username || "saved login";
       var extra = info.count > 1 ? " (+" + (info.count - 1) + ")" : "";
       showChip(pw, "🔑", "Fill · " + who + extra, function () {
-        handled.add(pw);
-        removeChip();
-        call("vault_fill_page").catch(function () {});
+        if (info.count <= 1) return fillFirst(pw);
+        // Several logins match this host — let the user choose which, rather
+        // than silently filling the first. Fall back to the first if the
+        // metadata fetch fails.
+        call("vault_page_matches").then(function (list) {
+          if (!list || list.length <= 1) return fillFirst(pw);
+          showMenu(pw, list, function (it) {
+            handled.add(pw);
+            call("vault_fill_page_id", { id: it.id }).catch(function () {});
+          });
+        }).catch(function () { fillFirst(pw); });
       });
     }).catch(function () {});
   }
+
+  // ── Manually-typed login → offer to save on submit ──────────────────────────
+  // Fires for passwords Flux didn't itself generate or fill (those fields are in
+  // `handled`). Rust decides whether it's genuinely new and, if so, raises the
+  // chrome "Save password?" bar — so this is a fire-and-forget hint, never a UI
+  // action here. Capture phase so a page that stops propagation can't hide it.
+  function offerSaveOnSubmit(form) {
+    var pw = Array.prototype.filter
+      .call(form.querySelectorAll('input[type="password"]'), function (f) { return f.value && !handled.has(f); })[0];
+    if (!pw) return;
+    var userEl = usernameFieldFor(pw);
+    call("vault_offer_save", { username: (userEl && userEl.value) || "", password: pw.value }).catch(function () {});
+  }
+  addEventListener("submit", function (e) {
+    var form = e.target;
+    if (form && form.tagName === "FORM") offerSaveOnSubmit(form);
+  }, true);
 
   // ── Scan loop ──────────────────────────────────────────────────────────────
   function scan() {

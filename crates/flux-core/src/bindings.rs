@@ -48,7 +48,7 @@ use crate::state::{
 use crate::sync::{SyncReport, SyncStatus};
 use crate::taskmgr::{GpuInfo, ProcInfo, SysStats};
 use crate::todos::Todo;
-use crate::vault::{CredentialMeta, VaultStatus};
+use crate::vault::{CredentialMeta, VaultSavePrompt, VaultStatus};
 use crate::cli::LaunchIntent;
 use crate::hibernate::{EvictionRank, HibernateCandidate};
 use crate::mem::MemInfo;
@@ -121,6 +121,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<PermAsk>(&c),
         specta::ts::export::<CredentialMeta>(&c),
         specta::ts::export::<VaultStatus>(&c),
+        specta::ts::export::<VaultSavePrompt>(&c),
         specta::ts::export::<ContentScript>(&c),
         specta::ts::export::<ToolbarButton>(&c),
         specta::ts::export::<UiContrib>(&c),

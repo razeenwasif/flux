@@ -108,6 +108,7 @@ import type {
   TabKind as GenTabKind,
   TabMeta as GenTabMeta,
   VaultStatus as GenVaultStatus,
+  VaultSavePrompt as GenVaultSavePrompt,
   WebPanel as GenWebPanel,
   Workspace as GenWorkspace,
   LaunchIntent as GenLaunchIntent,
@@ -166,6 +167,7 @@ export type PermDecision = GenPermDecision;
 export type SitePerm = GenSitePerm;
 export type CredentialMeta = GenCredentialMeta;
 export type VaultStatus = GenVaultStatus;
+export type VaultSavePrompt = GenVaultSavePrompt;
 export type ExtContentScript = GenContentScript;
 export type ExtManifest = GenManifest;
 export type InstalledExt = GenInstalledExt;
@@ -725,6 +727,15 @@ export const onVaultReady = (cb: () => void): Promise<UnlistenFn> =>
 /** Fires when the page sentinel saved a credential (registration sign-up). */
 export const onVaultSaved = (cb: (host: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://vault-saved", (e) => cb(e.payload));
+/** Fires when the page sentinel captures a manually-typed login worth saving. */
+export const onVaultSavePrompt = (cb: (p: VaultSavePrompt) => void): Promise<UnlistenFn> =>
+  listen<VaultSavePrompt>("flux://vault-save-prompt", (e) => cb(e.payload));
+/** Commit the pending save (the bar's "Save"/"Update"). */
+export const vaultSaveConfirm = () => invoke<void>("vault_save_confirm");
+/** Drop the pending save ("Not now"). */
+export const vaultSaveDismiss = () => invoke<void>("vault_save_dismiss");
+/** Drop the pending save and never offer for this host again. */
+export const vaultNeverSave = () => invoke<void>("vault_never_save");
 export const vaultList = () => invoke<CredentialMeta[]>("vault_list");
 export const vaultForHost = (host: string) => invoke<CredentialMeta[]>("vault_for_host", { host });
 /** Reveal one password (explicit user action). */

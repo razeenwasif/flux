@@ -14,6 +14,7 @@
 //! Secrets boundary: only metadata reaches the chrome; passwords leave Rust only
 //! via explicit `vault_reveal` or injected straight into the page by `vault_fill`.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
@@ -53,6 +54,19 @@ pub struct VaultState {
     source: RwLock<&'static str>,
     autolock_min: AtomicU64,
     last_activity: AtomicU64,
+    /// A credential the sentinel captured on submit, awaiting the user's
+    /// "Save"/"Never" answer in the chrome bar (#61 follow-up). In memory only;
+    /// the password lives here no longer than the prompt is on screen.
+    pending_save: RwLock<Option<PendingSave>>,
+    /// Hosts the user chose "Never save" for. Persisted to `never-save.json`.
+    never_save: RwLock<HashSet<String>>,
+}
+
+/// A pending save awaiting the chrome-side prompt's answer.
+struct PendingSave {
+    host: String,
+    username: String,
+    password: Zeroizing<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -83,6 +97,7 @@ impl VaultState {
         let path = dir.join("vault.bin");
         let meta = read_meta(&dir);
         let password_mode = meta.protection == "password" && dir.join("keywrap.json").is_file();
+        let never_save = read_never_save(&dir);
 
         Self {
             open: RwLock::new(None),
@@ -92,6 +107,8 @@ impl VaultState {
             source: RwLock::new(if password_mode { "password" } else { "loading" }),
             autolock_min: AtomicU64::new(meta.autolock_minutes),
             last_activity: AtomicU64::new(now_ms()),
+            pending_save: RwLock::new(None),
+            never_save: RwLock::new(never_save),
         }
     }
 
@@ -294,6 +311,21 @@ fn write_meta(dir: &Path, meta: &Meta) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let s = serde_json::to_string_pretty(meta).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("meta.json"), s).map_err(|e| e.to_string())
+}
+
+fn read_never_save(dir: &Path) -> HashSet<String> {
+    std::fs::read_to_string(dir.join("never-save.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .map(|v| v.into_iter().collect())
+        .unwrap_or_default()
+}
+
+fn write_never_save(dir: &Path, set: &HashSet<String>) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let list: Vec<&String> = set.iter().collect();
+    let s = serde_json::to_string_pretty(&list).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("never-save.json"), s).map_err(|e| e.to_string())
 }
 
 fn read_keywrap(dir: &Path) -> Result<KeyWrap, String> {
@@ -623,5 +655,157 @@ pub fn vault_save_from_page(
     state.write_open(|v| v.upsert(cred))?;
     // Nudge the chrome (toast + Passwords popover refresh).
     let _ = app.emit("flux://vault-saved", host);
+    Ok(())
+}
+
+// ─── Credential picker (#61 follow-up: multiple matches) ─────────────────────
+
+/// One candidate credential for the calling tab's host — metadata only (the id
+/// is opaque; no URLs or secrets leave Rust). Feeds the in-page picker menu when
+/// more than one login matches.
+#[derive(serde::Serialize, Clone, specta::Type)]
+pub struct PageMatch {
+    pub id: String,
+    pub username: String,
+    pub name: String,
+}
+
+/// Every saved credential matching the calling tab's host (for the picker).
+/// Empty when the vault is locked or nothing matches.
+#[tauri::command]
+pub fn vault_page_matches(
+    app: AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, VaultState>,
+) -> Vec<PageMatch> {
+    let Ok(tab) = caller_tab(&webview) else { return Vec::new() };
+    let Ok(host) = tab_host(&app, tab) else { return Vec::new() };
+    state
+        .read_open(|v| {
+            v.matches(&host)
+                .into_iter()
+                .map(|c| PageMatch { id: c.id.clone(), username: c.username.clone(), name: c.name.clone() })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Fill the calling tab with a *specific* credential the user picked. `vault_fill`
+/// re-derives the host from the tab label and refuses any id that doesn't match
+/// it, so a page can't coax a fill for an unrelated credential.
+#[tauri::command]
+pub fn vault_fill_page_id(
+    app: AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, VaultState>,
+    id: String,
+) -> Result<(), String> {
+    let tab = caller_tab(&webview)?;
+    vault_fill(app, state, tab, id)
+}
+
+// ─── Save prompt for manually-typed logins (#61 follow-up) ───────────────────
+
+/// The chrome's "Save password?" bar payload — host + username only; the
+/// captured password stays in Rust ([`PendingSave`]) until the user confirms.
+#[derive(serde::Serialize, Clone, specta::Type)]
+pub struct VaultSavePrompt {
+    pub host: String,
+    pub username: String,
+    /// True when the site already has this username stored with a *different*
+    /// password (offer "Update" rather than "Save").
+    pub update: bool,
+}
+
+/// The sentinel captured a login submit whose password isn't (yet) in the vault.
+/// Stash it and raise the chrome-side prompt. No-op — never an error the page
+/// can observe — when the vault is locked, the host is opted out, or there's
+/// nothing new to save; the user never sees a failed promise.
+#[tauri::command]
+pub fn vault_offer_save(
+    app: AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, VaultState>,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    if password.is_empty() {
+        return Ok(());
+    }
+    let Ok(tab) = caller_tab(&webview) else { return Ok(()) };
+    let Ok(host) = tab_host(&app, tab) else { return Ok(()) };
+    if host.is_empty() || state.never_save.read().contains(&host) {
+        return Ok(());
+    }
+    // Decide save vs update vs skip against the (unlocked) vault. Locked →
+    // silently do nothing; we can't dedupe and the save would fail anyway.
+    let Ok((already, update)) = state.read_open(|v| {
+        let m = v.matches(&host);
+        let already = m.iter().any(|c| c.username == username && c.password == password);
+        let update = !already && m.iter().any(|c| c.username == username);
+        (already, update)
+    }) else {
+        return Ok(());
+    };
+    if already {
+        return Ok(()); // identical credential already stored
+    }
+    *state.pending_save.write() = Some(PendingSave {
+        host: host.clone(),
+        username: username.clone(),
+        password: Zeroizing::new(password),
+    });
+    let _ = app.emit("flux://vault-save-prompt", VaultSavePrompt { host, username, update });
+    Ok(())
+}
+
+/// Commit the pending save (the chrome bar's "Save"/"Update"). Chrome-only.
+#[tauri::command]
+pub fn vault_save_confirm(app: AppHandle, state: State<'_, VaultState>) -> Result<(), String> {
+    let pending = state.pending_save.write().take().ok_or("nothing to save")?;
+    let password = pending.password.to_string();
+    state.write_open(|v| {
+        // Update in place if this host already has an entry for the username
+        // (from any stored URL shape) — so a password *change* replaces rather
+        // than piling up a sibling. Otherwise add a fresh entry.
+        if let Some(c) = v
+            .entries
+            .iter_mut()
+            .find(|c| c.username == pending.username && c.matches_host(&pending.host))
+        {
+            c.password = password;
+        } else {
+            let url = format!("https://{}", pending.host);
+            v.upsert(Credential {
+                id: Credential::stable_id(&pending.host, &pending.username, &url),
+                name: pending.host.clone(),
+                urls: vec![url],
+                username: pending.username.clone(),
+                password,
+                totp: String::new(),
+                notes: String::new(),
+                created_ms: 0,
+            });
+        }
+    })?;
+    let _ = app.emit("flux://vault-saved", pending.host);
+    Ok(())
+}
+
+/// Dismiss the pending save ("Not now"). Chrome-only.
+#[tauri::command]
+pub fn vault_save_dismiss(state: State<'_, VaultState>) {
+    *state.pending_save.write() = None;
+}
+
+/// "Never for this site": drop the pending save and remember not to offer for
+/// its host again. Chrome-only.
+#[tauri::command]
+pub fn vault_never_save(state: State<'_, VaultState>) -> Result<(), String> {
+    let host = state.pending_save.write().take().map(|p| p.host);
+    if let Some(host) = host {
+        state.never_save.write().insert(host);
+        write_never_save(&state.dir, &state.never_save.read())?;
+    }
     Ok(())
 }

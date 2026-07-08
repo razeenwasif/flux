@@ -152,6 +152,11 @@ export type SitePerm = { host: string; kind: PermKind; decision: PermDecision }
 export type PermAsk = { id: number; host: string; kind: PermKind }
 export type CredentialMeta = { id: string; name: string; urls: string[]; username: string; has_totp: boolean }
 export type VaultStatus = { available: boolean; locked: boolean; protection: string; source: string; count: number; autolock_minutes: number }
+/**
+ * The chrome's "Save password?" bar payload — host + username only; the
+ * captured password stays in Rust ([`PendingSave`]) until the user confirms.
+ */
+export type VaultSavePrompt = { host: string; username: string; update: boolean }
 export type ContentScript = { matches: string[]; js?: string[]; css?: string[]; run_at?: string }
 export type ToolbarButton = { title: string; icon?: string | null }
 export type UiContrib = { toolbar_button?: ToolbarButton | null; panel?: boolean | null }
