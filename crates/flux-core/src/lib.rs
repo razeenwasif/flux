@@ -579,7 +579,6 @@ pub fn run(intent: cli::LaunchIntent) {
                 .invoke_handler(tauri::generate_handler![
                     dom::dom_publish,
                     dom::chrome_open_url,
-                    peek::peek_open,
                     peek::chrome_peek_url,
                     peek::peek_promote,
                     peek::peek_pin,
@@ -760,6 +759,11 @@ pub fn run(intent: cli::LaunchIntent) {
             screenshot::webview_capture,
             webview::webview_close,
             webview::webview_debug,
+            // Chrome-triggered peek (right-click / Alt-click). A plain app
+            // command — the page-side peek trigger is `chrome_peek_url` in the
+            // fluxtab plugin handler; keep the two apart (see the fluxtab ACL
+            // guard test).
+            peek::peek_open,
             webview::panel_open,
             webview::panel_set_bounds,
             webview::panel_show,

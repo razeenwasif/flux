@@ -140,15 +140,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Fixed
-- **Page-callable vault + panel-badge commands were never dispatched** — `panel_badge` and the
-  password sentinel's `vault_page_info` / `vault_fill_page` / `vault_suggest_password` /
-  `vault_save_from_page` were declared in the fluxtab ACL (build.rs) but registered in the
-  wrong `generate_handler!` (or none): Tauri routes `plugin:fluxtab|cmd` **only** through the
-  fluxtab plugin handler with no fallback to the app handler, so every call 404'd at runtime
-  and the page-side `.catch()` swallowed the error — the sentinel chips silently never
-  appeared and panel unread-badges never updated. All page-callable commands now live in the
-  fluxtab plugin handler. (Found while extending the sentinel; a "compile-verified, never
-  runtime-tested" gap.)
+- **Several page-callable commands were silently uncallable (fluxtab drift)** — Tauri routes
+  `plugin:fluxtab|cmd` **only** through the fluxtab plugin handler, gated on the plugin ACL,
+  with no fallback to the app handler; a command missing from *either* the ACL (build.rs) or
+  the handler (lib.rs) is rejected at runtime, and the injected scripts swallow the rejection
+  in `.catch()` — so the feature just quietly does nothing. Four commands had shipped this way:
+  the #61 sentinel's `vault_page_info` / `vault_fill_page` / `vault_suggest_password` /
+  `vault_save_from_page` and `panel_badge` were in the ACL but no handler (chips never
+  appeared, panel unread-badges never updated); `macro_record_step` was in the handler but not
+  the ACL (macro recording of clicks/typing no-op'd); and `peek_open` sat in the fluxtab
+  handler while the chrome invokes it as a plain command (right-click / Alt-click **Peek** was
+  dead). All page commands now live in the fluxtab handler *and* the ACL; `peek_open` moved to
+  the app handler where it belongs. A new **`fluxtab_acl` guard test** parses both source lists
+  and fails the build on any future drift, in either direction.
 
 ### Changed
 - **Specta type tail generated (BACKLOG #12, batch 4)** — 15 more IPC types are now

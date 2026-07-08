@@ -13,6 +13,7 @@ fn main() {
             tauri_build::InlinedPlugin::new()
                 .commands(&[
                     "dom_publish",
+                    "macro_record_step",
                     "ext_broker_call",
                     "chrome_key",
                     "chrome_open_url",
