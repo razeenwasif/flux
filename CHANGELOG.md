@@ -161,10 +161,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   intentional one-way signals), so a renamed/typo'd event — which fails silently, the listener
   simply never firing — can't ship. No dead *listeners* were found.
 - **Command-registration guard (IPC surface now fully guarded)** — a third guard test
-  (`command_registration`) asserts every command the shell `invoke()`s exists in a
-  `generate_handler!`, closing the last "compiles, never runs" axis: a frontend call to an
-  unregistered command 404s at runtime and the caller swallows it. No drift found (the main
-  command surface was already disciplined). Together the three guards — fluxtab ACL↔handler,
+  (`command_registration`) asserts every command the shell `invoke()`s — plus every
+  `plugin:fluxtab|…` literal in the injected page scripts — exists in a `generate_handler!`,
+  closing the last "compiles, never runs" axis: a call to an unregistered command 404s at
+  runtime and the caller swallows it. No drift found (the main command surface was already
+  disciplined). Together the three guards — fluxtab ACL↔handler,
   event emit↔listen, invoke→handler — cover the whole page↔Rust↔shell IPC surface at build
   time.
 

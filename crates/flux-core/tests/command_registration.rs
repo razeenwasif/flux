@@ -11,9 +11,12 @@
 //! is merely dead code and is often a false positive (commands driven from the
 //! CLI, ⌘K, or not-yet-wired UI), so it's intentionally not enforced.
 //!
-//! Scope: shell invokes (`apps/shell/src`). Plugin calls `plugin:fluxtab|cmd`
-//! are reduced to `cmd` and checked against the (combined) handler set; the
-//! ACL side of those is covered by `fluxtab_acl.rs`.
+//! Scope: shell invokes (`apps/shell/src`) plus every `plugin:fluxtab|cmd`
+//! literal in the injected page scripts (`crates/flux-core/assets`) — those are
+//! reduced to `cmd` and checked against the (combined) handler set; the ACL side
+//! is covered by `fluxtab_acl.rs`. (Not covered: an asset that hides the command
+//! name behind a wrapper, e.g. passwords.js's `call("cmd")` → `plugin:fluxtab|`
+//! — no literal to match. Those names are short-lived and caught in testing.)
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -109,6 +112,28 @@ fn invoked_commands(files: &[PathBuf]) -> BTreeSet<String> {
     out
 }
 
+/// Bare command names from `plugin:fluxtab|<cmd>` literals in `files` — the
+/// robust way to check the injected assets (which call via `inv`/`call`, not
+/// `invoke`).
+fn fluxtab_literals(files: &[PathBuf]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let marker = "plugin:fluxtab|";
+    for f in files {
+        let Ok(src) = std::fs::read_to_string(f) else { continue };
+        let mut search = 0;
+        while let Some(pos) = src[search..].find(marker) {
+            let start = search + pos + marker.len();
+            let after = &src[start..];
+            let end = after.find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')).unwrap_or(after.len());
+            if end > 0 {
+                out.insert(after[..end].to_string());
+            }
+            search = start + end.max(1);
+        }
+    }
+    out
+}
+
 #[test]
 fn every_invoked_command_is_registered() {
     let root = workspace_root();
@@ -117,9 +142,13 @@ fn every_invoked_command_is_registered() {
     let mut shell = Vec::new();
     collect(&root.join("apps/shell/src"), &["ts", "tsx"], &mut shell);
     assert!(!shell.is_empty(), "no shell sources found under {}", root.display());
+    let mut assets = Vec::new();
+    collect(&root.join("crates/flux-core/assets"), &["js"], &mut assets);
 
     let registered = registered_commands(&lib_rs);
-    let invoked = invoked_commands(&shell);
+    let mut invoked = invoked_commands(&shell);
+    invoked.extend(fluxtab_literals(&shell)); // shell plugin:… calls too
+    invoked.extend(fluxtab_literals(&assets)); // injected page scripts
     assert!(registered.len() > 100, "handler scan looks wrong (only {} commands)", registered.len());
 
     let unregistered: Vec<&String> = invoked.difference(&registered).collect();
