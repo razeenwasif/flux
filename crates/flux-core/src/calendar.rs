@@ -53,6 +53,11 @@ pub struct CalEvent {
     pub editable: bool,
     /// Free-text notes (local events only; "" for ICS).
     pub notes: String,
+    /// The series' RRULE for a local recurring event ("" otherwise) — so the
+    /// editor can pre-fill the repeat control. ICS occurrences leave this ""
+    /// (they're read-only).
+    #[serde(default)]
+    pub rrule: String,
 }
 
 /// A Flux-local calendar event (on-device, fully editable). Distinct from a
@@ -69,6 +74,12 @@ pub struct LocalEvent {
     pub end: String,
     pub location: String,
     pub notes: String,
+    /// iCalendar RRULE (e.g. `FREQ=WEEKLY`), or "" for a one-off event. Same
+    /// grammar the ICS path already expands (FREQ=DAILY/WEEKLY/MONTHLY/YEARLY
+    /// with INTERVAL/COUNT/UNTIL/BYDAY). `#[serde(default)]` so events saved
+    /// before recurrence existed load as one-off.
+    #[serde(default)]
+    pub rrule: String,
 }
 
 #[derive(Default)]
@@ -137,7 +148,7 @@ impl LocalEventStore {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn add(&self, title: String, date: String, start: String, end: String, location: String, notes: String) -> LocalEvent {
+    pub fn add(&self, title: String, date: String, start: String, end: String, location: String, notes: String, rrule: String) -> LocalEvent {
         let ev = LocalEvent {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             title,
@@ -146,6 +157,7 @@ impl LocalEventStore {
             end,
             location,
             notes,
+            rrule,
         };
         self.items.write().push(ev.clone());
         self.save();
@@ -163,6 +175,7 @@ impl LocalEventStore {
         end: Option<String>,
         location: Option<String>,
         notes: Option<String>,
+        rrule: Option<String>,
     ) -> Option<LocalEvent> {
         let out = {
             let mut items = self.items.write();
@@ -173,6 +186,7 @@ impl LocalEventStore {
             if let Some(v) = end { e.end = v; }
             if let Some(v) = location { e.location = v; }
             if let Some(v) = notes { e.notes = v; }
+            if let Some(v) = rrule { e.rrule = v; }
             e.clone()
         };
         self.save();
@@ -342,6 +356,7 @@ fn make_event(day: i64, s: &DtParts, title: &str, location: &str, end: &str, cal
         id: 0,
         editable: false,
         notes: String::new(),
+        rrule: String::new(),
     }
 }
 
@@ -366,6 +381,49 @@ fn local_to_cal(e: &LocalEvent) -> CalEvent {
         id: e.id,
         editable: true,
         notes: e.notes.clone(),
+        rrule: e.rrule.clone(),
+    }
+}
+
+/// `DtParts` for a local event's `YYYY-MM-DD` date + `HH:MM` start (or "").
+fn local_dtparts(date: &str, start: &str) -> Option<DtParts> {
+    let digits: String = date.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() < 8 {
+        return None;
+    }
+    let y: i64 = digits[0..4].parse().ok()?;
+    let m: u32 = digits[4..6].parse().ok()?;
+    let d: u32 = digits[6..8].parse().ok()?;
+    let t: String = start.chars().filter(|c| c.is_ascii_digit()).collect();
+    let hhmm: u64 = if t.len() >= 4 { t[..4].parse().unwrap_or(0) } else { 0 };
+    Some(DtParts { days: days_from_civil(y, m, d), time: start.to_string(), hhmm })
+}
+
+/// Expand a local event into the grid's occurrences. A one-off event (no rrule)
+/// is emitted as-is regardless of the window — local events shouldn't vanish
+/// just because they're far out. A recurring one reuses the same `emit_occurrences`
+/// engine as ICS feeds, then re-stamps each occurrence with the local event's
+/// identity (id/editable/notes) that `make_event` zeroes.
+fn expand_local(e: &LocalEvent, lo: i64, hi: i64, out: &mut Vec<CalEvent>) {
+    let rrule = e.rrule.trim();
+    let dt = local_dtparts(&e.date, &e.start);
+    if rrule.is_empty() || dt.is_none() {
+        out.push(local_to_cal(e));
+        return;
+    }
+    let start = out.len();
+    emit_occurrences(&e.title, &e.location, &e.end, &dt.unwrap(), rrule, &[], "Flux", lo, hi, out);
+    if out.len() == start {
+        // The series produced nothing in-window (e.g. it has already ended);
+        // still show the base event so it's editable, matching the one-off path.
+        out.push(local_to_cal(e));
+        return;
+    }
+    for ev in out[start..].iter_mut() {
+        ev.id = e.id;
+        ev.editable = true;
+        ev.notes = e.notes.clone();
+        ev.rrule = e.rrule.clone();
     }
 }
 
@@ -623,10 +681,15 @@ pub async fn cal_events(store: State<'_, CalStore>, local: State<'_, LocalEventS
                 all.extend(parse_events(&ics, &f.name));
             }
         }
-        // Cap the (potentially huge) ICS set first, then always keep local events.
+        // Cap the (potentially huge) ICS set first, then always keep local events
+        // (expanding any recurring ones over the same window as the ICS feeds).
         all.sort_by_key(|e| e.sort_key);
         all.truncate(MAX_EVENTS);
-        all.extend(locals.iter().map(local_to_cal));
+        let today = today_epoch_days();
+        let (lo, hi) = (today - WINDOW_BACK_DAYS, today + WINDOW_FWD_DAYS);
+        for e in &locals {
+            expand_local(e, lo, hi, &mut all);
+        }
         all.sort_by_key(|e| e.sort_key);
         Ok(all)
     })
@@ -640,6 +703,26 @@ pub fn cal_local_events(local: State<'_, LocalEventStore>) -> Vec<LocalEvent> {
     local.list()
 }
 
+/// Sanitize an RRULE from the UI/agent: trim, drop a leading `RRULE:`, upcase,
+/// and accept only rules carrying a FREQ we can actually expand — anything else
+/// collapses to "" (a one-off) so a typo can't create a silently-dead series.
+fn normalize_rrule(rrule: Option<&str>) -> String {
+    let raw = rrule.unwrap_or("").trim();
+    let raw = raw.strip_prefix("RRULE:").unwrap_or(raw).trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    let up = raw.to_ascii_uppercase();
+    let has_freq = up
+        .split(';')
+        .any(|p| matches!(p.trim(), "FREQ=DAILY" | "FREQ=WEEKLY" | "FREQ=MONTHLY" | "FREQ=YEARLY"));
+    if has_freq {
+        up
+    } else {
+        String::new()
+    }
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn cal_event_add(
@@ -650,6 +733,7 @@ pub fn cal_event_add(
     end: Option<String>,
     location: Option<String>,
     notes: Option<String>,
+    rrule: Option<String>,
 ) -> Result<LocalEvent, String> {
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -665,6 +749,7 @@ pub fn cal_event_add(
         end.unwrap_or_default(),
         location.unwrap_or_default(),
         notes.unwrap_or_default(),
+        normalize_rrule(rrule.as_deref()),
     ))
 }
 
@@ -679,8 +764,11 @@ pub fn cal_event_update(
     end: Option<String>,
     location: Option<String>,
     notes: Option<String>,
+    rrule: Option<String>,
 ) -> Result<LocalEvent, String> {
-    local.update(id, title, date, start, end, location, notes).ok_or_else(|| "no such event".to_string())
+    // `None` leaves recurrence untouched; `Some` (incl. "" to clear) sets it.
+    let rrule = rrule.map(|r| normalize_rrule(Some(&r)));
+    local.update(id, title, date, start, end, location, notes, rrule).ok_or_else(|| "no such event".to_string())
 }
 
 #[tauri::command]
@@ -701,11 +789,11 @@ mod tests {
     #[test]
     fn local_store_crud_and_partial_update() {
         let store = LocalEventStore::default(); // no path → in-memory
-        let e = store.add("Dentist".into(), "2026-06-26".into(), "09:00".into(), "09:30".into(), "Clinic".into(), "".into());
+        let e = store.add("Dentist".into(), "2026-06-26".into(), "09:00".into(), "09:30".into(), "Clinic".into(), "".into(), String::new());
         assert_eq!(store.list().len(), 1);
         // A drag = move date+time only; other fields untouched.
         let moved = store
-            .update(e.id, None, Some("2026-06-27".into()), Some("10:00".into()), Some("10:30".into()), None, None)
+            .update(e.id, None, Some("2026-06-27".into()), Some("10:00".into()), Some("10:30".into()), None, None, None)
             .unwrap();
         assert_eq!(moved.title, "Dentist");
         assert_eq!(moved.date, "2026-06-27");
@@ -726,10 +814,62 @@ mod tests {
             end: "11:00".into(),
             location: String::new(),
             notes: String::new(),
+            rrule: String::new(),
         });
         assert_eq!(cal.sort_key, 202606191000);
         assert!(cal.editable);
         assert_eq!(cal.id, 7);
+    }
+
+    #[test]
+    fn recurring_local_event_expands_and_keeps_identity() {
+        let store = LocalEventStore::default();
+        let e = store.add(
+            "Standup".into(),
+            "2026-06-01".into(),
+            "09:00".into(),
+            "09:15".into(),
+            String::new(),
+            "daily".into(),
+            "FREQ=WEEKLY;BYDAY=MO".into(),
+        );
+        // Expand over a 5-week window starting mid-series.
+        let (lo, hi) = (day(2026, 6, 15), day(2026, 7, 13));
+        let mut out = Vec::new();
+        expand_local(&store.list()[0], lo, hi, &mut out);
+        // Mondays 6/15, 6/22, 6/29, 7/6, 7/13 → 5 occurrences, all editable + same id.
+        assert_eq!(out.len(), 5, "weekly Mondays in window");
+        assert!(out.iter().all(|c| c.editable && c.id == e.id && c.notes == "daily"));
+        assert_eq!(out[0].date, "2026-06-15");
+        assert_eq!(out[0].time, "09:00");
+        assert_eq!(out[4].date, "2026-07-13");
+        assert!(out.windows(2).all(|w| w[0].sort_key < w[1].sort_key));
+    }
+
+    #[test]
+    fn one_off_local_event_shows_outside_window() {
+        // A non-recurring local event must appear even far past the ICS window,
+        // unchanged from the pre-recurrence behavior.
+        let e = LocalEvent {
+            id: 3, title: "Wedding".into(), date: "2027-09-01".into(), start: "14:00".into(),
+            end: String::new(), location: String::new(), notes: String::new(), rrule: String::new(),
+        };
+        let (lo, hi) = (day(2026, 6, 1), day(2026, 12, 1));
+        let mut out = Vec::new();
+        expand_local(&e, lo, hi, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].date, "2027-09-01");
+    }
+
+    #[test]
+    fn normalize_rrule_accepts_known_freqs_only() {
+        assert_eq!(normalize_rrule(Some("FREQ=WEEKLY")), "FREQ=WEEKLY");
+        assert_eq!(normalize_rrule(Some("freq=daily;interval=2")), "FREQ=DAILY;INTERVAL=2");
+        assert_eq!(normalize_rrule(Some("RRULE:FREQ=MONTHLY")), "FREQ=MONTHLY"); // prefix stripped
+        assert_eq!(normalize_rrule(Some("")), "");
+        assert_eq!(normalize_rrule(None), "");
+        assert_eq!(normalize_rrule(Some("FREQ=HOURLY")), ""); // unsupported → one-off
+        assert_eq!(normalize_rrule(Some("garbage")), "");
     }
 
     #[test]

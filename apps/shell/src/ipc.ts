@@ -869,6 +869,7 @@ export interface CalEventFields {
   end?: string; // HH:MM or ""
   location?: string;
   notes?: string;
+  rrule?: string; // iCalendar RRULE (e.g. "FREQ=WEEKLY") or "" for one-off
 }
 export const calEventAdd = (e: CalEventFields) =>
   invoke<LocalEvent>("cal_event_add", {
@@ -878,6 +879,7 @@ export const calEventAdd = (e: CalEventFields) =>
     end: e.end ?? null,
     location: e.location ?? null,
     notes: e.notes ?? null,
+    rrule: e.rrule ?? null,
   });
 /** Patch a local event — only the provided fields change (so a drag sends just date/start/end). */
 export const calEventUpdate = (id: number, patch: Partial<CalEventFields>) =>
@@ -889,6 +891,7 @@ export const calEventUpdate = (id: number, patch: Partial<CalEventFields>) =>
     end: patch.end ?? null,
     location: patch.location ?? null,
     notes: patch.notes ?? null,
+    rrule: patch.rrule ?? null,
   });
 export const calEventDelete = (id: number) => invoke<void>("cal_event_delete", { id });
 

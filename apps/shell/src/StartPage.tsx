@@ -220,7 +220,7 @@ const StartPage: Component<{
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
   );
   // Event editor draft (add/edit/read-only view) + live drag-to-move state (#91b).
-  type EvtDraft = { id: number | null; title: string; date: string; start: string; end: string; location: string; notes: string; allDay: boolean; readonly: boolean; calendar: string };
+  type EvtDraft = { id: number | null; title: string; date: string; start: string; end: string; location: string; notes: string; rrule: string; allDay: boolean; readonly: boolean; calendar: string };
   const [editing, setEditing] = createSignal<EvtDraft | null>(null);
   const [drag, setDrag] = createSignal<{ id: number; title: string; date: string; startMin: number; durMin: number } | null>(null);
   const [todos, setTodos] = createSignal<Todo[]>([]);
@@ -440,16 +440,27 @@ const StartPage: Component<{
   const minToHHMM = (m: number) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
   const openNewEvent = (date: string, startMin = 9 * 60) => {
     const s = clampN(startMin, 0, 23 * 60);
-    setEditing({ id: null, title: "", date, start: minToHHMM(s), end: minToHHMM(Math.min(s + 60, 23 * 60 + 59)), location: "", notes: "", allDay: false, readonly: false, calendar: "" });
+    setEditing({ id: null, title: "", date, start: minToHHMM(s), end: minToHHMM(Math.min(s + 60, 23 * 60 + 59)), location: "", notes: "", rrule: "", allDay: false, readonly: false, calendar: "" });
   };
   const openEvent = (e: CalEvent) => {
-    setEditing({ id: e.editable ? e.id : null, title: e.summary, date: e.date, start: e.time, end: e.end, location: e.location, notes: e.notes, allDay: !e.time, readonly: !e.editable, calendar: e.calendar });
+    setEditing({ id: e.editable ? e.id : null, title: e.summary, date: e.date, start: e.time, end: e.end, location: e.location, notes: e.notes, rrule: e.rrule ?? "", allDay: !e.time, readonly: !e.editable, calendar: e.calendar });
   };
   const patchDraft = (p: Partial<EvtDraft>) => setEditing((d) => (d ? { ...d, ...p } : d));
+  // Repeat presets → iCalendar RRULE (the backend expands these over the grid
+  // window). "" = one-off. An agent-authored rule that isn't a preset stays
+  // preserved via the "Custom" option so editing an event doesn't drop it.
+  const REPEAT_PRESETS: { v: string; label: string }[] = [
+    { v: "", label: "Does not repeat" },
+    { v: "FREQ=DAILY", label: "Daily" },
+    { v: "FREQ=WEEKLY", label: "Weekly" },
+    { v: "FREQ=WEEKLY;INTERVAL=2", label: "Every 2 weeks" },
+    { v: "FREQ=MONTHLY", label: "Monthly" },
+    { v: "FREQ=YEARLY", label: "Yearly" },
+  ];
   const saveEvent = () => {
     const d = editing();
     if (!d || !d.title.trim()) return;
-    const fields = { title: d.title.trim(), date: d.date, start: d.allDay ? "" : d.start, end: d.allDay ? "" : d.end, location: d.location, notes: d.notes };
+    const fields = { title: d.title.trim(), date: d.date, start: d.allDay ? "" : d.start, end: d.allDay ? "" : d.end, location: d.location, notes: d.notes, rrule: d.rrule };
     const p = d.id != null ? calEventUpdate(d.id, fields) : calEventAdd(fields);
     void p.then(() => { setEditing(null); loadEvents(); }).catch((err) => console.error("save event", err));
   };
@@ -549,7 +560,7 @@ const StartPage: Component<{
             {(d) => (
               <div class="cal-week-allday-col">
                 <For each={allDayFor(d)}>
-                  {(e) => <button classList={{ "cal-allday-chip": true, ics: !e.editable }} title={`${e.summary}${e.location ? ` · ${e.location}` : ""}`} onClick={() => openEvent(e)}>{e.summary}</button>}
+                  {(e) => <button classList={{ "cal-allday-chip": true, ics: !e.editable }} title={`${e.summary}${e.location ? ` · ${e.location}` : ""}${e.rrule ? " · repeats" : ""}`} onClick={() => openEvent(e)}>{e.rrule ? "🔁 " : ""}{e.summary}</button>}
                 </For>
               </div>
             )}
@@ -582,7 +593,7 @@ const StartPage: Component<{
                       onClick={(ce) => { ce.stopPropagation(); if (!b.e.editable) openEvent(b.e); }}
                     >
                       <span class="cal-evt-time">{b.e.time}</span>
-                      <span class="cal-evt-title">{b.e.summary}</span>
+                      <span class="cal-evt-title">{b.e.rrule ? "🔁 " : ""}{b.e.summary}</span>
                     </button>
                   )}
                 </For>
@@ -612,6 +623,15 @@ const StartPage: Component<{
                   <input class="evt-in evt-time" type="time" value={editing()!.end} disabled={editing()!.readonly} onInput={(e) => patchDraft({ end: e.currentTarget.value })} />
                 </Show>
               </div>
+              <label class="evt-repeat">
+                <span class="evt-repeat-ico">🔁</span>
+                <select class="evt-in" disabled={editing()!.readonly} value={editing()!.rrule} onChange={(e) => patchDraft({ rrule: e.currentTarget.value })}>
+                  <For each={REPEAT_PRESETS}>{(p) => <option value={p.v}>{p.label}</option>}</For>
+                  <Show when={editing()!.rrule && !REPEAT_PRESETS.some((p) => p.v === editing()!.rrule)}>
+                    <option value={editing()!.rrule}>Custom ({editing()!.rrule})</option>
+                  </Show>
+                </select>
+              </label>
               <input class="evt-in" placeholder="Location" value={editing()!.location} disabled={editing()!.readonly} onInput={(e) => patchDraft({ location: e.currentTarget.value })} />
               <textarea class="evt-in evt-notes" placeholder="Notes" value={editing()!.notes} disabled={editing()!.readonly} onInput={(e) => patchDraft({ notes: e.currentTarget.value })} />
               <div class="evt-editor-foot">

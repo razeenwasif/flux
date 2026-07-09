@@ -1696,6 +1696,9 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .evt-title { font-size: 15px; font-weight: 600; }
 .evt-allday { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--flux-text-mute); cursor: pointer; }
 .evt-allday input { accent-color: var(--flux-violet); }
+.evt-repeat { display: flex; align-items: center; gap: 8px; }
+.evt-repeat-ico { font-size: 13px; opacity: 0.75; }
+.evt-repeat .evt-in { flex: 1; cursor: pointer; }
 .evt-row { display: flex; align-items: center; gap: 8px; }
 .evt-row .evt-in[type="date"] { flex: 1; }
 .evt-time { width: auto; flex: none; }

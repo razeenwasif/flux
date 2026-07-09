@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Repeatable local calendar events (#114)** — local (on-device) events can now be set to
+  **repeat**: a Repeat control in the event editor offers Daily / Weekly / Every 2 weeks /
+  Monthly / Yearly (an agent-authored custom RRULE is preserved), and the recurrence engine
+  that already expanded ICS-feed rules now expands local events over the same grid window; a
+  🔁 marks recurring events. Previously local events were one-off only — the model, commands,
+  and expansion path existed solely for read-only ICS feeds. `LocalEvent`/`CalEvent` gain an
+  `rrule` field (RRULE sanitized to supported FREQs on save); 3 new tests. _Note:_
+  editing/deleting a series affects all occurrences (they share the event id); per-occurrence
+  exceptions ("this event only") are a follow-up.
 - **Save-password prompt for manually-typed logins (#61 follow-up)** — the sentinel used to
   only remember passwords it generated. Now, when you submit a login (or sign-up) form with
   a password Flux didn't fill or generate, it captures the credential and — if it's genuinely
