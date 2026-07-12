@@ -149,6 +149,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Fixed
+- **Autofill often didn't populate the field even when the credential matched (#61)** — the
+  injection (`autofill.js`) set the value via the native setter + `input`/`change` only, in the
+  top document. Hardened for the common "detected but didn't fill" cases: it now pierces
+  **shadow DOM** and same-origin **iframes** (many login widgets are web components / framed),
+  temporarily clears `readOnly`, focuses the field, and fires the full
+  `keydown/keypress/input/keyup/change` sequence (with a real `InputEvent`) so React/Vue/Angular
+  controlled inputs actually adopt the value — while deliberately **not** blurring (some sites
+  clear/validate on blur). Applies to both the footer 🔑 popover and the in-page sentinel chip
+  (both route through the same Rust→page fill).
 - **Several page-callable commands were silently uncallable (fluxtab drift)** — Tauri routes
   `plugin:fluxtab|cmd` **only** through the fluxtab plugin handler, gated on the plugin ACL,
   with no fallback to the app handler; a command missing from *either* the ACL (build.rs) or
