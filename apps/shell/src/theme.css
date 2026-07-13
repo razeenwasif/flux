@@ -2903,6 +2903,57 @@ input[type="checkbox"].pdf-fw, input[type="radio"].pdf-fw { accent-color: var(--
 /* Notebook (KB) popout — the second brain in a glass pane, like the files popout. */
 .kb-panel { width: min(1040px, 93vw); height: min(780px, 90vh); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55); border: 1px solid var(--glass-rim-soft); }
 
+/* Playground (#133) — offline arcade popout. Large; neon-on-velvet aesthetic. */
+.playground-panel { width: min(1120px, 94vw); height: min(820px, 92vh); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); border: 1px solid var(--glass-rim-soft); }
+.playground-panel-body { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.pg-root { height: 100%; display: flex; flex-direction: column; background:
+  radial-gradient(120% 90% at 50% -10%, rgba(138, 125, 255, 0.16), transparent 60%),
+  radial-gradient(90% 70% at 100% 110%, rgba(47, 243, 255, 0.12), transparent 55%),
+  #0a0812; color: var(--flux-text); }
+
+/* Hub */
+.pg-hub { flex: 1; min-height: 0; overflow-y: auto; padding: 30px 34px 40px; display: flex; flex-direction: column; }
+.pg-hub-head { text-align: center; margin-bottom: 26px; }
+.pg-title { font-size: 30px; font-weight: 800; letter-spacing: 0.08em; margin: 0 0 6px; text-transform: uppercase;
+  background: linear-gradient(90deg, #2ff3ff, #b07dff 55%, #ff4d9d); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.pg-sub { font-size: 12.5px; color: var(--flux-text-mute); margin: 0; }
+.pg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; align-content: start; }
+.pg-card { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 20px 18px 16px; border-radius: 14px; cursor: pointer; text-align: left;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); color: var(--flux-text);
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease; overflow: hidden; }
+.pg-card::before { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%); opacity: 0.6; pointer-events: none; }
+.pg-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 22%, transparent); }
+.pg-card-glyph { font-size: 34px; filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 55%, transparent)); }
+.pg-card-name { font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
+.pg-card-tag { font-size: 11.5px; color: var(--flux-text-mute); line-height: 1.35; min-height: 30px; }
+.pg-card-hi { align-self: flex-start; margin-top: 2px; font: 600 10.5px ui-monospace, monospace; letter-spacing: 0.12em; padding: 3px 8px; border-radius: 999px; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+/* Play view */
+.pg-play { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pg-hud { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+.pg-hud-name { font-size: 15px; font-weight: 700; }
+.pg-hud-stat { font: 12px ui-monospace, monospace; color: var(--flux-text-mute); letter-spacing: 0.1em; }
+.pg-hud-stat b { color: var(--accent); font-size: 15px; margin-left: 4px; }
+.pg-hud-stat:nth-of-type(1) { margin-left: auto; }
+.pg-hud-btn { padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.04); color: var(--flux-text); font-size: 12.5px; cursor: pointer; }
+.pg-hud-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pg-stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.pg-canvas { max-width: 100%; max-height: 100%; aspect-ratio: 4 / 3; border-radius: 10px; background: #0c0a15;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 12px 40px rgba(0, 0, 0, 0.5); }
+.pg-hint { text-align: center; padding: 8px 0 12px; font-size: 11.5px; color: var(--flux-text-mute); letter-spacing: 0.03em; }
+
+/* Game-over overlay */
+.pg-over { position: absolute; inset: 16px; display: flex; align-items: center; justify-content: center; background: rgba(8, 6, 16, 0.55); backdrop-filter: blur(3px); border-radius: 10px; }
+.pg-over-card { text-align: center; padding: 28px 40px; border-radius: 16px; background: rgba(16, 14, 28, 0.9); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5); }
+.pg-record { display: inline-block; margin-bottom: 8px; font: 700 11px ui-monospace, monospace; letter-spacing: 0.2em; color: #ffe14d; text-shadow: 0 0 12px rgba(255, 225, 77, 0.6); }
+.pg-over-label { font: 600 12px ui-monospace, monospace; letter-spacing: 0.28em; color: var(--flux-text-mute); }
+.pg-over-score { font: 800 56px ui-monospace, monospace; line-height: 1.1; color: var(--accent); text-shadow: 0 0 24px color-mix(in srgb, var(--accent) 55%, transparent); }
+.pg-over-sub { font: 12px ui-monospace, monospace; color: var(--flux-text-mute); margin-bottom: 18px; letter-spacing: 0.05em; }
+.pg-over-btns { display: flex; gap: 10px; justify-content: center; }
+.pg-btn { padding: 9px 20px; border-radius: 9px; border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.05); color: var(--flux-text); font-size: 13px; font-weight: 600; cursor: pointer; }
+.pg-btn:hover { border-color: var(--accent); }
+.pg-btn.primary { background: var(--accent); border-color: var(--accent); color: #0a0812; }
+
 /* Google Maps popout — like the files popout but bigger. */
 .map-panel-backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, 0.42); display: flex; justify-content: center; align-items: center; padding: 3vh 3vw; }
 .map-panel { width: min(1200px, 95vw); height: min(840px, 92vh); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); border: 1px solid var(--glass-rim-soft); }

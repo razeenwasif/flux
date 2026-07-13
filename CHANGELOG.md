@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Playground — offline arcade (#133)** — a 🎮 icon next to the file-explorer icon opens a
+  large glass popout with a neon hub of five classic games, all playable offline: **Snake**,
+  **Tetris** (rotation, ghost piece, NEXT, levels), **Breakout** (mouse/keys, endless waves),
+  **Pong** (endless survival vs a ramping AI), and **Space Invaders** (waves, bombs, lives).
+  Each is a self-contained `<canvas>` + rAF engine behind a shared harness (`playground/`);
+  high scores are kept locally (localStorage) with a NEW RECORD flourish. Esc steps back
+  (game → hub → close); the pane hides the native webview while open like Files/Notebook. The
+  whole thing is a lazy 6 KB chunk — zero eager-bundle cost. Online play + leaderboards are a
+  later layer (BACKLOG #133).
 - **Repeatable local calendar events (#114)** — local (on-device) events can now be set to
   **repeat**: a Repeat control in the event editor offers Daily / Weekly / Every 2 weeks /
   Monthly / Yearly (an agent-authored custom RRULE is preserved), and the recurrence engine

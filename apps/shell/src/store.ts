@@ -606,6 +606,11 @@ export { mapPanelOpen, setMapPanelOpen, mapQuery };
 // popout, like the file explorer. Opened from the toolbar 📓 button.
 const [kbPanelOpen, setKbPanelOpen] = createSignal(false);
 export { kbPanelOpen, setKbPanelOpen };
+
+// Playground — the offline arcade (BACKLOG #133). A glass popout like Files;
+// hides the native webview while open (a DOM/canvas overlay over the card).
+const [playgroundOpen, setPlaygroundOpen] = createSignal(false);
+export { playgroundOpen, setPlaygroundOpen };
 // Semantic shell-history search overlay (#122) — Ctrl+Shift+R / command palette.
 const [shellHistOpen, setShellHistOpen] = createSignal(false);
 export { shellHistOpen, setShellHistOpen };
@@ -673,6 +678,7 @@ export const pageOverlayActive = (): boolean =>
   semFindOpen() ||
   watchPanelOpen() ||
   trackerGraphOpen() ||
+  playgroundOpen() ||
   openAppIds().length > 0;
 export function setMapQuery(q: string): void {
   setMapQueryRaw(q);

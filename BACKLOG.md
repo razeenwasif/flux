@@ -205,6 +205,16 @@ further:
 | 87 | ✓ | **Flux cross-links** (done): **"Open terminal here"**, a **preview pane** (◰ toggle — image thumbnail / text contents / "Open in default app" fallback, reusing `attachment_read`), **"Open in browser"** (`file://` tab, PDFs via the built-in viewer), and **agent file actions** — **Summarize with Gemma** (local-agent summary in a modal) and **Rename by content…** (agent-proposed kebab-case name, confirm before applying). |
 | 88 | ✅ | **Search within tree** (done): the ⌕ toggle flips the explorer's Filter box to recursive subtree filename search (`fs_search` — bounded BFS walk, skips hidden + heavy dirs, hit/depth/visit caps; unit-tested). **Fuzzy-ranked** (`fuzzy_score` — fzf-style subsequence with start/word-boundary/contiguous bonuses + shorter-better). Optional **✦ semantic** re-rank by filename relevance via the model embedder (`embed_remote_batch` — one batched `/api/embed`; `embed_batch`/`cosine`/`semantic_rerank`; no-op on the hashing embedder). _Note:_ semantic only re-orders the fuzzy (subsequence) matches — a query finding a *differently-named* file would need a pre-built file-embedding index (a bigger #11 follow-up); filename signal is also short. |
 
+## Epic: Playground (arcade)
+
+The offline arcade shipped (🎮 popout, `apps/shell/src/playground/`): a neon hub +
+five self-contained `<canvas>` games (Snake, Tetris, Breakout, Pong, Space
+Invaders) on a shared engine harness, local high scores. These extend it:
+
+| # | P | Item |
+|---|---|---|
+| 133 | ◐ | **Playground** — offline arcade **shipped** (5 games, local high scores, neon hub). _Remaining:_ **online play + leaderboard rankings** (a backend — likely a small Flux service or a BYO endpoint — with per-game score submission + a friends/global board; keep offline-first, opt-in, no account required to play); **more games** (Asteroids, 2048, Minesweeper, Flappy); per-game **pause**; gamepad input; a mobile/touch control scheme. |
+
 ## Epic: Research-driven optimization
 
 Top priorities distilled from a 40-paper survey of web-application + compiler

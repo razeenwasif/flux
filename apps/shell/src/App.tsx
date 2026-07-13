@@ -131,6 +131,7 @@ const CommandPalette = lazy(() => import("./CommandPalette"));
 const StartPage = lazy(() => import("./StartPage"));
 const Extensions = lazy(() => import("./Extensions"));
 const FilesView = lazy(() => import("./FilesView"));
+const Playground = lazy(() => import("./playground/Playground"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
 const NotebookPage = lazy(() => import("./NotebookPage"));
 const VaultPage = lazy(() => import("./VaultPage"));
@@ -173,6 +174,8 @@ import {
   setFilesPanelOpen,
   filesPanelPath,
   setFilesPanelPath,
+  playgroundOpen,
+  setPlaygroundOpen,
   mapPanelOpen,
   kbPanelOpen,
   setKbPanelOpen,
@@ -417,6 +420,7 @@ const App: Component = () => {
       // Handled outside the chord table so it isn't forwarded from focused pages
       // (they use Esc themselves).
       if (e.key === "Escape" && !inTerminal()) {
+        if (playgroundOpen()) return; // Playground owns Esc (game → hub → close)
         if (filesPanelOpen() || mapPanelOpen() || kbPanelOpen()) {
           closeFilesPanel();
           return;
@@ -959,7 +963,7 @@ const App: Component = () => {
     setPaletteOpen(false);
     const t = activeTab();
     // Don't re-show the webview if the files panel is still covering it.
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !filesPanelOpen() && !mapPanelOpen() && !kbPanelOpen()) wv(webviewShow(t.id));
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !filesPanelOpen() && !mapPanelOpen() && !kbPanelOpen() && !playgroundOpen()) wv(webviewShow(t.id));
   };
 
   // Files panel — imperative show/hide, matching the palette pattern exactly.
@@ -994,6 +998,18 @@ const App: Component = () => {
     setKbPanelOpen(false);
     const t = activeTab();
     if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen()) wv(webviewShow(t.id));
+  };
+  // Playground (#133) — the offline arcade as a glass popout, like Files/Notebook.
+  // Hide the active webview while it's up (native layer above the card).
+  const openPlayground = () => {
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
+    setPlaygroundOpen(true);
+  };
+  const closePlayground = () => {
+    setPlaygroundOpen(false);
+    const t = activeTab();
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen() && !filesPanelOpen() && !mapPanelOpen() && !kbPanelOpen()) wv(webviewShow(t.id));
   };
   // Promote the pane to a full tab (⤢) — focus an open Notebook tab or open one.
   const openNotebookTab = () => {
@@ -1246,6 +1262,7 @@ const App: Component = () => {
         onToggleBookmark={toggleBookmark}
         isBookmarked={() => bookmarkedId() != null}
         onToggleFilesPanel={() => filesPanelOpen() ? closeFilesPanel() : openFilesPanel()}
+        onOpenPlayground={() => playgroundOpen() ? closePlayground() : openPlayground()}
         onOpenNotebook={() => kbPanelOpen() ? closeKbPanel() : openKbPanel()}
       />
       <ContentArea
@@ -1363,6 +1380,24 @@ const App: Component = () => {
                   onPathChange={setFilesPanelPath}
                   onOpenInTab={(url) => { closeFilesPanel(); go(url); }}
                 />
+              </Suspense>
+            </div>
+          </div>
+        </div>
+      </Show>
+      {/* Playground popout (#133) — offline arcade over the hidden webview. The
+          component owns Esc (game → hub → close); click the backdrop to close. */}
+      <Show when={playgroundOpen()}>
+        <div class="files-panel-backdrop" onClick={() => closePlayground()}>
+          <div class="playground-panel glass" onClick={(e) => e.stopPropagation()}>
+            <div class="files-panel-head">
+              <span class="files-panel-title">🎮 Playground</span>
+              <span style={{ flex: 1 }} />
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => closePlayground()}>✕</button>
+            </div>
+            <div class="playground-panel-body">
+              <Suspense>
+                <Playground onClose={closePlayground} />
               </Suspense>
             </div>
           </div>
@@ -1496,6 +1531,7 @@ interface SidebarProps {
   onToggleBookmark: () => void;
   isBookmarked: () => boolean;
   onToggleFilesPanel: () => void;
+  onOpenPlayground: () => void;
   onOpenNotebook: () => void;
 }
 
@@ -1961,6 +1997,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Show>
           <button class="icon-btn" title="Home (new tab page)" onClick={() => props.onNavigate("flux://start")}>⌂</button>
           <button classList={{ "icon-btn": true, active: filesPanelOpen() }} title="File explorer" onClick={props.onToggleFilesPanel}>🗁</button>
+          <button classList={{ "icon-btn": true, active: playgroundOpen() }} title="Playground — offline arcade" onClick={props.onOpenPlayground}>🎮</button>
           <button classList={{ "icon-btn": true, active: kbPanelOpen() }} title="Notebook — your knowledge base (Onyx + Scroll)" onClick={props.onOpenNotebook}>📓</button>
           <span style={{ flex: 1 }} />
         </Show>
