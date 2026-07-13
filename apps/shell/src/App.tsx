@@ -954,66 +954,33 @@ const App: Component = () => {
     teardownMoved(moved);
   };
 
-  // Command palette (#6). It's a centered modal; the native webview is a
-  // separate OS layer over the content card, so hide the active page while it's
-  // open and show it again on close.
-  const openPalette = () => {
+  // Card-covering panels (palette, files, map, Notebook, Playground, …) are DOM
+  // overlays, but each tab's page is a NATIVE webview layer ABOVE the card — so
+  // opening one must hide the active page and closing must re-show it, BUT only
+  // if nothing else still covers it. Every panel funnels through these two, so
+  // the "is anything else open?" guard lives in exactly ONE place
+  // (`pageOverlayActive` already aggregates every overlay). A drifting per-panel
+  // guard is what regressed split view + buried the expanded home widgets before.
+  const hideActivePage = () => {
     const t = activeTab();
     if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
-    setPaletteOpen(true);
   };
-  const closePalette = () => {
-    setPaletteOpen(false);
+  const showActivePageIfClear = () => {
     const t = activeTab();
-    // Don't re-show the webview if the files panel is still covering it.
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !filesPanelOpen() && !mapPanelOpen() && !kbPanelOpen() && !playgroundOpen()) wv(webviewShow(t.id));
+    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !pageOverlayActive() && !paletteOpen()) wv(webviewShow(t.id));
   };
 
-  // Files panel — imperative show/hide, matching the palette pattern exactly.
-  // The native webview is a separate OS layer; we must hide it when the panel
-  // opens and re-show it when the panel closes so it doesn't eat all clicks.
-  const openFilesPanel = () => {
-    const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
-    setFilesPanelOpen(true);
-  };
-  const closeFilesPanel = () => {
-    setFilesPanelOpen(false);
-    const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen()) wv(webviewShow(t.id));
-  };
-  // Google Maps popout — mirrors the files popout (hide the native webview while
-  // the DOM pane is open, re-show on close).
-  const openMapPanel = () => {
-    const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
-    setMapPanelOpen(true);
-  };
-  // KB pane (#116) — the Notebook (Onyx + Scroll second brain) as a glass popout,
-  // like the file explorer. Hide the active webview while it's up (it's a native
-  // layer above the card), same as the files/map panels.
-  const openKbPanel = () => {
-    const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
-    setKbPanelOpen(true);
-  };
-  const closeKbPanel = () => {
-    setKbPanelOpen(false);
-    const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen()) wv(webviewShow(t.id));
-  };
-  // Playground (#133) — the offline arcade as a glass popout, like Files/Notebook.
-  // Hide the active webview while it's up (native layer above the card).
-  const openPlayground = () => {
-    const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id)) wv(webviewHide(t.id));
-    setPlaygroundOpen(true);
-  };
-  const closePlayground = () => {
-    setPlaygroundOpen(false);
-    const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen() && !filesPanelOpen() && !mapPanelOpen() && !kbPanelOpen()) wv(webviewShow(t.id));
-  };
+  // Command palette (#6) — centered modal over the (hidden) page.
+  const openPalette = () => { hideActivePage(); setPaletteOpen(true); };
+  const closePalette = () => { setPaletteOpen(false); showActivePageIfClear(); };
+  // Files / Maps / Notebook / Playground popouts — same native-layer dance.
+  const openFilesPanel = () => { hideActivePage(); setFilesPanelOpen(true); };
+  const closeFilesPanel = () => { setFilesPanelOpen(false); showActivePageIfClear(); };
+  const openMapPanel = () => { hideActivePage(); setMapPanelOpen(true); };
+  const openKbPanel = () => { hideActivePage(); setKbPanelOpen(true); };
+  const closeKbPanel = () => { setKbPanelOpen(false); showActivePageIfClear(); };
+  const openPlayground = () => { hideActivePage(); setPlaygroundOpen(true); };
+  const closePlayground = () => { setPlaygroundOpen(false); showActivePageIfClear(); };
   // Promote the pane to a full tab (⤢) — focus an open Notebook tab or open one.
   const openNotebookTab = () => {
     closeKbPanel();
@@ -1021,11 +988,7 @@ const App: Component = () => {
     if (existing) void focusTab(existing.id);
     else void openTab("browser", NOTEBOOK_URL);
   };
-  const closeMapPanel = () => {
-    setMapPanelOpen(false);
-    const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !paletteOpen()) wv(webviewShow(t.id));
-  };
+  const closeMapPanel = () => { setMapPanelOpen(false); showActivePageIfClear(); };
   const [mapDraft, setMapDraft] = createSignal(mapQuery());
   // Keyless Google Maps embed — only the `output=embed` endpoint is frameable
   // (the full site sets X-Frame-Options); a `q=` jumps to a place.
