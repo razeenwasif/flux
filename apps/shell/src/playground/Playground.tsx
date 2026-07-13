@@ -8,6 +8,10 @@ import tetris from "./games/tetris";
 import breakout from "./games/breakout";
 import pong from "./games/pong";
 import invaders from "./games/invaders";
+import flappy from "./games/flappy";
+import asteroids from "./games/asteroids";
+import game2048 from "./games/game2048";
+import minesweeper from "./games/minesweeper";
 
 interface Meta {
   id: string;
@@ -25,6 +29,10 @@ const GAMES: Meta[] = [
   { id: "breakout", name: "Breakout", glyph: "🧱", tagline: "Smash every brick, don't drop the ball.", controls: "Mouse / ← → · Space to launch", accent: "#ff8a3d", engine: breakout },
   { id: "pong", name: "Pong", glyph: "🏓", tagline: "Rally against the machine, endlessly.", controls: "Mouse / ↑ ↓ · W S", accent: "#5dff8f", engine: pong },
   { id: "invaders", name: "Invaders", glyph: "👾", tagline: "Hold the line against the fleet.", controls: "← → move · Space to fire", accent: "#ff4d9d", engine: invaders },
+  { id: "flappy", name: "Flappy", glyph: "🐤", tagline: "Flap through the gaps, don't touch.", controls: "Space / ↑ / click to flap", accent: "#ffe14d", engine: flappy },
+  { id: "asteroids", name: "Asteroids", glyph: "🚀", tagline: "Blast the rocks, mind the split.", controls: "← → rotate · ↑ thrust · Space fire", accent: "#c8c2ff", engine: asteroids },
+  { id: "2048", name: "2048", glyph: "🔢", tagline: "Slide and merge to the big tile.", controls: "Arrows / WASD to slide", accent: "#5dff8f", engine: game2048 },
+  { id: "minesweeper", name: "Minesweeper", glyph: "💣", tagline: "Clear the field, flag the mines.", controls: "Left reveal · Right flag", accent: "#ff6f6f", engine: minesweeper },
 ];
 
 const Playground: Component<{ onClose: () => void }> = (props) => {

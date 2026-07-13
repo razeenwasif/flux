@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Playground: four more games (#133)** — the arcade grows to nine with **Flappy**
+  (flap through the gaps — Space/↑/click), **Asteroids** (rotate/thrust/fire, rocks split,
+  screen-wrap, waves + lives), **2048** (slide-and-merge with the arrow keys), and
+  **Minesweeper** (16×12, left-reveal / right-flag, first click always safe, full-clear bonus).
+  Each is another self-contained canvas engine behind the same harness; scores persist locally
+  per game. Still one lazy chunk — no eager-bundle cost.
 - **Timer, stopwatch & alarms (#134)** — a new **Time** start-page widget with three tabs:
   a **stopwatch** (start/stop/lap/reset), a **timer** (preset chips + custom minutes, +1:00,
   pause/reset, progress bar), and **alarms** (add time + label, enable/disable, remove; ring

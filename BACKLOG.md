@@ -214,12 +214,13 @@ further:
 ## Epic: Playground (arcade)
 
 The offline arcade shipped (🎮 popout, `apps/shell/src/playground/`): a neon hub +
-five self-contained `<canvas>` games (Snake, Tetris, Breakout, Pong, Space
-Invaders) on a shared engine harness, local high scores. These extend it:
+nine self-contained `<canvas>` games (Snake, Tetris, Breakout, Pong, Space
+Invaders, Flappy, Asteroids, 2048, Minesweeper) on a shared engine harness, local
+high scores. These extend it:
 
 | # | P | Item |
 |---|---|---|
-| 133 | ◐ | **Playground** — offline arcade **shipped** (5 games, local high scores, neon hub). _Remaining:_ **online play + leaderboard rankings** (a backend — likely a small Flux service or a BYO endpoint — with per-game score submission + a friends/global board; keep offline-first, opt-in, no account required to play); **more games** (Asteroids, 2048, Minesweeper, Flappy); per-game **pause**; gamepad input; a mobile/touch control scheme. |
+| 133 | ◐ | **Playground** — offline arcade **shipped** (9 games, local high scores, neon hub). _Remaining:_ **online play + leaderboard rankings** (a backend — likely a small Flux service or a BYO endpoint — with per-game score submission + a friends/global board; keep offline-first, opt-in, no account required to play); per-game **pause**; gamepad input; a mobile/touch control scheme; more games as the mood strikes. |
 
 ## Epic: Research-driven optimization
 
