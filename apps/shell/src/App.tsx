@@ -2630,9 +2630,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
   );
 };
 
-// ─── Reader mode (#41) ──────────────────────────────────────────────────────
-
-/** Render one extracted block. Text-only (+ <img src>) — never raw HTML. */
 // ─── Content card ─────────────────────────────────────────────────────────
 
 /** The floating card. Holds, by active tab: a Terminal PTY, the start-page
