@@ -2954,6 +2954,43 @@ input[type="checkbox"].pdf-fw, input[type="radio"].pdf-fw { accent-color: var(--
 .pg-btn:hover { border-color: var(--accent); }
 .pg-btn.primary { background: var(--accent); border-color: var(--accent); color: #0a0812; }
 
+/* Clocks widget (#134) — stopwatch / timer / alarm. */
+.clock-card { display: flex; flex-direction: column; gap: 10px; }
+.clock-tabs { display: flex; gap: 4px; background: var(--flux-surface); border-radius: 9px; padding: 3px; }
+.clock-tab { flex: 1; padding: 5px 0; border: none; background: none; border-radius: 7px; color: var(--flux-text-mute); font-size: 12px; cursor: pointer; }
+.clock-tab.on { background: var(--flux-surface-2); color: var(--flux-text); font-weight: 600; }
+.clock-face { font: 600 40px ui-monospace, monospace; text-align: center; letter-spacing: 0.02em; color: var(--flux-text); padding: 6px 0 2px; font-variant-numeric: tabular-nums; }
+.clock-face.done { color: var(--flux-pink, #ff4d9d); }
+.clock-progress { height: 4px; border-radius: 999px; background: var(--flux-surface); overflow: hidden; }
+.clock-progress > span { display: block; height: 100%; background: linear-gradient(90deg, var(--flux-teal, #2ff3ff), var(--flux-violet, #8a7dff)); transition: width 0.2s linear; }
+.clock-presets { display: flex; gap: 6px; justify-content: center; }
+.clock-chip { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--flux-border); background: var(--flux-surface); color: var(--flux-text); font-size: 12px; cursor: pointer; }
+.clock-chip:hover { border-color: var(--flux-teal); color: var(--flux-teal); }
+.clock-btns { display: flex; gap: 8px; }
+.clock-btn { flex: 1; padding: 8px 0; border-radius: 8px; border: 1px solid var(--flux-border); background: var(--flux-surface); color: var(--flux-text); font-size: 13px; font-weight: 600; cursor: pointer; }
+.clock-btn:hover:not(:disabled) { border-color: var(--flux-teal); }
+.clock-btn:disabled { opacity: 0.4; cursor: default; }
+.clock-btn.primary { background: var(--flux-teal, #2ff3ff); border-color: var(--flux-teal, #2ff3ff); color: #08121a; }
+.clock-custom, .clock-add { display: flex; gap: 6px; }
+.clock-input { flex: none; width: 72px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--flux-border); background: var(--flux-surface); color: var(--flux-text); font-size: 13px; font-family: inherit; }
+.clock-input.grow { flex: 1; width: auto; }
+.clock-input:focus { outline: none; border-color: var(--flux-teal); }
+.clock-laps { max-height: 92px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.clock-lap { display: flex; justify-content: space-between; font: 12px ui-monospace, monospace; color: var(--flux-text-mute); padding: 2px 4px; }
+.clock-alarms { display: flex; flex-direction: column; gap: 4px; max-height: 132px; overflow-y: auto; }
+.clock-alarm-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--flux-surface); }
+.clock-alarm-row.off { opacity: 0.5; }
+.clock-alarm-time { font: 600 16px ui-monospace, monospace; color: var(--flux-text); }
+.clock-alarm-label { flex: 1; font-size: 12.5px; color: var(--flux-text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clock-toggle { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--flux-border); background: none; color: var(--flux-text-mute); font: 600 10px ui-monospace, monospace; text-transform: uppercase; cursor: pointer; }
+.clock-alarm-row:not(.off) .clock-toggle { color: var(--flux-teal); border-color: color-mix(in srgb, var(--flux-teal) 50%, transparent); }
+.clock-x { width: 22px; height: 22px; border: none; background: none; color: var(--flux-text-mute); cursor: pointer; border-radius: 6px; }
+.clock-x:hover { background: var(--flux-surface-2); color: var(--flux-text); }
+.clock-empty, .clock-hint { text-align: center; font-size: 11.5px; color: var(--flux-text-mute); padding: 4px 0; }
+
+/* Ringing banner — reuses .perm-bar; accent it as an alert. */
+.clock-ring { border-color: color-mix(in srgb, var(--flux-teal, #2ff3ff) 55%, transparent); }
+
 /* Google Maps popout — like the files popout but bigger. */
 .map-panel-backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, 0.42); display: flex; justify-content: center; align-items: center; padding: 3vh 3vw; }
 .map-panel { width: min(1200px, 95vw); height: min(840px, 92vh); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); border: 1px solid var(--glass-rim-soft); }

@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Timer, stopwatch & alarms (#134)** — a new **Time** start-page widget with three tabs:
+  a **stopwatch** (start/stop/lap/reset), a **timer** (preset chips + custom minutes, +1:00,
+  pause/reset, progress bar), and **alarms** (add time + label, enable/disable, remove; ring
+  daily). Crucially the state lives in a module-level store (`clocks.ts`), not the component,
+  so a **running timer and your alarms survive leaving the start page** — an always-on driver
+  (started in App) checks absolute target times (so it's immune to background throttling) and,
+  when one elapses, rings: a Web-Audio beep, a docked in-app banner (Dismiss / Snooze 5m,
+  visible over any tab like the permission bar), and an **OS notification** via a new reusable
+  `os_notify` command (so it reaches you even when Flux is minimized). Alarms + the timer
+  length persist locally.
 - **Playground — offline arcade (#133)** — a 🎮 icon next to the file-explorer icon opens a
   large glass popout with a neon hub of five classic games, all playable offline: **Snake**,
   **Tetris** (rotation, ghost piece, NEXT, levels), **Breakout** (mouse/keys, endless waves),

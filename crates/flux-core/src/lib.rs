@@ -834,6 +834,7 @@ pub fn run(intent: cli::LaunchIntent) {
             reminders::reminders_add,
             reminders::reminders_remove,
             reminders::reminders_import,
+            reminders::os_notify,
             stt::stt_whisper,
             porcupine::porcupine_set_key,
             porcupine::porcupine_has_key,

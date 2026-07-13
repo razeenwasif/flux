@@ -221,6 +221,8 @@ import {
 import { createWebviewTiling } from "./tiling";
 import PermissionBar from "./PermissionBar";
 import SavePasswordBar from "./SavePasswordBar";
+import ClockAlarm from "./ClockAlarm";
+import { startClockDriver } from "./clocks";
 import {
   pinPanel,
   unpinPanel,
@@ -368,6 +370,7 @@ const App: Component = () => {
 
   // Materialize CLI launch intent exactly once (`flux <url> -t`).
   onMount(async () => {
+    startClockDriver(); // #134: timers/alarms fire regardless of the active tab
     await refreshTabs();
     const intent = await launchIntent().catch(() => null);
     if (intent) {
@@ -2845,6 +2848,7 @@ const ContentArea: Component<{
         sibling — never an overlay over the native webview. */}
     <PermissionBar />
     <SavePasswordBar />
+    <ClockAlarm />
     <div class="card" id="flux-web-area">
       {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
       <Show when={readerOpen()}>

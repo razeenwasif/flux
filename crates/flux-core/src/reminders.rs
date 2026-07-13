@@ -93,6 +93,14 @@ pub fn reminders_import(app: AppHandle, items: Vec<Reminder>) -> Result<(), Stri
     save(&app, &rs)
 }
 
+/// Fire an OS notification on demand — used by the clocks widget (#134) so a
+/// timer/alarm alert reaches you even when Flux is minimized or on another tab.
+/// Generic and reusable; the notification capability is already granted.
+#[tauri::command]
+pub fn os_notify(app: AppHandle, title: String, body: String) {
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
 /// Spawn the scheduler (call once from `.setup()`).
 pub fn start_scheduler(app: AppHandle) {
     tauri::async_runtime::spawn(async move {

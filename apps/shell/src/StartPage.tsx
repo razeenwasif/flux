@@ -42,6 +42,7 @@ import {
 import { activeId, focusTab, liquidBg, setHomeModalOpen, tabs } from "./store";
 import LiquidBackground from "./LiquidBackground";
 import Calculator from "./Calculator";
+import ClockWidget from "./ClockWidget";
 import Converter from "./Converter";
 
 /** Hostname without `www.`, best-effort. */
@@ -161,6 +162,7 @@ const StartPage: Component<{
     { key: "scratchpad", label: "Scratchpad" },
     { key: "calendar", label: "Calendar & clocks" },
     { key: "tasks", label: "Tasks" },
+    { key: "clocks", label: "Timers & alarms" },
     { key: "calc", label: "Calculator" },
     { key: "convert", label: "Unit converter" },
     { key: "map", label: "Maps" },
@@ -1003,6 +1005,15 @@ const StartPage: Component<{
         </div>
 
         {/* Calculator (#130) — compact; expands to a scientific calculator. */}
+        {/* Timers, stopwatch & alarms (#134) — state lives in clocks.ts, so a
+            running timer / your alarms persist after you leave the start page. */}
+        <div class="glass start-card" style={{ display: widgetOn("clocks") ? undefined : "none", order: orderOf("clocks") }}>
+          <div class="start-card-title">Time</div>
+          <div class="start-card-body">
+            <ClockWidget />
+          </div>
+        </div>
+
         <div class="glass start-card" style={{ display: widgetOn("calc") ? undefined : "none", order: orderOf("calc") }}>
           <div class="start-card-title">
             Calculator

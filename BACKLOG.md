@@ -205,6 +205,12 @@ further:
 | 87 | ✓ | **Flux cross-links** (done): **"Open terminal here"**, a **preview pane** (◰ toggle — image thumbnail / text contents / "Open in default app" fallback, reusing `attachment_read`), **"Open in browser"** (`file://` tab, PDFs via the built-in viewer), and **agent file actions** — **Summarize with Gemma** (local-agent summary in a modal) and **Rename by content…** (agent-proposed kebab-case name, confirm before applying). |
 | 88 | ✅ | **Search within tree** (done): the ⌕ toggle flips the explorer's Filter box to recursive subtree filename search (`fs_search` — bounded BFS walk, skips hidden + heavy dirs, hit/depth/visit caps; unit-tested). **Fuzzy-ranked** (`fuzzy_score` — fzf-style subsequence with start/word-boundary/contiguous bonuses + shorter-better). Optional **✦ semantic** re-rank by filename relevance via the model embedder (`embed_remote_batch` — one batched `/api/embed`; `embed_batch`/`cosine`/`semantic_rerank`; no-op on the hashing embedder). _Note:_ semantic only re-orders the fuzzy (subsequence) matches — a query finding a *differently-named* file would need a pre-built file-embedding index (a bigger #11 follow-up); filename signal is also short. |
 
+## Epic: Home widgets
+
+| # | P | Item |
+|---|---|---|
+| 134 | ◐ | **Timer / stopwatch / alarms** — **shipped** as a **Time** start-page widget (stopwatch with laps; timer with presets/custom/pause; daily alarms), state in `clocks.ts` so it survives leaving the start page; an always-on driver rings via Web-Audio beep + a docked in-app banner + OS notification (`os_notify`). Alarms + timer length persisted. _Remaining:_ **multiple concurrent timers**; **one-shot vs repeat-days** alarms (today alarms are daily); label/sound per alarm; a world-clock consolidation; make the timer/alarm survive an app **restart** (persist running target, not just config). |
+
 ## Epic: Playground (arcade)
 
 The offline arcade shipped (🎮 popout, `apps/shell/src/playground/`): a neon hub +

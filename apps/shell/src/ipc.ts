@@ -309,6 +309,8 @@ export const agentEditPlan = (path: string, content: string, instruction: string
   invoke<EditPlan>("agent_edit_plan", { path, content, instruction });
 /** Persistent reminders (backend-scheduled; fire even with the panel closed). */
 export type ReminderRow = GenReminder;
+/** Fire an OS notification (clocks widget alarm/timer alerts, #134). */
+export const osNotify = (title: string, body: string) => invoke<void>("os_notify", { title, body });
 export const remindersList = () => invoke<ReminderRow[]>("reminders_list");
 export const remindersAdd = (id: string, text: string, due: number | null, created: number) =>
   invoke<void>("reminders_add", { id, text, due, created });
