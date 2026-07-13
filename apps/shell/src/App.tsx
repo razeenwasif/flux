@@ -40,7 +40,6 @@ import {
   APPS_URL,
   SETTINGS_URL,
   pwaInstall,
-  PANE_SESSION,
   agentTranslate,
   noteGet,
   noteSet,
@@ -96,7 +95,6 @@ import {
   webviewFind,
   watchAdd,
   watchIsWatched,
-  panelNavigate,
   workspaceActive,
   workspaceDelete,
   workspaceSwitch,
@@ -104,7 +102,6 @@ import {
   type Rect,
   type TabGroup,
   type TabMeta,
-  type WebPanel,
   type Workspace,
 } from "./ipc";
 import TerminalView from "./TerminalView";
@@ -206,11 +203,7 @@ import {
   activePanelB,
   activePanelIdB,
   panelWidth,
-  setPanelWidth,
-  panelSplitRatio,
-  setPanelSplitRatio,
   panelDragging,
-  setPanelDragging,
   pageOverlayActive,
   pushPermAsk,
   setSavePrompt,
@@ -223,14 +216,14 @@ import { startClockDriver } from "./clocks";
 import { Favicon, PanelIcon, basename, clusterColor } from "./tabvisual";
 import { TitleBar, ResizeHandles } from "./Chrome";
 import ReaderView from "./ReaderView";
+import WebPanelPane from "./WebPanelPane";
+import TerminalColumn from "./TerminalColumn";
 import {
   pinPanel,
   unpinPanel,
   togglePanel,
   reorderPanels,
   togglePanelBottom,
-  closePanel,
-  closePanelB,
   panelBadges,
   setPanelBadge,
   darkMode,
@@ -2787,204 +2780,5 @@ const ContentArea: Component<{
   );
 };
 
-// ─── Web panel column ────────────────────────────────────────────────────────
-
-const WebPanelPane: Component = () => {
-  const both = () => activePanel() != null && activePanelB() != null;
-  // Drag the horizontal divider to re-balance the top/bottom split. Webviews hide
-  // during the drag (panelDragging) so the DOM divider can track the pointer freely.
-  const startSplitDrag = (e: PointerEvent) => {
-    e.preventDefault();
-    const pane = (e.currentTarget as HTMLElement).parentElement;
-    if (!pane) return;
-    setPanelDragging(true);
-    const move = (ev: PointerEvent) => {
-      const r = pane.getBoundingClientRect();
-      if (r.height > 0) setPanelSplitRatio((ev.clientY - r.top) / r.height);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      setPanelDragging(false);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-  // Resize the panel's width by dragging the toolbar grip. The edge divider sits
-  // in a reserved gutter that the native webview covers on the WebView2 build
-  // (so it's invisible/ungrabbable there); the toolbar is the one HTML strip the
-  // webview is provably inset from, so a grip here is always hittable. Hiding the
-  // webview on drag-start (panelDragging) lets the pointer track freely after.
-  const startWidthDrag = (e: PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    document.body.classList.add("resizing");
-    setPanelDragging(true);
-    const startX = e.clientX;
-    const startW = panelWidth();
-    const move = (ev: PointerEvent) => setPanelWidth(startW - (ev.clientX - startX));
-    const up = () => {
-      setPanelDragging(false);
-      document.body.classList.remove("resizing");
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-  const slot = (
-    id: string,
-    p: WebPanel,
-    onClose: () => void,
-    grow: () => number,
-  ) => (
-    <div class="webpanel-surface" id={id} style={{ "flex-grow": String(grow()) }}>
-      <div class="panel-toolbar">
-        <span class="panel-title" title={p.url}>{p.title || p.url}</span>
-        <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p.id, p.url)}>⟳</button>
-        <button class="panel-btn" title="Close panel" onClick={onClose}>✕</button>
-      </div>
-      <div class="panel-placeholder" />
-    </div>
-  );
-  return (
-    <aside class="webpanel-pane">
-      {/* Resize handle anchored to the pane's own left edge — always at the panel
-          boundary regardless of which other columns are open, and it sits in the
-          reserved gutter the native webview is inset from, so it's grabbable. */}
-      <div class="panel-edge-resize" title="Drag to resize the panel" onPointerDown={startWidthDrag} />
-      <Show when={activePanel()}>
-        {(p) => slot("flux-panel-area", p(), () => closePanel(), () => (both() ? panelSplitRatio() : 1))}
-      </Show>
-      <Show when={both()}>
-        <div class="webpanel-vdiv" onPointerDown={startSplitDrag} title="Drag to resize split" />
-      </Show>
-      <Show when={activePanelB()}>
-        {(p) => slot("flux-panel-area-b", p(), () => closePanelB(), () => (both() ? 1 - panelSplitRatio() : 1))}
-      </Show>
-    </aside>
-  );
-};
-
-// ─── Vertical terminal column ───────────────────────────────────────────────
-
-/** Reserved session-id range for the column's *extra* split panes (#75). Tab ids
- *  start at 1 and climb slowly; PANE_SESSION is 0 — so a high base never collides. */
-const COL_PANE_BASE = 0xf000_0000;
-
-/** Right-side vertical terminal (ADR 0002 / 0003): the always-available dev
- *  terminal. The first pane is the persistent PANE_SESSION; #75 adds splits —
- *  the column can hold several PTY panes side-by-side or stacked, each its own
- *  shell, with a hover toolbar to split / flip orientation / close the focused
- *  pane. (Extra panes are session-local; they reset if the column is hidden.) */
-const TerminalColumn: Component = () => {
-  const [panes, setPanes] = createSignal<number[]>([PANE_SESSION]);
-  // Per-pane flex-grow weights, parallel to `panes` — dragging a seam shifts
-  // weight between the two neighbours so splits are resizable (#75).
-  const [sizes, setSizes] = createSignal<number[]>([1]);
-  const [active, setActive] = createSignal(PANE_SESSION);
-  const [dir, setDir] = createSignal<"row" | "col">(
-    localStorage.getItem("flux.term.split") === "row" ? "row" : "col",
-  );
-  let paneSeq = COL_PANE_BASE;
-  let panesEl!: HTMLDivElement;
-
-  const split = () => {
-    const id = ++paneSeq;
-    const i = panes().indexOf(active());
-    const at = i < 0 ? panes().length : i + 1; // insert after the focused pane
-    setPanes((p) => { const n = [...p]; n.splice(at, 0, id); return n; });
-    setSizes((s) => { const n = [...s]; n.splice(at, 0, 1); return n; });
-    setActive(id);
-  };
-  const closePane = (id: number) => {
-    const p = panes();
-    if (p.length <= 1) return; // keep at least one pane alive
-    const i = p.indexOf(id);
-    const next = p.filter((x) => x !== id);
-    setPanes(next);
-    setSizes((s) => s.filter((_, k) => k !== i));
-    if (active() === id) setActive(next[Math.min(i, next.length - 1)]!);
-    // TerminalView's onCleanup kills that pane's PTY on unmount.
-  };
-  const toggleDir = () =>
-    setDir((d) => {
-      const n = d === "row" ? "col" : "row";
-      localStorage.setItem("flux.term.split", n);
-      return n;
-    });
-
-  // Drag the seam before pane `idx`, redistributing weight between panes idx-1/idx.
-  const startResize = (e: PointerEvent, idx: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const horizontal = dir() === "row";
-    const total = horizontal ? panesEl.clientWidth : panesEl.clientHeight;
-    if (total <= 0) return;
-    const MIN = 60; // px — smallest a pane can shrink to
-    const startPos = horizontal ? e.clientX : e.clientY;
-    const s0 = sizes();
-    const a = s0[idx - 1] ?? 1, b = s0[idx] ?? 1, pair = a + b;
-    const totalGrow = s0.reduce((n, v) => n + v, 0) || 1;
-    const pairPx = (pair / totalGrow) * total;
-    const aPx0 = (a / totalGrow) * total;
-    document.body.classList.add("busy"); // drop glass blur while dragging
-    const move = (ev: PointerEvent) => {
-      const pos = horizontal ? ev.clientX : ev.clientY;
-      const aPx = Math.max(MIN, Math.min(pairPx - MIN, aPx0 + (pos - startPos)));
-      const ratio = aPx / pairPx;
-      setSizes((s) => { const n = [...s]; n[idx - 1] = pair * ratio; n[idx] = pair * (1 - ratio); return n; });
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      document.body.classList.remove("busy");
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
-  return (
-    <section class="terminal-col">
-      <div ref={panesEl} class="term-col-panes" style={{ "flex-direction": dir() === "row" ? "row" : "column" }}>
-        <For each={panes()}>
-          {(s, i) => (
-            <>
-              <Show when={i() > 0}>
-                <div
-                  classList={{ "term-seam": true, vert: dir() === "row" }}
-                  title="Drag to resize"
-                  onPointerDown={(e) => startResize(e, i())}
-                />
-              </Show>
-              <div
-                classList={{ "term-pane": true, active: panes().length > 1 && active() === s }}
-                style={{ "flex-grow": String(sizes()[i()] ?? 1), "flex-basis": "0", "flex-shrink": "1" }}
-                onPointerDown={() => setActive(s)}
-              >
-                <div class="terminal-surface">
-                  <TerminalView session={s} active={active() === s} background={panes().length === 1} />
-                </div>
-              </div>
-            </>
-          )}
-        </For>
-      </div>
-      <div class="term-col-bar">
-        <button class="term-col-btn" title="Split terminal" onClick={split}>⊞</button>
-        <button
-          class="term-col-btn"
-          title={dir() === "row" ? "Stack panes vertically" : "Place panes side by side"}
-          onClick={toggleDir}
-        >
-          {dir() === "row" ? "▭" : "▯"}
-        </button>
-        <Show when={panes().length > 1}>
-          <button class="term-col-btn danger" title="Close focused pane" onClick={() => closePane(active())}>✕</button>
-        </Show>
-      </div>
-    </section>
-  );
-};
 
 export default App;
