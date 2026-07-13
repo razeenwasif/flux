@@ -101,10 +101,8 @@ import {
   workspaceActive,
   workspaceDelete,
   workspaceSwitch,
-  win,
   type MemInfo,
   type Rect,
-  type ResizeDir,
   type TabGroup,
   type TabMeta,
   type WebPanel,
@@ -223,6 +221,8 @@ import PermissionBar from "./PermissionBar";
 import SavePasswordBar from "./SavePasswordBar";
 import ClockAlarm from "./ClockAlarm";
 import { startClockDriver } from "./clocks";
+import { Favicon, PanelIcon, basename, clusterColor } from "./tabvisual";
+import { TitleBar, ResizeHandles } from "./Chrome";
 import {
   pinPanel,
   unpinPanel,
@@ -235,8 +235,6 @@ import {
   setPanelBadge,
   darkMode,
   deleteGroup,
-  ensureFavicon,
-  faviconFor,
   findOpen,
   focusTab,
   groupByTopic,
@@ -1425,51 +1423,6 @@ const App: Component = () => {
 const FILES_PANEL_ID = 2_000_000_000;
 
 // ─── Window chrome (custom — decorations are off) ───────────────────────────
-
-/** Full-width draggable title bar. `deep` makes the whole strip a drag region
- *  (buttons still click through); it lives in its own grid row so no tab
- *  webview can ever cover it — the fix for "nowhere to grab the window". */
-const TitleBar: Component = () => (
-  <header class="titlebar" data-tauri-drag-region="deep">
-    <TrafficLights />
-    <span class="titlebar-title">{activeTab()?.title || "Flux"}</span>
-  </header>
-);
-
-/** macOS-style traffic lights. Glyphs appear on hover (group-hover). */
-const TrafficLights: Component = () => (
-  <div class="traffic">
-    <button class="tl tl-close" onClick={() => win.close()} aria-label="Close">✕</button>
-    <button class="tl tl-min" onClick={() => win.minimize()} aria-label="Minimize">−</button>
-    <button class="tl tl-max" onClick={() => win.toggleMaximize()} aria-label="Zoom">+</button>
-  </div>
-);
-
-/** Invisible edge/corner grips that drive native resize on the borderless
- *  window via Tauri's startResizeDragging. */
-const ResizeHandles: Component = () => {
-  const grip = (dir: ResizeDir, cls: string) => (
-    <div
-      class={`resize-h ${cls}`}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        win.startResize(dir);
-      }}
-    />
-  );
-  return (
-    <>
-      {grip("North", "rh-n")}
-      {grip("South", "rh-s")}
-      {grip("West", "rh-w")}
-      {grip("East", "rh-e")}
-      {grip("NorthWest", "rh-nw")}
-      {grip("NorthEast", "rh-ne")}
-      {grip("SouthWest", "rh-sw")}
-      {grip("SouthEast", "rh-se")}
-    </>
-  );
-};
 
 // ─── Sidebar ────────────────────────────────────────────────────────────────
 
@@ -3082,64 +3035,5 @@ const TerminalColumn: Component = () => {
     </section>
   );
 };
-
-// ─── Flux Agent panel ───────────────────────────────────────────────────────
-
-/** The "Liquid AI" surface. Status drives the visual state machine: idle →
- *  violet dot, thinking → kinetic gradient border, acting → magenta line. */
-// ─── helpers ────────────────────────────────────────────────────────────────
-
-/** Tab/pin icon: the site's real favicon (#21) once fetched, else a letter
- *  glyph (or ⌨/📁 for terminal/files). Favicons are fetched cookielessly +
- *  cached by Rust per host; the letter shows while loading or when none exists. */
-/** Favicon for a bare URL (the app-rail web-panel icons). */
-const PanelIcon: Component<{ url: string }> = (props) => {
-  const host = (): string | null => {
-    try { return new URL(props.url).hostname.replace(/^www\./, "") || null; } catch { return null; }
-  };
-  createEffect(() => ensureFavicon(host()));
-  const data = () => faviconFor(host());
-  return (
-    <Show when={typeof data() === "string"} fallback={<span class="fav-letter">{(host() ?? "?").charAt(0).toUpperCase()}</span>}>
-      <img class="fav-img" src={data() as string} alt="" />
-    </Show>
-  );
-};
-
-const Favicon: Component<{ tab: TabMeta }> = (props) => {
-  const host = (): string | null => {
-    const t = props.tab;
-    if (t.kind !== "browser" || isStartUrl(t.url)) return null;
-    try {
-      return new URL(t.url).hostname.replace(/^www\./, "") || null;
-    } catch {
-      return t.url.split("/")[2]?.replace(/^www\./, "") ?? null;
-    }
-  };
-  createEffect(() => ensureFavicon(host()));
-  const data = () => faviconFor(host());
-  const letter = () => {
-    const t = props.tab;
-    if (t.kind === "terminal") return "⌨";
-    if (t.kind === "files") return "📁";
-    const h = host() ?? t.url.split("/")[2] ?? t.url;
-    return (h.replace(/^www\./, "")[0] ?? "?").toUpperCase();
-  };
-  return (
-    <Show when={typeof data() === "string"} fallback={<span class="fav-letter">{letter()}</span>}>
-      <img class="fav-img" src={data() as string} alt="" />
-    </Show>
-  );
-};
-
-/** Last path segment of a filesystem path (Windows or Unix), for the tab title. */
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] || path;
-}
-
-function clusterColor(tab: TabMeta): string {
-  return tab.cluster ? `#${tab.cluster.color.toString(16).padStart(6, "0")}` : "transparent";
-}
 
 export default App;
