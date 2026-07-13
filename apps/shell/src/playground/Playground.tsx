@@ -12,6 +12,14 @@ import flappy from "./games/flappy";
 import asteroids from "./games/asteroids";
 import game2048 from "./games/game2048";
 import minesweeper from "./games/minesweeper";
+import pacman from "./games/pacman";
+import dino from "./games/dino";
+import stack from "./games/stack";
+import frogger from "./games/frogger";
+import whack from "./games/whack";
+import doodle from "./games/doodle";
+import simon from "./games/simon";
+import columns from "./games/columns";
 
 interface Meta {
   id: string;
@@ -33,6 +41,14 @@ const GAMES: Meta[] = [
   { id: "asteroids", name: "Asteroids", glyph: "🚀", tagline: "Blast the rocks, mind the split.", controls: "← → rotate · ↑ thrust · Space fire", accent: "#c8c2ff", engine: asteroids },
   { id: "2048", name: "2048", glyph: "🔢", tagline: "Slide and merge to the big tile.", controls: "Arrows / WASD to slide", accent: "#5dff8f", engine: game2048 },
   { id: "minesweeper", name: "Minesweeper", glyph: "💣", tagline: "Clear the field, flag the mines.", controls: "Left reveal · Right flag", accent: "#ff6f6f", engine: minesweeper },
+  { id: "pacman", name: "Pac-Man", glyph: "🟡", tagline: "Eat the dots, outrun the ghosts.", controls: "Arrows to steer", accent: "#ffe14d", engine: pacman },
+  { id: "dino", name: "Dino Run", glyph: "🦖", tagline: "Jump the cacti, duck the birds.", controls: "Space / ↑ jump · ↓ duck", accent: "#aefcff", engine: dino },
+  { id: "stack", name: "Stack", glyph: "🧊", tagline: "Time the drop, build the tower.", controls: "Space / click to drop", accent: "#2ff3ff", engine: stack },
+  { id: "frogger", name: "Frogger", glyph: "🐸", tagline: "Cross the road and the river.", controls: "Arrows to hop", accent: "#7dff9d", engine: frogger },
+  { id: "whack", name: "Whack-a-Mole", glyph: "🔨", tagline: "Bonk the moles, dodge the bombs.", controls: "Click the moles", accent: "#ff8a3d", engine: whack },
+  { id: "doodle", name: "Doodle Jump", glyph: "🦘", tagline: "Bounce up, don't fall off.", controls: "← → to steer (auto-jump)", accent: "#5dff8f", engine: doodle },
+  { id: "simon", name: "Simon", glyph: "🎵", tagline: "Repeat the growing pattern.", controls: "Click the pads", accent: "#b07dff", engine: simon },
+  { id: "columns", name: "Columns", glyph: "💎", tagline: "Match 3+ gems any direction.", controls: "← → move · ↑ cycle · Space drop", accent: "#ff4d9d", engine: columns },
 ];
 
 const Playground: Component<{ onClose: () => void }> = (props) => {

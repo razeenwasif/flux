@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Playground: eight more games — 17 total (#133)** — **Pac-Man** (dots + power pellets, three
+  chasing ghosts that turn edible, connectivity-safe maze), **Dino Run** (one-button jump/duck
+  runner), **Stack** (time the drop, tower narrows), **Frogger** (road traffic + ride the river
+  logs, 3 lives), **Whack-a-Mole** (click moles, dodge bombs), **Doodle Jump** (endless
+  auto-bounce climb with edge-wrap), **Simon** (grow-and-repeat memory, Web-Audio tones), and
+  **Columns** (falling gem trios, match-3 in any direction with cascading combos). Same
+  self-contained canvas-engine harness; scores persist locally per game; still a lazy chunk.
 - **Playground: four more games (#133)** — the arcade grows to nine with **Flappy**
   (flap through the gaps — Space/↑/click), **Asteroids** (rotate/thrust/fire, rocks split,
   screen-wrap, waves + lives), **2048** (slide-and-merge with the arrow keys), and
