@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Playground: six more games — 23 total (#133)** — **Missile Command** (click-to-intercept
+  city defense, waves), **Bubble Shooter** (aim + match-3 pops, dropping ceiling),
+  **Bejeweled** (swap-to-match-3 with cascades, ends when no move remains), **Centipede**
+  (splitting centipede through a mushroom field, waves + lives), and two **vs-AI board games**:
+  **Connect Four** (alpha-beta minimax) and **Reversi/Othello** (weighted 3-ply minimax). The
+  board games score as a **win streak** — win to keep the run going, a loss or draw ends it,
+  best streak is the high score — so they fit the existing `onGameOver` harness with no change.
 - **Playground: eight more games — 17 total (#133)** — **Pac-Man** (dots + power pellets, three
   chasing ghosts that turn edible, connectivity-safe maze), **Dino Run** (one-button jump/duck
   runner), **Stack** (time the drop, tower narrows), **Frogger** (road traffic + ride the river

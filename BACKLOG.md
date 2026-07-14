@@ -214,14 +214,15 @@ further:
 ## Epic: Playground (arcade)
 
 The offline arcade shipped (🎮 popout, `apps/shell/src/playground/`): a neon hub +
-seventeen self-contained `<canvas>` games (Snake, Tetris, Breakout, Pong,
-Space Invaders, Flappy, Asteroids, 2048, Minesweeper, Pac-Man, Dino Run, Stack,
-Frogger, Whack-a-Mole, Doodle Jump, Simon, Columns) on a shared engine harness, local
+twenty-three self-contained `<canvas>` games — the arcade classics plus
+Pac-Man, Dino Run, Stack, Frogger, Whack-a-Mole, Doodle Jump, Simon, Columns,
+Missile Command, Bubble Shooter, Bejeweled, Centipede, and vs-AI Connect Four +
+Reversi on a shared engine harness, local
 high scores. These extend it:
 
 | # | P | Item |
 |---|---|---|
-| 133 | ◐ | **Playground** — offline arcade **shipped** (17 games, local high scores, neon hub). _Remaining:_ **online play + leaderboard rankings** (a backend — likely a small Flux service or a BYO endpoint — with per-game score submission + a friends/global board; keep offline-first, opt-in, no account required to play); per-game **pause**; gamepad input; a mobile/touch control scheme; more games as the mood strikes. |
+| 133 | ◐ | **Playground** — offline arcade **shipped** (23 games, local high scores, neon hub). _Remaining:_ **online play + leaderboard rankings** (a backend — likely a small Flux service or a BYO endpoint — with per-game score submission + a friends/global board; keep offline-first, opt-in, no account required to play); per-game **pause**; gamepad input; a mobile/touch control scheme; more games as the mood strikes. Vs-AI board games (Connect Four, Reversi) score as a win streak. |
 
 ## Epic: Research-driven optimization
 

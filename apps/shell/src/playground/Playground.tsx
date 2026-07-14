@@ -20,6 +20,12 @@ import whack from "./games/whack";
 import doodle from "./games/doodle";
 import simon from "./games/simon";
 import columns from "./games/columns";
+import missile from "./games/missile";
+import bubble from "./games/bubble";
+import bejeweled from "./games/bejeweled";
+import centipede from "./games/centipede";
+import connect4 from "./games/connect4";
+import reversi from "./games/reversi";
 
 interface Meta {
   id: string;
@@ -49,6 +55,12 @@ const GAMES: Meta[] = [
   { id: "doodle", name: "Doodle Jump", glyph: "🦘", tagline: "Bounce up, don't fall off.", controls: "← → to steer (auto-jump)", accent: "#5dff8f", engine: doodle },
   { id: "simon", name: "Simon", glyph: "🎵", tagline: "Repeat the growing pattern.", controls: "Click the pads", accent: "#b07dff", engine: simon },
   { id: "columns", name: "Columns", glyph: "💎", tagline: "Match 3+ gems any direction.", controls: "← → move · ↑ cycle · Space drop", accent: "#ff4d9d", engine: columns },
+  { id: "missile", name: "Missile Command", glyph: "🚀", tagline: "Intercept the barrage, save the cities.", controls: "Click to fire", accent: "#ff6f6f", engine: missile },
+  { id: "bubble", name: "Bubble Shooter", glyph: "🫧", tagline: "Match 3+ bubbles to pop them.", controls: "Aim mouse · click to shoot", accent: "#2ff3ff", engine: bubble },
+  { id: "bejeweled", name: "Bejeweled", glyph: "💠", tagline: "Swap gems to line up 3+.", controls: "Click two adjacent gems", accent: "#b07dff", engine: bejeweled },
+  { id: "centipede", name: "Centipede", glyph: "🐛", tagline: "Blast the splitting centipede.", controls: "Arrows move · Space fire", accent: "#ff4d9d", engine: centipede },
+  { id: "connect4", name: "Connect Four", glyph: "🔴", tagline: "Four in a row vs the AI — win-streak.", controls: "Click a column", accent: "#ffe14d", engine: connect4 },
+  { id: "reversi", name: "Reversi", glyph: "⚫", tagline: "Flank to flip, outscore the AI — win-streak.", controls: "Click a square", accent: "#5dff8f", engine: reversi },
 ];
 
 const Playground: Component<{ onClose: () => void }> = (props) => {
