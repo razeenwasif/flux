@@ -93,37 +93,52 @@ export async function recolorWorkspace(id: number, color: number): Promise<void>
   await refreshWorkspaces();
 }
 
-// Split view (BACKLOG #43): two browser tabs tiled in the content card.
-// `splitPair` is [leftId, rightId]; the split renders only while one of the pair
-// is the active tab (switching to a third tab pauses it, switching back resumes).
-// `splitRatio` is the left pane's fraction of the card width. `splitDragging`
-// hides the native webviews while the seam is dragged — a native webview is a
-// separate OS layer that captures the mouse, so the DOM splitter can't track the
-// pointer over it; hiding the panes lets the chrome see pointer moves again.
-const [splitPair, setSplitPairSig] = createSignal<[number, number] | null>(null);
+// Split view (BACKLOG #43): browser tabs tiled two-up in the content card.
+// `splits` holds any number of independent pairs, but only the pair containing
+// the *active* tab tiles at a time (switching to a third tab pauses that pair,
+// switching to a member of another pair tiles that one instead). A tab belongs
+// to at most one pair. `splitRatio` is the showing pair's left-pane fraction;
+// `splitDragging` hides the native webviews while the seam is dragged — a native
+// webview is a separate OS layer that captures the mouse, so the DOM splitter
+// can't track the pointer over it; hiding the panes lets the chrome see it.
+const [splits, setSplits] = createSignal<[number, number][]>([]);
 const [splitRatio, setSplitRatio] = createSignal(0.5);
 const [splitDragging, setSplitDragging] = createSignal(false);
-export { splitPair, splitRatio, setSplitRatio, splitDragging, setSplitDragging };
+export { splits, splitRatio, setSplitRatio, splitDragging, setSplitDragging };
 
+/** The pair containing tab `id`, or null. */
+export function splitPairFor(id: number | null): [number, number] | null {
+  if (id == null) return null;
+  return splits().find((p) => p[0] === id || p[1] === id) ?? null;
+}
+/** The pair the active tab belongs to (the one that tiles), or null. */
+export function activeSplit(): [number, number] | null {
+  return splitPairFor(activeId());
+}
 /** Tile two browser tabs side by side (left | right) and focus the left one so
- *  the split shows immediately. No-op if asked to split a tab with itself. */
+ *  the split shows immediately. Removes either tab from any pair it was already
+ *  in (a tab lives in one pair). No-op if asked to split a tab with itself. */
 export function startSplit(leftId: number, rightId: number): void {
   if (leftId === rightId) return;
-  setSplitPairSig([leftId, rightId]);
+  setSplits((list) => [
+    ...list.filter((p) => !p.includes(leftId) && !p.includes(rightId)),
+    [leftId, rightId],
+  ]);
   setSplitRatio(0.5);
   void focusTab(leftId);
 }
-export function clearSplit(): void {
-  setSplitPairSig(null);
+/** Merge (un-split) the pair containing `id`; defaults to the active tab's pair. */
+export function clearSplit(id?: number): void {
+  const target = id ?? activeId();
+  if (target == null) return;
+  setSplits((list) => list.filter((p) => !p.includes(target)));
 }
-/** The two tabs to tile, or null when the split isn't currently showable: no
- *  pair, the active tab is outside the pair, or a member was closed / left the
- *  workspace / isn't a real page. */
+/** The two tabs to tile, or null when no pair is currently showable: the active
+ *  tab is in no pair, or a member was closed / left the workspace / isn't a real
+ *  page. */
 export const splitPanes = (): [TabMeta, TabMeta] | null => {
-  const p = splitPair();
+  const p = activeSplit();
   if (!p) return null;
-  const a = activeId();
-  if (a == null || (p[0] !== a && p[1] !== a)) return null;
   const l = tabs().find((t) => t.id === p[0]);
   const r = tabs().find((t) => t.id === p[1]);
   // Any "page" tab in this workspace is splittable — real web pages (tiled native
@@ -857,7 +872,7 @@ export async function closeTab(id: number): Promise<void> {
   const closing = all.find((t) => t.id === id);
   const otherStart = all.some((t) => t.id !== id && t.url === START_URL);
   if (closing && closing.kind === "browser" && closing.url !== START_URL && !otherStart) {
-    if (splitPair()?.includes(id)) clearSplit();
+    clearSplit(id); // drop this tab's split pair if any
     setTabLoading(id, false);
     setHibernated(id, false);
     await webviewClose(id); // drop the page webview; start tabs have none
@@ -866,7 +881,7 @@ export async function closeTab(id: number): Promise<void> {
     await refreshTabs();
     return;
   }
-  if (splitPair()?.includes(id)) clearSplit(); // a tiled tab is gone → drop the split
+  clearSplit(id); // a tiled tab is gone → drop its split pair
   setTabLoading(id, false);
   setHibernated(id, false);
   await webviewClose(id); // tear down the native webview (no-op for terminal tabs)
@@ -979,7 +994,7 @@ export function fluxStateSnapshot(): string {
     at ? `Active tab: #${at.id} ${at.kind} — ${(at.title || at.url || "").slice(0, 80)}` : "Active tab: none",
     `Web panels: ${panels().length} pinned, active=${activePanelId() ?? "none"}`,
     `Overlays: reader=${readerOpen()}, files-popout=${filesPanelOpen()}, map=${mapPanelOpen()}, agent-menu=${agentMenuOpen()}`,
-    `Split view: ${splitPair() ? "on" : "off"}`,
+    `Split pairs: ${splits().length}`,
     `Appearance: dark=${darkMode()}, liquidBg=${liquidBg()}, bookmarkBar=${bookmarkBarOpen()}, pagesBar=${pagesBarOpen()}`,
     `Agent model: ${agentModelName() || "(default)"}`,
   ];

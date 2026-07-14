@@ -227,6 +227,7 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   time.
 
 ### Changed
+- **Multiple split-view pairs at once (#43)** — split view held only one pair, so splitting a new pair silently merged the previous one. Split state is now a list of independent pairs: any number can coexist in the strip, a tab belongs to at most one, and the pair containing the active tab is the one tiled in the content card (focus a member of another pair to tile it instead). Merge/exit acts on the specific pair (the strip seam and per-tab menu) or the active pair (toolbar/palette).
 - **Split-view tabs sit side by side in the strip (#43)** — the two tiled tabs used to stack vertically inside a labelled box; they now render as two half-width chips next to each other joined by a bracket + a center ⤢ merge seam, matching Chrome's paired split tabs.
 - **Specta type tail generated (BACKLOG #12, batch 4)** — 15 more IPC types are now
   codegen'd from Rust instead of hand-mirrored in `ipc.ts`: LaunchIntent, Reminder, MemInfo,

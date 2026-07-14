@@ -260,7 +260,9 @@ import {
   closeReader,
   startSplit,
   clearSplit,
-  splitPair,
+  splits,
+  activeSplit,
+  splitPairFor,
   splitPanes,
   splitRatio,
   setSplitRatio,
@@ -1022,7 +1024,7 @@ const App: Component = () => {
     { id: "shell-history", label: "Search shell history (by meaning)", icon: "⌘", run: () => setShellHistOpen(true) },
     { id: "watches", label: "Watched pages (change monitor)", icon: "👁", run: () => setWatchPanelOpen(true) },
     { id: "tracker-graph", label: "Tracker graph (privacy viz)", icon: "🕸", run: () => setTrackerGraphOpen(true) },
-    { id: "split", label: splitPair() != null ? "Exit split view" : "Split view (tile with another tab)", icon: "◫", run: () => splitPair() != null ? clearSplit() : setSplitPickerOpen(true) },
+    { id: "split", label: activeSplit() != null ? "Exit split view" : "Split view (tile with another tab)", icon: "◫", run: () => activeSplit() != null ? clearSplit() : setSplitPickerOpen(true) },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
@@ -1655,25 +1657,29 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const SplitPair: Component<{ a: TabMeta; b: TabMeta }> = (p) => (
     <div class="split-pair" title="Split view — the two tiled tabs">
       <TabRow tab={p.a} />
-      <button class="split-pair-merge" title="Merge — back to a single tab" onClick={(e) => { e.stopPropagation(); clearSplit(); }}>⤢</button>
+      <button class="split-pair-merge" title="Merge — back to a single tab" onClick={(e) => { e.stopPropagation(); clearSplit(p.a.id); }}>⤢</button>
       <TabRow tab={p.b} />
     </div>
   );
 
-  // The ungrouped strip, with the split pair (when both members are ungrouped &
-  // present in this space) folded into a single combined item at the first
-  // member's position.
+  // The ungrouped strip, with each split pair (whose BOTH members are ungrouped
+  // & present in this space) folded into a single combined item at whichever
+  // member appears first. Any number of pairs can coexist.
   const ungroupedItems = createMemo((): ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] => {
     const list = ungroupedTabs();
-    const pair = splitPair();
-    const a = pair ? list.find((t) => t.id === pair[0]) : undefined;
-    const b = pair ? list.find((t) => t.id === pair[1]) : undefined;
-    const combine = !!(a && b);
+    const ids = new Set(list.map((t) => t.id));
+    const memberOf = new Map<number, [number, number]>();
+    for (const p of splits()) {
+      if (ids.has(p[0]) && ids.has(p[1])) { memberOf.set(p[0], p); memberOf.set(p[1], p); }
+    }
+    const placed = new Set<number>();
     const out: ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] = [];
-    let placed = false;
     for (const t of list) {
-      if (combine && (t.id === a!.id || t.id === b!.id)) {
-        if (!placed) { out.push({ kind: "split", a: a!, b: b! }); placed = true; }
+      const pair = memberOf.get(t.id);
+      if (pair) {
+        if (placed.has(pair[0])) continue; // pair already emitted at its first member
+        out.push({ kind: "split", a: list.find((x) => x.id === pair[0])!, b: list.find((x) => x.id === pair[1])! });
+        placed.add(pair[0]);
         continue;
       }
       out.push({ kind: "tab", tab: t });
@@ -2047,7 +2053,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             >
               {props.isBookmarked() ? "★" : "☆"}
             </button>
-            <button type="button" classList={{ "icon-btn": true, active: splitPair() != null }} title={splitPair() != null ? "Exit split view" : "Split view — tile this page with another tab"} onClick={() => splitPair() != null ? clearSplit() : setSplitPicker(true)}>◫</button>
+            <button type="button" classList={{ "icon-btn": true, active: activeSplit() != null }} title={activeSplit() != null ? "Exit split view" : "Split view — tile this page with another tab"} onClick={() => activeSplit() != null ? clearSplit() : setSplitPicker(true)}>◫</button>
             <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
             <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
             <button type="button" class="icon-btn" title="Translate this page" onClick={() => props.onTranslate()}>🌐</button>
@@ -2240,8 +2246,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 <div class="ctx-sep" />
                 <button onClick={() => { startSplit(activeId()!, t().id); closeCtx(); }}>⊟ Split with current tab</button>
               </Show>
-              <Show when={splitPair()}>
-                <button onClick={() => { clearSplit(); closeCtx(); }}>Exit split view</button>
+              <Show when={splitPairFor(t().id)}>
+                <button onClick={() => { clearSplit(t().id); closeCtx(); }}>Exit split view</button>
               </Show>
               <div class="ctx-sep" />
               <div class="ctx-label">Move to folder (sleeps to save RAM)</div>
