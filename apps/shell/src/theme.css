@@ -460,26 +460,25 @@ body.resizing, body.busy { --glass-blur: none; }
 .split-picker-newico { width: 18px; text-align: center; font-size: 15px; }
 .split-picker-empty { padding: 14px 16px; color: var(--flux-text-mute); font-size: 12.5px; }
 
+/* Split view (#43): the two tiled tabs sit side by side in the strip (like
+   Chrome's paired split tabs), joined by a bracket + a center "merge" seam. */
 .split-pair {
+  display: flex; flex-direction: row; align-items: stretch; gap: 1px;
   border: 1px solid rgba(47, 243, 255, 0.28);
   border-radius: 10px;
   background: rgba(47, 243, 255, 0.05);
-  padding: 3px;
-  display: flex; flex-direction: column; gap: 2px;
+  padding: 2px;
 }
-.split-pair-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 1px 6px 2px;
+.split-pair > .tab-row {
+  flex: 1 1 0; min-width: 0; gap: 6px; padding: 7px 8px;
 }
-.split-pair-label {
-  font-size: 10px; color: var(--flux-teal);
-  text-transform: uppercase; letter-spacing: 0.06em;
-}
+.split-pair > .tab-row .close { margin-left: 0; }
 .split-pair-merge {
-  font-size: 12px; line-height: 1; color: var(--flux-teal);
-  padding: 2px 6px; border-radius: 6px;
-  border: 1px solid rgba(47, 243, 255, 0.30);
-  background: rgba(47, 243, 255, 0.08);
+  flex: none; align-self: stretch; width: 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; color: var(--flux-teal);
+  border-radius: 5px;
+  border: none; background: transparent; cursor: pointer;
 }
 .split-pair-merge:hover { background: rgba(47, 243, 255, 0.18); }
 

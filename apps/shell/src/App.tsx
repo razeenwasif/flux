@@ -1653,12 +1653,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Split view (#43): the two tiled tabs render together as one bracketed unit in
   // the strip (like Chrome's paired split tabs), with a "merge" (un-split) button.
   const SplitPair: Component<{ a: TabMeta; b: TabMeta }> = (p) => (
-    <div class="split-pair">
-      <div class="split-pair-head">
-        <span class="split-pair-label">◧◨ Split</span>
-        <button class="split-pair-merge" title="Merge — back to a single tab" onClick={(e) => { e.stopPropagation(); clearSplit(); }}>⤢</button>
-      </div>
+    <div class="split-pair" title="Split view — the two tiled tabs">
       <TabRow tab={p.a} />
+      <button class="split-pair-merge" title="Merge — back to a single tab" onClick={(e) => { e.stopPropagation(); clearSplit(); }}>⤢</button>
       <TabRow tab={p.b} />
     </div>
   );

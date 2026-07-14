@@ -227,6 +227,7 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   time.
 
 ### Changed
+- **Split-view tabs sit side by side in the strip (#43)** — the two tiled tabs used to stack vertically inside a labelled box; they now render as two half-width chips next to each other joined by a bracket + a center ⤢ merge seam, matching Chrome's paired split tabs.
 - **Specta type tail generated (BACKLOG #12, batch 4)** — 15 more IPC types are now
   codegen'd from Rust instead of hand-mirrored in `ipc.ts`: LaunchIntent, Reminder, MemInfo,
   hibernation/eviction/prefetch structs, SearchEngine/Resolution (flux-search),
