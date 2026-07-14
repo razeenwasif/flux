@@ -263,6 +263,7 @@ import {
   splits,
   activeSplit,
   splitPairFor,
+  restoreSplits,
   splitPanes,
   splitRatio,
   setSplitRatio,
@@ -363,6 +364,7 @@ const App: Component = () => {
   onMount(async () => {
     startClockDriver(); // #134: timers/alarms fire regardless of the active tab
     await refreshTabs();
+    restoreSplits(); // #43: re-tile any split pairs saved from the last session
     const intent = await launchIntent().catch(() => null);
     if (intent) {
       for (const url of intent.urls) await openTab("browser", url);

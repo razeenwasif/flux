@@ -101,10 +101,41 @@ export async function recolorWorkspace(id: number, color: number): Promise<void>
 // `splitDragging` hides the native webviews while the seam is dragged — a native
 // webview is a separate OS layer that captures the mouse, so the DOM splitter
 // can't track the pointer over it; hiding the panes lets the chrome see it.
-const [splits, setSplits] = createSignal<[number, number][]>([]);
+const SPLITS_KEY = "flux.splits";
+function loadSplitsRaw(): [number, number][] {
+  try {
+    const v = JSON.parse(localStorage.getItem(SPLITS_KEY) || "[]");
+    return Array.isArray(v) ? v.filter((p) => Array.isArray(p) && p.length === 2 && typeof p[0] === "number" && typeof p[1] === "number") : [];
+  } catch { return []; }
+}
+const [splits, setSplitsRaw] = createSignal<[number, number][]>([]);
+// Persist every mutation to localStorage (tab ids survive restart — the session
+// restores tabs with their original ids — so pairs stay valid). `restoreSplits`
+// re-hydrates them once the tabs are loaded.
+function setSplits(update: [number, number][] | ((prev: [number, number][]) => [number, number][])): void {
+  setSplitsRaw((prev) => {
+    const next = typeof update === "function" ? update(prev) : update;
+    try { localStorage.setItem(SPLITS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+    return next;
+  });
+}
 const [splitRatio, setSplitRatio] = createSignal(0.5);
 const [splitDragging, setSplitDragging] = createSignal(false);
 export { splits, splitRatio, setSplitRatio, splitDragging, setSplitDragging };
+
+/** Re-hydrate saved split pairs after the session's tabs are loaded — dropping
+ *  any pair whose members no longer exist, and any tab claimed by two pairs. */
+export function restoreSplits(): void {
+  const existing = new Set(tabs().map((t) => t.id));
+  const seen = new Set<number>();
+  const clean = loadSplitsRaw().filter((p) => {
+    if (!existing.has(p[0]) || !existing.has(p[1]) || p[0] === p[1]) return false;
+    if (seen.has(p[0]) || seen.has(p[1])) return false;
+    seen.add(p[0]); seen.add(p[1]);
+    return true;
+  });
+  setSplits(clean);
+}
 
 /** The pair containing tab `id`, or null. */
 export function splitPairFor(id: number | null): [number, number] | null {
