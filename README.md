@@ -209,6 +209,30 @@ plan → approve → execute → re-plan across pages.) Config via env: `FLUX_MO
 `FLUX_OLLAMA_URL` (default `http://localhost:11434`), or
 `FLUX_AGENT_BACKEND=mock` to run the pipeline without a model.
 
+## Research OS — the Trail (in progress)
+
+Flux is growing from a browser into an **external scientific memory**: a local,
+private *co-scientist* that turns what you read into a personal knowledge graph.
+It builds on the **Knowledge Base** (ADR 0010 — cited retrieval over your own
+corpora: Onyx notes, Scroll papers, Council briefs) by making *browsing itself* a
+native, cited source.
+
+The foundation is a **provenance spine** (ADR 0011): every page becomes a
+**Visit** — url, title, *why* you got there (the page you came from = a free
+navigation edge, plus the search query and active workspace), the captured
+content, highlights/notes, and an AI conversation attached to that page. Graph,
+time-travel ("what did my workspace look like Tuesday?"), per-page chat that
+survives months, and context search ("the page with the CUDA error") are all
+*views over that one object* rather than separate features.
+
+Privacy is designed in, not bolted on: **private windows are never recorded**,
+typed-draft capture is off by default with structural redaction (a half-typed
+password can't be stored), and `trace_forget` drops a page, site, or time range.
+Capture is lazy — a cheap Visit on navigation, content snapshot + embed only
+after you actually *dwell* on a page, idle-scheduled so the browser never
+stalls. Everything stays local; the spine is never a network source. Vertical
+slice in progress — see `docs/adr/0011-browsing-provenance-spine.md`.
+
 ## Terminal
 
 A real, usable dev terminal (ADR 0003): a Rust PTY (`portable-pty`) running your

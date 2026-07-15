@@ -306,6 +306,34 @@ export type PacPlan = { command: string; explanation: string; danger: string | n
  * commands, instead of failing opaquely at run time.
  */
 export type PacStatus = { installed: boolean; authenticated: boolean; detail: string }
+/**
+ * Where a visit came from and why — the provenance that turns flat history into
+ * a graph. All fields are best-effort; the slice fills `from_visit`/`referrer`
+ * (from the tab's prior visit) and `task` (the active workspace). `query` is
+ * wired in a later phase.
+ */
+export type Provenance = { from_visit: number | null; referrer: string | null; query: string | null; task: string | null }
+/**
+ * One page visit. Kept minimal in the slice; snapshot/chat/marks/entities join
+ * in later phases (ADR 0011) as additive fields.
+ */
+export type Visit = { id: number; url: string; title: string; first_ms: number; last_ms: number; hits: number; why: Provenance }
+/**
+ * Edge kinds. `Nav` is captured for free on every navigation; the rest are
+ * derived in later phases (semantic neighbours, citation/repo detection).
+ */
+export type EdgeKind = "nav" | "semantic" | "cites" | "implements" | "same"
+export type Edge = { from: number; to: number; kind: EdgeKind }
+/**
+ * The graph read model handed to the Trail view (visits + the edges among them,
+ * optionally windowed by time).
+ */
+export type TraceGraph = { visits: Visit[]; edges: Edge[] }
+/**
+ * What `trace_forget` removes. Every scope also drops edges touching removed
+ * visits and any `by_tab` pointers into them.
+ */
+export type ForgetScope = { kind: "url"; url: string } | { kind: "host"; host: string } | { kind: "range"; after_ms: number | null; before_ms: number | null } | { kind: "all" }
 export type ChromeProfilePreview = { dir: string; name: string; bookmark_count: number; extension_count: number; has_saved_tab_groups: boolean }
 /**
  * A flattened bookmark: folder hierarchy preserved as a path string so the

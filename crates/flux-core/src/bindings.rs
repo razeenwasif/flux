@@ -165,6 +165,12 @@ pub fn generate_ts() -> String {
         specta::ts::export::<flux_agent::NextStep>(&c),
         specta::ts::export::<flux_agent::pac::PacPlan>(&c),
         specta::ts::export::<crate::agent::PacStatus>(&c),
+        specta::ts::export::<crate::trace::Provenance>(&c),
+        specta::ts::export::<crate::trace::Visit>(&c),
+        specta::ts::export::<crate::trace::EdgeKind>(&c),
+        specta::ts::export::<crate::trace::Edge>(&c),
+        specta::ts::export::<crate::trace::TraceGraph>(&c),
+        specta::ts::export::<crate::trace::ForgetScope>(&c),
         specta::ts::export::<flux_import::chrome::ProfilePreview>(&c),
         specta::ts::export::<flux_import::chrome::Bookmark>(&c),
     ];

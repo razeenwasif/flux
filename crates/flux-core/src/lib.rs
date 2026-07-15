@@ -36,6 +36,7 @@ pub mod hibernate;
 pub mod history;
 pub mod kb;
 pub mod leanmode;
+pub mod trace;
 pub mod lens;
 pub mod macros;
 pub mod mem;
@@ -459,6 +460,29 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             }
         });
     }
+
+    // Browsing provenance spine — "the Trail" (ADR 0011). Recorded from
+    // dom_publish alongside history; same empty→hydrate→60s-flush lifecycle.
+    let trace_path = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("trace").join("trace.json"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("flux-trace.json"));
+    app.manage(trace::TraceStore::empty(trace_path));
+    {
+        let handle = app.handle().clone();
+        std::thread::spawn(move || {
+            if let Some(t) = handle.try_state::<trace::TraceStore>() {
+                t.hydrate();
+            }
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(60));
+                if let Some(t) = handle.try_state::<trace::TraceStore>() {
+                    t.persist_if_dirty();
+                }
+            }
+        });
+    }
 }
 
 /// Password vault (#61): keychain-backed store + off-thread keychain
@@ -730,6 +754,10 @@ pub fn run(intent: cli::LaunchIntent) {
             history::history_search,
             history::history_delete,
             history::history_clear,
+            trace::trace_recent,
+            trace::trace_visit,
+            trace::trace_graph,
+            trace::trace_forget,
             bookmarks::bookmarks_list,
             bookmarks::bookmark_folders,
             bookmarks::bookmark_add,

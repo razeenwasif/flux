@@ -94,6 +94,11 @@ import type {
   Feed as GenFeed,
   FeedItem as GenFeedItem,
   HistoryEntry as GenHistoryEntry,
+  Visit as GenVisit,
+  Edge as GenEdge,
+  EdgeKind as GenEdgeKind,
+  TraceGraph as GenTraceGraph,
+  ForgetScope as GenForgetScope,
   ProcInfo as GenProcInfo,
   PwaApp as GenPwaApp,
   SavedSession as GenSavedSession,
@@ -142,6 +147,11 @@ export type Feed = GenFeed;
 export type FeedItem = GenFeedItem;
 export type PwaApp = GenPwaApp;
 export type HistoryEntry = GenHistoryEntry;
+export type Visit = GenVisit;
+export type Edge = GenEdge;
+export type EdgeKind = GenEdgeKind;
+export type TraceGraph = GenTraceGraph;
+export type ForgetScope = GenForgetScope;
 export type SavedTab = GenSavedTab;
 export type SavedSession = GenSavedSession;
 export type DaySnapshot = GenDaySnapshot;
@@ -1071,6 +1081,18 @@ export const historyRecent = (limit?: number) =>
 export const historySearch = (query: string, limit?: number) =>
   invoke<HistoryEntry[]>("history_search", { query, limit: limit ?? null });
 export const historyDelete = (url: string) => invoke<void>("history_delete", { url });
+
+// ─── The Trail — browsing provenance spine (ADR 0011) ────────────────────────
+/** Most-recent Visits for the Trail timeline (newest first). */
+export const traceRecent = (limit?: number) =>
+  invoke<Visit[]>("trace_recent", { limit: limit ?? null });
+/** A single Visit by id (node detail). */
+export const traceVisit = (id: number) => invoke<Visit | null>("trace_visit", { id });
+/** The provenance graph (optionally time-windowed by `last_ms`) for the Trail view. */
+export const traceGraph = (afterMs?: number, beforeMs?: number) =>
+  invoke<TraceGraph>("trace_graph", { afterMs: afterMs ?? null, beforeMs: beforeMs ?? null });
+/** Forget part (or all) of the Trail — the day-one privacy control. */
+export const traceForget = (scope: ForgetScope) => invoke<void>("trace_forget", { scope });
 
 // ─── Bookmarks (BACKLOG #22) ─────────────────────────────────────────────────
 /** Sentinel url for the full-page bookmarks view (DOM-rendered, no webview). */

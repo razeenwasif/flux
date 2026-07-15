@@ -88,6 +88,15 @@ pub fn dom_publish(
         if let Some(h) = app.try_state::<crate::history::HistoryStore>() {
             h.record(&url, &title);
         }
+        // Record the visit in the provenance spine — "the Trail" (ADR 0011).
+        // Same non-private guard as history; the task label is the tab's active
+        // workspace name, and the nav edge is drawn from the tab's prior visit.
+        if let Some(tr) = app.try_state::<crate::trace::TraceStore>() {
+            let task = state.tabs.get(&tab_id).map(|t| t.workspace).and_then(|ws| {
+                state.workspaces_list().into_iter().find(|w| w.id == ws).map(|w| w.name)
+            });
+            tr.record(tab_id, &url, &title, task);
+        }
         // Live ingest into Omni (no-op unless the user enabled auto-ingest). Done
         // before the snapshot is built so the page text is still owned here.
         crate::omni::maybe_auto_ingest(&app, &url, &title, &text);

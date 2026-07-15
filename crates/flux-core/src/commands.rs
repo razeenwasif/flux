@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::cli::LaunchIntent;
 use crate::state::{
@@ -156,10 +156,14 @@ pub fn tab_focus(app: AppHandle, state: State<'_, FluxState>, id: TabId) {
 }
 
 #[tauri::command]
-pub fn tab_close(state: State<'_, FluxState>, id: TabId) {
+pub fn tab_close(app: AppHandle, state: State<'_, FluxState>, id: TabId) {
     state.tabs.remove(&id);
     state.dom_cache.remove(&id);
     state.order_remove(id);
+    // Drop the tab's Trail pointer so its id can't seed a stale nav edge (#ADR-0011).
+    if let Some(tr) = app.try_state::<crate::trace::TraceStore>() {
+        tr.tab_closed(id);
+    }
     state.persist();
 }
 

@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The Trail — browsing provenance spine, slice 1 (ADR 0011, #136)** — the foundation of the
+  Research OS / external scientific memory. Every non-private navigation now becomes a **Visit**:
+  a node carrying *why* you got there — the page you came from is a free `Nav` **edge**, plus the
+  active workspace as the task label — so browsing becomes a **graph**, not a flat list (A→B→A is
+  three connected nodes, not one). Recorded from `dom_publish` inside its existing `if !private`
+  guard, so **private windows leave no trace**, same rule as history; deduped per tab/URL so SPA
+  re-publishes don't fork nodes. New `crate::trace` `TraceStore` persists visits+edges as JSON
+  (`app_data/trace/trace.json`, empty→hydrate→60s-flush like history), capped + oldest-evicted.
+  Day-one privacy control: `trace_forget` drops a URL / host (registrable-boundary match) / time
+  range / all. IPC: `trace_recent`, `trace_visit`, `trace_graph`, `trace_forget` (+ `Visit`,
+  `Provenance`, `Edge`, `EdgeKind`, `TraceGraph`, `ForgetScope` bindings). Coexists with History
+  (unchanged). 6 new tests. Later slice steps: dwell-triggered snapshot+embed → feed the KB as a
+  cited `web` source → the Trail view (timeline + graph) → per-page chat.
 - **`/pac` — Power Platform CLI as an approval-gated agent tool (#135)** — the deterministic ALM
   companion to the browser playbooks: `/pac <request>` (e.g. "export my solution Contoso",
   "unpack the solution zip", "list my canvas apps") maps a natural-language request to **one**
