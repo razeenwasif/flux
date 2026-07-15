@@ -293,6 +293,19 @@ export type EditPlan = { summary: string; edits: FileEdit[] }
  * or `done` with a summary when the goal is met / the model is stuck.
  */
 export type NextStep = { command?: string; done?: boolean; summary?: string }
+/**
+ * A planned `pac` invocation for the approval card. `command` may be empty when
+ * the request doesn't map to a `pac` operation (`explanation` says why).
+ * `danger`/`read_only` are derived in Rust from `command`, not the model.
+ */
+export type PacPlan = { command: string; explanation: string; danger: string | null; read_only: boolean }
+/**
+ * Preflight for the `pac` tool: is the CLI installed, and is there an active
+ * auth profile? Both checks are read-only `pac` invocations. Lets the agent
+ * tell the user to install `pac` or run `pac auth create` before proposing ALM
+ * commands, instead of failing opaquely at run time.
+ */
+export type PacStatus = { installed: boolean; authenticated: boolean; detail: string }
 export type ChromeProfilePreview = { dir: string; name: string; bookmark_count: number; extension_count: number; has_saved_tab_groups: boolean }
 /**
  * A flattened bookmark: folder hierarchy preserved as a path string so the

@@ -82,6 +82,60 @@ pub async fn agent_edit_plan(path: String, content: String, instruction: String)
     .map_err(|e| e.to_string())?
 }
 
+/// Map a natural-language Power Platform request to a single `pac` (Power
+/// Platform CLI) command (#135 follow-up / deterministic ALM path). Returns the
+/// planned command plus a Rust-derived risk classification; nothing runs here —
+/// the frontend shows it on the approval-gated shell card and executes only on
+/// the user's Run. Pairs with the browser-automation playbooks for the parts of
+/// Power Apps/Automate that have no CLI.
+#[tauri::command]
+pub async fn agent_pac_plan(request: String) -> Result<flux_agent::pac::PacPlan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().plan_pac(&request).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Preflight for the `pac` tool: is the CLI installed, and is there an active
+/// auth profile? Both checks are read-only `pac` invocations. Lets the agent
+/// tell the user to install `pac` or run `pac auth create` before proposing ALM
+/// commands, instead of failing opaquely at run time.
+#[derive(serde::Serialize, specta::Type)]
+pub struct PacStatus {
+    /// `pac` is on PATH (its `--version` ran).
+    pub installed: bool,
+    /// `pac auth list` reported at least one profile.
+    pub authenticated: bool,
+    /// Version string or the first diagnostic line, for display.
+    pub detail: String,
+}
+
+#[tauri::command]
+pub async fn pac_status() -> PacStatus {
+    tauri::async_runtime::spawn_blocking(|| {
+        let run = |args: &str| crate::exec::run_captured(&format!("pac {args}"));
+        match run("--version") {
+            Ok(ver) if !ver.trim().is_empty() => {
+                // Installed — now probe auth. A profile list mentions the env/URL;
+                // "No profiles were found" (any casing) means not signed in.
+                let auth = run("auth list").unwrap_or_default();
+                let authenticated = !auth.trim().is_empty()
+                    && !auth.to_ascii_lowercase().contains("no profiles")
+                    && !auth.to_ascii_lowercase().contains("no auth");
+                PacStatus { installed: true, authenticated, detail: ver.lines().next().unwrap_or("").trim().to_string() }
+            }
+            _ => PacStatus {
+                installed: false,
+                authenticated: false,
+                detail: "Power Platform CLI (`pac`) isn't installed or isn't on PATH".into(),
+            },
+        }
+    })
+    .await
+    .unwrap_or(PacStatus { installed: false, authenticated: false, detail: "preflight failed".into() })
+}
+
 /// Streaming chat (BACKLOG #82): same as [`agent_chat`] but relays each token to
 /// the frontend over `on_token` as the model generates it, so the sidebar renders
 /// the reply live. Resolves when the completion ends.

@@ -15,6 +15,8 @@ import {
   type KbHit,
   fsOpen,
   agentShellPlan,
+  agentPacPlan,
+  pacStatus,
   runShell,
   shellGuard,
   readTextFile,
@@ -455,6 +457,44 @@ const AgentPanel: Component = () => {
     setFeed((f) => [...f, { role: "shell", text: `$ ${c}`, shellCmd: c, pending: true }]);
     return `Run “${c}” in your terminal? Tap ▶ Run in terminal to confirm.`;
   };
+
+  // "/pac <request>" — the deterministic Power Platform ALM path (#135). Preflight
+  // that `pac` is installed + signed in, ask the model to map the request to ONE
+  // pac command (grounded by a Rust-side cheatsheet), surface the explanation and
+  // any environment-mutating risk, then reuse the shell approval card so nothing
+  // runs until the user taps Run. Complements the browser-automation playbooks.
+  const PAC_RE = /^\/?pac\s+([\s\S]+)/i;
+  const runPac = async (request: string): Promise<string> => {
+    const q = request.trim();
+    if (!q) return "Tell me what to do, e.g. `/pac export my solution Contoso`.";
+    setBusy(true);
+    try {
+      const st = await pacStatus().catch(() => null);
+      if (st && !st.installed) {
+        return `The Power Platform CLI (\`pac\`) isn't installed or isn't on PATH. Install it (\`dotnet tool install --global Microsoft.PowerApps.CLI.Tool\`), then try again.`;
+      }
+      const plan = await agentPacPlan(q);
+      if (!plan.command) {
+        return plan.explanation || "I couldn't map that to a `pac` command. Try naming the operation (export / import / unpack / list).";
+      }
+      // Context lines before the approval card: what it does, a read-only/write
+      // hint, an auth nudge if we're not signed in, and any danger heads-up.
+      if (plan.explanation) setFeed((f) => [...f, { role: "assistant", text: plan.explanation }]);
+      if (st && st.installed && !st.authenticated && !plan.command.includes("auth")) {
+        setFeed((f) => [...f, { role: "assistant", text: "⚠ No active `pac` auth profile — run `/pac sign in to <env url>` first, or this will fail." }]);
+      }
+      if (plan.danger) {
+        setFeed((f) => [...f, { role: "error", text: `⚠ Heads-up: this ${plan.danger} Review it before you run.` }]);
+      } else if (plan.read_only) {
+        setFeed((f) => [...f, { role: "assistant", text: "✓ Read-only — this can't change a remote environment." }]);
+      }
+      return await runShellCmd(plan.command);
+    } catch (e) {
+      return `pac planning failed: ${String(e)}`;
+    } finally {
+      setBusy(false);
+    }
+  };
   // Poll the active terminal's new output (from `baseline`) until it goes quiet —
   // a PTY has no exit signal, so "stopped changing for STABLE ms" is our done-ish
   // heuristic, capped at MAX. Returns the captured tail.
@@ -554,6 +594,7 @@ const AgentPanel: Component = () => {
     "- Page actions: \"/act <do something on this page>\" (one step) or \"/task <multi-step goal>\" (you plan steps the user approves). You can also chat grounded in the current page or all open tabs.\n" +
     "- Chain several of the above in one request: join steps with \"then\" / \"+\" — e.g. \"read src/foo.rs then fix the bug then run the tests\" or \"play my liked songs + shuffle on\". Each step runs in order; edits/commands still ask for approval.\n" +
     "- Adaptive goal loop: \"/fix <goal>\" (e.g. \"/fix make the tests in src/foo.rs pass\") — you run one step, read the result, and re-plan: run → read the failure → edit a fix → re-run, until it's done or stuck. Each edit/command still asks for approval.\n" +
+    "- Power Platform (Power Apps / Power Automate ALM): \"/pac <request>\" maps to ONE Power Platform CLI command — e.g. \"/pac export my solution Contoso\", \"/pac unpack the solution zip\", \"/pac list my canvas apps\". It runs the command via the approval card; environment-mutating ones (import/delete/publish) are flagged first.\n" +
     "- Voice: always-on \"Hey Gemma\" + push-to-talk; the user can interrupt you by talking or the Stop button.\n" +
     "When asked what you can do, summarize the above. Don't claim abilities not listed.";
 
@@ -765,6 +806,7 @@ const AgentPanel: Component = () => {
       "📄 Page — “/act <do X here>” · “/task <multi-step goal>” · ask about the page or all tabs\n" +
       "🔗 Chains — join steps with “then”/“+”, e.g. “read foo.rs then fix the bug then run the tests”\n" +
       "🛠 Fix loop — “/fix <goal>”, e.g. “/fix make the tests pass”; I run → read the failure → fix → re-run\n" +
+      "⚡ Power Platform — “/pac <request>”, e.g. “/pac export my solution Contoso”; I map it to a pac CLI command you approve\n" +
       "🎙 Voice — “Hey Gemma” always-on + push-to-talk; talk over me or tap ■ Stop to interrupt";
     setFeed((fd) => [...fd, { role: "assistant", text: card }]);
     return "I can handle reminders, memory, terminal commands, system stats, web search, music, page actions, and voice. What would you like to do?";
@@ -865,6 +907,8 @@ const AgentPanel: Component = () => {
       .trim();
     // Multi-step chain (#115) — "play my liked songs + shuffle on", etc.
     if (await maybeRunChain(stripped)) return "Okay, done.";
+    const pac = stripped.match(PAC_RE);
+    if (pac?.[1]) return await runPac(pac[1]);
     const sh = stripped.match(SHELL_RE);
     if (sh?.[1]) return await runShellCmd(sh[1]);
     const musicReply = await handleMusic(t);

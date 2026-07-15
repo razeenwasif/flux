@@ -11,6 +11,7 @@ use thiserror::Error;
 
 pub mod compile;
 pub mod ollama;
+pub mod pac;
 pub mod playbooks;
 #[cfg(feature = "llama")]
 pub mod llama;

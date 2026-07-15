@@ -78,6 +78,40 @@ pub fn shell_guard(command: String) -> Option<String> {
     blocked_reason(&command)
 }
 
+/// Run `command` synchronously and return combined stdout+stderr (trimmed),
+/// applying the same safety denylist as [`run_shell`]. Returns `Ok` **only when
+/// the process exits successfully** — a non-zero exit (e.g. `pac: command not
+/// found`, exit 127) comes back as `Err`, so callers can distinguish "ran and
+/// printed" from "failed", which the shared `run_shell` path deliberately blurs.
+/// Used by read-only preflights like `pac_status`.
+pub(crate) fn run_captured(command: &str) -> Result<String, String> {
+    if let Some(reason) = blocked_reason(command) {
+        return Err(reason);
+    }
+    let mut cmd = shell_command(command);
+    cmd.stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let out = cmd.output().map_err(|e| format!("couldn't run the command: {e}"))?;
+    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let err = String::from_utf8_lossy(&out.stderr);
+    if !err.trim().is_empty() {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&err);
+    }
+    let text = text.trim().to_string();
+    if out.status.success() {
+        Ok(text)
+    } else {
+        Err(if text.is_empty() { "command failed".into() } else { text })
+    }
+}
+
 /// Run `command` and return its output (truncated). stdin is closed so commands
 /// that would wait for input get EOF instead of hanging.
 #[tauri::command]

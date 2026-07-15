@@ -117,6 +117,8 @@ import type {
   AgentAction as GenAgentAction,
   EditPlan as GenEditPlan,
   NextStep as GenNextStep,
+  PacPlan as GenPacPlan,
+  PacStatus as GenPacStatus,
   Reminder as GenReminder,
   SearchEngine as GenSearchEngine,
   Resolution as GenResolution,
@@ -328,6 +330,13 @@ export const memoryPath = () => invoke<string>("memory_path_str");
 export const agentShellPlan = (prompt: string) => invoke<string | null>("agent_shell_plan", { prompt });
 /** Decompose a compound request into ordered single-action sub-commands (#115). */
 export const agentPlanSteps = (goal: string) => invoke<string[]>("agent_plan_steps", { goal });
+/** Map a Power Platform request to ONE `pac` CLI command (deterministic ALM path,
+ * #135). Risk is Rust-classified; nothing runs until the shell card is approved. */
+export type PacPlan = GenPacPlan;
+export type PacStatus = GenPacStatus;
+export const agentPacPlan = (request: string) => invoke<PacPlan>("agent_pac_plan", { request });
+/** Preflight: is `pac` installed and is there an active auth profile? */
+export const pacStatus = () => invoke<PacStatus>("pac_status");
 /** Adaptive loop: next command toward `goal` given the history of results so far. */
 export type NextStep = GenNextStep;
 export const agentNextStep = (goal: string, history: string[]) =>

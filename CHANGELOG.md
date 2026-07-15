@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **`/pac` — Power Platform CLI as an approval-gated agent tool (#135)** — the deterministic ALM
+  companion to the browser playbooks: `/pac <request>` (e.g. "export my solution Contoso",
+  "unpack the solution zip", "list my canvas apps") maps a natural-language request to **one**
+  `pac` command, grounded by a curated in-Rust cheatsheet (auth/env, solution export-import-pack-
+  unpack-clone-check, canvas download-unpack-pack, data export-import; plus the note that Power
+  Automate flows live inside solutions as JSON). Risk is classified **in Rust, never by the model**:
+  environment-mutating or interactive commands (import / delete / publish / reset / upgrade /
+  `auth create`) get a heads-up banner before the approval card; read-only ones (list / export /
+  unpack / check) get a reassuring badge. A `pac_status` preflight checks the CLI is installed and
+  signed in, so the agent nudges you to install `pac` or `pac auth create` instead of failing
+  opaquely. Nothing runs until you tap Run — it reuses the existing shell approval card and PTY
+  read-back, and the same destructive-command denylist. New `flux-agent::pac` module + `PacPlan`/
+  `PacStatus` IPC types; 5 new tests.
 - **Agent domain playbooks — teaching the local model to work in Power Platform (#A)** — the
   planner now injects a domain-specific *harness* into its prompt when the active page is a known,
   hard-to-navigate web app, starting with **Power Automate** (`make.powerautomate.com`,
