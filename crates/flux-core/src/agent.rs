@@ -320,9 +320,11 @@ pub async fn agent_execute(
 
     // 2. Plan on a blocking thread: inference is CPU/GPU-bound and must not
     //    starve the async runtime. `Arc<str>` clone = pointer copy, not text.
+    //    The page URL rides along so a domain playbook can guide the model.
     let page_text = Arc::clone(&snap.text);
+    let url = snap.url.clone();
     let action = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan(&prompt, &page_text)
+        crate::agent_bridge::planner().plan(&prompt, &page_text, &url)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -361,7 +363,8 @@ pub async fn agent_plan(app: AppHandle, state: State<'_, FluxState>, prompt: Str
     *state.agent.write() = AgentStatus::Thinking { prompt: prompt.clone() };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     let page_text = Arc::clone(&snap.text);
-    let action = tauri::async_runtime::spawn_blocking(move || crate::agent_bridge::planner().plan(&prompt, &page_text))
+    let url = snap.url.clone();
+    let action = tauri::async_runtime::spawn_blocking(move || crate::agent_bridge::planner().plan(&prompt, &page_text, &url))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| {
@@ -393,8 +396,9 @@ pub async fn agent_task_step(
     *state.agent.write() = AgentStatus::Thinking { prompt: goal.clone() };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     let page_text = Arc::clone(&snap.text);
+    let url = snap.url.clone();
     let action = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan_step(&goal, &page_text, &history)
+        crate::agent_bridge::planner().plan_step(&goal, &page_text, &history, &url)
     })
     .await
     .map_err(|e| e.to_string())?

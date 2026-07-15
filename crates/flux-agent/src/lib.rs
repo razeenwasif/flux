@@ -11,6 +11,7 @@ use thiserror::Error;
 
 pub mod compile;
 pub mod ollama;
+pub mod playbooks;
 #[cfg(feature = "llama")]
 pub mod llama;
 
@@ -249,12 +250,15 @@ impl AgentPlanner {
         Self { backend }
     }
 
-    pub fn plan(&self, user_prompt: &str, page_text: &str) -> Result<AgentAction, AgentError> {
+    pub fn plan(&self, user_prompt: &str, page_text: &str, url: &str) -> Result<AgentAction, AgentError> {
         // Cap page context: a 12B model's quality degrades long before its
         // window fills, and prompt-eval time is linear in tokens. 6 KB of
         // visible text covers the vast majority of action targets.
         const PAGE_BUDGET: usize = 6 * 1024;
         let page = truncate_utf8(page_text, PAGE_BUDGET);
+        // Domain harness (empty on generic sites): teaches the local model how to
+        // operate a known, hard-to-navigate web app it can't recall on its own.
+        let playbook = playbooks::guidance_block(url);
 
         // Plain prompt — Ollama applies the model's chat template. The exact
         // JSON shapes are spelled out since `format:"json"` only guarantees
@@ -270,7 +274,7 @@ impl AgentPlanner {
              {{\"action\":\"refuse\",\"reason\":\"<why>\"}}\n\
              Prefer stable selectors (ids, aria-labels, data attributes). If the \
              request cannot be satisfied on this page, use \"refuse\".\n\n\
-             PAGE:\n{page}\n\nREQUEST: {user_prompt}"
+             {playbook}PAGE:\n{page}\n\nREQUEST: {user_prompt}"
         );
 
         // Single-shot plan: no `finish` (there's no multi-step task to conclude).
@@ -440,7 +444,21 @@ impl AgentPlanner {
     /// met, or `Refuse` if it can't proceed. Re-planning per step (rather than
     /// emitting a fixed N-step plan up front) is what lets a task cross pages:
     /// the selectors for page 2 aren't knowable while still on page 1.
-    pub fn plan_step(&self, goal: &str, page_text: &str, history: &[String]) -> Result<AgentAction, AgentError> {
+    pub fn plan_step(&self, goal: &str, page_text: &str, history: &[String], url: &str) -> Result<AgentAction, AgentError> {
+        let prompt = Self::step_prompt(goal, page_text, history, url);
+        // Multi-step: `finish` is allowed so the loop can declare the goal met.
+        let raw = self.backend.complete(&prompt, Some(&action_schema(true)))?;
+        let action: AgentAction = serde_json::from_str(raw.trim())?;
+        policy_check(&action)?;
+        tracing::info!(target: "flux::agent", step = %action.describe(), "task step planned");
+        Ok(action)
+    }
+
+    /// Build the per-step planning prompt (extracted so the domain-playbook
+    /// injection is unit-testable without a model). The playbook block is empty
+    /// on generic sites, so those prompts are byte-for-byte what they were before
+    /// harnesses existed.
+    fn step_prompt(goal: &str, page_text: &str, history: &[String], url: &str) -> String {
         const PAGE_BUDGET: usize = 6 * 1024;
         let page = truncate_utf8(page_text, PAGE_BUDGET);
         let steps = if history.is_empty() {
@@ -448,7 +466,10 @@ impl AgentPlanner {
         } else {
             history.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n")
         };
-        let prompt = format!(
+        // Domain harness (empty on generic sites): a followed recipe beats a
+        // small model's recall for surfaces like the Power Platform maker portal.
+        let playbook = playbooks::guidance_block(url);
+        format!(
             "You are the Flux browser agent executing a MULTI-STEP task. Look at the \
              current page and the steps already done, then respond with EXACTLY ONE \
              JSON object — the SINGLE NEXT action — and nothing else. Shapes:\n\
@@ -462,14 +483,8 @@ impl AgentPlanner {
              the updated page. Use \"finish\" when the goal is already satisfied, and \
              \"refuse\" if it cannot be done here. Don't repeat a step already done. \
              Prefer stable selectors (ids, aria-labels, data attributes).\n\n\
-             TASK GOAL: {goal}\n\nSTEPS DONE:\n{steps}\n\nPAGE:\n{page}"
-        );
-        // Multi-step: `finish` is allowed so the loop can declare the goal met.
-        let raw = self.backend.complete(&prompt, Some(&action_schema(true)))?;
-        let action: AgentAction = serde_json::from_str(raw.trim())?;
-        policy_check(&action)?;
-        tracing::info!(target: "flux::agent", step = %action.describe(), "task step planned");
-        Ok(action)
+             {playbook}TASK GOAL: {goal}\n\nSTEPS DONE:\n{steps}\n\nPAGE:\n{page}"
+        )
     }
 
     /// Build the chat prompt (active-page context optional). Shared by the
@@ -675,7 +690,7 @@ mod tests {
     fn mock_pipeline_end_to_end() {
         let planner = AgentPlanner::new(Box::new(MockBackend));
         let action = planner
-            .plan("Find the unsubscribe link on this page and click it", "…page text…")
+            .plan("Find the unsubscribe link on this page and click it", "…page text…", "https://news.example.com/")
             .unwrap();
         assert!(matches!(action, AgentAction::Click { .. }));
         let js = action.to_js();
@@ -688,11 +703,11 @@ mod tests {
     fn task_loop_steps_then_finishes() {
         let planner = AgentPlanner::new(Box::new(MockBackend));
         // First call (no history) → a concrete step.
-        let s1 = planner.plan_step("download the report", "…page…", &[]).unwrap();
+        let s1 = planner.plan_step("download the report", "…page…", &[], "https://example.com/").unwrap();
         assert!(matches!(s1, AgentAction::Reveal { .. }));
         // Once a step is in the history, the loop terminates with Finish.
         let s2 = planner
-            .plan_step("download the report", "…page…", &[s1.describe()])
+            .plan_step("download the report", "…page…", &[s1.describe()], "https://example.com/")
             .unwrap();
         assert!(matches!(s2, AgentAction::Finish { .. }));
         // Finish never targets the page.
@@ -732,6 +747,21 @@ mod tests {
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0], full);
         assert!(full.contains("hello there"));
+    }
+
+    #[test]
+    fn step_prompt_injects_playbook_only_on_matching_host() {
+        let goal = "add a Compose action to my flow";
+        // On a Power Automate host the harness is spliced in with its recipe.
+        let pa = AgentPlanner::step_prompt(goal, "…page…", &[], "https://make.powerautomate.com/flows");
+        assert!(pa.contains("DOMAIN PLAYBOOK"));
+        assert!(pa.contains("CLOUD FLOW"));
+        assert!(pa.contains("STOP"), "the refuse/hand-back list must reach the model");
+        // On a generic host the prompt is unchanged from the pre-harness shape.
+        let generic = AgentPlanner::step_prompt(goal, "…page…", &[], "https://example.com/");
+        assert!(!generic.contains("DOMAIN PLAYBOOK"));
+        // Both still carry the task framing.
+        assert!(pa.contains("TASK GOAL:") && generic.contains("TASK GOAL:"));
     }
 
     #[test]

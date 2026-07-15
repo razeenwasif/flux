@@ -8,6 +8,21 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Agent domain playbooks — teaching the local model to work in Power Platform (#A)** — the
+  planner now injects a domain-specific *harness* into its prompt when the active page is a known,
+  hard-to-navigate web app, starting with **Power Automate** (`make.powerautomate.com`,
+  `flow.microsoft.com`) and **Power Apps** (`make.powerapps.com`). Flux's agent is a *local* Gemma
+  model that doesn't carry deep first-party knowledge of the maker portal, so each playbook hands
+  it an explicit recipe — the landmarks to click, the order of operations (create → trigger →
+  add-step → configure via dynamic content → save → test), an aria-label-first selector strategy,
+  verification gates (check for the saved toast / no red error cards before moving on), and a hard
+  **STOP list** (never type into sign-in/OAuth/connection dialogs, never publish to production or
+  delete; hand bulk Dataverse work back to the `pac` CLI / Dataverse MCP). The harness only changes
+  *what the model is told* — the `AgentAction` vocabulary and compile templates are untouched, so
+  the "Rust decides how, the model only picks what" security model is preserved. Host matching is at
+  a registrable-domain boundary (a lookalike like `evilpowerautomate.com` does **not** match).
+  Generic pages get an empty block, so their prompts are byte-for-byte unchanged. New
+  `flux-agent::playbooks` module; `plan`/`plan_step` thread the page URL; 6 new tests.
 - **Playground: six more games — 23 total (#133)** — **Missile Command** (click-to-intercept
   city defense, waves), **Bubble Shooter** (aim + match-3 pops, dropping ceiling),
   **Bejeweled** (swap-to-match-3 with cascades, ends when no move remains), **Centipede**
