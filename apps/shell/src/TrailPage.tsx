@@ -13,6 +13,7 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
 import { traceGraph, traceSnapshotGet, traceForget, traceChat, traceChatSend, type Visit, type Edge, type ChatMsg } from "./ipc";
+import { openTab } from "./store";
 
 type GNode = {
   x: number; y: number; vx: number; vy: number; fx: number; fy: number;
@@ -43,8 +44,12 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   let canvas!: HTMLCanvasElement;
   let wrap!: HTMLDivElement;
   const [loading, setLoading] = createSignal(true);
-  const [stats, setStats] = createSignal({ nodes: 0, edges: 0 });
+  const [stats, setStats] = createSignal({ nodes: 0, edges: 0, sem: 0 });
   const [windowIdx, setWindowIdx] = createSignal(0);
+  // Time-travel scrub (payoff layer): the END of the viewed window. null = live
+  // ("now"); dragging back replays what the workspace looked like around then.
+  const [endMs, setEndMs] = createSignal<number | null>(null);
+  let scrubTimer = 0; // debounce loads while dragging
   const [selected, setSelected] = createSignal<Visit | null>(null);
   const [snapText, setSnapText] = createSignal<string | null>(null);
   const [snapLoading, setSnapLoading] = createSignal(false);
@@ -56,7 +61,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   let chatFor: number | null = null; // guards stale stream frames after reselect
 
   let nodes: GNode[] = [];
-  let edges: { s: number; t: number; w: number }[] = [];
+  let edges: { s: number; t: number; w: number; sem: boolean }[] = [];
   let raf = 0, alpha = 1, running = false;
   const cam = { x: 0, y: 0, scale: 1 };
   let dragNode: GNode | null = null, panning = false, moved = false;
@@ -128,18 +133,25 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     ctx.save();
     ctx.translate(W / 2 + cam.x, H / 2 + cam.y);
     ctx.scale(cam.scale, cam.scale);
-    // edges — direction A→B of navigation (source dimmer, target brighter handled by colour)
+    // edges — nav solid violet; semantic ("same topic") dashed teal
     ctx.lineWidth = 1 / cam.scale;
     for (const e of edges) {
       const a = nodes[e.s], b = nodes[e.t];
       if (!a || !b) continue;
       const lit = a === hoverNode || b === hoverNode || a === selNode || b === selNode;
-      ctx.strokeStyle = lit ? "rgba(47,243,255,0.55)" : "rgba(123,97,255,0.14)";
+      if (e.sem) {
+        ctx.setLineDash([4 / cam.scale, 4 / cam.scale]);
+        ctx.strokeStyle = lit ? "rgba(47,243,255,0.7)" : "rgba(47,243,255,0.18)";
+      } else {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = lit ? "rgba(47,243,255,0.55)" : "rgba(123,97,255,0.14)";
+      }
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.stroke();
     }
+    ctx.setLineDash([]);
     // nodes
     for (const a of nodes) {
       const hasSnap = a.visit.snapshot_id != null;
@@ -292,9 +304,16 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const load = async () => {
     setLoading(true);
     const win = WINDOWS[windowIdx()]!;
-    const after = win.ms != null ? Date.now() - win.ms : undefined;
+    // Scrubbed back → a closed [end−span, end] window; live → open-ended.
+    let after: number | undefined;
+    let before: number | undefined;
+    if (win.ms != null) {
+      const end = endMs() ?? Date.now();
+      after = end - win.ms;
+      if (endMs() != null) before = end;
+    }
     try {
-      const g = await traceGraph(after, undefined);
+      const g = await traceGraph(after, before);
       // Cap what the O(n²) force-sim chews on: past ~1200 nodes a frame stops
       // being interactive, so render the most recent slice (narrow the time
       // window to explore older branches).
@@ -314,9 +333,11 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
         };
       });
       edges = g.edges
-        .map((e: Edge) => ({ s: idx.get(e.from), t: idx.get(e.to), w: 1 }))
-        .filter((e): e is { s: number; t: number; w: number } => e.s != null && e.t != null);
-      setStats({ nodes: nodes.length, edges: edges.length });
+        // Semantic links pull related pages toward each other, but gently —
+        // the navigation trail should still dominate the layout.
+        .map((e: Edge) => ({ s: idx.get(e.from), t: idx.get(e.to), w: e.kind === "semantic" ? 0.35 : 1, sem: e.kind === "semantic" }))
+        .filter((e): e is { s: number; t: number; w: number; sem: boolean } => e.s != null && e.t != null);
+      setStats({ nodes: nodes.length, edges: edges.length, sem: edges.filter((e) => e.sem).length });
       // Keep a live selection valid across reloads.
       selNode = selected() ? (nodes.find((n) => n.visit.id === selected()!.id) ?? null) : null;
       if (!selNode) setSelected(null);
@@ -343,6 +364,42 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     }
     setSelected(null); selNode = null;
     await load();
+  };
+
+  // ── time-travel scrub ──
+  /** How far back the slider reaches: 8 windows of the chosen span. */
+  const scrubMin = createMemo(() => {
+    const span = WINDOWS[windowIdx()]!.ms;
+    return span != null ? Date.now() - span * 8 : 0;
+  });
+  const onScrub = (v: number) => {
+    // Snap the top of the range back to "live" so dragging fully right clears
+    // the scrub instead of pinning a stale "now".
+    setEndMs(v >= Date.now() - 30_000 ? null : v);
+    window.clearTimeout(scrubTimer);
+    scrubTimer = window.setTimeout(() => void load(), 160);
+  };
+  const fmtT = (ms: number) =>
+    new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const scrubLabel = createMemo(() => {
+    const span = WINDOWS[windowIdx()]!.ms;
+    if (span == null) return "";
+    const end = endMs();
+    return end == null ? `now − ${WINDOWS[windowIdx()]!.label}` : `${fmtT(end - span)} → ${fmtT(end)}`;
+  });
+  /** "Reopen this moment": bring back the window's most recent pages as tabs. */
+  const reopenWindow = async () => {
+    const seen = new Set<string>();
+    const urls: string[] = [];
+    for (const n of [...nodes].sort((a, b) => b.visit.last_ms - a.visit.last_ms)) {
+      if (seen.has(n.visit.url)) continue;
+      seen.add(n.visit.url);
+      urls.push(n.visit.url);
+      if (urls.length >= 6) break;
+    }
+    if (urls.length === 0) return;
+    if (!window.confirm(`Reopen ${urls.length} page${urls.length === 1 ? "" : "s"} from this window as tabs?`)) return;
+    for (const u of urls) await openTab("browser", u).catch(() => {});
   };
 
   const selWhy = createMemo(() => {
@@ -374,7 +431,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                 <button
                   class="trail-win-btn"
                   classList={{ on: windowIdx() === i() }}
-                  onClick={() => { setWindowIdx(i()); void load(); }}
+                  onClick={() => { setWindowIdx(i()); setEndMs(null); void load(); }}
                 >{w.label}</button>
               )}
             </For>
@@ -383,6 +440,31 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
           <button class="trail-reload" onClick={() => void load()}>↻</button>
         </div>
       </header>
+
+      {/* Time-travel scrub: drag the window back through your history, then
+          bring that moment's pages back as tabs. */}
+      <Show when={WINDOWS[windowIdx()]!.ms != null}>
+        <div class="trail-scrub">
+          <input
+            type="range"
+            class="trail-scrub-slider"
+            min={scrubMin()}
+            max={Date.now()}
+            value={endMs() ?? Date.now()}
+            onInput={(e) => onScrub(Number(e.currentTarget.value))}
+          />
+          <span class="trail-scrub-label">{scrubLabel()}</span>
+          <Show when={endMs() != null}>
+            <button class="trail-scrub-now" onClick={() => { setEndMs(null); void load(); }}>Now</button>
+          </Show>
+          <button
+            class="trail-scrub-reopen"
+            disabled={stats().nodes === 0}
+            title="Reopen this window's most recent pages as tabs"
+            onClick={() => void reopenWindow()}
+          >⏪ Reopen these pages</button>
+        </div>
+      </Show>
 
       <div class="trail-body">
         <div class="trail-graph" ref={wrap}>
@@ -396,7 +478,10 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
           />
           <div class="trail-hud">
             <Show when={!loading()} fallback={<span>Loading the Trail…</span>}>
-              <span>{stats().nodes} pages · {stats().edges} links</span>
+              <span>
+                {stats().nodes} pages · {stats().edges - stats().sem} steps
+                <Show when={stats().sem > 0}> · <span class="trail-hud-sem">{stats().sem} related</span></Show>
+              </span>
             </Show>
           </div>
           <Show when={!loading() && stats().nodes === 0}>

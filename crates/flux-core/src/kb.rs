@@ -285,6 +285,13 @@ impl KbStore {
         self.data.read().config.get(source).cloned()
     }
 
+    /// The embedder the persisted corpus is on (drives the auto-reindex's
+    /// "did Ollama appear since we indexed?" check without an HTTP probe).
+    pub fn embedder(&self) -> Embedder {
+        self.hydrate();
+        self.data.read().embedder
+    }
+
     /// Remove specific docs (and their chunks) from a source, persisting if
     /// anything went. The privacy cascade for `trace_forget` (ADR 0011): a
     /// forgotten page must leave the KB immediately, not at the next reindex.

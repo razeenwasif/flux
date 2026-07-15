@@ -8,6 +8,28 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The Trail payoff layer, part 1 — semantic edges, auto-indexed browsing, time-travel scrub
+  (ADR 0011, #136)** — three features on top of the completed spine, each a thin layer because the
+  data was already there:
+  **Semantic edges** — at capture time each new dwell snapshot is compared (cosine) against the
+  stored snapshot embeddings and linked to its 3 nearest neighbours above 0.55, as `Semantic` edges
+  persisted alongside the Nav ones. In the Trail they render **dashed teal** ("related", counted in
+  the HUD) vs the solid violet navigation steps, and pull related pages gently together in the
+  layout — so topic clusters emerge *across* navigation branches. Mismatched embedders compare as 0
+  (a corpus mid-migration just yields fewer links); duplicates are checked in both directions.
+  **Auto-indexed browsing** — the KB `web` source now updates itself: when new snapshots have
+  *settled* (no new capture for a full 60 s flush tick), the background thread folds them into the
+  KB incrementally — only new pages embed. Active browsing defers it; a pause indexes. If the
+  embedder changed since the corpus was built (Ollama came up), it heals by rebuilding **all**
+  sources rather than letting a single-source pass wipe the others. `FLUX_TRAIL_AUTOINDEX=0` opts
+  out. The Notebook's ↻ Reindex still works and takes priority (the auto pass just retries later).
+  **Time-travel scrub** — pick a span (24h / 7 days / 30 days) and a slider appears: drag the
+  window back through history (up to 8 spans), the graph replays what you were working on around
+  then, and **⏪ Reopen these pages** brings that moment's most recent pages (up to 6, confirmed)
+  back as tabs — "I had a great setup for this research yesterday" is now one drag + one click.
+  Dragging fully right snaps back to live "now". No backend change — the scrub is pure
+  `trace_graph(after, before)` windowing, which is the spine paying off again. 2 new tests
+  (172 total).
 - **Per-page chat — a conversation attached to every page, slice step d (ADR 0011, #136)** — the
   last core piece of the Trail: click a node in `flux://trail` and **ask Gemma about that page**, in
   a thread that is *bound to the Visit* — it persists (`trace/chats.json`) and is still there when

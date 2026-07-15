@@ -495,6 +495,15 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             if let Some(c) = handle.try_state::<trace::TraceChats>() {
                 c.hydrate();
             }
+            // Debounced KB auto-reindex of the `web` source (#136 payoff): fold
+            // settled browsing into the Notebook without a manual ↻ Reindex.
+            // "Settled" = the snapshot generation is unchanged for one full tick
+            // but ahead of what's indexed — so active browsing defers, a pause
+            // indexes. Incremental (doc_id = visit id), so only new pages embed.
+            // FLUX_TRAIL_AUTOINDEX=0 opts out.
+            let autoindex = std::env::var("FLUX_TRAIL_AUTOINDEX").map(|v| v != "0").unwrap_or(true);
+            let mut last_seen: u64 = 0;
+            let mut last_indexed: u64 = 0;
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(60));
                 if let Some(t) = handle.try_state::<trace::TraceStore>() {
@@ -505,6 +514,30 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 }
                 if let Some(c) = handle.try_state::<trace::TraceChats>() {
                     c.persist_if_dirty();
+                }
+                if !autoindex {
+                    continue;
+                }
+                if let (Some(s), Some(kb)) = (handle.try_state::<trace::TraceSnapshots>(), handle.try_state::<kb::KbStore>()) {
+                    let generation = s.generation();
+                    let settled = generation == last_seen && generation != last_indexed;
+                    last_seen = generation;
+                    if !settled {
+                        continue;
+                    }
+                    // If the embedder changed since the corpus was built (e.g.
+                    // Ollama came up), a single-source reindex would clear every
+                    // source and rebuild only `web` — heal by rebuilding all.
+                    let source = if kb.embedder() != embedding::current() { None } else { Some("web".to_string()) };
+                    match kb.reindex(source, s.web_docs()) {
+                        Ok(_) => {
+                            last_indexed = generation;
+                            tracing::info!(target: "flux::kb", generation, "auto-indexed browsing into the web source");
+                        }
+                        // Busy (a manual reindex is running) or a source failed —
+                        // leave last_indexed behind so the next settled tick retries.
+                        Err(e) => tracing::debug!(target: "flux::kb", "web auto-reindex skipped: {e}"),
+                    }
                 }
             }
         });

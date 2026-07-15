@@ -286,6 +286,37 @@ impl TraceStore {
         }
     }
 
+    /// Add derived `Semantic` edges from each of `froms` to `to` (payoff layer).
+    /// Direction carries no meaning for semantic links, so duplicates are checked
+    /// both ways; self-edges and edges to visits that no longer exist are skipped.
+    pub fn add_semantic_edges(&self, to: VisitId, froms: &[VisitId]) {
+        if froms.is_empty() {
+            return;
+        }
+        self.hydrate();
+        let mut d = self.inner.write();
+        if !d.visits.iter().any(|v| v.id == to) {
+            return;
+        }
+        let mut added = false;
+        for &f in froms {
+            if f == to || !d.visits.iter().any(|v| v.id == f) {
+                continue;
+            }
+            let dup = d.edges.iter().any(|e| {
+                e.kind == EdgeKind::Semantic && ((e.from == f && e.to == to) || (e.from == to && e.to == f))
+            });
+            if !dup {
+                d.edges.push(Edge { from: f, to, kind: EdgeKind::Semantic });
+                added = true;
+            }
+        }
+        if added {
+            drop(d);
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+    }
+
     /// Most-recent visits (newest first).
     pub fn recent(&self, limit: usize) -> Vec<Visit> {
         self.hydrate();
@@ -457,6 +488,9 @@ pub struct TraceSnapshots {
     path: Option<PathBuf>,
     dirty: AtomicBool,
     hydrated: AtomicBool,
+    /// Bumped on every `add`/`forget_visits` change — the KB auto-reindex
+    /// debouncer watches this to fold settled browsing into the `web` source.
+    generation: std::sync::atomic::AtomicU64,
 }
 
 impl TraceSnapshots {
@@ -467,7 +501,14 @@ impl TraceSnapshots {
             path: Some(path),
             dirty: AtomicBool::new(false),
             hydrated: AtomicBool::new(false),
+            generation: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// Monotonic change counter (see field docs). Not persisted — a restart
+    /// starting at 0 just means one redundant (incremental, cheap) reindex.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
     }
 
     /// Load from disk, exactly once (lazily invoked from every entry point, same
@@ -529,6 +570,7 @@ impl TraceSnapshots {
         }
         drop(d);
         self.dirty.store(true, Ordering::Relaxed);
+        self.generation.fetch_add(1, Ordering::Relaxed);
         id
     }
 
@@ -542,6 +584,30 @@ impl TraceSnapshots {
             saved_ms: s.saved_ms,
             text: s.text.clone(),
         })
+    }
+
+    /// Visits whose snapshots are semantically nearest to `embedding` — cosine ≥
+    /// `threshold`, best-first, at most `k`, excluding `exclude` (the visit being
+    /// captured). Used at capture time to draw `Semantic` edges, so topic
+    /// clusters emerge across navigation branches. Mismatched embedders compare
+    /// as 0 (different dimensions), so a corpus mid-migration just yields fewer
+    /// neighbours rather than nonsense.
+    pub fn neighbours(&self, embedding: &[f32], exclude: VisitId, k: usize, threshold: f32) -> Vec<VisitId> {
+        if embedding.is_empty() || k == 0 {
+            return Vec::new();
+        }
+        self.hydrate();
+        let d = self.inner.read();
+        let mut scored: Vec<(VisitId, f32)> = d
+            .snapshots
+            .iter()
+            .filter(|s| s.visit_id != exclude)
+            .map(|s| (s.visit_id, crate::embedding::cosine(&s.embedding, embedding)))
+            .filter(|(_, c)| *c >= threshold)
+            .collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(k);
+        scored.into_iter().map(|(v, _)| v).collect()
     }
 
     /// Flatten every stored snapshot into a KB `web` document (ADR 0011 step b).
@@ -575,6 +641,7 @@ impl TraceSnapshots {
         if d.snapshots.len() != before {
             drop(d);
             self.dirty.store(true, Ordering::Relaxed);
+            self.generation.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -803,8 +870,15 @@ pub async fn trace_snapshot(
     })
     .await
     .map_err(|e| e.to_string())?;
+    // Semantic edges (payoff layer): link this page to its nearest already-
+    // captured neighbours by snapshot embedding, so topic clusters surface in
+    // the Trail across navigation branches. ~1.5k dot products — microseconds.
+    const SEM_K: usize = 3;
+    const SEM_THRESHOLD: f32 = 0.55;
+    let neighbours = snaps.neighbours(&embedding, visit_id, SEM_K, SEM_THRESHOLD);
     let id = snaps.add(visit_id, url, title, text, embedding);
     trace.attach_snapshot(visit_id, id);
+    trace.add_semantic_edges(visit_id, &neighbours);
     Ok(Some(id))
 }
 
@@ -897,6 +971,7 @@ mod tests {
             path: None,
             dirty: AtomicBool::new(false),
             hydrated: AtomicBool::new(true),
+            generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -1066,6 +1141,43 @@ mod tests {
         let vb = s.visit(b).unwrap();
         assert_eq!(vb.why.from_visit, None);
         assert_eq!(vb.why.referrer, None);
+        assert!(s.graph(None, None).edges.is_empty());
+    }
+
+    #[test]
+    fn neighbours_rank_threshold_and_exclude() {
+        let snaps = test_snaps();
+        // L2-normalized toy vectors: cosine == dot product.
+        snaps.add(1, "https://a/".into(), "A".into(), "t".into(), vec![1.0, 0.0]);
+        snaps.add(2, "https://b/".into(), "B".into(), "t".into(), vec![0.8, 0.6]); // cos 0.8 vs [1,0]
+        snaps.add(3, "https://c/".into(), "C".into(), "t".into(), vec![0.0, 1.0]); // cos 0.0
+        let n = snaps.neighbours(&[1.0, 0.0], 99, 5, 0.5);
+        assert_eq!(n, vec![1, 2], "best-first, thresholded, c excluded by score");
+        // The visit being captured never links to itself.
+        assert_eq!(snaps.neighbours(&[1.0, 0.0], 1, 5, 0.5), vec![2]);
+        // Mismatched dimensions (embedder migration) compare as 0 — no edges.
+        assert!(snaps.neighbours(&[1.0, 0.0, 0.0], 99, 5, 0.5).is_empty());
+        // Empty embedding (embed failed) yields nothing.
+        assert!(snaps.neighbours(&[], 99, 5, 0.5).is_empty());
+    }
+
+    #[test]
+    fn semantic_edges_dedup_both_directions_and_skip_missing() {
+        let s = TraceStore::default();
+        let a = s.record(1, "https://a.com/", "A", None).unwrap();
+        let b = s.record(2, "https://b.com/", "B", None).unwrap();
+        s.add_semantic_edges(b, &[a]);
+        s.add_semantic_edges(b, &[a]); // same direction dup
+        s.add_semantic_edges(a, &[b]); // reversed dup
+        let g = s.graph(None, None);
+        assert_eq!(g.edges.iter().filter(|e| e.kind == EdgeKind::Semantic).count(), 1);
+        // Self-edges and missing endpoints are skipped.
+        s.add_semantic_edges(a, &[a, 999]);
+        s.add_semantic_edges(999, &[a]);
+        let g = s.graph(None, None);
+        assert_eq!(g.edges.iter().filter(|e| e.kind == EdgeKind::Semantic).count(), 1);
+        // Forget drops semantic edges with their visit, like nav edges.
+        s.forget(&ForgetScope::Url { url: "https://a.com/".into() });
         assert!(s.graph(None, None).edges.is_empty());
     }
 

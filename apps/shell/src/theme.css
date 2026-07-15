@@ -2241,11 +2241,20 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .trail-forget:hover { background: rgba(236,75,110,0.24); }
 .trail-reload { font-size: 13px; color: var(--flux-text); cursor: pointer; padding: 5px 10px; border-radius: 8px; background: rgba(123,97,255,0.16); border: 1px solid rgba(123,97,255,0.34); }
 .trail-reload:hover { background: rgba(123,97,255,0.3); }
+.trail-scrub { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin: -4px 0 12px; padding: 8px 12px; background: rgba(12,10,26,0.5); border: 1px solid var(--flux-border); border-radius: 10px; }
+.trail-scrub-slider { flex: 1 1 auto; min-width: 0; accent-color: #7b61ff; height: 4px; cursor: ew-resize; }
+.trail-scrub-label { flex: 0 0 auto; font-size: 11.5px; color: var(--flux-text-mute); font-variant-numeric: tabular-nums; min-width: 150px; text-align: center; }
+.trail-scrub-now { flex: 0 0 auto; font-size: 11.5px; color: var(--flux-teal, #2ff3ff); cursor: pointer; padding: 4px 10px; border-radius: 999px; background: rgba(47,243,255,0.1); border: 1px solid rgba(47,243,255,0.28); }
+.trail-scrub-now:hover { background: rgba(47,243,255,0.2); }
+.trail-scrub-reopen { flex: 0 0 auto; font-size: 11.5px; color: var(--flux-text); cursor: pointer; padding: 4px 11px; border-radius: 8px; background: rgba(123,97,255,0.16); border: 1px solid rgba(123,97,255,0.34); }
+.trail-scrub-reopen:hover:not(:disabled) { background: rgba(123,97,255,0.3); }
+.trail-scrub-reopen:disabled { opacity: 0.5; cursor: default; }
 .trail-body { display: flex; gap: 14px; flex: 1 1 auto; min-height: 0; }
 .trail-graph { position: relative; flex: 1 1 auto; min-width: 0; border-radius: var(--flux-radius-card, 14px); overflow: hidden; border: 1px solid var(--flux-border); background: radial-gradient(120% 120% at 50% 40%, rgba(20,16,48,0.6), rgba(7,5,15,0.85)); }
 .trail-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 .trail-canvas:active { cursor: grabbing; }
 .trail-hud { position: absolute; top: 10px; left: 12px; font-size: 11.5px; color: var(--flux-text-mute); background: rgba(10,8,24,0.6); padding: 4px 10px; border-radius: 999px; }
+.trail-hud-sem { color: var(--flux-teal, #2ff3ff); }
 .trail-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 15%; font-size: 13px; color: var(--flux-text-mute); line-height: 1.5; }
 .trail-detail { flex: 0 0 320px; display: flex; flex-direction: column; gap: 8px; background: rgba(12,10,26,0.55); border: 1px solid var(--flux-border); border-radius: var(--flux-radius-card, 14px); padding: 16px; overflow-y: auto; }
 .trail-detail-hint { color: var(--flux-text-mute); font-size: 13px; line-height: 1.5; margin: auto 0; text-align: center; }
