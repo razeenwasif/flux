@@ -9,7 +9,7 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount, type Compone
 import { fsOpen, kbRelated, onDomUpdated, type KbHit } from "./ipc";
 import { activeId, openTab } from "./store";
 
-const SOURCE_ICON: Record<string, string> = { onyx: "📝", scroll: "📜", council: "⚖" };
+const SOURCE_ICON: Record<string, string> = { onyx: "📝", scroll: "📜", council: "⚖", web: "🧭" };
 
 const ConnectionsRail: Component = () => {
   const [hits, setHits] = createSignal<KbHit[]>([]);

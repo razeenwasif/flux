@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The Trail feeds the Knowledge Base — browsing as a cited `web` source, slice step b (ADR 0011,
+  #136)** — the co-scientist can now answer over what you've *read*, not just your Onyx/Scroll/
+  Council corpora. The Trail's dwell snapshots become a new KB source, **`web`**: on reindex, each
+  snapshotted visit is chunked + embedded like any other document (one KB doc per visit, `doc_id` =
+  visit id so incremental reindex keeps unchanged pages), and its **citation points back at the page
+  URL** — so a Notebook `[n]` chip re-opens the page, and the ✦ My-notes / ambient rail surface
+  browsed pages too. Snapshots carry the visit title for self-contained, citation-ready docs. Wired
+  through the existing Notebook **↻ Reindex** (labelled "Browsing"; no location box — it's an
+  in-process corpus); `kb_reindex` pulls the snapshots from the Trail store and hands them to the KB,
+  which owns chunking/embedding. Budget-evicted snapshots drop out of the KB on the next reindex. 2
+  new tests. _Follow-up:_ a debounced auto-reindex so browsing flows in without hitting Reindex.
 - **The Trail — dwell-triggered content capture, slice step 1 (ADR 0011, #136)** — the Trail now
   captures each engaged page's **content snapshot + embedding**, not just its metadata. The gate is
   *dwell*: only after the active browser tab holds steady (same tab + URL) for **8 s** does the

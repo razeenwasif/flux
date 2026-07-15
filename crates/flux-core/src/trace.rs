@@ -373,6 +373,10 @@ pub struct Snapshot {
     pub id: u64,
     pub visit_id: VisitId,
     pub url: String,
+    /// The visit's title at capture time — carried here so the KB `web` connector
+    /// (and node detail) is self-contained without a visit lookup.
+    #[serde(default)]
+    pub title: String,
     pub saved_ms: u64,
     pub text: String,
     #[serde(default)]
@@ -387,8 +391,20 @@ pub struct SnapshotWire {
     pub id: u64,
     pub visit_id: VisitId,
     pub url: String,
+    pub title: String,
     pub saved_ms: u64,
     pub text: String,
+}
+
+/// A dwell snapshot flattened for the KB `web` connector (ADR 0011 step b): one
+/// KB document per snapshotted visit. `doc_id` is the visit id (stable — a visit
+/// holds one snapshot), so incremental reindex keeps unchanged pages.
+pub struct WebDoc {
+    pub doc_id: String,
+    pub title: String,
+    pub url: String,
+    pub mtime: u64,
+    pub body: String,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -440,7 +456,7 @@ impl TraceSnapshots {
 
     /// Store a captured snapshot, evicting the oldest beyond the budget. Returns
     /// the new snapshot id.
-    pub fn add(&self, visit_id: VisitId, url: String, text: String, embedding: Vec<f32>) -> u64 {
+    pub fn add(&self, visit_id: VisitId, url: String, title: String, text: String, embedding: Vec<f32>) -> u64 {
         let mut d = self.inner.write();
         let id = d.next_id;
         d.next_id += 1;
@@ -448,6 +464,7 @@ impl TraceSnapshots {
             id,
             visit_id,
             url,
+            title,
             saved_ms: now_ms(),
             text,
             embedding,
@@ -468,9 +485,28 @@ impl TraceSnapshots {
             id: s.id,
             visit_id: s.visit_id,
             url: s.url.clone(),
+            title: s.title.clone(),
             saved_ms: s.saved_ms,
             text: s.text.clone(),
         })
+    }
+
+    /// Flatten every stored snapshot into a KB `web` document (ADR 0011 step b).
+    /// One doc per snapshotted visit; the KB chunks + embeds these itself, so its
+    /// citations point back to the page URL.
+    pub fn web_docs(&self) -> Vec<WebDoc> {
+        self.inner
+            .read()
+            .snapshots
+            .iter()
+            .map(|s| WebDoc {
+                doc_id: s.visit_id.to_string(),
+                title: if s.title.trim().is_empty() { s.url.clone() } else { s.title.clone() },
+                url: s.url.clone(),
+                mtime: s.saved_ms,
+                body: s.text.clone(),
+            })
+            .collect()
     }
 
     /// Drop snapshots belonging to any of `visits` (cascade from `trace_forget`).
@@ -537,10 +573,12 @@ pub async fn trace_snapshot(
     tab_id: TabId,
 ) -> Result<Option<u64>, String> {
     let Some(visit_id) = trace.current_visit(tab_id) else { return Ok(None) };
+    let visit = trace.visit(visit_id);
     // Already captured for this visit → no re-embed (dwell can fire repeatedly).
-    if let Some(existing) = trace.visit(visit_id).and_then(|v| v.snapshot_id) {
+    if let Some(existing) = visit.as_ref().and_then(|v| v.snapshot_id) {
         return Ok(Some(existing));
     }
+    let title = visit.map(|v| v.title).unwrap_or_default();
     // Read the cached DOM text ONCE (then drop the dashmap guard before the await),
     // so what we store is exactly what we embedded even if the tab navigates mid-embed.
     let (url, text) = {
@@ -558,7 +596,7 @@ pub async fn trace_snapshot(
     })
     .await
     .map_err(|e| e.to_string())?;
-    let id = snaps.add(visit_id, url, text, embedding);
+    let id = snaps.add(visit_id, url, title, text, embedding);
     trace.attach_snapshot(visit_id, id);
     Ok(Some(id))
 }
@@ -645,9 +683,14 @@ mod tests {
             path: None,
             dirty: AtomicBool::new(false),
         };
-        let id0 = snaps.add(10, "https://a.com/".into(), "alpha".into(), vec![0.1, 0.2]);
+        let id0 = snaps.add(10, "https://a.com/".into(), "Alpha".into(), "alpha".into(), vec![0.1, 0.2]);
         assert_eq!(snaps.get(id0).unwrap().text, "alpha");
+        assert_eq!(snaps.get(id0).unwrap().title, "Alpha");
         assert_eq!(snaps.get(id0).unwrap().visit_id, 10);
+        // web_docs flattens it for the KB, doc_id = visit id.
+        let docs = snaps.web_docs();
+        assert_eq!(docs.len(), 1);
+        assert_eq!((docs[0].doc_id.as_str(), docs[0].title.as_str(), docs[0].url.as_str()), ("10", "Alpha", "https://a.com/"));
 
         // A visit accepts one snapshot; attach is idempotent.
         let s = TraceStore::default();
@@ -673,7 +716,7 @@ mod tests {
         // Exceed the cap; the store never grows past MAX_SNAPSHOTS and drops oldest.
         let mut first = 0;
         for i in 0..(MAX_SNAPSHOTS + 5) {
-            let id = snaps.add(i as u64, "https://x/".into(), "t".into(), vec![]);
+            let id = snaps.add(i as u64, "https://x/".into(), "T".into(), "t".into(), vec![]);
             if i == 0 {
                 first = id;
             }

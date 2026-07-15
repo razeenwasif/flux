@@ -135,7 +135,7 @@ pub struct KbRecentItem {
 }
 
 /// Sources Flux knows how to pull (Onyx vault notes, Scroll papers, Council briefs).
-pub const SOURCES: &[&str] = &["onyx", "scroll", "council"];
+pub const SOURCES: &[&str] = &["onyx", "scroll", "council", "web"];
 
 /// A document yielded by a connector, before chunking/embedding.
 struct RawDoc {
@@ -287,17 +287,21 @@ impl KbStore {
 
     /// (Re)build the index for `source` (or every known source when `None`),
     /// incrementally — documents whose mtime is unchanged keep their chunks.
-    pub fn reindex(&self, source: Option<String>) -> Result<KbStatus, String> {
+    /// `web` carries the browsing snapshots (ADR 0011 step b) for the `"web"`
+    /// source — supplied by the caller (from the Trail store) since it's an
+    /// in-process corpus, not a file/HTTP connector. Empty means "no snapshots
+    /// yet" (the web source legitimately indexes to 0 docs).
+    pub fn reindex(&self, source: Option<String>, web: Vec<crate::trace::WebDoc>) -> Result<KbStatus, String> {
         self.hydrate();
         if self.indexing.swap(true, Ordering::AcqRel) {
             return Err("an index build is already running".into());
         }
-        let result = self.reindex_inner(source);
+        let result = self.reindex_inner(source, web);
         self.indexing.store(false, Ordering::Release);
         result.map(|_| self.status())
     }
 
-    fn reindex_inner(&self, source: Option<String>) -> Result<(), String> {
+    fn reindex_inner(&self, source: Option<String>, web: Vec<crate::trace::WebDoc>) -> Result<(), String> {
         let targets: Vec<&str> = match &source {
             Some(s) => {
                 if !SOURCES.contains(&s.as_str()) {
@@ -320,8 +324,24 @@ impl KbStore {
         }
 
         for src in targets {
-            let ov = self.data.read().config.get(src).cloned();
-            let res = collect(src, ov.as_deref()).and_then(|raw| self.reindex_source(src, embedder, raw));
+            // "web" is an in-process corpus (the Trail's dwell snapshots), supplied
+            // by the caller; every other source is a file/HTTP connector.
+            let raw = if src == "web" {
+                Ok(web
+                    .iter()
+                    .map(|w| RawDoc {
+                        doc_id: w.doc_id.clone(),
+                        title: w.title.clone(),
+                        path: w.url.clone(),
+                        mtime: w.mtime,
+                        body: w.body.clone(),
+                    })
+                    .collect())
+            } else {
+                let ov = self.data.read().config.get(src).cloned();
+                collect(src, ov.as_deref())
+            };
+            let res = raw.and_then(|raw| self.reindex_source(src, embedder, raw));
             match res {
                 Ok(()) => {
                     let mut d = self.data.write();
@@ -785,9 +805,17 @@ pub async fn kb_recent(kb: State<'_, KbStore>, days: Option<u64>) -> Result<Vec<
 }
 
 #[tauri::command]
-pub async fn kb_reindex(kb: State<'_, KbStore>, source: Option<String>) -> Result<KbStatus, String> {
+pub async fn kb_reindex(
+    kb: State<'_, KbStore>,
+    snaps: State<'_, crate::trace::TraceSnapshots>,
+    source: Option<String>,
+) -> Result<KbStatus, String> {
     let kb = (*kb).clone();
-    tauri::async_runtime::spawn_blocking(move || kb.reindex(source)).await.map_err(|e| e.to_string())?
+    // The Trail's dwell snapshots are the `web` corpus — pull them here (in-process
+    // state) and hand them to the KB, which chunks + embeds + cites them like any
+    // other source (ADR 0011 step b).
+    let web = snaps.web_docs();
+    tauri::async_runtime::spawn_blocking(move || kb.reindex(source, web)).await.map_err(|e| e.to_string())?
 }
 
 /// Set a source's location (Onyx vault path / Scroll URL) — the robust, env-free
@@ -1153,6 +1181,37 @@ mod tests {
         assert!(store.data.read().chunks.iter().any(|c| c.doc_id == "a.md"));
         assert!(!store.data.read().chunks.iter().any(|c| c.doc_id == "b.md"));
         assert!(store.data.read().chunks.len() <= before);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn web_source_indexes_browsing_and_cites_the_url() {
+        let dir = std::env::temp_dir().join(format!("flux-kb-web-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+        store.data.write().embedder = Embedder::Hash;
+
+        // Reindex the "web" source from Trail snapshots (no file/HTTP connector).
+        let web = vec![crate::trace::WebDoc {
+            doc_id: "42".into(),
+            title: "CUDA out of memory — fix".into(),
+            url: "https://forum.example/cuda-oom".into(),
+            mtime: 100,
+            body: "resolving a CUDA out of memory error by reducing the batch size and clearing the cache".into(),
+        }];
+        store.reindex(Some("web".into()), web).unwrap();
+
+        let hits = store.query("cuda memory error", 5, Some(vec!["web".into()])).unwrap();
+        assert!(!hits.is_empty(), "the browsed page should be retrievable");
+        assert_eq!(hits[0].source, "web");
+        // The citation points back at the page URL so a Notebook chip re-opens it.
+        assert_eq!(hits[0].path, "https://forum.example/cuda-oom");
+
+        // Absent from a later (empty) web batch → evicted, mirroring snapshot eviction.
+        store.reindex(Some("web".into()), vec![]).unwrap();
+        assert!(!store.data.read().chunks.iter().any(|c| c.source == "web"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -12,7 +12,7 @@ import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import { agentChat, fsOpen, kbAnswer, kbRecent, kbReindex, kbSetSource, kbStatus, servicesStart, servicesStatus, type KbHit, type KbStatus, type ServiceStatus } from "./ipc";
 import { openTab } from "./store";
 
-const SOURCE_LABEL: Record<string, string> = { onyx: "Onyx vault", scroll: "Scroll papers", council: "Council briefs" };
+const SOURCE_LABEL: Record<string, string> = { onyx: "Onyx vault", scroll: "Scroll papers", council: "Council briefs", web: "Browsing" };
 const SOURCE_HINT: Record<string, string> = {
   onyx: "Vault path — e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault",
   scroll: "Scroll base URL — e.g. http://localhost:3131",
