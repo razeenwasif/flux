@@ -216,8 +216,16 @@ phase gated on the redaction rules above — not in the slice.
   Collapsing History into a thin view over Visits is a *later* follow-up, out of
   the slice.
 
+- **Storage budget (was open) — RESOLVED with the dwell-snapshot step: `1500`
+  snapshots max, `20 KiB` text each, oldest-evicted (~35–40 MB incl. vectors).**
+  A separate `TraceSnapshots` store/file (`trace/snapshots.json`) so the tiny
+  visits+edges flush stays cheap; embeddings persisted + embedder-tagged (model
+  embeddings are network calls). v1 numbers — revisit with a SQLite/ANN store
+  past this, mirroring the KB's 100k-chunk note. Dwell threshold: **8 s**, fixed
+  for now (adaptive papers-vs-lookups is a later refinement).
+
 ## Open questions (still to settle, not slice-blocking)
 
-- **Storage budget numbers** for snapshots (count vs MB; eviction age) — settle
-  with the dwell-snapshot phase (step 1's second tier), not the nav-capture step.
-- **Dwell threshold** and whether it adapts (papers vs quick lookups).
+- **Adaptive dwell threshold** (papers vs quick lookups) — fixed 8 s for now.
+- **Visit-eviction orphans**: a snapshot outliving its budget-evicted visit is
+  left for the snapshot store's own budget to reclaim (acceptable; not cascaded).

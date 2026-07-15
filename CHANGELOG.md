@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The Trail — dwell-triggered content capture, slice step 1 (ADR 0011, #136)** — the Trail now
+  captures each engaged page's **content snapshot + embedding**, not just its metadata. The gate is
+  *dwell*: only after the active browser tab holds steady (same tab + URL) for **8 s** does the
+  frontend fire `trace_snapshot`, which reads the already-cached DOM text (no new page capture),
+  embeds it **off the async runtime** (Ollama `embeddinggemma`, hash fallback), stores it, and
+  attaches a `snapshot_id` to the tab's current Visit — so bounced pages and quick tab-flips never
+  pay the embed cost (the perf gate). Snapshots live in a **separate budgeted store**
+  (`trace/snapshots.json`) so the tiny visits+edges flush stays cheap; **storage budget resolved:**
+  1500 snapshots × 20 KiB text, oldest-evicted (~35–40 MB incl. vectors), embeddings persisted +
+  embedder-tagged. `trace_forget` cascades to a visit's snapshots; `trace_snapshot_get` returns a
+  node's stored content. This is the corpus the next step (feed the KB as a cited `web` source) and
+  semantic edges will read. 3 new tests (9 total in `trace`).
 - **The Trail — browsing provenance spine, slice 1 (ADR 0011, #136)** — the foundation of the
   Research OS / external scientific memory. Every non-private navigation now becomes a **Visit**:
   a node carrying *why* you got there — the page you came from is a free `Nav` **edge**, plus the

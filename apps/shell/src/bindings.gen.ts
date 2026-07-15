@@ -317,7 +317,7 @@ export type Provenance = { from_visit: number | null; referrer: string | null; q
  * One page visit. Kept minimal in the slice; snapshot/chat/marks/entities join
  * in later phases (ADR 0011) as additive fields.
  */
-export type Visit = { id: number; url: string; title: string; first_ms: number; last_ms: number; hits: number; why: Provenance }
+export type Visit = { id: number; url: string; title: string; first_ms: number; last_ms: number; hits: number; why: Provenance; snapshot_id?: number | null }
 /**
  * Edge kinds. `Nav` is captured for free on every navigation; the rest are
  * derived in later phases (semantic neighbours, citation/repo detection).
@@ -334,6 +334,10 @@ export type TraceGraph = { visits: Visit[]; edges: Edge[] }
  * visits and any `by_tab` pointers into them.
  */
 export type ForgetScope = { kind: "url"; url: string } | { kind: "host"; host: string } | { kind: "range"; after_ms: number | null; before_ms: number | null } | { kind: "all" }
+/**
+ * Reader-facing snapshot (node detail); omits the vector + embedder tag.
+ */
+export type SnapshotWire = { id: number; visit_id: number; url: string; saved_ms: number; text: string }
 export type ChromeProfilePreview = { dir: string; name: string; bookmark_count: number; extension_count: number; has_saved_tab_groups: boolean }
 /**
  * A flattened bookmark: folder hierarchy preserved as a path string so the

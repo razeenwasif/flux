@@ -106,6 +106,7 @@ import {
 } from "./ipc";
 import TerminalView from "./TerminalView";
 import { setTerminalOpener } from "./terminals";
+import { installDwellCapture } from "./trail";
 import { keyToAction } from "./shortcuts";
 import FindBar from "./FindBar";
 import ShellHistory from "./ShellHistory";
@@ -318,6 +319,9 @@ const App: Component = () => {
   createEffect(() => localStorage.setItem("flux.term.open", terminalOpen() ? "1" : "0"));
   // Let the agent bring up a terminal before running a command in it (#65).
   setTerminalOpener(() => setTerminalOpen(true));
+  // The Trail (ADR 0011 step 1): snapshot + embed a page once it's been engaged
+  // past the dwell threshold. Owned by this component's lifetime.
+  installDwellCapture();
   const [agentOpen, setAgentOpen] = createSignal(true);
   // Ambient connections rail (#123) — on by default; toggled via the palette.
   const [connectOpen, setConnectOpen] = createSignal(localStorage.getItem("flux.connect.open") !== "0");

@@ -99,6 +99,7 @@ import type {
   EdgeKind as GenEdgeKind,
   TraceGraph as GenTraceGraph,
   ForgetScope as GenForgetScope,
+  SnapshotWire as GenSnapshotWire,
   ProcInfo as GenProcInfo,
   PwaApp as GenPwaApp,
   SavedSession as GenSavedSession,
@@ -152,6 +153,7 @@ export type Edge = GenEdge;
 export type EdgeKind = GenEdgeKind;
 export type TraceGraph = GenTraceGraph;
 export type ForgetScope = GenForgetScope;
+export type SnapshotWire = GenSnapshotWire;
 export type SavedTab = GenSavedTab;
 export type SavedSession = GenSavedSession;
 export type DaySnapshot = GenDaySnapshot;
@@ -1093,6 +1095,11 @@ export const traceGraph = (afterMs?: number, beforeMs?: number) =>
   invoke<TraceGraph>("trace_graph", { afterMs: afterMs ?? null, beforeMs: beforeMs ?? null });
 /** Forget part (or all) of the Trail — the day-one privacy control. */
 export const traceForget = (scope: ForgetScope) => invoke<void>("trace_forget", { scope });
+/** Dwell-capture the active tab's current Visit — snapshot + embed (ADR 0011 step 1).
+ *  Returns the snapshot id, or null if there's no current visit / no cached text. */
+export const traceSnapshot = (tabId: number) => invoke<number | null>("trace_snapshot", { tabId });
+/** A dwell snapshot's stored content (node detail). */
+export const traceSnapshotGet = (id: number) => invoke<SnapshotWire | null>("trace_snapshot_get", { id });
 
 // ─── Bookmarks (BACKLOG #22) ─────────────────────────────────────────────────
 /** Sentinel url for the full-page bookmarks view (DOM-rendered, no webview). */

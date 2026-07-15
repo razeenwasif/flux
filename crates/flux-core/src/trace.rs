@@ -71,6 +71,11 @@ pub struct Visit {
     /// a raw click count.
     pub hits: u32,
     pub why: Provenance,
+    /// The dwell-captured content snapshot for this visit (ADR 0011 step 1), set
+    /// once the page was engaged past the dwell threshold. `None` until then (or
+    /// after the snapshot is budget-evicted). Indexes `TraceSnapshots`.
+    #[serde(default)]
+    pub snapshot_id: Option<u64>,
 }
 
 /// Edge kinds. `Nav` is captured for free on every navigation; the rest are
@@ -205,6 +210,7 @@ impl TraceStore {
             last_ms: now,
             hits: 1,
             why: Provenance { from_visit: prev, referrer, query: None, task },
+            snapshot_id: None,
         });
         if let Some(p) = prev {
             let edge = Edge { from: p, to: id, kind: EdgeKind::Nav };
@@ -231,6 +237,24 @@ impl TraceStore {
     /// can't inherit a stale nav edge.
     pub fn tab_closed(&self, tab: TabId) {
         self.by_tab.write().remove(&tab);
+    }
+
+    /// The tab's current visit id, if any — the dwell-capture target.
+    pub fn current_visit(&self, tab: TabId) -> Option<VisitId> {
+        self.by_tab.read().get(&tab).copied()
+    }
+
+    /// Attach a dwell snapshot to a visit (idempotent — a second call is ignored
+    /// so re-capture can't thrash the pointer).
+    pub fn attach_snapshot(&self, visit: VisitId, snapshot_id: u64) {
+        let mut d = self.inner.write();
+        if let Some(v) = d.visits.iter_mut().find(|v| v.id == visit) {
+            if v.snapshot_id.is_none() {
+                v.snapshot_id = Some(snapshot_id);
+                drop(d);
+                self.dirty.store(true, Ordering::Relaxed);
+            }
+        }
     }
 
     /// Most-recent visits (newest first).
@@ -260,18 +284,19 @@ impl TraceStore {
         TraceGraph { visits, edges }
     }
 
-    /// Drop visits (and their edges + tab pointers) matching `scope`.
-    pub fn forget(&self, scope: &ForgetScope) {
+    /// Drop visits (and their edges + tab pointers) matching `scope`. Returns the
+    /// removed visit ids so the caller can cascade (e.g. drop their snapshots).
+    pub fn forget(&self, scope: &ForgetScope) -> Vec<VisitId> {
         let mut d = self.inner.write();
         let doomed: std::collections::HashSet<VisitId> = match scope {
             ForgetScope::All => {
-                let all = d.visits.iter().map(|v| v.id).collect();
+                let all: Vec<VisitId> = d.visits.iter().map(|v| v.id).collect();
                 d.visits.clear();
                 d.edges.clear();
+                drop(d);
                 self.by_tab.write().clear();
                 self.dirty.store(true, Ordering::Relaxed);
-                let _: std::collections::HashSet<VisitId> = all;
-                return;
+                return all;
             }
             ForgetScope::Url { url } => d.visits.iter().filter(|v| &v.url == url).map(|v| v.id).collect(),
             ForgetScope::Host { host } => {
@@ -290,13 +315,14 @@ impl TraceStore {
                 .collect(),
         };
         if doomed.is_empty() {
-            return;
+            return Vec::new();
         }
         d.visits.retain(|v| !doomed.contains(&v.id));
         d.edges.retain(|e| !doomed.contains(&e.from) && !doomed.contains(&e.to));
         drop(d);
         self.by_tab.write().retain(|_, vid| !doomed.contains(vid));
         self.dirty.store(true, Ordering::Relaxed);
+        doomed.into_iter().collect()
     }
 
     /// Persist to disk only if something changed (the 60s flush loop calls this).
@@ -320,6 +346,157 @@ fn host_matches(url: &str, host: &str) -> bool {
     h == host || h.ends_with(&format!(".{host}"))
 }
 
+// ─── Dwell-captured content snapshots (ADR 0011 step 1) ──────────────────────
+// The heavy tier: a visit's page text + embedding, captured only after the page
+// was *engaged* past the dwell threshold (the frontend gates this). Kept in a
+// separate store/file from the tiny visits+edges so the frequent trace.json
+// flush stays cheap. Mirrors the archive vector-store pattern (embeddings are
+// persisted + embedder-tagged — model embeddings are network calls, not
+// recomputed per load). This is the corpus the KB `web` source (next step) and
+// semantic edges will read.
+
+/// Storage budget (v1 — revisit with a SQLite/ANN store past this, cf. KB's
+/// 100k-chunk note). Text capped per snapshot (enough for embedding + ~200-word
+/// KB chunks; not full-fidelity like the manual archive), count-capped with
+/// oldest-evicted. ~1500 × (20 KiB text + ~3 KiB vector) ≈ 35–40 MB.
+const SNAPSHOT_TEXT_CAP: usize = 20 * 1024;
+const MAX_SNAPSHOTS: usize = 1_500;
+
+fn default_embedder() -> crate::embedding::Embedder {
+    crate::embedding::Embedder::Hash
+}
+
+/// A persisted dwell snapshot. `text`/`embedding`/`embedder` stay out of the wire
+/// shape ([`SnapshotWire`]) — they're an on-disk/retrieval concern.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Snapshot {
+    pub id: u64,
+    pub visit_id: VisitId,
+    pub url: String,
+    pub saved_ms: u64,
+    pub text: String,
+    #[serde(default)]
+    embedding: Vec<f32>,
+    #[serde(default = "default_embedder")]
+    embedder: crate::embedding::Embedder,
+}
+
+/// Reader-facing snapshot (node detail); omits the vector + embedder tag.
+#[derive(Serialize, Clone, specta::Type)]
+pub struct SnapshotWire {
+    pub id: u64,
+    pub visit_id: VisitId,
+    pub url: String,
+    pub saved_ms: u64,
+    pub text: String,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct SnapshotData {
+    snapshots: Vec<Snapshot>,
+    next_id: u64,
+}
+
+/// The dwell-snapshot store — its own file + budget, per ADR 0011.
+pub struct TraceSnapshots {
+    inner: RwLock<SnapshotData>,
+    /// One embedder for the whole corpus (cosine is only meaningful within one),
+    /// chosen at load like the archive store.
+    embedder: crate::embedding::Embedder,
+    path: Option<PathBuf>,
+    dirty: AtomicBool,
+}
+
+impl TraceSnapshots {
+    pub fn empty(path: PathBuf) -> Self {
+        Self {
+            inner: RwLock::new(SnapshotData::default()),
+            embedder: crate::embedding::current(),
+            path: Some(path),
+            dirty: AtomicBool::new(false),
+        }
+    }
+
+    pub fn hydrate(&self) {
+        let Some(path) = &self.path else { return };
+        let Some(loaded) = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<SnapshotData>(&s).ok())
+        else {
+            return;
+        };
+        let mut d = self.inner.write();
+        if d.snapshots.is_empty() {
+            d.next_id = d.next_id.max(loaded.next_id);
+            d.snapshots = loaded.snapshots;
+        }
+    }
+
+    /// The embedder this corpus uses — the caller embeds with it off-thread, then
+    /// hands the vector to `add` (so the slow/network embed doesn't hold a lock).
+    pub fn embedder(&self) -> crate::embedding::Embedder {
+        self.embedder
+    }
+
+    /// Store a captured snapshot, evicting the oldest beyond the budget. Returns
+    /// the new snapshot id.
+    pub fn add(&self, visit_id: VisitId, url: String, text: String, embedding: Vec<f32>) -> u64 {
+        let mut d = self.inner.write();
+        let id = d.next_id;
+        d.next_id += 1;
+        d.snapshots.push(Snapshot {
+            id,
+            visit_id,
+            url,
+            saved_ms: now_ms(),
+            text,
+            embedding,
+            embedder: self.embedder,
+        });
+        if d.snapshots.len() > MAX_SNAPSHOTS {
+            let over = d.snapshots.len() - MAX_SNAPSHOTS;
+            // Oldest-first eviction (the vec is push-append, so oldest are at the front).
+            d.snapshots.drain(0..over);
+        }
+        drop(d);
+        self.dirty.store(true, Ordering::Relaxed);
+        id
+    }
+
+    pub fn get(&self, id: u64) -> Option<SnapshotWire> {
+        self.inner.read().snapshots.iter().find(|s| s.id == id).map(|s| SnapshotWire {
+            id: s.id,
+            visit_id: s.visit_id,
+            url: s.url.clone(),
+            saved_ms: s.saved_ms,
+            text: s.text.clone(),
+        })
+    }
+
+    /// Drop snapshots belonging to any of `visits` (cascade from `trace_forget`).
+    pub fn forget_visits(&self, visits: &std::collections::HashSet<VisitId>) {
+        if visits.is_empty() {
+            return;
+        }
+        let mut d = self.inner.write();
+        let before = d.snapshots.len();
+        d.snapshots.retain(|s| !visits.contains(&s.visit_id));
+        if d.snapshots.len() != before {
+            drop(d);
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+    }
+
+    pub fn persist_if_dirty(&self) {
+        if !self.dirty.swap(false, Ordering::Relaxed) {
+            return;
+        }
+        let Some(path) = &self.path else { return };
+        let d = self.inner.read();
+        crate::persist::save_json(path, &*d);
+    }
+}
+
 // ─── IPC ─────────────────────────────────────────────────────────────────────
 
 /// Most-recent visits for the Trail timeline (newest first).
@@ -340,10 +517,58 @@ pub fn trace_graph(store: State<'_, TraceStore>, after_ms: Option<u64>, before_m
     store.graph(after_ms, before_ms)
 }
 
-/// Forget part (or all) of the Trail — the day-one privacy control (ADR 0011).
+/// A dwell snapshot's content (node detail).
 #[tauri::command]
-pub fn trace_forget(store: State<'_, TraceStore>, scope: ForgetScope) {
-    store.forget(&scope);
+pub fn trace_snapshot_get(snaps: State<'_, TraceSnapshots>, id: u64) -> Option<SnapshotWire> {
+    snaps.get(id)
+}
+
+/// Capture the dwell snapshot for a tab's current visit (ADR 0011 step 1). Called
+/// by the frontend once the page has been engaged past the dwell threshold. Reads
+/// the already-cached DOM text (no new page capture), embeds it off-thread, stores
+/// it, and attaches `snapshot_id` to the visit. Idempotent — a visit that already
+/// has a snapshot returns it without re-embedding. Returns the snapshot id, or
+/// `None` if there's no current visit / no cached text yet.
+#[tauri::command]
+pub async fn trace_snapshot(
+    trace: State<'_, TraceStore>,
+    snaps: State<'_, TraceSnapshots>,
+    state: State<'_, crate::state::FluxState>,
+    tab_id: TabId,
+) -> Result<Option<u64>, String> {
+    let Some(visit_id) = trace.current_visit(tab_id) else { return Ok(None) };
+    // Already captured for this visit → no re-embed (dwell can fire repeatedly).
+    if let Some(existing) = trace.visit(visit_id).and_then(|v| v.snapshot_id) {
+        return Ok(Some(existing));
+    }
+    // Read the cached DOM text ONCE (then drop the dashmap guard before the await),
+    // so what we store is exactly what we embedded even if the tab navigates mid-embed.
+    let (url, text) = {
+        let Some(snap) = state.dom_cache.get(&tab_id) else { return Ok(None) };
+        (snap.url.clone(), crate::dom::cap_utf8(snap.text.to_string(), SNAPSHOT_TEXT_CAP))
+    };
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    let embedder = snaps.embedder();
+    // Embedding may hit Ollama — never on the async runtime.
+    let embed_text = text.clone();
+    let embedding = tauri::async_runtime::spawn_blocking(move || {
+        crate::embedding::embed_with(&embed_text, embedder).unwrap_or_default()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let id = snaps.add(visit_id, url, text, embedding);
+    trace.attach_snapshot(visit_id, id);
+    Ok(Some(id))
+}
+
+/// Forget part (or all) of the Trail — the day-one privacy control (ADR 0011).
+/// Cascades to the visits' dwell snapshots.
+#[tauri::command]
+pub fn trace_forget(store: State<'_, TraceStore>, snaps: State<'_, TraceSnapshots>, scope: ForgetScope) {
+    let removed: std::collections::HashSet<VisitId> = store.forget(&scope).into_iter().collect();
+    snaps.forget_visits(&removed);
 }
 
 #[cfg(test)]
@@ -410,6 +635,60 @@ mod tests {
         assert!(g.edges.iter().all(|e| g.visits.iter().any(|v| v.id == e.from) && g.visits.iter().any(|v| v.id == e.to)));
         // Lookalike host is untouched by a boundary match.
         assert!(!host_matches("https://nota.com/", "a.com"));
+    }
+
+    #[test]
+    fn snapshot_add_attach_get_and_budget_evicts_oldest() {
+        let snaps = TraceSnapshots {
+            inner: RwLock::new(SnapshotData::default()),
+            embedder: crate::embedding::Embedder::Hash,
+            path: None,
+            dirty: AtomicBool::new(false),
+        };
+        let id0 = snaps.add(10, "https://a.com/".into(), "alpha".into(), vec![0.1, 0.2]);
+        assert_eq!(snaps.get(id0).unwrap().text, "alpha");
+        assert_eq!(snaps.get(id0).unwrap().visit_id, 10);
+
+        // A visit accepts one snapshot; attach is idempotent.
+        let s = TraceStore::default();
+        let v = s.record(1, "https://a.com/", "A", None).unwrap();
+        s.attach_snapshot(v, id0);
+        assert_eq!(s.visit(v).unwrap().snapshot_id, Some(id0));
+        s.attach_snapshot(v, 999); // ignored — already set
+        assert_eq!(s.visit(v).unwrap().snapshot_id, Some(id0));
+
+        // forget_visits cascades.
+        snaps.forget_visits(&std::collections::HashSet::from([10]));
+        assert!(snaps.get(id0).is_none());
+    }
+
+    #[test]
+    fn snapshot_budget_caps_and_evicts() {
+        let snaps = TraceSnapshots {
+            inner: RwLock::new(SnapshotData::default()),
+            embedder: crate::embedding::Embedder::Hash,
+            path: None,
+            dirty: AtomicBool::new(false),
+        };
+        // Exceed the cap; the store never grows past MAX_SNAPSHOTS and drops oldest.
+        let mut first = 0;
+        for i in 0..(MAX_SNAPSHOTS + 5) {
+            let id = snaps.add(i as u64, "https://x/".into(), "t".into(), vec![]);
+            if i == 0 {
+                first = id;
+            }
+        }
+        assert_eq!(snaps.inner.read().snapshots.len(), MAX_SNAPSHOTS);
+        assert!(snaps.get(first).is_none(), "oldest snapshot was evicted");
+    }
+
+    #[test]
+    fn forget_returns_removed_ids_for_cascade() {
+        let s = TraceStore::default();
+        let a = s.record(1, "https://a.com/", "A", None).unwrap();
+        s.record(1, "https://b.com/", "B", None).unwrap();
+        let removed = s.forget(&ForgetScope::Url { url: "https://a.com/".into() });
+        assert_eq!(removed, vec![a]);
     }
 
     #[test]
