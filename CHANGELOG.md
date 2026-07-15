@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Per-page chat — a conversation attached to every page, slice step d (ADR 0011, #136)** — the
+  last core piece of the Trail: click a node in `flux://trail` and **ask Gemma about that page**, in
+  a thread that is *bound to the Visit* — it persists (`trace/chats.json`) and is still there when
+  you come back months later. Replies are **grounded in the page's dwell-snapshot text** (the model
+  is told plainly when no capture exists, instead of guessing), stream in token-by-token (same
+  channel pattern as `kb_answer`), and see the last 12 turns of the thread. Threads are capped at
+  200 messages (oldest dropped) and are **forgotten together with the visit** — `trace_forget` now
+  cascades to snapshots, chat threads, *and* the KB. New `TraceChats` store +
+  `trace_chat`/`trace_chat_send` commands + a chat section in the Trail detail panel.
+
 - **The Trail view — `flux://trail`, slice step c (ADR 0011, #136)** — the first *visual* payoff of
   the Research OS: your browsing rendered **as a graph**. A force-directed map (the same small canvas
   sim as the Omni/tracker graphs — no dependency) where nodes are Visits and edges are how you got
@@ -263,6 +273,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   ICS overlay too. New commands: `cal_local_events`, `cal_event_add/update/delete`.
 
 ### Fixed
+- **Trace spine correctness/privacy pass (review of ADR 0011 steps a–c)** — five issues found and
+  fixed before they could bite: **(1 — privacy)** `trace_forget` left a forgotten page's text in the
+  KB `web` index until the next manual reindex; it now purges the KB immediately
+  (`KbStore::remove_docs`). **(2 — boot perf)** `TraceSnapshots` probed the local Ollama server *on
+  the boot path* (`embedding::current()` is an HTTP call); the embedder is now resolved lazily at
+  first capture, off the async runtime. **(3 — disk churn)** an SPA republish inside the 30 s dedup
+  window re-marked the trace store dirty, rewriting `trace.json` every flush while you sat on a
+  mutating page — now a read-lock fast path, the exact fix history.json shipped with. **(4 — data
+  loss)** a navigation landing before the background hydrate thread could start a fresh store and
+  later overwrite the persisted Trail (and reuse visit ids); all trace stores now hydrate lazily on
+  first touch, so the race can't occur. **(5)** navigating away from an evicted/forgotten page no
+  longer records a provenance pointer/edge to a node that's gone. Plus: the dwell effect skips
+  private tabs client-side too, and the Trail view caps the O(n²) force-sim at the 1200 most-recent
+  nodes. 5 new regression tests (170 total).
 - **Autofill often didn't populate the field even when the credential matched (#61)** — the
   injection (`autofill.js`) set the value via the native setter + `input`/`change` only, in the
   top document. Hardened for the common "detected but didn't fill" cases: it now pierces

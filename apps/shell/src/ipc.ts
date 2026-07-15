@@ -100,6 +100,7 @@ import type {
   TraceGraph as GenTraceGraph,
   ForgetScope as GenForgetScope,
   SnapshotWire as GenSnapshotWire,
+  ChatMsg as GenChatMsg,
   ProcInfo as GenProcInfo,
   PwaApp as GenPwaApp,
   SavedSession as GenSavedSession,
@@ -154,6 +155,7 @@ export type EdgeKind = GenEdgeKind;
 export type TraceGraph = GenTraceGraph;
 export type ForgetScope = GenForgetScope;
 export type SnapshotWire = GenSnapshotWire;
+export type ChatMsg = GenChatMsg;
 export type SavedTab = GenSavedTab;
 export type SavedSession = GenSavedSession;
 export type DaySnapshot = GenDaySnapshot;
@@ -1102,6 +1104,23 @@ export const traceForget = (scope: ForgetScope) => invoke<void>("trace_forget", 
 export const traceSnapshot = (tabId: number) => invoke<number | null>("trace_snapshot", { tabId });
 /** A dwell snapshot's stored content (node detail). */
 export const traceSnapshotGet = (id: number) => invoke<SnapshotWire | null>("trace_snapshot_get", { id });
+/** A visit's persistent chat thread (ADR 0011 step d) — empty if none yet. */
+export const traceChat = (visitId: number) => invoke<ChatMsg[]>("trace_chat", { visitId });
+/** Event frames streamed back by `trace_chat_send` (same shape family as kb_answer). */
+export type TraceChatEvent = { kind: "token"; text: string } | { kind: "done" };
+/** Send a message to a visit's chat — grounded in its snapshot, streamed token-by-token.
+ *  Resolves once the reply is complete (and persisted to the thread). */
+export const traceChatSend = (
+  visitId: number,
+  message: string,
+  onEvent: (e: TraceChatEvent) => void,
+): Promise<void> => {
+  const ch = new Channel<string>();
+  ch.onmessage = (raw) => {
+    try { onEvent(JSON.parse(raw) as TraceChatEvent); } catch { /* skip a bad frame */ }
+  };
+  return invoke<void>("trace_chat_send", { visitId, message, onToken: ch });
+};
 
 // ─── Bookmarks (BACKLOG #22) ─────────────────────────────────────────────────
 /** Sentinel url for the full-page bookmarks view (DOM-rendered, no webview). */

@@ -476,6 +476,13 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
         .map(|d| d.join("trace").join("snapshots.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-trace-snapshots.json"));
     app.manage(trace::TraceSnapshots::empty(snap_path));
+    // Per-page chat threads (ADR 0011 step d) — same lifecycle.
+    let chats_path = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("trace").join("chats.json"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("flux-trace-chats.json"));
+    app.manage(trace::TraceChats::empty(chats_path));
     {
         let handle = app.handle().clone();
         std::thread::spawn(move || {
@@ -485,6 +492,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             if let Some(s) = handle.try_state::<trace::TraceSnapshots>() {
                 s.hydrate();
             }
+            if let Some(c) = handle.try_state::<trace::TraceChats>() {
+                c.hydrate();
+            }
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(60));
                 if let Some(t) = handle.try_state::<trace::TraceStore>() {
@@ -492,6 +502,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 }
                 if let Some(s) = handle.try_state::<trace::TraceSnapshots>() {
                     s.persist_if_dirty();
+                }
+                if let Some(c) = handle.try_state::<trace::TraceChats>() {
+                    c.persist_if_dirty();
                 }
             }
         });
@@ -773,6 +786,8 @@ pub fn run(intent: cli::LaunchIntent) {
             trace::trace_forget,
             trace::trace_snapshot,
             trace::trace_snapshot_get,
+            trace::trace_chat,
+            trace::trace_chat_send,
             bookmarks::bookmarks_list,
             bookmarks::bookmark_folders,
             bookmarks::bookmark_add,

@@ -12,7 +12,7 @@
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
-import { traceGraph, traceSnapshotGet, traceForget, type Visit, type Edge } from "./ipc";
+import { traceGraph, traceSnapshotGet, traceForget, traceChat, traceChatSend, type Visit, type Edge, type ChatMsg } from "./ipc";
 
 type GNode = {
   x: number; y: number; vx: number; vy: number; fx: number; fy: number;
@@ -48,6 +48,12 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const [selected, setSelected] = createSignal<Visit | null>(null);
   const [snapText, setSnapText] = createSignal<string | null>(null);
   const [snapLoading, setSnapLoading] = createSignal(false);
+  // Per-page chat (ADR 0011 step d): the selected visit's persistent thread.
+  const [chatMsgs, setChatMsgs] = createSignal<ChatMsg[]>([]);
+  const [chatDraft, setChatDraft] = createSignal("");
+  const [chatStream, setChatStream] = createSignal(""); // in-flight reply
+  const [chatBusy, setChatBusy] = createSignal(false);
+  let chatFor: number | null = null; // guards stale stream frames after reselect
 
   let nodes: GNode[] = [];
   let edges: { s: number; t: number; w: number }[] = [];
@@ -237,6 +243,40 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     setSelected(g.visit);
     draw();
     void loadSnapshot(g.visit);
+    // Load the visit's chat thread; mark it current so a still-streaming reply
+    // for the previous node can't leak into this one.
+    chatFor = g.visit.id;
+    setChatMsgs([]);
+    setChatStream("");
+    void traceChat(g.visit.id).then((m) => { if (chatFor === g.visit.id) setChatMsgs(m); }).catch(() => {});
+  };
+
+  const sendChat = async () => {
+    const v = selected();
+    const msg = chatDraft().trim();
+    if (!v || !msg || chatBusy()) return;
+    const vid = v.id;
+    setChatDraft("");
+    setChatBusy(true);
+    setChatMsgs((m) => [...m, { role: "user", text: msg, ms: Date.now() }]);
+    let acc = "";
+    try {
+      await traceChatSend(vid, msg, (e) => {
+        if (chatFor !== vid) return; // user selected another node mid-stream
+        if (e.kind === "token") { acc += e.text; setChatStream(acc); }
+      });
+      if (chatFor === vid) {
+        setChatMsgs((m) => [...m, { role: "assistant", text: acc, ms: Date.now() }]);
+        setChatStream("");
+      }
+    } catch (err) {
+      if (chatFor === vid) {
+        setChatStream("");
+        setChatMsgs((m) => [...m, { role: "assistant", text: `⚠ ${String(err)}`, ms: Date.now() }]);
+      }
+    } finally {
+      setChatBusy(false);
+    }
   };
   const loadSnapshot = async (v: Visit) => {
     setSnapText(null);
@@ -255,12 +295,17 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     const after = win.ms != null ? Date.now() - win.ms : undefined;
     try {
       const g = await traceGraph(after, undefined);
+      // Cap what the O(n²) force-sim chews on: past ~1200 nodes a frame stops
+      // being interactive, so render the most recent slice (narrow the time
+      // window to explore older branches).
+      let vs = g.visits;
+      if (vs.length > 1200) vs = [...vs].sort((a, b) => b.last_ms - a.last_ms).slice(0, 1200);
       const idx = new Map<number, number>();
-      g.visits.forEach((v, i) => idx.set(v.id, i));
+      vs.forEach((v, i) => idx.set(v.id, i));
       const R = 280;
-      nodes = g.visits.map((v, i) => {
-        const ang = (i / Math.max(1, g.visits.length)) * Math.PI * 2;
-        const rad = R * (0.2 + 0.8 * Math.sqrt((i + 1) / Math.max(1, g.visits.length)));
+      nodes = vs.map((v, i) => {
+        const ang = (i / Math.max(1, vs.length)) * Math.PI * 2;
+        const rad = R * (0.2 + 0.8 * Math.sqrt((i + 1) / Math.max(1, vs.length)));
         return {
           x: Math.cos(ang) * rad, y: Math.sin(ang) * rad, vx: 0, vy: 0, fx: 0, fy: 0,
           r: 4 + Math.sqrt(Math.max(0, v.hits - 1)) * 3,
@@ -380,6 +425,33 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                       </Show>
                     </Show>
                   </Show>
+                </div>
+                {/* Per-page chat (ADR 0011 step d): a persistent conversation
+                    attached to THIS page — still here when you return months later. */}
+                <div class="trail-chat">
+                  <div class="trail-chat-label">✦ Ask about this page</div>
+                  <div class="trail-chat-thread">
+                    <For each={chatMsgs()}>
+                      {(m) => <div class="trail-chat-msg" classList={{ user: m.role === "user" }}>{m.text}</div>}
+                    </For>
+                    <Show when={chatStream()}>
+                      <div class="trail-chat-msg streaming">{chatStream()}</div>
+                    </Show>
+                    <Show when={chatMsgs().length === 0 && !chatStream()}>
+                      <div class="trail-chat-empty">No conversation yet — ask something; the thread stays attached to this page.</div>
+                    </Show>
+                  </div>
+                  <div class="trail-chat-inputrow">
+                    <input
+                      class="trail-chat-input"
+                      placeholder={chatBusy() ? "Thinking…" : "e.g. what was the fix here?"}
+                      value={chatDraft()}
+                      disabled={chatBusy()}
+                      onInput={(e) => setChatDraft(e.currentTarget.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendChat(); } }}
+                    />
+                    <button class="trail-chat-send" disabled={chatBusy() || !chatDraft().trim()} onClick={() => void sendChat()}>↑</button>
+                  </div>
                 </div>
                 <div class="trail-detail-actions">
                   <button class="trail-detail-open" onClick={() => props.onNavigate(v().url)}>Open page</button>

@@ -338,6 +338,10 @@ export type ForgetScope = { kind: "url"; url: string } | { kind: "host"; host: s
  * Reader-facing snapshot (node detail); omits the vector + embedder tag.
  */
 export type SnapshotWire = { id: number; visit_id: number; url: string; title: string; saved_ms: number; text: string }
+/**
+ * One message in a visit's chat thread.
+ */
+export type ChatMsg = { role: string; text: string; ms: number }
 export type ChromeProfilePreview = { dir: string; name: string; bookmark_count: number; extension_count: number; has_saved_tab_groups: boolean }
 /**
  * A flattened bookmark: folder hierarchy preserved as a path string so the

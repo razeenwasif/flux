@@ -285,6 +285,27 @@ impl KbStore {
         self.data.read().config.get(source).cloned()
     }
 
+    /// Remove specific docs (and their chunks) from a source, persisting if
+    /// anything went. The privacy cascade for `trace_forget` (ADR 0011): a
+    /// forgotten page must leave the KB immediately, not at the next reindex.
+    pub fn remove_docs(&self, source: &str, doc_ids: &[String]) {
+        if doc_ids.is_empty() {
+            return;
+        }
+        self.hydrate();
+        let ids: std::collections::HashSet<&str> = doc_ids.iter().map(|s| s.as_str()).collect();
+        let changed = {
+            let mut d = self.data.write();
+            let (nd, nc) = (d.docs.len(), d.chunks.len());
+            d.docs.retain(|x| !(x.source == source && ids.contains(x.doc_id.as_str())));
+            d.chunks.retain(|x| !(x.source == source && ids.contains(x.doc_id.as_str())));
+            d.docs.len() != nd || d.chunks.len() != nc
+        };
+        if changed {
+            self.persist();
+        }
+    }
+
     /// (Re)build the index for `source` (or every known source when `None`),
     /// incrementally — documents whose mtime is unchanged keep their chunks.
     /// `web` carries the browsing snapshots (ADR 0011 step b) for the `"web"`
@@ -1212,6 +1233,33 @@ mod tests {
         // Absent from a later (empty) web batch → evicted, mirroring snapshot eviction.
         store.reindex(Some("web".into()), vec![]).unwrap();
         assert!(!store.data.read().chunks.iter().any(|c| c.source == "web"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_docs_purges_forgotten_web_pages_immediately() {
+        // The trace_forget privacy cascade: a forgotten page's text must leave
+        // the KB at once, without waiting for the next reindex.
+        let dir = std::env::temp_dir().join(format!("flux-kb-forget-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+        store.data.write().embedder = Embedder::Hash;
+
+        let web = vec![
+            crate::trace::WebDoc { doc_id: "1".into(), title: "Keep".into(), url: "https://keep.example/".into(), mtime: 1, body: "a page about rust lifetimes and borrowing".into() },
+            crate::trace::WebDoc { doc_id: "2".into(), title: "Forget".into(), url: "https://forget.example/".into(), mtime: 1, body: "a private page that must vanish from the index".into() },
+        ];
+        store.reindex(Some("web".into()), web).unwrap();
+        assert_eq!(store.data.read().docs.iter().filter(|d| d.source == "web").count(), 2);
+
+        store.remove_docs("web", &["2".to_string()]);
+        let d = store.data.read();
+        assert!(d.docs.iter().any(|x| x.source == "web" && x.doc_id == "1"), "unrelated doc kept");
+        assert!(!d.docs.iter().any(|x| x.doc_id == "2"), "forgotten doc gone");
+        assert!(!d.chunks.iter().any(|x| x.doc_id == "2"), "its chunks gone too");
+        drop(d);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
