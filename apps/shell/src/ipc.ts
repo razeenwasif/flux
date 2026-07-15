@@ -505,6 +505,8 @@ export const searchRemoveEngine = (id: string) => invoke<void>("search_remove_en
 /** Sentinel url for the native Omni dashboard page (no webview). */
 export const OMNI_URL = "flux://omni";
 export const NOTEBOOK_URL = "flux://notebook";
+/** The Trail — browsing provenance graph (ADR 0011). */
+export const TRAIL_URL = "flux://trail";
 // ─── TUI app launcher (#117) ────────────────────────────────────────────────
 export type TuiApp = GenTuiApp;
 /** The user's curated terminal-app list (seeded on first run). */

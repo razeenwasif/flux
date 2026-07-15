@@ -2226,6 +2226,44 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .omni::-webkit-scrollbar { width: 10px; }
 .omni::-webkit-scrollbar-thumb { background: rgba(150,160,220,0.18); border-radius: 5px; }
 
+/* ── The Trail (flux://trail, ADR 0011) ── */
+.trail { display: flex; flex-direction: column; height: 100%; padding: 18px 20px; box-sizing: border-box; overflow: hidden; }
+.trail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 12px; flex: 0 0 auto; }
+.trail-brand { font-size: 18px; font-weight: 600; color: var(--flux-text); letter-spacing: 0.01em; }
+.trail-spark { margin-right: 4px; }
+.trail-sub { font-size: 12px; font-weight: 400; color: var(--flux-text-mute); margin-left: 8px; }
+.trail-controls { display: flex; align-items: center; gap: 8px; }
+.trail-window { display: flex; gap: 2px; background: rgba(10,8,24,0.5); border: 1px solid var(--flux-border); border-radius: 999px; padding: 2px; }
+.trail-win-btn { font-size: 11.5px; color: var(--flux-text-mute); cursor: pointer; padding: 4px 11px; border-radius: 999px; background: transparent; border: none; }
+.trail-win-btn.on { background: rgba(123,97,255,0.28); color: var(--flux-text); }
+.trail-win-btn:hover:not(.on) { color: var(--flux-text); }
+.trail-forget { font-size: 12px; color: #ffb0b0; cursor: pointer; padding: 5px 11px; border-radius: 8px; background: rgba(236,75,110,0.12); border: 1px solid rgba(236,75,110,0.3); }
+.trail-forget:hover { background: rgba(236,75,110,0.24); }
+.trail-reload { font-size: 13px; color: var(--flux-text); cursor: pointer; padding: 5px 10px; border-radius: 8px; background: rgba(123,97,255,0.16); border: 1px solid rgba(123,97,255,0.34); }
+.trail-reload:hover { background: rgba(123,97,255,0.3); }
+.trail-body { display: flex; gap: 14px; flex: 1 1 auto; min-height: 0; }
+.trail-graph { position: relative; flex: 1 1 auto; min-width: 0; border-radius: var(--flux-radius-card, 14px); overflow: hidden; border: 1px solid var(--flux-border); background: radial-gradient(120% 120% at 50% 40%, rgba(20,16,48,0.6), rgba(7,5,15,0.85)); }
+.trail-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.trail-canvas:active { cursor: grabbing; }
+.trail-hud { position: absolute; top: 10px; left: 12px; font-size: 11.5px; color: var(--flux-text-mute); background: rgba(10,8,24,0.6); padding: 4px 10px; border-radius: 999px; }
+.trail-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 15%; font-size: 13px; color: var(--flux-text-mute); line-height: 1.5; }
+.trail-detail { flex: 0 0 320px; display: flex; flex-direction: column; gap: 8px; background: rgba(12,10,26,0.55); border: 1px solid var(--flux-border); border-radius: var(--flux-radius-card, 14px); padding: 16px; overflow-y: auto; }
+.trail-detail-hint { color: var(--flux-text-mute); font-size: 13px; line-height: 1.5; margin: auto 0; text-align: center; }
+.trail-detail-title { font-size: 15px; font-weight: 600; color: var(--flux-text); line-height: 1.35; }
+.trail-detail-url { align-self: flex-start; font-size: 12px; color: var(--flux-teal); cursor: pointer; background: none; border: none; padding: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trail-detail-url:hover { text-decoration: underline; }
+.trail-detail-why { font-size: 11.5px; color: var(--flux-text-mute); }
+.trail-detail-meta { font-size: 11px; color: var(--flux-text-mute); opacity: 0.8; }
+.trail-detail-snap { flex: 1 1 auto; min-height: 40px; margin-top: 4px; border-top: 1px solid var(--flux-border); padding-top: 10px; }
+.trail-detail-text { font-size: 12px; color: var(--flux-text); line-height: 1.5; margin: 0; white-space: pre-wrap; word-break: break-word; }
+.trail-detail-nosnap { font-size: 12px; color: var(--flux-text-mute); font-style: italic; }
+.trail-detail-actions { display: flex; gap: 8px; flex: 0 0 auto; padding-top: 8px; }
+.trail-detail-open { font-size: 12px; color: var(--flux-text); cursor: pointer; padding: 6px 12px; border-radius: 8px; background: rgba(123,97,255,0.16); border: 1px solid rgba(123,97,255,0.34); }
+.trail-detail-open:hover { background: rgba(123,97,255,0.3); }
+.trail-detail-forget { font-size: 12px; color: #ffb0b0; cursor: pointer; padding: 6px 12px; border-radius: 8px; background: rgba(236,75,110,0.12); border: 1px solid rgba(236,75,110,0.3); }
+.trail-detail-forget:hover { background: rgba(236,75,110,0.24); }
+@media (max-width: 720px) { .trail-detail { flex-basis: 240px; } }
+
 .omni-head { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
 .omni-brand { font-size: 17px; font-weight: 650; color: var(--flux-text); letter-spacing: .01em; }
 .omni-spark { color: var(--flux-teal); }

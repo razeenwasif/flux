@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The Trail view — `flux://trail`, slice step c (ADR 0011, #136)** — the first *visual* payoff of
+  the Research OS: your browsing rendered **as a graph**. A force-directed map (the same small canvas
+  sim as the Omni/tracker graphs — no dependency) where nodes are Visits and edges are how you got
+  from one page to the next (the free Nav edges); node colour encodes the research *task* (workspace),
+  a filled node has a dwell snapshot, a hollow ring is metadata-only. Click a node → a detail panel
+  with its title, URL (opens the page), provenance ("via <referrer> · <task>"), timestamp, and the
+  **captured snapshot text**. A time filter (All / 24h / 7 days / 30 days) windows the view via
+  `trace_graph`, and **Forget** removes a single page or the whole window — the day-one privacy
+  control, made visible. Opens from the ⌘K palette ("Open the Trail"), a 🧭 PagesBar chip, or
+  `flux://trail`; DOM-rendered in the content card (no webview), lazy-loaded (8.6 kB chunk). Pure
+  frontend over the existing `trace_*` IPC.
 - **The Trail feeds the Knowledge Base — browsing as a cited `web` source, slice step b (ADR 0011,
   #136)** — the co-scientist can now answer over what you've *read*, not just your Onyx/Scroll/
   Council corpora. The Trail's dwell snapshots become a new KB source, **`web`**: on reindex, each
