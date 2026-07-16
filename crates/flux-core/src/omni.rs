@@ -50,7 +50,11 @@ pub async fn omni_sites(search: State<'_, SearchState>) -> Result<String, String
 /// nodes, edges to each node's top-`k` cosine neighbours — for the dashboard's
 /// Obsidian-style graph view. Proxied through Rust like the other Omni calls.
 #[tauri::command]
-pub async fn omni_graph(search: State<'_, SearchState>, n: Option<u32>, k: Option<u32>) -> Result<String, String> {
+pub async fn omni_graph(
+    search: State<'_, SearchState>,
+    n: Option<u32>,
+    k: Option<u32>,
+) -> Result<String, String> {
     let n = n.unwrap_or(300).clamp(1, 1500);
     let k = k.unwrap_or(6).clamp(1, 16);
     fetch(format!("{}/graph?n={n}&k={k}", search.omni_base())).await
@@ -151,7 +155,10 @@ fn post_page(base: String, url: String, title: String, text: String) {
 /// Auto-ingest a freshly-captured page when the toggle is on and it looks worth
 /// indexing. Called from `dom_publish`; never blocks.
 pub fn maybe_auto_ingest(app: &AppHandle, url: &str, title: &str, text: &str) {
-    let on = app.try_state::<IngestState>().map(|s| s.auto()).unwrap_or(false);
+    let on = app
+        .try_state::<IngestState>()
+        .map(|s| s.auto())
+        .unwrap_or(false);
     if !on {
         return;
     }
@@ -162,12 +169,7 @@ pub fn maybe_auto_ingest(app: &AppHandle, url: &str, title: &str, text: &str) {
         return; // thin page (login screen, app shell) — not worth indexing
     }
     let base = app.state::<SearchState>().omni_base();
-    post_page(
-        base,
-        url.to_string(),
-        title.to_string(),
-        text.to_string(),
-    );
+    post_page(base, url.to_string(), title.to_string(), text.to_string());
 }
 
 /// Whether auto-ingest is currently on.
@@ -189,7 +191,9 @@ pub async fn omni_ingest_active(
     search: State<'_, SearchState>,
     flux: State<'_, FluxState>,
 ) -> Result<String, String> {
-    let snap = flux.active_snapshot().ok_or("no active tab page captured yet")?;
+    let snap = flux
+        .active_snapshot()
+        .ok_or("no active tab page captured yet")?;
     let title = flux
         .tabs
         .get(&snap.tab)

@@ -64,7 +64,9 @@ pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
 #[cfg(target_os = "linux")]
 fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
     use tauri::Manager;
-    let Some(shields) = app.try_state::<crate::shields::ShieldsState>() else { return };
+    let Some(shields) = app.try_state::<crate::shields::ShieldsState>() else {
+        return;
+    };
     let Some(json_path) = shields.content_blocker_json() else {
         tracing::warn!(target: "flux::netfilter", "no content-blocker JSON yet; webview unfiltered");
         return;
@@ -236,7 +238,9 @@ mod gtk {
         let mut err: *mut GError = std::ptr::null_mut();
         let filter = webkit_user_content_filter_store_save_finish(src.cast(), res, &mut err);
         if !err.is_null() {
-            let msg = std::ffi::CStr::from_ptr((*err).message).to_string_lossy().into_owned();
+            let msg = std::ffi::CStr::from_ptr((*err).message)
+                .to_string_lossy()
+                .into_owned();
             g_error_free(err);
             tracing::warn!(target: "flux::netfilter", "content-blocker compile failed: {msg}");
         }
@@ -289,47 +293,58 @@ mod win {
     ) -> Result<()> {
         core.AddWebResourceRequestedFilter(w!("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?;
         let core2 = core.clone();
-        let handler = WebResourceRequestedEventHandler::create(Box::new(move |_sender, args| unsafe {
-            let args = match args {
-                Some(a) => a,
-                None => return Ok(()),
-            };
-            let request = args.Request()?;
-            let mut uri = PWSTR::null();
-            request.Uri(&mut uri)?;
-            let url = webview2_com::take_pwstr(uri);
+        let handler =
+            WebResourceRequestedEventHandler::create(Box::new(move |_sender, args| unsafe {
+                let args = match args {
+                    Some(a) => a,
+                    None => return Ok(()),
+                };
+                let request = args.Request()?;
+                let mut uri = PWSTR::null();
+                request.Uri(&mut uri)?;
+                let url = webview2_com::take_pwstr(uri);
 
-            let mut ctx = COREWEBVIEW2_WEB_RESOURCE_CONTEXT_OTHER;
-            let _ = args.ResourceContext(&mut ctx);
-            let req_type = context_to_type(ctx);
+                let mut ctx = COREWEBVIEW2_WEB_RESOURCE_CONTEXT_OTHER;
+                let _ = args.ResourceContext(&mut ctx);
+                let req_type = context_to_type(ctx);
 
-            // Source = the page making the request (its host drives per-site
-            // shields + first-/third-party). The top document is a good proxy.
-            let mut src = PWSTR::null();
-            let source = if core2.Source(&mut src).is_ok() {
-                webview2_com::take_pwstr(src)
-            } else {
-                String::new()
-            };
+                // Source = the page making the request (its host drives per-site
+                // shields + first-/third-party). The top document is a good proxy.
+                let mut src = PWSTR::null();
+                let source = if core2.Source(&mut src).is_ok() {
+                    webview2_com::take_pwstr(src)
+                } else {
+                    String::new()
+                };
 
-            match decide(&url, &source, req_type) {
-                Decision::Allow => {}
-                Decision::Block => {
-                    // Bodyless 403 → the resource never loads.
-                    let env = core2.cast::<ICoreWebView2_2>()?.Environment()?;
-                    let resp = env.CreateWebResourceResponse(None::<&IStream>, 403, w!("Blocked by Flux"), w!(""))?;
-                    args.SetResponse(&resp)?;
+                match decide(&url, &source, req_type) {
+                    Decision::Allow => {}
+                    Decision::Block => {
+                        // Bodyless 403 → the resource never loads.
+                        let env = core2.cast::<ICoreWebView2_2>()?.Environment()?;
+                        let resp = env.CreateWebResourceResponse(
+                            None::<&IStream>,
+                            403,
+                            w!("Blocked by Flux"),
+                            w!(""),
+                        )?;
+                        args.SetResponse(&resp)?;
+                    }
+                    Decision::Redirect(secure) => {
+                        // 307 with a Location header → upgrade to HTTPS.
+                        let env = core2.cast::<ICoreWebView2_2>()?.Environment()?;
+                        let headers = HSTRING::from(format!("Location: {secure}"));
+                        let resp = env.CreateWebResourceResponse(
+                            None::<&IStream>,
+                            307,
+                            w!("Upgraded to HTTPS"),
+                            &headers,
+                        )?;
+                        args.SetResponse(&resp)?;
+                    }
                 }
-                Decision::Redirect(secure) => {
-                    // 307 with a Location header → upgrade to HTTPS.
-                    let env = core2.cast::<ICoreWebView2_2>()?.Environment()?;
-                    let headers = HSTRING::from(format!("Location: {secure}"));
-                    let resp = env.CreateWebResourceResponse(None::<&IStream>, 307, w!("Upgraded to HTTPS"), &headers)?;
-                    args.SetResponse(&resp)?;
-                }
-            }
-            Ok(())
-        }));
+                Ok(())
+            }));
         let mut token: i64 = 0;
         core.add_WebResourceRequested(&handler, &mut token)?;
         Ok(())

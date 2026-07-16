@@ -1,81 +1,81 @@
 //! flux-core library surface — exposed so benches/integration tests can call
 //! commands without booting a window.
 
+pub mod agent;
 pub mod agent_bridge;
 pub mod archive;
 pub mod audioviz;
 pub mod bindings;
 pub mod bookmarks;
 pub mod boosts;
-pub mod calendar;
-pub mod currency;
-pub mod shellhist;
-pub mod semfind;
-pub mod watch;
-pub mod trackers;
 pub mod broker;
 pub mod cache;
+pub mod calendar;
 pub mod cli;
-pub mod agent;
 pub mod commands;
-pub mod dom;
-pub mod proxy;
 pub mod cookies;
 #[cfg(feature = "crsync")]
 pub mod crsync;
+pub mod currency;
 pub mod darkmode;
-pub mod exec;
+pub mod dom;
 pub mod downloads;
 pub mod embedding;
 pub mod error;
+pub mod exec;
 pub mod extensions;
 pub mod favicon;
 pub mod feeds;
 pub mod files;
 pub mod hibernate;
 pub mod history;
+pub mod https;
 pub mod kb;
 pub mod leanmode;
-pub mod trace;
 pub mod lens;
 pub mod macros;
 pub mod mem;
 pub mod memory;
-pub mod netspeed;
 pub mod nav;
-pub mod notes;
-pub mod https;
 pub mod netfilter;
+pub mod netspeed;
+pub mod notes;
 pub mod omni;
 pub mod pdf;
 pub mod peek;
 pub mod permissions;
 pub mod persist;
+pub mod porcupine;
 pub mod prefetch;
+pub mod proxy;
 pub mod pwa;
 pub mod reminders;
 pub mod rpc;
 pub mod screenshot;
 pub mod search;
+pub mod semfind;
 pub mod services;
 pub mod session;
 pub mod sessions;
-pub mod porcupine;
+pub mod shellhist;
 pub mod shields;
+pub mod specialists;
 pub mod spotify;
+pub mod state;
 pub mod stt;
 pub mod sync;
-pub mod tts;
-pub mod voice;
 pub mod taskmgr;
-pub mod tombstone;
-pub mod tracking;
-pub mod state;
-pub mod specialists;
 pub mod terminal;
 pub mod todos;
+pub mod tombstone;
+pub mod trace;
+pub mod trackers;
+pub mod tracking;
+pub mod tts;
 pub mod tui_apps;
 pub mod vault;
+pub mod voice;
+pub mod watch;
 pub mod webview;
 
 use tauri::{Emitter, Manager};
@@ -100,7 +100,10 @@ fn enable_http3() {
     }
     const KEY: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
     let mut args = std::env::var(KEY).unwrap_or_default();
-    for flag in ["--enable-quic", &std::env::var("FLUX_WEBVIEW2_ARGS").unwrap_or_default()] {
+    for flag in [
+        "--enable-quic",
+        &std::env::var("FLUX_WEBVIEW2_ARGS").unwrap_or_default(),
+    ] {
         if !flag.is_empty() && !args.contains(flag) {
             if !args.is_empty() {
                 args.push(' ');
@@ -157,13 +160,17 @@ fn init_core_state(app: &tauri::App, intent: cli::LaunchIntent, boot_started: st
         .app_data_dir()
         .map(|d| d.join("session.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-session.json"));
-    app.manage(boot_phase("session.restore", boot_started, || state::FluxState::restore(session_path)));
+    app.manage(boot_phase("session.restore", boot_started, || {
+        state::FluxState::restore(session_path)
+    }));
     // CLI launch intent — consumed once by the shell on mount.
     app.manage(intent);
     // Live PTY sessions for the embedded terminal.
     app.manage(terminal::TerminalManager::new());
     // Pluggable search config (persisted to the app config dir).
-    app.manage(boot_phase("search.load", boot_started, || search::SearchState::load(app.handle())));
+    app.manage(boot_phase("search.load", boot_started, || {
+        search::SearchState::load(app.handle())
+    }));
     app.manage(omni::IngestState::new());
     // Files tab: live directory watchers + the file-op undo stack.
     app.manage(files::FsWatchers::default());
@@ -175,13 +182,17 @@ fn init_core_state(app: &tauri::App, intent: cli::LaunchIntent, boot_started: st
 /// site-permission hardening.
 fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
     // Optional outbound proxy (#63) — persisted endpoint, applied at webview creation.
-    app.manage(match app.path().app_data_dir().ok().map(|d| d.join("proxy.txt")) {
-        Some(p) => proxy::ProxyState::restore(p),
-        None => proxy::ProxyState::default(),
-    });
+    app.manage(
+        match app.path().app_data_dir().ok().map(|d| d.join("proxy.txt")) {
+            Some(p) => proxy::ProxyState::restore(p),
+            None => proxy::ProxyState::default(),
+        },
+    );
     // Content-blocker shields: the filter engine + per-site policy (#57).
     let filters_dir = app.path().app_data_dir().ok().map(|d| d.join("filters"));
-    app.manage(boot_phase("shields.init", boot_started, || shields::ShieldsState::new(filters_dir)));
+    app.manage(boot_phase("shields.init", boot_started, || {
+        shields::ShieldsState::new(filters_dir)
+    }));
     // Fetch/refresh the big filter lists (EasyList/EasyPrivacy) off the
     // main thread — parsing tens of thousands of rules is heavy.
     {
@@ -200,7 +211,9 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .map(|d| d.join("permissions.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-permissions.json"));
-    app.manage(boot_phase("permissions.restore", boot_started, || permissions::PermState::restore(perms_path)));
+    app.manage(boot_phase("permissions.restore", boot_started, || {
+        permissions::PermState::restore(perms_path)
+    }));
 }
 
 /// Mini-extension registry (#92) + the capability broker (#94).
@@ -211,7 +224,9 @@ fn init_extensions(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .map(|d| d.join("extensions").join("registry.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-extensions.json"));
-    app.manage(boot_phase("extensions.restore", boot_started, || extensions::ExtRegistry::restore(ext_path)));
+    app.manage(boot_phase("extensions.restore", boot_started, || {
+        extensions::ExtRegistry::restore(ext_path)
+    }));
     // Extension broker (#94) — capability tokens + grant-checked flux.*
     // API + per-extension persisted storage.
     let storage_path = app
@@ -219,7 +234,9 @@ fn init_extensions(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .map(|d| d.join("extensions").join("storage.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-ext-storage.json"));
-    app.manage(boot_phase("broker.restore", boot_started, || broker::BrokerState::restore(storage_path)));
+    app.manage(boot_phase("broker.restore", boot_started, || {
+        broker::BrokerState::restore(storage_path)
+    }));
 }
 
 /// Per-page machinery: hibernation state, memory monitor, predictive
@@ -251,7 +268,9 @@ fn init_page_intel(app: &tauri::App, boot_started: std::time::Instant) {
     if let Some(parent) = archive_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    app.manage(boot_phase("archive.empty", boot_started, || archive::ArchiveStore::empty(archive_path)));
+    app.manage(boot_phase("archive.empty", boot_started, || {
+        archive::ArchiveStore::empty(archive_path)
+    }));
     {
         let handle = app.handle().clone();
         std::thread::spawn(move || {
@@ -284,7 +303,9 @@ fn init_knowledge(app: &tauri::App, boot_started: std::time::Instant) {
     if let Some(parent) = kb_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    app.manage(boot_phase("kb.empty", boot_started, || kb::KbStore::empty(kb_path)));
+    app.manage(boot_phase("kb.empty", boot_started, || {
+        kb::KbStore::empty(kb_path)
+    }));
     {
         let handle = app.handle().clone();
         std::thread::spawn(move || {
@@ -309,21 +330,27 @@ fn init_user_content(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .map(|d| d.join("boosts.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-boosts.json"));
-    app.manage(boot_phase("boosts.restore", boot_started, || boosts::BoostStore::restore(boosts_path)));
+    app.manage(boot_phase("boosts.restore", boot_started, || {
+        boosts::BoostStore::restore(boosts_path)
+    }));
     // Scriptable macros (#67) — record/replay browsing flows.
     let macros_path = app
         .path()
         .app_data_dir()
         .map(|d| d.join("macros.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-macros.json"));
-    app.manage(boot_phase("macros.restore", boot_started, || macros::MacroState::restore(macros_path)));
+    app.manage(boot_phase("macros.restore", boot_started, || {
+        macros::MacroState::restore(macros_path)
+    }));
     // E2E sync (#62) — encrypted bookmarks/sessions via a BYO folder.
     let sync_path = app
         .path()
         .app_data_dir()
         .map(|d| d.join("sync.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-sync-config.json"));
-    app.manage(boot_phase("sync.restore", boot_started, || sync::SyncState::restore(sync_path)));
+    app.manage(boot_phase("sync.restore", boot_started, || {
+        sync::SyncState::restore(sync_path)
+    }));
     // Auto-sync timer (#62): quietly re-syncs every few minutes when on +
     // unlocked. No-op until the user enables it + unlocks.
     sync::spawn_auto(app.handle().clone());
@@ -333,35 +360,45 @@ fn init_user_content(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .map(|d| d.join("pwas.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-pwas.json"));
-    app.manage(boot_phase("pwa.restore", boot_started, || pwa::PwaStore::restore(pwa_path)));
+    app.manage(boot_phase("pwa.restore", boot_started, || {
+        pwa::PwaStore::restore(pwa_path)
+    }));
     // Native RSS / Atom reader (#72) — subscriptions persisted; items fetched live.
     let feeds_path = app
         .path()
         .app_data_dir()
         .map(|d| d.join("feeds.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-feeds.json"));
-    app.manage(boot_phase("feeds.restore", boot_started, || feeds::FeedStore::restore(feeds_path)));
+    app.manage(boot_phase("feeds.restore", boot_started, || {
+        feeds::FeedStore::restore(feeds_path)
+    }));
     // Calendar (#114) — subscribed ICS feed URLs; events fetched live.
     let cal_path = app
         .path()
         .app_data_dir()
         .map(|d| d.join("calendars.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-calendars.json"));
-    app.manage(boot_phase("calendar.restore", boot_started, || calendar::CalStore::restore(cal_path)));
+    app.manage(boot_phase("calendar.restore", boot_started, || {
+        calendar::CalStore::restore(cal_path)
+    }));
     // Local calendar events (#114) — on-device, editable, Gemma-writable.
     let cal_events_path = app
         .path()
         .app_data_dir()
         .map(|d| d.join("cal_events.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-cal-events.json"));
-    app.manage(boot_phase("calevents.restore", boot_started, || calendar::LocalEventStore::restore(cal_events_path)));
+    app.manage(boot_phase("calevents.restore", boot_started, || {
+        calendar::LocalEventStore::restore(cal_events_path)
+    }));
     // Local tasks / to-dos (#114) — on-device task list.
     let todos_path = app
         .path()
         .app_data_dir()
         .map(|d| d.join("todos.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-todos.json"));
-    app.manage(boot_phase("todos.restore", boot_started, || todos::TodoStore::restore(todos_path)));
+    app.manage(boot_phase("todos.restore", boot_started, || {
+        todos::TodoStore::restore(todos_path)
+    }));
     // Semantic shell-history search (#122) — corpus built lazily on first use.
     app.manage(shellhist::ShellHistStore::default());
     // Page-watch (#128) — semantic change monitor + background scheduler.
@@ -370,14 +407,20 @@ fn init_user_content(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .map(|d| d.join("watches.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-watches.json"));
-    app.manage(boot_phase("watch.restore", boot_started, || watch::WatchStore::restore(watch_path)));
+    app.manage(boot_phase("watch.restore", boot_started, || {
+        watch::WatchStore::restore(watch_path)
+    }));
     watch::start_scheduler(app.handle().clone());
     // Tracker graph (#129) — live first-party→third-party request map.
     app.manage(trackers::TrackerStore::default());
     // Per-site lean mode (#105) — opt-in heavy-3rd-party-script blocking.
     app.manage(leanmode::LeanState::new());
     // Built-in task manager (#107) — system process monitor.
-    app.manage(boot_phase("taskmgr.init", boot_started, taskmgr::TaskManager::new));
+    app.manage(boot_phase(
+        "taskmgr.init",
+        boot_started,
+        taskmgr::TaskManager::new,
+    ));
     // Favicon cache (#21) — fetched cookielessly, cached per host on disk.
     let fav_dir = app.path().app_data_dir().ok().map(|d| d.join("favicons"));
     app.manage(favicon::FaviconCache::new(fav_dir));
@@ -393,14 +436,18 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .map(|d| d.join("bookmarks.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-bookmarks.json"));
-    app.manage(boot_phase("bookmarks.restore", boot_started, || bookmarks::BookmarkStore::restore(bm_path)));
+    app.manage(boot_phase("bookmarks.restore", boot_started, || {
+        bookmarks::BookmarkStore::restore(bm_path)
+    }));
     // Named sessions (#47) — save/restore bundles of tabs.
     let sessions_path = app
         .path()
         .app_data_dir()
         .map(|d| d.join("sessions.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-sessions.json"));
-    app.manage(boot_phase("sessions.restore", boot_started, || sessions::SessionStore::restore(sessions_path)));
+    app.manage(boot_phase("sessions.restore", boot_started, || {
+        sessions::SessionStore::restore(sessions_path)
+    }));
     // Daily auto-snapshots (#47): quietly snapshot the open tabs into a
     // per-day bucket every few minutes (keeps a week), so "reopen yesterday"
     // works without having saved anything.
@@ -409,14 +456,17 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .map(|d| d.join("snapshots.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-snapshots.json"));
-    app.manage(boot_phase("snapshots.restore", boot_started, || sessions::SnapshotStore::restore(snaps_path)));
+    app.manage(boot_phase("snapshots.restore", boot_started, || {
+        sessions::SnapshotStore::restore(snaps_path)
+    }));
     {
         let handle = app.handle().clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_secs(300));
-            if let (Some(snaps), Some(st)) =
-                (handle.try_state::<sessions::SnapshotStore>(), handle.try_state::<state::FluxState>())
-            {
+            if let (Some(snaps), Some(st)) = (
+                handle.try_state::<sessions::SnapshotStore>(),
+                handle.try_state::<state::FluxState>(),
+            ) {
                 snaps.capture(sessions::snapshot(&st));
             }
         });
@@ -433,7 +483,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
         .app_data_dir()
         .map(|d| d.join("notes.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-notes.json"));
-    app.manage(boot_phase("notes.restore", boot_started, || notes::NoteStore::restore(notes_path)));
+    app.manage(boot_phase("notes.restore", boot_started, || {
+        notes::NoteStore::restore(notes_path)
+    }));
     // Browsing history (#39) — recorded from dom_publish, persisted.
     let history_path = app
         .path()
@@ -501,7 +553,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             // but ahead of what's indexed — so active browsing defers, a pause
             // indexes. Incremental (doc_id = visit id), so only new pages embed.
             // FLUX_TRAIL_AUTOINDEX=0 opts out.
-            let autoindex = std::env::var("FLUX_TRAIL_AUTOINDEX").map(|v| v != "0").unwrap_or(true);
+            let autoindex = std::env::var("FLUX_TRAIL_AUTOINDEX")
+                .map(|v| v != "0")
+                .unwrap_or(true);
             let mut last_seen: u64 = 0;
             let mut last_indexed: u64 = 0;
             loop {
@@ -518,7 +572,10 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 if !autoindex {
                     continue;
                 }
-                if let (Some(s), Some(kb)) = (handle.try_state::<trace::TraceSnapshots>(), handle.try_state::<kb::KbStore>()) {
+                if let (Some(s), Some(kb)) = (
+                    handle.try_state::<trace::TraceSnapshots>(),
+                    handle.try_state::<kb::KbStore>(),
+                ) {
                     let generation = s.generation();
                     let settled = generation == last_seen && generation != last_indexed;
                     last_seen = generation;
@@ -528,7 +585,11 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                     // If the embedder changed since the corpus was built (e.g.
                     // Ollama came up), a single-source reindex would clear every
                     // source and rebuild only `web` — heal by rebuilding all.
-                    let source = if kb.embedder() != embedding::current() { None } else { Some("web".to_string()) };
+                    let source = if kb.embedder() != embedding::current() {
+                        None
+                    } else {
+                        Some("web".to_string())
+                    };
                     match kb.reindex(source, s.web_docs()) {
                         Ok(_) => {
                             last_indexed = generation;
@@ -536,7 +597,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                         }
                         // Busy (a manual reindex is running) or a source failed —
                         // leave last_indexed behind so the next settled tick retries.
-                        Err(e) => tracing::debug!(target: "flux::kb", "web auto-reindex skipped: {e}"),
+                        Err(e) => {
+                            tracing::debug!(target: "flux::kb", "web auto-reindex skipped: {e}")
+                        }
                     }
                 }
             }
@@ -549,7 +612,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
 fn init_vault(app: &tauri::App, boot_started: std::time::Instant) {
     // Password vault (#61) — OS-keychain data key + decrypted-in-memory
     // for autofill; persists to app_data/vault/vault.bin.
-    app.manage(boot_phase("vault.load", boot_started, || vault::VaultState::load(app.handle())));
+    app.manage(boot_phase("vault.load", boot_started, || {
+        vault::VaultState::load(app.handle())
+    }));
     {
         let handle = app.handle().clone();
         std::thread::spawn(move || {

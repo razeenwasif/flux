@@ -27,7 +27,10 @@ const MATCH_THRESHOLD: f32 = 0.86;
 const DEFAULT_INTERVAL: u64 = 3600; // 1 hour
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Persisted watch record.
@@ -100,11 +103,16 @@ impl WatchStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let next_id = entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
-        Self { inner: Arc::new(RwLock::new(Inner { entries, next_id })), path: Arc::new(Some(path)) }
+        Self {
+            inner: Arc::new(RwLock::new(Inner { entries, next_id })),
+            path: Arc::new(Some(path)),
+        }
     }
 
     fn save(&self) {
-        let Some(path) = self.path.as_ref() else { return };
+        let Some(path) = self.path.as_ref() else {
+            return;
+        };
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -115,8 +123,18 @@ impl WatchStore {
     }
 
     pub fn list(&self) -> Vec<WatchItem> {
-        let mut v: Vec<WatchItem> = self.inner.read().entries.iter().map(|e| e.to_item()).collect();
-        v.sort_by(|a, b| b.last_change_ms.cmp(&a.last_change_ms).then(b.last_checked_ms.cmp(&a.last_checked_ms)));
+        let mut v: Vec<WatchItem> = self
+            .inner
+            .read()
+            .entries
+            .iter()
+            .map(|e| e.to_item())
+            .collect();
+        v.sort_by(|a, b| {
+            b.last_change_ms
+                .cmp(&a.last_change_ms)
+                .then(b.last_checked_ms.cmp(&a.last_checked_ms))
+        });
         v
     }
 
@@ -186,15 +204,26 @@ impl WatchStore {
     }
 
     fn url_and_baseline(&self, id: u64) -> Option<(String, String)> {
-        self.inner.read().entries.iter().find(|e| e.id == id).map(|e| (e.url.clone(), e.baseline.clone()))
+        self.inner
+            .read()
+            .entries
+            .iter()
+            .find(|e| e.id == id)
+            .map(|e| (e.url.clone(), e.baseline.clone()))
     }
 
     /// Apply a completed check. Returns the item if a change was detected.
-    fn apply(&self, id: u64, result: Result<(String, Vec<String>, Vec<String>), String>) -> Option<WatchItem> {
+    fn apply(
+        &self,
+        id: u64,
+        result: Result<(String, Vec<String>, Vec<String>), String>,
+    ) -> Option<WatchItem> {
         let mut changed_item = None;
         {
             let mut inner = self.inner.write();
-            let Some(e) = inner.entries.iter_mut().find(|e| e.id == id) else { return None };
+            let Some(e) = inner.entries.iter_mut().find(|e| e.id == id) else {
+                return None;
+            };
             e.last_checked_ms = now_ms();
             match result {
                 Ok((new_text, added, removed)) => {
@@ -229,13 +258,27 @@ fn fetch_text(url: &str) -> Result<String, String> {
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(25))
         .build();
-    let resp = agent.get(url).set("User-Agent", "Mozilla/5.0 (Flux page-watch)").call().map_err(|e| e.to_string())?;
-    let ctype = resp.header("content-type").unwrap_or("").to_ascii_lowercase();
-    if !ctype.is_empty() && !ctype.contains("html") && !ctype.contains("text") && !ctype.contains("xml") {
+    let resp = agent
+        .get(url)
+        .set("User-Agent", "Mozilla/5.0 (Flux page-watch)")
+        .call()
+        .map_err(|e| e.to_string())?;
+    let ctype = resp
+        .header("content-type")
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !ctype.is_empty()
+        && !ctype.contains("html")
+        && !ctype.contains("text")
+        && !ctype.contains("xml")
+    {
         return Err(format!("not a text page ({ctype})"));
     }
     let mut buf = Vec::new();
-    resp.into_reader().take(MAX_FETCH_BYTES).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    resp.into_reader()
+        .take(MAX_FETCH_BYTES)
+        .read_to_end(&mut buf)
+        .map_err(|e| e.to_string())?;
     if buf.is_empty() {
         return Err("empty response".into());
     }
@@ -396,7 +439,9 @@ pub async fn watch_add(
     interval_secs: Option<u64>,
 ) -> Result<WatchItem, String> {
     let store = (*store).clone();
-    tauri::async_runtime::spawn_blocking(move || store.add(url, title, interval_secs)).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || store.add(url, title, interval_secs))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -411,10 +456,17 @@ pub fn watch_mark_seen(store: State<'_, WatchStore>, id: u64) {
 
 /// Force an immediate check (the ↻ button). Returns the updated item.
 #[tauri::command]
-pub async fn watch_check_now(store: State<'_, WatchStore>, id: u64) -> Result<Option<WatchItem>, String> {
+pub async fn watch_check_now(
+    store: State<'_, WatchStore>,
+    id: u64,
+) -> Result<Option<WatchItem>, String> {
     let store = (*store).clone();
-    let Some((url, baseline)) = store.url_and_baseline(id) else { return Ok(None) };
-    let result = tauri::async_runtime::spawn_blocking(move || check_one(&url, &baseline)).await.map_err(|e| e.to_string())?;
+    let Some((url, baseline)) = store.url_and_baseline(id) else {
+        return Ok(None);
+    };
+    let result = tauri::async_runtime::spawn_blocking(move || check_one(&url, &baseline))
+        .await
+        .map_err(|e| e.to_string())?;
     store.apply(id, result);
     Ok(store.list().into_iter().find(|i| i.id == id))
 }
@@ -425,13 +477,20 @@ pub fn start_scheduler(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(60)).await;
-            let Some(store) = app.try_state::<WatchStore>().map(|s| (*s).clone()) else { continue };
+            let Some(store) = app.try_state::<WatchStore>().map(|s| (*s).clone()) else {
+                continue;
+            };
             for id in store.due_ids() {
-                let Some((url, baseline)) = store.url_and_baseline(id) else { continue };
-                let result = match tauri::async_runtime::spawn_blocking(move || check_one(&url, &baseline)).await {
-                    Ok(r) => r,
-                    Err(_) => continue,
+                let Some((url, baseline)) = store.url_and_baseline(id) else {
+                    continue;
                 };
+                let result =
+                    match tauri::async_runtime::spawn_blocking(move || check_one(&url, &baseline))
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
                 if let Some(item) = store.apply(id, result) {
                     let _ = app.emit("flux://watch-changed", &item);
                     let n_add = item.added.len();
@@ -470,7 +529,15 @@ mod tests {
         let new = "The pricing is ten dollars per month for the basic plan with email support included. \
                    We have launched a brand new enterprise tier with single sign on audit logs and priority phone support.";
         let (added, removed) = diff(base, new);
-        assert!(added.iter().any(|p| p.to_lowercase().contains("enterprise")), "added: {added:?}");
-        assert!(removed.iter().any(|p| p.to_lowercase().contains("refund")), "removed: {removed:?}");
+        assert!(
+            added
+                .iter()
+                .any(|p| p.to_lowercase().contains("enterprise")),
+            "added: {added:?}"
+        );
+        assert!(
+            removed.iter().any(|p| p.to_lowercase().contains("refund")),
+            "removed: {removed:?}"
+        );
     }
 }

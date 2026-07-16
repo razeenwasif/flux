@@ -42,7 +42,9 @@ pub async fn agent_chat(state: State<'_, FluxState>, prompt: String) -> Result<S
 #[tauri::command]
 pub async fn agent_shell_plan(prompt: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan_shell(&prompt).map_err(|e| e.to_string())
+        crate::agent_bridge::planner()
+            .plan_shell(&prompt)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -54,7 +56,9 @@ pub async fn agent_shell_plan(prompt: String) -> Result<Option<String>, String> 
 #[tauri::command]
 pub async fn agent_plan_steps(goal: String) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan_steps(&goal).map_err(|e| e.to_string())
+        crate::agent_bridge::planner()
+            .plan_steps(&goal)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -63,9 +67,14 @@ pub async fn agent_plan_steps(goal: String) -> Result<Vec<String>, String> {
 /// Adaptive goal loop: pick the next command given the goal + history of results so
 /// far (#115 follow-up — "run → read the failure → fix → re-run").
 #[tauri::command]
-pub async fn agent_next_step(goal: String, history: Vec<String>) -> Result<flux_agent::NextStep, String> {
+pub async fn agent_next_step(
+    goal: String,
+    history: Vec<String>,
+) -> Result<flux_agent::NextStep, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan_next_step(&goal, &history).map_err(|e| e.to_string())
+        crate::agent_bridge::planner()
+            .plan_next_step(&goal, &history)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -74,9 +83,15 @@ pub async fn agent_next_step(goal: String, history: Vec<String>) -> Result<flux_
 /// Plan a file edit (search/replace pairs) from a natural-language instruction. The
 /// frontend applies the edits, shows a diff, and writes only after the user approves.
 #[tauri::command]
-pub async fn agent_edit_plan(path: String, content: String, instruction: String) -> Result<flux_agent::EditPlan, String> {
+pub async fn agent_edit_plan(
+    path: String,
+    content: String,
+    instruction: String,
+) -> Result<flux_agent::EditPlan, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan_edit(&path, &content, &instruction).map_err(|e| e.to_string())
+        crate::agent_bridge::planner()
+            .plan_edit(&path, &content, &instruction)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -91,7 +106,9 @@ pub async fn agent_edit_plan(path: String, content: String, instruction: String)
 #[tauri::command]
 pub async fn agent_pac_plan(request: String) -> Result<flux_agent::pac::PacPlan, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_bridge::planner().plan_pac(&request).map_err(|e| e.to_string())
+        crate::agent_bridge::planner()
+            .plan_pac(&request)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -123,7 +140,11 @@ pub async fn pac_status() -> PacStatus {
                 let authenticated = !auth.trim().is_empty()
                     && !auth.to_ascii_lowercase().contains("no profiles")
                     && !auth.to_ascii_lowercase().contains("no auth");
-                PacStatus { installed: true, authenticated, detail: ver.lines().next().unwrap_or("").trim().to_string() }
+                PacStatus {
+                    installed: true,
+                    authenticated,
+                    detail: ver.lines().next().unwrap_or("").trim().to_string(),
+                }
             }
             _ => PacStatus {
                 installed: false,
@@ -133,7 +154,11 @@ pub async fn pac_status() -> PacStatus {
         }
     })
     .await
-    .unwrap_or(PacStatus { installed: false, authenticated: false, detail: "preflight failed".into() })
+    .unwrap_or(PacStatus {
+        installed: false,
+        authenticated: false,
+        detail: "preflight failed".into(),
+    })
 }
 
 /// Streaming chat (BACKLOG #82): same as [`agent_chat`] but relays each token to
@@ -162,22 +187,29 @@ pub async fn agent_chat_stream(
 /// Translate the active page's visible text to `target` with the local model
 /// (BACKLOG #40). Private — no cloud translation service.
 #[tauri::command]
-pub async fn agent_translate(state: State<'_, FluxState>, target: String) -> Result<String, String> {
+pub async fn agent_translate(
+    state: State<'_, FluxState>,
+    target: String,
+) -> Result<String, String> {
     let page = state.active_snapshot().ok_or("open a page to translate")?;
     if page.text.trim().is_empty() {
         return Err("this page has no readable text".into());
     }
     let text = Arc::clone(&page.text);
-    tauri::async_runtime::spawn_blocking(move || crate::agent_bridge::planner().translate(&target, &text))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().translate(&target, &text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 /// List the models the local Ollama server has pulled (#81).
 #[tauri::command]
 pub async fn agent_models() -> Vec<String> {
-    tauri::async_runtime::spawn_blocking(flux_agent::ollama::list_models).await.unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(flux_agent::ollama::list_models)
+        .await
+        .unwrap_or_default()
 }
 
 /// The model the agent is currently using (#81).
@@ -196,12 +228,22 @@ pub fn agent_set_model(name: String) {
 /// each tab's cached DOM text (capped per tab), labels it, and asks the local
 /// model. Tabs without a snapshot yet are skipped.
 #[tauri::command]
-pub async fn agent_chat_tabs(state: State<'_, FluxState>, prompt: String, tab_ids: Vec<TabId>) -> Result<String, String> {
+pub async fn agent_chat_tabs(
+    state: State<'_, FluxState>,
+    prompt: String,
+    tab_ids: Vec<TabId>,
+) -> Result<String, String> {
     const PER_TAB: usize = 4 * 1024;
     let mut combined = String::new();
     for id in tab_ids {
-        let Some(snap) = state.dom_cache.get(&id) else { continue };
-        let title = state.tabs.get(&id).map(|t| t.title.clone()).filter(|t| !t.trim().is_empty());
+        let Some(snap) = state.dom_cache.get(&id) else {
+            continue;
+        };
+        let title = state
+            .tabs
+            .get(&id)
+            .map(|t| t.title.clone())
+            .filter(|t| !t.trim().is_empty());
         let label = title.unwrap_or_else(|| snap.url.to_string());
         combined.push_str(&format!("--- TAB: {label} ({}) ---\n", snap.url));
         combined.push_str(&cap_utf8(snap.text.to_string(), PER_TAB));
@@ -227,8 +269,14 @@ pub async fn agent_chat_tabs_stream(
     const PER_TAB: usize = 4 * 1024;
     let mut combined = String::new();
     for id in tab_ids {
-        let Some(snap) = state.dom_cache.get(&id) else { continue };
-        let title = state.tabs.get(&id).map(|t| t.title.clone()).filter(|t| !t.trim().is_empty());
+        let Some(snap) = state.dom_cache.get(&id) else {
+            continue;
+        };
+        let title = state
+            .tabs
+            .get(&id)
+            .map(|t| t.title.clone())
+            .filter(|t| !t.trim().is_empty());
         let label = title.unwrap_or_else(|| snap.url.to_string());
         combined.push_str(&format!("--- TAB: {label} ({}) ---\n", snap.url));
         combined.push_str(&cap_utf8(snap.text.to_string(), PER_TAB));
@@ -272,11 +320,30 @@ fn snippet(text: &str, toks: &[&str]) -> String {
     let lower = text.to_lowercase();
     match toks.iter().filter_map(|t| lower.find(t)).min() {
         Some(p) => {
-            let start = text[..p].char_indices().rev().nth(40).map(|(i, _)| i).unwrap_or(0);
-            let end = text[p..].char_indices().nth(120).map(|(i, _)| p + i).unwrap_or(text.len());
-            format!("…{}…", text[start..end].split_whitespace().collect::<Vec<_>>().join(" "))
+            let start = text[..p]
+                .char_indices()
+                .rev()
+                .nth(40)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let end = text[p..]
+                .char_indices()
+                .nth(120)
+                .map(|(i, _)| p + i)
+                .unwrap_or(text.len());
+            format!(
+                "…{}…",
+                text[start..end]
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
         }
-        None => text.split_whitespace().take(18).collect::<Vec<_>>().join(" "),
+        None => text
+            .split_whitespace()
+            .take(18)
+            .collect::<Vec<_>>()
+            .join(" "),
     }
 }
 
@@ -300,7 +367,10 @@ pub fn omni_search(
     }
     let qe = flux_embed::embed(q);
     let ql = q.to_lowercase();
-    let toks: Vec<&str> = ql.split(|c: char| !c.is_alphanumeric()).filter(|t| t.len() >= 2).collect();
+    let toks: Vec<&str> = ql
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| t.len() >= 2)
+        .collect();
     let lex = |s: &str| {
         let s = s.to_lowercase();
         toks.iter().any(|t| s.contains(t))
@@ -313,7 +383,11 @@ pub fn omni_search(
         if !matches!(t.kind, TabKind::Browser) {
             continue;
         }
-        let text = state.dom_cache.get(&t.id).map(|s| s.text.to_string()).unwrap_or_default();
+        let text = state
+            .dom_cache
+            .get(&t.id)
+            .map(|s| s.text.to_string())
+            .unwrap_or_default();
         let e = flux_embed::embed(&format!("{} {}", t.title, text));
         let mut score = cos(&qe, &e);
         if lex(&t.title) || lex(&t.url) {
@@ -343,16 +417,34 @@ pub fn omni_search(
         if lex(&b.title) {
             score += 0.2;
         }
-        hits.push(OmniHit { kind: "bookmark".into(), tab_id: None, title: b.title, url: b.url, snippet: b.folder, score });
+        hits.push(OmniHit {
+            kind: "bookmark".into(),
+            tab_id: None,
+            title: b.title,
+            url: b.url,
+            snippet: b.folder,
+            score,
+        });
     }
 
     // History — `search` already lexical-filters + frecency-ranks; embed the top.
     for h in history.search(q, 60) {
         let e = flux_embed::embed(&format!("{} {}", h.title, h.url));
-        hits.push(OmniHit { kind: "history".into(), tab_id: None, title: h.title, url: h.url, snippet: String::new(), score: cos(&qe, &e) });
+        hits.push(OmniHit {
+            kind: "history".into(),
+            tab_id: None,
+            title: h.title,
+            url: h.url,
+            snippet: String::new(),
+            score: cos(&qe, &e),
+        });
     }
 
-    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     hits.truncate(limit.unwrap_or(14));
     hits
 }
@@ -365,11 +457,15 @@ pub async fn agent_execute(
     state: State<'_, FluxState>,
     prompt: String,
 ) -> Result<flux_agent::AgentAction, String> {
-    let snap = state.active_snapshot().ok_or("no page context — open a tab first")?;
+    let snap = state
+        .active_snapshot()
+        .ok_or("no page context — open a tab first")?;
     let tab = snap.tab;
 
     // 1. Flip to Thinking — frontend swaps the sidebar to the kinetic gradient.
-    *state.agent.write() = AgentStatus::Thinking { prompt: prompt.clone() };
+    *state.agent.write() = AgentStatus::Thinking {
+        prompt: prompt.clone(),
+    };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
 
     // 2. Plan on a blocking thread: inference is CPU/GPU-bound and must not
@@ -383,7 +479,9 @@ pub async fn agent_execute(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| {
-        *state.agent.write() = AgentStatus::Error { message: e.to_string() };
+        *state.agent.write() = AgentStatus::Error {
+            message: e.to_string(),
+        };
         let _ = app.emit("flux://agent-status", state.agent.read().clone());
         e.to_string()
     })?;
@@ -412,20 +510,32 @@ pub async fn agent_execute(
 /// page. Returns the planned action; status returns to Idle (we're awaiting
 /// confirmation, not acting).
 #[tauri::command]
-pub async fn agent_plan(app: AppHandle, state: State<'_, FluxState>, prompt: String) -> Result<flux_agent::AgentAction, String> {
-    let snap = state.active_snapshot().ok_or("no page context — open a tab first")?;
-    *state.agent.write() = AgentStatus::Thinking { prompt: prompt.clone() };
+pub async fn agent_plan(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    prompt: String,
+) -> Result<flux_agent::AgentAction, String> {
+    let snap = state
+        .active_snapshot()
+        .ok_or("no page context — open a tab first")?;
+    *state.agent.write() = AgentStatus::Thinking {
+        prompt: prompt.clone(),
+    };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     let page_text = Arc::clone(&snap.text);
     let url = snap.url.clone();
-    let action = tauri::async_runtime::spawn_blocking(move || crate::agent_bridge::planner().plan(&prompt, &page_text, &url))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| {
-            *state.agent.write() = AgentStatus::Error { message: e.to_string() };
-            let _ = app.emit("flux://agent-status", state.agent.read().clone());
-            e.to_string()
-        })?;
+    let action = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().plan(&prompt, &page_text, &url)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| {
+        *state.agent.write() = AgentStatus::Error {
+            message: e.to_string(),
+        };
+        let _ = app.emit("flux://agent-status", state.agent.read().clone());
+        e.to_string()
+    })?;
     *state.agent.write() = AgentStatus::Idle;
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     Ok(action)
@@ -446,8 +556,12 @@ pub async fn agent_task_step(
     goal: String,
     history: Vec<String>,
 ) -> Result<flux_agent::AgentAction, String> {
-    let snap = state.active_snapshot().ok_or("no page context — open a tab first")?;
-    *state.agent.write() = AgentStatus::Thinking { prompt: goal.clone() };
+    let snap = state
+        .active_snapshot()
+        .ok_or("no page context — open a tab first")?;
+    *state.agent.write() = AgentStatus::Thinking {
+        prompt: goal.clone(),
+    };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     let page_text = Arc::clone(&snap.text);
     let url = snap.url.clone();
@@ -457,7 +571,9 @@ pub async fn agent_task_step(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| {
-        *state.agent.write() = AgentStatus::Error { message: e.to_string() };
+        *state.agent.write() = AgentStatus::Error {
+            message: e.to_string(),
+        };
         let _ = app.emit("flux://agent-status", state.agent.read().clone());
         e.to_string()
     })?;
@@ -470,7 +586,11 @@ pub async fn agent_task_step(
 /// Compiles it to JS (the script paints the magenta highlight, then acts) and
 /// injects it into the active tab's webview.
 #[tauri::command]
-pub async fn agent_run_action(app: AppHandle, state: State<'_, FluxState>, action: flux_agent::AgentAction) -> Result<flux_agent::AgentAction, String> {
+pub async fn agent_run_action(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    action: flux_agent::AgentAction,
+) -> Result<flux_agent::AgentAction, String> {
     let tab = state.active_tab().ok_or("no active tab")?;
     // #104: flag destructive intent for the activity feed. The compiled click
     // JS independently re-checks the element's *live* label and aborts there —
@@ -478,7 +598,10 @@ pub async fn agent_run_action(app: AppHandle, state: State<'_, FluxState>, actio
     let description = match action.is_destructive() {
         Some(term) => {
             tracing::warn!(target: "flux::agent", term, "destructive action queued — guard will verify the live label");
-            format!("⚠ {} (destructive: “{term}” — Flux will block it if the control confirms it)", action.describe())
+            format!(
+                "⚠ {} (destructive: “{term}” — Flux will block it if the control confirms it)",
+                action.describe()
+            )
         }
         None => action.describe(),
     };

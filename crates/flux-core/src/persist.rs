@@ -17,7 +17,10 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let mut name = path.file_name().map(|s| s.to_os_string()).unwrap_or_default();
+    let mut name = path
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_default();
     name.push(format!(".{}.tmp", std::process::id()));
     let tmp = path.with_file_name(name);
     std::fs::write(&tmp, bytes)?;

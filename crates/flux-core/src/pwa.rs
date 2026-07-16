@@ -34,7 +34,11 @@ impl PwaStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let next = apps.iter().map(|a| a.id).max().map(|m| m + 1).unwrap_or(1);
-        Self { apps: RwLock::new(apps), next_id: AtomicU64::new(next), path: Some(path) }
+        Self {
+            apps: RwLock::new(apps),
+            next_id: AtomicU64::new(next),
+            path: Some(path),
+        }
     }
 
     pub fn list(&self) -> Vec<PwaApp> {
@@ -55,7 +59,11 @@ impl PwaStore {
         } else {
             let a = PwaApp {
                 id: self.next_id.fetch_add(1, Ordering::Relaxed),
-                name: if name.trim().is_empty() { url.clone() } else { name },
+                name: if name.trim().is_empty() {
+                    url.clone()
+                } else {
+                    name
+                },
                 url,
             };
             apps.push(a.clone());
@@ -85,7 +93,10 @@ fn open_window(app: &AppHandle, pwa: &PwaApp) -> Result<(), String> {
         let _ = win.set_focus();
         return Ok(());
     }
-    let url: tauri::Url = pwa.url.parse().map_err(|_| format!("invalid URL: {}", pwa.url))?;
+    let url: tauri::Url = pwa
+        .url
+        .parse()
+        .map_err(|_| format!("invalid URL: {}", pwa.url))?;
     WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(&pwa.name)
         .inner_size(1100.0, 800.0)
@@ -102,7 +113,12 @@ pub fn pwa_list(store: State<'_, PwaStore>) -> Vec<PwaApp> {
 }
 
 #[tauri::command]
-pub fn pwa_install(app: AppHandle, store: State<'_, PwaStore>, url: String, name: String) -> Result<PwaApp, String> {
+pub fn pwa_install(
+    app: AppHandle,
+    store: State<'_, PwaStore>,
+    url: String,
+    name: String,
+) -> Result<PwaApp, String> {
     if !url.starts_with("http") {
         return Err("only web pages can be installed as apps".into());
     }

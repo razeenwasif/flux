@@ -41,7 +41,12 @@ pub struct Cell {
 
 impl Default for Cell {
     fn default() -> Self {
-        Self { ch: ' ', fg: Color::Default, bg: Color::Default, flags: CellFlags::empty() }
+        Self {
+            ch: ' ',
+            fg: Color::Default,
+            bg: Color::Default,
+            flags: CellFlags::empty(),
+        }
     }
 }
 
@@ -122,7 +127,8 @@ impl Grid {
     }
 
     pub fn cell(&self, col: u16, row: u16) -> Option<&Cell> {
-        self.cells.get(row as usize * self.cols as usize + col as usize)
+        self.cells
+            .get(row as usize * self.cols as usize + col as usize)
     }
 
     /// Drain damage: returns which rows changed and resets the flags.
@@ -140,7 +146,10 @@ impl Grid {
     /// Debug/test helper: row contents as a trimmed string.
     pub fn row_text(&self, row: u16) -> String {
         let start = row as usize * self.cols as usize;
-        self.cells[start..start + self.cols as usize].iter().map(|c| c.ch).collect()
+        self.cells[start..start + self.cols as usize]
+            .iter()
+            .map(|c| c.ch)
+            .collect()
     }
 
     /// Rows currently held in scrollback.
@@ -149,7 +158,9 @@ impl Grid {
     }
     /// Text of scrollback row `i` (0 = oldest) — for rendering the scroll region / tests.
     pub fn scrollback_row_text(&self, i: usize) -> Option<String> {
-        self.scrollback.get(i).map(|l| l.cells.iter().map(|c| c.ch).collect())
+        self.scrollback
+            .get(i)
+            .map(|l| l.cells.iter().map(|c| c.ch).collect())
     }
 
     /// Collapse scrollback + screen into logical lines, joining soft-wrapped rows
@@ -157,20 +168,26 @@ impl Grid {
     fn logical_lines(&self) -> Vec<Vec<Cell>> {
         let mut out: Vec<Vec<Cell>> = Vec::new();
         let mut cur: Vec<Cell> = Vec::new();
-        let feed = |cells: &[Cell], wrapped: bool, out: &mut Vec<Vec<Cell>>, cur: &mut Vec<Cell>| {
-            if wrapped {
-                cur.extend_from_slice(cells);
-            } else {
-                cur.extend_from_slice(trim_trailing_blanks(cells));
-                out.push(std::mem::take(cur));
-            }
-        };
+        let feed =
+            |cells: &[Cell], wrapped: bool, out: &mut Vec<Vec<Cell>>, cur: &mut Vec<Cell>| {
+                if wrapped {
+                    cur.extend_from_slice(cells);
+                } else {
+                    cur.extend_from_slice(trim_trailing_blanks(cells));
+                    out.push(std::mem::take(cur));
+                }
+            };
         for line in &self.scrollback {
             feed(&line.cells, line.wrapped, &mut out, &mut cur);
         }
         for r in 0..self.rows as usize {
             let start = r * self.cols as usize;
-            feed(&self.cells[start..start + self.cols as usize], self.wrapped[r], &mut out, &mut cur);
+            feed(
+                &self.cells[start..start + self.cols as usize],
+                self.wrapped[r],
+                &mut out,
+                &mut cur,
+            );
         }
         if !cur.is_empty() {
             out.push(cur);
@@ -189,14 +206,20 @@ impl Grid {
         let mut wrapped_lines: Vec<Line> = Vec::new();
         for line in self.logical_lines() {
             if line.is_empty() {
-                wrapped_lines.push(Line { cells: Vec::new(), wrapped: false });
+                wrapped_lines.push(Line {
+                    cells: Vec::new(),
+                    wrapped: false,
+                });
                 continue;
             }
             let w = cols as usize;
             let mut i = 0;
             while i < line.len() {
                 let end = (i + w).min(line.len());
-                wrapped_lines.push(Line { cells: line[i..end].to_vec(), wrapped: end < line.len() });
+                wrapped_lines.push(Line {
+                    cells: line[i..end].to_vec(),
+                    wrapped: end < line.len(),
+                });
                 i = end;
             }
         }
@@ -207,7 +230,10 @@ impl Grid {
         }
         // The last `rows` lines are the screen; earlier ones are scrollback.
         while wrapped_lines.len() < rows as usize {
-            wrapped_lines.push(Line { cells: Vec::new(), wrapped: false });
+            wrapped_lines.push(Line {
+                cells: Vec::new(),
+                wrapped: false,
+            });
         }
         let split = wrapped_lines.len() - rows as usize;
         let screen: Vec<Line> = wrapped_lines.split_off(split);
@@ -241,7 +267,12 @@ impl Grid {
         let (col, row) = self.cursor;
         let idx = row as usize * self.cols as usize + col as usize;
         if let Some(cell) = self.cells.get_mut(idx) {
-            *cell = Cell { ch, fg: self.pen_fg, bg: self.pen_bg, flags: self.pen_flags };
+            *cell = Cell {
+                ch,
+                fg: self.pen_fg,
+                bg: self.pen_bg,
+                flags: self.pen_flags,
+            };
             self.damaged[row as usize] = true;
         }
         // Advance with wrap. A wrap means this row continues onto the next, so
@@ -263,7 +294,10 @@ impl Grid {
             // wrap flag, so reflow can rejoin it) instead of discarding it.
             let w = self.cols as usize;
             let evicted: Vec<Cell> = self.cells[..w].to_vec();
-            self.scrollback.push_back(Line { cells: evicted, wrapped: self.wrapped[0] });
+            self.scrollback.push_back(Line {
+                cells: evicted,
+                wrapped: self.wrapped[0],
+            });
             while self.scrollback.len() > self.max_scrollback {
                 self.scrollback.pop_front();
             }

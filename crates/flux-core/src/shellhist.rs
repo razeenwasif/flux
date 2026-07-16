@@ -94,7 +94,12 @@ impl ShellHistStore {
 
 impl Entry {
     fn hit(&self, score: f32) -> ShellHistHit {
-        ShellHistHit { command: self.cmd.clone(), score, source: self.source.to_string(), ts: self.ts }
+        ShellHistHit {
+            command: self.cmd.clone(),
+            score,
+            source: self.source.to_string(),
+            ts: self.ts,
+        }
     }
 }
 
@@ -127,8 +132,16 @@ fn parse_history(raw: &str) -> Vec<(String, Option<i64>, &'static str)> {
     let mut pending_ts: Option<i64> = None;
     for line in raw.lines() {
         match line.trim_end() {
-            "@@FLUXBASH@@" => { section = "bash"; pending_ts = None; continue; }
-            "@@FLUXZSH@@" => { section = "zsh"; pending_ts = None; continue; }
+            "@@FLUXBASH@@" => {
+                section = "bash";
+                pending_ts = None;
+                continue;
+            }
+            "@@FLUXZSH@@" => {
+                section = "zsh";
+                pending_ts = None;
+                continue;
+            }
             "@@FLUXEND@@" => break,
             _ => {}
         }
@@ -150,7 +163,10 @@ fn parse_history(raw: &str) -> Vec<(String, Option<i64>, &'static str)> {
             // Extended history: `: <start>:<elapsed>;<command>`.
             if let Some(rest) = line.strip_prefix(": ") {
                 if let Some((meta, cmd)) = rest.split_once(';') {
-                    let ts = meta.split(':').next().and_then(|s| s.trim().parse::<i64>().ok());
+                    let ts = meta
+                        .split(':')
+                        .next()
+                        .and_then(|s| s.trim().parse::<i64>().ok());
                     let cmd = cmd.trim();
                     if cmd.len() >= 2 {
                         out.push((cmd.to_string(), ts, "zsh"));
@@ -187,15 +203,24 @@ fn build_corpus() -> Vec<Entry> {
         .into_iter()
         .map(|(cmd, ts, source)| {
             let vec = flux_embed::embed(&cmd);
-            Entry { cmd, ts, source, vec }
+            Entry {
+                cmd,
+                ts,
+                source,
+                vec,
+            }
         })
         .collect()
 }
 
 /// Rebuild the in-memory corpus from the current history files. Returns the count.
 #[tauri::command]
-pub async fn shell_history_reindex(store: tauri::State<'_, ShellHistStore>) -> Result<usize, String> {
-    let entries = tauri::async_runtime::spawn_blocking(build_corpus).await.map_err(|e| e.to_string())?;
+pub async fn shell_history_reindex(
+    store: tauri::State<'_, ShellHistStore>,
+) -> Result<usize, String> {
+    let entries = tauri::async_runtime::spawn_blocking(build_corpus)
+        .await
+        .map_err(|e| e.to_string())?;
     let n = entries.len();
     store.replace(entries);
     Ok(n)
@@ -210,7 +235,9 @@ pub async fn shell_history_search(
     limit: Option<usize>,
 ) -> Result<Vec<ShellHistHit>, String> {
     if store.len() == 0 {
-        let entries = tauri::async_runtime::spawn_blocking(build_corpus).await.map_err(|e| e.to_string())?;
+        let entries = tauri::async_runtime::spawn_blocking(build_corpus)
+            .await
+            .map_err(|e| e.to_string())?;
         store.replace(entries);
     }
     Ok(store.search(&query, limit.unwrap_or(40).min(100)))
@@ -227,7 +254,10 @@ mod tests {
         assert_eq!(p.len(), 4);
         assert_eq!(p[0], ("git status".into(), Some(1700000000), "bash"));
         assert_eq!(p[1], ("ls -la".into(), None, "bash"));
-        assert_eq!(p[2], ("ffmpeg -i a.mp4 b.webm".into(), Some(1700000500), "zsh"));
+        assert_eq!(
+            p[2],
+            ("ffmpeg -i a.mp4 b.webm".into(), Some(1700000500), "zsh")
+        );
         assert_eq!(p[3], ("echo hi".into(), None, "zsh"));
     }
 
@@ -240,9 +270,19 @@ mod tests {
             let mut seen = HashSet::new();
             let mut deduped = Vec::new();
             for (cmd, ts, src) in parsed.into_iter().rev() {
-                if seen.insert(cmd.clone()) { deduped.push((cmd, ts, src)); }
+                if seen.insert(cmd.clone()) {
+                    deduped.push((cmd, ts, src));
+                }
             }
-            deduped.into_iter().map(|(cmd, ts, source)| Entry { vec: flux_embed::embed(&cmd), cmd, ts, source }).collect::<Vec<_>>()
+            deduped
+                .into_iter()
+                .map(|(cmd, ts, source)| Entry {
+                    vec: flux_embed::embed(&cmd),
+                    cmd,
+                    ts,
+                    source,
+                })
+                .collect::<Vec<_>>()
         };
         // "ls" appeared twice → deduped to one.
         assert_eq!(entries.iter().filter(|e| e.cmd == "ls").count(), 1);

@@ -41,8 +41,13 @@ fn whisper_model() -> Result<String, String> {
 }
 
 fn decode_pcm(b64: &str) -> Result<Vec<i16>, String> {
-    let bytes = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())?;
-    Ok(bytes.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect())
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| e.to_string())?;
+    Ok(bytes
+        .chunks_exact(2)
+        .map(|c| i16::from_le_bytes([c[0], c[1]]))
+        .collect())
 }
 
 /// Linear-resample to 16 kHz (whisper's required rate).
@@ -124,12 +129,26 @@ pub async fn stt_whisper(pcm_b64: String, sample_rate: f32) -> Result<String, St
         let path = temp_wav();
         write_wav_16k(&path, &pcm16)?;
         let result = Command::new(whisper_bin())
-            .args(["-m", &model, "-f", &path.to_string_lossy(), "-nt", "-np", "-l", "en"])
+            .args([
+                "-m",
+                &model,
+                "-f",
+                &path.to_string_lossy(),
+                "-nt",
+                "-np",
+                "-l",
+                "en",
+            ])
             .output();
         let _ = std::fs::remove_file(&path);
-        let out = result.map_err(|e| format!("couldn't run whisper ({e}) — install whisper.cpp or set FLUX_WHISPER_BIN"))?;
+        let out = result.map_err(|e| {
+            format!("couldn't run whisper ({e}) — install whisper.cpp or set FLUX_WHISPER_BIN")
+        })?;
         if !out.status.success() {
-            let err: String = String::from_utf8_lossy(&out.stderr).chars().take(200).collect();
+            let err: String = String::from_utf8_lossy(&out.stderr)
+                .chars()
+                .take(200)
+                .collect();
             return Err(format!("whisper failed: {err}"));
         }
         Ok(clean(&String::from_utf8_lossy(&out.stdout)))

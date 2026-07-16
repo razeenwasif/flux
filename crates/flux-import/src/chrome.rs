@@ -19,7 +19,9 @@ use crate::ImportError;
 fn user_data_roots() -> Vec<PathBuf> {
     // Only the Linux/macOS roots use $HOME; Windows uses %LOCALAPPDATA%.
     #[cfg(not(target_os = "windows"))]
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
     let mut roots = Vec::new();
     #[cfg(target_os = "linux")]
     roots.push(home.join(".config/google-chrome"));
@@ -49,7 +51,9 @@ pub struct ProfilePreview {
 pub fn discover_profiles() -> Result<Vec<ProfilePreview>, ImportError> {
     let mut out = Vec::new();
     for root in user_data_roots() {
-        let Ok(entries) = fs::read_dir(&root) else { continue };
+        let Ok(entries) = fs::read_dir(&root) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let dir = entry.path();
             // A directory is a profile iff it has a Bookmarks or Preferences file.
@@ -106,8 +110,10 @@ struct BookmarkNode {
 /// Parse `<profile>/Bookmarks` into a flat list.
 pub fn read_bookmarks(profile_dir: &Path) -> Result<Vec<Bookmark>, ImportError> {
     let raw = fs::read(profile_dir.join("Bookmarks"))?;
-    let file: BookmarkFile = serde_json::from_slice(&raw)
-        .map_err(|source| ImportError::Parse { file: "Bookmarks", source })?;
+    let file: BookmarkFile = serde_json::from_slice(&raw).map_err(|source| ImportError::Parse {
+        file: "Bookmarks",
+        source,
+    })?;
 
     let mut out = Vec::new();
     for (root_name, node) in &file.roots {
@@ -121,7 +127,11 @@ fn flatten(node: &BookmarkNode, path: &str, out: &mut Vec<Bookmark>) {
     match node.kind.as_str() {
         "url" => {
             if let Some(url) = &node.url {
-                out.push(Bookmark { name: node.name.clone(), url: url.clone(), folder: path.into() });
+                out.push(Bookmark {
+                    name: node.name.clone(),
+                    url: url.clone(),
+                    folder: path.into(),
+                });
             }
         }
         "folder" => {
@@ -160,18 +170,36 @@ struct Manifest {
 pub fn list_extensions(profile_dir: &Path) -> Result<Vec<InstalledExtension>, ImportError> {
     let mut out = Vec::new();
     let ext_root = profile_dir.join("Extensions");
-    let Ok(ids) = fs::read_dir(&ext_root) else { return Ok(out) };
+    let Ok(ids) = fs::read_dir(&ext_root) else {
+        return Ok(out);
+    };
 
     for id_entry in ids.flatten() {
         let id = id_entry.file_name().to_string_lossy().into_owned();
         // Chrome keeps one subdir per installed version; take the latest.
-        let Ok(versions) = fs::read_dir(id_entry.path()) else { continue };
-        let Some(latest) = versions.flatten().map(|v| v.path()).max() else { continue };
+        let Ok(versions) = fs::read_dir(id_entry.path()) else {
+            continue;
+        };
+        let Some(latest) = versions.flatten().map(|v| v.path()).max() else {
+            continue;
+        };
 
-        let Ok(raw) = fs::read(latest.join("manifest.json")) else { continue };
-        let Ok(m) = serde_json::from_slice::<Manifest>(&raw) else { continue };
-        let name = if m.name.starts_with("__MSG_") { id.clone() } else { m.name };
-        out.push(InstalledExtension { id, name, version: m.version });
+        let Ok(raw) = fs::read(latest.join("manifest.json")) else {
+            continue;
+        };
+        let Ok(m) = serde_json::from_slice::<Manifest>(&raw) else {
+            continue;
+        };
+        let name = if m.name.starts_with("__MSG_") {
+            id.clone()
+        } else {
+            m.name
+        };
+        out.push(InstalledExtension {
+            id,
+            name,
+            version: m.version,
+        });
     }
     Ok(out)
 }
@@ -206,8 +234,11 @@ mod tests {
 
         let ext = dir.join("Extensions/abcdefghijklmnop/1.2.3_0");
         fs::create_dir_all(&ext).unwrap();
-        fs::write(ext.join("manifest.json"), r#"{"name":"uBlock Origin","version":"1.2.3"}"#)
-            .unwrap();
+        fs::write(
+            ext.join("manifest.json"),
+            r#"{"name":"uBlock Origin","version":"1.2.3"}"#,
+        )
+        .unwrap();
         dir
     }
 
@@ -222,7 +253,9 @@ mod tests {
             folder: "bookmark_bar/Bookmarks bar".into(),
         }));
         // Nested folder extends the path.
-        assert!(books.iter().any(|b| b.name == "CI" && b.folder.ends_with("/Work")));
+        assert!(books
+            .iter()
+            .any(|b| b.name == "CI" && b.folder.ends_with("/Work")));
         let _ = fs::remove_dir_all(dir);
     }
 

@@ -29,7 +29,11 @@ fn vision_call(b64: String, prompt: Option<String>) -> Result<String, String> {
     }
     let model = vision_model();
     let user = prompt.unwrap_or_default();
-    let p = if user.trim().is_empty() { DEFAULT_PROMPT.to_string() } else { user };
+    let p = if user.trim().is_empty() {
+        DEFAULT_PROMPT.to_string()
+    } else {
+        user
+    };
     let body = json!({
         "model": model,
         "prompt": p,
@@ -43,7 +47,11 @@ fn vision_call(b64: String, prompt: Option<String>) -> Result<String, String> {
         .build()
         .post(&format!("{}/api/generate", ollama_url()))
         .send_json(body)
-        .map_err(|e| format!("vision model request failed — is `{model}` pulled? (`ollama pull {model}`). {e}"))?;
+        .map_err(|e| {
+            format!(
+                "vision model request failed — is `{model}` pulled? (`ollama pull {model}`). {e}"
+            )
+        })?;
     let v: Value = resp.into_json().map_err(|e| e.to_string())?;
     v.get("response")
         .and_then(|x| x.as_str())
@@ -57,7 +65,8 @@ fn vision_call(b64: String, prompt: Option<String>) -> Result<String, String> {
 #[tauri::command]
 pub async fn agent_lens(image_path: String, prompt: Option<String>) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let bytes = std::fs::read(&image_path).map_err(|e| format!("couldn't read the page capture: {e}"))?;
+        let bytes = std::fs::read(&image_path)
+            .map_err(|e| format!("couldn't read the page capture: {e}"))?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
         vision_call(b64, prompt)
     })

@@ -22,7 +22,11 @@ fn now_ms() -> u64 {
 /// when the image is on disk.
 #[tauri::command]
 pub async fn webview_capture(app: AppHandle, tab_id: TabId) -> Result<String, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("screenshots");
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("screenshots");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("flux-{}.png", now_ms()));
     let path_str = path.to_string_lossy().to_string();
@@ -49,7 +53,9 @@ mod win {
     use windows::Win32::UI::Shell::SHCreateStreamOnFileEx;
 
     pub fn capture(app: &AppHandle, tab_id: TabId, path: PathBuf) -> Result<(), String> {
-        let wv = app.get_webview(&format!("tab-{tab_id}")).ok_or("no such tab webview")?;
+        let wv = app
+            .get_webview(&format!("tab-{tab_id}"))
+            .ok_or("no such tab webview")?;
         let app = app.clone();
         wv.with_webview(move |platform| unsafe {
             let core = match platform.controller().CoreWebView2() {
@@ -57,10 +63,11 @@ mod win {
                 Err(_) => return,
             };
             let wide = HSTRING::from(path.to_string_lossy().as_ref());
-            let stream: IStream = match SHCreateStreamOnFileEx(&wide, (STGM_CREATE | STGM_WRITE).0, 0, true, None) {
-                Ok(s) => s,
-                Err(_) => return,
-            };
+            let stream: IStream =
+                match SHCreateStreamOnFileEx(&wide, (STGM_CREATE | STGM_WRITE).0, 0, true, None) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
             // Keep a ref to the stream + emit the path once the write completes.
             let keep = stream.clone();
             let done_path = path.to_string_lossy().to_string();
@@ -69,7 +76,11 @@ mod win {
                 let _ = app.emit("flux://screenshot", done_path.clone());
                 Ok(())
             }));
-            let _ = core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, &stream, &handler);
+            let _ = core.CapturePreview(
+                COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                &stream,
+                &handler,
+            );
         })
         .map_err(|e| e.to_string())?;
         Ok(())

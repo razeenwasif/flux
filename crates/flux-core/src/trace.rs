@@ -143,7 +143,10 @@ pub enum ForgetScope {
     /// Every visit whose host matches (registrable-boundary, like the agent's).
     Host { host: String },
     /// A time window (either bound optional; `last_ms` in range).
-    Range { after_ms: Option<u64>, before_ms: Option<u64> },
+    Range {
+        after_ms: Option<u64>,
+        before_ms: Option<u64>,
+    },
     /// The whole Trail.
     All,
 }
@@ -171,7 +174,10 @@ impl TraceStore {
     /// Bind to `path` with no disk I/O (hydrate off the boot thread), mirroring
     /// `HistoryStore::empty`.
     pub fn empty(path: PathBuf) -> Self {
-        Self { path: Some(path), ..Default::default() }
+        Self {
+            path: Some(path),
+            ..Default::default()
+        }
     }
 
     /// Load visits/edges from disk, exactly once. Lazily invoked from every
@@ -204,7 +210,13 @@ impl TraceStore {
     /// The nav edge is drawn from the tab's *previous* visit to the new one, so
     /// A→B→A produces three nodes (the return to A is a distinct visit reached
     /// via B) and the edges B→A etc. — browsing as a graph, not a set.
-    pub fn record(&self, tab: TabId, url: &str, title: &str, task: Option<String>) -> Option<VisitId> {
+    pub fn record(
+        &self,
+        tab: TabId,
+        url: &str,
+        title: &str,
+        task: Option<String>,
+    ) -> Option<VisitId> {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return None;
         }
@@ -255,7 +267,8 @@ impl TraceStore {
         // The prior visit may have been evicted/forgotten — treat that as no
         // provenance rather than leaving a pointer/edge to a node that's gone.
         let prev_live = prev.filter(|p| d.visits.iter().any(|v| v.id == *p));
-        let referrer = prev_live.and_then(|p| d.visits.iter().find(|v| v.id == p).map(|v| v.url.clone()));
+        let referrer =
+            prev_live.and_then(|p| d.visits.iter().find(|v| v.id == p).map(|v| v.url.clone()));
         let id = d.next_id;
         d.next_id += 1;
         d.visits.push(Visit {
@@ -265,15 +278,28 @@ impl TraceStore {
             first_ms: now,
             last_ms: now,
             hits: 1,
-            why: Provenance { from_visit: prev_live, referrer, query: None, task },
+            why: Provenance {
+                from_visit: prev_live,
+                referrer,
+                query: None,
+                task,
+            },
             snapshot_id: None,
             // URL-primary entities at nav time (a bare string scan — no text
             // yet), so even a bounced paper/repo page can be cited *into* later.
             entities: extract_entities(url, ""),
         });
         if let Some(p) = prev_live {
-            let edge = Edge { from: p, to: id, kind: EdgeKind::Nav };
-            if !d.edges.iter().any(|e| e.from == edge.from && e.to == edge.to && e.kind == edge.kind) {
+            let edge = Edge {
+                from: p,
+                to: id,
+                kind: EdgeKind::Nav,
+            };
+            if !d
+                .edges
+                .iter()
+                .any(|e| e.from == edge.from && e.to == edge.to && e.kind == edge.kind)
+            {
                 d.edges.push(edge);
             }
         }
@@ -282,9 +308,11 @@ impl TraceStore {
             let over = d.visits.len() - MAX_VISITS;
             let mut ids: Vec<(VisitId, u64)> = d.visits.iter().map(|v| (v.id, v.last_ms)).collect();
             ids.sort_unstable_by_key(|(_, ms)| *ms);
-            let doomed: std::collections::HashSet<VisitId> = ids.into_iter().take(over).map(|(id, _)| id).collect();
+            let doomed: std::collections::HashSet<VisitId> =
+                ids.into_iter().take(over).map(|(id, _)| id).collect();
             d.visits.retain(|v| !doomed.contains(&v.id));
-            d.edges.retain(|e| !doomed.contains(&e.from) && !doomed.contains(&e.to));
+            d.edges
+                .retain(|e| !doomed.contains(&e.from) && !doomed.contains(&e.to));
         }
         drop(d);
         self.by_tab.write().insert(tab, id);
@@ -336,7 +364,8 @@ impl TraceStore {
                 continue;
             }
             let dup = d.edges.iter().any(|x| {
-                x.kind == e.kind && ((x.from == e.from && x.to == e.to) || (x.from == e.to && x.to == e.from))
+                x.kind == e.kind
+                    && ((x.from == e.from && x.to == e.to) || (x.from == e.to && x.to == e.from))
             });
             if !dup {
                 d.edges.push(e.clone());
@@ -351,7 +380,14 @@ impl TraceStore {
 
     /// Convenience: `Semantic` edges from each of `froms` to `to`.
     pub fn add_semantic_edges(&self, to: VisitId, froms: &[VisitId]) {
-        let edges: Vec<Edge> = froms.iter().map(|&f| Edge { from: f, to, kind: EdgeKind::Semantic }).collect();
+        let edges: Vec<Edge> = froms
+            .iter()
+            .map(|&f| Edge {
+                from: f,
+                to,
+                kind: EdgeKind::Semantic,
+            })
+            .collect();
         self.add_derived_edges(&edges);
     }
 
@@ -381,15 +417,31 @@ impl TraceStore {
         let mut new_edges: Vec<Edge> = Vec::new();
         {
             let d = self.inner.read();
-            let Some(me) = d.visits.iter().find(|v| v.id == id) else { return };
+            let Some(me) = d.visits.iter().find(|v| v.id == id) else {
+                return;
+            };
             if me.entities.is_empty() {
                 return;
             }
-            let me_repo = me.entities.iter().any(|e| e.primary && e.kind == EntityKind::Repo);
-            for other in d.visits.iter().filter(|v| v.id != id && !v.entities.is_empty()) {
-                let other_repo = other.entities.iter().any(|e| e.primary && e.kind == EntityKind::Repo);
+            let me_repo = me
+                .entities
+                .iter()
+                .any(|e| e.primary && e.kind == EntityKind::Repo);
+            for other in d
+                .visits
+                .iter()
+                .filter(|v| v.id != id && !v.entities.is_empty())
+            {
+                let other_repo = other
+                    .entities
+                    .iter()
+                    .any(|e| e.primary && e.kind == EntityKind::Repo);
                 for em in &me.entities {
-                    let Some(eo) = other.entities.iter().find(|e| e.kind == em.kind && e.value == em.value) else {
+                    let Some(eo) = other
+                        .entities
+                        .iter()
+                        .find(|e| e.kind == em.kind && e.value == em.value)
+                    else {
                         continue;
                     };
                     let edge = match (em.primary, eo.primary) {
@@ -397,16 +449,28 @@ impl TraceStore {
                         (false, true) => Edge {
                             from: id,
                             to: other.id,
-                            kind: if me_repo { EdgeKind::Implements } else { EdgeKind::Cites },
+                            kind: if me_repo {
+                                EdgeKind::Implements
+                            } else {
+                                EdgeKind::Cites
+                            },
                         },
                         // The other page mentions what I am → it cites/implements me.
                         (true, false) => Edge {
                             from: other.id,
                             to: id,
-                            kind: if other_repo { EdgeKind::Implements } else { EdgeKind::Cites },
+                            kind: if other_repo {
+                                EdgeKind::Implements
+                            } else {
+                                EdgeKind::Cites
+                            },
                         },
                         // Shared mention → both are about the same thing.
-                        (false, false) => Edge { from: other.id, to: id, kind: EdgeKind::Same },
+                        (false, false) => Edge {
+                            from: other.id,
+                            to: id,
+                            kind: EdgeKind::Same,
+                        },
                         // Two visits of the same paper/repo — nav + semantic cover it.
                         (true, true) => continue,
                     };
@@ -433,7 +497,12 @@ impl TraceStore {
 
     pub fn visit(&self, id: VisitId) -> Option<Visit> {
         self.hydrate();
-        self.inner.read().visits.iter().find(|v| v.id == id).cloned()
+        self.inner
+            .read()
+            .visits
+            .iter()
+            .find(|v| v.id == id)
+            .cloned()
     }
 
     /// Visits (optionally time-windowed by `last_ms`) plus the edges among them.
@@ -443,11 +512,19 @@ impl TraceStore {
         let visits: Vec<Visit> = d
             .visits
             .iter()
-            .filter(|v| after_ms.map_or(true, |a| v.last_ms >= a) && before_ms.map_or(true, |b| v.last_ms <= b))
+            .filter(|v| {
+                after_ms.map_or(true, |a| v.last_ms >= a)
+                    && before_ms.map_or(true, |b| v.last_ms <= b)
+            })
             .cloned()
             .collect();
         let keep: std::collections::HashSet<VisitId> = visits.iter().map(|v| v.id).collect();
-        let edges: Vec<Edge> = d.edges.iter().filter(|e| keep.contains(&e.from) && keep.contains(&e.to)).cloned().collect();
+        let edges: Vec<Edge> = d
+            .edges
+            .iter()
+            .filter(|e| keep.contains(&e.from) && keep.contains(&e.to))
+            .cloned()
+            .collect();
         TraceGraph { visits, edges }
     }
 
@@ -466,7 +543,12 @@ impl TraceStore {
                 self.dirty.store(true, Ordering::Relaxed);
                 return all;
             }
-            ForgetScope::Url { url } => d.visits.iter().filter(|v| &v.url == url).map(|v| v.id).collect(),
+            ForgetScope::Url { url } => d
+                .visits
+                .iter()
+                .filter(|v| &v.url == url)
+                .map(|v| v.id)
+                .collect(),
             ForgetScope::Host { host } => {
                 let host = host.to_ascii_lowercase();
                 d.visits
@@ -475,10 +557,16 @@ impl TraceStore {
                     .map(|v| v.id)
                     .collect()
             }
-            ForgetScope::Range { after_ms, before_ms } => d
+            ForgetScope::Range {
+                after_ms,
+                before_ms,
+            } => d
                 .visits
                 .iter()
-                .filter(|v| after_ms.map_or(true, |a| v.last_ms >= a) && before_ms.map_or(true, |b| v.last_ms <= b))
+                .filter(|v| {
+                    after_ms.map_or(true, |a| v.last_ms >= a)
+                        && before_ms.map_or(true, |b| v.last_ms <= b)
+                })
                 .map(|v| v.id)
                 .collect(),
         };
@@ -486,7 +574,8 @@ impl TraceStore {
             return Vec::new();
         }
         d.visits.retain(|v| !doomed.contains(&v.id));
-        d.edges.retain(|e| !doomed.contains(&e.from) && !doomed.contains(&e.to));
+        d.edges
+            .retain(|e| !doomed.contains(&e.from) && !doomed.contains(&e.to));
         drop(d);
         self.by_tab.write().retain(|_, vid| !doomed.contains(vid));
         self.dirty.store(true, Ordering::Relaxed);
@@ -507,9 +596,14 @@ impl TraceStore {
 /// Host of `url` equals `host` or is a subdomain of it — a registrable-boundary
 /// match so "example.com" forgets `www.example.com` but not `notexample.com`.
 fn host_matches(url: &str, host: &str) -> bool {
-    let Some(after) = url.split_once("://").map(|(_, a)| a) else { return false };
+    let Some(after) = url.split_once("://").map(|(_, a)| a) else {
+        return false;
+    };
     let authority = after.split(['/', '?', '#']).next().unwrap_or(after);
-    let h = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let h = authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority);
     let h = h.split(':').next().unwrap_or(h).to_ascii_lowercase();
     h == host || h.ends_with(&format!(".{host}"))
 }
@@ -542,7 +636,11 @@ fn push_entity(out: &mut Vec<Entity>, kind: EntityKind, value: String, primary: 
         e.primary |= primary; // primary wins on dedup
         return;
     }
-    out.push(Entity { kind, value, primary });
+    out.push(Entity {
+        kind,
+        value,
+        primary,
+    });
 }
 
 fn scan_haystack(hay: &str, primary: bool, out: &mut Vec<Entity>) {
@@ -590,7 +688,10 @@ fn scan_haystack(hay: &str, primary: bool, out: &mut Vec<Entity>) {
     }
 
     // Datasets: Hugging Face + Kaggle.
-    for (marker, prefix) in [("huggingface.co/datasets/", "hf:"), ("kaggle.com/datasets/", "kaggle:")] {
+    for (marker, prefix) in [
+        ("huggingface.co/datasets/", "hf:"),
+        ("kaggle.com/datasets/", "kaggle:"),
+    ] {
         let mut from = 0;
         while let Some(p) = lower[from..].find(marker) {
             let at = from + p + marker.len();
@@ -655,7 +756,11 @@ fn scan_doi(hay: &str, i: usize) -> Option<(String, usize)> {
     let suf_start = j;
     while j < n {
         let c = b[j];
-        let ok = c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'_' | b';' | b'(' | b')' | b'/' | b':' | b'#');
+        let ok = c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                b'-' | b'.' | b'_' | b';' | b'(' | b')' | b'/' | b':' | b'#'
+            );
         if !ok {
             break;
         }
@@ -689,9 +794,29 @@ fn scan_doi(hay: &str, i: usize) -> Option<(String, usize)> {
 /// skipping GitHub's non-repo first segments; strips a trailing ".git".
 fn scan_repo(hay: &str, i: usize) -> Option<(String, usize)> {
     const NOT_REPOS: &[&str] = &[
-        "about", "apps", "collections", "contact", "events", "explore", "features", "issues", "login",
-        "marketplace", "new", "notifications", "orgs", "pricing", "pulls", "search", "security",
-        "settings", "signup", "site", "sponsors", "topics", "trending",
+        "about",
+        "apps",
+        "collections",
+        "contact",
+        "events",
+        "explore",
+        "features",
+        "issues",
+        "login",
+        "marketplace",
+        "new",
+        "notifications",
+        "orgs",
+        "pricing",
+        "pulls",
+        "search",
+        "security",
+        "settings",
+        "signup",
+        "site",
+        "sponsors",
+        "topics",
+        "trending",
     ];
     let (path, end) = scan_owner_name(hay, i)?;
     let owner = path.split('/').next().unwrap_or("");
@@ -869,7 +994,14 @@ impl TraceSnapshots {
     /// Store a captured snapshot, evicting the oldest beyond the budget. Returns
     /// the new snapshot id. The caller has already resolved the embedder (via
     /// [`Self::embedder_cell`] off-thread), so the read here is cheap.
-    pub fn add(&self, visit_id: VisitId, url: String, title: String, text: String, embedding: Vec<f32>) -> u64 {
+    pub fn add(
+        &self,
+        visit_id: VisitId,
+        url: String,
+        title: String,
+        text: String,
+        embedding: Vec<f32>,
+    ) -> u64 {
         self.hydrate();
         let embedder = self.embedder();
         let mut d = self.inner.write();
@@ -898,14 +1030,19 @@ impl TraceSnapshots {
 
     pub fn get(&self, id: u64) -> Option<SnapshotWire> {
         self.hydrate();
-        self.inner.read().snapshots.iter().find(|s| s.id == id).map(|s| SnapshotWire {
-            id: s.id,
-            visit_id: s.visit_id,
-            url: s.url.clone(),
-            title: s.title.clone(),
-            saved_ms: s.saved_ms,
-            text: s.text.clone(),
-        })
+        self.inner
+            .read()
+            .snapshots
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| SnapshotWire {
+                id: s.id,
+                visit_id: s.visit_id,
+                url: s.url.clone(),
+                title: s.title.clone(),
+                saved_ms: s.saved_ms,
+                text: s.text.clone(),
+            })
     }
 
     /// Visits whose snapshots are semantically nearest to `embedding` — cosine ≥
@@ -914,7 +1051,13 @@ impl TraceSnapshots {
     /// clusters emerge across navigation branches. Mismatched embedders compare
     /// as 0 (different dimensions), so a corpus mid-migration just yields fewer
     /// neighbours rather than nonsense.
-    pub fn neighbours(&self, embedding: &[f32], exclude: VisitId, k: usize, threshold: f32) -> Vec<VisitId> {
+    pub fn neighbours(
+        &self,
+        embedding: &[f32],
+        exclude: VisitId,
+        k: usize,
+        threshold: f32,
+    ) -> Vec<VisitId> {
         if embedding.is_empty() || k == 0 {
             return Vec::new();
         }
@@ -924,7 +1067,12 @@ impl TraceSnapshots {
             .snapshots
             .iter()
             .filter(|s| s.visit_id != exclude)
-            .map(|s| (s.visit_id, crate::embedding::cosine(&s.embedding, embedding)))
+            .map(|s| {
+                (
+                    s.visit_id,
+                    crate::embedding::cosine(&s.embedding, embedding),
+                )
+            })
             .filter(|(_, c)| *c >= threshold)
             .collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -943,7 +1091,11 @@ impl TraceSnapshots {
             .iter()
             .map(|s| WebDoc {
                 doc_id: s.visit_id.to_string(),
-                title: if s.title.trim().is_empty() { s.url.clone() } else { s.title.clone() },
+                title: if s.title.trim().is_empty() {
+                    s.url.clone()
+                } else {
+                    s.title.clone()
+                },
                 url: s.url.clone(),
                 mtime: s.saved_ms,
                 body: s.text.clone(),
@@ -1018,7 +1170,10 @@ pub struct TraceChats {
 
 impl TraceChats {
     pub fn empty(path: PathBuf) -> Self {
-        Self { path: Some(path), ..Default::default() }
+        Self {
+            path: Some(path),
+            ..Default::default()
+        }
     }
 
     /// Load from disk, exactly once (lazy, race-proof — see [`TraceStore::hydrate`]).
@@ -1042,7 +1197,12 @@ impl TraceChats {
     /// A visit's thread (empty if none yet).
     pub fn get(&self, visit: VisitId) -> Vec<ChatMsg> {
         self.hydrate();
-        self.inner.read().chats.get(&visit).cloned().unwrap_or_default()
+        self.inner
+            .read()
+            .chats
+            .get(&visit)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Append one message, dropping the oldest beyond the per-visit cap.
@@ -1051,7 +1211,11 @@ impl TraceChats {
         {
             let mut d = self.inner.write();
             let thread = d.chats.entry(visit).or_default();
-            thread.push(ChatMsg { role: role.into(), text: text.into(), ms: now_ms() });
+            thread.push(ChatMsg {
+                role: role.into(),
+                text: text.into(),
+                ms: now_ms(),
+            });
             if thread.len() > MAX_CHAT_MSGS {
                 let over = thread.len() - MAX_CHAT_MSGS;
                 thread.drain(0..over);
@@ -1088,13 +1252,26 @@ impl TraceChats {
 /// Build the grounded per-page prompt: page context (title/url + snapshot text if
 /// captured), the recent thread, then the new message. Shared by the command and
 /// its test so the shape can't drift silently.
-fn chat_prompt(visit: &Visit, snapshot_text: Option<&str>, thread: &[ChatMsg], message: &str) -> String {
+fn chat_prompt(
+    visit: &Visit,
+    snapshot_text: Option<&str>,
+    thread: &[ChatMsg],
+    message: &str,
+) -> String {
     let mut p = String::from(
         "You are Flux's research assistant. The user is asking about a specific web \
          page from their browsing trail. Ground your answer in the page's captured \
          text below; when the answer isn't in it, say so plainly instead of guessing.\n\n",
     );
-    p.push_str(&format!("PAGE: {} ({})\n", if visit.title.trim().is_empty() { &visit.url } else { &visit.title }, visit.url));
+    p.push_str(&format!(
+        "PAGE: {} ({})\n",
+        if visit.title.trim().is_empty() {
+            &visit.url
+        } else {
+            &visit.title
+        },
+        visit.url
+    ));
     match snapshot_text {
         Some(t) if !t.trim().is_empty() => {
             let mut capped = t;
@@ -1141,7 +1318,11 @@ pub fn trace_visit(store: State<'_, TraceStore>, id: VisitId) -> Option<Visit> {
 
 /// The provenance graph (optionally time-windowed) for the Trail view.
 #[tauri::command]
-pub fn trace_graph(store: State<'_, TraceStore>, after_ms: Option<u64>, before_ms: Option<u64>) -> TraceGraph {
+pub fn trace_graph(
+    store: State<'_, TraceStore>,
+    after_ms: Option<u64>,
+    before_ms: Option<u64>,
+) -> TraceGraph {
     store.graph(after_ms, before_ms)
 }
 
@@ -1164,10 +1345,14 @@ pub async fn trace_snapshot(
     state: State<'_, crate::state::FluxState>,
     tab_id: TabId,
 ) -> Result<Option<u64>, String> {
-    let Some(visit_id) = trace.current_visit(tab_id) else { return Ok(None) };
+    let Some(visit_id) = trace.current_visit(tab_id) else {
+        return Ok(None);
+    };
     // The visit must still exist (not evicted/forgotten) — otherwise the snapshot
     // would be an orphan nothing references.
-    let Some(visit) = trace.visit(visit_id) else { return Ok(None) };
+    let Some(visit) = trace.visit(visit_id) else {
+        return Ok(None);
+    };
     // Already captured for this visit → no re-embed (dwell can fire repeatedly).
     if let Some(existing) = visit.snapshot_id {
         return Ok(Some(existing));
@@ -1176,8 +1361,13 @@ pub async fn trace_snapshot(
     // Read the cached DOM text ONCE (then drop the dashmap guard before the await),
     // so what we store is exactly what we embedded even if the tab navigates mid-embed.
     let (url, text) = {
-        let Some(snap) = state.dom_cache.get(&tab_id) else { return Ok(None) };
-        (snap.url.clone(), crate::dom::cap_utf8(snap.text.to_string(), SNAPSHOT_TEXT_CAP))
+        let Some(snap) = state.dom_cache.get(&tab_id) else {
+            return Ok(None);
+        };
+        (
+            snap.url.clone(),
+            crate::dom::cap_utf8(snap.text.to_string(), SNAPSHOT_TEXT_CAP),
+        )
     };
     if text.trim().is_empty() {
         return Ok(None);
@@ -1233,8 +1423,13 @@ pub async fn trace_chat_send(
     if message.is_empty() {
         return Err("empty message".into());
     }
-    let Some(visit) = trace.visit(visit_id) else { return Err("that page is no longer in the Trail".into()) };
-    let snapshot_text = visit.snapshot_id.and_then(|sid| snaps.get(sid)).map(|s| s.text);
+    let Some(visit) = trace.visit(visit_id) else {
+        return Err("that page is no longer in the Trail".into());
+    };
+    let snapshot_text = visit
+        .snapshot_id
+        .and_then(|sid| snaps.get(sid))
+        .map(|s| s.text);
     let thread = chats.get(visit_id);
     let prompt = chat_prompt(&visit, snapshot_text.as_deref(), &thread, &message);
     // Record the user side before inference so a crash mid-stream can't lose it.
@@ -1305,14 +1500,21 @@ mod tests {
     #[test]
     fn records_nodes_and_free_nav_edges() {
         let s = TraceStore::default();
-        let a = s.record(1, "https://a.com/", "A", Some("Research".into())).unwrap();
-        let b = s.record(1, "https://b.com/", "B", Some("Research".into())).unwrap();
+        let a = s
+            .record(1, "https://a.com/", "A", Some("Research".into()))
+            .unwrap();
+        let b = s
+            .record(1, "https://b.com/", "B", Some("Research".into()))
+            .unwrap();
         assert_ne!(a, b);
         let g = s.graph(None, None);
         assert_eq!(g.visits.len(), 2);
         // One free Nav edge A→B, with provenance pointing back.
         assert_eq!(g.edges.len(), 1);
-        assert_eq!((g.edges[0].from, g.edges[0].to, g.edges[0].kind), (a, b, EdgeKind::Nav));
+        assert_eq!(
+            (g.edges[0].from, g.edges[0].to, g.edges[0].kind),
+            (a, b, EdgeKind::Nav)
+        );
         let vb = s.visit(b).unwrap();
         assert_eq!(vb.why.from_visit, Some(a));
         assert_eq!(vb.why.referrer.as_deref(), Some("https://a.com/"));
@@ -1354,12 +1556,18 @@ mod tests {
         s.record(1, "https://a.com/", "A", None);
         s.record(1, "https://sub.a.com/x", "A2", None);
         s.record(1, "https://b.com/", "B", None);
-        s.forget(&ForgetScope::Host { host: "a.com".into() });
+        s.forget(&ForgetScope::Host {
+            host: "a.com".into(),
+        });
         let g = s.graph(None, None);
         assert_eq!(g.visits.len(), 1);
         assert_eq!(g.visits[0].url, "https://b.com/");
         // The A→A2 and A2→B edges are gone; nothing dangles.
-        assert!(g.edges.iter().all(|e| g.visits.iter().any(|v| v.id == e.from) && g.visits.iter().any(|v| v.id == e.to)));
+        assert!(g
+            .edges
+            .iter()
+            .all(|e| g.visits.iter().any(|v| v.id == e.from)
+                && g.visits.iter().any(|v| v.id == e.to)));
         // Lookalike host is untouched by a boundary match.
         assert!(!host_matches("https://nota.com/", "a.com"));
     }
@@ -1367,14 +1575,27 @@ mod tests {
     #[test]
     fn snapshot_add_attach_get_and_budget_evicts_oldest() {
         let snaps = test_snaps();
-        let id0 = snaps.add(10, "https://a.com/".into(), "Alpha".into(), "alpha".into(), vec![0.1, 0.2]);
+        let id0 = snaps.add(
+            10,
+            "https://a.com/".into(),
+            "Alpha".into(),
+            "alpha".into(),
+            vec![0.1, 0.2],
+        );
         assert_eq!(snaps.get(id0).unwrap().text, "alpha");
         assert_eq!(snaps.get(id0).unwrap().title, "Alpha");
         assert_eq!(snaps.get(id0).unwrap().visit_id, 10);
         // web_docs flattens it for the KB, doc_id = visit id.
         let docs = snaps.web_docs();
         assert_eq!(docs.len(), 1);
-        assert_eq!((docs[0].doc_id.as_str(), docs[0].title.as_str(), docs[0].url.as_str()), ("10", "Alpha", "https://a.com/"));
+        assert_eq!(
+            (
+                docs[0].doc_id.as_str(),
+                docs[0].title.as_str(),
+                docs[0].url.as_str()
+            ),
+            ("10", "Alpha", "https://a.com/")
+        );
 
         // A visit accepts one snapshot; attach is idempotent.
         let s = TraceStore::default();
@@ -1395,7 +1616,13 @@ mod tests {
         // Exceed the cap; the store never grows past MAX_SNAPSHOTS and drops oldest.
         let mut first = 0;
         for i in 0..(MAX_SNAPSHOTS + 5) {
-            let id = snaps.add(i as u64, "https://x/".into(), "T".into(), "t".into(), vec![]);
+            let id = snaps.add(
+                i as u64,
+                "https://x/".into(),
+                "T".into(),
+                "t".into(),
+                vec![],
+            );
             if i == 0 {
                 first = id;
             }
@@ -1409,7 +1636,9 @@ mod tests {
         let s = TraceStore::default();
         let a = s.record(1, "https://a.com/", "A", None).unwrap();
         s.record(1, "https://b.com/", "B", None).unwrap();
-        let removed = s.forget(&ForgetScope::Url { url: "https://a.com/".into() });
+        let removed = s.forget(&ForgetScope::Url {
+            url: "https://a.com/".into(),
+        });
         assert_eq!(removed, vec![a]);
     }
 
@@ -1424,7 +1653,10 @@ mod tests {
         let before = s.visit(s.current_visit(1).unwrap()).unwrap().last_ms;
         s.record(1, "https://a.com/", "A", None).unwrap(); // SPA republish
         assert!(!s.dirty.load(Ordering::Relaxed), "fast path must not dirty");
-        assert_eq!(s.visit(s.current_visit(1).unwrap()).unwrap().last_ms, before);
+        assert_eq!(
+            s.visit(s.current_visit(1).unwrap()).unwrap().last_ms,
+            before
+        );
         // A real change (title) still goes through the write path.
         s.record(1, "https://a.com/", "A v2", None).unwrap();
         assert!(s.dirty.load(Ordering::Relaxed));
@@ -1460,7 +1692,9 @@ mod tests {
         // forgotten must not leave an edge/from_visit to the removed node.
         let s = TraceStore::default();
         let a = s.record(1, "https://a.com/", "A", None).unwrap();
-        s.forget(&ForgetScope::Url { url: "https://a.com/".into() });
+        s.forget(&ForgetScope::Url {
+            url: "https://a.com/".into(),
+        });
         // by_tab was scrubbed by forget, but simulate a stale pointer surviving
         // (e.g. eviction, which does not touch by_tab).
         s.by_tab.write().insert(1, a);
@@ -1474,9 +1708,16 @@ mod tests {
     #[test]
     fn extracts_and_normalizes_entities() {
         // arXiv: URL is primary, version stripped; text mention is not primary.
-        let e = extract_entities("https://arxiv.org/abs/2511.19477v2", "see arXiv:1706.03762 for the transformer");
-        assert!(e.iter().any(|x| x.kind == EntityKind::Arxiv && x.value == "2511.19477" && x.primary));
-        assert!(e.iter().any(|x| x.kind == EntityKind::Arxiv && x.value == "1706.03762" && !x.primary));
+        let e = extract_entities(
+            "https://arxiv.org/abs/2511.19477v2",
+            "see arXiv:1706.03762 for the transformer",
+        );
+        assert!(e
+            .iter()
+            .any(|x| x.kind == EntityKind::Arxiv && x.value == "2511.19477" && x.primary));
+        assert!(e
+            .iter()
+            .any(|x| x.kind == EntityKind::Arxiv && x.value == "1706.03762" && !x.primary));
 
         // DOI: publisher-URL primary; text DOI with trailing period trimmed but
         // balanced parens kept (real Lancet-style DOI).
@@ -1484,14 +1725,25 @@ mod tests {
             "https://link.springer.com/article/10.1007/s11229-023-04281-5",
             "as shown in 10.1016/s0140-6736(20)30183-5.",
         );
-        assert!(e.iter().any(|x| x.kind == EntityKind::Doi && x.value == "10.1007/s11229-023-04281-5" && x.primary));
-        assert!(e.iter().any(|x| x.kind == EntityKind::Doi && x.value == "10.1016/s0140-6736(20)30183-5" && !x.primary));
+        assert!(e.iter().any(|x| x.kind == EntityKind::Doi
+            && x.value == "10.1007/s11229-023-04281-5"
+            && x.primary));
+        assert!(e.iter().any(|x| x.kind == EntityKind::Doi
+            && x.value == "10.1016/s0140-6736(20)30183-5"
+            && !x.primary));
 
         // Repo: sub-page URL still yields owner/name, lowercased, .git stripped;
         // GitHub's non-repo sections are skipped.
-        let e = extract_entities("https://GitHub.com/Razeen/Flux/issues/5", "clone github.com/foo/bar.git — not github.com/features/copilot");
-        assert!(e.iter().any(|x| x.kind == EntityKind::Repo && x.value == "razeen/flux" && x.primary));
-        assert!(e.iter().any(|x| x.kind == EntityKind::Repo && x.value == "foo/bar" && !x.primary));
+        let e = extract_entities(
+            "https://GitHub.com/Razeen/Flux/issues/5",
+            "clone github.com/foo/bar.git — not github.com/features/copilot",
+        );
+        assert!(e
+            .iter()
+            .any(|x| x.kind == EntityKind::Repo && x.value == "razeen/flux" && x.primary));
+        assert!(e
+            .iter()
+            .any(|x| x.kind == EntityKind::Repo && x.value == "foo/bar" && !x.primary));
         assert!(!e.iter().any(|x| x.value.starts_with("features/")));
 
         // Datasets + dedup (primary wins) + no junk from plain text.
@@ -1502,7 +1754,10 @@ mod tests {
         let ds: Vec<_> = e.iter().filter(|x| x.kind == EntityKind::Dataset).collect();
         assert_eq!(ds.len(), 1, "same dataset deduped");
         assert!(ds[0].primary, "primary wins the dedup");
-        assert!(!e.iter().any(|x| x.kind == EntityKind::Doi), "\"10.5\" is not a DOI");
+        assert!(
+            !e.iter().any(|x| x.kind == EntityKind::Doi),
+            "\"10.5\" is not a DOI"
+        );
         assert!(extract_entities("https://example.com/", "nothing to see").is_empty());
     }
 
@@ -1510,19 +1765,40 @@ mod tests {
     fn entity_edges_cites_implements_and_same() {
         let s = TraceStore::default();
         // The paper page (primary arXiv via URL, at nav time).
-        let paper = s.record(1, "https://arxiv.org/abs/2511.19477", "Paper", None).unwrap();
+        let paper = s
+            .record(1, "https://arxiv.org/abs/2511.19477", "Paper", None)
+            .unwrap();
         // A repo whose README mentions the paper → Implements repo→paper.
-        let repo = s.record(2, "https://github.com/foo/bar", "Repo", None).unwrap();
-        s.set_entities(repo, extract_entities("https://github.com/foo/bar", "implements arXiv:2511.19477"));
+        let repo = s
+            .record(2, "https://github.com/foo/bar", "Repo", None)
+            .unwrap();
+        s.set_entities(
+            repo,
+            extract_entities("https://github.com/foo/bar", "implements arXiv:2511.19477"),
+        );
         s.derive_entity_edges(repo);
         // A blog post mentioning the paper → Cites blog→paper.
-        let blog = s.record(3, "https://blog.example/post", "Blog", None).unwrap();
-        s.set_entities(blog, extract_entities("https://blog.example/post", "great read: arxiv.org/abs/2511.19477"));
+        let blog = s
+            .record(3, "https://blog.example/post", "Blog", None)
+            .unwrap();
+        s.set_entities(
+            blog,
+            extract_entities(
+                "https://blog.example/post",
+                "great read: arxiv.org/abs/2511.19477",
+            ),
+        );
         s.derive_entity_edges(blog);
 
         let g = s.graph(None, None);
-        assert!(g.edges.iter().any(|e| e.kind == EdgeKind::Implements && e.from == repo && e.to == paper));
-        assert!(g.edges.iter().any(|e| e.kind == EdgeKind::Cites && e.from == blog && e.to == paper));
+        assert!(g
+            .edges
+            .iter()
+            .any(|e| e.kind == EdgeKind::Implements && e.from == repo && e.to == paper));
+        assert!(g
+            .edges
+            .iter()
+            .any(|e| e.kind == EdgeKind::Cites && e.from == blog && e.to == paper));
         // Blog and repo both *mention* the paper → Same between them.
         assert!(g.edges.iter().any(|e| e.kind == EdgeKind::Same
             && ((e.from, e.to) == (repo, blog) || (e.from, e.to) == (blog, repo))));
@@ -1531,20 +1807,47 @@ mod tests {
         s.derive_entity_edges(blog);
         assert_eq!(s.graph(None, None).edges.len(), n);
         // Forget the paper → its citation edges go with it.
-        s.forget(&ForgetScope::Url { url: "https://arxiv.org/abs/2511.19477".into() });
+        s.forget(&ForgetScope::Url {
+            url: "https://arxiv.org/abs/2511.19477".into(),
+        });
         let g = s.graph(None, None);
-        assert!(!g.edges.iter().any(|e| matches!(e.kind, EdgeKind::Cites | EdgeKind::Implements)));
+        assert!(!g
+            .edges
+            .iter()
+            .any(|e| matches!(e.kind, EdgeKind::Cites | EdgeKind::Implements)));
     }
 
     #[test]
     fn neighbours_rank_threshold_and_exclude() {
         let snaps = test_snaps();
         // L2-normalized toy vectors: cosine == dot product.
-        snaps.add(1, "https://a/".into(), "A".into(), "t".into(), vec![1.0, 0.0]);
-        snaps.add(2, "https://b/".into(), "B".into(), "t".into(), vec![0.8, 0.6]); // cos 0.8 vs [1,0]
-        snaps.add(3, "https://c/".into(), "C".into(), "t".into(), vec![0.0, 1.0]); // cos 0.0
+        snaps.add(
+            1,
+            "https://a/".into(),
+            "A".into(),
+            "t".into(),
+            vec![1.0, 0.0],
+        );
+        snaps.add(
+            2,
+            "https://b/".into(),
+            "B".into(),
+            "t".into(),
+            vec![0.8, 0.6],
+        ); // cos 0.8 vs [1,0]
+        snaps.add(
+            3,
+            "https://c/".into(),
+            "C".into(),
+            "t".into(),
+            vec![0.0, 1.0],
+        ); // cos 0.0
         let n = snaps.neighbours(&[1.0, 0.0], 99, 5, 0.5);
-        assert_eq!(n, vec![1, 2], "best-first, thresholded, c excluded by score");
+        assert_eq!(
+            n,
+            vec![1, 2],
+            "best-first, thresholded, c excluded by score"
+        );
         // The visit being captured never links to itself.
         assert_eq!(snaps.neighbours(&[1.0, 0.0], 1, 5, 0.5), vec![2]);
         // Mismatched dimensions (embedder migration) compare as 0 — no edges.
@@ -1562,14 +1865,28 @@ mod tests {
         s.add_semantic_edges(b, &[a]); // same direction dup
         s.add_semantic_edges(a, &[b]); // reversed dup
         let g = s.graph(None, None);
-        assert_eq!(g.edges.iter().filter(|e| e.kind == EdgeKind::Semantic).count(), 1);
+        assert_eq!(
+            g.edges
+                .iter()
+                .filter(|e| e.kind == EdgeKind::Semantic)
+                .count(),
+            1
+        );
         // Self-edges and missing endpoints are skipped.
         s.add_semantic_edges(a, &[a, 999]);
         s.add_semantic_edges(999, &[a]);
         let g = s.graph(None, None);
-        assert_eq!(g.edges.iter().filter(|e| e.kind == EdgeKind::Semantic).count(), 1);
+        assert_eq!(
+            g.edges
+                .iter()
+                .filter(|e| e.kind == EdgeKind::Semantic)
+                .count(),
+            1
+        );
         // Forget drops semantic edges with their visit, like nav edges.
-        s.forget(&ForgetScope::Url { url: "https://a.com/".into() });
+        s.forget(&ForgetScope::Url {
+            url: "https://a.com/".into(),
+        });
         assert!(s.graph(None, None).edges.is_empty());
     }
 
@@ -1589,7 +1906,10 @@ mod tests {
             c.append(9, "user", &format!("m{i}"));
         }
         assert_eq!(c.get(9).len(), MAX_CHAT_MSGS);
-        assert_eq!(c.get(9).last().unwrap().text, format!("m{}", MAX_CHAT_MSGS + 9));
+        assert_eq!(
+            c.get(9).last().unwrap().text,
+            format!("m{}", MAX_CHAT_MSGS + 9)
+        );
         // Persist + lazy re-hydrate round-trips (integer map keys included).
         c.persist_if_dirty();
         let c2 = TraceChats::empty(path);
@@ -1615,9 +1935,22 @@ mod tests {
             entities: Vec::new(),
         };
         let thread: Vec<ChatMsg> = (0..20)
-            .map(|i| ChatMsg { role: if i % 2 == 0 { "user".into() } else { "assistant".into() }, text: format!("t{i}"), ms: 0 })
+            .map(|i| ChatMsg {
+                role: if i % 2 == 0 {
+                    "user".into()
+                } else {
+                    "assistant".into()
+                },
+                text: format!("t{i}"),
+                ms: 0,
+            })
             .collect();
-        let p = chat_prompt(&v, Some("the captured body text"), &thread, "and the newest question?");
+        let p = chat_prompt(
+            &v,
+            Some("the captured body text"),
+            &thread,
+            "and the newest question?",
+        );
         assert!(p.contains("PAGE: A Paper (https://ex.com/paper)"));
         assert!(p.contains("CAPTURED TEXT:\nthe captured body text"));
         // Only the newest CHAT_CONTEXT_TURNS turns are included.

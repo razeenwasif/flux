@@ -32,7 +32,10 @@ impl SearchState {
             .and_then(|bytes| serde_json::from_slice::<SearchConfig>(&bytes).ok())
             .unwrap_or_default();
 
-        Self { config: RwLock::new(config), path }
+        Self {
+            config: RwLock::new(config),
+            path,
+        }
     }
 
     fn persist(&self) -> Result<(), String> {
@@ -58,7 +61,8 @@ impl SearchState {
     /// The default engine's suggestions endpoint for `query`, if it defines one.
     pub fn suggest_url(&self, query: &str) -> Option<String> {
         let cfg = self.config.read();
-        cfg.engine(&cfg.default_id).and_then(|e| e.suggest_url(query))
+        cfg.engine(&cfg.default_id)
+            .and_then(|e| e.suggest_url(query))
     }
 }
 
@@ -68,7 +72,12 @@ fn parse_opensearch(body: &str) -> Vec<String> {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .and_then(|v| v.get(1).and_then(|a| a.as_array()).cloned())
-        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).take(8).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .take(8)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -78,7 +87,10 @@ fn parse_opensearch(body: &str) -> Vec<String> {
 fn http_for_loopback(base: String) -> String {
     if let Some(rest) = base.strip_prefix("https://") {
         let host = rest.split([':', '/']).next().unwrap_or("");
-        if matches!(host, "localhost" | "127.0.0.1" | "0.0.0.0" | "[::1]" | "::1") {
+        if matches!(
+            host,
+            "localhost" | "127.0.0.1" | "0.0.0.0" | "[::1]" | "::1"
+        ) {
             return format!("http://{rest}");
         }
     }
@@ -103,7 +115,10 @@ pub fn search_resolve(state: State<'_, SearchState>, input: String) -> Resolutio
 /// endpoint (#32). Empty if the engine has none. Note: this sends the query to
 /// the engine — the chrome only calls it when the user enabled suggestions.
 #[tauri::command]
-pub async fn search_suggest(state: State<'_, SearchState>, query: String) -> Result<Vec<String>, String> {
+pub async fn search_suggest(
+    state: State<'_, SearchState>,
+    query: String,
+) -> Result<Vec<String>, String> {
     let q = query.trim();
     if q.len() < 2 {
         return Ok(vec![]);
@@ -112,7 +127,12 @@ pub async fn search_suggest(state: State<'_, SearchState>, query: String) -> Res
         return Ok(vec![]);
     };
     let body = tauri::async_runtime::spawn_blocking(move || {
-        ureq::get(&url).timeout(Duration::from_secs(4)).call().ok()?.into_string().ok()
+        ureq::get(&url)
+            .timeout(Duration::from_secs(4))
+            .call()
+            .ok()?
+            .into_string()
+            .ok()
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -144,7 +164,10 @@ pub fn search_set_default(state: State<'_, SearchState>, id: String) -> Result<(
 
 /// Add (or replace, by id) an engine — e.g. register your own search backend.
 #[tauri::command]
-pub fn search_add_engine(state: State<'_, SearchState>, engine: SearchEngine) -> Result<(), String> {
+pub fn search_add_engine(
+    state: State<'_, SearchState>,
+    engine: SearchEngine,
+) -> Result<(), String> {
     {
         let mut cfg = state.config.write();
         cfg.engines.retain(|e| e.id != engine.id);
@@ -171,10 +194,22 @@ mod omni_base_tests {
 
     #[test]
     fn downgrades_loopback_https_to_http_only() {
-        assert_eq!(http_for_loopback("https://localhost:8080".into()), "http://localhost:8080");
-        assert_eq!(http_for_loopback("https://127.0.0.1:8080".into()), "http://127.0.0.1:8080");
+        assert_eq!(
+            http_for_loopback("https://localhost:8080".into()),
+            "http://localhost:8080"
+        );
+        assert_eq!(
+            http_for_loopback("https://127.0.0.1:8080".into()),
+            "http://127.0.0.1:8080"
+        );
         // http stays http; a real remote https host is left alone.
-        assert_eq!(http_for_loopback("http://localhost:8080".into()), "http://localhost:8080");
-        assert_eq!(http_for_loopback("https://omni.example.com".into()), "https://omni.example.com");
+        assert_eq!(
+            http_for_loopback("http://localhost:8080".into()),
+            "http://localhost:8080"
+        );
+        assert_eq!(
+            http_for_loopback("https://omni.example.com".into()),
+            "https://omni.example.com"
+        );
     }
 }

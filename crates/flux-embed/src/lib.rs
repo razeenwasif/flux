@@ -84,7 +84,10 @@ pub fn cluster(docs: &[(u64, Arc<str>)]) -> Vec<(u64, ClusterTag)> {
         };
         out.push((
             *tab,
-            ClusterTag { id: id as u32, color: CLUSTER_COLORS[id % CLUSTER_COLORS.len()] },
+            ClusterTag {
+                id: id as u32,
+                color: CLUSTER_COLORS[id % CLUSTER_COLORS.len()],
+            },
         ));
     }
     tracing::debug!(target: "flux::embed", tabs = docs.len(), clusters = centroids.len(), "reclustered");
@@ -115,12 +118,24 @@ mod tests {
     #[test]
     fn similar_pages_cluster_together() {
         let docs: Vec<(u64, Arc<str>)> = vec![
-            (1, Arc::from("rust async tokio runtime performance benchmarks")),
-            (2, Arc::from("rust tokio async tasks runtime scheduler performance")),
-            (3, Arc::from("chocolate cake recipe butter sugar flour oven baking")),
+            (
+                1,
+                Arc::from("rust async tokio runtime performance benchmarks"),
+            ),
+            (
+                2,
+                Arc::from("rust tokio async tasks runtime scheduler performance"),
+            ),
+            (
+                3,
+                Arc::from("chocolate cake recipe butter sugar flour oven baking"),
+            ),
         ];
         let tags = cluster(&docs);
-        assert_eq!(tags[0].1.id, tags[1].1.id, "the two rust tabs share a cluster");
+        assert_eq!(
+            tags[0].1.id, tags[1].1.id,
+            "the two rust tabs share a cluster"
+        );
         assert_ne!(tags[0].1.id, tags[2].1.id, "baking gets its own cluster");
     }
 

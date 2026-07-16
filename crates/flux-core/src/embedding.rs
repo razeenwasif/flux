@@ -44,7 +44,12 @@ pub fn embed_with(text: &str, kind: Embedder) -> Option<Vec<f32>> {
 pub fn embed_batch(texts: &[String], kind: Embedder) -> Option<Vec<Vec<f32>>> {
     match kind {
         Embedder::Model => flux_agent::ollama::embed_remote_batch(texts),
-        Embedder::Hash => Some(texts.iter().map(|t| flux_embed::embed(t).to_vec()).collect()),
+        Embedder::Hash => Some(
+            texts
+                .iter()
+                .map(|t| flux_embed::embed(t).to_vec())
+                .collect(),
+        ),
     }
 }
 
@@ -87,7 +92,10 @@ mod tests {
         // self-consistent with embed_with.
         let (v, kind) = embed("hello world content");
         assert!(!v.is_empty());
-        assert_eq!(embed_with("hello world content", kind).map(|x| x.len()), Some(v.len()));
+        assert_eq!(
+            embed_with("hello world content", kind).map(|x| x.len()),
+            Some(v.len())
+        );
     }
 
     #[test]

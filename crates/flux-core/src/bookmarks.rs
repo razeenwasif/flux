@@ -69,7 +69,10 @@ impl BookmarkStore {
             .ok()
             .map(|s| match serde_json::from_str::<Persisted>(&s) {
                 Ok(p) => (p.items, p.tombstones),
-                Err(_) => (serde_json::from_str::<Vec<Bookmark>>(&s).unwrap_or_default(), Default::default()),
+                Err(_) => (
+                    serde_json::from_str::<Vec<Bookmark>>(&s).unwrap_or_default(),
+                    Default::default(),
+                ),
             })
             .unwrap_or_default();
         let next = items.iter().map(|b| b.id).max().map(|m| m + 1).unwrap_or(1);
@@ -122,7 +125,11 @@ impl BookmarkStore {
     /// deletion wins), drop any local item a tombstone now buries, then add remote
     /// items whose (url, folder) isn't present and isn't suppressed by a tombstone
     /// newer than the item. Returns how many were newly added.
-    pub fn merge(&self, remote: Vec<Bookmark>, remote_tombs: &crate::tombstone::Tombstones) -> usize {
+    pub fn merge(
+        &self,
+        remote: Vec<Bookmark>,
+        remote_tombs: &crate::tombstone::Tombstones,
+    ) -> usize {
         use crate::tombstone::{merge_into, suppressed};
         let mut tombs = self.tombstones.write();
         merge_into(&mut tombs, remote_tombs);
@@ -156,7 +163,9 @@ impl BookmarkStore {
     pub fn remove(&self, id: u64) {
         let mut items = self.items.write();
         if let Some(b) = items.iter().find(|b| b.id == id) {
-            self.tombstones.write().insert(bm_key(&b.url, &b.folder), now_ms());
+            self.tombstones
+                .write()
+                .insert(bm_key(&b.url, &b.folder), now_ms());
         }
         items.retain(|b| b.id != id);
         drop(items);
@@ -167,9 +176,15 @@ impl BookmarkStore {
     /// a bookmark is never left label-less. Returns true if the id existed.
     pub fn rename(&self, id: u64, title: &str) -> bool {
         let mut items = self.items.write();
-        let Some(b) = items.iter_mut().find(|b| b.id == id) else { return false };
+        let Some(b) = items.iter_mut().find(|b| b.id == id) else {
+            return false;
+        };
         let trimmed = title.trim();
-        b.title = if trimmed.is_empty() { host_of(&b.url) } else { trimmed.to_string() };
+        b.title = if trimmed.is_empty() {
+            host_of(&b.url)
+        } else {
+            trimmed.to_string()
+        };
         drop(items);
         self.save();
         true
@@ -193,8 +208,10 @@ impl BookmarkStore {
     /// Returns the number actually added.
     pub fn import(&self, incoming: Vec<(String, String, String)>, prefix: &str) -> usize {
         let mut items = self.items.write();
-        let mut seen: std::collections::HashSet<(String, String)> =
-            items.iter().map(|b| (b.url.clone(), b.folder.clone())).collect();
+        let mut seen: std::collections::HashSet<(String, String)> = items
+            .iter()
+            .map(|b| (b.url.clone(), b.folder.clone()))
+            .collect();
         let mut added = 0;
         let now = now_ms();
         for (title, url, folder) in incoming {
@@ -230,7 +247,10 @@ impl BookmarkStore {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let snapshot = Persisted { items: self.items.read().clone(), tombstones: self.tombstones.read().clone() };
+        let snapshot = Persisted {
+            items: self.items.read().clone(),
+            tombstones: self.tombstones.read().clone(),
+        };
         crate::persist::save_json(path, &snapshot);
     }
 }
@@ -275,10 +295,16 @@ pub fn bookmarks_clear(store: State<'_, BookmarkStore>) {
 /// Import every bookmark from a Chrome profile into the store under an
 /// "Imported" folder prefix. Returns how many new ones were added.
 #[tauri::command]
-pub fn bookmarks_import_chrome(store: State<'_, BookmarkStore>, profile_dir: String) -> Result<usize, String> {
+pub fn bookmarks_import_chrome(
+    store: State<'_, BookmarkStore>,
+    profile_dir: String,
+) -> Result<usize, String> {
     let books = flux_import::chrome::read_bookmarks(std::path::Path::new(&profile_dir))
         .map_err(|e| e.to_string())?;
-    let incoming = books.into_iter().map(|b| (b.name, b.url, b.folder)).collect();
+    let incoming = books
+        .into_iter()
+        .map(|b| (b.name, b.url, b.folder))
+        .collect();
     Ok(store.import(incoming, "Imported"))
 }
 
@@ -330,7 +356,9 @@ mod tests {
         let store = BookmarkStore::default();
         let a = store.add("A".into(), "https://a.dev".into(), "".into());
         store.remove(a.id);
-        assert!(store.tombstones().contains_key(&bm_key("https://a.dev", "")));
+        assert!(store
+            .tombstones()
+            .contains_key(&bm_key("https://a.dev", "")));
     }
 
     #[test]
@@ -340,17 +368,38 @@ mod tests {
         // Local still has X (added t=100) and Y (t=100).
         {
             let mut it = b.items.write();
-            it.push(Bookmark { id: 1, title: "X".into(), url: "https://x.dev".into(), folder: "".into(), added_ms: 100 });
-            it.push(Bookmark { id: 2, title: "Y".into(), url: "https://y.dev".into(), folder: "".into(), added_ms: 100 });
+            it.push(Bookmark {
+                id: 1,
+                title: "X".into(),
+                url: "https://x.dev".into(),
+                folder: "".into(),
+                added_ms: 100,
+            });
+            it.push(Bookmark {
+                id: 2,
+                title: "Y".into(),
+                url: "https://y.dev".into(),
+                folder: "".into(),
+                added_ms: 100,
+            });
         }
         // Remote deleted X at t=200 and kept Y.
         let mut tombs = Tombstones::new();
         tombs.insert(bm_key("https://x.dev", ""), 200);
-        let remote = vec![Bookmark { id: 9, title: "Y".into(), url: "https://y.dev".into(), folder: "".into(), added_ms: 100 }];
+        let remote = vec![Bookmark {
+            id: 9,
+            title: "Y".into(),
+            url: "https://y.dev".into(),
+            folder: "".into(),
+            added_ms: 100,
+        }];
         let added = b.merge(remote, &tombs);
         assert_eq!(added, 0); // Y already present
         let urls: Vec<_> = b.list().iter().map(|x| x.url.clone()).collect();
-        assert!(!urls.contains(&"https://x.dev".to_string()), "remote tombstone removed X");
+        assert!(
+            !urls.contains(&"https://x.dev".to_string()),
+            "remote tombstone removed X"
+        );
         assert!(urls.contains(&"https://y.dev".to_string()));
     }
 
@@ -360,11 +409,20 @@ mod tests {
         let b = BookmarkStore::default();
         {
             let mut it = b.items.write();
-            it.push(Bookmark { id: 1, title: "X".into(), url: "https://x.dev".into(), folder: "".into(), added_ms: 300 });
+            it.push(Bookmark {
+                id: 1,
+                title: "X".into(),
+                url: "https://x.dev".into(),
+                folder: "".into(),
+                added_ms: 300,
+            });
         }
         let mut tombs = Tombstones::new();
         tombs.insert(bm_key("https://x.dev", ""), 200); // deleted *before* the local re-add
         b.merge(vec![], &tombs);
-        assert!(b.list().iter().any(|x| x.url == "https://x.dev"), "newer re-add beats older tombstone");
+        assert!(
+            b.list().iter().any(|x| x.url == "https://x.dev"),
+            "newer re-add beats older tombstone"
+        );
     }
 }

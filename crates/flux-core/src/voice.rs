@@ -20,8 +20,13 @@ use std::{
 #[cfg(feature = "voice")]
 fn decode_pcm(b64: &str) -> Result<Vec<i16>, String> {
     use base64::Engine as _;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())?;
-    Ok(bytes.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect())
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| e.to_string())?;
+    Ok(bytes
+        .chunks_exact(2)
+        .map(|c| i16::from_le_bytes([c[0], c[1]]))
+        .collect())
 }
 
 /// The Vosk model path — `FLUX_VOSK_MODEL`, else AudioPulse's bundled model.
@@ -30,7 +35,9 @@ fn model_path() -> Option<String> {
     if let Ok(p) = std::env::var("FLUX_VOSK_MODEL") {
         return Some(p);
     }
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
     let cand = format!("{home}/AudioPulse/third_party/vosk/model");
     std::path::Path::new(&cand).is_dir().then_some(cand)
 }
@@ -56,7 +63,8 @@ type VoskRecognizerNew = unsafe extern "C" fn(*mut VoskModel, c_float) -> *mut V
 #[cfg(feature = "voice")]
 // Grammar-restricted recognizer: only the phrases in the JSON grammar (+ "[unk]")
 // are recognized — used for reliable, low-false-trigger wake-word spotting.
-type VoskRecognizerNewGrm = unsafe extern "C" fn(*mut VoskModel, c_float, *const c_char) -> *mut VoskRecognizer;
+type VoskRecognizerNewGrm =
+    unsafe extern "C" fn(*mut VoskModel, c_float, *const c_char) -> *mut VoskRecognizer;
 #[cfg(feature = "voice")]
 type VoskRecognizerFree = unsafe extern "C" fn(*mut VoskRecognizer);
 #[cfg(feature = "voice")]
@@ -117,7 +125,8 @@ impl VoskApi {
 
 #[cfg(feature = "voice")]
 unsafe fn load_symbol<T: Copy>(lib: &libloading::Library, name: &[u8]) -> Result<T, String> {
-    let symbol = unsafe { lib.get::<T>(name) }.map_err(|e| format!("missing Vosk symbol {}: {e}", String::from_utf8_lossy(name)))?;
+    let symbol = unsafe { lib.get::<T>(name) }
+        .map_err(|e| format!("missing Vosk symbol {}: {e}", String::from_utf8_lossy(name)))?;
     Ok(*symbol)
 }
 
@@ -155,7 +164,9 @@ fn vosk_library_candidates() -> Vec<PathBuf> {
     if let Some(dir) = std::env::var_os("FLUX_VOSK_DIR") {
         candidates.push(PathBuf::from(dir).join(vosk_library_name()));
     }
-    if let Some(model) = model_path().and_then(|p| PathBuf::from(p).parent().map(|p| p.to_path_buf())) {
+    if let Some(model) =
+        model_path().and_then(|p| PathBuf::from(p).parent().map(|p| p.to_path_buf()))
+    {
         candidates.push(model.join(vosk_library_name()));
     }
     candidates.push(PathBuf::from(vosk_library_name()));
@@ -188,7 +199,9 @@ unsafe fn load_vosk_library(path: &Path) -> Result<libloading::Library, libloadi
 #[cfg(feature = "voice")]
 fn vosk_api() -> Result<&'static VoskApi, String> {
     static API: std::sync::OnceLock<Result<VoskApi, String>> = std::sync::OnceLock::new();
-    API.get_or_init(VoskApi::load).as_ref().map_err(Clone::clone)
+    API.get_or_init(VoskApi::load)
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 #[cfg(feature = "voice")]
@@ -248,12 +261,17 @@ fn transcribe(pcm: &[i16], sample_rate: f32) -> Result<String, String> {
 }
 
 #[cfg(feature = "voice")]
-fn transcribe_inner(pcm: &[i16], sample_rate: f32, grammar: Option<&str>) -> Result<String, String> {
+fn transcribe_inner(
+    pcm: &[i16],
+    sample_rate: f32,
+    grammar: Option<&str>,
+) -> Result<String, String> {
     let api = vosk_api()?;
     let model = model()?;
     let rec = match grammar {
         Some(g) => {
-            let cg = CString::new(g).map_err(|_| "wake grammar has an interior NUL byte".to_string())?;
+            let cg =
+                CString::new(g).map_err(|_| "wake grammar has an interior NUL byte".to_string())?;
             unsafe { (api.recognizer_new_grm)(model.ptr, sample_rate as c_float, cg.as_ptr()) }
         }
         None => unsafe { (api.recognizer_new)(model.ptr, sample_rate as c_float) },
@@ -262,7 +280,10 @@ fn transcribe_inner(pcm: &[i16], sample_rate: f32, grammar: Option<&str>) -> Res
         return Err("couldn't create the Vosk recognizer".into());
     }
     let rec = RecognizerHandle { api, ptr: rec };
-    let sample_count: c_int = pcm.len().try_into().map_err(|_| "voice sample is too large for Vosk".to_string())?;
+    let sample_count: c_int = pcm
+        .len()
+        .try_into()
+        .map_err(|_| "voice sample is too large for Vosk".to_string())?;
     let accepted = unsafe { (api.accept_waveform)(rec.ptr, pcm.as_ptr(), sample_count) };
     if accepted < 0 {
         return Err("vosk decode failed".into());
@@ -304,7 +325,11 @@ pub async fn wake_transcribe(pcm_b64: String, sample_rate: f32) -> Result<String
         #[cfg(feature = "voice")]
         {
             let pcm = decode_pcm(&pcm_b64)?;
-            transcribe_inner(&pcm, sample_rate, Some("[\"hey gemma\", \"gemma\", \"hey gems\", \"gems\", \"gem\", \"[unk]\"]"))
+            transcribe_inner(
+                &pcm,
+                sample_rate,
+                Some("[\"hey gemma\", \"gemma\", \"hey gems\", \"gems\", \"gem\", \"[unk]\"]"),
+            )
         }
         #[cfg(not(feature = "voice"))]
         {

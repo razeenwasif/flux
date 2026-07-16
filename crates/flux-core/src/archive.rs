@@ -9,8 +9,8 @@
 //! embedder change). Stores the page's visible text, so the reader can render
 //! it with no remote resources.
 
-use std::path::PathBuf;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -96,7 +96,10 @@ pub struct ArchiveStore {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn snippet(text: &str) -> String {
@@ -105,7 +108,14 @@ fn snippet(text: &str) -> String {
 }
 
 fn meta(e: &ArchiveEntry, score: u32) -> ArchiveMeta {
-    ArchiveMeta { id: e.id, url: e.url.clone(), title: e.title.clone(), saved_ms: e.saved_ms, snippet: snippet(&e.text), score }
+    ArchiveMeta {
+        id: e.id,
+        url: e.url.clone(),
+        title: e.title.clone(),
+        saved_ms: e.saved_ms,
+        snippet: snippet(&e.text),
+        score,
+    }
 }
 
 fn write_json(path: &Option<PathBuf>, entries: &[ArchiveEntry]) {
@@ -165,7 +175,13 @@ impl ArchiveStore {
         let needs_migrate;
         {
             let mut g = self.entries.write();
-            let mut next_merge_id = g.iter().chain(loaded.iter()).map(|e| e.id).max().unwrap_or(0) + 1;
+            let mut next_merge_id = g
+                .iter()
+                .chain(loaded.iter())
+                .map(|e| e.id)
+                .max()
+                .unwrap_or(0)
+                + 1;
             if g.is_empty() {
                 *g = loaded;
             } else {
@@ -186,7 +202,9 @@ impl ArchiveStore {
             }
             next_merge_id = g.iter().map(|e| e.id).max().unwrap_or(0) + 1;
             self.next_id.store(next_merge_id, Ordering::Relaxed);
-            needs_migrate = g.iter().any(|e| e.embedder != self.embedder || e.embedding.is_empty());
+            needs_migrate = g
+                .iter()
+                .any(|e| e.embedder != self.embedder || e.embedding.is_empty());
             self.hydrated.store(true, Ordering::Release);
             if self.dirty.swap(false, Ordering::AcqRel) {
                 write_json(&self.path, &g);
@@ -213,7 +231,15 @@ impl ArchiveStore {
             e.embedder = self.embedder;
             meta(e, 0)
         } else {
-            let entry = ArchiveEntry { id: self.next_id.fetch_add(1, Ordering::Relaxed), url, title, saved_ms: now_ms(), text, embedding, embedder: self.embedder };
+            let entry = ArchiveEntry {
+                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                url,
+                title,
+                saved_ms: now_ms(),
+                text,
+                embedding,
+                embedder: self.embedder,
+            };
             let m = meta(&entry, 0);
             g.push(entry);
             m
@@ -253,7 +279,11 @@ impl ArchiveStore {
             return v;
         }
         let Some(q) = embedding::embed_with(query, self.embedder) else {
-            return self.list().into_iter().take(if limit > 0 { limit } else { usize::MAX }).collect();
+            return self
+                .list()
+                .into_iter()
+                .take(if limit > 0 { limit } else { usize::MAX })
+                .collect();
         };
         let g = self.entries.read();
         let mut scored: Vec<(usize, f32)> = g
@@ -266,7 +296,10 @@ impl ArchiveStore {
         if limit > 0 {
             scored.truncate(limit);
         }
-        scored.iter().map(|(i, s)| meta(&g[*i], (s.clamp(0.0, 1.0) * 100.0).round() as u32)).collect()
+        scored
+            .iter()
+            .map(|(i, s)| meta(&g[*i], (s.clamp(0.0, 1.0) * 100.0).round() as u32))
+            .collect()
     }
 
     pub fn len(&self) -> usize {
@@ -294,7 +327,9 @@ fn migrate(entries: Entries, path: Option<PathBuf>, target: Embedder) {
         .map(|e| (e.id, e.text.clone()))
         .collect();
     for (id, text) in todo {
-        let Some(vec) = embedding::embed_with(&text, target) else { return }; // embedder vanished → abort
+        let Some(vec) = embedding::embed_with(&text, target) else {
+            return;
+        }; // embedder vanished → abort
         let mut g = entries.write();
         if let Some(e) = g.iter_mut().find(|e| e.id == id) {
             e.embedding = vec;
@@ -340,7 +375,11 @@ pub fn archive_delete(archive: State<'_, ArchiveStore>, id: u64) {
 }
 
 #[tauri::command]
-pub fn archive_search(archive: State<'_, ArchiveStore>, query: String, limit: usize) -> Vec<ArchiveMeta> {
+pub fn archive_search(
+    archive: State<'_, ArchiveStore>,
+    query: String,
+    limit: usize,
+) -> Vec<ArchiveMeta> {
     archive.search(&query, limit)
 }
 
@@ -351,7 +390,11 @@ mod tests {
     #[test]
     fn save_list_get_delete() {
         let a = ArchiveStore::default();
-        let m = a.save("https://x.com".into(), "X".into(), "hello world content".into());
+        let m = a.save(
+            "https://x.com".into(),
+            "X".into(),
+            "hello world content".into(),
+        );
         assert_eq!(a.len(), 1);
         assert!(a.get(m.id).is_some());
         assert_eq!(a.list()[0].title, "X");
@@ -372,8 +415,16 @@ mod tests {
     #[test]
     fn semantic_search_ranks_relevant_first() {
         let a = ArchiveStore::default();
-        a.save("https://a".into(), "Rust".into(), "rust ownership borrow checker lifetimes memory safety".into());
-        a.save("https://b".into(), "Cooking".into(), "pasta tomato garlic basil olive oil recipe kitchen".into());
+        a.save(
+            "https://a".into(),
+            "Rust".into(),
+            "rust ownership borrow checker lifetimes memory safety".into(),
+        );
+        a.save(
+            "https://b".into(),
+            "Cooking".into(),
+            "pasta tomato garlic basil olive oil recipe kitchen".into(),
+        );
         let hits = a.search("memory safety ownership in rust", 5);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].title, "Rust", "the rust page should rank first");
@@ -405,7 +456,11 @@ mod tests {
         std::fs::write(&path, serde_json::to_string(&disk).unwrap()).unwrap();
 
         let a = ArchiveStore::empty(path);
-        let live = a.save("https://live.example".into(), "Live".into(), "live text".into());
+        let live = a.save(
+            "https://live.example".into(),
+            "Live".into(),
+            "live text".into(),
+        );
         assert_eq!(live.id, 1);
 
         a.hydrate();
@@ -418,14 +473,19 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), 2, "hydration must not introduce duplicate ids");
 
-        let next = a.save("https://next.example".into(), "Next".into(), "next text".into());
+        let next = a.save(
+            "https://next.example".into(),
+            "Next".into(),
+            "next text".into(),
+        );
         assert!(next.id > 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn hydrate_keeps_live_update_for_same_url() {
-        let dir = std::env::temp_dir().join(format!("flux-archive-same-url-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("flux-archive-same-url-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("archive.json");
         let disk = vec![ArchiveEntry {
@@ -440,7 +500,11 @@ mod tests {
         std::fs::write(&path, serde_json::to_string(&disk).unwrap()).unwrap();
 
         let a = ArchiveStore::empty(path);
-        let live = a.save("https://same.example".into(), "New".into(), "new text".into());
+        let live = a.save(
+            "https://same.example".into(),
+            "New".into(),
+            "new text".into(),
+        );
         a.hydrate();
 
         assert_eq!(a.len(), 1);

@@ -96,7 +96,11 @@ impl CalStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let next = feeds.iter().map(|f| f.id).max().unwrap_or(0) + 1;
-        Self { feeds: RwLock::new(feeds), next_id: AtomicU64::new(next), path: Some(path) }
+        Self {
+            feeds: RwLock::new(feeds),
+            next_id: AtomicU64::new(next),
+            path: Some(path),
+        }
     }
 
     pub fn list(&self) -> Vec<CalFeed> {
@@ -107,7 +111,11 @@ impl CalStore {
         if let Some(f) = self.feeds.read().iter().find(|f| f.url == url) {
             return f.clone();
         }
-        let feed = CalFeed { id: self.next_id.fetch_add(1, Ordering::Relaxed), url, name };
+        let feed = CalFeed {
+            id: self.next_id.fetch_add(1, Ordering::Relaxed),
+            url,
+            name,
+        };
         self.feeds.write().push(feed.clone());
         self.save();
         feed
@@ -140,7 +148,11 @@ impl LocalEventStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let next = items.iter().map(|e| e.id).max().unwrap_or(0) + 1;
-        Self { items: RwLock::new(items), next_id: AtomicU64::new(next), path: Some(path) }
+        Self {
+            items: RwLock::new(items),
+            next_id: AtomicU64::new(next),
+            path: Some(path),
+        }
     }
 
     pub fn list(&self) -> Vec<LocalEvent> {
@@ -148,7 +160,16 @@ impl LocalEventStore {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn add(&self, title: String, date: String, start: String, end: String, location: String, notes: String, rrule: String) -> LocalEvent {
+    pub fn add(
+        &self,
+        title: String,
+        date: String,
+        start: String,
+        end: String,
+        location: String,
+        notes: String,
+        rrule: String,
+    ) -> LocalEvent {
         let ev = LocalEvent {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             title,
@@ -180,13 +201,27 @@ impl LocalEventStore {
         let out = {
             let mut items = self.items.write();
             let e = items.iter_mut().find(|e| e.id == id)?;
-            if let Some(v) = title { e.title = v; }
-            if let Some(v) = date { e.date = v; }
-            if let Some(v) = start { e.start = v; }
-            if let Some(v) = end { e.end = v; }
-            if let Some(v) = location { e.location = v; }
-            if let Some(v) = notes { e.notes = v; }
-            if let Some(v) = rrule { e.rrule = v; }
+            if let Some(v) = title {
+                e.title = v;
+            }
+            if let Some(v) = date {
+                e.date = v;
+            }
+            if let Some(v) = start {
+                e.start = v;
+            }
+            if let Some(v) = end {
+                e.end = v;
+            }
+            if let Some(v) = location {
+                e.location = v;
+            }
+            if let Some(v) = notes {
+                e.notes = v;
+            }
+            if let Some(v) = rrule {
+                e.rrule = v;
+            }
             e.clone()
         };
         self.save();
@@ -205,7 +240,8 @@ impl LocalEventStore {
 }
 
 fn fetch_ics(url: &str) -> Result<String, String> {
-    if !(url.starts_with("http://") || url.starts_with("https://") || url.starts_with("webcal://")) {
+    if !(url.starts_with("http://") || url.starts_with("https://") || url.starts_with("webcal://"))
+    {
         return Err("calendar url must be http(s) or webcal".into());
     }
     // webcal:// is just http(s) with a different scheme hint.
@@ -220,7 +256,10 @@ fn fetch_ics(url: &str) -> Result<String, String> {
         .call()
         .map_err(|e| e.to_string())?;
     let mut buf = Vec::new();
-    resp.into_reader().take(MAX_ICS_BYTES + 1).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    resp.into_reader()
+        .take(MAX_ICS_BYTES + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| e.to_string())?;
     if buf.is_empty() {
         return Err("empty response".into());
     }
@@ -228,7 +267,14 @@ fn fetch_ics(url: &str) -> Result<String, String> {
 }
 
 fn host_of(url: &str) -> String {
-    url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or(url).trim_start_matches("www.").to_string()
+    url.split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or(url)
+        .trim_start_matches("www.")
+        .to_string()
 }
 
 // ─── iCalendar parsing ───────────────────────────────────────────────────────
@@ -236,7 +282,10 @@ fn host_of(url: &str) -> String {
 /// Unfold RFC 5545 folded lines: a CRLF (or LF) followed by a space/tab is a
 /// continuation of the previous line.
 fn unfold(ics: &str) -> String {
-    ics.replace("\r\n ", "").replace("\r\n\t", "").replace("\n ", "").replace("\n\t", "")
+    ics.replace("\r\n ", "")
+        .replace("\r\n\t", "")
+        .replace("\n ", "")
+        .replace("\n\t", "")
 }
 
 /// Past/future window (in days from today) we expand events into. Recurring
@@ -283,8 +332,14 @@ fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
         }
         if line == "END:VEVENT" {
             if let Some(s) = start.take() {
-                let title = if summary.is_empty() { "(untitled)".into() } else { summary.clone() };
-                emit_occurrences(&title, &location, &end_time, &s, &rrule, &exdates, cal_name, lo, hi, &mut out);
+                let title = if summary.is_empty() {
+                    "(untitled)".into()
+                } else {
+                    summary.clone()
+                };
+                emit_occurrences(
+                    &title, &location, &end_time, &s, &rrule, &exdates, cal_name, lo, hi, &mut out,
+                );
             }
             in_event = false;
             continue;
@@ -292,7 +347,9 @@ fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
         if !in_event {
             continue;
         }
-        let Some(colon) = line.find(':') else { continue };
+        let Some(colon) = line.find(':') else {
+            continue;
+        };
         let (key, value) = (&line[..colon], &line[colon + 1..]);
         let name = key.split(';').next().unwrap_or(key);
         match name {
@@ -317,15 +374,18 @@ fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
 /// A parsed DTSTART: calendar date pieces + the time-of-day + epoch-day index.
 #[derive(Clone)]
 struct DtParts {
-    days: i64,     // days since 1970-01-01
-    time: String,  // "HH:MM" or "" (all-day)
-    hhmm: u64,     // HHMM as a number for the sort key (0 for all-day)
+    days: i64,    // days since 1970-01-01
+    time: String, // "HH:MM" or "" (all-day)
+    hhmm: u64,    // HHMM as a number for the sort key (0 for all-day)
 }
 
 /// `DTSTART`/`EXDATE` value → DtParts. Handles `20260619`, `20260619T100000Z`,
 /// `20260619T100000`. `None` if it isn't a date.
 fn parse_dt(value: &str) -> Option<DtParts> {
-    let v: String = value.chars().take_while(|c| c.is_ascii_digit() || *c == 'T').collect();
+    let v: String = value
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == 'T')
+        .collect();
     let digits: String = v.chars().filter(|c| c.is_ascii_digit()).collect();
     if digits.len() < 8 {
         return None;
@@ -335,15 +395,29 @@ fn parse_dt(value: &str) -> Option<DtParts> {
     let d: u32 = digits[6..8].parse().ok()?;
     let has_time = v.contains('T') && digits.len() >= 12;
     let (time, hhmm) = if has_time {
-        (format!("{}:{}", &digits[8..10], &digits[10..12]), digits[8..12].parse().unwrap_or(0))
+        (
+            format!("{}:{}", &digits[8..10], &digits[10..12]),
+            digits[8..12].parse().unwrap_or(0),
+        )
     } else {
         (String::new(), 0)
     };
-    Some(DtParts { days: days_from_civil(y, m, d), time, hhmm })
+    Some(DtParts {
+        days: days_from_civil(y, m, d),
+        time,
+        hhmm,
+    })
 }
 
 /// Build a CalEvent for a single occurrence on `day`.
-fn make_event(day: i64, s: &DtParts, title: &str, location: &str, end: &str, cal: &str) -> CalEvent {
+fn make_event(
+    day: i64,
+    s: &DtParts,
+    title: &str,
+    location: &str,
+    end: &str,
+    cal: &str,
+) -> CalEvent {
     let (y, m, d) = civil_from_days(day);
     CalEvent {
         calendar: cal.to_string(),
@@ -362,9 +436,18 @@ fn make_event(day: i64, s: &DtParts, title: &str, location: &str, end: &str, cal
 
 /// `YYYY-MM-DD` + `HH:MM` → the same `YYYYMMDDHHMM` sort key `make_event` produces.
 fn sort_key_of(date: &str, time: &str) -> u64 {
-    let d: u64 = date.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0);
+    let d: u64 = date
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .unwrap_or(0);
     let t: String = time.chars().filter(|c| c.is_ascii_digit()).collect();
-    let hhmm: u64 = if t.len() >= 4 { t[..4].parse().unwrap_or(0) } else { 0 };
+    let hhmm: u64 = if t.len() >= 4 {
+        t[..4].parse().unwrap_or(0)
+    } else {
+        0
+    };
     d * 10_000 + hhmm
 }
 
@@ -395,8 +478,16 @@ fn local_dtparts(date: &str, start: &str) -> Option<DtParts> {
     let m: u32 = digits[4..6].parse().ok()?;
     let d: u32 = digits[6..8].parse().ok()?;
     let t: String = start.chars().filter(|c| c.is_ascii_digit()).collect();
-    let hhmm: u64 = if t.len() >= 4 { t[..4].parse().unwrap_or(0) } else { 0 };
-    Some(DtParts { days: days_from_civil(y, m, d), time: start.to_string(), hhmm })
+    let hhmm: u64 = if t.len() >= 4 {
+        t[..4].parse().unwrap_or(0)
+    } else {
+        0
+    };
+    Some(DtParts {
+        days: days_from_civil(y, m, d),
+        time: start.to_string(),
+        hhmm,
+    })
 }
 
 /// Expand a local event into the grid's occurrences. A one-off event (no rrule)
@@ -412,7 +503,18 @@ fn expand_local(e: &LocalEvent, lo: i64, hi: i64, out: &mut Vec<CalEvent>) {
         return;
     }
     let start = out.len();
-    emit_occurrences(&e.title, &e.location, &e.end, &dt.unwrap(), rrule, &[], "Flux", lo, hi, out);
+    emit_occurrences(
+        &e.title,
+        &e.location,
+        &e.end,
+        &dt.unwrap(),
+        rrule,
+        &[],
+        "Flux",
+        lo,
+        hi,
+        out,
+    );
     if out.len() == start {
         // The series produced nothing in-window (e.g. it has already ended);
         // still show the base event so it's editable, matching the one-off path.
@@ -457,15 +559,19 @@ fn emit_occurrences(
     let mut until: Option<i64> = None;
     let mut bydays: Vec<i64> = Vec::new();
     for part in rrule.split(';') {
-        let Some((k, v)) = part.split_once('=') else { continue };
+        let Some((k, v)) = part.split_once('=') else {
+            continue;
+        };
         match k.to_ascii_uppercase().as_str() {
-            "FREQ" => freq = match v.to_ascii_uppercase().as_str() {
-                "DAILY" => "DAILY",
-                "WEEKLY" => "WEEKLY",
-                "MONTHLY" => "MONTHLY",
-                "YEARLY" => "YEARLY",
-                _ => "",
-            },
+            "FREQ" => {
+                freq = match v.to_ascii_uppercase().as_str() {
+                    "DAILY" => "DAILY",
+                    "WEEKLY" => "WEEKLY",
+                    "MONTHLY" => "MONTHLY",
+                    "YEARLY" => "YEARLY",
+                    _ => "",
+                }
+            }
             "INTERVAL" => interval = v.parse().unwrap_or(1).max(1),
             "COUNT" => count = v.parse().ok(),
             "UNTIL" => until = parse_dt(v).map(|p| p.days),
@@ -506,7 +612,11 @@ fn emit_occurrences(
             }
         }
         "WEEKLY" => {
-            let week_days: Vec<i64> = if bydays.is_empty() { vec![weekday(s.days)] } else { bydays.clone() };
+            let week_days: Vec<i64> = if bydays.is_empty() {
+                vec![weekday(s.days)]
+            } else {
+                bydays.clone()
+            };
             let mut week_start = s.days - weekday(s.days); // Sunday of the start week
             if ff && week_start < lo - 7 {
                 week_start += ((lo - 7 - week_start) / (7 * interval)) * 7 * interval;
@@ -560,7 +670,11 @@ fn emit_occurrences(
         "YEARLY" => {
             let (y, m, d) = civil_from_days(s.days);
             for i in 0..MAX_OCCURRENCES as i64 {
-                let day = days_from_civil(y + i * interval, m, d.min(days_in_month(y + i * interval, m)));
+                let day = days_from_civil(
+                    y + i * interval,
+                    m,
+                    d.min(days_in_month(y + i * interval, m)),
+                );
                 if day > until {
                     break;
                 }
@@ -575,9 +689,17 @@ fn emit_occurrences(
 
 /// ICS BYDAY token (SU,MO,…; an optional ±N prefix is ignored) → weekday 0=Sun..6=Sat.
 fn parse_weekday(tok: &str) -> Option<i64> {
-    let day = tok.trim().trim_start_matches(|c: char| c == '+' || c == '-' || c.is_ascii_digit());
+    let day = tok
+        .trim()
+        .trim_start_matches(|c: char| c == '+' || c == '-' || c.is_ascii_digit());
     Some(match day.to_ascii_uppercase().as_str() {
-        "SU" => 0, "MO" => 1, "TU" => 2, "WE" => 3, "TH" => 4, "FR" => 5, "SA" => 6,
+        "SU" => 0,
+        "MO" => 1,
+        "TU" => 2,
+        "WE" => 3,
+        "TH" => 4,
+        "FR" => 5,
+        "SA" => 6,
         _ => return None,
     })
 }
@@ -594,7 +716,13 @@ fn days_in_month(y: i64, m: u32) -> u32 {
     match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
-        2 => if is_leap(y) { 29 } else { 28 },
+        2 => {
+            if is_leap(y) {
+                29
+            } else {
+                28
+            }
+        }
         _ => 30,
     }
 }
@@ -634,7 +762,11 @@ fn today_epoch_days() -> i64 {
 
 /// Decode the iCalendar text escapes (`\n`, `\,`, `\;`, `\\`).
 fn decode_text(s: &str) -> String {
-    s.replace("\\n", " ").replace("\\N", " ").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+    s.replace("\\n", " ")
+        .replace("\\N", " ")
+        .replace("\\,", ",")
+        .replace("\\;", ";")
+        .replace("\\\\", "\\")
 }
 
 // ─── Commands ──────────────────────────────────────────────────────────────
@@ -645,7 +777,11 @@ pub fn cal_list(store: State<'_, CalStore>) -> Vec<CalFeed> {
 }
 
 #[tauri::command]
-pub async fn cal_add(store: State<'_, CalStore>, url: String, name: Option<String>) -> Result<CalFeed, String> {
+pub async fn cal_add(
+    store: State<'_, CalStore>,
+    url: String,
+    name: Option<String>,
+) -> Result<CalFeed, String> {
     let url = url.trim().to_string();
     if url.is_empty() {
         return Err("empty url".into());
@@ -655,11 +791,15 @@ pub async fn cal_add(store: State<'_, CalStore>, url: String, name: Option<Strin
     }
     // Validate it parses as a calendar before subscribing.
     let probe = url.clone();
-    let ics = tauri::async_runtime::spawn_blocking(move || fetch_ics(&probe)).await.map_err(|e| e.to_string())??;
+    let ics = tauri::async_runtime::spawn_blocking(move || fetch_ics(&probe))
+        .await
+        .map_err(|e| e.to_string())??;
     if !ics.contains("VCALENDAR") && !ics.contains("VEVENT") {
         return Err("that URL isn't an iCalendar (.ics) feed".into());
     }
-    let name = name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| host_of(&url));
+    let name = name
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| host_of(&url));
     Ok(store.add(url, name))
 }
 
@@ -671,7 +811,10 @@ pub fn cal_remove(store: State<'_, CalStore>, id: u64) {
 /// Fetch + parse every subscribed calendar; returns events sorted by date. A
 /// failing feed is skipped (one dead URL doesn't blank the widget).
 #[tauri::command]
-pub async fn cal_events(store: State<'_, CalStore>, local: State<'_, LocalEventStore>) -> Result<Vec<CalEvent>, String> {
+pub async fn cal_events(
+    store: State<'_, CalStore>,
+    local: State<'_, LocalEventStore>,
+) -> Result<Vec<CalEvent>, String> {
     let feeds = store.list();
     let locals = local.list();
     tauri::async_runtime::spawn_blocking(move || {
@@ -713,9 +856,12 @@ fn normalize_rrule(rrule: Option<&str>) -> String {
         return String::new();
     }
     let up = raw.to_ascii_uppercase();
-    let has_freq = up
-        .split(';')
-        .any(|p| matches!(p.trim(), "FREQ=DAILY" | "FREQ=WEEKLY" | "FREQ=MONTHLY" | "FREQ=YEARLY"));
+    let has_freq = up.split(';').any(|p| {
+        matches!(
+            p.trim(),
+            "FREQ=DAILY" | "FREQ=WEEKLY" | "FREQ=MONTHLY" | "FREQ=YEARLY"
+        )
+    });
     if has_freq {
         up
     } else {
@@ -768,7 +914,9 @@ pub fn cal_event_update(
 ) -> Result<LocalEvent, String> {
     // `None` leaves recurrence untouched; `Some` (incl. "" to clear) sets it.
     let rrule = rrule.map(|r| normalize_rrule(Some(&r)));
-    local.update(id, title, date, start, end, location, notes, rrule).ok_or_else(|| "no such event".to_string())
+    local
+        .update(id, title, date, start, end, location, notes, rrule)
+        .ok_or_else(|| "no such event".to_string())
 }
 
 #[tauri::command]
@@ -789,11 +937,28 @@ mod tests {
     #[test]
     fn local_store_crud_and_partial_update() {
         let store = LocalEventStore::default(); // no path → in-memory
-        let e = store.add("Dentist".into(), "2026-06-26".into(), "09:00".into(), "09:30".into(), "Clinic".into(), "".into(), String::new());
+        let e = store.add(
+            "Dentist".into(),
+            "2026-06-26".into(),
+            "09:00".into(),
+            "09:30".into(),
+            "Clinic".into(),
+            "".into(),
+            String::new(),
+        );
         assert_eq!(store.list().len(), 1);
         // A drag = move date+time only; other fields untouched.
         let moved = store
-            .update(e.id, None, Some("2026-06-27".into()), Some("10:00".into()), Some("10:30".into()), None, None, None)
+            .update(
+                e.id,
+                None,
+                Some("2026-06-27".into()),
+                Some("10:00".into()),
+                Some("10:30".into()),
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(moved.title, "Dentist");
         assert_eq!(moved.date, "2026-06-27");
@@ -839,7 +1004,9 @@ mod tests {
         expand_local(&store.list()[0], lo, hi, &mut out);
         // Mondays 6/15, 6/22, 6/29, 7/6, 7/13 → 5 occurrences, all editable + same id.
         assert_eq!(out.len(), 5, "weekly Mondays in window");
-        assert!(out.iter().all(|c| c.editable && c.id == e.id && c.notes == "daily"));
+        assert!(out
+            .iter()
+            .all(|c| c.editable && c.id == e.id && c.notes == "daily"));
         assert_eq!(out[0].date, "2026-06-15");
         assert_eq!(out[0].time, "09:00");
         assert_eq!(out[4].date, "2026-07-13");
@@ -851,8 +1018,14 @@ mod tests {
         // A non-recurring local event must appear even far past the ICS window,
         // unchanged from the pre-recurrence behavior.
         let e = LocalEvent {
-            id: 3, title: "Wedding".into(), date: "2027-09-01".into(), start: "14:00".into(),
-            end: String::new(), location: String::new(), notes: String::new(), rrule: String::new(),
+            id: 3,
+            title: "Wedding".into(),
+            date: "2027-09-01".into(),
+            start: "14:00".into(),
+            end: String::new(),
+            location: String::new(),
+            notes: String::new(),
+            rrule: String::new(),
         };
         let (lo, hi) = (day(2026, 6, 1), day(2026, 12, 1));
         let mut out = Vec::new();
@@ -864,7 +1037,10 @@ mod tests {
     #[test]
     fn normalize_rrule_accepts_known_freqs_only() {
         assert_eq!(normalize_rrule(Some("FREQ=WEEKLY")), "FREQ=WEEKLY");
-        assert_eq!(normalize_rrule(Some("freq=daily;interval=2")), "FREQ=DAILY;INTERVAL=2");
+        assert_eq!(
+            normalize_rrule(Some("freq=daily;interval=2")),
+            "FREQ=DAILY;INTERVAL=2"
+        );
         assert_eq!(normalize_rrule(Some("RRULE:FREQ=MONTHLY")), "FREQ=MONTHLY"); // prefix stripped
         assert_eq!(normalize_rrule(Some("")), "");
         assert_eq!(normalize_rrule(None), "");
@@ -888,7 +1064,8 @@ mod tests {
 
     #[test]
     fn unfolds_continuation_lines() {
-        let folded = "BEGIN:VEVENT\r\nSUMMARY:Long title that\r\n wraps\r\nDTSTART:20260101\r\nEND:VEVENT";
+        let folded =
+            "BEGIN:VEVENT\r\nSUMMARY:Long title that\r\n wraps\r\nDTSTART:20260101\r\nEND:VEVENT";
         let ev = parse_events_at(folded, "C", day(2026, 1, 1));
         assert_eq!(ev[0].summary, "Long title thatwraps");
     }
@@ -908,7 +1085,9 @@ mod tests {
         assert_eq!(ev.len(), 5);
         assert_eq!(ev[0].date, "2026-06-10");
         assert_eq!(ev[4].date, "2026-06-14");
-        assert!(ev.iter().all(|e| e.time == "09:00" && e.summary == "Standup"));
+        assert!(ev
+            .iter()
+            .all(|e| e.time == "09:00" && e.summary == "Standup"));
     }
 
     #[test]
@@ -917,7 +1096,9 @@ mod tests {
         let ics = "BEGIN:VEVENT\r\nSUMMARY:Class\r\nDTSTART:20260601T140000\r\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=6\r\nEXDATE:20260603T140000\r\nEND:VEVENT";
         let ev = parse_events_at(ics, "W", day(2026, 6, 1));
         assert_eq!(ev.len(), 5); // 6 occurrences minus the excluded Wed
-        assert!(ev.iter().all(|e| e.summary == "Class" && e.date != "2026-06-03"));
+        assert!(ev
+            .iter()
+            .all(|e| e.summary == "Class" && e.date != "2026-06-03"));
     }
 
     #[test]

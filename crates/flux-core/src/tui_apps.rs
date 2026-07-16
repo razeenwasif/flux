@@ -86,7 +86,10 @@ impl Default for TuiAppsStore {
 
 impl TuiAppsStore {
     pub fn empty(path: PathBuf) -> Self {
-        TuiAppsStore { path: Some(path), ..Default::default() }
+        TuiAppsStore {
+            path: Some(path),
+            ..Default::default()
+        }
     }
 
     /// Load from disk; first run seeds the defaults, and an existing list from an
@@ -121,7 +124,10 @@ impl TuiAppsStore {
             // Merge in defaults the user doesn't already have (by id), keeping
             // their existing entries + order; new ones append.
             let have: HashSet<&str> = apps.iter().map(|a| a.id.as_str()).collect();
-            let add: Vec<TuiApp> = seed_defaults().into_iter().filter(|d| !have.contains(d.id.as_str())).collect();
+            let add: Vec<TuiApp> = seed_defaults()
+                .into_iter()
+                .filter(|d| !have.contains(d.id.as_str()))
+                .collect();
             if !add.is_empty() {
                 apps.extend(add);
             }
@@ -138,7 +144,10 @@ impl TuiAppsStore {
 
     fn persist(&self) {
         let Some(path) = &self.path else { return };
-        let file = TuiAppsFile { seed_version: self.seed_version.load(Ordering::Acquire), apps: self.apps.lock().clone() };
+        let file = TuiAppsFile {
+            seed_version: self.seed_version.load(Ordering::Acquire),
+            apps: self.apps.lock().clone(),
+        };
         crate::persist::save_json_pretty(path, &file);
     }
 
@@ -189,7 +198,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("tui-apps.json");
         // Legacy bare-array file with a single, user-renamed entry.
-        let legacy = r#"[{"id":"onyx","name":"My Onyx","icon":"📝","cmd":"onyx","cwd":"/home/me"}]"#;
+        let legacy =
+            r#"[{"id":"onyx","name":"My Onyx","icon":"📝","cmd":"onyx","cwd":"/home/me"}]"#;
         std::fs::write(&path, legacy).unwrap();
 
         let store = TuiAppsStore::empty(path.clone());
@@ -215,19 +225,30 @@ mod tests {
 /// Windows build this sees Windows bins, not WSL ones).
 #[tauri::command]
 pub fn tui_apps_detect() -> Vec<String> {
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
     if home.is_empty() {
         return Vec::new();
     }
     let mut found = std::collections::BTreeSet::new();
     for sub in [".cargo/bin", ".local/bin", "go/bin", "bin"] {
         let dir = std::path::Path::new(&home).join(sub);
-        let Ok(read) = std::fs::read_dir(&dir) else { continue };
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for ent in read.flatten() {
-            if ent.file_type().map(|t| t.is_file() || t.is_symlink()).unwrap_or(false) {
+            if ent
+                .file_type()
+                .map(|t| t.is_file() || t.is_symlink())
+                .unwrap_or(false)
+            {
                 let name = ent.file_name().to_string_lossy().into_owned();
                 // Drop Windows extensions so the command is shell-agnostic.
-                let name = name.trim_end_matches(".exe").trim_end_matches(".cmd").to_string();
+                let name = name
+                    .trim_end_matches(".exe")
+                    .trim_end_matches(".cmd")
+                    .to_string();
                 if !name.is_empty() && !name.starts_with('.') {
                     found.insert(name);
                 }

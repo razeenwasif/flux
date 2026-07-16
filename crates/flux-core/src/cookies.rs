@@ -25,7 +25,13 @@ impl CookieState {
         self.clear_on_close.contains_key(host)
     }
     fn status(&self) -> CookieStatus {
-        CookieStatus { clear_on_close: self.clear_on_close.iter().map(|e| e.key().clone()).collect() }
+        CookieStatus {
+            clear_on_close: self
+                .clear_on_close
+                .iter()
+                .map(|e| e.key().clone())
+                .collect(),
+        }
     }
 }
 

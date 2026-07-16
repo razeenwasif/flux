@@ -69,7 +69,11 @@ impl HistoryStore {
     /// An empty store bound to `path` — does NO disk I/O. Pair with `hydrate()`
     /// on a background thread so a large history.json doesn't block window show.
     pub fn empty(path: PathBuf) -> Self {
-        Self { entries: RwLock::new(HashMap::new()), path: Some(path), dirty: AtomicBool::new(false) }
+        Self {
+            entries: RwLock::new(HashMap::new()),
+            path: Some(path),
+            dirty: AtomicBool::new(false),
+        }
     }
 
     /// Load entries from disk into the store, recomputing each search key. Merges
@@ -121,9 +125,22 @@ impl HistoryStore {
                 }
                 None => {
                     let key = search_key(url, title);
-                    e.insert(url.to_string(), HistoryEntry { url: url.to_string(), title: title.to_string(), last_visit_ms: now, visits: 1, key });
+                    e.insert(
+                        url.to_string(),
+                        HistoryEntry {
+                            url: url.to_string(),
+                            title: title.to_string(),
+                            last_visit_ms: now,
+                            visits: 1,
+                            key,
+                        },
+                    );
                     if e.len() > MAX_ENTRIES {
-                        if let Some(oldest) = e.values().min_by_key(|x| x.last_visit_ms).map(|x| x.url.clone()) {
+                        if let Some(oldest) = e
+                            .values()
+                            .min_by_key(|x| x.last_visit_ms)
+                            .map(|x| x.url.clone())
+                        {
                             e.remove(&oldest);
                         }
                     }
@@ -204,14 +221,27 @@ impl HistoryStore {
                 }
                 None => {
                     let key = search_key(&r.url, &r.title);
-                    e.insert(r.url.clone(), HistoryEntry { url: r.url, title: r.title, last_visit_ms: r.last_visit_ms, visits: r.visits.max(1), key });
+                    e.insert(
+                        r.url.clone(),
+                        HistoryEntry {
+                            url: r.url,
+                            title: r.title,
+                            last_visit_ms: r.last_visit_ms,
+                            visits: r.visits.max(1),
+                            key,
+                        },
+                    );
                     added += 1;
                 }
             }
         }
         // Respect the cap after a merge.
         while e.len() > MAX_ENTRIES {
-            if let Some(oldest) = e.values().min_by_key(|x| x.last_visit_ms).map(|x| x.url.clone()) {
+            if let Some(oldest) = e
+                .values()
+                .min_by_key(|x| x.last_visit_ms)
+                .map(|x| x.url.clone())
+            {
                 e.remove(&oldest);
             } else {
                 break;
@@ -247,7 +277,11 @@ pub fn history_recent(store: State<'_, HistoryStore>, limit: Option<usize>) -> V
 }
 
 #[tauri::command]
-pub fn history_search(store: State<'_, HistoryStore>, query: String, limit: Option<usize>) -> Vec<HistoryEntry> {
+pub fn history_search(
+    store: State<'_, HistoryStore>,
+    query: String,
+    limit: Option<usize>,
+) -> Vec<HistoryEntry> {
     store.search(&query, limit.unwrap_or(200))
 }
 
@@ -306,7 +340,11 @@ mod tests {
         // by hydrate, or search would silently return nothing after a restart).
         let b = HistoryStore::restore(path.clone());
         assert_eq!(b.entries.read().len(), 1);
-        assert_eq!(b.search("gamma", 10).len(), 1, "search must work on loaded entries");
+        assert_eq!(
+            b.search("gamma", 10).len(),
+            1,
+            "search must work on loaded entries"
+        );
         assert_eq!(b.search("example.com", 10).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -316,12 +354,33 @@ mod tests {
         let h = HistoryStore::default();
         h.record("https://a.dev", "A");
         let remote = vec![
-            HistoryEntry { url: "https://a.dev".into(), title: "A".into(), last_visit_ms: u64::MAX, visits: 9, key: String::new() },
-            HistoryEntry { url: "https://b.dev".into(), title: "B".into(), last_visit_ms: 5, visits: 1, key: String::new() },
-            HistoryEntry { url: "flux://x".into(), title: "skip".into(), last_visit_ms: 1, visits: 1, key: String::new() },
+            HistoryEntry {
+                url: "https://a.dev".into(),
+                title: "A".into(),
+                last_visit_ms: u64::MAX,
+                visits: 9,
+                key: String::new(),
+            },
+            HistoryEntry {
+                url: "https://b.dev".into(),
+                title: "B".into(),
+                last_visit_ms: 5,
+                visits: 1,
+                key: String::new(),
+            },
+            HistoryEntry {
+                url: "flux://x".into(),
+                title: "skip".into(),
+                last_visit_ms: 1,
+                visits: 1,
+                key: String::new(),
+            },
         ];
         let added = h.merge_remote(remote);
-        assert_eq!(added, 1, "only b.dev is new (a.dev merges, flux:// is skipped)");
+        assert_eq!(
+            added, 1,
+            "only b.dev is new (a.dev merges, flux:// is skipped)"
+        );
         let entries = h.recent(10);
         let a = entries.iter().find(|e| e.url == "https://a.dev").unwrap();
         assert_eq!(a.visits, 9, "kept the higher remote visit count");

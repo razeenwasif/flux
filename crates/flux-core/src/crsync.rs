@@ -77,7 +77,10 @@ impl Db {
         Self::init(Connection::open(path).map_err(|e| e.to_string())?, ext_path)
     }
     pub fn open_memory(ext_path: &str) -> Result<Db, String> {
-        Self::init(Connection::open_in_memory().map_err(|e| e.to_string())?, ext_path)
+        Self::init(
+            Connection::open_in_memory().map_err(|e| e.to_string())?,
+            ext_path,
+        )
     }
 
     fn init(conn: Connection, ext_path: &str) -> Result<Db, String> {
@@ -96,12 +99,17 @@ impl Db {
     }
 
     pub fn exec(&self, sql: &str) -> Result<(), String> {
-        self.conn.execute(sql, []).map(|_| ()).map_err(|e| e.to_string())
+        self.conn
+            .execute(sql, [])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     /// The local logical clock — store this per-peer to send only newer changes.
     pub fn db_version(&self) -> Result<i64, String> {
-        self.conn.query_row("SELECT crsql_db_version()", [], |r| r.get(0)).map_err(|e| e.to_string())
+        self.conn
+            .query_row("SELECT crsql_db_version()", [], |r| r.get(0))
+            .map_err(|e| e.to_string())
     }
 
     fn changes_since(&self, version: i64) -> Result<Vec<Change>, String> {
@@ -124,7 +132,8 @@ impl Db {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())
     }
 
     fn apply(&self, changes: &[Change]) -> Result<(), String> {
@@ -133,8 +142,18 @@ impl Db {
             .prepare("INSERT INTO crsql_changes (\"table\", pk, cid, val, col_version, db_version, site_id, cl, seq) VALUES (?,?,?,?,?,?,?,?,?)")
             .map_err(|e| e.to_string())?;
         for c in changes {
-            stmt.execute(rusqlite::params![c.table, c.pk, c.cid, val_to_sql(&c.val), c.col_version, c.db_version, c.site_id, c.cl, c.seq])
-                .map_err(|e| e.to_string())?;
+            stmt.execute(rusqlite::params![
+                c.table,
+                c.pk,
+                c.cid,
+                val_to_sql(&c.val),
+                c.col_version,
+                c.db_version,
+                c.site_id,
+                c.cl,
+                c.seq
+            ])
+            .map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -151,11 +170,15 @@ impl Db {
     }
 
     pub fn bookmark_count(&self) -> Result<i64, String> {
-        self.conn.query_row("SELECT count(*) FROM bookmarks", [], |r| r.get(0)).map_err(|e| e.to_string())
+        self.conn
+            .query_row("SELECT count(*) FROM bookmarks", [], |r| r.get(0))
+            .map_err(|e| e.to_string())
     }
     pub fn bookmark_title(&self, id: &str) -> Result<Option<String>, String> {
         self.conn
-            .query_row("SELECT title FROM bookmarks WHERE id=?", [id], |r| r.get::<_, String>(0))
+            .query_row("SELECT title FROM bookmarks WHERE id=?", [id], |r| {
+                r.get::<_, String>(0)
+            })
             .optional()
             .map_err(|e| e.to_string())
     }
@@ -164,7 +187,9 @@ impl Db {
 impl Drop for Db {
     fn drop(&mut self) {
         // cr-sqlite requires finalizing before the connection closes.
-        let _ = self.conn.query_row("SELECT crsql_finalize()", [], |_| Ok::<(), rusqlite::Error>(()));
+        let _ = self.conn.query_row("SELECT crsql_finalize()", [], |_| {
+            Ok::<(), rusqlite::Error>(())
+        });
     }
 }
 
@@ -198,12 +223,15 @@ mod tests {
     fn concurrent_edits_converge() {
         let a = Db::open_memory(EXT).unwrap();
         let b = Db::open_memory(EXT).unwrap();
-        a.exec("INSERT INTO bookmarks (id,title,url,folder,added_ms) VALUES ('1','Orig','u','',1)").unwrap();
+        a.exec("INSERT INTO bookmarks (id,title,url,folder,added_ms) VALUES ('1','Orig','u','',1)")
+            .unwrap();
         b.import_changeset(&a.export_changeset(0).unwrap()).unwrap(); // seed B
 
         // Concurrent edits to the same column on both devices.
-        a.exec("UPDATE bookmarks SET title='A-edit' WHERE id='1'").unwrap();
-        b.exec("UPDATE bookmarks SET title='B-edit' WHERE id='1'").unwrap();
+        a.exec("UPDATE bookmarks SET title='A-edit' WHERE id='1'")
+            .unwrap();
+        b.exec("UPDATE bookmarks SET title='B-edit' WHERE id='1'")
+            .unwrap();
 
         // Cross-apply — both must land on the SAME value (no conflicted copies).
         b.import_changeset(&a.export_changeset(0).unwrap()).unwrap();
@@ -219,12 +247,17 @@ mod tests {
     fn delete_propagates() {
         let a = Db::open_memory(EXT).unwrap();
         let b = Db::open_memory(EXT).unwrap();
-        a.exec("INSERT INTO bookmarks (id,title,url,folder,added_ms) VALUES ('1','X','u','',1)").unwrap();
+        a.exec("INSERT INTO bookmarks (id,title,url,folder,added_ms) VALUES ('1','X','u','',1)")
+            .unwrap();
         b.import_changeset(&a.export_changeset(0).unwrap()).unwrap();
         assert_eq!(b.bookmark_count().unwrap(), 1);
 
         a.exec("DELETE FROM bookmarks WHERE id='1'").unwrap();
         b.import_changeset(&a.export_changeset(0).unwrap()).unwrap();
-        assert_eq!(b.bookmark_count().unwrap(), 0, "delete replicated (no tombstone bookkeeping needed)");
+        assert_eq!(
+            b.bookmark_count().unwrap(),
+            0,
+            "delete replicated (no tombstone bookkeeping needed)"
+        );
     }
 }

@@ -63,12 +63,19 @@ CLOUD FLOWS (Power Automate): flows live INSIDE a solution as JSON — there is 
 /// prompt-injected or mistaken model can't downgrade the warning. Returns a
 /// human reason (shown on the card), or `None` for safe/local operations.
 pub fn pac_danger(command: &str) -> Option<String> {
-    let toks: Vec<String> = command.to_ascii_lowercase().split_whitespace().map(|s| s.to_string()).collect();
+    let toks: Vec<String> = command
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
     let has = |t: &str| toks.iter().any(|x| x == t);
     let both = |a: &str, b: &str| has(a) && has(b);
 
     if has("import") {
-        return Some("imports into the target environment — can overwrite existing customizations or data".into());
+        return Some(
+            "imports into the target environment — can overwrite existing customizations or data"
+                .into(),
+        );
     }
     if has("delete") {
         return Some("deletes a component from the environment — this is irreversible".into());
@@ -102,8 +109,13 @@ pub fn pac_read_only(command: &str) -> bool {
         return false;
     }
     let low = command.to_ascii_lowercase();
-    const READ_VERBS: &[&str] = &["list", "who", "show", "help", "export", "download", "unpack", "check"];
-    low.contains("--version") || READ_VERBS.iter().any(|v| low.split_whitespace().any(|t| t == *v))
+    const READ_VERBS: &[&str] = &[
+        "list", "who", "show", "help", "export", "download", "unpack", "check",
+    ];
+    low.contains("--version")
+        || READ_VERBS
+            .iter()
+            .any(|v| low.split_whitespace().any(|t| t == *v))
 }
 
 impl crate::AgentPlanner {
@@ -133,15 +145,30 @@ impl crate::AgentPlanner {
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
         let v: serde_json::Value = serde_json::from_str(raw.trim())?;
-        let command = v.get("command").and_then(|c| c.as_str()).unwrap_or("").trim().to_string();
-        let explanation = v.get("explanation").and_then(|e| e.as_str()).unwrap_or("").trim().to_string();
+        let command = v
+            .get("command")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let explanation = v
+            .get("explanation")
+            .and_then(|e| e.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
         // Risk is decided here, from the command text — not by the model.
         let (danger, read_only) = if command.is_empty() {
             (None, false)
         } else {
             (pac_danger(&command), pac_read_only(&command))
         };
-        Ok(PacPlan { command, explanation, danger, read_only })
+        Ok(PacPlan {
+            command,
+            explanation,
+            danger,
+            read_only,
+        })
     }
 }
 
@@ -175,11 +202,15 @@ mod tests {
     #[test]
     fn read_only_classification() {
         assert!(pac_read_only("pac solution list"));
-        assert!(pac_read_only("pac solution export --name Foo --path foo.zip"));
+        assert!(pac_read_only(
+            "pac solution export --name Foo --path foo.zip"
+        ));
         assert!(pac_read_only("pac --version"));
         // Writes/local-writes/imports are not "read-only".
         assert!(!pac_read_only("pac solution import --path foo.zip"));
-        assert!(!pac_read_only("pac canvas pack --sources src --msapp a.msapp"));
+        assert!(!pac_read_only(
+            "pac canvas pack --sources src --msapp a.msapp"
+        ));
     }
 
     #[test]
@@ -194,7 +225,9 @@ mod tests {
         // JSON extraction + Rust classification. The mock returns a refuse-shaped
         // object for unknown intents, so command comes back empty and safe.
         let planner = AgentPlanner::new(Box::new(MockBackend));
-        let plan = planner.plan_pac("export my solution called Contoso").unwrap();
+        let plan = planner
+            .plan_pac("export my solution called Contoso")
+            .unwrap();
         // Whatever the (mock) model said, classification is derived, never panics,
         // and an empty command is never marked read-only or dangerous.
         if plan.command.is_empty() {

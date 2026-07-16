@@ -74,7 +74,10 @@ fn measure_ping(agent: &ureq::Agent) -> Result<(f64, f64), String> {
     let mut samples = Vec::with_capacity(PING_SAMPLES);
     for _ in 0..PING_SAMPLES {
         let t = Instant::now();
-        let resp = agent.get(&format!("{DOWN_URL}?bytes=0")).call().map_err(|e| e.to_string())?;
+        let resp = agent
+            .get(&format!("{DOWN_URL}?bytes=0"))
+            .call()
+            .map_err(|e| e.to_string())?;
         // Drain the (empty) body so the round-trip is complete before timing.
         let mut sink = Vec::new();
         let _ = resp.into_reader().read_to_end(&mut sink);
@@ -84,7 +87,10 @@ fn measure_ping(agent: &ureq::Agent) -> Result<(f64, f64), String> {
 }
 
 fn measure_download(agent: &ureq::Agent, progress: &impl Fn(&str, f64)) -> Result<f64, String> {
-    let resp = agent.get(&format!("{DOWN_URL}?bytes={DOWN_BYTES}")).call().map_err(|e| e.to_string())?;
+    let resp = agent
+        .get(&format!("{DOWN_URL}?bytes={DOWN_BYTES}"))
+        .call()
+        .map_err(|e| e.to_string())?;
     let mut reader = resp.into_reader();
     let mut buf = [0u8; 65_536];
     let mut total = 0u64;
@@ -110,7 +116,10 @@ fn measure_upload(agent: &ureq::Agent) -> Result<f64, String> {
     // Incompressible-ish payload so the link, not gzip, is measured.
     let payload = vec![0x5Au8; UP_BYTES];
     let start = Instant::now();
-    let resp = agent.post(UP_URL).send_bytes(&payload).map_err(|e| e.to_string())?;
+    let resp = agent
+        .post(UP_URL)
+        .send_bytes(&payload)
+        .map_err(|e| e.to_string())?;
     let _ = resp.into_string();
     Ok(mbps(UP_BYTES as u64, start.elapsed().as_secs_f64()))
 }
@@ -132,7 +141,13 @@ fn run_test(agent: &ureq::Agent, progress: impl Fn(&str, f64)) -> Result<SpeedRe
     progress("upload", 0.0);
     let upload_mbps = measure_upload(agent)?;
     progress("done", download_mbps);
-    Ok(SpeedResult { ping_ms, jitter_ms, download_mbps, upload_mbps, server: SERVER.into() })
+    Ok(SpeedResult {
+        ping_ms,
+        jitter_ms,
+        download_mbps,
+        upload_mbps,
+        server: SERVER.into(),
+    })
 }
 
 /// Run a speed test off the main thread, emitting `flux://netspeed-progress`
@@ -142,7 +157,13 @@ pub async fn netspeed_run(app: AppHandle) -> Result<SpeedResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let agent = build_agent();
         run_test(&agent, |phase, mbps| {
-            let _ = app.emit("flux://netspeed-progress", Progress { phase: phase.into(), mbps });
+            let _ = app.emit(
+                "flux://netspeed-progress",
+                Progress {
+                    phase: phase.into(),
+                    mbps,
+                },
+            );
         })
     })
     .await
@@ -158,7 +179,7 @@ mod tests {
         // 12.5 MB in 1 s = 100 Mbit/s.
         assert!((mbps(12_500_000, 1.0) - 100.0).abs() < 1e-6);
         assert_eq!(mbps(1_000_000, 0.0), 0.0); // guard against div-by-zero
-        // 100 MB in 8 s = 100 Mbit/s.
+                                               // 100 MB in 8 s = 100 Mbit/s.
         assert!((mbps(100_000_000, 8.0) - 100.0).abs() < 1e-6);
     }
 

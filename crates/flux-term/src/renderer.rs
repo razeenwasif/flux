@@ -57,8 +57,9 @@ impl Renderer {
             .await
             .ok_or_else(|| anyhow::anyhow!("no wgpu adapter"))?;
 
-        let (device, queue) =
-            adapter.request_device(&wgpu::DeviceDescriptor::default(), None).await?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .await?;
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("flux-term cells"),
@@ -79,7 +80,15 @@ impl Renderer {
             queue,
             pipeline,
             instances,
-            mirror: vec![CellInstance { pos: 0, glyph: 0, fg: 0, bg: 0 }; n],
+            mirror: vec![
+                CellInstance {
+                    pos: 0,
+                    glyph: 0,
+                    fg: 0,
+                    bg: 0
+                };
+                n
+            ],
         })
     }
 

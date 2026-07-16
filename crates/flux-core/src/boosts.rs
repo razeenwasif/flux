@@ -35,7 +35,13 @@ pub struct BoostStore {
 pub fn host_of(url: &str) -> String {
     let after = url.split("://").nth(1).unwrap_or(url);
     let host = after.split(['/', '?', '#']).next().unwrap_or("");
-    let host = host.rsplit('@').next().unwrap_or(host).split(':').next().unwrap_or("");
+    let host = host
+        .rsplit('@')
+        .next()
+        .unwrap_or(host)
+        .split(':')
+        .next()
+        .unwrap_or("");
     host.strip_prefix("www.").unwrap_or(host).to_string()
 }
 fn norm(host: &str) -> &str {
@@ -55,7 +61,11 @@ fn host_matches(pattern: &str, page_host: &str) -> bool {
 
 impl Default for BoostStore {
     fn default() -> Self {
-        Self { path: None, inner: RwLock::new(Vec::new()), next_id: AtomicU64::new(1) }
+        Self {
+            path: None,
+            inner: RwLock::new(Vec::new()),
+            next_id: AtomicU64::new(1),
+        }
     }
 }
 
@@ -66,7 +76,11 @@ impl BoostStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let next = boosts.iter().map(|b| b.id).max().unwrap_or(0) + 1;
-        Self { path: Some(path), inner: RwLock::new(boosts), next_id: AtomicU64::new(next) }
+        Self {
+            path: Some(path),
+            inner: RwLock::new(boosts),
+            next_id: AtomicU64::new(next),
+        }
     }
 
     pub fn list(&self) -> Vec<Boost> {
@@ -74,7 +88,12 @@ impl BoostStore {
     }
 
     pub fn for_host(&self, host: &str) -> Vec<Boost> {
-        self.inner.read().iter().filter(|b| host_matches(&b.host, host)).cloned().collect()
+        self.inner
+            .read()
+            .iter()
+            .filter(|b| host_matches(&b.host, host))
+            .cloned()
+            .collect()
     }
 
     /// Combined CSS + JS to inject for a page host (enabled boosts only).
@@ -82,7 +101,10 @@ impl BoostStore {
         let g = self.inner.read();
         let mut css = String::new();
         let mut js = String::new();
-        for b in g.iter().filter(|b| b.enabled && host_matches(&b.host, host)) {
+        for b in g
+            .iter()
+            .filter(|b| b.enabled && host_matches(&b.host, host))
+        {
             if !b.css.is_empty() {
                 css.push_str(&b.css);
                 css.push('\n');
@@ -96,7 +118,15 @@ impl BoostStore {
     }
 
     /// Create (`id = None`) or update a boost; returns it.
-    pub fn save(&self, id: Option<u64>, host: String, name: String, css: String, js: String, enabled: bool) -> Boost {
+    pub fn save(
+        &self,
+        id: Option<u64>,
+        host: String,
+        name: String,
+        css: String,
+        js: String,
+        enabled: bool,
+    ) -> Boost {
         let host = norm(&host).to_string();
         let mut g = self.inner.write();
         let boost = if let Some(b) = id.and_then(|id| g.iter_mut().find(|b| b.id == id)) {
@@ -107,7 +137,14 @@ impl BoostStore {
             b.enabled = enabled;
             b.clone()
         } else {
-            let b = Boost { id: self.next_id.fetch_add(1, Ordering::Relaxed), host, name, css, js, enabled };
+            let b = Boost {
+                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                host,
+                name,
+                css,
+                js,
+                enabled,
+            };
             g.push(b.clone());
             b
         };
@@ -138,10 +175,18 @@ impl BoostStore {
 /// Re-apply a host's enabled CSS boosts to the active webview now (instant
 /// feedback after authoring / toggling, without a reload).
 fn reinject_active(app: &AppHandle, host: &str) {
-    let Some(state) = app.try_state::<crate::state::FluxState>() else { return };
-    let Some(store) = app.try_state::<BoostStore>() else { return };
-    let Some(tab) = state.active_tab() else { return };
-    let Some(wv) = app.get_webview(&format!("tab-{tab}")) else { return };
+    let Some(state) = app.try_state::<crate::state::FluxState>() else {
+        return;
+    };
+    let Some(store) = app.try_state::<BoostStore>() else {
+        return;
+    };
+    let Some(tab) = state.active_tab() else {
+        return;
+    };
+    let Some(wv) = app.get_webview(&format!("tab-{tab}")) else {
+        return;
+    };
     let (css, _js) = store.injection_for(host);
     if let Ok(lit) = serde_json::to_string(&css) {
         let _ = wv.eval(&format!(
@@ -187,7 +232,13 @@ pub fn boost_delete(app: AppHandle, store: State<'_, BoostStore>, id: u64, host:
 }
 
 #[tauri::command]
-pub fn boost_set_enabled(app: AppHandle, store: State<'_, BoostStore>, id: u64, host: String, enabled: bool) {
+pub fn boost_set_enabled(
+    app: AppHandle,
+    store: State<'_, BoostStore>,
+    id: u64,
+    host: String,
+    enabled: bool,
+) {
     store.set_enabled(id, enabled);
     reinject_active(&app, &host);
 }
@@ -204,10 +255,12 @@ pub async fn boost_author(app: AppHandle, instruction: String) -> Result<Boost, 
     }
     let page = std::sync::Arc::clone(&snap.text);
     let instr = instruction.clone();
-    let css = tauri::async_runtime::spawn_blocking(move || crate::agent_bridge::planner().author_css(&instr, &page))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    let css = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().author_css(&instr, &page)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     if css.trim().is_empty() {
         return Err("the agent didn't produce any CSS — try rephrasing".into());
     }
@@ -248,10 +301,24 @@ mod tests {
     #[test]
     fn save_for_host_and_injection() {
         let s = BoostStore::default();
-        s.save(None, "example.com".into(), "wide".into(), "main{max-width:90%}".into(), String::new(), true);
-        s.save(None, "www.example.com".into(), "hide".into(), ".ad{display:none}".into(), String::new(), false);
+        s.save(
+            None,
+            "example.com".into(),
+            "wide".into(),
+            "main{max-width:90%}".into(),
+            String::new(),
+            true,
+        );
+        s.save(
+            None,
+            "www.example.com".into(),
+            "hide".into(),
+            ".ad{display:none}".into(),
+            String::new(),
+            false,
+        );
         assert_eq!(s.for_host("example.com").len(), 2); // www normalized to match
-        // Only the enabled one is injected; the www host normalizes to the same key.
+                                                        // Only the enabled one is injected; the www host normalizes to the same key.
         let (css, _) = s.injection_for("www.example.com");
         assert!(css.contains("max-width"));
         assert!(!css.contains("display:none"));
@@ -260,8 +327,22 @@ mod tests {
     #[test]
     fn update_and_toggle() {
         let s = BoostStore::default();
-        let b = s.save(None, "a.com".into(), "n".into(), "x{}".into(), String::new(), true);
-        let b2 = s.save(Some(b.id), "a.com".into(), "n2".into(), "y{}".into(), String::new(), true);
+        let b = s.save(
+            None,
+            "a.com".into(),
+            "n".into(),
+            "x{}".into(),
+            String::new(),
+            true,
+        );
+        let b2 = s.save(
+            Some(b.id),
+            "a.com".into(),
+            "n2".into(),
+            "y{}".into(),
+            String::new(),
+            true,
+        );
         assert_eq!(b.id, b2.id);
         assert_eq!(s.list().len(), 1);
         s.set_enabled(b.id, false);

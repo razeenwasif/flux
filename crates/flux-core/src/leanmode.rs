@@ -65,7 +65,9 @@ impl LeanState {
     /// host AND the request matches the performance list. ORed with shields by
     /// the interceptor — never relaxes a normal-shields block.
     pub fn should_block(&self, url: &str, source_url: &str, request_type: &str) -> bool {
-        let Some(host) = host_of(source_url) else { return false };
+        let Some(host) = host_of(source_url) else {
+            return false;
+        };
         if !self.active_for(host) {
             return false;
         }
@@ -132,7 +134,10 @@ mod tests {
     #[test]
     fn blocks_heavy_scripts_only_for_opted_in_sites() {
         let s = LeanState::new();
-        let (gtm, page) = ("https://www.googletagmanager.com/gtm.js?id=GTM-X", "https://shop.com");
+        let (gtm, page) = (
+            "https://www.googletagmanager.com/gtm.js?id=GTM-X",
+            "https://shop.com",
+        );
         // Off by default → nothing extra blocked.
         assert!(!s.should_block(gtm, page, "script"));
         // Opt the site in → the performance list now applies there.
@@ -146,7 +151,11 @@ mod tests {
     fn first_party_app_js_is_never_touched() {
         let s = LeanState::new();
         s.on_for.insert("shop.com".into(), ());
-        assert!(!s.should_block("https://shop.com/app.bundle.js", "https://shop.com", "script"));
+        assert!(!s.should_block(
+            "https://shop.com/app.bundle.js",
+            "https://shop.com",
+            "script"
+        ));
     }
 
     #[test]
@@ -154,7 +163,11 @@ mod tests {
         let s = LeanState::new();
         s.on_for.insert("shop.com".into(), ());
         s.enabled.store(false, Ordering::Relaxed);
-        assert!(!s.should_block("https://static.hotjar.com/c/hotjar.js", "https://shop.com", "script"));
+        assert!(!s.should_block(
+            "https://static.hotjar.com/c/hotjar.js",
+            "https://shop.com",
+            "script"
+        ));
         assert!(!s.active_for("shop.com"));
     }
 

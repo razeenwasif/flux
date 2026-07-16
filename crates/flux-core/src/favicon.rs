@@ -21,16 +21,30 @@ pub struct FaviconCache {
 
 impl FaviconCache {
     pub fn new(dir: Option<PathBuf>) -> Self {
-        Self { mem: DashMap::new(), dir }
+        Self {
+            mem: DashMap::new(),
+            dir,
+        }
     }
 }
 
 fn sanitize(host: &str) -> String {
-    host.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect()
+    host.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 #[tauri::command]
-pub async fn favicon(cache: State<'_, FaviconCache>, host: String) -> Result<Option<String>, String> {
+pub async fn favicon(
+    cache: State<'_, FaviconCache>,
+    host: String,
+) -> Result<Option<String>, String> {
     let host = host.trim().trim_start_matches("www.").to_ascii_lowercase();
     if host.is_empty() || host.contains('/') || !host.contains('.') {
         return Ok(None);
@@ -51,7 +65,9 @@ pub async fn favicon(cache: State<'_, FaviconCache>, host: String) -> Result<Opt
     }
 
     let h = host.clone();
-    let fetched = tauri::async_runtime::spawn_blocking(move || try_fetch(&h)).await.unwrap_or(None);
+    let fetched = tauri::async_runtime::spawn_blocking(move || try_fetch(&h))
+        .await
+        .unwrap_or(None);
     cache.mem.insert(host.clone(), fetched.clone());
     if let (Some(dir), Some(data)) = (&cache.dir, &fetched) {
         let _ = std::fs::create_dir_all(dir);
@@ -80,26 +96,42 @@ const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 fn fetch_icon(url: &str) -> Option<String> {
     let resp = ureq::get(url)
         .set("User-Agent", UA)
-        .set("Accept", "image/avif,image/webp,image/png,image/svg+xml,image/*,*/*;q=0.8")
+        .set(
+            "Accept",
+            "image/avif,image/webp,image/png,image/svg+xml,image/*,*/*;q=0.8",
+        )
         .timeout(Duration::from_secs(5))
         .call()
         .ok()?;
     if resp.status() != 200 {
         return None;
     }
-    let ct = resp.header("content-type").unwrap_or("").split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let ct = resp
+        .header("content-type")
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     let mut buf = Vec::new();
-    resp.into_reader().take(256 * 1024).read_to_end(&mut buf).ok()?;
+    resp.into_reader()
+        .take(256 * 1024)
+        .read_to_end(&mut buf)
+        .ok()?;
     let mut mime = image_mime(&buf, &ct)?; // rejects soft-404 HTML served as 200
-    // WebKitGTK (the Linux engine) doesn't render `data:image/x-icon` in <img>,
-    // so transcode ICO → PNG; every engine renders PNG. Other formats pass through.
+                                           // WebKitGTK (the Linux engine) doesn't render `data:image/x-icon` in <img>,
+                                           // so transcode ICO → PNG; every engine renders PNG. Other formats pass through.
     if mime == "image/x-icon" {
         if let Some(png) = ico_to_png(&buf) {
             buf = png;
             mime = "image/png".into();
         }
     }
-    Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&buf)))
+    Some(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&buf)
+    ))
 }
 
 /// Decode an ICO and re-encode the (largest) frame as PNG. `None` if the bytes
@@ -107,7 +139,8 @@ fn fetch_icon(url: &str) -> Option<String> {
 fn ico_to_png(buf: &[u8]) -> Option<Vec<u8>> {
     let img = image::load_from_memory_with_format(buf, image::ImageFormat::Ico).ok()?;
     let mut out = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).ok()?;
+    img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .ok()?;
     Some(out)
 }
 
@@ -133,7 +166,10 @@ fn image_mime(buf: &[u8], ct: &str) -> Option<String> {
     if buf.starts_with(b"RIFF") && buf.len() > 12 && &buf[8..12] == b"WEBP" {
         return Some("image/webp".into());
     }
-    let head = std::str::from_utf8(&buf[..buf.len().min(256)]).unwrap_or("").trim_start().to_ascii_lowercase();
+    let head = std::str::from_utf8(&buf[..buf.len().min(256)])
+        .unwrap_or("")
+        .trim_start()
+        .to_ascii_lowercase();
     if head.starts_with("<svg") || head.starts_with("<?xml") {
         return Some("image/svg+xml".into());
     }
@@ -180,7 +216,9 @@ fn attr(tag: &str, name: &str) -> Option<String> {
         let end = rest[1..].find(q)? + 1;
         Some(rest[1..end].trim().to_string())
     } else {
-        let end = rest.find(|c: char| c.is_whitespace() || c == '>').unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| c.is_whitespace() || c == '>')
+            .unwrap_or(rest.len());
         Some(rest[..end].trim_end_matches('/').trim().to_string())
     }
 }
@@ -203,17 +241,35 @@ mod tests {
 
     #[test]
     fn mime_detects_images_and_rejects_html() {
-        assert_eq!(image_mime(&[0, 0, 1, 0, 5], "").as_deref(), Some("image/x-icon"));
-        assert_eq!(image_mime(&[0x89, b'P', b'N', b'G', 1], "").as_deref(), Some("image/png"));
+        assert_eq!(
+            image_mime(&[0, 0, 1, 0, 5], "").as_deref(),
+            Some("image/x-icon")
+        );
+        assert_eq!(
+            image_mime(&[0x89, b'P', b'N', b'G', 1], "").as_deref(),
+            Some("image/png")
+        );
         assert_eq!(image_mime(b"<!doctype html><html>", "text/html"), None);
-        assert_eq!(image_mime(b"<svg xmlns=...", ""), Some("image/svg+xml".into()));
+        assert_eq!(
+            image_mime(b"<svg xmlns=...", ""),
+            Some("image/svg+xml".into())
+        );
     }
 
     #[test]
     fn attr_parses_quoted_and_bare() {
-        assert_eq!(attr(r#"link rel="icon" href="/a.png""#, "href").as_deref(), Some("/a.png"));
-        assert_eq!(attr("link rel=icon href=/b.ico>", "href").as_deref(), Some("/b.ico"));
-        assert_eq!(attr(r#"link rel='shortcut icon' href='//cdn/x.png'"#, "href").as_deref(), Some("//cdn/x.png"));
+        assert_eq!(
+            attr(r#"link rel="icon" href="/a.png""#, "href").as_deref(),
+            Some("/a.png")
+        );
+        assert_eq!(
+            attr("link rel=icon href=/b.ico>", "href").as_deref(),
+            Some("/b.ico")
+        );
+        assert_eq!(
+            attr(r#"link rel='shortcut icon' href='//cdn/x.png'"#, "href").as_deref(),
+            Some("//cdn/x.png")
+        );
     }
 
     #[test]

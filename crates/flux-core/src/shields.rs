@@ -34,7 +34,10 @@ const DEFAULT_FILTERS: &str = include_str!("../assets/default-filters.txt");
 /// `(cache filename, url)`.
 const LISTS: &[(&str, &str)] = &[
     ("easylist.txt", "https://easylist.to/easylist/easylist.txt"),
-    ("easyprivacy.txt", "https://easylist.to/easylist/easyprivacy.txt"),
+    (
+        "easyprivacy.txt",
+        "https://easylist.to/easylist/easyprivacy.txt",
+    ),
 ];
 
 /// Re-fetch a cached list once it's older than this.
@@ -109,7 +112,9 @@ impl ShieldsState {
                     Ok(body) if body.len() > 1024 => {
                         let _ = std::fs::write(&path, body);
                     }
-                    Ok(_) => tracing::warn!(target: "flux::shields", "{url}: suspiciously small, kept old"),
+                    Ok(_) => {
+                        tracing::warn!(target: "flux::shields", "{url}: suspiciously small, kept old")
+                    }
                     Err(e) => tracing::warn!(target: "flux::shields", "{url}: {e}"),
                 }
             }
@@ -138,7 +143,9 @@ impl ShieldsState {
                 let _ = crate::persist::write_atomic(&dir.join(CB_JSON_FILE), json.as_bytes());
                 tracing::info!(target: "flux::shields", bytes = json.len(), "content-blocker JSON written");
             }
-            None => tracing::warn!(target: "flux::shields", "no rules translated to content-blocker JSON"),
+            None => {
+                tracing::warn!(target: "flux::shields", "no rules translated to content-blocker JSON")
+            }
         }
     }
 
@@ -223,7 +230,10 @@ impl ShieldsState {
         let mut v: Vec<HotRule> = self
             .fired_rules
             .iter()
-            .map(|e| HotRule { rule: e.key().clone(), hits: *e.value() })
+            .map(|e| HotRule {
+                rule: e.key().clone(),
+                hits: *e.value(),
+            })
             .collect();
         v.sort_by(|a, b| b.hits.cmp(&a.hits).then_with(|| a.rule.cmp(&b.rule)));
         if limit > 0 {
@@ -270,7 +280,10 @@ fn host_of(url: &str) -> Option<&str> {
 /// A cached list is stale if missing or older than [`MAX_AGE_DAYS`].
 fn is_stale(path: &Path) -> bool {
     match std::fs::metadata(path).and_then(|m| m.modified()) {
-        Ok(mtime) => mtime.elapsed().map(|e| e.as_secs() > MAX_AGE_DAYS * 86_400).unwrap_or(true),
+        Ok(mtime) => mtime
+            .elapsed()
+            .map(|e| e.as_secs() > MAX_AGE_DAYS * 86_400)
+            .unwrap_or(true),
         Err(_) => true,
     }
 }
@@ -323,7 +336,10 @@ pub fn shields_check(
             return false;
         }
     }
-    state.filter.read().should_block(&url, &source, &request_type)
+    state
+        .filter
+        .read()
+        .should_block(&url, &source, &request_type)
 }
 
 /// Re-fetch the upstream filter lists + rebuild, on a background thread (the
@@ -348,7 +364,11 @@ mod tests {
     #[test]
     fn default_list_blocks_a_major_tracker() {
         let s = ShieldsState::new(None);
-        assert!(s.should_block("https://www.google-analytics.com/analytics.js", "https://news.com", "script"));
+        assert!(s.should_block(
+            "https://www.google-analytics.com/analytics.js",
+            "https://news.com",
+            "script"
+        ));
         assert!(s.should_block("https://doubleclick.net/ad", "https://news.com", "image"));
         assert!(!s.should_block("https://news.com/app.js", "https://news.com", "script"));
     }
@@ -381,9 +401,16 @@ mod tests {
         assert!(s.should_block(url, page, "script"));
 
         let st = s.status();
-        assert!(st.cache_hit_pct > 0, "repeats should hit the cache: {}", st.cache_hit_pct);
+        assert!(
+            st.cache_hit_pct > 0,
+            "repeats should hit the cache: {}",
+            st.cache_hit_pct
+        );
         assert!(st.cache_len >= 1);
-        assert!(st.rules_fired >= 1, "a blocked request should populate the hot set");
+        assert!(
+            st.rules_fired >= 1,
+            "a blocked request should populate the hot set"
+        );
 
         let hot = s.hot_rules(10);
         assert!(!hot.is_empty());
@@ -397,7 +424,11 @@ mod tests {
         s.should_block("https://doubleclick.net/ad", "https://news.com", "image");
         assert!(s.status().cache_len >= 1);
         s.install_filter(Filter::from_list(DEFAULT_FILTERS)); // the swap refresh() performs
-        assert_eq!(s.status().cache_len, 0, "rebuilding the rule set must invalidate verdicts");
+        assert_eq!(
+            s.status().cache_len,
+            0,
+            "rebuilding the rule set must invalidate verdicts"
+        );
     }
 
     #[test]

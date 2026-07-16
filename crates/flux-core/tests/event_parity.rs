@@ -22,14 +22,29 @@ const LISTEN_ONLY_ALLOW: &[&str] = &[];
 
 fn workspace_root() -> PathBuf {
     // CARGO_MANIFEST_DIR = <root>/crates/flux-core
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 /// Collect files under `dir` with one of `exts`, skipping build/output and
 /// test/example trees (which mention event names in prose + fixtures).
 fn collect(dir: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
-    const SKIP: &[&str] = &["target", "tests", "benches", "examples", "node_modules", "dist", "mock"];
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    const SKIP: &[&str] = &[
+        "target",
+        "tests",
+        "benches",
+        "examples",
+        "node_modules",
+        "dist",
+        "mock",
+    ];
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in rd.flatten() {
         let p = entry.path();
         let name = entry.file_name();
@@ -38,7 +53,11 @@ fn collect(dir: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
             if !SKIP.iter().any(|s| *s == name) {
                 collect(&p, exts, out);
             }
-        } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| exts.contains(&e)) {
+        } else if p
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| exts.contains(&e))
+        {
             out.push(p);
         }
     }
@@ -59,17 +78,26 @@ fn events_on(line: &str, out: &mut BTreeSet<String>) {
     }
 }
 
-/// Events appearing on lines that carry one of `call_tokens` — a precise call
-/// marker (`.emit(`, `listen(`, …) rather than prose, so a doc comment that
-/// merely names an event isn't mistaken for a real emit/listen. (We can't strip
-/// `//` comments naively — `flux://` itself contains `//`.)
+/// Events appearing at (or just after) lines that carry one of `call_tokens` —
+/// a precise call marker (`.emit(`, `listen(`, …) rather than prose, so a doc
+/// comment that merely names an event isn't mistaken for a real emit/listen.
+/// (We can't strip `//` comments naively — `flux://` itself contains `//`.)
+///
+/// rustfmt may put the call's first argument on the *following* line
+/// (`app.emit(\n    "flux://…",`), so the scan window is the token line plus
+/// the next two lines.
 fn events_in(files: &[PathBuf], call_tokens: &[&str]) -> BTreeSet<String> {
     let mut set = BTreeSet::new();
     for f in files {
-        let Ok(src) = std::fs::read_to_string(f) else { continue };
-        for line in src.lines() {
+        let Ok(src) = std::fs::read_to_string(f) else {
+            continue;
+        };
+        let lines: Vec<&str> = src.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
             if call_tokens.iter().any(|t| line.contains(t)) {
-                events_on(line, &mut set);
+                for l in lines.iter().skip(i).take(3) {
+                    events_on(l, &mut set);
+                }
             }
         }
     }
@@ -84,7 +112,11 @@ fn rust_emits_and_shell_listens_agree() {
     collect(&root.join("crates"), &["rs"], &mut rust);
     let mut shell = Vec::new();
     collect(&root.join("apps/shell/src"), &["ts", "tsx"], &mut shell);
-    assert!(!rust.is_empty() && !shell.is_empty(), "source scan found no files (root: {})", root.display());
+    assert!(
+        !rust.is_empty() && !shell.is_empty(),
+        "source scan found no files (root: {})",
+        root.display()
+    );
 
     let emits = events_in(&rust, &[".emit(", ".emit_to(", ".emit_filter("]);
     let listens = events_in(&shell, &["listen(", "listen<"]);
@@ -93,10 +125,16 @@ fn rust_emits_and_shell_listens_agree() {
     let allow_listen: BTreeSet<String> = LISTEN_ONLY_ALLOW.iter().map(|s| s.to_string()).collect();
 
     // Emitted but nothing listens (minus the allowlist) → dead emit.
-    let emit_only: Vec<&String> = emits.difference(&listens).filter(|e| !allow_emit.contains(*e)).collect();
+    let emit_only: Vec<&String> = emits
+        .difference(&listens)
+        .filter(|e| !allow_emit.contains(*e))
+        .collect();
     // Listened but nothing emits (minus the allowlist) → dead listener: the
     // handler silently never fires.
-    let listen_only: Vec<&String> = listens.difference(&emits).filter(|e| !allow_listen.contains(*e)).collect();
+    let listen_only: Vec<&String> = listens
+        .difference(&emits)
+        .filter(|e| !allow_listen.contains(*e))
+        .collect();
 
     assert!(
         emit_only.is_empty() && listen_only.is_empty(),

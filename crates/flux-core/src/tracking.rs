@@ -16,7 +16,9 @@ pub struct TrackingState {
 
 impl Default for TrackingState {
     fn default() -> Self {
-        Self { level: AtomicI32::new(2) } // Balanced
+        Self {
+            level: AtomicI32::new(2),
+        } // Balanced
     }
 }
 
@@ -31,7 +33,10 @@ impl TrackingState {
 
 /// Apply the current level to a freshly-created tab webview (profile-wide).
 pub fn install(app: &AppHandle, webview: &Webview) {
-    let level = app.try_state::<TrackingState>().map(|s| s.level()).unwrap_or(2);
+    let level = app
+        .try_state::<TrackingState>()
+        .map(|s| s.level())
+        .unwrap_or(2);
     apply(webview.clone(), level);
 }
 

@@ -156,7 +156,10 @@ pub struct KbStore {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn snippet(text: &str, n: usize) -> String {
@@ -184,7 +187,10 @@ impl Default for KbStore {
 
 impl KbStore {
     pub fn empty(path: PathBuf) -> Self {
-        KbStore { path: Some(path), ..Default::default() }
+        KbStore {
+            path: Some(path),
+            ..Default::default()
+        }
     }
 
     /// Load the persisted index from disk (idempotent).
@@ -231,7 +237,11 @@ impl KbStore {
                 }
             })
             .collect();
-        KbStatus { sources, embedder: embedder_name(d.embedder).to_string(), indexing: self.indexing.load(Ordering::Acquire) }
+        KbStatus {
+            sources,
+            embedder: embedder_name(d.embedder).to_string(),
+            indexing: self.indexing.load(Ordering::Acquire),
+        }
     }
 
     /// Documents indexed within the last `days`, newest first (for the weekly
@@ -239,7 +249,11 @@ impl KbStore {
     pub fn recent(&self, days: u64, cap: usize) -> Vec<KbRecentItem> {
         let d = self.data.read();
         let cutoff = now_ms().saturating_sub(days.saturating_mul(86_400_000));
-        let mut docs: Vec<&KbDoc> = d.docs.iter().filter(|x| x.indexed_at > 0 && x.indexed_at >= cutoff).collect();
+        let mut docs: Vec<&KbDoc> = d
+            .docs
+            .iter()
+            .filter(|x| x.indexed_at > 0 && x.indexed_at >= cutoff)
+            .collect();
         docs.sort_by(|a, b| b.indexed_at.cmp(&a.indexed_at));
         docs.truncate(cap);
         docs.into_iter()
@@ -304,8 +318,10 @@ impl KbStore {
         let changed = {
             let mut d = self.data.write();
             let (nd, nc) = (d.docs.len(), d.chunks.len());
-            d.docs.retain(|x| !(x.source == source && ids.contains(x.doc_id.as_str())));
-            d.chunks.retain(|x| !(x.source == source && ids.contains(x.doc_id.as_str())));
+            d.docs
+                .retain(|x| !(x.source == source && ids.contains(x.doc_id.as_str())));
+            d.chunks
+                .retain(|x| !(x.source == source && ids.contains(x.doc_id.as_str())));
             d.docs.len() != nd || d.chunks.len() != nc
         };
         if changed {
@@ -319,7 +335,11 @@ impl KbStore {
     /// source — supplied by the caller (from the Trail store) since it's an
     /// in-process corpus, not a file/HTTP connector. Empty means "no snapshots
     /// yet" (the web source legitimately indexes to 0 docs).
-    pub fn reindex(&self, source: Option<String>, web: Vec<crate::trace::WebDoc>) -> Result<KbStatus, String> {
+    pub fn reindex(
+        &self,
+        source: Option<String>,
+        web: Vec<crate::trace::WebDoc>,
+    ) -> Result<KbStatus, String> {
         self.hydrate();
         if self.indexing.swap(true, Ordering::AcqRel) {
             return Err("an index build is already running".into());
@@ -329,7 +349,11 @@ impl KbStore {
         result.map(|_| self.status())
     }
 
-    fn reindex_inner(&self, source: Option<String>, web: Vec<crate::trace::WebDoc>) -> Result<(), String> {
+    fn reindex_inner(
+        &self,
+        source: Option<String>,
+        web: Vec<crate::trace::WebDoc>,
+    ) -> Result<(), String> {
         let targets: Vec<&str> = match &source {
             Some(s) => {
                 if !SOURCES.contains(&s.as_str()) {
@@ -392,13 +416,23 @@ impl KbStore {
         Ok(())
     }
 
-    fn reindex_source(&self, src: &str, embedder: Embedder, raw: Vec<RawDoc>) -> Result<(), String> {
+    fn reindex_source(
+        &self,
+        src: &str,
+        embedder: Embedder,
+        raw: Vec<RawDoc>,
+    ) -> Result<(), String> {
         // Which docs are unchanged (same mtime) → keep; which are new/changed → rebuild.
         let existing: HashMap<String, u64> = {
             let d = self.data.read();
-            d.docs.iter().filter(|x| x.source == src).map(|x| (x.doc_id.clone(), x.mtime)).collect()
+            d.docs
+                .iter()
+                .filter(|x| x.source == src)
+                .map(|x| (x.doc_id.clone(), x.mtime))
+                .collect()
         };
-        let present: std::collections::HashSet<String> = raw.iter().map(|r| r.doc_id.clone()).collect();
+        let present: std::collections::HashSet<String> =
+            raw.iter().map(|r| r.doc_id.clone()).collect();
 
         let mut new_docs: Vec<KbDoc> = Vec::new();
         let mut new_chunks: Vec<KbChunk> = Vec::new();
@@ -447,7 +481,8 @@ impl KbStore {
         // Merge: drop this source's docs/chunks that were rebuilt or removed, keep
         // the unchanged ones, then append the freshly built set.
         let mut d = self.data.write();
-        let rebuilt: std::collections::HashSet<String> = new_docs.iter().map(|x| x.doc_id.clone()).collect();
+        let rebuilt: std::collections::HashSet<String> =
+            new_docs.iter().map(|x| x.doc_id.clone()).collect();
         d.docs.retain(|x| {
             x.source != src || (present.contains(&x.doc_id) && !rebuilt.contains(&x.doc_id))
         });
@@ -460,7 +495,12 @@ impl KbStore {
     }
 
     /// Cosine top-`k` over the corpus (optionally restricted to `sources`).
-    pub fn query(&self, query: &str, k: usize, sources: Option<Vec<String>>) -> Result<Vec<KbHit>, String> {
+    pub fn query(
+        &self,
+        query: &str,
+        k: usize,
+        sources: Option<Vec<String>>,
+    ) -> Result<Vec<KbHit>, String> {
         self.hydrate();
         let embedder = self.data.read().embedder;
         let qv = embedding::embed_with(query, embedder).ok_or("embedding model unavailable")?;
@@ -469,7 +509,11 @@ impl KbStore {
         let mut scored: Vec<(f32, &KbChunk)> = d
             .chunks
             .iter()
-            .filter(|c| allow.map(|a| a.iter().any(|s| s == &c.source)).unwrap_or(true))
+            .filter(|c| {
+                allow
+                    .map(|a| a.iter().any(|s| s == &c.source))
+                    .unwrap_or(true)
+            })
             .map(|c| (embedding::cosine(&qv, &c.embedding), c))
             .filter(|(s, _)| *s > 0.0)
             .collect();
@@ -561,7 +605,9 @@ fn onyx_vault(location: Option<&str>) -> Option<PathBuf> {
             }
         }
     }
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
     let cfg = Path::new(&home).join(".config/onyx/config.toml");
     if let Ok(s) = std::fs::read_to_string(&cfg) {
         for line in s.lines() {
@@ -588,12 +634,18 @@ fn is_dir(p: &Path) -> bool {
 
 /// Read all `*.md` notes under the Onyx vault (skipping the `.onyx/` app dir).
 fn collect_onyx(location: Option<&str>) -> Result<Vec<RawDoc>, String> {
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
     let set = location
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string)
-        .or_else(|| std::env::var("FLUX_ONYX_VAULT").ok().filter(|v| !v.trim().is_empty()));
+        .or_else(|| {
+            std::env::var("FLUX_ONYX_VAULT")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+        });
     let root = onyx_vault(location).ok_or_else(|| match set {
         // Set but unusable — the most actionable case (wrong path, or WSL not running).
         Some(v) => format!(
@@ -613,7 +665,9 @@ and {home}/OnyxVault)."
 }
 
 fn walk_md(root: &Path, dir: &Path, out: &mut Vec<RawDoc>) {
-    let Ok(read) = std::fs::read_dir(dir) else { return };
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return;
+    };
     for ent in read.flatten() {
         let path = ent.path();
         let name = ent.file_name().to_string_lossy().into_owned();
@@ -624,7 +678,9 @@ fn walk_md(root: &Path, dir: &Path, out: &mut Vec<RawDoc>) {
         if ft.map(|t| t.is_dir()).unwrap_or(false) {
             walk_md(root, &path, out);
         } else if name.to_ascii_lowercase().ends_with(".md") {
-            let Ok(body) = std::fs::read_to_string(&path) else { continue };
+            let Ok(body) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             let mtime = ent
                 .metadata()
                 .ok()
@@ -632,9 +688,19 @@ fn walk_md(root: &Path, dir: &Path, out: &mut Vec<RawDoc>) {
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            let doc_id = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().into_owned();
+            let doc_id = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .into_owned();
             let title = note_title(&body, &name);
-            out.push(RawDoc { doc_id, title, path: path.to_string_lossy().into_owned(), mtime, body });
+            out.push(RawDoc {
+                doc_id,
+                title,
+                path: path.to_string_lossy().into_owned(),
+                mtime,
+                body,
+            });
         }
     }
 }
@@ -654,7 +720,11 @@ fn note_title(body: &str, filename: &str) -> String {
             }
         }
     }
-    filename.strip_suffix(".md").or_else(|| filename.strip_suffix(".MD")).unwrap_or(filename).to_string()
+    filename
+        .strip_suffix(".md")
+        .or_else(|| filename.strip_suffix(".MD"))
+        .unwrap_or(filename)
+        .to_string()
 }
 
 /// First matching `key: value` in a leading YAML frontmatter block (capped length).
@@ -690,7 +760,9 @@ fn council_dir(location: Option<&str>) -> Option<PathBuf> {
             }
         }
     }
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
     let def = Path::new(&home).join("Research/debates");
     is_dir(&def).then_some(def)
 }
@@ -721,7 +793,11 @@ fn scroll_base(location: Option<&str>) -> String {
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string)
-        .or_else(|| std::env::var("FLUX_SCROLL_URL").ok().filter(|v| !v.trim().is_empty()))
+        .or_else(|| {
+            std::env::var("FLUX_SCROLL_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+        })
         .unwrap_or_else(|| "http://localhost:3131".into())
         .trim_end_matches('/')
         .to_string()
@@ -732,7 +808,9 @@ fn collect_scroll(location: Option<&str>) -> Result<Vec<RawDoc>, String> {
     let resp = ureq::get(&url)
         .timeout(Duration::from_secs(30))
         .call()
-        .map_err(|e| format!("Scroll not reachable at {url} (run `scroll serve` or open the app): {e}"))?;
+        .map_err(|e| {
+            format!("Scroll not reachable at {url} (run `scroll serve` or open the app): {e}")
+        })?;
     // `into_string()` caps at 10 MB; Scroll returns the full text of every article
     // (incl. large PDFs), so read via the reader with a generous cap instead.
     const MAX_BODY: u64 = 256 * 1024 * 1024;
@@ -760,24 +838,45 @@ fn parse_scroll(body: &str) -> Result<Vec<RawDoc>, String> {
         if id.is_empty() {
             continue;
         }
-        let title = a.get("title").and_then(|x| x.as_str()).unwrap_or("Untitled").to_string();
-        let path = a.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let title = a
+            .get("title")
+            .and_then(|x| x.as_str())
+            .unwrap_or("Untitled")
+            .to_string();
+        let path = a
+            .get("url")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         // mtime only needs to *change* when the article changes (used for equality,
         // not ordering) → a stable hash of updated_at is enough for incremental.
         let updated = a.get("updated_at").and_then(|x| x.as_str()).unwrap_or("");
         let mtime = djb2(updated);
         let summary = a.get("ai_summary").and_then(|x| x.as_str()).unwrap_or("");
-        let content = a.get("content_markdown").and_then(|x| x.as_str()).unwrap_or("");
+        let content = a
+            .get("content_markdown")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
         // Some Scroll PDFs store escaped binary in content_markdown — useless to
         // embed and it pollutes retrieval. Keep the summary (if any) and drop the body.
         let content = if looks_binary(content) { "" } else { content };
         // Cap pathological-but-textual bodies.
         let content: String = content.chars().take(200_000).collect();
-        let body = if summary.is_empty() { content } else { format!("{summary}\n\n{content}") };
+        let body = if summary.is_empty() {
+            content
+        } else {
+            format!("{summary}\n\n{content}")
+        };
         if body.trim().is_empty() {
             continue;
         }
-        out.push(RawDoc { doc_id: id.to_string(), title, path, mtime, body });
+        out.push(RawDoc {
+            doc_id: id.to_string(),
+            title,
+            path,
+            mtime,
+            body,
+        });
     }
     Ok(out)
 }
@@ -822,7 +921,10 @@ pub async fn kb_status(kb: State<'_, KbStore>) -> Result<KbStatus, String> {
 /// Documents added to the KB within the last `days` (default 7) — the weekly
 /// research digest's raw material (#125).
 #[tauri::command]
-pub async fn kb_recent(kb: State<'_, KbStore>, days: Option<u64>) -> Result<Vec<KbRecentItem>, String> {
+pub async fn kb_recent(
+    kb: State<'_, KbStore>,
+    days: Option<u64>,
+) -> Result<Vec<KbRecentItem>, String> {
     let kb = (*kb).clone();
     tauri::async_runtime::spawn_blocking(move || {
         kb.hydrate();
@@ -843,14 +945,20 @@ pub async fn kb_reindex(
     // state) and hand them to the KB, which chunks + embeds + cites them like any
     // other source (ADR 0011 step b).
     let web = snaps.web_docs();
-    tauri::async_runtime::spawn_blocking(move || kb.reindex(source, web)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || kb.reindex(source, web))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Set a source's location (Onyx vault path / Scroll URL) — the robust, env-free
 /// way to point Flux at a vault that lives elsewhere (e.g. a WSL UNC path from a
 /// Windows build). Empty clears it.
 #[tauri::command]
-pub async fn kb_set_source(kb: State<'_, KbStore>, source: String, location: String) -> Result<KbStatus, String> {
+pub async fn kb_set_source(
+    kb: State<'_, KbStore>,
+    source: String,
+    location: String,
+) -> Result<KbStatus, String> {
     if !SOURCES.contains(&source.as_str()) {
         return Err(format!("unknown source: {source}"));
     }
@@ -864,9 +972,16 @@ pub async fn kb_set_source(kb: State<'_, KbStore>, source: String, location: Str
 }
 
 #[tauri::command]
-pub async fn kb_query(kb: State<'_, KbStore>, query: String, k: Option<usize>, sources: Option<Vec<String>>) -> Result<Vec<KbHit>, String> {
+pub async fn kb_query(
+    kb: State<'_, KbStore>,
+    query: String,
+    k: Option<usize>,
+    sources: Option<Vec<String>>,
+) -> Result<Vec<KbHit>, String> {
     let kb = (*kb).clone();
-    tauri::async_runtime::spawn_blocking(move || kb.query(&query, k.unwrap_or(8), sources)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || kb.query(&query, k.unwrap_or(8), sources))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Ambient "connects to your knowledge" (#123): items from the KB related to the
@@ -880,8 +995,12 @@ pub async fn kb_related(
     limit: Option<usize>,
 ) -> Result<Vec<KbHit>, String> {
     // Pull the page text out before the blocking task (Arc-cheap, like agent_chat).
-    let text = state.active_snapshot().map(|s| std::sync::Arc::clone(&s.text));
-    let Some(text) = text else { return Ok(Vec::new()) };
+    let text = state
+        .active_snapshot()
+        .map(|s| std::sync::Arc::clone(&s.text));
+    let Some(text) = text else {
+        return Ok(Vec::new());
+    };
     let query: String = text.chars().take(2400).collect();
     if query.trim().chars().count() < 40 {
         return Ok(Vec::new()); // too little context to match meaningfully
@@ -961,7 +1080,11 @@ pub async fn kb_check(kb: State<'_, KbStore>, text: String) -> Result<KbCheck, S
     let kb = (*kb).clone();
     let query: String = text.chars().take(2000).collect();
     tauri::async_runtime::spawn_blocking(move || {
-        let related: Vec<KbHit> = kb.query(&query, 5, None)?.into_iter().filter(|h| h.score >= 50).collect();
+        let related: Vec<KbHit> = kb
+            .query(&query, 5, None)?
+            .into_iter()
+            .filter(|h| h.score >= 50)
+            .collect();
         if related.is_empty() {
             return Ok(KbCheck {
                 verdict: "novel".into(),
@@ -971,7 +1094,13 @@ pub async fn kb_check(kb: State<'_, KbStore>, text: String) -> Result<KbCheck, S
         }
         let mut ctx = String::new();
         for (i, h) in related.iter().enumerate() {
-            ctx.push_str(&format!("[{}] {} — {}\n{}\n\n", i + 1, h.title, h.source, snippet(&h.snippet, 500)));
+            ctx.push_str(&format!(
+                "[{}] {} — {}\n{}\n\n",
+                i + 1,
+                h.title,
+                h.source,
+                snippet(&h.snippet, 500)
+            ));
         }
         let prompt = format!(
             "I just saved this note to my knowledge base:\n\n{query}\n\nHere are the most related \
@@ -979,7 +1108,9 @@ existing notes:\n\n{ctx}\nReply with EXACTLY one word on the first line — CONT
 ADDS, or UNRELATED — then on the next line a single concise sentence explaining, referencing the \
 related notes as [n]."
         );
-        let raw = crate::agent_bridge::planner().chat(&prompt, None).map_err(|e| e.to_string())?;
+        let raw = crate::agent_bridge::planner()
+            .chat(&prompt, None)
+            .map_err(|e| e.to_string())?;
         let raw = raw.trim();
         let first = raw.lines().next().unwrap_or("").trim().to_ascii_lowercase();
         let verdict = if first.contains("contradict") {
@@ -992,8 +1123,17 @@ related notes as [n]."
             "none"
         };
         // The explanation is everything after the verdict word/line.
-        let note = raw.splitn(2, '\n').nth(1).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| raw.to_string());
-        Ok(KbCheck { verdict: verdict.into(), note, related })
+        let note = raw
+            .splitn(2, '\n')
+            .nth(1)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| raw.to_string());
+        Ok(KbCheck {
+            verdict: verdict.into(),
+            note,
+            related,
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1003,7 +1143,13 @@ related notes as [n]."
 fn build_prompt(query: &str, hits: &[KbHit]) -> String {
     let mut ctx = String::new();
     for (i, h) in hits.iter().enumerate() {
-        ctx.push_str(&format!("[{}] {} — {}\n{}\n\n", i + 1, h.title, h.source, snippet(&h.snippet, 600)));
+        ctx.push_str(&format!(
+            "[{}] {} — {}\n{}\n\n",
+            i + 1,
+            h.title,
+            h.source,
+            snippet(&h.snippet, 600)
+        ));
     }
     format!(
         "You are the user's research co-scientist. Answer the question using ONLY the numbered \
@@ -1019,7 +1165,11 @@ Sources:\n{ctx}\nQuestion: {query}\n\nGrounded answer (with [n] citations):"
 /// `/clip` form Scroll already serves, so Scroll does the scraping/storing.
 /// `tags` is a comma-separated list (optional).
 #[tauri::command]
-pub async fn scroll_clip(kb: State<'_, KbStore>, url: String, tags: Option<String>) -> Result<String, String> {
+pub async fn scroll_clip(
+    kb: State<'_, KbStore>,
+    url: String,
+    tags: Option<String>,
+) -> Result<String, String> {
     let url = url.trim().to_string();
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(format!("'{url}' isn't a web URL"));
@@ -1035,7 +1185,9 @@ pub async fn scroll_clip(kb: State<'_, KbStore>, url: String, tags: Option<Strin
         ureq::post(&endpoint)
             .timeout(Duration::from_secs(40)) // Scroll scrapes the page synchronously
             .send_form(&form)
-            .map_err(|e| format!("Scroll clip failed at {endpoint} (is `scroll serve` running?): {e}"))?;
+            .map_err(|e| {
+                format!("Scroll clip failed at {endpoint} (is `scroll serve` running?): {e}")
+            })?;
         Ok(format!("Clipped to Scroll: {url}"))
     })
     .await
@@ -1045,17 +1197,28 @@ pub async fn scroll_clip(kb: State<'_, KbStore>, url: String, tags: Option<Strin
 /// Create a new Markdown note in the Onyx vault (the agent's "save this to Onyx").
 /// Returns the written path. Never overwrites — disambiguates with a numeric suffix.
 #[tauri::command]
-pub async fn onyx_new_note(kb: State<'_, KbStore>, title: String, content: String, folder: Option<String>) -> Result<String, String> {
+pub async fn onyx_new_note(
+    kb: State<'_, KbStore>,
+    title: String,
+    content: String,
+    folder: Option<String>,
+) -> Result<String, String> {
     let location = kb.source_location("onyx");
-    tauri::async_runtime::spawn_blocking(move || write_onyx_note(location.as_deref(), &title, &content, folder.as_deref()))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        write_onyx_note(location.as_deref(), &title, &content, folder.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
-fn write_onyx_note(location: Option<&str>, title: &str, content: &str, folder: Option<&str>) -> Result<String, String> {
-    let root = onyx_vault(location).ok_or_else(|| {
-        "Onyx vault not found — set its path in the Notebook first.".to_string()
-    })?;
+fn write_onyx_note(
+    location: Option<&str>,
+    title: &str,
+    content: &str,
+    folder: Option<&str>,
+) -> Result<String, String> {
+    let root = onyx_vault(location)
+        .ok_or_else(|| "Onyx vault not found — set its path in the Notebook first.".to_string())?;
     let dir = match folder.map(str::trim).filter(|f| !f.is_empty()) {
         Some(f) => root.join(f),
         None => root,
@@ -1083,13 +1246,24 @@ fn sanitize_note_name(title: &str) -> String {
     let first = title.lines().next().unwrap_or("").trim();
     let cleaned: String = first
         .chars()
-        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '-' } else { c })
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '-'
+            } else {
+                c
+            }
+        })
         .collect();
     let cleaned = cleaned.trim_matches(|c: char| c == '.' || c == '-' || c.is_whitespace());
     if cleaned.is_empty() {
         "Untitled note".to_string()
     } else {
-        cleaned.chars().take(80).collect::<String>().trim_end_matches(['-', ' ', '.']).to_string()
+        cleaned
+            .chars()
+            .take(80)
+            .collect::<String>()
+            .trim_end_matches(['-', ' ', '.'])
+            .to_string()
     }
 }
 
@@ -1110,23 +1284,39 @@ mod tests {
     #[test]
     fn long_body_splits_into_multiple_chunks() {
         // ~250 single-word paragraphs → more than one ~200-word chunk.
-        let body = (0..250).map(|i| format!("word{i}")).collect::<Vec<_>>().join("\n\n");
+        let body = (0..250)
+            .map(|i| format!("word{i}"))
+            .collect::<Vec<_>>()
+            .join("\n\n");
         let chunks = chunk_text(&body);
-        assert!(chunks.len() >= 2, "expected multiple chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 2,
+            "expected multiple chunks, got {}",
+            chunks.len()
+        );
     }
 
     #[test]
     fn note_title_prefers_first_heading() {
-        assert_eq!(note_title("---\na: b\n---\n\n# Real Title\nbody", "file.md"), "Real Title");
+        assert_eq!(
+            note_title("---\na: b\n---\n\n# Real Title\nbody", "file.md"),
+            "Real Title"
+        );
         assert_eq!(note_title("no heading here", "My Note.md"), "My Note");
     }
 
     #[test]
     fn note_title_uses_frontmatter_question_for_council_briefs() {
         let brief = "---\nquestion: How does the threshold theorem work?\ngenerated: 2026-06-09\n---\n\n# Synthesis\nbody";
-        assert_eq!(note_title(brief, "2026-06-09-x.md"), "How does the threshold theorem work?");
+        assert_eq!(
+            note_title(brief, "2026-06-09-x.md"),
+            "How does the threshold theorem work?"
+        );
         // `title:` also wins over a heading.
-        assert_eq!(note_title("---\ntitle: My Title\n---\n\n# Heading\n", "f.md"), "My Title");
+        assert_eq!(
+            note_title("---\ntitle: My Title\n---\n\n# Heading\n", "f.md"),
+            "My Title"
+        );
     }
 
     #[test]
@@ -1137,8 +1327,13 @@ mod tests {
         let vault = dir.to_string_lossy().into_owned();
 
         let p1 = write_onyx_note(Some(&vault), "My Idea: a/b?", "first body", None).unwrap();
-        assert!(p1.ends_with("My Idea- a-b.md"), "illegal chars sanitized: {p1}");
-        assert!(std::fs::read_to_string(&p1).unwrap().starts_with("# My Idea"));
+        assert!(
+            p1.ends_with("My Idea- a-b.md"),
+            "illegal chars sanitized: {p1}"
+        );
+        assert!(std::fs::read_to_string(&p1)
+            .unwrap()
+            .starts_with("# My Idea"));
         // Same title again → disambiguated, original kept.
         let p2 = write_onyx_note(Some(&vault), "My Idea: a/b?", "second body", None).unwrap();
         assert_ne!(p1, p2);
@@ -1160,7 +1355,10 @@ mod tests {
         let docs = parse_scroll(bare).unwrap();
         assert_eq!(docs.len(), 1, "empty-body + missing-id rows are skipped");
         assert_eq!(docs[0].doc_id, "a1");
-        assert!(docs[0].body.starts_with("a primer"), "ai_summary is prepended");
+        assert!(
+            docs[0].body.starts_with("a primer"),
+            "ai_summary is prepended"
+        );
         assert_eq!(docs[0].path, "https://x/1");
 
         // Wrapped shape: {"articles":[…]}
@@ -1170,12 +1368,21 @@ mod tests {
         // A binary/PDF-blob body is dropped, but a summary keeps the article.
         // ` ` in the JSON source decodes to NUL chars (control) → looks_binary.
         let blob = "\\u0000".repeat(500);
-        let with_sum = format!(r#"[{{"id":"c1","title":"PDF","ai_summary":"the gist","content_markdown":"{blob}"}}]"#);
+        let with_sum = format!(
+            r#"[{{"id":"c1","title":"PDF","ai_summary":"the gist","content_markdown":"{blob}"}}]"#
+        );
         let docs = parse_scroll(&with_sum).unwrap();
         assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].body.trim(), "the gist", "binary body dropped, summary kept");
+        assert_eq!(
+            docs[0].body.trim(),
+            "the gist",
+            "binary body dropped, summary kept"
+        );
         let no_sum = format!(r#"[{{"id":"c2","title":"PDF","content_markdown":"{blob}"}}]"#);
-        assert!(parse_scroll(&no_sum).unwrap().is_empty(), "binary body + no summary → skipped");
+        assert!(
+            parse_scroll(&no_sum).unwrap().is_empty(),
+            "binary body + no summary → skipped"
+        );
         assert!(looks_binary(&"\u{0}".repeat(500)) && !looks_binary("plain readable text"));
         // djb2 is stable + sensitive to change (drives incremental skip).
         assert_eq!(djb2("2026-06-01"), djb2("2026-06-01"));
@@ -1191,19 +1398,39 @@ mod tests {
         let store = KbStore::empty(dir.join("kb-index.json"));
 
         let raw = vec![
-            RawDoc { doc_id: "a.md".into(), title: "Rust".into(), path: "/a.md".into(), mtime: 1, body: "memory safety in rust, the borrow checker and lifetimes".into() },
-            RawDoc { doc_id: "b.md".into(), title: "Cooking".into(), path: "/b.md".into(), mtime: 1, body: "tomato basil pasta recipe with garlic and olive oil".into() },
+            RawDoc {
+                doc_id: "a.md".into(),
+                title: "Rust".into(),
+                path: "/a.md".into(),
+                mtime: 1,
+                body: "memory safety in rust, the borrow checker and lifetimes".into(),
+            },
+            RawDoc {
+                doc_id: "b.md".into(),
+                title: "Cooking".into(),
+                path: "/b.md".into(),
+                mtime: 1,
+                body: "tomato basil pasta recipe with garlic and olive oil".into(),
+            },
         ];
         store.reindex_source("onyx", Embedder::Hash, raw).unwrap();
         store.data.write().embedder = Embedder::Hash;
 
-        let hits = store.query("rust ownership and borrowing", 5, None).unwrap();
+        let hits = store
+            .query("rust ownership and borrowing", 5, None)
+            .unwrap();
         assert!(!hits.is_empty());
         assert_eq!(hits[0].title, "Rust", "the rust note should rank first");
 
         // Incremental: same mtime → chunks unchanged (no re-embed needed).
         let before = store.data.read().chunks.len();
-        let same = vec![RawDoc { doc_id: "a.md".into(), title: "Rust".into(), path: "/a.md".into(), mtime: 1, body: "changed but mtime same".into() }];
+        let same = vec![RawDoc {
+            doc_id: "a.md".into(),
+            title: "Rust".into(),
+            path: "/a.md".into(),
+            mtime: 1,
+            body: "changed but mtime same".into(),
+        }];
         store.reindex_source("onyx", Embedder::Hash, same).unwrap();
         // a.md kept (mtime unchanged), b.md removed (absent from this batch).
         assert!(store.data.read().chunks.iter().any(|c| c.doc_id == "a.md"));
@@ -1231,7 +1458,9 @@ mod tests {
         }];
         store.reindex(Some("web".into()), web).unwrap();
 
-        let hits = store.query("cuda memory error", 5, Some(vec!["web".into()])).unwrap();
+        let hits = store
+            .query("cuda memory error", 5, Some(vec!["web".into()]))
+            .unwrap();
         assert!(!hits.is_empty(), "the browsed page should be retrievable");
         assert_eq!(hits[0].source, "web");
         // The citation points back at the page URL so a Notebook chip re-opens it.
@@ -1255,17 +1484,47 @@ mod tests {
         store.data.write().embedder = Embedder::Hash;
 
         let web = vec![
-            crate::trace::WebDoc { doc_id: "1".into(), title: "Keep".into(), url: "https://keep.example/".into(), mtime: 1, body: "a page about rust lifetimes and borrowing".into() },
-            crate::trace::WebDoc { doc_id: "2".into(), title: "Forget".into(), url: "https://forget.example/".into(), mtime: 1, body: "a private page that must vanish from the index".into() },
+            crate::trace::WebDoc {
+                doc_id: "1".into(),
+                title: "Keep".into(),
+                url: "https://keep.example/".into(),
+                mtime: 1,
+                body: "a page about rust lifetimes and borrowing".into(),
+            },
+            crate::trace::WebDoc {
+                doc_id: "2".into(),
+                title: "Forget".into(),
+                url: "https://forget.example/".into(),
+                mtime: 1,
+                body: "a private page that must vanish from the index".into(),
+            },
         ];
         store.reindex(Some("web".into()), web).unwrap();
-        assert_eq!(store.data.read().docs.iter().filter(|d| d.source == "web").count(), 2);
+        assert_eq!(
+            store
+                .data
+                .read()
+                .docs
+                .iter()
+                .filter(|d| d.source == "web")
+                .count(),
+            2
+        );
 
         store.remove_docs("web", &["2".to_string()]);
         let d = store.data.read();
-        assert!(d.docs.iter().any(|x| x.source == "web" && x.doc_id == "1"), "unrelated doc kept");
-        assert!(!d.docs.iter().any(|x| x.doc_id == "2"), "forgotten doc gone");
-        assert!(!d.chunks.iter().any(|x| x.doc_id == "2"), "its chunks gone too");
+        assert!(
+            d.docs.iter().any(|x| x.source == "web" && x.doc_id == "1"),
+            "unrelated doc kept"
+        );
+        assert!(
+            !d.docs.iter().any(|x| x.doc_id == "2"),
+            "forgotten doc gone"
+        );
+        assert!(
+            !d.chunks.iter().any(|x| x.doc_id == "2"),
+            "its chunks gone too"
+        );
         drop(d);
 
         let _ = std::fs::remove_dir_all(&dir);

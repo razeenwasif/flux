@@ -51,7 +51,14 @@ impl std::fmt::Debug for Credential {
             .field("urls", &self.urls)
             .field("username", &self.username)
             .field("password", &"<redacted>")
-            .field("totp", &if self.totp.is_empty() { "" } else { "<redacted>" })
+            .field(
+                "totp",
+                &if self.totp.is_empty() {
+                    ""
+                } else {
+                    "<redacted>"
+                },
+            )
             .finish()
     }
 }
@@ -135,13 +142,21 @@ impl Vault {
 
     /// Credentials whose URLs apply to `host` (autofill candidates).
     pub fn matches(&self, host: &str) -> Vec<&Credential> {
-        self.entries.iter().filter(|c| c.matches_host(host)).collect()
+        self.entries
+            .iter()
+            .filter(|c| c.matches_host(host))
+            .collect()
     }
 
     /// Import a Proton Pass export in whatever format it actually arrives as —
     /// **CSV**, a **ZIP** (JSON/CSV inside), a **PGP-encrypted** blob (decrypted
     /// with `passphrase`), or raw JSON. Detected by magic bytes + filename.
-    pub fn import(&mut self, data: &[u8], filename: &str, passphrase: Option<&str>) -> Result<usize, VaultError> {
+    pub fn import(
+        &mut self,
+        data: &[u8],
+        filename: &str,
+        passphrase: Option<&str>,
+    ) -> Result<usize, VaultError> {
         let lower = filename.to_ascii_lowercase();
 
         // ZIP (PK\x03\x04) — Proton's full export.
@@ -149,13 +164,17 @@ impl Vault {
             return self.import_zip(data);
         }
         // PGP-encrypted export (ASCII-armored or binary).
-        if lower.ends_with(".pgp") || lower.ends_with(".gpg") || data.starts_with(b"-----BEGIN PGP") {
+        if lower.ends_with(".pgp") || lower.ends_with(".gpg") || data.starts_with(b"-----BEGIN PGP")
+        {
             let plain = Zeroizing::new(decrypt_pgp(data, passphrase.unwrap_or(""))?);
             return self.import(&plain, "decrypted", None);
         }
         // Text: JSON vs CSV.
-        let text = std::str::from_utf8(data)
-            .map_err(|_| VaultError::Import("file isn't text — if it's a PGP export, provide the passphrase".into()))?;
+        let text = std::str::from_utf8(data).map_err(|_| {
+            VaultError::Import(
+                "file isn't text — if it's a PGP export, provide the passphrase".into(),
+            )
+        })?;
         let trimmed = text.trim_start();
         if trimmed.starts_with('{') || trimmed.starts_with('[') {
             self.import_json(text)
@@ -233,10 +252,18 @@ impl Vault {
     /// Import a Proton Pass **CSV** export. Maps columns by header name (so order
     /// + extra columns don't matter), skips non-login rows.
     pub fn import_csv(&mut self, data: &str) -> Result<usize, VaultError> {
-        let mut rdr = csv::ReaderBuilder::new().flexible(true).has_headers(true).from_reader(data.as_bytes());
-        let headers = rdr.headers().map_err(|e| VaultError::Import(e.to_string()))?.clone();
+        let mut rdr = csv::ReaderBuilder::new()
+            .flexible(true)
+            .has_headers(true)
+            .from_reader(data.as_bytes());
+        let headers = rdr
+            .headers()
+            .map_err(|e| VaultError::Import(e.to_string()))?
+            .clone();
         let col = |names: &[&str]| -> Option<usize> {
-            headers.iter().position(|h| names.iter().any(|n| h.trim().eq_ignore_ascii_case(n)))
+            headers
+                .iter()
+                .position(|h| names.iter().any(|n| h.trim().eq_ignore_ascii_case(n)))
         };
         // Header aliases span Proton, Chrome (`name,url,username,password,note`),
         // and Bitwarden CSV (`login_uri,login_username,login_password,login_totp`).
@@ -254,7 +281,8 @@ impl Vault {
         let mut n = 0;
         for rec in rdr.records() {
             let rec = rec.map_err(|e| VaultError::Import(e.to_string()))?;
-            let get = |i: Option<usize>| i.and_then(|i| rec.get(i)).unwrap_or("").trim().to_string();
+            let get =
+                |i: Option<usize>| i.and_then(|i| rec.get(i)).unwrap_or("").trim().to_string();
             // If there's a type column, only import logins.
             if let Some(ti) = i_type {
                 let t = rec.get(ti).unwrap_or("").trim().to_ascii_lowercase();
@@ -265,7 +293,11 @@ impl Vault {
             let password = get(i_pass);
             let username = {
                 let u = get(i_user);
-                if u.is_empty() { get(i_email) } else { u }
+                if u.is_empty() {
+                    get(i_email)
+                } else {
+                    u
+                }
             };
             if password.is_empty() && username.is_empty() {
                 continue; // not a login row
@@ -304,20 +336,30 @@ impl Vault {
     /// `.csv` entry and imports it.
     pub fn import_zip(&mut self, data: &[u8]) -> Result<usize, VaultError> {
         use std::io::Read;
-        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(data)).map_err(|e| VaultError::Import(e.to_string()))?;
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(data))
+            .map_err(|e| VaultError::Import(e.to_string()))?;
         let (mut json_idx, mut csv_idx) = (None, None);
         for i in 0..zip.len() {
-            let name = zip.by_index(i).map_err(|e| VaultError::Import(e.to_string()))?.name().to_ascii_lowercase();
+            let name = zip
+                .by_index(i)
+                .map_err(|e| VaultError::Import(e.to_string()))?
+                .name()
+                .to_ascii_lowercase();
             if name.ends_with(".json") && json_idx.is_none() {
                 json_idx = Some(i);
             } else if name.ends_with(".csv") && csv_idx.is_none() {
                 csv_idx = Some(i);
             }
         }
-        let pick = json_idx.or(csv_idx).ok_or_else(|| VaultError::Import("no .json or .csv in the archive".into()))?;
+        let pick = json_idx
+            .or(csv_idx)
+            .ok_or_else(|| VaultError::Import("no .json or .csv in the archive".into()))?;
         let is_json = Some(pick) == json_idx;
         let mut s = String::new();
-        zip.by_index(pick).map_err(|e| VaultError::Import(e.to_string()))?.read_to_string(&mut s).map_err(|e| VaultError::Import(e.to_string()))?;
+        zip.by_index(pick)
+            .map_err(|e| VaultError::Import(e.to_string()))?
+            .read_to_string(&mut s)
+            .map_err(|e| VaultError::Import(e.to_string()))?;
         if is_json {
             self.import_json(&s)
         } else {
@@ -343,7 +385,12 @@ impl Vault {
                 let cred = Credential {
                     id: Credential::stable_id(&item.data.metadata.name, username, first_url),
                     name: item.data.metadata.name.clone(),
-                    urls: c.urls.iter().filter(|u| !u.trim().is_empty()).cloned().collect(),
+                    urls: c
+                        .urls
+                        .iter()
+                        .filter(|u| !u.trim().is_empty())
+                        .cloned()
+                        .collect(),
                     username: username.to_string(),
                     password: c.password.clone(),
                     totp: c.totp_uri.clone(),
@@ -359,7 +406,11 @@ impl Vault {
 }
 
 fn first_nonempty<'a>(candidates: &[&'a String]) -> &'a str {
-    candidates.iter().map(|s| s.as_str()).find(|s| !s.trim().is_empty()).unwrap_or("")
+    candidates
+        .iter()
+        .map(|s| s.as_str())
+        .find(|s| !s.trim().is_empty())
+        .unwrap_or("")
 }
 
 // ─── AES-256-GCM seal / open ─────────────────────────────────────────────────
@@ -391,8 +442,7 @@ const GEN_SYMBOL: &[u8] = b"!@#$%^&*-_=+?";
 /// 62+13-glyph pool).
 pub fn generate_password(len: usize) -> String {
     let len = len.clamp(8, 128);
-    let pool: Vec<u8> =
-        [GEN_LOWER, GEN_UPPER, GEN_DIGIT, GEN_SYMBOL].concat();
+    let pool: Vec<u8> = [GEN_LOWER, GEN_UPPER, GEN_DIGIT, GEN_SYMBOL].concat();
     let mut rng = rand::rngs::OsRng;
 
     let mut out: Vec<u8> = (0..len).map(|_| draw(&mut rng, &pool)).collect();
@@ -450,7 +500,13 @@ const ARGON_M: u32 = 19_456;
 const ARGON_T: u32 = 2;
 const ARGON_P: u32 = 1;
 
-fn derive_kek(password: &str, salt: &[u8], m: u32, t: u32, p: u32) -> Result<Zeroizing<[u8; 32]>, VaultError> {
+fn derive_kek(
+    password: &str,
+    salt: &[u8],
+    m: u32,
+    t: u32,
+    p: u32,
+) -> Result<Zeroizing<[u8; 32]>, VaultError> {
     let params = argon2::Params::new(m, t, p, Some(32)).map_err(|_| VaultError::Crypto)?;
     let argon = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     let mut kek = Zeroizing::new([0u8; 32]);
@@ -465,7 +521,14 @@ pub fn wrap_key(password: &str, data_key: &[u8; 32]) -> Result<KeyWrap, VaultErr
     let salt = random_bytes::<16>();
     let kek = derive_kek(password, &salt, ARGON_M, ARGON_T, ARGON_P)?;
     let wrapped = seal(&kek, data_key)?;
-    Ok(KeyWrap { kdf: "argon2id".into(), salt: salt.to_vec(), m_cost: ARGON_M, t_cost: ARGON_T, p_cost: ARGON_P, wrapped })
+    Ok(KeyWrap {
+        kdf: "argon2id".into(),
+        salt: salt.to_vec(),
+        m_cost: ARGON_M,
+        t_cost: ARGON_T,
+        p_cost: ARGON_P,
+        wrapped,
+    })
 }
 
 /// Recover the data key from a [`KeyWrap`] with the master `password`. A wrong
@@ -514,7 +577,9 @@ fn decrypt_pgp(data: &[u8], passphrase: &str) -> Result<Vec<u8>, VaultError> {
 
     let armored = data.starts_with(b"-----BEGIN PGP");
     let message = if armored {
-        Message::from_armor_single(std::io::Cursor::new(data)).map_err(|e| perr(e.to_string()))?.0
+        Message::from_armor_single(std::io::Cursor::new(data))
+            .map_err(|e| perr(e.to_string()))?
+            .0
     } else {
         Message::from_bytes(std::io::Cursor::new(data)).map_err(|e| perr(e.to_string()))?
     };
@@ -768,7 +833,11 @@ mod tests {
             github.com,https://github.com/login,octocat,p1,\n\
             news.ycombinator.com,https://news.ycombinator.com/,hnuser,p2,my hn\n";
         let mut v = Vault::new();
-        assert_eq!(v.import(csv.as_bytes(), "Chrome Passwords.csv", None).unwrap(), 2);
+        assert_eq!(
+            v.import(csv.as_bytes(), "Chrome Passwords.csv", None)
+                .unwrap(),
+            2
+        );
         let gh = v.entries.iter().find(|c| c.name == "github.com").unwrap();
         assert_eq!(gh.username, "octocat");
         assert_eq!(gh.password, "p1");
@@ -784,7 +853,9 @@ mod tests {
             ,,card,My Visa,,,0,,,,\n\
             ,,login,GitLab,,,0,https://gitlab.com,glab,p2,\n";
         let mut v = Vault::new();
-        let n = v.import(csv.as_bytes(), "bitwarden_export.csv", None).unwrap();
+        let n = v
+            .import(csv.as_bytes(), "bitwarden_export.csv", None)
+            .unwrap();
         assert_eq!(n, 2); // logins only (note + card skipped by the type column)
         let gh = v.entries.iter().find(|c| c.name == "GitHub").unwrap();
         assert_eq!(gh.username, "octocat");
@@ -820,7 +891,7 @@ mod tests {
         assert!(gh.matches_host("github.com"));
         let legacy = v.entries.iter().find(|c| c.name == "Legacy").unwrap();
         assert!(legacy.matches_host("legacy.io")); // older single `uri` shape
-        // Re-import dedupes.
+                                                   // Re-import dedupes.
         v.import(json.as_bytes(), "bitwarden.json", None).unwrap();
         assert_eq!(v.entries.len(), 2);
     }
@@ -828,7 +899,9 @@ mod tests {
     #[test]
     fn import_bitwarden_encrypted_errors_clearly() {
         let json = r#"{ "encrypted": true, "items": [] }"#;
-        let err = Vault::new().import(json.as_bytes(), "bw.json", None).unwrap_err();
+        let err = Vault::new()
+            .import(json.as_bytes(), "bw.json", None)
+            .unwrap_err();
         assert!(matches!(err, VaultError::Import(_)));
         assert!(err.to_string().contains("encrypted"));
     }
@@ -842,7 +915,11 @@ mod tests {
         let mut buf = Vec::new();
         {
             let mut zw = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
-            zw.start_file("Proton Pass/data.json", zip::write::SimpleFileOptions::default()).unwrap();
+            zw.start_file(
+                "Proton Pass/data.json",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
             zw.write_all(json.as_bytes()).unwrap();
             zw.finish().unwrap();
         }
@@ -851,7 +928,15 @@ mod tests {
         assert_eq!(v.import(&buf, "export.zip", None).unwrap(), 1);
         assert_eq!(v.entries[0].username, "zu");
         // CSV vs JSON detected by content.
-        assert_eq!(v.import(b"name,url,username,password,type\nA,https://a.com,u,p,login\n", "x.csv", None).unwrap(), 1);
+        assert_eq!(
+            v.import(
+                b"name,url,username,password,type\nA,https://a.com,u,p,login\n",
+                "x.csv",
+                None
+            )
+            .unwrap(),
+            1
+        );
         assert_eq!(v.import(json.as_bytes(), "x.json", None).unwrap(), 1); // re-imports Zipped (dedup)
         assert!(v.entries.iter().any(|c| c.name == "A"));
     }
@@ -876,20 +961,29 @@ jRQjwtU=\n=+uGW\n-----END PGP MESSAGE-----\n";
         // Wrong password fails (AEAD auth), doesn't return garbage.
         assert!(unwrap_key("wrong password", &w).is_err());
         // Fresh wrap of the same key uses a fresh salt → different blob.
-        assert_ne!(wrap_key("correct horse battery staple", &dk).unwrap().wrapped, w.wrapped);
+        assert_ne!(
+            wrap_key("correct horse battery staple", &dk)
+                .unwrap()
+                .wrapped,
+            w.wrapped
+        );
     }
 
     #[test]
     fn import_pgp_with_passphrase() {
         let mut v = Vault::new();
-        let n = v.import(PGP_FIXTURE.as_bytes(), "export.pgp", Some("test123")).unwrap();
+        let n = v
+            .import(PGP_FIXTURE.as_bytes(), "export.pgp", Some("test123"))
+            .unwrap();
         assert_eq!(n, 1);
         let c = &v.entries[0];
         assert_eq!(c.name, "PgpSite");
         assert_eq!(c.username, "pu");
         assert_eq!(c.password, "pp");
         // Wrong passphrase fails (not a panic).
-        assert!(Vault::new().import(PGP_FIXTURE.as_bytes(), "export.pgp", Some("wrong")).is_err());
+        assert!(Vault::new()
+            .import(PGP_FIXTURE.as_bytes(), "export.pgp", Some("wrong"))
+            .is_err());
     }
 
     #[test]
@@ -908,8 +1002,8 @@ jRQjwtU=\n=+uGW\n-----END PGP MESSAGE-----\n";
     fn generated_password_clamps_and_varies() {
         assert_eq!(generate_password(1).len(), 8); // clamped up
         assert_eq!(generate_password(9999).len(), 128); // clamped down
-        // Two draws colliding at 20 chars ≈ impossible; a collision means the
-        // RNG plumbing is broken.
+                                                        // Two draws colliding at 20 chars ≈ impossible; a collision means the
+                                                        // RNG plumbing is broken.
         assert_ne!(generate_password(20), generate_password(20));
     }
 

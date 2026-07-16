@@ -35,7 +35,10 @@ impl TaskManager {
     pub fn new() -> Self {
         Self {
             sys: Mutex::new(System::new()),
-            net: Mutex::new(NetState { nets: Networks::new_with_refreshed_list(), last: Instant::now() }),
+            net: Mutex::new(NetState {
+                nets: Networks::new_with_refreshed_list(),
+                last: Instant::now(),
+            }),
         }
     }
 }
@@ -109,7 +112,11 @@ impl TaskManager {
         let used = total.saturating_sub(sys.available_memory());
         let swap_total = sys.total_swap();
         let per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
-        let cpu_brand = sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
+        let cpu_brand = sys
+            .cpus()
+            .first()
+            .map(|c| c.brand().trim().to_string())
+            .unwrap_or_default();
         // Network throughput as a real bytes/sec rate (delta since last refresh).
         let (net_rx_bps, net_tx_bps) = {
             let mut net = self.net.lock();
@@ -126,7 +133,11 @@ impl TaskManager {
             cpu_brand,
             mem_used_mb: used / 1_048_576,
             mem_total_mb: total / 1_048_576,
-            mem_pct: if total > 0 { (used.saturating_mul(100) / total) as u32 } else { 0 },
+            mem_pct: if total > 0 {
+                (used.saturating_mul(100) / total) as u32
+            } else {
+                0
+            },
             swap_used_mb: sys.used_swap() / 1_048_576,
             swap_total_mb: swap_total / 1_048_576,
             cores: sys.cpus().len(),
@@ -227,7 +238,9 @@ pub fn tasks_kill(state: State<'_, TaskManager>, pid: u32) -> bool {
 /// / when nvidia-smi isn't on PATH — the UI just hides the GPU panel then.
 #[tauri::command]
 pub async fn gpu_stats() -> Vec<GpuInfo> {
-    tauri::async_runtime::spawn_blocking(query_nvidia).await.unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(query_nvidia)
+        .await
+        .unwrap_or_default()
 }
 
 fn query_nvidia() -> Vec<GpuInfo> {
@@ -284,8 +297,16 @@ mod tests {
             (201, Some(200)),
         ];
         let tree = flux_tree(&pairs, 100);
-        assert!(tree.contains(&100) && tree.contains(&101) && tree.contains(&102) && tree.contains(&103));
-        assert!(!tree.contains(&200) && !tree.contains(&201), "unrelated tree excluded");
+        assert!(
+            tree.contains(&100)
+                && tree.contains(&101)
+                && tree.contains(&102)
+                && tree.contains(&103)
+        );
+        assert!(
+            !tree.contains(&200) && !tree.contains(&201),
+            "unrelated tree excluded"
+        );
     }
 
     #[test]
@@ -303,7 +324,10 @@ mod tests {
         let tm = TaskManager::new();
         let procs = tm.list();
         assert!(!procs.is_empty());
-        let me = procs.iter().find(|p| p.pid == std::process::id()).expect("self present");
+        let me = procs
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .expect("self present");
         assert!(me.current && me.is_flux);
         for w in procs.windows(2) {
             assert!(w[0].mem_mb >= w[1].mem_mb, "sorted by memory desc");

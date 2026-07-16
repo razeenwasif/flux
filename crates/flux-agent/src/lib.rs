@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod compile;
+#[cfg(feature = "llama")]
+pub mod llama;
 pub mod ollama;
 pub mod pac;
 pub mod playbooks;
-#[cfg(feature = "llama")]
-pub mod llama;
 
 pub use ollama::OllamaBackend;
 
@@ -36,7 +36,10 @@ pub enum AgentAction {
     /// "Find the unsubscribe link and click it."
     Click { selector: String, reason: String },
     /// "Extract all pricing data from this table as CSV."
-    ExtractTable { selector: String, format: ExtractFormat },
+    ExtractTable {
+        selector: String,
+        format: ExtractFormat,
+    },
     /// Fill an input (form automation).
     Type { selector: String, text: String },
     /// Scroll an element into view (precursor step for the above).
@@ -95,7 +98,9 @@ impl AgentAction {
     /// signal; the injected click JS enforces the same list against the
     /// element's real rendered label at click time (`compile::to_js`).
     pub fn is_destructive(&self) -> Option<&'static str> {
-        let Self::Click { selector, reason } = self else { return None };
+        let Self::Click { selector, reason } = self else {
+            return None;
+        };
         let hay = format!("{selector} {reason}").to_lowercase();
         DESTRUCTIVE_TERMS.iter().copied().find(|t| hay.contains(*t))
     }
@@ -133,7 +138,11 @@ pub trait Inference: Send + Sync {
     /// output must satisfy: Ollama passes it straight to `/api/generate`'s
     /// `format` (token-level grammar), and the llama path converts it to GBNF.
     /// `None` falls back to free JSON.
-    fn complete(&self, prompt: &str, schema: Option<&serde_json::Value>) -> Result<String, AgentError>;
+    fn complete(
+        &self,
+        prompt: &str,
+        schema: Option<&serde_json::Value>,
+    ) -> Result<String, AgentError>;
 
     /// Plain conversational completion — no structured-output constraint.
     fn chat(&self, prompt: &str) -> Result<String, AgentError>;
@@ -142,7 +151,11 @@ pub trait Inference: Send + Sync {
     /// generated, returning the full text. The default forwards to `chat` and
     /// emits the whole reply as one chunk — so non-streaming backends (mock,
     /// the llama scaffold) keep working transparently.
-    fn chat_stream(&self, prompt: &str, on_token: &mut dyn FnMut(&str)) -> Result<String, AgentError> {
+    fn chat_stream(
+        &self,
+        prompt: &str,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<String, AgentError> {
         let full = self.chat(prompt)?;
         on_token(&full);
         Ok(full)
@@ -251,7 +264,12 @@ impl AgentPlanner {
         Self { backend }
     }
 
-    pub fn plan(&self, user_prompt: &str, page_text: &str, url: &str) -> Result<AgentAction, AgentError> {
+    pub fn plan(
+        &self,
+        user_prompt: &str,
+        page_text: &str,
+        url: &str,
+    ) -> Result<AgentAction, AgentError> {
         // Cap page context: a 12B model's quality degrades long before its
         // window fills, and prompt-eval time is linear in tokens. 6 KB of
         // visible text covers the vast majority of action targets.
@@ -279,7 +297,9 @@ impl AgentPlanner {
         );
 
         // Single-shot plan: no `finish` (there's no multi-step task to conclude).
-        let raw = self.backend.complete(&prompt, Some(&action_schema(false)))?;
+        let raw = self
+            .backend
+            .complete(&prompt, Some(&action_schema(false)))?;
         let action: AgentAction = serde_json::from_str(raw.trim())?;
         policy_check(&action)?;
         tracing::info!(target: "flux::agent", action = %action.describe(), "planned");
@@ -316,7 +336,12 @@ impl AgentPlanner {
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
         let v: serde_json::Value = serde_json::from_str(raw.trim())?;
-        let cmd = v.get("command").and_then(|c| c.as_str()).unwrap_or("").trim().to_string();
+        let cmd = v
+            .get("command")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
         Ok(if cmd.is_empty() { None } else { Some(cmd) })
     }
 
@@ -372,7 +397,11 @@ impl AgentPlanner {
     /// `done` when the goal is met or it's stuck. This is what turns "fix the failing
     /// tests" into run → read the failure → edit → re-run, reacting to each result.
     pub fn plan_next_step(&self, goal: &str, history: &[String]) -> Result<NextStep, AgentError> {
-        let hist = if history.is_empty() { "(nothing done yet)".to_string() } else { history.join("\n\n") };
+        let hist = if history.is_empty() {
+            "(nothing done yet)".to_string()
+        } else {
+            history.join("\n\n")
+        };
         let prompt = format!(
             "You are working toward a GOAL by issuing ONE command at a time and reacting to its \
              result. Commands you can use, one per step:\n\
@@ -406,7 +435,12 @@ impl AgentPlanner {
     /// after the user approves a diff. The model copies exact snippets from the file,
     /// so we don't rely on it regenerating the whole thing (a small model would drop
     /// parts). Empty `edits` (with a reason in `summary`) means "couldn't do it".
-    pub fn plan_edit(&self, path: &str, content: &str, instruction: &str) -> Result<EditPlan, AgentError> {
+    pub fn plan_edit(
+        &self,
+        path: &str,
+        content: &str,
+        instruction: &str,
+    ) -> Result<EditPlan, AgentError> {
         const BUDGET: usize = 24 * 1024;
         let body = truncate_utf8(content, BUDGET);
         let prompt = format!(
@@ -445,7 +479,13 @@ impl AgentPlanner {
     /// met, or `Refuse` if it can't proceed. Re-planning per step (rather than
     /// emitting a fixed N-step plan up front) is what lets a task cross pages:
     /// the selectors for page 2 aren't knowable while still on page 1.
-    pub fn plan_step(&self, goal: &str, page_text: &str, history: &[String], url: &str) -> Result<AgentAction, AgentError> {
+    pub fn plan_step(
+        &self,
+        goal: &str,
+        page_text: &str,
+        history: &[String],
+        url: &str,
+    ) -> Result<AgentAction, AgentError> {
         let prompt = Self::step_prompt(goal, page_text, history, url);
         // Multi-step: `finish` is allowed so the loop can declare the goal met.
         let raw = self.backend.complete(&prompt, Some(&action_schema(true)))?;
@@ -465,7 +505,11 @@ impl AgentPlanner {
         let steps = if history.is_empty() {
             "(none yet)".to_string()
         } else {
-            history.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n")
+            history
+                .iter()
+                .map(|s| format!("- {s}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         };
         // Domain harness (empty on generic sites): a followed recipe beats a
         // small model's recall for surfaces like the Power Platform maker portal.
@@ -527,7 +571,8 @@ impl AgentPlanner {
     /// user can ask *about* the current page (summaries, questions) without the
     /// agent trying to act on it.
     pub fn chat(&self, user_prompt: &str, page_text: Option<&str>) -> Result<String, AgentError> {
-        self.backend.chat(&Self::chat_prompt(user_prompt, page_text))
+        self.backend
+            .chat(&Self::chat_prompt(user_prompt, page_text))
     }
 
     /// Streaming counterpart of [`chat`](Self::chat) (BACKLOG #82) — relays each
@@ -539,7 +584,8 @@ impl AgentPlanner {
         page_text: Option<&str>,
         on_token: &mut dyn FnMut(&str),
     ) -> Result<String, AgentError> {
-        self.backend.chat_stream(&Self::chat_prompt(user_prompt, page_text), on_token)
+        self.backend
+            .chat_stream(&Self::chat_prompt(user_prompt, page_text), on_token)
     }
 
     /// Chat grounded in the text of several open tabs (BACKLOG: chat-with-tabs).
@@ -654,7 +700,11 @@ fn truncate_utf8(s: &str, max: usize) -> &str {
 pub struct MockBackend;
 
 impl Inference for MockBackend {
-    fn complete(&self, prompt: &str, _schema: Option<&serde_json::Value>) -> Result<String, AgentError> {
+    fn complete(
+        &self,
+        prompt: &str,
+        _schema: Option<&serde_json::Value>,
+    ) -> Result<String, AgentError> {
         let p = prompt.to_ascii_lowercase();
         // Multi-step task loop (plan_step): do one step, then finish on the next
         // call (once a step appears under "STEPS DONE:"). Keeps the dev/CI loop
@@ -679,7 +729,10 @@ impl Inference for MockBackend {
 
     fn chat(&self, prompt: &str) -> Result<String, AgentError> {
         let last = prompt.lines().last().unwrap_or(prompt);
-        Ok(format!("(mock agent — no model running) You said: {}", last.trim_start_matches("USER: ")))
+        Ok(format!(
+            "(mock agent — no model running) You said: {}",
+            last.trim_start_matches("USER: ")
+        ))
     }
 }
 
@@ -691,7 +744,11 @@ mod tests {
     fn mock_pipeline_end_to_end() {
         let planner = AgentPlanner::new(Box::new(MockBackend));
         let action = planner
-            .plan("Find the unsubscribe link on this page and click it", "…page text…", "https://news.example.com/")
+            .plan(
+                "Find the unsubscribe link on this page and click it",
+                "…page text…",
+                "https://news.example.com/",
+            )
             .unwrap();
         assert!(matches!(action, AgentAction::Click { .. }));
         let js = action.to_js();
@@ -704,11 +761,18 @@ mod tests {
     fn task_loop_steps_then_finishes() {
         let planner = AgentPlanner::new(Box::new(MockBackend));
         // First call (no history) → a concrete step.
-        let s1 = planner.plan_step("download the report", "…page…", &[], "https://example.com/").unwrap();
+        let s1 = planner
+            .plan_step("download the report", "…page…", &[], "https://example.com/")
+            .unwrap();
         assert!(matches!(s1, AgentAction::Reveal { .. }));
         // Once a step is in the history, the loop terminates with Finish.
         let s2 = planner
-            .plan_step("download the report", "…page…", &[s1.describe()], "https://example.com/")
+            .plan_step(
+                "download the report",
+                "…page…",
+                &[s1.describe()],
+                "https://example.com/",
+            )
             .unwrap();
         assert!(matches!(s2, AgentAction::Finish { .. }));
         // Finish never targets the page.
@@ -730,7 +794,8 @@ mod tests {
             assert_eq!(v["additionalProperties"], false);
         }
         let has_finish = |vs: &[serde_json::Value]| {
-            vs.iter().any(|v| v["properties"]["action"]["const"] == "finish")
+            vs.iter()
+                .any(|v| v["properties"]["action"]["const"] == "finish")
         };
         assert!(!has_finish(plan_variants));
         assert!(has_finish(step_variants));
@@ -754,10 +819,14 @@ mod tests {
     fn step_prompt_injects_playbook_only_on_matching_host() {
         let goal = "add a Compose action to my flow";
         // On a Power Automate host the harness is spliced in with its recipe.
-        let pa = AgentPlanner::step_prompt(goal, "…page…", &[], "https://make.powerautomate.com/flows");
+        let pa =
+            AgentPlanner::step_prompt(goal, "…page…", &[], "https://make.powerautomate.com/flows");
         assert!(pa.contains("DOMAIN PLAYBOOK"));
         assert!(pa.contains("CLOUD FLOW"));
-        assert!(pa.contains("STOP"), "the refuse/hand-back list must reach the model");
+        assert!(
+            pa.contains("STOP"),
+            "the refuse/hand-back list must reach the model"
+        );
         // On a generic host the prompt is unchanged from the pre-harness shape.
         let generic = AgentPlanner::step_prompt(goal, "…page…", &[], "https://example.com/");
         assert!(!generic.contains("DOMAIN PLAYBOOK"));
@@ -795,7 +864,10 @@ mod tests {
         assert_eq!(unsub.is_destructive(), None);
 
         // Read-only actions are never destructive, even with scary text.
-        let read = AgentAction::ExtractTable { selector: "#delete table".into(), format: ExtractFormat::Csv };
+        let read = AgentAction::ExtractTable {
+            selector: "#delete table".into(),
+            format: ExtractFormat::Csv,
+        };
         assert_eq!(read.is_destructive(), None);
     }
 }

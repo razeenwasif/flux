@@ -94,7 +94,9 @@ fn start(s: &Service) -> Result<(), String> {
     }
     // spawn() (not output()/wait) returns immediately; we drop the Child, which
     // does NOT kill it — the server keeps running.
-    cmd.spawn().map(|_| ()).map_err(|e| format!("couldn't start {}: {e}", s.name))
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("couldn't start {}: {e}", s.name))
 }
 
 fn autostart_enabled() -> bool {
@@ -115,7 +117,9 @@ pub fn autostart_down_services() {
     for s in SERVICES {
         if !is_up(s) {
             match start(s) {
-                Ok(()) => tracing::info!(target: "flux::services", service = s.name, "auto-started"),
+                Ok(()) => {
+                    tracing::info!(target: "flux::services", service = s.name, "auto-started")
+                }
                 Err(e) => tracing::warn!(target: "flux::services", service = s.name, "{e}"),
             }
         }
@@ -127,7 +131,11 @@ pub async fn services_status() -> Vec<ServiceStatus> {
     tauri::async_runtime::spawn_blocking(|| {
         SERVICES
             .iter()
-            .map(|s| ServiceStatus { name: s.name.to_string(), label: s.label.to_string(), running: is_up(s) })
+            .map(|s| ServiceStatus {
+                name: s.name.to_string(),
+                label: s.label.to_string(),
+                running: is_up(s),
+            })
             .collect()
     })
     .await
@@ -138,7 +146,10 @@ pub async fn services_status() -> Vec<ServiceStatus> {
 #[tauri::command]
 pub async fn services_start(name: String) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let s = SERVICES.iter().find(|s| s.name == name).ok_or_else(|| format!("unknown service: {name}"))?;
+        let s = SERVICES
+            .iter()
+            .find(|s| s.name == name)
+            .ok_or_else(|| format!("unknown service: {name}"))?;
         if is_up(s) {
             return Ok(false); // already running
         }

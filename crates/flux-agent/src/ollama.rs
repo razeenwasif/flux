@@ -57,7 +57,11 @@ pub fn active_model() -> String {
 /// Switch the agent's model (empty → revert to the env/default).
 pub fn set_model(name: &str) {
     if let Ok(mut g) = MODEL.write() {
-        *g = if name.trim().is_empty() { None } else { Some(name.to_string()) };
+        *g = if name.trim().is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        };
     }
 }
 
@@ -65,13 +69,23 @@ pub fn set_model(name: &str) {
 /// server isn't reachable.
 pub fn list_models() -> Vec<String> {
     let url = format!("{}/api/tags", endpoint());
-    let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(3)).build();
-    let Ok(resp) = agent.get(&url).call() else { return Vec::new() };
-    let Ok(value) = resp.into_json::<serde_json::Value>() else { return Vec::new() };
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(3))
+        .build();
+    let Ok(resp) = agent.get(&url).call() else {
+        return Vec::new();
+    };
+    let Ok(value) = resp.into_json::<serde_json::Value>() else {
+        return Vec::new();
+    };
     value
         .get("models")
         .and_then(|m| m.as_array())
-        .map(|arr| arr.iter().filter_map(|x| x.get("name").and_then(|n| n.as_str()).map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.get("name").and_then(|n| n.as_str()).map(String::from))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -98,7 +112,10 @@ pub fn embed_remote(text: &str) -> Option<Vec<f32>> {
     let value: serde_json::Value = resp.into_json().ok()?;
     // `/api/embed` returns { "embeddings": [[...]] }.
     let arr = value.get("embeddings")?.as_array()?.first()?.as_array()?;
-    let mut v: Vec<f32> = arr.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect();
+    let mut v: Vec<f32> = arr
+        .iter()
+        .filter_map(|x| x.as_f64().map(|f| f as f32))
+        .collect();
     if v.is_empty() {
         return None;
     }
@@ -132,7 +149,11 @@ pub fn embed_remote_batch(texts: &[String]) -> Option<Vec<Vec<f32>>> {
     }
     let mut out = Vec::with_capacity(arr.len());
     for emb in arr {
-        let mut v: Vec<f32> = emb.as_array()?.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect();
+        let mut v: Vec<f32> = emb
+            .as_array()?
+            .iter()
+            .filter_map(|x| x.as_f64().map(|f| f as f32))
+            .collect();
         if v.is_empty() {
             return None;
         }
@@ -186,7 +207,10 @@ fn keep_alive() -> String {
 /// window fills, prompt-eval cost is linear in context, and a smaller window
 /// bounds RAM. `FLUX_OLLAMA_NUM_CTX` (default 4096).
 fn num_ctx() -> u32 {
-    std::env::var("FLUX_OLLAMA_NUM_CTX").ok().and_then(|s| s.parse().ok()).unwrap_or(4096)
+    std::env::var("FLUX_OLLAMA_NUM_CTX")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4096)
 }
 
 /// Output-token cap for free-text chat. A generous **positive** default (2048, up
@@ -196,7 +220,10 @@ fn num_ctx() -> u32 {
 /// `FLUX_OLLAMA_NUM_PREDICT` overrides (e.g. `-1` if your build handles it, or a
 /// smaller cap). Structured (JSON-schema) replies keep a tight 512 — always short.
 fn num_predict() -> i32 {
-    std::env::var("FLUX_OLLAMA_NUM_PREDICT").ok().and_then(|s| s.parse().ok()).unwrap_or(2048)
+    std::env::var("FLUX_OLLAMA_NUM_PREDICT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2048)
 }
 
 /// Extra Ollama `options` merged over the defaults, as a JSON object string in
@@ -207,12 +234,18 @@ fn num_predict() -> i32 {
 /// user turn it on. Invalid/non-object JSON is ignored.
 fn extra_options() -> Option<serde_json::Map<String, serde_json::Value>> {
     let raw = std::env::var("FLUX_OLLAMA_OPTIONS").ok()?;
-    serde_json::from_str::<serde_json::Value>(&raw).ok()?.as_object().cloned()
+    serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()?
+        .as_object()
+        .cloned()
 }
 
 /// Merge `extra` over `base` (extra wins). Pure, so the passthrough is testable
 /// without touching the process environment.
-fn merge_options(mut base: serde_json::Value, extra: Option<serde_json::Map<String, serde_json::Value>>) -> serde_json::Value {
+fn merge_options(
+    mut base: serde_json::Value,
+    extra: Option<serde_json::Map<String, serde_json::Value>>,
+) -> serde_json::Value {
     if let (Some(b), Some(e)) = (base.as_object_mut(), extra) {
         for (k, v) in e {
             b.insert(k, v);
@@ -226,7 +259,12 @@ fn merge_options(mut base: serde_json::Value, extra: Option<serde_json::Map<Stri
 /// temperature; `None` is free-text chat with a warmer one. `stream` toggles
 /// newline-delimited chunked responses. Split out so it's unit-testable without
 /// a live server.
-fn generate_body(model: &str, prompt: &str, format: Option<serde_json::Value>, stream: bool) -> serde_json::Value {
+fn generate_body(
+    model: &str,
+    prompt: &str,
+    format: Option<serde_json::Value>,
+    stream: bool,
+) -> serde_json::Value {
     let structured = format.is_some();
     let options = merge_options(
         serde_json::json!({
@@ -250,7 +288,11 @@ fn generate_body(model: &str, prompt: &str, format: Option<serde_json::Value>, s
 }
 
 impl OllamaBackend {
-    fn generate(&self, prompt: &str, format: Option<serde_json::Value>) -> Result<String, AgentError> {
+    fn generate(
+        &self,
+        prompt: &str,
+        format: Option<serde_json::Value>,
+    ) -> Result<String, AgentError> {
         let url = format!("{}/api/generate", self.endpoint);
         let resp = self
             .agent
@@ -272,7 +314,11 @@ impl OllamaBackend {
     /// Stream a free-text completion: `/api/generate` with `stream:true` returns
     /// newline-delimited JSON objects, each `{ "response": "<chunk>", "done": … }`.
     /// We relay each chunk to `on_token` and accumulate the full text (BACKLOG #82).
-    fn generate_stream(&self, prompt: &str, on_token: &mut dyn FnMut(&str)) -> Result<String, AgentError> {
+    fn generate_stream(
+        &self,
+        prompt: &str,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<String, AgentError> {
         use std::io::BufRead;
         let url = format!("{}/api/generate", self.endpoint);
         let resp = self
@@ -294,7 +340,9 @@ impl OllamaBackend {
                         continue;
                     }
                     // A malformed chunk shouldn't abort a good stream; skip it.
-                    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else { continue };
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+                        continue;
+                    };
                     if let Some(tok) = value.get("response").and_then(|v| v.as_str()) {
                         if !tok.is_empty() {
                             full.push_str(tok);
@@ -313,16 +361,31 @@ impl OllamaBackend {
 }
 
 impl Inference for OllamaBackend {
-    fn complete(&self, prompt: &str, schema: Option<&serde_json::Value>) -> Result<String, AgentError> {
+    fn complete(
+        &self,
+        prompt: &str,
+        schema: Option<&serde_json::Value>,
+    ) -> Result<String, AgentError> {
         // A schema constrains the shape; with none, fall back to free JSON.
-        self.generate(prompt, Some(schema.cloned().unwrap_or_else(|| serde_json::Value::String("json".into()))))
+        self.generate(
+            prompt,
+            Some(
+                schema
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::Value::String("json".into())),
+            ),
+        )
     }
 
     fn chat(&self, prompt: &str) -> Result<String, AgentError> {
         self.generate(prompt, None)
     }
 
-    fn chat_stream(&self, prompt: &str, on_token: &mut dyn FnMut(&str)) -> Result<String, AgentError> {
+    fn chat_stream(
+        &self,
+        prompt: &str,
+        on_token: &mut dyn FnMut(&str),
+    ) -> Result<String, AgentError> {
         self.generate_stream(prompt, on_token)
     }
 }
@@ -340,7 +403,10 @@ mod tests {
         assert_eq!(b["model"], "gemma4:12b-it-qat");
         assert_eq!(b["prompt"], "find the link");
         assert_eq!(b["stream"], false);
-        assert!(b["format"]["oneOf"].is_array(), "format is the action schema, not just \"json\"");
+        assert!(
+            b["format"]["oneOf"].is_array(),
+            "format is the action schema, not just \"json\""
+        );
         assert_eq!(b["options"]["temperature"], 0.1);
         // Latency levers (#102): model kept warm + context capped.
         assert!(b.get("keep_alive").is_some());
@@ -361,7 +427,12 @@ mod tests {
         let chat = generate_body("m", "explain in detail", None, true);
         assert_eq!(chat["options"]["num_predict"], 2048);
         // Structured (JSON-schema) replies stay tightly bounded — they're short.
-        let structured = generate_body("m", "act", Some(serde_json::json!({ "type": "object" })), false);
+        let structured = generate_body(
+            "m",
+            "act",
+            Some(serde_json::json!({ "type": "object" })),
+            false,
+        );
         assert_eq!(structured["options"]["num_predict"], 512);
     }
 

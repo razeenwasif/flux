@@ -47,7 +47,8 @@ pub struct SearchEngine {
 impl SearchEngine {
     /// Build the URL to navigate to for a full search of `query`.
     pub fn search_url(&self, query: &str) -> String {
-        self.search_template.replace("{query}", &percent_encode(query))
+        self.search_template
+            .replace("{query}", &percent_encode(query))
     }
 
     /// Build the suggestions endpoint URL, if this engine defines one.
@@ -135,7 +136,9 @@ impl SearchConfig {
     }
 
     fn engine_by_keyword(&self, kw: &str) -> Option<&SearchEngine> {
-        self.engines.iter().find(|e| e.keyword.as_deref() == Some(kw))
+        self.engines
+            .iter()
+            .find(|e| e.keyword.as_deref() == Some(kw))
     }
 
     /// Resolve omnibox input into a final URL.
@@ -144,7 +147,9 @@ impl SearchConfig {
     pub fn resolve(&self, input: &str) -> Resolution {
         let q = input.trim();
         if q.is_empty() {
-            return Resolution::Navigate { url: "about:blank".into() };
+            return Resolution::Navigate {
+                url: "about:blank".into(),
+            };
         }
 
         // `!g query` or `g query` → force-search `query` with that engine's
@@ -163,11 +168,16 @@ impl SearchConfig {
         }
 
         if looks_like_url(q) {
-            return Resolution::Navigate { url: normalize_url(q) };
+            return Resolution::Navigate {
+                url: normalize_url(q),
+            };
         }
 
         let engine = self.default_engine();
-        Resolution::Search { engine: engine.id.clone(), url: engine.search_url(q) }
+        Resolution::Search {
+            engine: engine.id.clone(),
+            url: engine.search_url(q),
+        }
     }
 }
 
@@ -186,7 +196,11 @@ pub fn looks_like_url(s: &str) -> bool {
     // Host is everything before the first '/'; strip a :port.
     let host = s.split('/').next().unwrap_or(s);
     let host = host.rsplit_once(':').map_or(host, |(h, port)| {
-        if port.chars().all(|c| c.is_ascii_digit()) { h } else { host }
+        if port.chars().all(|c| c.is_ascii_digit()) {
+            h
+        } else {
+            host
+        }
     });
     if host.eq_ignore_ascii_case("localhost") {
         return true;
@@ -196,7 +210,9 @@ pub fn looks_like_url(s: &str) -> bool {
     }
     // domain.tld with an alphabetic TLD ≥ 2 chars, all label chars valid.
     if let Some((domain, tld)) = host.rsplit_once('.') {
-        let valid_chars = host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+        let valid_chars = host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
         let good_tld = tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic());
         if valid_chars && good_tld && !domain.is_empty() {
             return true;
@@ -260,28 +276,47 @@ mod tests {
     fn plain_query_searches_with_default() {
         let r = cfg().resolve("how to write a tauri plugin");
         assert!(matches!(&r, Resolution::Search { engine, .. } if engine == "ddg"));
-        assert_eq!(r.url(), "https://duckduckgo.com/?q=how%20to%20write%20a%20tauri%20plugin");
+        assert_eq!(
+            r.url(),
+            "https://duckduckgo.com/?q=how%20to%20write%20a%20tauri%20plugin"
+        );
     }
 
     #[test]
     fn urls_and_hosts_navigate() {
-        for input in ["rust-lang.org", "https://docs.rs/tauri", "localhost:1420", "192.168.0.1", "github.com/flux/flux"] {
-            assert!(matches!(cfg().resolve(input), Resolution::Navigate { .. }), "{input} should navigate");
+        for input in [
+            "rust-lang.org",
+            "https://docs.rs/tauri",
+            "localhost:1420",
+            "192.168.0.1",
+            "github.com/flux/flux",
+        ] {
+            assert!(
+                matches!(cfg().resolve(input), Resolution::Navigate { .. }),
+                "{input} should navigate"
+            );
         }
     }
 
     #[test]
     fn single_word_and_numbers_search_not_navigate() {
         for input in ["rust", "3.14", "what is 2+2"] {
-            assert!(matches!(cfg().resolve(input), Resolution::Search { .. }), "{input} should search");
+            assert!(
+                matches!(cfg().resolve(input), Resolution::Search { .. }),
+                "{input} should search"
+            );
         }
     }
 
     #[test]
     fn bang_and_keyword_route_to_engine() {
         let c = cfg();
-        assert!(matches!(c.resolve("!g rust traits"), Resolution::Search { engine, .. } if engine == "google"));
-        assert!(matches!(c.resolve("g rust traits"), Resolution::Search { engine, .. } if engine == "google"));
+        assert!(
+            matches!(c.resolve("!g rust traits"), Resolution::Search { engine, .. } if engine == "google")
+        );
+        assert!(
+            matches!(c.resolve("g rust traits"), Resolution::Search { engine, .. } if engine == "google")
+        );
         // A bare keyword with no query is NOT hijacked — `g.co` is a real host.
         assert!(matches!(c.resolve("g.co"), Resolution::Navigate { .. }));
     }

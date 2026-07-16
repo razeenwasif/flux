@@ -67,7 +67,10 @@ pub async fn voice_speak(text: String) -> Result<String, String> {
         });
         let out = child.wait_with_output().map_err(|e| e.to_string())?;
         if !out.status.success() {
-            let err: String = String::from_utf8_lossy(&out.stderr).chars().take(200).collect();
+            let err: String = String::from_utf8_lossy(&out.stderr)
+                .chars()
+                .take(200)
+                .collect();
             return Err(format!("piper failed: {err}"));
         }
         if out.stdout.is_empty() {
@@ -91,7 +94,9 @@ const EL_ACCOUNT: &str = "api-key";
 const EL_API: &str = "https://api.elevenlabs.io/v1";
 
 fn el_http() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout(Duration::from_secs(30)).build()
+    ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(30))
+        .build()
 }
 
 fn el_key() -> Result<String, String> {
@@ -104,21 +109,50 @@ fn el_key() -> Result<String, String> {
 
 fn el_key_label(key: &str) -> String {
     let key = normalize_el_key(key);
-    let suffix: String = key.chars().rev().take(4).collect::<String>().chars().rev().collect();
+    let suffix: String = key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     let prefix: String = key.chars().take(3).collect();
-    format!("stored key len={}, prefix={}, suffix={}", key.len(), prefix, suffix)
+    format!(
+        "stored key len={}, prefix={}, suffix={}",
+        key.len(),
+        prefix,
+        suffix
+    )
 }
 
 fn el_id_label(label: &str, id: &str) -> String {
-    let suffix: String = id.chars().rev().take(4).collect::<String>().chars().rev().collect();
+    let suffix: String = id
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     let prefix: String = id.chars().take(4).collect();
-    format!("{label} len={}, prefix={}, suffix={}", id.len(), prefix, suffix)
+    format!(
+        "{label} len={}, prefix={}, suffix={}",
+        id.len(),
+        prefix,
+        suffix
+    )
 }
 
 fn el_err(action: &str, e: ureq::Error) -> String {
     match e {
         ureq::Error::Status(code, r) => {
-            let body: String = r.into_string().unwrap_or_default().chars().take(300).collect();
+            let body: String = r
+                .into_string()
+                .unwrap_or_default()
+                .chars()
+                .take(300)
+                .collect();
             format!("ElevenLabs {action} failed ({code}): {body}")
         }
         e => format!("ElevenLabs {action} failed: {e}"),
@@ -171,7 +205,9 @@ fn strip_key_invisibles(key: &str) -> String {
 
 fn strip_key_hidden_chars(key: &str) -> String {
     key.chars()
-        .filter(|c| !c.is_control() && !matches!(*c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}'))
+        .filter(|c| {
+            !c.is_control() && !matches!(*c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}')
+        })
         .collect()
 }
 
@@ -190,10 +226,12 @@ fn el_verify_key(key: &str, action: &str) -> Result<String, String> {
 }
 
 fn prefixed_value<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    value
-        .to_ascii_lowercase()
-        .starts_with(prefix)
-        .then(|| value[prefix.len()..].trim().trim_matches(['"', '\'', '`']).trim())
+    value.to_ascii_lowercase().starts_with(prefix).then(|| {
+        value[prefix.len()..]
+            .trim()
+            .trim_matches(['"', '\'', '`'])
+            .trim()
+    })
 }
 
 fn extract_el_key_candidate(input: &str) -> Option<String> {
@@ -238,10 +276,17 @@ fn first_key_token(input: &str) -> Option<String> {
 fn is_plausible_el_key(token: &str) -> bool {
     let lower = token.to_ascii_lowercase();
     token.len() >= 20
-        && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        && token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
         && !matches!(
             lower.as_str(),
-            "authorization" | "bearer" | "elevenlabs_api_key" | "xi_api_key" | "xi-api-key" | "api_key"
+            "authorization"
+                | "bearer"
+                | "elevenlabs_api_key"
+                | "xi_api_key"
+                | "xi-api-key"
+                | "api_key"
         )
 }
 
@@ -256,7 +301,9 @@ pub fn elevenlabs_set_key(key: String) -> Result<(), String> {
     } else {
         let _ = entry.delete_credential();
         entry.set_password(&key).map_err(|e| e.to_string())?;
-        let saved = entry.get_password().map_err(|e| format!("could not read saved ElevenLabs key back from OS keyring: {e}"))?;
+        let saved = entry.get_password().map_err(|e| {
+            format!("could not read saved ElevenLabs key back from OS keyring: {e}")
+        })?;
         let saved = normalize_el_key(&saved);
         if saved != key {
             return Err(format!(
@@ -316,7 +363,10 @@ fn clean_el_path_segment(label: &str, value: &str) -> Result<String, String> {
     if v.is_empty() {
         return Err(format!("missing {label}"));
     }
-    if !v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if !v
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return Err(format!("{label} contains invalid characters"));
     }
     Ok(v.to_string())
@@ -330,7 +380,10 @@ fn el_get_voice(key: &str, voice_id: &str) -> Result<ElVoice, ureq::Error> {
         .into_json()
         .unwrap_or_else(|_| json!({}));
     let name = v.get("name").and_then(|n| n.as_str()).unwrap_or(voice_id);
-    Ok(ElVoice { id: voice_id.to_string(), name: name.to_string() })
+    Ok(ElVoice {
+        id: voice_id.to_string(),
+        name: name.to_string(),
+    })
 }
 
 fn el_find_shared_owner(key: &str, voice_id: &str) -> Result<Option<String>, String> {
@@ -342,7 +395,11 @@ fn el_find_shared_owner(key: &str, voice_id: &str) -> Result<Option<String>, Str
         .call()
         .map_err(|e| el_err("search shared voices", e))?;
     let v: Value = resp.into_json().map_err(|e| e.to_string())?;
-    let list = v.get("voices").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+    let list = v
+        .get("voices")
+        .and_then(|x| x.as_array())
+        .cloned()
+        .unwrap_or_default();
     Ok(list.iter().find_map(|voice| {
         let id = voice.get("voice_id").and_then(|x| x.as_str())?;
         if id != voice_id {
@@ -367,13 +424,20 @@ pub async fn elevenlabs_voices() -> Result<Vec<ElVoice>, String> {
             .call()
             .map_err(|e| el_err("list voices", e))?;
         let v: Value = resp.into_json().map_err(|e| e.to_string())?;
-        let list = v.get("voices").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+        let list = v
+            .get("voices")
+            .and_then(|x| x.as_array())
+            .cloned()
+            .unwrap_or_default();
         Ok(list
             .iter()
             .filter_map(|voice| {
                 let id = voice.get("voice_id").and_then(|x| x.as_str())?;
                 let name = voice.get("name").and_then(|n| n.as_str()).unwrap_or(id);
-                Some(ElVoice { id: id.to_string(), name: name.to_string() })
+                Some(ElVoice {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                })
             })
             .collect())
     })
@@ -433,7 +497,11 @@ pub async fn elevenlabs_import_voice(
 
 /// Synthesize `text` with ElevenLabs; returns base64 MP3 for the webview to play.
 #[tauri::command]
-pub async fn elevenlabs_speak(text: String, voice_id: String, model_id: String) -> Result<String, String> {
+pub async fn elevenlabs_speak(
+    text: String,
+    voice_id: String,
+    model_id: String,
+) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let t = text.trim().to_string();
         if t.is_empty() {
@@ -446,9 +514,17 @@ pub async fn elevenlabs_speak(text: String, voice_id: String, model_id: String) 
         let voice_id = clean_el_path_segment("voice ID", &voice_id)?;
         let key_label = el_key_label(&key);
         let voice_label = el_id_label("voice", &voice_id);
-        el_get_voice(&key, &voice_id)
-            .map_err(|e| format!("{} ({key_label}; {voice_label})", el_err("check voice access", e)))?;
-        let model = if model_id.trim().is_empty() { "eleven_turbo_v2_5" } else { model_id.trim() };
+        el_get_voice(&key, &voice_id).map_err(|e| {
+            format!(
+                "{} ({key_label}; {voice_label})",
+                el_err("check voice access", e)
+            )
+        })?;
+        let model = if model_id.trim().is_empty() {
+            "eleven_turbo_v2_5"
+        } else {
+            model_id.trim()
+        };
         let resp = el_http()
             .post(&format!("{EL_API}/text-to-speech/{voice_id}"))
             .set("xi-api-key", &key)
@@ -460,7 +536,9 @@ pub async fn elevenlabs_speak(text: String, voice_id: String, model_id: String) 
             }))
             .map_err(|e| format!("{} ({key_label}; {voice_label})", el_err("synthesize", e)))?;
         let mut bytes = Vec::new();
-        resp.into_reader().read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+        resp.into_reader()
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
         if bytes.is_empty() {
             return Err("ElevenLabs returned no audio".into());
         }
@@ -486,12 +564,25 @@ mod tests {
 
     #[test]
     fn extracts_key_from_snippets() {
-        assert_eq!(normalize_el_key(&format!(r#"{{"xi-api-key":"{KEY}"}}"#)), KEY);
-        assert_eq!(normalize_el_key(&format!(r#"curl -H "xi-api-key: {KEY}" https://api.elevenlabs.io/v1/voices"#)), KEY);
+        assert_eq!(
+            normalize_el_key(&format!(r#"{{"xi-api-key":"{KEY}"}}"#)),
+            KEY
+        );
+        assert_eq!(
+            normalize_el_key(&format!(
+                r#"curl -H "xi-api-key: {KEY}" https://api.elevenlabs.io/v1/voices"#
+            )),
+            KEY
+        );
     }
 
     #[test]
     fn strips_invisible_key_characters() {
-        assert_eq!(normalize_el_key(&format!("sk_\u{200B}1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJK")), KEY);
+        assert_eq!(
+            normalize_el_key(&format!(
+                "sk_\u{200B}1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJK"
+            )),
+            KEY
+        );
     }
 }

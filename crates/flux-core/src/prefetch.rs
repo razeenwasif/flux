@@ -58,20 +58,26 @@ impl Default for PrefetchModel {
 }
 
 /// A predicted next host worth preconnecting, with the model's confidence (%).
-#[derive(Serialize, Clone, Debug, PartialEq, specta::Type)]pub struct PrefetchHint {
+#[derive(Serialize, Clone, Debug, PartialEq, specta::Type)]
+pub struct PrefetchHint {
     pub host: String,
     pub confidence: u32,
 }
 
 impl PrefetchModel {
     pub fn new() -> Self {
-        Self { inner: RwLock::new(Model::default()), under_pressure: AtomicBool::new(false) }
+        Self {
+            inner: RwLock::new(Model::default()),
+            under_pressure: AtomicBool::new(false),
+        }
     }
 
     /// Record an observed navigation `from → to`. No-op if either URL has no
     /// host or the navigation is same-host (self-loops add no predictive value).
     pub fn record(&self, from_url: &str, to_url: &str) {
-        let (Some(from), Some(to)) = (host_of(from_url), host_of(to_url)) else { return };
+        let (Some(from), Some(to)) = (host_of(from_url), host_of(to_url)) else {
+            return;
+        };
         if from == to {
             return;
         }
@@ -102,9 +108,13 @@ impl PrefetchModel {
         if max == 0 || self.under_pressure.load(Ordering::Relaxed) {
             return Vec::new();
         }
-        let Some(host) = host_of(current_url) else { return Vec::new() };
+        let Some(host) = host_of(current_url) else {
+            return Vec::new();
+        };
         let g = self.inner.read();
-        let Some(edges) = g.edges.get(host) else { return Vec::new() };
+        let Some(edges) = g.edges.get(host) else {
+            return Vec::new();
+        };
         let total: u64 = edges.values().sum();
         if total < MIN_SAMPLES {
             return Vec::new();
@@ -120,7 +130,11 @@ impl PrefetchModel {
             })
             .collect();
         // Highest confidence first; stable tiebreak on host for determinism.
-        ranked.sort_by(|a, b| b.confidence.cmp(&a.confidence).then_with(|| a.host.cmp(&b.host)));
+        ranked.sort_by(|a, b| {
+            b.confidence
+                .cmp(&a.confidence)
+                .then_with(|| a.host.cmp(&b.host))
+        });
         ranked.truncate(max);
         ranked
     }
@@ -147,7 +161,11 @@ pub fn prefetch_record(state: State<'_, PrefetchModel>, from: String, to: String
 /// Rust → chrome: the hosts worth preconnecting next from `url`. The chrome
 /// issues the preconnect (e.g. injects `<link rel=preconnect>`).
 #[tauri::command]
-pub fn prefetch_hints(state: State<'_, PrefetchModel>, url: String, max: usize) -> Vec<PrefetchHint> {
+pub fn prefetch_hints(
+    state: State<'_, PrefetchModel>,
+    url: String,
+    max: usize,
+) -> Vec<PrefetchHint> {
     state.hints(&url, max)
 }
 
@@ -206,7 +224,10 @@ mod tests {
         m.record("https://s.com/x", "https://s.com/y"); // self-loop: ignored
         let hints = m.hints("https://s.com/", 2);
         assert_eq!(hints.len(), 2, "max honored");
-        assert!(!hints.iter().any(|h| h.host == "s.com"), "no self-prediction");
+        assert!(
+            !hints.iter().any(|h| h.host == "s.com"),
+            "no self-prediction"
+        );
     }
 
     #[test]
@@ -215,7 +236,10 @@ mod tests {
         train(&m, "https://news.com/a", "https://cdn.com/x", 9);
         assert!(!m.hints("https://news.com/", 5).is_empty());
         m.set_under_pressure(true);
-        assert!(m.hints("https://news.com/", 5).is_empty(), "no speculation under pressure");
+        assert!(
+            m.hints("https://news.com/", 5).is_empty(),
+            "no speculation under pressure"
+        );
         m.set_under_pressure(false);
         assert!(!m.hints("https://news.com/", 5).is_empty());
     }

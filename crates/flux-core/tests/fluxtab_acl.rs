@@ -37,9 +37,13 @@ fn strip_line_comments(src: &str) -> String {
 /// The quoted command names inside build.rs's fluxtab `.commands(&[ … ])`.
 fn acl_commands(build_rs: &str) -> BTreeSet<String> {
     let src = strip_line_comments(build_rs);
-    let start = src.find(".commands(&[").expect("build.rs: `.commands(&[` not found");
+    let start = src
+        .find(".commands(&[")
+        .expect("build.rs: `.commands(&[` not found");
     let rest = &src[start..];
-    let end = rest.find("])").expect("build.rs: unterminated `.commands(&[ … ])`");
+    let end = rest
+        .find("])")
+        .expect("build.rs: unterminated `.commands(&[ … ])`");
     // Odd-indexed `"`-split segments are the string literals.
     rest[..end]
         .split('"')
@@ -54,12 +58,18 @@ fn acl_commands(build_rs: &str) -> BTreeSet<String> {
 /// `vault_page_info`).
 fn fluxtab_handler_commands(lib_rs: &str) -> BTreeSet<String> {
     let src = strip_line_comments(lib_rs);
-    let anchor = src.find("new(\"fluxtab\")").expect("lib.rs: fluxtab plugin builder not found");
+    let anchor = src
+        .find("new(\"fluxtab\")")
+        .expect("lib.rs: fluxtab plugin builder not found");
     let after = &src[anchor..];
-    let gh = after.find("generate_handler![").expect("lib.rs: fluxtab `generate_handler![` not found");
+    let gh = after
+        .find("generate_handler![")
+        .expect("lib.rs: fluxtab `generate_handler![` not found");
     let body_start = anchor + gh + "generate_handler![".len();
     let body = &src[body_start..];
-    let end = body.find(']').expect("lib.rs: unterminated fluxtab `generate_handler![`");
+    let end = body
+        .find(']')
+        .expect("lib.rs: unterminated fluxtab `generate_handler![`");
     body[..end]
         .split(',')
         .map(str::trim)

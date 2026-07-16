@@ -36,7 +36,10 @@ fn fetch(url: &str) -> FluxResult<String> {
         return Err(FluxError::Http("empty response".into()));
     }
     if buf.len() > MAX_PDF_BYTES {
-        return Err(FluxError::Invalid(format!("PDF too large (> {} MB)", MAX_PDF_BYTES / 1024 / 1024)));
+        return Err(FluxError::Invalid(format!(
+            "PDF too large (> {} MB)",
+            MAX_PDF_BYTES / 1024 / 1024
+        )));
     }
     Ok(base64::engine::general_purpose::STANDARD.encode(&buf))
 }
@@ -46,7 +49,11 @@ fn fetch(url: &str) -> FluxResult<String> {
 /// finished bytes; we just write them, de-duplicating the filename so we never
 /// clobber an existing file. Returns the absolute path written.
 #[tauri::command]
-pub async fn pdf_save(app: tauri::AppHandle, data_b64: String, filename: String) -> Result<String, String> {
+pub async fn pdf_save(
+    app: tauri::AppHandle,
+    data_b64: String,
+    filename: String,
+) -> Result<String, String> {
     use tauri::Manager;
     // Resolve a target directory on the async side (cheap), then write off-thread.
     let dir = app
@@ -78,7 +85,13 @@ fn sanitize(name: &str) -> String {
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     let mut s: String = base
         .chars()
-        .map(|c| if c.is_control() || "<>:\"|?*".contains(c) { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || "<>:\"|?*".contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     s = s.trim().trim_matches('.').to_string();
     if s.is_empty() {
@@ -113,7 +126,9 @@ fn fetch_http(url: &str) -> FluxResult<Vec<u8>> {
         .build();
     let resp = agent.get(url).set("User-Agent", "Mozilla/5.0").call()?;
     let mut buf = Vec::new();
-    resp.into_reader().take((MAX_PDF_BYTES + 1) as u64).read_to_end(&mut buf)?;
+    resp.into_reader()
+        .take((MAX_PDF_BYTES + 1) as u64)
+        .read_to_end(&mut buf)?;
     Ok(buf)
 }
 
@@ -165,9 +180,15 @@ mod tests {
     #[test]
     fn file_url_parsing() {
         assert_eq!(file_url_to_path("file:///home/u/a.pdf"), "/home/u/a.pdf");
-        assert_eq!(file_url_to_path("file://localhost/home/u/a.pdf"), "/home/u/a.pdf");
+        assert_eq!(
+            file_url_to_path("file://localhost/home/u/a.pdf"),
+            "/home/u/a.pdf"
+        );
         assert_eq!(file_url_to_path("file:///C:/docs/a.pdf"), "C:/docs/a.pdf");
-        assert_eq!(file_url_to_path("file:///home/u/my%20file.pdf"), "/home/u/my file.pdf");
+        assert_eq!(
+            file_url_to_path("file:///home/u/my%20file.pdf"),
+            "/home/u/my file.pdf"
+        );
         assert_eq!(file_url_to_path("/plain/path.pdf"), "/plain/path.pdf");
     }
 }

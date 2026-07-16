@@ -58,7 +58,9 @@ impl TrackerStore {
     /// Record one request from `source` (the page) to `url`, and whether it was
     /// blocked. Cheap + lock-light; ignores first-party + non-host requests.
     pub fn record(&self, source: &str, url: &str, blocked: bool) {
-        let (Some(first), Some(third)) = (registrable(source), registrable(url)) else { return };
+        let (Some(first), Some(third)) = (registrable(source), registrable(url)) else {
+            return;
+        };
         if first == third {
             return; // first-party request — not interesting for the tracker graph
         }
@@ -87,7 +89,12 @@ impl TrackerStore {
         for site in self.sites.iter() {
             let first = site.key().clone();
             for (third, c) in site.value().lock().iter() {
-                raw.push(Raw { first: first.clone(), third: third.clone(), requests: c.requests, blocked: c.blocked });
+                raw.push(Raw {
+                    first: first.clone(),
+                    third: third.clone(),
+                    requests: c.requests,
+                    blocked: c.blocked,
+                });
             }
         }
         raw.sort_by(|a, b| b.requests.cmp(&a.requests));
@@ -104,13 +111,23 @@ impl TrackerStore {
             nodes[ti].requests = nodes[ti].requests.saturating_add(r.requests);
             nodes[ti].blocked = nodes[ti].blocked.saturating_add(r.blocked);
             nodes[ti].degree += 1;
-            edges.push(TrackerEdge { source: si, target: ti, requests: r.requests, blocked: r.blocked });
+            edges.push(TrackerEdge {
+                source: si,
+                target: ti,
+                requests: r.requests,
+                blocked: r.blocked,
+            });
         }
         TrackerGraph { nodes, edges }
     }
 }
 
-fn node_idx(id: &str, nodes: &mut Vec<TrackerNode>, idx: &mut HashMap<String, usize>, sites: &HashSet<String>) -> usize {
+fn node_idx(
+    id: &str,
+    nodes: &mut Vec<TrackerNode>,
+    idx: &mut HashMap<String, usize>,
+    sites: &HashSet<String>,
+) -> usize {
     if let Some(&i) = idx.get(id) {
         return i;
     }
@@ -132,7 +149,12 @@ fn node_idx(id: &str, nodes: &mut Vec<TrackerNode>, idx: &mut HashMap<String, us
 fn registrable(url: &str) -> Option<String> {
     let after_scheme = url.split("://").nth(1).unwrap_or(url);
     let authority = after_scheme.split(['/', '?', '#']).next()?;
-    let host = authority.rsplit('@').next()?.split(':').next()?.trim_start_matches("www.");
+    let host = authority
+        .rsplit('@')
+        .next()?
+        .split(':')
+        .next()?
+        .trim_start_matches("www.");
     if host.is_empty() || !host.contains('.') {
         return None;
     }
@@ -163,8 +185,14 @@ mod tests {
 
     #[test]
     fn registrable_collapses_subdomains() {
-        assert_eq!(registrable("https://ssl.google-analytics.com/ga.js").as_deref(), Some("google-analytics.com"));
-        assert_eq!(registrable("https://www.bbc.com/news").as_deref(), Some("bbc.com"));
+        assert_eq!(
+            registrable("https://ssl.google-analytics.com/ga.js").as_deref(),
+            Some("google-analytics.com")
+        );
+        assert_eq!(
+            registrable("https://www.bbc.com/news").as_deref(),
+            Some("bbc.com")
+        );
         assert_eq!(registrable("about:blank"), None);
         assert_eq!(registrable("https://localhost:3000/x"), None);
         assert_eq!(registrable("https://127.0.0.1/x"), None);
@@ -173,17 +201,36 @@ mod tests {
     #[test]
     fn graph_links_sites_to_third_parties() {
         let s = TrackerStore::default();
-        s.record("https://news.com/a", "https://google-analytics.com/ga.js", true);
-        s.record("https://news.com/b", "https://google-analytics.com/ga.js", true);
-        s.record("https://shop.com/x", "https://google-analytics.com/c.js", true);
+        s.record(
+            "https://news.com/a",
+            "https://google-analytics.com/ga.js",
+            true,
+        );
+        s.record(
+            "https://news.com/b",
+            "https://google-analytics.com/ga.js",
+            true,
+        );
+        s.record(
+            "https://shop.com/x",
+            "https://google-analytics.com/c.js",
+            true,
+        );
         s.record("https://news.com/a", "https://news.com/app.js", false); // first-party → ignored
         let g = s.graph();
         // 3 nodes: news.com, shop.com (sites) + google-analytics.com (third hub).
         assert_eq!(g.nodes.len(), 3);
-        let hub = g.nodes.iter().find(|n| n.id == "google-analytics.com").unwrap();
+        let hub = g
+            .nodes
+            .iter()
+            .find(|n| n.id == "google-analytics.com")
+            .unwrap();
         assert_eq!(hub.kind, "third");
         assert_eq!(hub.degree, 2); // contacted by two sites
-        assert!(g.nodes.iter().any(|n| n.id == "news.com" && n.kind == "site"));
+        assert!(g
+            .nodes
+            .iter()
+            .any(|n| n.id == "news.com" && n.kind == "site"));
         assert_eq!(g.edges.len(), 2);
     }
 }

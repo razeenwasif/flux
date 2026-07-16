@@ -91,7 +91,12 @@ pub fn terminal_spawn(
 ) -> Result<(), String> {
     let pty = native_pty_system();
     let pair = pty
-        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| format!("openpty: {e}"))?;
 
     // Build the shell command with the Flux context environment — this is what
@@ -204,8 +209,14 @@ pub fn terminal_spawn(
     // Close our handle to the slave so the PTY reports EOF when the child exits.
     drop(pair.slave);
 
-    let mut reader = pair.master.try_clone_reader().map_err(|e| format!("reader: {e}"))?;
-    let writer = pair.master.take_writer().map_err(|e| format!("writer: {e}"))?;
+    let mut reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("reader: {e}"))?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| format!("writer: {e}"))?;
 
     manager.sessions.lock().insert(
         session,
@@ -265,7 +276,12 @@ pub fn terminal_resize(
     let result = s
         .master
         .lock()
-        .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| e.to_string());
     result
 }

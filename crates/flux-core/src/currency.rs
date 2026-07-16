@@ -42,7 +42,11 @@ fn fetch_rates(base: String) -> FluxResult<CurrencyRates> {
         .build();
     let resp = agent.get(&url).set("User-Agent", "Flux/1.0").call()?;
     let json: Value = resp.into_json()?;
-    let date = json.get("date").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let date = json
+        .get("date")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let mut rates = HashMap::new();
     rates.insert(base.clone(), 1.0);
     if let Some(obj) = json.get("rates").and_then(|v| v.as_object()) {

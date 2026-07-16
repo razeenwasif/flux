@@ -34,7 +34,11 @@ static OVERRIDE_DIR: RwLock<Option<String>> = RwLock::new(None);
 #[tauri::command]
 pub fn spotify_set_dir(path: String) {
     if let Ok(mut g) = OVERRIDE_DIR.write() {
-        *g = if path.trim().is_empty() { None } else { Some(path) };
+        *g = if path.trim().is_empty() {
+            None
+        } else {
+            Some(path)
+        };
     }
 }
 
@@ -46,7 +50,12 @@ pub fn spotify_set_dir(path: String) {
 /// Linux/WSL, and (3) on Windows probe `\\wsl$\<distro>\home\<user>\.config\
 /// audiopulse` so it usually "just works" across the boundary.
 fn ap_config_dir() -> Option<PathBuf> {
-    if let Some(d) = OVERRIDE_DIR.read().ok().and_then(|g| g.clone()).filter(|s| !s.trim().is_empty()) {
+    if let Some(d) = OVERRIDE_DIR
+        .read()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|s| !s.trim().is_empty())
+    {
         return Some(PathBuf::from(d));
     }
     if let Some(d) = std::env::var_os("FLUX_AUDIOPULSE_DIR") {
@@ -70,9 +79,13 @@ fn ap_config_dir() -> Option<PathBuf> {
 #[cfg(windows)]
 fn wsl_probe() -> Option<PathBuf> {
     for root in ["\\\\wsl.localhost", "\\\\wsl$"] {
-        let Ok(distros) = std::fs::read_dir(root) else { continue };
+        let Ok(distros) = std::fs::read_dir(root) else {
+            continue;
+        };
         for distro in distros.flatten() {
-            let Ok(users) = std::fs::read_dir(distro.path().join("home")) else { continue };
+            let Ok(users) = std::fs::read_dir(distro.path().join("home")) else {
+                continue;
+            };
             for user in users.flatten() {
                 let cand = user.path().join(".config").join("audiopulse");
                 if cand.join("token.json").is_file() {
@@ -114,20 +127,30 @@ fn read_creds() -> Result<(String, String, String), String> {
             tpath.display()
         )
     })?;
-    let tok: TokenFile = serde_json::from_str(&raw)
-        .map_err(|e| format!("{} isn't a valid AudioPulse token file: {e}", tpath.display()))?;
+    let tok: TokenFile = serde_json::from_str(&raw).map_err(|e| {
+        format!(
+            "{} isn't a valid AudioPulse token file: {e}",
+            tpath.display()
+        )
+    })?;
     if tok.access_token.is_empty() {
-        return Err("AudioPulse's token.json has no access_token — log in to Spotify in AudioPulse".into());
+        return Err(
+            "AudioPulse's token.json has no access_token — log in to Spotify in AudioPulse".into(),
+        );
     }
     let cfg: ConfigFile = std::fs::read_to_string(dir.join("config.json"))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or(ConfigFile { client_id: String::new() });
+        .unwrap_or(ConfigFile {
+            client_id: String::new(),
+        });
     Ok((tok.access_token, tok.refresh_token, cfg.client_id))
 }
 
 fn http() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout(Duration::from_secs(10)).build()
+    ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(10))
+        .build()
 }
 
 fn current_access() -> Result<String, String> {
@@ -145,7 +168,11 @@ fn refresh() -> Result<String, String> {
     }
     let resp = http()
         .post(TOKEN_URL)
-        .send_form(&[("grant_type", "refresh_token"), ("refresh_token", &rt), ("client_id", &cid)])
+        .send_form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", &rt),
+            ("client_id", &cid),
+        ])
         .map_err(|e| format!("spotify token refresh failed: {e}"))?;
     let v: Value = resp.into_json().map_err(|e| e.to_string())?;
     let at = v
@@ -161,9 +188,18 @@ fn refresh() -> Result<String, String> {
 
 /// One Web API call with a 401-refresh-retry. Returns the JSON body (or `None`
 /// for 204 No Content, which the playback control endpoints return on success).
-fn api(method: &str, path: &str, query: &[(&str, &str)], body: Option<Value>) -> Result<Option<Value>, String> {
+fn api(
+    method: &str,
+    path: &str,
+    query: &[(&str, &str)],
+    body: Option<Value>,
+) -> Result<Option<Value>, String> {
     for attempt in 0..2u8 {
-        let token = if attempt == 0 { current_access()? } else { refresh()? };
+        let token = if attempt == 0 {
+            current_access()?
+        } else {
+            refresh()?
+        };
         let url = format!("{API}{path}");
         let ag = http();
         let mut req = match method {
@@ -198,11 +234,17 @@ fn api(method: &str, path: &str, query: &[(&str, &str)], body: Option<Value>) ->
                 return Err(if started {
                     "no active device yet — I'm starting AudioPulse; give it a few seconds and ask again".into()
                 } else {
-                    "no active Spotify device — start AudioPulse (or open Spotify) and try again".into()
+                    "no active Spotify device — start AudioPulse (or open Spotify) and try again"
+                        .into()
                 });
             }
             Err(ureq::Error::Status(code, r)) => {
-                let msg: String = r.into_string().unwrap_or_default().chars().take(180).collect();
+                let msg: String = r
+                    .into_string()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(180)
+                    .collect();
                 return Err(format!("spotify {code}: {msg}"));
             }
             Err(e) => return Err(format!("spotify request failed: {e}")),
@@ -212,16 +254,29 @@ fn api(method: &str, path: &str, query: &[(&str, &str)], body: Option<Value>) ->
 }
 
 fn search_track(q: &str) -> Result<(String, String, String), String> {
-    let v = api("GET", "/search", &[("q", q), ("type", "track"), ("limit", "1")], None)?
-        .ok_or("empty search response")?;
+    let v = api(
+        "GET",
+        "/search",
+        &[("q", q), ("type", "track"), ("limit", "1")],
+        None,
+    )?
+    .ok_or("empty search response")?;
     let item = v
         .get("tracks")
         .and_then(|t| t.get("items"))
         .and_then(|i| i.as_array())
         .and_then(|a| a.first())
         .ok_or_else(|| format!("no track found for “{q}”"))?;
-    let uri = item.get("uri").and_then(|x| x.as_str()).ok_or("track has no uri")?.to_string();
-    let name = item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let uri = item
+        .get("uri")
+        .and_then(|x| x.as_str())
+        .ok_or("track has no uri")?
+        .to_string();
+    let name = item
+        .get("name")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
     let artist = item
         .get("artists")
         .and_then(|a| a.as_array())
@@ -252,7 +307,12 @@ pub async fn spotify_play(query: String) -> Result<String, String> {
             return Err("what should I play?".into());
         }
         let (uri, name, artist) = search_track(q)?;
-        api("PUT", "/me/player/play", &[], Some(json!({ "uris": [uri] })))?;
+        api(
+            "PUT",
+            "/me/player/play",
+            &[],
+            Some(json!({ "uris": [uri] })),
+        )?;
         Ok(format!("▶ Playing {}", track_label(&name, &artist)))
     })
     .await
@@ -303,8 +363,17 @@ pub async fn spotify_prev() -> Result<String, String> {
 #[tauri::command]
 pub async fn spotify_shuffle(on: bool) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        api("PUT", "/me/player/shuffle", &[("state", if on { "true" } else { "false" })], None)?;
-        Ok(if on { "🔀 Shuffle on".into() } else { "➡ Shuffle off".into() })
+        api(
+            "PUT",
+            "/me/player/shuffle",
+            &[("state", if on { "true" } else { "false" })],
+            None,
+        )?;
+        Ok(if on {
+            "🔀 Shuffle on".into()
+        } else {
+            "➡ Shuffle off".into()
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -343,11 +412,16 @@ pub async fn spotify_volume(percent: i64) -> Result<String, String> {
 #[tauri::command]
 pub async fn spotify_play_liked() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let v = api("GET", "/me/tracks", &[("limit", "50")], None)?.ok_or("empty liked-songs response")?;
+        let v = api("GET", "/me/tracks", &[("limit", "50")], None)?
+            .ok_or("empty liked-songs response")?;
         let uris: Vec<Value> = v
             .get("items")
             .and_then(|i| i.as_array())
-            .map(|a| a.iter().filter_map(|it| it.get("track").and_then(|t| t.get("uri")).cloned()).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|it| it.get("track").and_then(|t| t.get("uri")).cloned())
+                    .collect()
+            })
             .unwrap_or_default();
         if uris.is_empty() {
             return Err("no liked songs found (is anything in your Liked Songs?)".into());
@@ -368,18 +442,40 @@ pub async fn spotify_play_playlist(name: String) -> Result<String, String> {
         if q.is_empty() {
             return Err("which playlist?".into());
         }
-        let v = api("GET", "/me/playlists", &[("limit", "50")], None)?.ok_or("empty playlists response")?;
-        let items = v.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+        let v = api("GET", "/me/playlists", &[("limit", "50")], None)?
+            .ok_or("empty playlists response")?;
+        let items = v
+            .get("items")
+            .and_then(|i| i.as_array())
+            .cloned()
+            .unwrap_or_default();
         let want = q.to_ascii_lowercase();
-        let name_of = |p: &Value| p.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let name_of = |p: &Value| {
+            p.get("name")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
         let pick = items
             .iter()
             .find(|p| name_of(p).eq_ignore_ascii_case(q))
-            .or_else(|| items.iter().find(|p| name_of(p).to_ascii_lowercase().contains(&want)))
+            .or_else(|| {
+                items
+                    .iter()
+                    .find(|p| name_of(p).to_ascii_lowercase().contains(&want))
+            })
             .ok_or_else(|| format!("no playlist matching “{q}”"))?;
-        let uri = pick.get("uri").and_then(|x| x.as_str()).ok_or("playlist has no uri")?;
+        let uri = pick
+            .get("uri")
+            .and_then(|x| x.as_str())
+            .ok_or("playlist has no uri")?;
         let pname = name_of(pick);
-        api("PUT", "/me/player/play", &[], Some(json!({ "context_uri": uri })))?;
+        api(
+            "PUT",
+            "/me/player/play",
+            &[],
+            Some(json!({ "context_uri": uri })),
+        )?;
         Ok(format!("▶ Playing playlist “{pname}”"))
     })
     .await
@@ -390,7 +486,8 @@ pub async fn spotify_play_playlist(name: String) -> Result<String, String> {
 /// real terminal, so we run it inside a headless PTY and keep the handle alive
 /// (dropping it would SIGHUP the TUI). Linux/WSL build only — the native Windows
 /// build would need to cross into WSL, which isn't wired yet.
-static AUDIOPULSE: Mutex<Option<(Box<dyn MasterPty + Send>, Box<dyn Child + Send + Sync>)>> = Mutex::new(None);
+static AUDIOPULSE: Mutex<Option<(Box<dyn MasterPty + Send>, Box<dyn Child + Send + Sync>)>> =
+    Mutex::new(None);
 
 /// Build the command that launches AudioPulse.
 ///
@@ -412,9 +509,15 @@ fn native_audiopulse_command() -> Result<CommandBuilder, String> {
     let bin = std::env::var("FLUX_AUDIOPULSE_BIN")
         .ok()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| std::env::var("HOME").map(|h| format!("{h}/AudioPulse/audiopulse")).unwrap_or_default());
+        .unwrap_or_else(|| {
+            std::env::var("HOME")
+                .map(|h| format!("{h}/AudioPulse/audiopulse"))
+                .unwrap_or_default()
+        });
     if bin.is_empty() || !std::path::Path::new(&bin).is_file() {
-        return Err(format!("AudioPulse binary not found ({bin}) — set FLUX_AUDIOPULSE_BIN to it"));
+        return Err(format!(
+            "AudioPulse binary not found ({bin}) — set FLUX_AUDIOPULSE_BIN to it"
+        ));
     }
     let mut c = CommandBuilder::new(&bin);
     if let Some(dir) = std::path::Path::new(&bin).parent() {
@@ -431,7 +534,10 @@ fn windows_audiopulse_command() -> Result<CommandBuilder, String> {
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "~/AudioPulse/audiopulse".to_string());
     let mut c = CommandBuilder::new("wsl.exe");
-    if let Some(distro) = std::env::var("FLUX_AUDIOPULSE_DISTRO").ok().filter(|s| !s.trim().is_empty()) {
+    if let Some(distro) = std::env::var("FLUX_AUDIOPULSE_DISTRO")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+    {
         c.arg("-d");
         c.arg(distro.trim());
     }
@@ -445,7 +551,9 @@ fn windows_audiopulse_command() -> Result<CommandBuilder, String> {
 
 #[tauri::command]
 pub async fn spotify_launch() -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(launch_audiopulse).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(launch_audiopulse)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Start AudioPulse if it isn't already running (sync; used by the command and by
@@ -462,9 +570,17 @@ fn launch_audiopulse() -> Result<String, String> {
     let mut cmd = audiopulse_command()?;
     cmd.env("TERM", "xterm-256color");
     let pair = native_pty_system()
-        .openpty(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows: 40,
+            cols: 120,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| format!("openpty: {e}"))?;
-    let child = pair.slave.spawn_command(cmd).map_err(|e| format!("couldn't launch AudioPulse: {e}"))?;
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("couldn't launch AudioPulse: {e}"))?;
     drop(pair.slave);
     // Drain the TUI's output so a full PTY buffer never stalls it.
     if let Ok(mut reader) = pair.master.try_clone_reader() {
@@ -507,7 +623,10 @@ pub async fn spotify_state() -> Result<SpotifyState, String> {
         };
         let item = v.get("item");
         let first_str = |val: Option<&Value>, key: &str| {
-            val.and_then(|i| i.get(key)).and_then(|x| x.as_str()).unwrap_or("").to_string()
+            val.and_then(|i| i.get(key))
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string()
         };
         let artist = item
             .and_then(|i| i.get("artists"))
@@ -528,15 +647,31 @@ pub async fn spotify_state() -> Result<SpotifyState, String> {
             .to_string();
         let device = v.get("device");
         Ok(SpotifyState {
-            playing: v.get("is_playing").and_then(|x| x.as_bool()).unwrap_or(false),
+            playing: v
+                .get("is_playing")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false),
             track: first_str(item, "name"),
             artist,
             art,
             progress_ms: v.get("progress_ms").and_then(|x| x.as_i64()).unwrap_or(0),
-            duration_ms: item.and_then(|i| i.get("duration_ms")).and_then(|x| x.as_i64()).unwrap_or(0),
-            volume: device.and_then(|d| d.get("volume_percent")).and_then(|x| x.as_i64()).unwrap_or(0),
-            shuffle: v.get("shuffle_state").and_then(|x| x.as_bool()).unwrap_or(false),
-            repeat: v.get("repeat_state").and_then(|x| x.as_str()).unwrap_or("off").to_string(),
+            duration_ms: item
+                .and_then(|i| i.get("duration_ms"))
+                .and_then(|x| x.as_i64())
+                .unwrap_or(0),
+            volume: device
+                .and_then(|d| d.get("volume_percent"))
+                .and_then(|x| x.as_i64())
+                .unwrap_or(0),
+            shuffle: v
+                .get("shuffle_state")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false),
+            repeat: v
+                .get("repeat_state")
+                .and_then(|x| x.as_str())
+                .unwrap_or("off")
+                .to_string(),
             has_device: device.is_some(),
         })
     })
@@ -555,8 +690,13 @@ pub struct SpotifyPlaylist {
 #[tauri::command]
 pub async fn spotify_playlists() -> Result<Vec<SpotifyPlaylist>, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let v = api("GET", "/me/playlists", &[("limit", "50")], None)?.ok_or("empty playlists response")?;
-        let items = v.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+        let v = api("GET", "/me/playlists", &[("limit", "50")], None)?
+            .ok_or("empty playlists response")?;
+        let items = v
+            .get("items")
+            .and_then(|i| i.as_array())
+            .cloned()
+            .unwrap_or_default();
         Ok(items
             .iter()
             .filter_map(|p| {
@@ -583,7 +723,12 @@ pub async fn spotify_playlists() -> Result<Vec<SpotifyPlaylist>, String> {
 #[tauri::command]
 pub async fn spotify_play_context(uri: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        api("PUT", "/me/player/play", &[], Some(json!({ "context_uri": uri })))?;
+        api(
+            "PUT",
+            "/me/player/play",
+            &[],
+            Some(json!({ "context_uri": uri })),
+        )?;
         Ok("▶".into())
     })
     .await
@@ -599,7 +744,10 @@ pub async fn spotify_now_playing() -> Result<String, String> {
             None => return Ok("Nothing playing.".into()),
         };
         let item = v.get("item");
-        let name = item.and_then(|i| i.get("name")).and_then(|x| x.as_str()).unwrap_or("");
+        let name = item
+            .and_then(|i| i.get("name"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
         let artist = item
             .and_then(|i| i.get("artists"))
             .and_then(|a| a.as_array())

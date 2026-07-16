@@ -58,7 +58,10 @@ impl SessionStore {
             .ok()
             .map(|s| match serde_json::from_str::<Persisted>(&s) {
                 Ok(p) => (p.items, p.tombstones),
-                Err(_) => (serde_json::from_str::<Vec<SavedSession>>(&s).unwrap_or_default(), Default::default()),
+                Err(_) => (
+                    serde_json::from_str::<Vec<SavedSession>>(&s).unwrap_or_default(),
+                    Default::default(),
+                ),
             })
             .unwrap_or_default();
         let next = items.iter().map(|s| s.id).max().map(|m| m + 1).unwrap_or(1);
@@ -82,7 +85,11 @@ impl SessionStore {
     pub fn save(&self, name: String, tabs: Vec<SavedTab>) -> SavedSession {
         let s = SavedSession {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
-            name: if name.trim().is_empty() { "Untitled".into() } else { name },
+            name: if name.trim().is_empty() {
+                "Untitled".into()
+            } else {
+                name
+            },
             created_ms: now_ms(),
             tabs,
         };
@@ -95,7 +102,11 @@ impl SessionStore {
     /// Merge in a remote payload (E2E sync, #62): union tombstones (newest wins),
     /// drop locally-buried sessions, then add remote sessions whose name isn't
     /// present and isn't suppressed. Returns how many were newly added.
-    pub fn merge(&self, remote: Vec<SavedSession>, remote_tombs: &crate::tombstone::Tombstones) -> usize {
+    pub fn merge(
+        &self,
+        remote: Vec<SavedSession>,
+        remote_tombs: &crate::tombstone::Tombstones,
+    ) -> usize {
         use crate::tombstone::{merge_into, suppressed};
         let mut tombs = self.tombstones.write();
         merge_into(&mut tombs, remote_tombs);
@@ -134,7 +145,12 @@ impl SessionStore {
     }
 
     pub fn tabs_of(&self, id: u64) -> Vec<SavedTab> {
-        self.items.read().iter().find(|s| s.id == id).map(|s| s.tabs.clone()).unwrap_or_default()
+        self.items
+            .read()
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.tabs.clone())
+            .unwrap_or_default()
     }
 
     fn save_disk(&self) {
@@ -142,7 +158,10 @@ impl SessionStore {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let snapshot = Persisted { items: self.items.read().clone(), tombstones: self.tombstones.read().clone() };
+        let snapshot = Persisted {
+            items: self.items.read().clone(),
+            tombstones: self.tombstones.read().clone(),
+        };
         crate::persist::save_json(path, &snapshot);
     }
 }
@@ -153,7 +172,11 @@ pub(crate) fn snapshot(state: &FluxState) -> Vec<SavedTab> {
         .ordered_tabs()
         .into_iter()
         .filter(|t| matches!(t.kind, TabKind::Browser) && t.url.starts_with("http"))
-        .map(|t| SavedTab { url: t.url, title: t.title, pinned: t.pinned })
+        .map(|t| SavedTab {
+            url: t.url,
+            title: t.title,
+            pinned: t.pinned,
+        })
         .collect()
 }
 
@@ -184,8 +207,14 @@ pub struct SnapshotStore {
 
 impl SnapshotStore {
     pub fn restore(path: PathBuf) -> Self {
-        let snaps = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        Self { snaps: RwLock::new(snaps), path: Some(path) }
+        let snaps = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Self {
+            snaps: RwLock::new(snaps),
+            path: Some(path),
+        }
     }
 
     /// Newest day first.
@@ -196,7 +225,12 @@ impl SnapshotStore {
     }
 
     pub fn tabs_of(&self, day: u64) -> Vec<SavedTab> {
-        self.snaps.read().iter().find(|s| s.day == day).map(|s| s.tabs.clone()).unwrap_or_default()
+        self.snaps
+            .read()
+            .iter()
+            .find(|s| s.day == day)
+            .map(|s| s.tabs.clone())
+            .unwrap_or_default()
     }
 
     /// Record the current tabs into today's bucket (create or refresh), keeping
@@ -214,7 +248,11 @@ impl SnapshotStore {
                 s.tabs = tabs;
                 s.captured_ms = now;
             }
-            None => snaps.push(DaySnapshot { day, captured_ms: now, tabs }),
+            None => snaps.push(DaySnapshot {
+                day,
+                captured_ms: now,
+                tabs,
+            }),
         }
         snaps.sort_unstable_by(|a, b| b.day.cmp(&a.day));
         snaps.truncate(SNAPSHOT_DAYS);
@@ -235,7 +273,11 @@ pub fn sessions_list(store: State<'_, SessionStore>) -> Vec<SavedSession> {
 
 /// Save the current open tabs as a named session. Returns the new session.
 #[tauri::command]
-pub fn session_save(state: State<'_, FluxState>, store: State<'_, SessionStore>, name: String) -> SavedSession {
+pub fn session_save(
+    state: State<'_, FluxState>,
+    store: State<'_, SessionStore>,
+    name: String,
+) -> SavedSession {
     store.save(name, snapshot(&state))
 }
 
@@ -269,7 +311,11 @@ mod tests {
     #[test]
     fn save_list_delete() {
         let store = SessionStore::default();
-        let tabs = vec![SavedTab { url: "https://a.dev".into(), title: "A".into(), pinned: false }];
+        let tabs = vec![SavedTab {
+            url: "https://a.dev".into(),
+            title: "A".into(),
+            pinned: false,
+        }];
         let s = store.save("Work".into(), tabs);
         assert_eq!(store.list().len(), 1);
         assert_eq!(store.tabs_of(s.id).len(), 1);
@@ -298,14 +344,30 @@ mod tests {
         let b = SessionStore::default();
         {
             let mut it = b.items.write();
-            it.push(SavedSession { id: 1, name: "Research".into(), created_ms: 100, tabs: vec![] });
+            it.push(SavedSession {
+                id: 1,
+                name: "Research".into(),
+                created_ms: 100,
+                tabs: vec![],
+            });
         }
         let mut tombs = Tombstones::new();
         tombs.insert("Research".into(), 200); // deleted remotely
-        let added = b.merge(vec![SavedSession { id: 9, name: "Trip".into(), created_ms: 100, tabs: vec![] }], &tombs);
+        let added = b.merge(
+            vec![SavedSession {
+                id: 9,
+                name: "Trip".into(),
+                created_ms: 100,
+                tabs: vec![],
+            }],
+            &tombs,
+        );
         assert_eq!(added, 1); // Trip is new
         let names: Vec<_> = b.list().iter().map(|x| x.name.clone()).collect();
         assert!(names.contains(&"Trip".to_string()));
-        assert!(!names.contains(&"Research".to_string()), "remote delete propagated");
+        assert!(
+            !names.contains(&"Research".to_string()),
+            "remote delete propagated"
+        );
     }
 }

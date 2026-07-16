@@ -19,7 +19,10 @@ pub struct HttpsState {
 
 impl Default for HttpsState {
     fn default() -> Self {
-        Self { enabled: AtomicBool::new(false), allow_http: DashMap::new() }
+        Self {
+            enabled: AtomicBool::new(false),
+            allow_http: DashMap::new(),
+        }
     }
 }
 
@@ -96,7 +99,10 @@ mod tests {
         let s = HttpsState::new();
         assert_eq!(s.upgrade("http://example.com/x"), None); // off by default
         s.enabled.store(true, Ordering::Relaxed);
-        assert_eq!(s.upgrade("http://example.com/x?q=1").as_deref(), Some("https://example.com/x?q=1"));
+        assert_eq!(
+            s.upgrade("http://example.com/x?q=1").as_deref(),
+            Some("https://example.com/x?q=1")
+        );
         assert_eq!(s.upgrade("https://example.com/x"), None); // already secure
         assert_eq!(s.upgrade("http://localhost:8080/x"), None); // loopback
         assert_eq!(s.upgrade("http://127.0.0.1/x"), None);

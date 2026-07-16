@@ -12,9 +12,8 @@ use std::process::{Command, Stdio};
 /// catastrophes. Matched against *every* token, so `find … -exec rm` / `sudo rm`
 /// / pipelines are caught too.
 const DENY: &[&str] = &[
-    "rm", "rmdir", "del", "erase", "rd", "unlink",
-    "format", "mkfs", "dd", "fdisk", "diskpart", "wipefs",
-    "shutdown", "reboot", "halt", "poweroff",
+    "rm", "rmdir", "del", "erase", "rd", "unlink", "format", "mkfs", "dd", "fdisk", "diskpart",
+    "wipefs", "shutdown", "reboot", "halt", "poweroff",
 ];
 
 pub fn blocked_reason(cmd: &str) -> Option<String> {
@@ -25,15 +24,23 @@ pub fn blocked_reason(cmd: &str) -> Option<String> {
     if c.contains(":(){") || c.contains(":|:&") {
         return Some("that looks like a fork bomb — refused".into());
     }
-    for tok in c.split(|ch: char| ch.is_whitespace() || matches!(ch, ';' | '|' | '&' | '(' | ')' | '`')) {
+    for tok in
+        c.split(|ch: char| ch.is_whitespace() || matches!(ch, ';' | '|' | '&' | '(' | ')' | '`'))
+    {
         let t = tok.trim();
         if t.is_empty() {
             continue;
         }
-        let base = t.rsplit(['/', '\\']).next().unwrap_or(t).to_ascii_lowercase();
+        let base = t
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(t)
+            .to_ascii_lowercase();
         let base = base.strip_suffix(".exe").unwrap_or(&base);
         if DENY.contains(&base) {
-            return Some(format!("`{base}` is blocked for safety — the agent won't run destructive commands"));
+            return Some(format!(
+                "`{base}` is blocked for safety — the agent won't run destructive commands"
+            ));
         }
     }
     None
@@ -42,7 +49,11 @@ pub fn blocked_reason(cmd: &str) -> Option<String> {
 /// Build the command in the right shell: an explicit `FLUX_EXEC_SHELL`/`FLUX_SHELL`,
 /// else WSL on Windows (matching the embedded terminal) / `sh` elsewhere.
 pub(crate) fn shell_command(cmd: &str) -> Command {
-    if let Some(sh) = std::env::var("FLUX_EXEC_SHELL").ok().or_else(|| std::env::var("FLUX_SHELL").ok()).filter(|s| !s.trim().is_empty()) {
+    if let Some(sh) = std::env::var("FLUX_EXEC_SHELL")
+        .ok()
+        .or_else(|| std::env::var("FLUX_SHELL").ok())
+        .filter(|s| !s.trim().is_empty())
+    {
         let low = sh.to_ascii_lowercase();
         let mut c = Command::new(&sh);
         if low.contains("wsl") {
@@ -95,7 +106,9 @@ pub(crate) fn run_captured(command: &str) -> Result<String, String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let out = cmd.output().map_err(|e| format!("couldn't run the command: {e}"))?;
+    let out = cmd
+        .output()
+        .map_err(|e| format!("couldn't run the command: {e}"))?;
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     let err = String::from_utf8_lossy(&out.stderr);
     if !err.trim().is_empty() {
@@ -108,7 +121,11 @@ pub(crate) fn run_captured(command: &str) -> Result<String, String> {
     if out.status.success() {
         Ok(text)
     } else {
-        Err(if text.is_empty() { "command failed".into() } else { text })
+        Err(if text.is_empty() {
+            "command failed".into()
+        } else {
+            text
+        })
     }
 }
 
@@ -128,7 +145,9 @@ pub async fn run_shell(command: String) -> Result<String, String> {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
-        let out = cmd.output().map_err(|e| format!("couldn't run the command: {e}"))?;
+        let out = cmd
+            .output()
+            .map_err(|e| format!("couldn't run the command: {e}"))?;
         let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
         let err = String::from_utf8_lossy(&out.stderr);
         if !err.trim().is_empty() {
@@ -144,10 +163,18 @@ pub async fn run_shell(command: String) -> Result<String, String> {
             text.to_string()
         };
         if out.status.success() {
-            Ok(if shown.is_empty() { "(done, no output)".into() } else { shown })
+            Ok(if shown.is_empty() {
+                "(done, no output)".into()
+            } else {
+                shown
+            })
         } else {
             let code = out.status.code().unwrap_or(-1);
-            Ok(if shown.is_empty() { format!("(exit {code}, no output)") } else { format!("{shown}\n(exit {code})") })
+            Ok(if shown.is_empty() {
+                format!("(exit {code}, no output)")
+            } else {
+                format!("{shown}\n(exit {code})")
+            })
         }
     })
     .await

@@ -58,7 +58,9 @@ pub fn porcupine_config(ppn_path: String, model_path: String) -> Result<Porcupin
     let access_key = keyring::Entry::new(SERVICE, ACCOUNT)
         .map_err(|e| e.to_string())?
         .get_password()
-        .map_err(|_| "no Porcupine access key set — add it in Settings → Integrations".to_string())?;
+        .map_err(|_| {
+            "no Porcupine access key set — add it in Settings → Integrations".to_string()
+        })?;
     if access_key.trim().is_empty() {
         return Err("no Porcupine access key set — add it in Settings → Integrations".into());
     }

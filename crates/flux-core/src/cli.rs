@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 
 /// What the user asked for at launch. Managed into Tauri state; the shell
 /// pulls it once on mount (`launch_intent` command) and materializes tabs.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]pub struct LaunchIntent {
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+pub struct LaunchIntent {
     /// URLs to open as Browser tabs, in argv order.
     pub urls: Vec<String>,
     /// `--terminal`: also open (and focus) a Terminal tab.
@@ -97,17 +98,26 @@ pub fn context_command(name: &str) -> Option<(String, i32)> {
 
 fn run_context(cmd: &str) -> (String, i32) {
     let Ok(dir) = std::env::var("FLUX_RPC_DIR") else {
-        return ("flux: not inside a Flux terminal (FLUX_RPC_DIR is unset)".into(), 1);
+        return (
+            "flux: not inside a Flux terminal (FLUX_RPC_DIR is unset)".into(),
+            1,
+        );
     };
     let path = std::path::Path::new(&dir).join("active.json");
     let Ok(raw) = std::fs::read_to_string(&path) else {
-        return ("flux: no active page yet — open a page in Flux first".into(), 1);
+        return (
+            "flux: no active page yet — open a page in Flux first".into(),
+            1,
+        );
     };
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
         return ("flux: could not read the page context".into(), 1);
     };
     if v.get("private").and_then(|p| p.as_bool()).unwrap_or(false) {
-        return ("flux: the active tab is private — no page context is exposed".into(), 1);
+        return (
+            "flux: the active tab is private — no page context is exposed".into(),
+            1,
+        );
     }
     let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     match cmd {
@@ -118,7 +128,12 @@ fn run_context(cmd: &str) -> (String, i32) {
             let out = v
                 .get("links")
                 .and_then(|a| a.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("\n"))
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
                 .unwrap_or_default();
             (out, 0)
         }
@@ -132,7 +147,10 @@ mod tests {
     use super::*;
 
     fn argv(s: &[&str]) -> std::vec::IntoIter<String> {
-        s.iter().map(|s| s.to_string()).collect::<Vec<_>>().into_iter()
+        s.iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     #[test]

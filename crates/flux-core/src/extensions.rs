@@ -13,8 +13,14 @@ use tauri::{State, Url};
 
 /// The set of permissions an extension may request (ADR 0008 §4). `net:<host>`
 /// is checked by prefix; everything else must match exactly.
-const KNOWN_PERMISSIONS: &[&str] =
-    &["dom:read", "dom:write", "tabs", "storage", "ui:panel", "ui:toolbar"];
+const KNOWN_PERMISSIONS: &[&str] = &[
+    "dom:read",
+    "dom:write",
+    "tabs",
+    "storage",
+    "ui:panel",
+    "ui:toolbar",
+];
 
 const MANIFEST_FILE: &str = "flux.extension.json";
 
@@ -68,7 +74,8 @@ impl Manifest {
     /// an unknown permission (the security model is deny-by-default; we don't
     /// silently accept permissions we can't enforce).
     pub fn parse(json: &str) -> Result<Manifest, String> {
-        let m: Manifest = serde_json::from_str(json).map_err(|e| format!("invalid manifest: {e}"))?;
+        let m: Manifest =
+            serde_json::from_str(json).map_err(|e| format!("invalid manifest: {e}"))?;
         if m.id.trim().is_empty() || m.id.contains(['/', '\\', ' ']) {
             return Err(format!("invalid extension id {:?}", m.id));
         }
@@ -121,7 +128,10 @@ impl ExtRegistry {
             .ok()
             .and_then(|s| serde_json::from_str::<Vec<InstalledExt>>(&s).ok())
             .unwrap_or_default();
-        Self { entries: RwLock::new(entries), path: Some(path) }
+        Self {
+            entries: RwLock::new(entries),
+            path: Some(path),
+        }
     }
 
     fn persist(&self) {
@@ -143,7 +153,11 @@ impl ExtRegistry {
                 }
             }
         }
-        let entry = InstalledExt { manifest: manifest.clone(), dir: dir.to_string_lossy().into_owned(), enabled: true };
+        let entry = InstalledExt {
+            manifest: manifest.clone(),
+            dir: dir.to_string_lossy().into_owned(),
+            enabled: true,
+        };
         {
             let mut e = self.entries.write();
             e.retain(|x| x.manifest.id != manifest.id);
@@ -274,7 +288,9 @@ fn pattern_matches(pattern: &str, url: &str) -> bool {
     if pattern == "<all_urls>" {
         return matches!(scheme, "http" | "https" | "file" | "ftp");
     }
-    let Some((ps, rest)) = pattern.split_once("://") else { return false };
+    let Some((ps, rest)) = pattern.split_once("://") else {
+        return false;
+    };
     let (ph, pp) = match rest.find('/') {
         Some(i) => (&rest[..i], &rest[i..]),
         None => (rest, "/*"),
@@ -390,12 +406,27 @@ mod tests {
         assert!(pattern_matches("*://*/*", "http://x/"));
         assert!(!pattern_matches("*://*/*", "ftp://x/"));
         // subdomain wildcard.
-        assert!(pattern_matches("https://*.example.com/*", "https://www.example.com/x"));
-        assert!(pattern_matches("https://*.example.com/*", "https://example.com/x"));
-        assert!(!pattern_matches("https://*.example.com/*", "https://example.org/x"));
+        assert!(pattern_matches(
+            "https://*.example.com/*",
+            "https://www.example.com/x"
+        ));
+        assert!(pattern_matches(
+            "https://*.example.com/*",
+            "https://example.com/x"
+        ));
+        assert!(!pattern_matches(
+            "https://*.example.com/*",
+            "https://example.org/x"
+        ));
         // path glob.
-        assert!(pattern_matches("https://site.com/docs/*", "https://site.com/docs/intro"));
-        assert!(!pattern_matches("https://site.com/docs/*", "https://site.com/blog/x"));
+        assert!(pattern_matches(
+            "https://site.com/docs/*",
+            "https://site.com/docs/intro"
+        ));
+        assert!(!pattern_matches(
+            "https://site.com/docs/*",
+            "https://site.com/blog/x"
+        ));
         // scheme mismatch + garbage url.
         assert!(!pattern_matches("https://x/*", "http://x/"));
         assert!(!pattern_matches("https://*/*", "not a url"));
@@ -418,7 +449,10 @@ mod tests {
 
         // Disabled extensions inject nothing.
         reg.set_enabled("com.flux.hello", false);
-        assert!(reg.injection_for("https://example.com/", false).js.is_empty());
+        assert!(reg
+            .injection_for("https://example.com/", false)
+            .js
+            .is_empty());
     }
 
     #[test]

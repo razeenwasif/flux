@@ -118,16 +118,14 @@ pub fn to_js(action: &AgentAction) -> String {
         ),
 
         // Refusals never touch the page.
-        AgentAction::Refuse { reason } => format!(
-            "window.__FLUX__?.report('refused', {});",
-            js_str(reason)
-        ),
+        AgentAction::Refuse { reason } => {
+            format!("window.__FLUX__?.report('refused', {});", js_str(reason))
+        }
 
         // Task completion — purely a signal back to the chrome; no page effect.
-        AgentAction::Finish { summary } => format!(
-            "window.__FLUX__?.report('finished', {});",
-            js_str(summary)
-        ),
+        AgentAction::Finish { summary } => {
+            format!("window.__FLUX__?.report('finished', {});", js_str(summary))
+        }
     }
 }
 
@@ -152,16 +150,27 @@ mod tests {
     #[test]
     fn extract_emits_both_formats() {
         for fmt in [ExtractFormat::Csv, ExtractFormat::Json] {
-            let js = AgentAction::ExtractTable { selector: "table".into(), format: fmt }.to_js();
+            let js = AgentAction::ExtractTable {
+                selector: "table".into(),
+                format: fmt,
+            }
+            .to_js();
             assert!(js.contains("querySelectorAll('tr')"));
         }
     }
 
     #[test]
     fn click_embeds_the_destructive_guard() {
-        let js = AgentAction::Click { selector: "button#x".into(), reason: "go".into() }.to_js();
+        let js = AgentAction::Click {
+            selector: "button#x".into(),
+            reason: "go".into(),
+        }
+        .to_js();
         // The guard reads the live label and reports a block before clicking.
-        assert!(js.contains("blocked_destructive"), "click must carry the #104 guard");
+        assert!(
+            js.contains("blocked_destructive"),
+            "click must carry the #104 guard"
+        );
         assert!(js.contains("aria-label"));
         // Deny-list terms are baked in from the Rust source of truth.
         assert!(js.contains("\"delete\""));

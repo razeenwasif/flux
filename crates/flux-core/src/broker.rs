@@ -88,7 +88,9 @@ impl BrokerState {
     }
 
     fn persist(&self) {
-        let Some(path) = &self.storage_path else { return };
+        let Some(path) = &self.storage_path else {
+            return;
+        };
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -108,7 +110,11 @@ impl BrokerState {
     }
     fn store_set(&self, ext: &str, key: &str, value: &Value) {
         let enc = serde_json::to_string(value).unwrap_or_else(|_| "null".into());
-        self.storage.write().entry(ext.to_string()).or_default().insert(key.to_string(), enc);
+        self.storage
+            .write()
+            .entry(ext.to_string())
+            .or_default()
+            .insert(key.to_string(), enc);
         self.persist();
     }
     fn store_remove(&self, ext: &str, key: &str) {
@@ -118,7 +124,11 @@ impl BrokerState {
         self.persist();
     }
     fn store_keys(&self, ext: &str) -> Vec<String> {
-        self.storage.read().get(ext).map(|m| m.keys().cloned().collect()).unwrap_or_default()
+        self.storage
+            .read()
+            .get(ext)
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Build the page injection with the *broker* shim: each enabled extension's
@@ -144,9 +154,22 @@ impl BrokerState {
     }
 
     /// Resolve + authorize + dispatch one `flux.*` call.
-    pub fn call(&self, app: &AppHandle, token: &str, api: &str, method: &str, args: &Value) -> Result<Value, String> {
-        let ext_id = self.tokens.get(token).map(|r| r.value().clone()).ok_or("invalid capability token")?;
-        let registry = app.try_state::<ExtRegistry>().ok_or("extension registry unavailable")?;
+    pub fn call(
+        &self,
+        app: &AppHandle,
+        token: &str,
+        api: &str,
+        method: &str,
+        args: &Value,
+    ) -> Result<Value, String> {
+        let ext_id = self
+            .tokens
+            .get(token)
+            .map(|r| r.value().clone())
+            .ok_or("invalid capability token")?;
+        let registry = app
+            .try_state::<ExtRegistry>()
+            .ok_or("extension registry unavailable")?;
         let ext = registry
             .list()
             .into_iter()
@@ -156,7 +179,9 @@ impl BrokerState {
             return Err("extension is disabled".into());
         }
         if !granted(&ext.manifest.permissions, api, method) {
-            return Err(format!("permission denied: {api}.{method} (extension {ext_id})"));
+            return Err(format!(
+                "permission denied: {api}.{method} (extension {ext_id})"
+            ));
         }
         match (api, method) {
             ("runtime", "id") => Ok(json!(ext_id)),
@@ -165,7 +190,11 @@ impl BrokerState {
 
             ("storage", "get") => Ok(self.store_get(&ext_id, arg_str(args, "key")?)),
             ("storage", "set") => {
-                self.store_set(&ext_id, arg_str(args, "key")?, args.get("value").unwrap_or(&Value::Null));
+                self.store_set(
+                    &ext_id,
+                    arg_str(args, "key")?,
+                    args.get("value").unwrap_or(&Value::Null),
+                );
                 Ok(Value::Bool(true))
             }
             ("storage", "remove") => {
@@ -187,7 +216,8 @@ impl BrokerState {
             ("tabs", "open") => {
                 let url = arg_str(args, "url")?.to_string();
                 // The shell owns webview geometry, so opening is an intent it acts on.
-                app.emit("flux://ext-open-tab", url).map_err(|e| e.to_string())?;
+                app.emit("flux://ext-open-tab", url)
+                    .map_err(|e| e.to_string())?;
                 Ok(Value::Bool(true))
             }
             ("tabs", "navigate") => {
@@ -203,7 +233,9 @@ impl BrokerState {
             ("dom", "read") => {
                 let tab = arg_tab(args)?;
                 match app.state::<FluxState>().dom_cache.get(&tab) {
-                    Some(s) => Ok(json!({ "url": s.url, "text": &*s.text, "html": &*s.html, "capturedAtMs": s.captured_at_ms })),
+                    Some(s) => Ok(
+                        json!({ "url": s.url, "text": &*s.text, "html": &*s.html, "capturedAtMs": s.captured_at_ms }),
+                    ),
                     None => Ok(Value::Null),
                 }
             }
@@ -220,10 +252,14 @@ impl BrokerState {
 }
 
 fn arg_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
-    args.get(key).and_then(Value::as_str).ok_or_else(|| format!("missing string arg `{key}`"))
+    args.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("missing string arg `{key}`"))
 }
 fn arg_tab(args: &Value) -> Result<TabId, String> {
-    args.get("tabId").and_then(Value::as_u64).ok_or_else(|| "missing tabId".to_string())
+    args.get("tabId")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "missing tabId".to_string())
 }
 
 /// Deny-by-default grant check: the manifest must hold the permission a given
@@ -232,7 +268,9 @@ fn arg_tab(args: &Value) -> Result<TabId, String> {
 fn granted(perms: &[String], api: &str, method: &str) -> bool {
     let need: &[&str] = match (api, method) {
         ("runtime", "id") | ("runtime", "version") | ("runtime", "permissions") => return true,
-        ("storage", "get") | ("storage", "set") | ("storage", "remove") | ("storage", "keys") => &["storage"],
+        ("storage", "get") | ("storage", "set") | ("storage", "remove") | ("storage", "keys") => {
+            &["storage"]
+        }
         ("tabs", "query") | ("tabs", "open") | ("tabs", "navigate") => &["tabs"],
         ("dom", "read") => &["dom:read"],
         ("dom", "inject") => &["dom:write"],
@@ -292,7 +330,13 @@ mod tests {
         assert!(!granted(&p, "dom", "inject")); // only dom:read granted
         assert!(!granted(&p, "tabs", "open"));
         // unknown calls denied even with broad grants.
-        let all = vec!["tabs".into(), "dom:read".into(), "dom:write".into(), "storage".into(), "ui:panel".into()];
+        let all = vec![
+            "tabs".into(),
+            "dom:read".into(),
+            "dom:write".into(),
+            "storage".into(),
+            "ui:panel".into(),
+        ];
         assert!(!granted(&all, "fs", "read"));
         assert!(!granted(&all, "tabs", "evil"));
     }
@@ -305,7 +349,10 @@ mod tests {
         let tb = b.token_for("com.b");
         assert_eq!(t1, t2); // stable
         assert_ne!(t1, tb); // distinct per extension
-        assert_eq!(b.tokens.get(&t1).map(|r| r.value().clone()), Some("com.a".to_string()));
+        assert_eq!(
+            b.tokens.get(&t1).map(|r| r.value().clone()),
+            Some("com.a".to_string())
+        );
     }
 
     #[test]

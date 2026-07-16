@@ -13,7 +13,11 @@ fn memory_path(app: &AppHandle) -> Result<PathBuf, String> {
     if let Some(p) = std::env::var_os("FLUX_MEMORY_FILE").filter(|s| !s.is_empty()) {
         return Ok(PathBuf::from(p));
     }
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("memory.md"))
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("memory.md"))
 }
 
 /// The full memory file (empty string if it doesn't exist yet).

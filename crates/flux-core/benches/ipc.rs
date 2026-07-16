@@ -23,7 +23,11 @@ fn sample_tabs() -> Vec<TabMeta> {
     (0..8)
         .map(|i| TabMeta {
             id: i + 1,
-            kind: if i % 3 == 0 { TabKind::Terminal } else { TabKind::Browser },
+            kind: if i % 3 == 0 {
+                TabKind::Terminal
+            } else {
+                TabKind::Browser
+            },
             url: format!("https://example.com/page/{i}?q=search+terms+here"),
             title: format!("Example page {i} — a representative tab title"),
             pinned: i < 2,

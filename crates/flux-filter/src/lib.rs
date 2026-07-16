@@ -80,7 +80,10 @@ impl Filter {
     fn with_engine<R: Default>(&self, f: impl FnOnce(&Engine) -> R) -> R {
         LOCAL_ENGINE.with(|cell| {
             let mut slot = cell.borrow_mut();
-            let stale = slot.as_ref().map(|(g, _)| *g != self.generation).unwrap_or(true);
+            let stale = slot
+                .as_ref()
+                .map(|(g, _)| *g != self.generation)
+                .unwrap_or(true);
             if stale {
                 let mut engine = Engine::from_filter_set(FilterSet::new(false), false);
                 if engine.deserialize(&self.serialized).is_err() {
@@ -138,7 +141,12 @@ impl Filter {
             if res.hide_selectors.is_empty() {
                 return String::new();
             }
-            let selectors = res.hide_selectors.iter().cloned().collect::<Vec<_>>().join(",");
+            let selectors = res
+                .hide_selectors
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(",");
             format!("{selectors} {{ display: none !important; }}")
         })
     }
@@ -175,11 +183,19 @@ pub fn to_content_blocker_json(list: &str, max_rules: usize) -> Option<String> {
     let n_tail = rules
         .iter()
         .rev()
-        .take_while(|r| matches!(r.action.typ, adblock::content_blocking::CbType::IgnorePreviousRules))
+        .take_while(|r| {
+            matches!(
+                r.action.typ,
+                adblock::content_blocking::CbType::IgnorePreviousRules
+            )
+        })
         .count();
     let out: Vec<&adblock::content_blocking::CbRule> = if rules.len() > max_rules {
         let keep_blocks = max_rules.saturating_sub(n_tail);
-        rules[..keep_blocks].iter().chain(rules[rules.len() - n_tail..].iter()).collect()
+        rules[..keep_blocks]
+            .iter()
+            .chain(rules[rules.len() - n_tail..].iter())
+            .collect()
     } else {
         rules.iter().collect()
     };
@@ -201,12 +217,20 @@ mod tests {
 
     #[test]
     fn blocks_tracker_host() {
-        assert!(sample().should_block("https://ads.example.com/a.js", "https://news.com", "script"));
+        assert!(sample().should_block(
+            "https://ads.example.com/a.js",
+            "https://news.com",
+            "script"
+        ));
     }
 
     #[test]
     fn blocks_ad_path() {
-        assert!(sample().should_block("https://cdn.site.com/banner_ad.png", "https://site.com", "image"));
+        assert!(sample().should_block(
+            "https://cdn.site.com/banner_ad.png",
+            "https://site.com",
+            "image"
+        ));
     }
 
     #[test]
@@ -216,7 +240,11 @@ mod tests {
 
     #[test]
     fn exception_unblocks() {
-        assert!(!sample().should_block("https://example.com/allowed/ads.js", "https://example.com", "script"));
+        assert!(!sample().should_block(
+            "https://example.com/allowed/ads.js",
+            "https://example.com",
+            "script"
+        ));
     }
 
     #[test]
@@ -228,7 +256,11 @@ mod tests {
 
     #[test]
     fn empty_filter_passes_all() {
-        assert!(!Filter::empty().should_block("https://ads.example.com/a.js", "https://news.com", "script"));
+        assert!(!Filter::empty().should_block(
+            "https://ads.example.com/a.js",
+            "https://news.com",
+            "script"
+        ));
     }
 
     #[test]
@@ -239,11 +271,16 @@ mod tests {
 
     #[test]
     fn check_reports_matching_rule() {
-        let (blocked, rule) = sample().check("https://ads.example.com/a.js", "https://news.com", "script");
+        let (blocked, rule) =
+            sample().check("https://ads.example.com/a.js", "https://news.com", "script");
         assert!(blocked);
-        assert!(rule.is_some(), "a blocked request should name the rule that fired");
+        assert!(
+            rule.is_some(),
+            "a blocked request should name the rule that fired"
+        );
         // An allowed request names no rule.
-        let (blocked, rule) = sample().check("https://site.com/app.js", "https://site.com", "script");
+        let (blocked, rule) =
+            sample().check("https://site.com/app.js", "https://site.com", "script");
         assert!(!blocked);
         assert!(rule.is_none());
     }
@@ -273,22 +310,28 @@ mod tests {
         assert!(!rules.is_empty());
         assert!(rules.iter().any(|r| {
             r["action"]["type"] == "block"
-                && r["trigger"]["url-filter"].as_str().unwrap_or("").contains("ads\\.example\\.com")
+                && r["trigger"]["url-filter"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("ads\\.example\\.com")
         }));
     }
 
     #[test]
     fn cb_json_exceptions_sort_after_blocks() {
-        let json = to_content_blocker_json(
-            "||ads.example.com^\n@@||example.com/allowed/ads.js\n",
-            1000,
-        )
-        .expect("some rules");
+        let json =
+            to_content_blocker_json("||ads.example.com^\n@@||example.com/allowed/ads.js\n", 1000)
+                .expect("some rules");
         let rules: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
-        let first_ignore = rules.iter().position(|r| r["action"]["type"] == "ignore-previous-rules");
+        let first_ignore = rules
+            .iter()
+            .position(|r| r["action"]["type"] == "ignore-previous-rules");
         let last_block = rules.iter().rposition(|r| r["action"]["type"] == "block");
         if let (Some(i), Some(b)) = (first_ignore, last_block) {
-            assert!(i > b, "ignore-previous-rules must come after blocks (i={i}, b={b})");
+            assert!(
+                i > b,
+                "ignore-previous-rules must come after blocks (i={i}, b={b})"
+            );
         }
     }
 
@@ -309,6 +352,8 @@ mod tests {
         let json = to_content_blocker_json(&list, 5).expect("some rules");
         let rules: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
         assert!(rules.len() <= 5);
-        assert!(rules.iter().any(|r| r["action"]["type"] == "ignore-previous-rules"));
+        assert!(rules
+            .iter()
+            .any(|r| r["action"]["type"] == "ignore-previous-rules"));
     }
 }

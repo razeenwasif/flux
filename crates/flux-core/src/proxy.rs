@@ -22,8 +22,14 @@ pub struct ProxyState {
 
 impl ProxyState {
     pub fn restore(path: PathBuf) -> Self {
-        let url = std::fs::read_to_string(&path).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        Self { url: RwLock::new(url), path: Some(path) }
+        let url = std::fs::read_to_string(&path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        Self {
+            url: RwLock::new(url),
+            path: Some(path),
+        }
     }
 
     pub fn get(&self) -> Option<String> {
@@ -41,7 +47,8 @@ impl ProxyState {
     /// it's a valid `http://` or `socks5://` endpoint with a host and port.
     pub fn parsed(&self) -> Option<Url> {
         let u = Url::parse(&self.get()?).ok()?;
-        (matches!(u.scheme(), "http" | "socks5") && u.host_str().is_some() && u.port().is_some()).then_some(u)
+        (matches!(u.scheme(), "http" | "socks5") && u.host_str().is_some() && u.port().is_some())
+            .then_some(u)
     }
 }
 

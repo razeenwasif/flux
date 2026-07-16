@@ -67,7 +67,11 @@ pub fn dom_publish(
 
     // Prefer the page's own <title>; fall back to the tab's stored title.
     let title = title.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| {
-        state.tabs.get(&tab_id).map(|t| t.title.clone()).unwrap_or_default()
+        state
+            .tabs
+            .get(&tab_id)
+            .map(|t| t.title.clone())
+            .unwrap_or_default()
     });
 
     // Private tabs (#59) leave no trace: keep the live snapshot in RAM (for the
@@ -93,7 +97,11 @@ pub fn dom_publish(
         // workspace name, and the nav edge is drawn from the tab's prior visit.
         if let Some(tr) = app.try_state::<crate::trace::TraceStore>() {
             let task = state.tabs.get(&tab_id).map(|t| t.workspace).and_then(|ws| {
-                state.workspaces_list().into_iter().find(|w| w.id == ws).map(|w| w.name)
+                state
+                    .workspaces_list()
+                    .into_iter()
+                    .find(|w| w.id == ws)
+                    .map(|w| w.name)
             });
             tr.record(tab_id, &url, &title, task);
         }
@@ -121,14 +129,17 @@ pub fn dom_publish(
         if m.is_recording() {
             if let Some(snap) = state.dom_cache.get(&tab_id) {
                 if snap.url.starts_with("http") {
-                    m.push(crate::macros::Step::Navigate { url: snap.url.clone() });
+                    m.push(crate::macros::Step::Navigate {
+                        url: snap.url.clone(),
+                    });
                 }
             }
         }
     }
 
     // Nudge interested panes (terminal env bar, agent sidebar).
-    app.emit("flux://dom-updated", tab_id).map_err(|e| e.to_string())
+    app.emit("flux://dom-updated", tab_id)
+        .map_err(|e| e.to_string())
 }
 
 /// App keyboard shortcuts forwarded from a focused tab webview (#18). A native
@@ -138,7 +149,8 @@ pub fn dom_publish(
 /// `dom_publish`, this is a `fluxtab` plugin command so remote pages may call it.
 #[tauri::command]
 pub fn chrome_key(app: AppHandle, action: String) -> Result<(), String> {
-    app.emit("flux://shortcut", action).map_err(|e| e.to_string())
+    app.emit("flux://shortcut", action)
+        .map_err(|e| e.to_string())
 }
 
 /// A page-initiated new window (window.open / target="_blank" / modified click),
@@ -148,7 +160,8 @@ pub fn chrome_key(app: AppHandle, action: String) -> Result<(), String> {
 /// `fluxtab` plugin command so remote pages may call it.
 #[tauri::command]
 pub fn chrome_open_url(app: AppHandle, url: String, background: bool) -> Result<(), String> {
-    app.emit("flux://open-url", (url, background)).map_err(|e| e.to_string())
+    app.emit("flux://open-url", (url, background))
+        .map_err(|e| e.to_string())
 }
 
 /// Pull OS keyboard focus back to the chrome window. A focused native tab
@@ -167,7 +180,8 @@ pub fn chrome_focus(app: AppHandle) {
 /// `fluxtab` plugin command so the (remote) page may call it, like `dom_publish`.
 #[tauri::command]
 pub fn find_result(app: AppHandle, tab_id: TabId, count: usize, found: bool) -> Result<(), String> {
-    app.emit("flux://find-result", (tab_id, count, found)).map_err(|e| e.to_string())
+    app.emit("flux://find-result", (tab_id, count, found))
+        .map_err(|e| e.to_string())
 }
 
 /// One structured block of a reader-mode extraction (#41): a heading, paragraph,
@@ -187,8 +201,14 @@ pub struct ReaderBlock {
 /// chrome, which renders the blocks safely (text + img src, never raw HTML). A
 /// `fluxtab` plugin command so the (remote) page may call it, like `dom_publish`.
 #[tauri::command]
-pub fn reader_publish(app: AppHandle, tab_id: TabId, title: String, blocks: Vec<ReaderBlock>) -> Result<(), String> {
-    app.emit("flux://reader", (tab_id, title, blocks)).map_err(|e| e.to_string())
+pub fn reader_publish(
+    app: AppHandle,
+    tab_id: TabId,
+    title: String,
+    blocks: Vec<ReaderBlock>,
+) -> Result<(), String> {
+    app.emit("flux://reader", (tab_id, title, blocks))
+        .map_err(|e| e.to_string())
 }
 
 /// Per-tab captured-DOM payload size in bytes (BACKLOG #70) — html + text of the
@@ -196,7 +216,11 @@ pub fn reader_publish(app: AppHandle, tab_id: TabId, title: String, blocks: Vec<
 /// snapshot (never loaded / hibernated) are omitted.
 #[tauri::command]
 pub fn tab_dom_sizes(state: State<'_, FluxState>) -> Vec<(TabId, usize)> {
-    state.dom_cache.iter().map(|e| (*e.key(), e.html.len() + e.text.len())).collect()
+    state
+        .dom_cache
+        .iter()
+        .map(|e| (*e.key(), e.html.len() + e.text.len()))
+        .collect()
 }
 
 /// Hand the active tab's DOM to the frontend (e.g. terminal running
@@ -229,7 +253,10 @@ pub fn terminal_env(state: State<'_, FluxState>) -> HashMap<String, String> {
             }
         }
         if let Some(snap) = state.dom_cache.get(&id) {
-            env.insert("FLUX_DOM_AGE_MS".into(), (now_ms() - snap.captured_at_ms).to_string());
+            env.insert(
+                "FLUX_DOM_AGE_MS".into(),
+                (now_ms() - snap.captured_at_ms).to_string(),
+            );
         }
     }
     env
@@ -237,6 +264,7 @@ pub fn terminal_env(state: State<'_, FluxState>) -> HashMap<String, String> {
 
 pub(crate) fn dirs_download() -> String {
     // Real impl: `dirs::download_dir()`. Kept dependency-free in the scaffold.
-    std::env::var("HOME").map(|h| format!("{h}/Downloads")).unwrap_or_else(|_| ".".into())
+    std::env::var("HOME")
+        .map(|h| format!("{h}/Downloads"))
+        .unwrap_or_else(|_| ".".into())
 }
-

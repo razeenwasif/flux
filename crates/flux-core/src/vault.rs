@@ -103,7 +103,11 @@ impl VaultState {
             open: RwLock::new(None),
             dir,
             path,
-            protection: RwLock::new(if password_mode { Protection::Password } else { Protection::Keychain }),
+            protection: RwLock::new(if password_mode {
+                Protection::Password
+            } else {
+                Protection::Keychain
+            }),
             source: RwLock::new(if password_mode { "password" } else { "loading" }),
             autolock_min: AtomicU64::new(meta.autolock_minutes),
             last_activity: AtomicU64::new(now_ms()),
@@ -120,13 +124,21 @@ impl VaultState {
         let (open, source) = match obtain_key(&self.dir) {
             (Some(dk), src) => {
                 let vault = match std::fs::read(&self.path) {
-                    Ok(blob) if !blob.is_empty() => Vault::decrypt(&dk, &blob).unwrap_or_else(|e| {
-                        tracing::error!(target: "flux::vault", "vault decrypt failed: {e}");
-                        Vault::default()
-                    }),
+                    Ok(blob) if !blob.is_empty() => {
+                        Vault::decrypt(&dk, &blob).unwrap_or_else(|e| {
+                            tracing::error!(target: "flux::vault", "vault decrypt failed: {e}");
+                            Vault::default()
+                        })
+                    }
                     _ => Vault::default(),
                 };
-                (Some(Unlocked { vault, dk: Zeroizing::new(dk) }), src)
+                (
+                    Some(Unlocked {
+                        vault,
+                        dk: Zeroizing::new(dk),
+                    }),
+                    src,
+                )
             }
             (None, _) => (None, "none"),
         };
@@ -224,7 +236,9 @@ fn keychain_key() -> Result<[u8; 32], String> {
         Ok(hex) => decode_key(&hex),
         Err(keyring::Error::NoEntry) => {
             let k = flux_vault::new_key();
-            entry.set_password(&encode_key(&k)).map_err(|e| e.to_string())?;
+            entry
+                .set_password(&encode_key(&k))
+                .map_err(|e| e.to_string())?;
             Ok(k)
         }
         Err(e) => Err(e.to_string()),
@@ -293,7 +307,8 @@ fn decode_key(hex: &str) -> Result<[u8; 32], String> {
     }
     let mut k = [0u8; 32];
     for (i, slot) in k.iter_mut().enumerate() {
-        *slot = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).map_err(|_| "bad key hex".to_string())?;
+        *slot = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)
+            .map_err(|_| "bad key hex".to_string())?;
     }
     Ok(k)
 }
@@ -371,7 +386,11 @@ pub struct VaultStatus {
 
 #[tauri::command]
 pub fn vault_status(state: State<'_, VaultState>) -> VaultStatus {
-    let protection = if *state.protection.read() == Protection::Password { "password" } else { "keychain" };
+    let protection = if *state.protection.read() == Protection::Password {
+        "password"
+    } else {
+        "keychain"
+    };
     let guard = state.open.read();
     VaultStatus {
         available: guard.is_some() || protection == "password",
@@ -390,12 +409,16 @@ pub fn vault_unlock(state: State<'_, VaultState>, password: String) -> Result<()
         return Ok(());
     }
     let wrap = read_keywrap(&state.dir)?;
-    let dk = flux_vault::unwrap_key(&password, &wrap).map_err(|_| "wrong master password".to_string())?;
+    let dk = flux_vault::unwrap_key(&password, &wrap)
+        .map_err(|_| "wrong master password".to_string())?;
     let vault = match std::fs::read(&state.path) {
         Ok(blob) if !blob.is_empty() => Vault::decrypt(&dk, &blob).map_err(|e| e.to_string())?,
         _ => Vault::default(),
     };
-    *state.open.write() = Some(Unlocked { vault, dk: Zeroizing::new(dk) });
+    *state.open.write() = Some(Unlocked {
+        vault,
+        dk: Zeroizing::new(dk),
+    });
     state.touch();
     Ok(())
 }
@@ -409,7 +432,10 @@ pub fn vault_lock(state: State<'_, VaultState>) {
 /// Set (or change) the master password — switches to password protection and
 /// removes the data key from the keychain/file. Requires the vault unlocked.
 #[tauri::command]
-pub fn vault_set_master_password(state: State<'_, VaultState>, password: String) -> Result<(), String> {
+pub fn vault_set_master_password(
+    state: State<'_, VaultState>,
+    password: String,
+) -> Result<(), String> {
     if password.trim().is_empty() {
         return Err("master password cannot be empty".into());
     }
@@ -424,21 +450,31 @@ pub fn vault_set_master_password(state: State<'_, VaultState>, password: String)
     purge_key(&state.dir); // DK now recoverable only via the password
     *state.protection.write() = Protection::Password;
     *state.source.write() = "password";
-    write_meta(&state.dir, &Meta { protection: "password".into(), autolock_minutes: state.autolock_min.load(Ordering::Relaxed) })?;
+    write_meta(
+        &state.dir,
+        &Meta {
+            protection: "password".into(),
+            autolock_minutes: state.autolock_min.load(Ordering::Relaxed),
+        },
+    )?;
     Ok(())
 }
 
 /// Remove master-password protection: verify the password, then move the data
 /// key back to the OS keychain. Requires the vault unlocked.
 #[tauri::command]
-pub fn vault_disable_master_password(state: State<'_, VaultState>, password: String) -> Result<(), String> {
+pub fn vault_disable_master_password(
+    state: State<'_, VaultState>,
+    password: String,
+) -> Result<(), String> {
     let dk = {
         let guard = state.open.read();
         *guard.as_ref().ok_or("unlock the vault first")?.dk
     };
     // Confirm the caller knows the current password.
     let wrap = read_keywrap(&state.dir)?;
-    let check = flux_vault::unwrap_key(&password, &wrap).map_err(|_| "wrong master password".to_string())?;
+    let check = flux_vault::unwrap_key(&password, &wrap)
+        .map_err(|_| "wrong master password".to_string())?;
     if check != dk {
         return Err("wrong master password".into());
     }
@@ -446,7 +482,13 @@ pub fn vault_disable_master_password(state: State<'_, VaultState>, password: Str
     let _ = std::fs::remove_file(state.dir.join("keywrap.json"));
     *state.protection.write() = Protection::Keychain;
     *state.source.write() = source;
-    write_meta(&state.dir, &Meta { protection: "keychain".into(), autolock_minutes: state.autolock_min.load(Ordering::Relaxed) })?;
+    write_meta(
+        &state.dir,
+        &Meta {
+            protection: "keychain".into(),
+            autolock_minutes: state.autolock_min.load(Ordering::Relaxed),
+        },
+    )?;
     Ok(())
 }
 
@@ -455,8 +497,18 @@ pub fn vault_disable_master_password(state: State<'_, VaultState>, password: Str
 #[tauri::command]
 pub fn vault_set_autolock(state: State<'_, VaultState>, minutes: u64) -> Result<(), String> {
     state.autolock_min.store(minutes, Ordering::Relaxed);
-    let protection = if *state.protection.read() == Protection::Password { "password" } else { "keychain" };
-    write_meta(&state.dir, &Meta { protection: protection.into(), autolock_minutes: minutes })
+    let protection = if *state.protection.read() == Protection::Password {
+        "password"
+    } else {
+        "keychain"
+    };
+    write_meta(
+        &state.dir,
+        &Meta {
+            protection: protection.into(),
+            autolock_minutes: minutes,
+        },
+    )
 }
 
 #[tauri::command]
@@ -465,13 +517,26 @@ pub fn vault_list(state: State<'_, VaultState>) -> Result<Vec<CredentialMeta>, S
 }
 
 #[tauri::command]
-pub fn vault_for_host(state: State<'_, VaultState>, host: String) -> Result<Vec<CredentialMeta>, String> {
-    state.read_open(|v| v.matches(&host).into_iter().map(CredentialMeta::from).collect())
+pub fn vault_for_host(
+    state: State<'_, VaultState>,
+    host: String,
+) -> Result<Vec<CredentialMeta>, String> {
+    state.read_open(|v| {
+        v.matches(&host)
+            .into_iter()
+            .map(CredentialMeta::from)
+            .collect()
+    })
 }
 
 #[tauri::command]
 pub fn vault_reveal(state: State<'_, VaultState>, id: String) -> Result<Option<String>, String> {
-    state.read_open(|v| v.entries.iter().find(|c| c.id == id).map(|c| c.password.clone()))
+    state.read_open(|v| {
+        v.entries
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.password.clone())
+    })
 }
 
 #[tauri::command]
@@ -485,7 +550,11 @@ pub fn vault_add(
     let cred = Credential {
         id: Credential::stable_id(&name, &username, &url),
         name,
-        urls: if url.trim().is_empty() { vec![] } else { vec![url] },
+        urls: if url.trim().is_empty() {
+            vec![]
+        } else {
+            vec![url]
+        },
         username,
         password,
         totp: String::new(),
@@ -508,13 +577,21 @@ pub fn vault_import_proton(
     passphrase: Option<String>,
 ) -> Result<usize, String> {
     let data = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
-    state.write_open(|v| v.import(&data, &path, passphrase.as_deref()).map_err(|e| e.to_string()))?
+    state.write_open(|v| {
+        v.import(&data, &path, passphrase.as_deref())
+            .map_err(|e| e.to_string())
+    })?
 }
 
 /// Fill the active tab's login form with credential `id` (same-origin enforced;
 /// password injected straight into the page, never via the chrome's JS).
 #[tauri::command]
-pub fn vault_fill(app: AppHandle, state: State<'_, VaultState>, tab_id: u64, id: String) -> Result<(), String> {
+pub fn vault_fill(
+    app: AppHandle,
+    state: State<'_, VaultState>,
+    tab_id: u64,
+    id: String,
+) -> Result<(), String> {
     let host = app
         .try_state::<crate::state::FluxState>()
         .and_then(|s| s.tabs.get(&tab_id).map(|t| host_of(&t.url)))
@@ -582,16 +659,27 @@ pub fn vault_page_info(
     webview: tauri::Webview,
     state: State<'_, VaultState>,
 ) -> PageVaultInfo {
-    let locked_out = PageVaultInfo { unlocked: false, count: 0, username: String::new() };
-    let Ok(tab) = caller_tab(&webview) else { return locked_out };
-    let Ok(host) = tab_host(&app, tab) else { return locked_out };
+    let locked_out = PageVaultInfo {
+        unlocked: false,
+        count: 0,
+        username: String::new(),
+    };
+    let Ok(tab) = caller_tab(&webview) else {
+        return locked_out;
+    };
+    let Ok(host) = tab_host(&app, tab) else {
+        return locked_out;
+    };
     state
         .read_open(|v| {
             let matches = v.matches(&host);
             PageVaultInfo {
                 unlocked: true,
                 count: matches.len() as u32,
-                username: matches.first().map(|c| c.username.clone()).unwrap_or_default(),
+                username: matches
+                    .first()
+                    .map(|c| c.username.clone())
+                    .unwrap_or_default(),
             }
         })
         .unwrap_or(locked_out)
@@ -678,13 +766,21 @@ pub fn vault_page_matches(
     webview: tauri::Webview,
     state: State<'_, VaultState>,
 ) -> Vec<PageMatch> {
-    let Ok(tab) = caller_tab(&webview) else { return Vec::new() };
-    let Ok(host) = tab_host(&app, tab) else { return Vec::new() };
+    let Ok(tab) = caller_tab(&webview) else {
+        return Vec::new();
+    };
+    let Ok(host) = tab_host(&app, tab) else {
+        return Vec::new();
+    };
     state
         .read_open(|v| {
             v.matches(&host)
                 .into_iter()
-                .map(|c| PageMatch { id: c.id.clone(), username: c.username.clone(), name: c.name.clone() })
+                .map(|c| PageMatch {
+                    id: c.id.clone(),
+                    username: c.username.clone(),
+                    name: c.name.clone(),
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -732,8 +828,12 @@ pub fn vault_offer_save(
     if password.is_empty() {
         return Ok(());
     }
-    let Ok(tab) = caller_tab(&webview) else { return Ok(()) };
-    let Ok(host) = tab_host(&app, tab) else { return Ok(()) };
+    let Ok(tab) = caller_tab(&webview) else {
+        return Ok(());
+    };
+    let Ok(host) = tab_host(&app, tab) else {
+        return Ok(());
+    };
     if host.is_empty() || state.never_save.read().contains(&host) {
         return Ok(());
     }
@@ -741,7 +841,9 @@ pub fn vault_offer_save(
     // silently do nothing; we can't dedupe and the save would fail anyway.
     let Ok((already, update)) = state.read_open(|v| {
         let m = v.matches(&host);
-        let already = m.iter().any(|c| c.username == username && c.password == password);
+        let already = m
+            .iter()
+            .any(|c| c.username == username && c.password == password);
         let update = !already && m.iter().any(|c| c.username == username);
         (already, update)
     }) else {
@@ -755,7 +857,14 @@ pub fn vault_offer_save(
         username: username.clone(),
         password: Zeroizing::new(password),
     });
-    let _ = app.emit("flux://vault-save-prompt", VaultSavePrompt { host, username, update });
+    let _ = app.emit(
+        "flux://vault-save-prompt",
+        VaultSavePrompt {
+            host,
+            username,
+            update,
+        },
+    );
     Ok(())
 }
 

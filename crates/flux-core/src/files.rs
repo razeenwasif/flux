@@ -107,10 +107,17 @@ mod restore {
 
 /// One reversible operation. Reverting only ever moves files back.
 enum UndoOp {
-    Rename { from: String, to: String },
+    Rename {
+        from: String,
+        to: String,
+    },
     /// (original source, where it was moved to) pairs.
-    Move { pairs: Vec<(String, String)> },
-    Trash { items: restore::Items },
+    Move {
+        pairs: Vec<(String, String)>,
+    },
+    Trash {
+        items: restore::Items,
+    },
 }
 
 impl UndoOp {
@@ -127,16 +134,25 @@ impl UndoOp {
             UndoOp::Move { pairs } => {
                 for (src, dst) in pairs.iter().rev() {
                     if std::fs::rename(dst, src).is_err() {
-                        copy_recursive(Path::new(dst), Path::new(src)).map_err(|e| e.to_string())?;
+                        copy_recursive(Path::new(dst), Path::new(src))
+                            .map_err(|e| e.to_string())?;
                         remove_path(Path::new(dst)).map_err(|e| e.to_string())?;
                     }
                 }
-                Ok(format!("Moved {} item{} back", pairs.len(), if pairs.len() == 1 { "" } else { "s" }))
+                Ok(format!(
+                    "Moved {} item{} back",
+                    pairs.len(),
+                    if pairs.len() == 1 { "" } else { "s" }
+                ))
             }
             UndoOp::Trash { items } => {
                 let n = items.len();
                 restore::restore(items)?;
-                Ok(format!("Restored {} item{} from Trash", n, if n == 1 { "" } else { "s" }))
+                Ok(format!(
+                    "Restored {} item{} from Trash",
+                    n,
+                    if n == 1 { "" } else { "s" }
+                ))
             }
         }
     }
@@ -189,7 +205,11 @@ pub async fn fs_list(path: String) -> Result<DirListing, String> {
 
 fn list_dir(path: &str) -> Result<DirListing, String> {
     // Empty / "~" → home (the Files popout panel opens with no path on first use).
-    let path = if path.is_empty() || path == "~" { home_dir() } else { path.to_string() };
+    let path = if path.is_empty() || path == "~" {
+        home_dir()
+    } else {
+        path.to_string()
+    };
     let path = path.as_str();
     // Canonicalize → absolute, `..`-resolved, existing. (Errors if it doesn't
     // exist, which is the right behavior.)
@@ -207,7 +227,13 @@ fn list_dir(path: &str) -> Result<DirListing, String> {
         let is_dir = ft.map(|t| t.is_dir()).unwrap_or(false);
         let size = None;
         let modified = None;
-        entries.push(FileEntry { name, is_dir, symlink, size, modified });
+        entries.push(FileEntry {
+            name,
+            is_dir,
+            symlink,
+            size,
+            modified,
+        });
     }
 
     Ok(DirListing {
@@ -225,7 +251,10 @@ fn list_dir(path: &str) -> Result<DirListing, String> {
 pub enum ListMsg {
     /// Sent first, once the directory opens — lets the UI set cwd / watch before
     /// any entries arrive.
-    Head { path: String, parent: Option<String> },
+    Head {
+        path: String,
+        parent: Option<String>,
+    },
     /// A batch of up to `LIST_CHUNK` entries.
     Entries { entries: Vec<FileEntry> },
     /// Sent last: how many entries were streamed in total.
@@ -254,12 +283,19 @@ pub async fn fs_list_stream(path: String, on_msg: Channel<ListMsg>) -> Result<()
 }
 
 fn stream_dir(path: &str, on_msg: &Channel<ListMsg>) -> Result<(), String> {
-    let path = if path.is_empty() || path == "~" { home_dir() } else { path.to_string() };
+    let path = if path.is_empty() || path == "~" {
+        home_dir()
+    } else {
+        path.to_string()
+    };
     let canon = std::fs::canonicalize(&path).map_err(|e| format!("{path}: {e}"))?;
     let read = std::fs::read_dir(&canon).map_err(|e| format!("{}: {e}", clean(&canon)))?;
 
     on_msg
-        .send(ListMsg::Head { path: clean(&canon), parent: canon.parent().map(clean) })
+        .send(ListMsg::Head {
+            path: clean(&canon),
+            parent: canon.parent().map(clean),
+        })
         .map_err(|e| e.to_string())?;
 
     let mut chunk: Vec<FileEntry> = Vec::with_capacity(LIST_CHUNK);
@@ -277,13 +313,19 @@ fn stream_dir(path: &str, on_msg: &Channel<ListMsg>) -> Result<(), String> {
         total += 1;
         if chunk.len() >= LIST_CHUNK {
             let batch = std::mem::replace(&mut chunk, Vec::with_capacity(LIST_CHUNK));
-            on_msg.send(ListMsg::Entries { entries: batch }).map_err(|e| e.to_string())?;
+            on_msg
+                .send(ListMsg::Entries { entries: batch })
+                .map_err(|e| e.to_string())?;
         }
     }
     if !chunk.is_empty() {
-        on_msg.send(ListMsg::Entries { entries: chunk }).map_err(|e| e.to_string())?;
+        on_msg
+            .send(ListMsg::Entries { entries: chunk })
+            .map_err(|e| e.to_string())?;
     }
-    on_msg.send(ListMsg::Done { total }).map_err(|e| e.to_string())?;
+    on_msg
+        .send(ListMsg::Done { total })
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -298,14 +340,29 @@ pub struct SearchHit {
 
 /// Heavy build/VCS dirs we never descend into during search — they're huge and
 /// rarely what the user is looking for.
-const SEARCH_SKIP: &[&str] =
-    &["node_modules", ".git", "target", "dist", "build", ".next", ".cache", "venv", ".venv", "__pycache__"];
+const SEARCH_SKIP: &[&str] = &[
+    "node_modules",
+    ".git",
+    "target",
+    "dist",
+    "build",
+    ".next",
+    ".cache",
+    "venv",
+    ".venv",
+    "__pycache__",
+];
 
 /// Recursively search filenames under `root` for a case-insensitive substring.
 /// Bounded (hit cap, depth cap, visited-node budget) so a huge tree can't hang the
 /// UI; skips hidden + heavy dirs and never follows symlinked dirs (loop-safe).
 #[tauri::command]
-pub async fn fs_search(root: String, query: String, limit: usize, semantic: bool) -> Result<Vec<SearchHit>, String> {
+pub async fn fs_search(
+    root: String,
+    query: String,
+    limit: usize,
+    semantic: bool,
+) -> Result<Vec<SearchHit>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut hits = search_tree(&root, &query, limit.clamp(1, 2000))?;
         if semantic && hits.len() > 1 {
@@ -329,11 +386,13 @@ fn semantic_rerank(query: &str, hits: &mut Vec<SearchHit>) {
         return;
     }
     let pool = hits.len().min(60); // bound the embed cost (one batched call)
-    // One batched call: [query, name0, name1, …].
+                                   // One batched call: [query, name0, name1, …].
     let mut inputs = Vec::with_capacity(pool + 1);
     inputs.push(query.to_string());
     inputs.extend(hits[..pool].iter().map(|h| h.name.clone()));
-    let Some(vecs) = embed_batch(&inputs, Embedder::Model) else { return };
+    let Some(vecs) = embed_batch(&inputs, Embedder::Model) else {
+        return;
+    };
     if vecs.len() != pool + 1 {
         return;
     }
@@ -384,7 +443,11 @@ fn fuzzy_score(needle: &str, hay: &str) -> Option<i32> {
 }
 
 fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, String> {
-    let root = if root.is_empty() || root == "~" { home_dir() } else { root.to_string() };
+    let root = if root.is_empty() || root == "~" {
+        home_dir()
+    } else {
+        root.to_string()
+    };
     let q = query.trim().to_ascii_lowercase();
     if q.is_empty() {
         return Ok(Vec::new());
@@ -400,7 +463,9 @@ fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, 
         if scored.len() >= CANDIDATE_CAP || visited >= MAX_VISIT {
             break;
         }
-        let Ok(read) = std::fs::read_dir(&dir) else { continue };
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for ent in read.flatten() {
             visited += 1;
             let name = ent.file_name().to_string_lossy().into_owned();
@@ -408,9 +473,21 @@ fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, 
             let is_dir = ft.map(|t| t.is_dir()).unwrap_or(false);
             let is_link = ft.map(|t| t.is_symlink()).unwrap_or(false);
             if let Some(score) = fuzzy_score(&q, &name.to_ascii_lowercase()) {
-                scored.push((score, SearchHit { path: clean(&ent.path()), name: name.clone(), is_dir }));
+                scored.push((
+                    score,
+                    SearchHit {
+                        path: clean(&ent.path()),
+                        name: name.clone(),
+                        is_dir,
+                    },
+                ));
             }
-            if is_dir && !is_link && depth < MAX_DEPTH && !name.starts_with('.') && !SEARCH_SKIP.contains(&name.as_str()) {
+            if is_dir
+                && !is_link
+                && depth < MAX_DEPTH
+                && !name.starts_with('.')
+                && !SEARCH_SKIP.contains(&name.as_str())
+            {
                 stack.push((ent.path(), depth + 1));
             }
         }
@@ -430,17 +507,27 @@ pub fn fs_home() -> String {
 /// Windows) installed WSL distributions.
 #[tauri::command]
 pub async fn fs_quick_locations() -> Vec<QuickLocation> {
-    tauri::async_runtime::spawn_blocking(quick_locations).await.unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(quick_locations)
+        .await
+        .unwrap_or_default()
 }
 
 fn quick_locations() -> Vec<QuickLocation> {
     let mut out = Vec::new();
     let home = home_dir();
-    out.push(QuickLocation { name: "Home".into(), path: home.clone(), kind: "home" });
+    out.push(QuickLocation {
+        name: "Home".into(),
+        path: home.clone(),
+        kind: "home",
+    });
     for sub in ["Desktop", "Documents", "Downloads"] {
         let p = format!("{home}/{sub}");
         if Path::new(&p).is_dir() {
-            out.push(QuickLocation { name: sub.into(), path: p, kind: "folder" });
+            out.push(QuickLocation {
+                name: sub.into(),
+                path: p,
+                kind: "folder",
+            });
         }
     }
     #[cfg(windows)]
@@ -450,7 +537,11 @@ fn quick_locations() -> Vec<QuickLocation> {
     }
     #[cfg(not(windows))]
     if Path::new("/").is_dir() {
-        out.push(QuickLocation { name: "/".into(), path: "/".into(), kind: "drive" });
+        out.push(QuickLocation {
+            name: "/".into(),
+            path: "/".into(),
+            kind: "drive",
+        });
     }
     out
 }
@@ -487,7 +578,11 @@ fn windows_drives() -> Vec<QuickLocation> {
             DRIVE_FIXED => format!("{}:", letter),
             _ => continue,
         };
-        out.push(QuickLocation { name: label, path, kind: "drive" });
+        out.push(QuickLocation {
+            name: label,
+            path,
+            kind: "drive",
+        });
     }
     out
 }
@@ -497,8 +592,8 @@ fn windows_drives() -> Vec<QuickLocation> {
 /// `wsl.exe -l -q`; resilient to UTF-16LE/UTF-8 output and BOM/NUL noise.
 #[cfg(windows)]
 fn wsl_distros() -> Vec<QuickLocation> {
-    use std::os::windows::process::CommandExt;
     use std::collections::HashSet;
+    use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000; // no flash of a console window
 
     let mut out = Vec::new();
@@ -534,8 +629,16 @@ fn wsl_distros() -> Vec<QuickLocation> {
         Ok(o) if o.status.success() => o.stdout,
         _ => {
             return vec![
-                QuickLocation { name: "WSL".into(), path: r"\\wsl.localhost\".into(), kind: "linux" },
-                QuickLocation { name: "WSL (legacy)".into(), path: r"\\wsl$\".into(), kind: "linux" },
+                QuickLocation {
+                    name: "WSL".into(),
+                    path: r"\\wsl.localhost\".into(),
+                    kind: "linux",
+                },
+                QuickLocation {
+                    name: "WSL (legacy)".into(),
+                    path: r"\\wsl$\".into(),
+                    kind: "linux",
+                },
             ];
         }
     };
@@ -555,20 +658,25 @@ fn wsl_distros() -> Vec<QuickLocation> {
         }
     };
 
-    out.extend(text.replace('\0', "")
-        .trim_start_matches('\u{feff}')
-        .lines()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .filter(|name| seen.insert(name.to_ascii_lowercase()))
-        .map(|name| QuickLocation {
-            name: name.to_string(),
-            path: format!(r"\\wsl.localhost\{name}"),
-            kind: "linux",
-        })
+    out.extend(
+        text.replace('\0', "")
+            .trim_start_matches('\u{feff}')
+            .lines()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .filter(|name| seen.insert(name.to_ascii_lowercase()))
+            .map(|name| QuickLocation {
+                name: name.to_string(),
+                path: format!(r"\\wsl.localhost\{name}"),
+                kind: "linux",
+            }),
     );
     if out.is_empty() {
-        out.push(QuickLocation { name: "WSL".into(), path: r"\\wsl.localhost\".into(), kind: "linux" });
+        out.push(QuickLocation {
+            name: "WSL".into(),
+            path: r"\\wsl.localhost\".into(),
+            kind: "linux",
+        });
     }
     out
 }
@@ -629,7 +737,10 @@ fn unique_path(target: &Path) -> std::path::PathBuf {
         return target.to_path_buf();
     }
     let parent = target.parent().map(Path::to_path_buf).unwrap_or_default();
-    let stem = target.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = target
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let ext = target.extension().map(|e| e.to_string_lossy().into_owned());
     let mut n = 1;
     loop {
@@ -698,32 +809,39 @@ pub async fn fs_rename(undo: State<'_, UndoStack>, from: String, to: String) -> 
 /// Move each of `paths` into directory `dest`. Tries `rename`, falling back to
 /// copy+delete across filesystems. Refuses to overwrite an existing target.
 #[tauri::command]
-pub async fn fs_move(undo: State<'_, UndoStack>, paths: Vec<String>, dest: String) -> Result<(), String> {
+pub async fn fs_move(
+    undo: State<'_, UndoStack>,
+    paths: Vec<String>,
+    dest: String,
+) -> Result<(), String> {
     let (paths2, dest2) = (paths.clone(), dest.clone());
-    let pairs = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<(String, String)>, String> {
-        let dest = Path::new(&dest2);
-        let mut pairs = Vec::new();
-        for src in &paths2 {
-            let src_p = Path::new(src);
-            let name = src_p.file_name().ok_or_else(|| format!("bad path: {}", clean(src_p)))?;
-            let target = dest.join(name);
-            if target == src_p {
-                continue; // moving onto itself — no-op
+    let pairs =
+        tauri::async_runtime::spawn_blocking(move || -> Result<Vec<(String, String)>, String> {
+            let dest = Path::new(&dest2);
+            let mut pairs = Vec::new();
+            for src in &paths2 {
+                let src_p = Path::new(src);
+                let name = src_p
+                    .file_name()
+                    .ok_or_else(|| format!("bad path: {}", clean(src_p)))?;
+                let target = dest.join(name);
+                if target == src_p {
+                    continue; // moving onto itself — no-op
+                }
+                if target.exists() {
+                    return Err(format!("{} already exists", clean(&target)));
+                }
+                if std::fs::rename(src_p, &target).is_err() {
+                    // Cross-device (or rename refused): copy then remove the source.
+                    copy_recursive(src_p, &target).map_err(|e| e.to_string())?;
+                    remove_path(src_p).map_err(|e| e.to_string())?;
+                }
+                pairs.push((src.clone(), clean(&target)));
             }
-            if target.exists() {
-                return Err(format!("{} already exists", clean(&target)));
-            }
-            if std::fs::rename(src_p, &target).is_err() {
-                // Cross-device (or rename refused): copy then remove the source.
-                copy_recursive(src_p, &target).map_err(|e| e.to_string())?;
-                remove_path(src_p).map_err(|e| e.to_string())?;
-            }
-            pairs.push((src.clone(), clean(&target)));
-        }
-        Ok(pairs)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+            Ok(pairs)
+        })
+        .await
+        .map_err(|e| e.to_string())??;
     if !pairs.is_empty() {
         undo.push(UndoOp::Move { pairs });
     }
@@ -738,7 +856,9 @@ pub async fn fs_copy(paths: Vec<String>, dest: String) -> Result<(), String> {
         let dest = Path::new(&dest);
         for src in &paths {
             let src = Path::new(src);
-            let name = src.file_name().ok_or_else(|| format!("bad path: {}", clean(src)))?;
+            let name = src
+                .file_name()
+                .ok_or_else(|| format!("bad path: {}", clean(src)))?;
             let target = unique_path(&dest.join(name));
             copy_recursive(src, &target).map_err(|e| format!("{}: {e}", clean(src)))?;
         }
@@ -790,7 +910,12 @@ pub async fn fs_undo(undo: State<'_, UndoStack>) -> Result<Option<String>, Strin
 /// Start (or replace) a live watch on `path` for the Files tab `id`. Emits
 /// `flux://fs-changed` with the watched directory when its contents change.
 #[tauri::command]
-pub async fn fs_watch(app: AppHandle, watchers: State<'_, FsWatchers>, id: u64, path: String) -> Result<(), String> {
+pub async fn fs_watch(
+    app: AppHandle,
+    watchers: State<'_, FsWatchers>,
+    id: u64,
+    path: String,
+) -> Result<(), String> {
     let watcher = tauri::async_runtime::spawn_blocking(move || make_watcher(app, path))
         .await
         .map_err(|e| e.to_string())??;
@@ -841,8 +966,15 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
     tauri::async_runtime::spawn_blocking(move || {
         use base64::Engine as _;
         let p = Path::new(&path);
-        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
-        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.clone());
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         let meta = std::fs::metadata(p).map_err(|e| format!("can't read {name}: {e}"))?;
         if meta.len() > 20 * 1024 * 1024 {
             return Err(format!("{name} is too large (max 20 MB)"));
@@ -857,19 +989,63 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
         };
         let is_text = matches!(
             ext.as_str(),
-            "txt" | "md" | "markdown" | "json" | "jsonc" | "csv" | "tsv" | "log" | "yaml" | "yml" | "toml"
-                | "ini" | "xml" | "html" | "htm" | "css" | "js" | "jsx" | "ts" | "tsx" | "rs" | "py" | "go"
-                | "java" | "c" | "cpp" | "h" | "sh" | "sql" | "rb" | "php" | "swift" | "kt"
+            "txt"
+                | "md"
+                | "markdown"
+                | "json"
+                | "jsonc"
+                | "csv"
+                | "tsv"
+                | "log"
+                | "yaml"
+                | "yml"
+                | "toml"
+                | "ini"
+                | "xml"
+                | "html"
+                | "htm"
+                | "css"
+                | "js"
+                | "jsx"
+                | "ts"
+                | "tsx"
+                | "rs"
+                | "py"
+                | "go"
+                | "java"
+                | "c"
+                | "cpp"
+                | "h"
+                | "sh"
+                | "sql"
+                | "rb"
+                | "php"
+                | "swift"
+                | "kt"
         );
         let bytes = std::fs::read(p).map_err(|e| format!("can't read {name}: {e}"))?;
         if let Some(mime) = image_mime {
             let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
             let data_url = format!("data:{mime};base64,{b64}");
-            Ok(DroppedAttachment { kind: "image".into(), name, b64, text: String::new(), data_url })
+            Ok(DroppedAttachment {
+                kind: "image".into(),
+                name,
+                b64,
+                text: String::new(),
+                data_url,
+            })
         } else if is_text {
-            Ok(DroppedAttachment { kind: "text".into(), name, b64: String::new(), text: String::from_utf8_lossy(&bytes).into_owned(), data_url: String::new() })
+            Ok(DroppedAttachment {
+                kind: "text".into(),
+                name,
+                b64: String::new(),
+                text: String::from_utf8_lossy(&bytes).into_owned(),
+                data_url: String::new(),
+            })
         } else {
-            Err(format!("can't attach {name} — only images and text files are supported"))
+            Err(format!(
+                "can't attach {name} — only images and text files are supported"
+            ))
         }
     })
     .await
@@ -917,7 +1093,10 @@ fn read_text_raw(p: &str) -> Result<String, String> {
             .output()
             .map_err(|e| format!("couldn't read {p} via WSL: {e}"))?;
         if !out.status.success() {
-            let err: String = String::from_utf8_lossy(&out.stderr).chars().take(160).collect();
+            let err: String = String::from_utf8_lossy(&out.stderr)
+                .chars()
+                .take(160)
+                .collect();
             return Err(format!("can't read {p}: {}", err.trim()));
         }
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
@@ -928,7 +1107,9 @@ fn read_text_raw(p: &str) -> Result<String, String> {
 #[cfg(not(windows))]
 fn read_text_raw(p: &str) -> Result<String, String> {
     let expanded = if let Some(rest) = p.strip_prefix("~/") {
-        std::env::var("HOME").map(|h| format!("{h}/{rest}")).unwrap_or_else(|_| p.to_string())
+        std::env::var("HOME")
+            .map(|h| format!("{h}/{rest}"))
+            .unwrap_or_else(|_| p.to_string())
     } else {
         p.to_string()
     };
@@ -967,9 +1148,18 @@ fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
             .stdin(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| format!("couldn't write {p} via WSL: {e}"))?;
-        child.stdin.take().ok_or("no stdin")?.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+        child
+            .stdin
+            .take()
+            .ok_or("no stdin")?
+            .write_all(content.as_bytes())
+            .map_err(|e| e.to_string())?;
         let status = child.wait().map_err(|e| e.to_string())?;
-        return if status.success() { Ok(()) } else { Err(format!("WSL write of {p} failed")) };
+        return if status.success() {
+            Ok(())
+        } else {
+            Err(format!("WSL write of {p} failed"))
+        };
     }
     std::fs::write(p, content).map_err(|e| format!("can't write {p}: {e}"))
 }
@@ -977,7 +1167,9 @@ fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
 #[cfg(not(windows))]
 fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
     let expanded = if let Some(rest) = p.strip_prefix("~/") {
-        std::env::var("HOME").map(|h| format!("{h}/{rest}")).unwrap_or_else(|_| p.to_string())
+        std::env::var("HOME")
+            .map(|h| format!("{h}/{rest}"))
+            .unwrap_or_else(|_| p.to_string())
     } else {
         p.to_string()
     };
@@ -1020,7 +1212,10 @@ mod search_tests {
         assert!(fuzzy.iter().any(|h| h.name == "MyConfigFile.json"));
         // The best fuzzy match ranks first: "config" → MyConfigFile, not alpha files.
         let cfg = search_tree(&root, "config", 100).unwrap();
-        assert_eq!(cfg.first().map(|h| h.name.as_str()), Some("MyConfigFile.json"));
+        assert_eq!(
+            cfg.first().map(|h| h.name.as_str()),
+            Some("MyConfigFile.json")
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }

@@ -60,13 +60,39 @@ mod tests {
     use crate::state::{FluxState, TabKind, TabMeta};
 
     fn tab(id: TabId, pinned: bool) -> TabMeta {
-        TabMeta { id, kind: TabKind::Browser, url: format!("https://{id}.test"), title: String::new(), pinned, cluster: None, group: None, folder: None, custom_title: None, workspace: 1, private: false, container: 0 }
+        TabMeta {
+            id,
+            kind: TabKind::Browser,
+            url: format!("https://{id}.test"),
+            title: String::new(),
+            pinned,
+            cluster: None,
+            group: None,
+            folder: None,
+            custom_title: None,
+            workspace: 1,
+            private: false,
+            container: 0,
+        }
     }
 
     #[test]
     fn round_trips() {
         let path = std::env::temp_dir().join(format!("flux-sess-{}-a.json", std::process::id()));
-        save(&path, &Session { tabs: vec![tab(2, true), tab(5, false)], active: 5, next_id: 6, groups: vec![], folders: vec![], workspaces: vec![], active_workspace: 1, panels: vec![], containers: vec![] });
+        save(
+            &path,
+            &Session {
+                tabs: vec![tab(2, true), tab(5, false)],
+                active: 5,
+                next_id: 6,
+                groups: vec![],
+                folders: vec![],
+                workspaces: vec![],
+                active_workspace: 1,
+                panels: vec![],
+                containers: vec![],
+            },
+        );
         let loaded = load(&path);
         assert_eq!(loaded.tabs.len(), 2);
         assert_eq!(loaded.active, 5);
@@ -77,18 +103,36 @@ mod tests {
 
     #[test]
     fn missing_file_is_empty() {
-        assert!(load(Path::new("/no/such/flux-session.json")).tabs.is_empty());
+        assert!(load(Path::new("/no/such/flux-session.json"))
+            .tabs
+            .is_empty());
     }
 
     #[test]
     fn restore_repopulates_and_bumps_next_id() {
         let path = std::env::temp_dir().join(format!("flux-sess-{}-b.json", std::process::id()));
         // next_id is deliberately stale (2) behind the restored ids (max 7).
-        save(&path, &Session { tabs: vec![tab(7, true)], active: 7, next_id: 2, groups: vec![], folders: vec![], workspaces: vec![], active_workspace: 1, panels: vec![], containers: vec![] });
+        save(
+            &path,
+            &Session {
+                tabs: vec![tab(7, true)],
+                active: 7,
+                next_id: 2,
+                groups: vec![],
+                folders: vec![],
+                workspaces: vec![],
+                active_workspace: 1,
+                panels: vec![],
+                containers: vec![],
+            },
+        );
         let state = FluxState::restore(path.clone());
         assert_eq!(state.active_tab(), Some(7));
         assert!(state.tabs.contains_key(&7));
-        assert!(state.alloc_tab_id() >= 8, "next id must clear every restored id");
+        assert!(
+            state.alloc_tab_id() >= 8,
+            "next id must clear every restored id"
+        );
         let _ = std::fs::remove_file(&path);
     }
 }

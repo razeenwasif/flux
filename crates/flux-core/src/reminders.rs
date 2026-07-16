@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
-#[derive(Serialize, Deserialize, Clone, specta::Type)]pub struct Reminder {
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
+pub struct Reminder {
     pub id: String,
     pub text: String,
     pub due: Option<i64>, // epoch ms; None = an undated to-do
@@ -30,7 +31,10 @@ use tauri_plugin_notification::NotificationExt;
 static LOCK: Mutex<()> = Mutex::new(());
 
 fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -60,14 +64,26 @@ pub fn reminders_list(app: AppHandle) -> Vec<Reminder> {
 }
 
 #[tauri::command]
-pub fn reminders_add(app: AppHandle, id: String, text: String, due: Option<i64>, created: i64) -> Result<(), String> {
+pub fn reminders_add(
+    app: AppHandle,
+    id: String,
+    text: String,
+    due: Option<i64>,
+    created: i64,
+) -> Result<(), String> {
     let text = text.trim().to_string();
     if text.is_empty() {
         return Err("nothing to remind about".into());
     }
     let _g = LOCK.lock();
     let mut rs = load(&app);
-    rs.push(Reminder { id, text, due, fired: false, created });
+    rs.push(Reminder {
+        id,
+        text,
+        due,
+        fired: false,
+        created,
+    });
     save(&app, &rs)
 }
 

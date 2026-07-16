@@ -155,9 +155,15 @@ impl SyncState {
         self.key.read().is_some() && self.folder.read().is_some()
     }
     fn persist_config(&self) {
-        let Some(path) = &self.config_path else { return };
+        let Some(path) = &self.config_path else {
+            return;
+        };
         let cfg = Config {
-            folder: self.folder.read().as_ref().map(|p| p.to_string_lossy().into_owned()),
+            folder: self
+                .folder
+                .read()
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned()),
             last_ms: *self.last_ms.read(),
             auto: self.auto(),
         };
@@ -166,7 +172,11 @@ impl SyncState {
 
     fn status(&self) -> SyncStatus {
         SyncStatus {
-            folder: self.folder.read().as_ref().map(|p| p.to_string_lossy().into_owned()),
+            folder: self
+                .folder
+                .read()
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned()),
             unlocked: self.key.read().is_some(),
             last_ms: *self.last_ms.read(),
             auto: self.auto(),
@@ -175,7 +185,10 @@ impl SyncState {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 // ─── Commands ────────────────────────────────────────────────────────────────
@@ -187,7 +200,11 @@ pub fn sync_status(state: State<'_, SyncState>) -> SyncStatus {
 
 #[tauri::command]
 pub fn sync_set_folder(state: State<'_, SyncState>, path: String) {
-    *state.folder.write() = if path.trim().is_empty() { None } else { Some(PathBuf::from(path)) };
+    *state.folder.write() = if path.trim().is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(path))
+    };
     // Folder changed → must unlock again (salt may differ).
     *state.key.write() = None;
     *state.salt.write() = None;
@@ -204,7 +221,11 @@ pub fn sync_lock(state: State<'_, SyncState>) {
 /// (so every device agrees) or a fresh one for a first device. Verifies by
 /// decrypting if a blob exists — a wrong passphrase fails here, not silently.
 #[tauri::command]
-pub fn sync_unlock(app: AppHandle, state: State<'_, SyncState>, passphrase: String) -> Result<(), String> {
+pub fn sync_unlock(
+    app: AppHandle,
+    state: State<'_, SyncState>,
+    passphrase: String,
+) -> Result<(), String> {
     if passphrase.is_empty() {
         return Err("enter a passphrase".into());
     }
@@ -217,7 +238,8 @@ pub fn sync_unlock(app: AppHandle, state: State<'_, SyncState>, passphrase: Stri
     let key = derive_key(&passphrase, &salt)?;
     // If there's an existing blob, the passphrase must open it.
     if let Some(blob) = &existing {
-        open(&key, sealed_part(blob)).map_err(|_| "wrong passphrase for this sync folder".to_string())?;
+        open(&key, sealed_part(blob))
+            .map_err(|_| "wrong passphrase for this sync folder".to_string())?;
     }
     *state.salt.write() = Some(salt);
     *state.key.write() = Some(key);
@@ -234,7 +256,10 @@ pub fn sync_unlock(app: AppHandle, state: State<'_, SyncState>, passphrase: Stri
 /// can call it too — both resolve the stores off the `app` handle.
 fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     let state = app.state::<SyncState>();
-    let key = state.key.read().ok_or("unlock sync with your passphrase first")?;
+    let key = state
+        .key
+        .read()
+        .ok_or("unlock sync with your passphrase first")?;
     let salt = state.salt.read().ok_or("unlock first")?;
     let blob_path = state.blob_path().ok_or("set a sync folder first")?;
 
@@ -243,10 +268,15 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     let history = app.state::<crate::history::HistoryStore>();
 
     // ── Pull: merge any remote payload into the local stores (tombstones first). ──
-    let mut report = SyncReport { bookmarks_added: 0, sessions_added: 0, history_added: 0 };
+    let mut report = SyncReport {
+        bookmarks_added: 0,
+        sessions_added: 0,
+        history_added: 0,
+    };
     if let Ok(blob) = std::fs::read(&blob_path) {
         let plain = open(&key, sealed_part(&blob))?;
-        let remote: Payload = serde_json::from_slice(&plain).map_err(|e| format!("bad sync payload: {e}"))?;
+        let remote: Payload =
+            serde_json::from_slice(&plain).map_err(|e| format!("bad sync payload: {e}"))?;
         report.bookmarks_added = bookmarks.merge(remote.bookmarks, &remote.bookmark_tombstones);
         report.sessions_added = sessions.merge(remote.sessions, &remote.session_tombstones);
         report.history_added = history.merge_remote(remote.history);
@@ -287,7 +317,9 @@ pub fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
 /// few minutes while the folder is set + unlocked, and once right after unlock.
 #[tauri::command]
 pub fn sync_set_auto(app: AppHandle, state: State<'_, SyncState>, enabled: bool) {
-    state.auto.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    state
+        .auto
+        .store(enabled, std::sync::atomic::Ordering::Relaxed);
     state.persist_config();
     // Sync immediately so toggling on doesn't wait a full interval.
     if enabled && state.ready() {
@@ -319,7 +351,9 @@ fn emit_sync(app: &AppHandle, result: Result<SyncReport, String>) {
 pub fn spawn_auto(app: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_secs(AUTO_INTERVAL_SECS));
-        let Some(state) = app.try_state::<SyncState>() else { continue };
+        let Some(state) = app.try_state::<SyncState>() else {
+            continue;
+        };
         if state.auto() && state.ready() {
             emit_sync(&app, run_sync(&app));
         }

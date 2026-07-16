@@ -27,7 +27,10 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new(cols: u16, rows: u16) -> Self {
-        Self { parser: vte::Parser::new(), grid: Grid::new(cols, rows) }
+        Self {
+            parser: vte::Parser::new(),
+            grid: Grid::new(cols, rows),
+        }
     }
 
     /// Feed raw PTY output. Damage tracking happens inside the grid, so the

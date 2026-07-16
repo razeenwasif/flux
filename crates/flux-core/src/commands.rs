@@ -59,7 +59,13 @@ pub fn shell_snapshot(state: State<'_, FluxState>) -> ShellSnapshot {
 /// the child webview (labelled `tab-{id}`) once this returns; for Terminal
 /// tabs flux-core spawns a PTY session (BACKLOG #3) with `terminal_env`.
 #[tauri::command]
-pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String>, private: Option<bool>, container: Option<u32>) -> TabMeta {
+pub fn tab_create(
+    state: State<'_, FluxState>,
+    kind: TabKind,
+    url: Option<String>,
+    private: Option<bool>,
+    container: Option<u32>,
+) -> TabMeta {
     let id = state.alloc_tab_id();
     let (url, title) = match kind {
         // No url → the Flux start page (the frontend renders the dashboard and
@@ -77,7 +83,20 @@ pub fn tab_create(state: State<'_, FluxState>, kind: TabKind, url: Option<String
             (start, title)
         }
     };
-    let meta = TabMeta { id, kind, url, title, pinned: false, cluster: None, group: None, folder: None, custom_title: None, workspace: state.active_workspace(), private: private.unwrap_or(false), container: container.unwrap_or(0) };
+    let meta = TabMeta {
+        id,
+        kind,
+        url,
+        title,
+        pinned: false,
+        cluster: None,
+        group: None,
+        folder: None,
+        custom_title: None,
+        workspace: state.active_workspace(),
+        private: private.unwrap_or(false),
+        container: container.unwrap_or(0),
+    };
     state.tabs.insert(id, meta.clone());
     state.order_push(id);
     state.set_active_tab(id);
@@ -190,7 +209,12 @@ pub fn groups_list(state: State<'_, FluxState>) -> Vec<crate::state::TabGroup> {
 
 /// Create a group (optionally seeded with `tab_ids`); returns its id.
 #[tauri::command]
-pub fn group_create(state: State<'_, FluxState>, name: String, color: u32, tab_ids: Vec<TabId>) -> u32 {
+pub fn group_create(
+    state: State<'_, FluxState>,
+    name: String,
+    color: u32,
+    tab_ids: Vec<TabId>,
+) -> u32 {
     let id = state.group_create(name, color);
     for t in tab_ids {
         state.set_tab_group(t, Some(id));
@@ -239,7 +263,12 @@ pub fn folder_create(state: State<'_, FluxState>, name: String) -> u32 {
 }
 
 #[tauri::command]
-pub fn folder_update(state: State<'_, FluxState>, id: u32, name: Option<String>, collapsed: Option<bool>) {
+pub fn folder_update(
+    state: State<'_, FluxState>,
+    id: u32,
+    name: Option<String>,
+    collapsed: Option<bool>,
+) {
     state.folder_update(id, name, collapsed);
     state.persist();
 }
@@ -318,7 +347,12 @@ pub fn workspace_create(state: State<'_, FluxState>, name: String, color: u32) -
 }
 
 #[tauri::command]
-pub fn workspace_update(state: State<'_, FluxState>, id: u32, name: Option<String>, color: Option<u32>) {
+pub fn workspace_update(
+    state: State<'_, FluxState>,
+    id: u32,
+    name: Option<String>,
+    color: Option<u32>,
+) {
     state.workspace_update(id, name, color);
     state.persist();
 }
@@ -347,7 +381,12 @@ pub fn container_create(state: State<'_, FluxState>, name: String, color: u32) -
 }
 
 #[tauri::command]
-pub fn container_update(state: State<'_, FluxState>, id: u32, name: Option<String>, color: Option<u32>) {
+pub fn container_update(
+    state: State<'_, FluxState>,
+    id: u32,
+    name: Option<String>,
+    color: Option<u32>,
+) {
     state.container_update(id, name, color);
     state.persist();
 }
@@ -366,7 +405,11 @@ pub fn panels_list(state: State<'_, FluxState>) -> Vec<crate::state::WebPanel> {
 }
 
 #[tauri::command]
-pub fn panel_add(state: State<'_, FluxState>, url: String, title: String) -> crate::state::WebPanel {
+pub fn panel_add(
+    state: State<'_, FluxState>,
+    url: String,
+    title: String,
+) -> crate::state::WebPanel {
     let p = state.panel_add(url, title);
     state.persist();
     p
@@ -384,7 +427,6 @@ pub fn panel_reorder(state: State<'_, FluxState>, ids: Vec<u32>) {
     state.panel_reorder(ids);
     state.persist();
 }
-
 
 // ─── Semantic tab clustering ────────────────────────────────────────────────
 
@@ -407,16 +449,18 @@ pub async fn tabs_recluster(app: AppHandle, state: State<'_, FluxState>) -> Resu
         .map(|e| (*e.key(), Arc::clone(&e.value().text)))
         .collect();
 
-    let assignments = tauri::async_runtime::spawn_blocking(move || {
-        flux_embed::cluster(&docs)
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    let assignments = tauri::async_runtime::spawn_blocking(move || flux_embed::cluster(&docs))
+        .await
+        .map_err(|e| e.to_string())?;
 
     for (tab, tag) in assignments {
         if let Some(mut meta) = state.tabs.get_mut(&tab) {
-            meta.cluster = Some(crate::state::ClusterTag { id: tag.id, color: tag.color });
+            meta.cluster = Some(crate::state::ClusterTag {
+                id: tag.id,
+                color: tag.color,
+            });
         }
     }
-    app.emit("flux://clusters-updated", ()).map_err(|e| e.to_string())
+    app.emit("flux://clusters-updated", ())
+        .map_err(|e| e.to_string())
 }

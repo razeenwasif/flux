@@ -11,49 +11,49 @@
 //! Scope today: the `state.rs` IPC types (the largest hand-mirrored surface).
 //! Remaining types + command signatures migrate incrementally (still #12).
 
+use crate::agent::OmniHit;
 use crate::archive::{ArchiveEntryWire, ArchiveMeta};
 use crate::bookmarks::Bookmark;
 use crate::boosts::Boost;
 use crate::calendar::{CalEvent, CalFeed, LocalEvent};
-use crate::currency::CurrencyRates;
-use crate::shellhist::ShellHistHit;
-use crate::semfind::FindHit;
-use crate::watch::WatchItem;
-use crate::trackers::{TrackerEdge, TrackerGraph, TrackerNode};
-use crate::agent::OmniHit;
+use crate::cli::LaunchIntent;
 use crate::commands::ShellSnapshot;
-use crate::dom::ReaderBlock;
 use crate::cookies::CookieStatus;
+use crate::currency::CurrencyRates;
+use crate::dom::ReaderBlock;
 use crate::downloads::DownloadItem;
 use crate::extensions::{ContentScript, InstalledExt, Manifest, ToolbarButton, UiContrib};
 use crate::feeds::{Feed, FeedItem};
 use crate::files::{DirListing, FileEntry, QuickLocation};
-use crate::kb::{KbCheck, KbHit, KbRecentItem, KbSourceStat, KbStatus};
-use crate::tui_apps::TuiApp;
-use crate::specialists::Specialist;
-use crate::services::ServiceStatus;
-use crate::spotify::{SpotifyPlaylist, SpotifyState};
+use crate::hibernate::{EvictionRank, HibernateCandidate};
 use crate::history::HistoryEntry;
 use crate::https::HttpsStatus;
+use crate::kb::{KbCheck, KbHit, KbRecentItem, KbSourceStat, KbStatus};
 use crate::leanmode::LeanStatus;
 use crate::macros::{Macro, MacroStatus, Step};
+use crate::mem::MemInfo;
 use crate::netspeed::SpeedResult;
 use crate::permissions::{PermAsk, PermDecision, PermKind, SitePerm};
+use crate::prefetch::PrefetchHint;
 use crate::pwa::PwaApp;
+use crate::reminders::Reminder;
+use crate::semfind::FindHit;
+use crate::services::ServiceStatus;
 use crate::sessions::{DaySnapshot, SavedSession, SavedTab};
+use crate::shellhist::ShellHistHit;
 use crate::shields::{HotRule, ShieldsStatus};
+use crate::specialists::Specialist;
+use crate::spotify::{SpotifyPlaylist, SpotifyState};
 use crate::state::{
     AgentStatus, ClusterTag, Container, TabFolder, TabGroup, TabKind, TabMeta, WebPanel, Workspace,
 };
 use crate::sync::{SyncReport, SyncStatus};
 use crate::taskmgr::{GpuInfo, ProcInfo, SysStats};
 use crate::todos::Todo;
+use crate::trackers::{TrackerEdge, TrackerGraph, TrackerNode};
+use crate::tui_apps::TuiApp;
 use crate::vault::{CredentialMeta, VaultSavePrompt, VaultStatus};
-use crate::cli::LaunchIntent;
-use crate::hibernate::{EvictionRank, HibernateCandidate};
-use crate::mem::MemInfo;
-use crate::prefetch::PrefetchHint;
-use crate::reminders::Reminder;
+use crate::watch::WatchItem;
 
 /// Path to the generated bindings, relative to the crate root (= CWD under
 /// `cargo test`/`cargo run`).

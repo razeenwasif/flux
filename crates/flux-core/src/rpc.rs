@@ -50,17 +50,29 @@ struct ActiveContext {
 /// Called on `dom_publish` (active tab) and on tab switch. No-op without an
 /// `RpcDir`. Keeps the last browser context when the active tab isn't a browser.
 pub fn publish_active(app: &tauri::AppHandle) {
-    let Some(dir) = app.try_state::<RpcDir>() else { return };
+    let Some(dir) = app.try_state::<RpcDir>() else {
+        return;
+    };
     let state = app.state::<FluxState>();
     let Some(id) = state.active_tab() else { return };
-    let Some(tab) = state.tabs.get(&id) else { return };
+    let Some(tab) = state.tabs.get(&id) else {
+        return;
+    };
     if tab.kind != TabKind::Browser {
         return; // terminal/files tab → leave the last page's context in place
     }
 
     let ctx = if tab.private {
         // Private tabs leave no trace on disk.
-        ActiveContext { tab_id: id, url: String::new(), title: String::new(), private: true, captured_ms: 0, text: String::new(), links: Vec::new() }
+        ActiveContext {
+            tab_id: id,
+            url: String::new(),
+            title: String::new(),
+            private: true,
+            captured_ms: 0,
+            text: String::new(),
+            links: Vec::new(),
+        }
     } else {
         let snap = state.dom_cache.get(&id);
         let Some(snap) = snap else { return }; // no snapshot yet → keep last
@@ -81,7 +93,9 @@ pub fn publish_active(app: &tauri::AppHandle) {
 /// Serialize + write via a temp file then rename, so a reader never sees a
 /// half-written file.
 fn write_atomic(path: &std::path::Path, ctx: &ActiveContext) {
-    let Ok(json) = serde_json::to_string_pretty(ctx) else { return };
+    let Ok(json) = serde_json::to_string_pretty(ctx) else {
+        return;
+    };
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, json.as_bytes()).is_ok() {
         let _ = std::fs::rename(&tmp, path); // replaces on all platforms
@@ -102,7 +116,9 @@ fn extract_links(html: &str) -> Vec<String> {
             _ => continue,
         };
         let rest = &rest[1..];
-        let Some(end) = rest.find(quote) else { continue };
+        let Some(end) = rest.find(quote) else {
+            continue;
+        };
         let href = &rest[..end];
         if (href.starts_with("http://") || href.starts_with("https://")) && seen.insert(href) {
             out.push(href.to_string());
@@ -124,7 +140,10 @@ mod tests {
         let html = r##"<a href="https://a.com/x">A</a><a href='https://b.com'>B</a>
             <a href="/relative">rel</a><a href="https://a.com/x">dup</a><a href="#frag">f</a>"##;
         let links = extract_links(html);
-        assert_eq!(links, vec!["https://a.com/x".to_string(), "https://b.com".to_string()]);
+        assert_eq!(
+            links,
+            vec!["https://a.com/x".to_string(), "https://b.com".to_string()]
+        );
     }
 
     #[test]

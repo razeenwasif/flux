@@ -57,7 +57,11 @@ impl FeedStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let next = feeds.iter().map(|f| f.id).max().unwrap_or(0) + 1;
-        Self { feeds: RwLock::new(feeds), next_id: AtomicU64::new(next), path: Some(path) }
+        Self {
+            feeds: RwLock::new(feeds),
+            next_id: AtomicU64::new(next),
+            path: Some(path),
+        }
     }
 
     pub fn list(&self) -> Vec<Feed> {
@@ -111,7 +115,10 @@ fn fetch_text(url: &str) -> Result<String, String> {
     let resp = agent
         .get(url)
         .set("User-Agent", "Mozilla/5.0")
-        .set("Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml, */*")
+        .set(
+            "Accept",
+            "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        )
         .call()
         .map_err(|e| e.to_string())?;
     let mut buf = Vec::new();
@@ -150,13 +157,20 @@ fn parse_feed(doc: &str) -> Parsed {
     let item_tag = if is_atom { "entry" } else { "item" };
 
     // Feed title lives in the header, before the first item.
-    let header_end = find_tag_open(doc, item_tag, 0).map(|(s, _)| s).unwrap_or(doc.len());
+    let header_end = find_tag_open(doc, item_tag, 0)
+        .map(|(s, _)| s)
+        .unwrap_or(doc.len());
     let title = field(&doc[..header_end], "title").unwrap_or_else(|| String::new());
 
     let mut items = Vec::new();
     for chunk in chunks(doc, item_tag) {
         let it_title = field(chunk, "title").unwrap_or_default();
-        let link = if is_atom { atom_link(chunk) } else { field(chunk, "link") }.unwrap_or_default();
+        let link = if is_atom {
+            atom_link(chunk)
+        } else {
+            field(chunk, "link")
+        }
+        .unwrap_or_default();
         let summary = field(chunk, if is_atom { "summary" } else { "description" })
             .or_else(|| field(chunk, "content:encoded"))
             .or_else(|| field(chunk, "content"))
@@ -358,7 +372,11 @@ pub async fn feed_add(store: State<'_, FeedStore>, url: String) -> Result<Feed, 
     if parsed.items.is_empty() && parsed.title.is_empty() {
         return Err("no feed found at that url (RSS/Atom only)".into());
     }
-    let title = if parsed.title.is_empty() { host_of(&url) } else { parsed.title };
+    let title = if parsed.title.is_empty() {
+        host_of(&url)
+    } else {
+        parsed.title
+    };
     Ok(store.add(url, title))
 }
 
@@ -371,7 +389,10 @@ pub fn feed_remove(store: State<'_, FeedStore>, id: u64) {
 /// subscription order when `id` is `None`/0. Per-feed errors are skipped in the
 /// aggregate so one dead feed doesn't blank the page.
 #[tauri::command]
-pub async fn feed_items(store: State<'_, FeedStore>, id: Option<u64>) -> Result<Vec<FeedItem>, String> {
+pub async fn feed_items(
+    store: State<'_, FeedStore>,
+    id: Option<u64>,
+) -> Result<Vec<FeedItem>, String> {
     let targets: Vec<Feed> = match id {
         Some(id) if id != 0 => {
             vec![store.get(id).ok_or_else(|| "no such feed".to_string())?]
@@ -386,7 +407,11 @@ pub async fn feed_items(store: State<'_, FeedStore>, id: Option<u64>) -> Result<
             match fetch_text(&feed.url) {
                 Ok(doc) => {
                     let parsed = parse_feed(&doc);
-                    let feed_title = if feed.title.is_empty() { host_of(&feed.url) } else { feed.title.clone() };
+                    let feed_title = if feed.title.is_empty() {
+                        host_of(&feed.url)
+                    } else {
+                        feed.title.clone()
+                    };
                     for (title, link, summary, published) in parsed.items {
                         out.push(FeedItem {
                             feed_id: feed.id,

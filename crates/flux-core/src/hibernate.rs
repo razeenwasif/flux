@@ -40,7 +40,10 @@ impl HibernateStore {
         self.entries
             .entry(id)
             .and_modify(|e| e.state = state.clone())
-            .or_insert(Entry { state, wake_pending: false });
+            .or_insert(Entry {
+                state,
+                wake_pending: false,
+            });
     }
 
     /// Arm restore for `id` — called when the tab is hibernated.
@@ -83,7 +86,8 @@ pub fn hibernate_capture(store: State<'_, HibernateStore>, tab_id: TabId, state:
 // turning "least recently used" into "least likely to be needed soon."
 
 /// A background tab the frontend is considering hibernating.
-#[derive(Deserialize, specta::Type)]pub struct HibernateCandidate {
+#[derive(Deserialize, specta::Type)]
+pub struct HibernateCandidate {
     pub tab_id: TabId,
     /// The tab's current page URL (its host drives the prediction match).
     pub url: String,
@@ -92,7 +96,8 @@ pub fn hibernate_capture(store: State<'_, HibernateStore>, tab_id: TabId, state:
 }
 
 /// One candidate's eviction priority. Higher `score` → evict sooner.
-#[derive(Serialize, Debug, PartialEq, specta::Type)]pub struct EvictionRank {
+#[derive(Serialize, Debug, PartialEq, specta::Type)]
+pub struct EvictionRank {
     pub tab_id: TabId,
     pub score: f64,
     /// The model expects you back here next → shown as "kept" in the UI.
@@ -101,11 +106,17 @@ pub fn hibernate_capture(store: State<'_, HibernateStore>, tab_id: TabId, state:
 
 /// Pure ranker: order `candidates` worst-first (best to evict). `predicted` maps
 /// host → confidence% that it's the next navigation from the current page.
-fn rank(candidates: &[HibernateCandidate], predicted: &std::collections::HashMap<String, u32>) -> Vec<EvictionRank> {
+fn rank(
+    candidates: &[HibernateCandidate],
+    predicted: &std::collections::HashMap<String, u32>,
+) -> Vec<EvictionRank> {
     let mut ranked: Vec<EvictionRank> = candidates
         .iter()
         .map(|c| {
-            let conf = host_of(&c.url).and_then(|h| predicted.get(h)).copied().unwrap_or(0);
+            let conf = host_of(&c.url)
+                .and_then(|h| predicted.get(h))
+                .copied()
+                .unwrap_or(0);
             // Discount idle time by predicted-next likelihood: a likely-next tab
             // behaves as if it were used more recently, so it's evicted later.
             let keep_bonus = (conf as f64 / 100.0) * PROTECT_HORIZON_SECS;
@@ -117,7 +128,12 @@ fn rank(candidates: &[HibernateCandidate], predicted: &std::collections::HashMap
         })
         .collect();
     // Evict highest score first; stable tiebreak on tab id for determinism.
-    ranked.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal).then(a.tab_id.cmp(&b.tab_id)));
+    ranked.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.tab_id.cmp(&b.tab_id))
+    });
     ranked
 }
 
@@ -139,8 +155,11 @@ pub fn hibernate_rank(
     current_url: String,
     candidates: Vec<HibernateCandidate>,
 ) -> Vec<EvictionRank> {
-    let predicted: std::collections::HashMap<String, u32> =
-        prefetch.hints(&current_url, 32).into_iter().map(|h| (h.host, h.confidence)).collect();
+    let predicted: std::collections::HashMap<String, u32> = prefetch
+        .hints(&current_url, 32)
+        .into_iter()
+        .map(|h| (h.host, h.confidence))
+        .collect();
     rank(&candidates, &predicted)
 }
 
@@ -154,36 +173,64 @@ mod tests {
         // Tab 1: idle 10 min, but the model says we'll go back to its host next.
         // Tab 2: idle 5 min, no prediction.
         let cands = vec![
-            HibernateCandidate { tab_id: 1, url: "https://docs.com/a".into(), idle_secs: 600 },
-            HibernateCandidate { tab_id: 2, url: "https://blog.com/b".into(), idle_secs: 300 },
+            HibernateCandidate {
+                tab_id: 1,
+                url: "https://docs.com/a".into(),
+                idle_secs: 600,
+            },
+            HibernateCandidate {
+                tab_id: 2,
+                url: "https://blog.com/b".into(),
+                idle_secs: 300,
+            },
         ];
         let mut predicted = HashMap::new();
         predicted.insert("docs.com".to_string(), 90u32); // strong return signal
 
         let ranked = rank(&cands, &predicted);
         // Despite being idle longer, tab 1 is protected → tab 2 evicts first.
-        assert_eq!(ranked[0].tab_id, 2, "the unpredicted, less-idle tab evicts first");
+        assert_eq!(
+            ranked[0].tab_id, 2,
+            "the unpredicted, less-idle tab evicts first"
+        );
         assert!(ranked[1].protected, "the predicted tab is marked kept");
     }
 
     #[test]
     fn falls_back_to_lru_without_predictions() {
         let cands = vec![
-            HibernateCandidate { tab_id: 1, url: "https://a.com/".into(), idle_secs: 100 },
-            HibernateCandidate { tab_id: 2, url: "https://b.com/".into(), idle_secs: 900 },
-            HibernateCandidate { tab_id: 3, url: "https://c.com/".into(), idle_secs: 400 },
+            HibernateCandidate {
+                tab_id: 1,
+                url: "https://a.com/".into(),
+                idle_secs: 100,
+            },
+            HibernateCandidate {
+                tab_id: 2,
+                url: "https://b.com/".into(),
+                idle_secs: 900,
+            },
+            HibernateCandidate {
+                tab_id: 3,
+                url: "https://c.com/".into(),
+                idle_secs: 400,
+            },
         ];
         let ranked = rank(&cands, &HashMap::new());
         // No predictions → pure LRU: most-idle (2) first, least-idle (1) last.
-        assert_eq!(ranked.iter().map(|r| r.tab_id).collect::<Vec<_>>(), vec![2, 3, 1]);
+        assert_eq!(
+            ranked.iter().map(|r| r.tab_id).collect::<Vec<_>>(),
+            vec![2, 3, 1]
+        );
         assert!(ranked.iter().all(|r| !r.protected));
     }
 
     #[test]
     fn weak_prediction_does_not_protect() {
-        let cands = vec![
-            HibernateCandidate { tab_id: 1, url: "https://x.com/".into(), idle_secs: 1000 },
-        ];
+        let cands = vec![HibernateCandidate {
+            tab_id: 1,
+            url: "https://x.com/".into(),
+            idle_secs: 1000,
+        }];
         let mut predicted = HashMap::new();
         predicted.insert("x.com".to_string(), 25u32); // below PROTECT_MARK_PCT
         let ranked = rank(&cands, &predicted);

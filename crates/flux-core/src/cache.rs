@@ -120,7 +120,14 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
         if !g.map.contains_key(&key) && g.map.len() >= self.capacity {
             self.evict_one(&mut g, now);
         }
-        g.map.insert(key, Slot { value, expires, touched });
+        g.map.insert(
+            key,
+            Slot {
+                value,
+                expires,
+                touched,
+            },
+        );
     }
 
     /// Return the cached value for `key`, or compute it with `f`, store, return.
@@ -148,7 +155,12 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
             g.map.remove(&k);
             return;
         }
-        if let Some(k) = g.map.iter().min_by_key(|(_, s)| s.touched).map(|(k, _)| k.clone()) {
+        if let Some(k) = g
+            .map
+            .iter()
+            .min_by_key(|(_, s)| s.touched)
+            .map(|(k, _)| k.clone())
+        {
             g.map.remove(&k);
         }
     }
@@ -165,7 +177,12 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
 
     pub fn stats(&self) -> CacheStats {
         let g = self.inner.lock();
-        CacheStats { hits: g.hits, misses: g.misses, len: g.map.len(), capacity: self.capacity }
+        CacheStats {
+            hits: g.hits,
+            misses: g.misses,
+            len: g.map.len(),
+            capacity: self.capacity,
+        }
     }
 }
 

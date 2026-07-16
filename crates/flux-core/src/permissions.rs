@@ -89,7 +89,11 @@ impl Default for PermState {
 
 impl PermState {
     pub fn new() -> Self {
-        Self { block: AtomicBool::new(false), decisions: RwLock::new(HashMap::new()), path: None }
+        Self {
+            block: AtomicBool::new(false),
+            decisions: RwLock::new(HashMap::new()),
+            path: None,
+        }
     }
 
     /// Load remembered decisions from disk (missing/corrupt → empty).
@@ -97,9 +101,17 @@ impl PermState {
         let decisions = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str::<Vec<SitePerm>>(&s).ok())
-            .map(|v| v.into_iter().map(|p| ((p.host, p.kind), p.decision)).collect())
+            .map(|v| {
+                v.into_iter()
+                    .map(|p| ((p.host, p.kind), p.decision))
+                    .collect()
+            })
             .unwrap_or_default();
-        Self { block: AtomicBool::new(false), decisions: RwLock::new(decisions), path: Some(path) }
+        Self {
+            block: AtomicBool::new(false),
+            decisions: RwLock::new(decisions),
+            path: Some(path),
+        }
     }
 
     pub fn blocking(&self) -> bool {
@@ -108,7 +120,11 @@ impl PermState {
 
     /// The remembered decision for a (host, kind), or `Ask`.
     pub fn decision_for(&self, host: &str, kind: PermKind) -> PermDecision {
-        self.decisions.read().get(&(host.to_string(), kind)).copied().unwrap_or_default()
+        self.decisions
+            .read()
+            .get(&(host.to_string(), kind))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Resolve what to actually do with a request. Global block wins; otherwise
@@ -154,9 +170,17 @@ impl PermState {
             .decisions
             .read()
             .iter()
-            .map(|((host, kind), decision)| SitePerm { host: host.clone(), kind: *kind, decision: *decision })
+            .map(|((host, kind), decision)| SitePerm {
+                host: host.clone(),
+                kind: *kind,
+                decision: *decision,
+            })
             .collect();
-        v.sort_by(|a, b| a.host.cmp(&b.host).then_with(|| format!("{:?}", a.kind).cmp(&format!("{:?}", b.kind))));
+        v.sort_by(|a, b| {
+            a.host
+                .cmp(&b.host)
+                .then_with(|| format!("{:?}", a.kind).cmp(&format!("{:?}", b.kind)))
+        });
         v
     }
 
@@ -195,7 +219,12 @@ pub fn permissions_list(state: State<'_, PermState>) -> Vec<SitePerm> {
 }
 
 #[tauri::command]
-pub fn permissions_set(state: State<'_, PermState>, host: String, kind: PermKind, decision: PermDecision) {
+pub fn permissions_set(
+    state: State<'_, PermState>,
+    host: String,
+    kind: PermKind,
+    decision: PermDecision,
+) {
     state.set(host, kind, decision);
 }
 
@@ -224,7 +253,15 @@ pub fn permission_answer(
     remember: bool,
 ) {
     if remember && !host.is_empty() {
-        state.set(host, kind, if allow { PermDecision::Allow } else { PermDecision::Deny });
+        state.set(
+            host,
+            kind,
+            if allow {
+                PermDecision::Allow
+            } else {
+                PermDecision::Deny
+            },
+        );
     }
     #[cfg(windows)]
     {
@@ -293,43 +330,52 @@ mod win {
                 Ok(c) => c,
                 Err(_) => return,
             };
-            let handler = PermissionRequestedEventHandler::create(Box::new(move |_sender, args| {
-                let Some(args) = args else { return Ok(()) };
-                let Some(state) = app.try_state::<PermState>() else { return Ok(()) };
+            let handler =
+                PermissionRequestedEventHandler::create(Box::new(move |_sender, args| {
+                    let Some(args) = args else { return Ok(()) };
+                    let Some(state) = app.try_state::<PermState>() else {
+                        return Ok(());
+                    };
 
-                let mut uri = PWSTR::null();
-                let host = if args.Uri(&mut uri).is_ok() {
-                    let u = webview2_com::take_pwstr(uri);
-                    super::host_of(&u).map(str::to_string).unwrap_or_default()
-                } else {
-                    String::new()
-                };
-                // `PermissionKind` is an out-param getter (like `Uri`) in
-                // webview2-com 0.38 — write into a local, then map.
-                let mut kind_raw = COREWEBVIEW2_PERMISSION_KIND(0);
-                let kind = if args.PermissionKind(&mut kind_raw).is_ok() {
-                    map_kind(kind_raw.0)
-                } else {
-                    PermKind::Other
-                };
+                    let mut uri = PWSTR::null();
+                    let host = if args.Uri(&mut uri).is_ok() {
+                        let u = webview2_com::take_pwstr(uri);
+                        super::host_of(&u).map(str::to_string).unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    // `PermissionKind` is an out-param getter (like `Uri`) in
+                    // webview2-com 0.38 — write into a local, then map.
+                    let mut kind_raw = COREWEBVIEW2_PERMISSION_KIND(0);
+                    let kind = if args.PermissionKind(&mut kind_raw).is_ok() {
+                        map_kind(kind_raw.0)
+                    } else {
+                        PermKind::Other
+                    };
 
-                match state.effective(&host, kind) {
-                    Effective::Allow => { let _ = args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW); }
-                    Effective::Deny => { let _ = args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY); }
-                    // Ask: defer the engine and show Flux's own prompt — the
-                    // chrome's permission bar answers via `permission_answer`.
-                    // If the deferral can't be taken, fall through to the
-                    // engine's native prompt (old behavior).
-                    Effective::Prompt => {
-                        if let Ok(deferral) = args.GetDeferral() {
-                            let id = NEXT_ASK.fetch_add(1, Ordering::Relaxed);
-                            PENDING.with(|p| p.borrow_mut().insert(id, (args.clone(), deferral)));
-                            let _ = app.emit("flux://permission-ask", PermAsk { id, host, kind });
+                    match state.effective(&host, kind) {
+                        Effective::Allow => {
+                            let _ = args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW);
+                        }
+                        Effective::Deny => {
+                            let _ = args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY);
+                        }
+                        // Ask: defer the engine and show Flux's own prompt — the
+                        // chrome's permission bar answers via `permission_answer`.
+                        // If the deferral can't be taken, fall through to the
+                        // engine's native prompt (old behavior).
+                        Effective::Prompt => {
+                            if let Ok(deferral) = args.GetDeferral() {
+                                let id = NEXT_ASK.fetch_add(1, Ordering::Relaxed);
+                                PENDING
+                                    .with(|p| p.borrow_mut().insert(id, (args.clone(), deferral)));
+                                let _ =
+                                    app.emit("flux://permission-ask", PermAsk { id, host, kind });
+                            }
                         }
                     }
-                }
-                Ok(())
-            }));
+                    Ok(())
+                }));
             let mut token: i64 = 0;
             let _ = core.add_PermissionRequested(&handler, &mut token);
         });
@@ -340,9 +386,15 @@ mod win {
     /// (already answered / stale after a reload) are ignored.
     pub fn resolve_ask(id: u64, allow: bool) {
         PENDING.with(|p| {
-            let Some((args, deferral)) = p.borrow_mut().remove(&id) else { return };
+            let Some((args, deferral)) = p.borrow_mut().remove(&id) else {
+                return;
+            };
             unsafe {
-                let state = if allow { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY };
+                let state = if allow {
+                    COREWEBVIEW2_PERMISSION_STATE_ALLOW
+                } else {
+                    COREWEBVIEW2_PERMISSION_STATE_DENY
+                };
                 let _ = args.SetState(state);
                 let _ = deferral.Complete();
             }

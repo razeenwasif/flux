@@ -88,19 +88,38 @@ pub async fn webview_open(
     if app.get_webview(&label(tab_id)).is_some() {
         return Ok(());
     }
-    let window = app.get_window(CHROME_WINDOW).ok_or("chrome window missing")?;
+    let window = app
+        .get_window(CHROME_WINDOW)
+        .ok_or("chrome window missing")?;
     let target = parse_url(&url)?;
 
     // Init script runs before page scripts: stamp the tab id, capture.js, the
     // app keyboard-shortcut forwarder (#18), the hibernation state helpers (#45),
     // and force-dark (#40) — stamping `__FLUX_DARK__` so it applies at start when on.
-    let dark = app.try_state::<crate::darkmode::DarkState>().map(|s| s.is_on()).unwrap_or(false);
-    let dark_flag = if dark { "window.__FLUX_DARK__ = true;\n" } else { "" };
+    let dark = app
+        .try_state::<crate::darkmode::DarkState>()
+        .map(|s| s.is_on())
+        .unwrap_or(false);
+    let dark_flag = if dark {
+        "window.__FLUX_DARK__ = true;\n"
+    } else {
+        ""
+    };
     let nav_flag = app
         .try_state::<crate::nav::NavState>()
-        .map(|s| format!("window.__FLUX_NAV__ = {{hints:{},gestures:{}}};\n", s.hints(), s.gestures()))
+        .map(|s| {
+            format!(
+                "window.__FLUX_NAV__ = {{hints:{},gestures:{}}};\n",
+                s.hints(),
+                s.gestures()
+            )
+        })
         .unwrap_or_default();
-    let macro_flag = if app.try_state::<crate::macros::MacroState>().map(|s| s.is_recording()).unwrap_or(false) {
+    let macro_flag = if app
+        .try_state::<crate::macros::MacroState>()
+        .map(|s| s.is_recording())
+        .unwrap_or(false)
+    {
         "window.__FLUX_MACRO_REC__ = true;\n"
     } else {
         ""
@@ -125,7 +144,10 @@ pub async fn webview_open(
         }
     }
     // Outbound proxy (#63), if configured — opt-in, so direct otherwise.
-    if let Some(proxy) = app.try_state::<crate::proxy::ProxyState>().and_then(|s| s.parsed()) {
+    if let Some(proxy) = app
+        .try_state::<crate::proxy::ProxyState>()
+        .and_then(|s| s.parsed())
+    {
         builder = builder.proxy_url(proxy);
     }
     let builder = builder
@@ -222,8 +244,8 @@ pub async fn webview_open(
     let _ = child.show();
     let _ = child.set_focus();
     round_webview(&child, width, height, scale); // rounded corners (#center-pane)
-    // Install the content-blocker request interceptor (#57/#91, ADR 0007) +
-    // native tracking prevention (#58).
+                                                 // Install the content-blocker request interceptor (#57/#91, ADR 0007) +
+                                                 // native tracking prevention (#58).
     crate::netfilter::install(&app, &child);
     crate::tracking::install(&app, &child);
     crate::permissions::install(&app, &child);
@@ -243,13 +265,22 @@ pub async fn webview_debug(app: AppHandle, tab_id: TabId) -> Result<String, Stri
     let wsize = window.inner_size().map_err(|e| e.to_string())?;
     let wv = match app.get_webview(&label(tab_id)) {
         Some(w) => {
-            let p = w.position().map(|p| format!("{},{}", p.x, p.y)).unwrap_or_else(|e| format!("err:{e}"));
-            let s = w.size().map(|s| format!("{}x{}", s.width, s.height)).unwrap_or_else(|e| format!("err:{e}"));
+            let p = w
+                .position()
+                .map(|p| format!("{},{}", p.x, p.y))
+                .unwrap_or_else(|e| format!("err:{e}"));
+            let s = w
+                .size()
+                .map(|s| format!("{}x{}", s.width, s.height))
+                .unwrap_or_else(|e| format!("err:{e}"));
             format!("webview(phys) pos={p} size={s}")
         }
         None => "no webview for tab".into(),
     };
-    Ok(format!("scale={scale} window(phys)={}x{} {wv}", wsize.width, wsize.height))
+    Ok(format!(
+        "scale={scale} window(phys)={}x{} {wv}",
+        wsize.width, wsize.height
+    ))
 }
 
 /// Reposition/resize a tab's webview to match the content rect (called on
@@ -264,9 +295,14 @@ pub async fn webview_set_bounds(
     height: f64,
 ) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&label(tab_id)) {
-        wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
-        wv.set_size(LogicalSize::new(width.max(0.0), height.max(0.0))).map_err(|e| e.to_string())?;
-        let scale = app.get_window(CHROME_WINDOW).and_then(|w| w.scale_factor().ok()).unwrap_or(1.0);
+        wv.set_position(LogicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+        wv.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)))
+            .map_err(|e| e.to_string())?;
+        let scale = app
+            .get_window(CHROME_WINDOW)
+            .and_then(|w| w.scale_factor().ok())
+            .unwrap_or(1.0);
         round_webview(&wv, width, height, scale); // keep rounded corners on resize
     }
     Ok(())
@@ -305,11 +341,17 @@ pub async fn webview_devtools(app: AppHandle, tab_id: TabId) -> Result<(), Strin
 /// Hosts come from the prefetch model's confidence-gated hints; idempotent
 /// (skips a host already preconnected this page).
 #[tauri::command]
-pub async fn webview_preconnect(app: AppHandle, tab_id: TabId, hosts: Vec<String>) -> Result<(), String> {
+pub async fn webview_preconnect(
+    app: AppHandle,
+    tab_id: TabId,
+    hosts: Vec<String>,
+) -> Result<(), String> {
     if hosts.is_empty() {
         return Ok(());
     }
-    let Some(wv) = app.get_webview(&label(tab_id)) else { return Ok(()) };
+    let Some(wv) = app.get_webview(&label(tab_id)) else {
+        return Ok(());
+    };
     // Hosts are JSON-encoded → injection-safe inside the script literal.
     let json = serde_json::to_string(&hosts).map_err(|e| e.to_string())?;
     let js = format!(
@@ -362,7 +404,9 @@ pub async fn webview_capture_state(app: AppHandle, tab_id: TabId) -> Result<(), 
 
 #[tauri::command]
 pub async fn webview_navigate(app: AppHandle, tab_id: TabId, url: String) -> Result<(), String> {
-    let wv = app.get_webview(&label(tab_id)).ok_or("no such tab webview")?;
+    let wv = app
+        .get_webview(&label(tab_id))
+        .ok_or("no such tab webview")?;
     wv.navigate(parse_url(&url)?).map_err(|e| e.to_string())
 }
 
@@ -379,7 +423,12 @@ pub async fn webview_stop(app: AppHandle, tab_id: TabId) -> Result<(), String> {
 /// `{count, found}` back to the chrome via the `find_result` fluxtab command.
 /// An empty `query` clears the current selection/highlight.
 #[tauri::command]
-pub async fn webview_find(app: AppHandle, tab_id: TabId, query: String, forward: bool) -> Result<(), String> {
+pub async fn webview_find(
+    app: AppHandle,
+    tab_id: TabId,
+    query: String,
+    forward: bool,
+) -> Result<(), String> {
     let q = serde_json::to_string(&query).unwrap_or_else(|_| "\"\"".into());
     // `window.find(str, caseSensitive, backwards, wrapAround, wholeWord, searchInFrames, showDialog)`
     let js = format!(
@@ -425,7 +474,8 @@ pub async fn webview_extract_reader(app: AppHandle, tab_id: TabId) -> Result<(),
 #[tauri::command]
 pub async fn webview_zoom(app: AppHandle, tab_id: TabId, factor: f64) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&label(tab_id)) {
-        wv.set_zoom(factor.clamp(0.25, 5.0)).map_err(|e| e.to_string())?;
+        wv.set_zoom(factor.clamp(0.25, 5.0))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -434,9 +484,11 @@ pub async fn webview_zoom(app: AppHandle, tab_id: TabId, factor: f64) -> Result<
 pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
     // Clear-on-close (#58): if this tab's host is flagged, wipe its cookies
     // (through the always-alive main webview) before tearing the tab down.
-    let host: Option<String> = app
-        .try_state::<crate::state::FluxState>()
-        .and_then(|s| s.tabs.get(&tab_id).and_then(|t| crate::cookies::host_of(&t.url).map(str::to_string)));
+    let host: Option<String> = app.try_state::<crate::state::FluxState>().and_then(|s| {
+        s.tabs
+            .get(&tab_id)
+            .and_then(|t| crate::cookies::host_of(&t.url).map(str::to_string))
+    });
     if let Some(host) = host {
         let flagged = app
             .try_state::<crate::cookies::CookieState>()
@@ -457,7 +509,9 @@ pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> 
 }
 
 pub(crate) fn eval(app: &AppHandle, tab_id: TabId, js: &str) -> Result<(), String> {
-    let wv = app.get_webview(&label(tab_id)).ok_or("no such tab webview")?;
+    let wv = app
+        .get_webview(&label(tab_id))
+        .ok_or("no such tab webview")?;
     wv.eval(js).map_err(|e| e.to_string())
 }
 
@@ -484,18 +538,35 @@ pub async fn panel_open(
     if app.get_webview(&panel_label(panel_id)).is_some() {
         return Ok(());
     }
-    let window = app.get_window(CHROME_WINDOW).ok_or("chrome window missing")?;
+    let window = app
+        .get_window(CHROME_WINDOW)
+        .ok_or("chrome window missing")?;
     let target = parse_url(&url)?;
-    let dark = app.try_state::<crate::darkmode::DarkState>().map(|s| s.is_on()).unwrap_or(false);
-    let dark_flag = if dark { "window.__FLUX_DARK__ = true;\n" } else { "" };
+    let dark = app
+        .try_state::<crate::darkmode::DarkState>()
+        .map(|s| s.is_on())
+        .unwrap_or(false);
+    let dark_flag = if dark {
+        "window.__FLUX_DARK__ = true;\n"
+    } else {
+        ""
+    };
     let init = format!("{dark_flag}{SHORTCUTS_JS}\n{DARKMODE_JS}\n{PANEL_BADGE_JS}");
-    let mut builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target)).initialization_script(&init);
-    if let Some(proxy) = app.try_state::<crate::proxy::ProxyState>().and_then(|s| s.parsed()) {
+    let mut builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target))
+        .initialization_script(&init);
+    if let Some(proxy) = app
+        .try_state::<crate::proxy::ProxyState>()
+        .and_then(|s| s.parsed())
+    {
         builder = builder.proxy_url(proxy); // #63
     }
     let scale = window.scale_factor().unwrap_or(1.0);
     let child = window
-        .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(width.max(0.0), height.max(0.0)))
+        .add_child(
+            builder,
+            LogicalPosition::new(x, y),
+            LogicalSize::new(width.max(0.0), height.max(0.0)),
+        )
         .map_err(|e| e.to_string())?;
     let _ = child.set_position(LogicalPosition::new(x, y));
     let _ = child.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)));
@@ -515,17 +586,33 @@ pub async fn panel_open(
 /// `flux://panel-badge` for the chrome to paint a bubble on the rail icon.
 #[tauri::command]
 pub fn panel_badge(app: AppHandle, webview: tauri::Webview, count: i64) {
-    if let Some(id) = webview.label().strip_prefix("panel-").and_then(|s| s.parse::<u32>().ok()) {
+    if let Some(id) = webview
+        .label()
+        .strip_prefix("panel-")
+        .and_then(|s| s.parse::<u32>().ok())
+    {
         let _ = app.emit("flux://panel-badge", (id, count.max(0)));
     }
 }
 
 #[tauri::command]
-pub async fn panel_set_bounds(app: AppHandle, panel_id: u32, x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
+pub async fn panel_set_bounds(
+    app: AppHandle,
+    panel_id: u32,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&panel_label(panel_id)) {
-        wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
-        wv.set_size(LogicalSize::new(width.max(0.0), height.max(0.0))).map_err(|e| e.to_string())?;
-        let scale = app.get_window(CHROME_WINDOW).and_then(|w| w.scale_factor().ok()).unwrap_or(1.0);
+        wv.set_position(LogicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+        wv.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)))
+            .map_err(|e| e.to_string())?;
+        let scale = app
+            .get_window(CHROME_WINDOW)
+            .and_then(|w| w.scale_factor().ok())
+            .unwrap_or(1.0);
         round_webview(&wv, width, height, scale);
     }
     Ok(())
@@ -549,7 +636,9 @@ pub async fn panel_hide(app: AppHandle, panel_id: u32) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn panel_navigate(app: AppHandle, panel_id: u32, url: String) -> Result<(), String> {
-    let wv = app.get_webview(&panel_label(panel_id)).ok_or("no such panel webview")?;
+    let wv = app
+        .get_webview(&panel_label(panel_id))
+        .ok_or("no such panel webview")?;
     wv.navigate(parse_url(&url)?).map_err(|e| e.to_string())
 }
 
@@ -582,31 +671,36 @@ fn install_tab_accelerators(app: &AppHandle, wv: &tauri::webview::Webview) {
             };
 
             let controller = platform.controller();
-            let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_sender, args| {
-                let Some(args) = args else { return Ok(()) };
-                let mut kind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN;
-                let _ = args.KeyEventKind(&mut kind);
-                // Only act on key-down (the event also fires on key-up).
-                if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
-                    && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
-                {
-                    return Ok(());
-                }
-                let mut vk = 0u32;
-                let _ = args.VirtualKey(&mut vk);
-                if vk != VK_TAB.0 as u32 {
-                    return Ok(());
-                }
-                // High bit of GetKeyState → the modifier is currently down.
-                let down = |k: i32| (GetKeyState(k) as u16 & 0x8000) != 0;
-                if !down(VK_CONTROL.0 as i32) {
-                    return Ok(());
-                }
-                let _ = args.SetHandled(true); // swallow the browser default
-                let action = if down(VK_SHIFT.0 as i32) { "prev-tab" } else { "next-tab" };
-                let _ = app.emit("flux://shortcut", action);
-                Ok(())
-            }));
+            let handler =
+                AcceleratorKeyPressedEventHandler::create(Box::new(move |_sender, args| {
+                    let Some(args) = args else { return Ok(()) };
+                    let mut kind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN;
+                    let _ = args.KeyEventKind(&mut kind);
+                    // Only act on key-down (the event also fires on key-up).
+                    if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
+                        && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
+                    {
+                        return Ok(());
+                    }
+                    let mut vk = 0u32;
+                    let _ = args.VirtualKey(&mut vk);
+                    if vk != VK_TAB.0 as u32 {
+                        return Ok(());
+                    }
+                    // High bit of GetKeyState → the modifier is currently down.
+                    let down = |k: i32| (GetKeyState(k) as u16 & 0x8000) != 0;
+                    if !down(VK_CONTROL.0 as i32) {
+                        return Ok(());
+                    }
+                    let _ = args.SetHandled(true); // swallow the browser default
+                    let action = if down(VK_SHIFT.0 as i32) {
+                        "prev-tab"
+                    } else {
+                        "next-tab"
+                    };
+                    let _ = app.emit("flux://shortcut", action);
+                    Ok(())
+                }));
             let mut token = 0i64;
             let _ = controller.add_AcceleratorKeyPressed(&handler, &mut token);
         });
@@ -636,7 +730,9 @@ fn install_fullscreen_relayout(app: &AppHandle, wv: &tauri::webview::Webview) {
             use webview2_com::ContainsFullScreenElementChangedEventHandler;
 
             let controller = platform.controller();
-            let Ok(core) = controller.CoreWebView2() else { return };
+            let Ok(core) = controller.CoreWebView2() else {
+                return;
+            };
             // The event strictly *alternates* (no-fullscreen → fullscreen → …), so we
             // track state with a flip instead of querying ContainsFullScreenElement —
             // that getter wants webview2-com-sys's own `windows_core::BOOL`, a
@@ -644,13 +740,15 @@ fn install_fullscreen_relayout(app: &AppHandle, wv: &tauri::webview::Webview) {
             // Only act when fullscreen has just been *left*; re-tiling on enter would
             // shrink the video straight back out of fullscreen.
             let is_full = AtomicBool::new(false);
-            let handler = ContainsFullScreenElementChangedEventHandler::create(Box::new(move |_sender, _args| {
-                let now_full = !is_full.fetch_xor(true, Ordering::Relaxed);
-                if !now_full {
-                    let _ = app.emit("flux://fullscreen-changed", false);
-                }
-                Ok(())
-            }));
+            let handler = ContainsFullScreenElementChangedEventHandler::create(Box::new(
+                move |_sender, _args| {
+                    let now_full = !is_full.fetch_xor(true, Ordering::Relaxed);
+                    if !now_full {
+                        let _ = app.emit("flux://fullscreen-changed", false);
+                    }
+                    Ok(())
+                },
+            ));
             let mut token = 0i64;
             let _ = core.add_ContainsFullScreenElementChanged(&handler, &mut token);
         });

@@ -37,9 +37,11 @@ pub fn playbook_for(url: &str) -> Option<&'static Playbook> {
     // pattern or be a subdomain of it (`.pattern`). A bare `ends_with(pattern)`
     // would let `evilpowerautomate.com` match `powerautomate.com` — a phishing
     // hole — so it is deliberately NOT used.
-    PLAYBOOKS
-        .iter()
-        .find(|p| p.hosts.iter().any(|h| host == *h || host.ends_with(&format!(".{h}"))))
+    PLAYBOOKS.iter().find(|p| {
+        p.hosts
+            .iter()
+            .any(|h| host == *h || host.ends_with(&format!(".{h}")))
+    })
 }
 
 /// The guidance block to splice into a planner prompt for `url`, already framed
@@ -62,7 +64,10 @@ fn host_of(url: &str) -> Option<&str> {
     let after = url.split_once("://")?.1;
     let authority = after.split(['/', '?', '#']).next().unwrap_or(after);
     // Drop userinfo (user:pass@host) and any :port.
-    let host = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let host = authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority);
     let host = host.split(':').next().unwrap_or(host);
     if host.is_empty() {
         None
@@ -196,7 +201,10 @@ mod tests {
 
     #[test]
     fn host_of_strips_userinfo_port_and_path() {
-        assert_eq!(host_of("https://user:pw@make.powerautomate.com:443/x?y#z"), Some("make.powerautomate.com"));
+        assert_eq!(
+            host_of("https://user:pw@make.powerautomate.com:443/x?y#z"),
+            Some("make.powerautomate.com")
+        );
         assert_eq!(host_of("http://localhost:1234/"), Some("localhost"));
         assert_eq!(host_of("not a url"), None);
         assert_eq!(host_of("https:///nohost"), None);

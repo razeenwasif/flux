@@ -42,7 +42,11 @@ impl TodoStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let next = items.iter().map(|t| t.id).max().unwrap_or(0) + 1;
-        Self { items: RwLock::new(items), next_id: AtomicU64::new(next), path: Some(path) }
+        Self {
+            items: RwLock::new(items),
+            next_id: AtomicU64::new(next),
+            path: Some(path),
+        }
     }
 
     pub fn list(&self) -> Vec<Todo> {

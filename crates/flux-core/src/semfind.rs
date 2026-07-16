@@ -86,7 +86,11 @@ fn rank(query: &str, docs: Vec<Doc>, limit: usize) -> Result<Vec<FindHit>, Strin
     let mut owner: Vec<usize> = Vec::new();
     let mut texts: Vec<String> = Vec::new();
     for (di, d) in docs.iter().enumerate() {
-        let body = if d.text.len() > MAX_TEXT { &d.text[..MAX_TEXT] } else { &d.text };
+        let body = if d.text.len() > MAX_TEXT {
+            &d.text[..MAX_TEXT]
+        } else {
+            &d.text
+        };
         for p in passages(body, MAX_PASSAGES_PER_TAB) {
             owner.push(di);
             texts.push(p);
@@ -167,17 +171,31 @@ pub async fn semantic_find(
     }
     let mut docs = Vec::new();
     for id in tab_ids {
-        let Some(snap) = state.dom_cache.get(&id) else { continue };
+        let Some(snap) = state.dom_cache.get(&id) else {
+            continue;
+        };
         if snap.text.trim().is_empty() {
             continue;
         }
-        let title = state.tabs.get(&id).map(|t| t.title.clone()).filter(|t| !t.trim().is_empty()).unwrap_or_else(|| snap.url.to_string());
-        docs.push(Doc { tab_id: id, title, url: snap.url.to_string(), text: Arc::clone(&snap.text).to_string() });
+        let title = state
+            .tabs
+            .get(&id)
+            .map(|t| t.title.clone())
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| snap.url.to_string());
+        docs.push(Doc {
+            tab_id: id,
+            title,
+            url: snap.url.to_string(),
+            text: Arc::clone(&snap.text).to_string(),
+        });
     }
     if docs.is_empty() {
         return Err("nothing captured yet — open a page and let it load".into());
     }
-    tauri::async_runtime::spawn_blocking(move || rank(&query, docs, limit.unwrap_or(30))).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || rank(&query, docs, limit.unwrap_or(30)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
@@ -191,7 +209,10 @@ mod tests {
         assert!(ps.len() >= 2);
         // Every passage must appear verbatim in the source (so window.find can locate it).
         for p in &ps {
-            assert!(text.contains(p.as_str()), "passage not a verbatim slice: {p}");
+            assert!(
+                text.contains(p.as_str()),
+                "passage not a verbatim slice: {p}"
+            );
         }
     }
 
@@ -200,11 +221,20 @@ mod tests {
         let text = "Bananas are yellow and rich in potassium for athletes.\n\n\
                     The TLS handshake negotiates a cipher suite and exchanges keys over the network.\n\n\
                     My grandmother bakes sourdough bread every sunday morning.";
-        let docs = vec![Doc { tab_id: 1, title: "t".into(), url: "u".into(), text: text.into() }];
+        let docs = vec![Doc {
+            tab_id: 1,
+            title: "t".into(),
+            url: "u".into(),
+            text: text.into(),
+        }];
         // Keyword-bearing query so the hash embedder (used when Ollama is absent in
         // tests) is deterministic; the model handles true synonymy at runtime.
         let hits = rank("negotiate the cipher and exchange keys", docs, 5).unwrap();
         assert!(!hits.is_empty());
-        assert!(hits[0].passage.to_lowercase().contains("tls"), "got: {}", hits[0].passage);
+        assert!(
+            hits[0].passage.to_lowercase().contains("tls"),
+            "got: {}",
+            hits[0].passage
+        );
     }
 }

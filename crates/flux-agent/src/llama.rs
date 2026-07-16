@@ -30,7 +30,11 @@ impl LlamaBackend {
 }
 
 impl Inference for LlamaBackend {
-    fn complete(&self, _prompt: &str, _schema: Option<&serde_json::Value>) -> Result<String, AgentError> {
+    fn complete(
+        &self,
+        _prompt: &str,
+        _schema: Option<&serde_json::Value>,
+    ) -> Result<String, AgentError> {
         // Real impl: convert the JSON Schema to GBNF (llama.cpp's
         // `json_schema_to_grammar`) and build a sampler chain from it so decoding
         // is constrained at the logit level, temp 0.1, then decode until

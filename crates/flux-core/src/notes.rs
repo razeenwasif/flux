@@ -27,7 +27,10 @@ impl NoteStore {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Self { map: RwLock::new(map), path: Some(path) }
+        Self {
+            map: RwLock::new(map),
+            path: Some(path),
+        }
     }
 
     pub fn get(&self, url: &str) -> String {
@@ -47,7 +50,14 @@ impl NoteStore {
     }
 
     pub fn list(&self) -> Vec<Note> {
-        self.map.read().iter().map(|(url, text)| Note { url: url.clone(), text: text.clone() }).collect()
+        self.map
+            .read()
+            .iter()
+            .map(|(url, text)| Note {
+                url: url.clone(),
+                text: text.clone(),
+            })
+            .collect()
     }
 
     fn save(&self) {

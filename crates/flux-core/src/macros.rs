@@ -50,7 +50,13 @@ pub struct MacroStatus {
 
 impl Default for MacroState {
     fn default() -> Self {
-        Self { path: None, macros: RwLock::new(Vec::new()), next_id: AtomicU64::new(1), recording: RwLock::new(None), active: AtomicBool::new(false) }
+        Self {
+            path: None,
+            macros: RwLock::new(Vec::new()),
+            next_id: AtomicU64::new(1),
+            recording: RwLock::new(None),
+            active: AtomicBool::new(false),
+        }
     }
 }
 
@@ -61,7 +67,13 @@ impl MacroState {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let next = macros.iter().map(|m| m.id).max().unwrap_or(0) + 1;
-        Self { path: Some(path), macros: RwLock::new(macros), next_id: AtomicU64::new(next), recording: RwLock::new(None), active: AtomicBool::new(false) }
+        Self {
+            path: Some(path),
+            macros: RwLock::new(macros),
+            next_id: AtomicU64::new(next),
+            recording: RwLock::new(None),
+            active: AtomicBool::new(false),
+        }
     }
 
     pub fn is_recording(&self) -> bool {
@@ -87,7 +99,9 @@ impl MacroState {
         let Some(buf) = g.as_mut() else { return };
         match (&step, buf.last_mut()) {
             (Step::Navigate { url }, Some(Step::Navigate { url: prev })) if url == prev => {}
-            (Step::Type { selector, text }, Some(Step::Type { selector: ps, .. })) if selector == ps => {
+            (Step::Type { selector, text }, Some(Step::Type { selector: ps, .. }))
+                if selector == ps =>
+            {
                 if let Some(Step::Type { text: pt, .. }) = buf.last_mut() {
                     *pt = text.clone();
                 }
@@ -108,8 +122,16 @@ impl MacroState {
             return None;
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let name = if name.trim().is_empty() { format!("Macro {id}") } else { name };
-        let m = Macro { id, name, steps: buf };
+        let name = if name.trim().is_empty() {
+            format!("Macro {id}")
+        } else {
+            name
+        };
+        let m = Macro {
+            id,
+            name,
+            steps: buf,
+        };
         self.macros.write().push(m.clone());
         self.persist();
         Some(m)
@@ -154,7 +176,9 @@ fn js(s: &str) -> String {
 /// Flip the recording flag in the active tab live, so the recorder starts/stops
 /// without a reload (new pages stamp it from backend state at init).
 fn set_page_flag(app: &AppHandle, on: bool) {
-    let Some(tab) = app.state::<crate::state::FluxState>().active_tab() else { return };
+    let Some(tab) = app.state::<crate::state::FluxState>().active_tab() else {
+        return;
+    };
     if let Some(wv) = app.get_webview(&format!("tab-{tab}")) {
         let _ = wv.eval(&format!("window.__FLUX_MACRO_REC__ = {on};"));
     }
@@ -169,7 +193,10 @@ pub fn macros_list(state: State<'_, MacroState>) -> Vec<Macro> {
 
 #[tauri::command]
 pub fn macros_status(state: State<'_, MacroState>) -> MacroStatus {
-    MacroStatus { recording: state.is_recording(), step_count: state.recording_len() }
+    MacroStatus {
+        recording: state.is_recording(),
+        step_count: state.recording_len(),
+    }
 }
 
 /// Begin recording. Seeds the flow with a Navigate to the current page so replay
@@ -186,7 +213,11 @@ pub fn macro_start_record(app: AppHandle, state: State<'_, MacroState>) {
 }
 
 #[tauri::command]
-pub fn macro_stop_record(app: AppHandle, state: State<'_, MacroState>, name: String) -> Option<Macro> {
+pub fn macro_stop_record(
+    app: AppHandle,
+    state: State<'_, MacroState>,
+    name: String,
+) -> Option<Macro> {
     set_page_flag(&app, false);
     state.stop(name)
 }
@@ -200,7 +231,12 @@ pub fn macro_cancel_record(app: AppHandle, state: State<'_, MacroState>) {
 /// Page → Rust: a recorded click/type from `macro-record.js` (a `fluxtab` plugin
 /// command, like `dom_publish`). Ignored unless a recording is active.
 #[tauri::command]
-pub fn macro_record_step(state: State<'_, MacroState>, kind: String, selector: String, text: String) {
+pub fn macro_record_step(
+    state: State<'_, MacroState>,
+    kind: String,
+    selector: String,
+    text: String,
+) {
     let step = match kind.as_str() {
         "click" => Step::Click { selector },
         "type" => Step::Type { selector, text },
@@ -222,12 +258,21 @@ pub fn macro_rename(state: State<'_, MacroState>, id: u64, name: String) {
 /// Replay a macro against the active tab: navigate / click / type with waits
 /// between steps. Best-effort (selectors can drift on changed pages).
 #[tauri::command]
-pub async fn macro_run(app: AppHandle, state: State<'_, MacroState>, id: u64) -> Result<(), String> {
+pub async fn macro_run(
+    app: AppHandle,
+    state: State<'_, MacroState>,
+    id: u64,
+) -> Result<(), String> {
     let m = state.get(id).ok_or("macro not found")?;
-    let tab = app.state::<crate::state::FluxState>().active_tab().ok_or("no active tab")?;
+    let tab = app
+        .state::<crate::state::FluxState>()
+        .active_tab()
+        .ok_or("no active tab")?;
     let label = format!("tab-{tab}");
     for step in &m.steps {
-        let Some(wv) = app.get_webview(&label) else { return Err("active tab closed".into()) };
+        let Some(wv) = app.get_webview(&label) else {
+            return Err("active tab closed".into());
+        };
         match step {
             Step::Navigate { url } => {
                 let _ = wv.eval(&format!("location.assign({})", js(url)));
@@ -260,23 +305,43 @@ mod tests {
     #[test]
     fn records_and_collapses_steps() {
         let s = MacroState::default();
-        s.start(Some(Step::Navigate { url: "https://a.com".into() }));
-        s.push(Step::Navigate { url: "https://a.com".into() }); // dup → collapsed
-        s.push(Step::Click { selector: "#go".into() });
-        s.push(Step::Type { selector: "#q".into(), text: "he".into() });
-        s.push(Step::Type { selector: "#q".into(), text: "hello".into() }); // same field → keep last
+        s.start(Some(Step::Navigate {
+            url: "https://a.com".into(),
+        }));
+        s.push(Step::Navigate {
+            url: "https://a.com".into(),
+        }); // dup → collapsed
+        s.push(Step::Click {
+            selector: "#go".into(),
+        });
+        s.push(Step::Type {
+            selector: "#q".into(),
+            text: "he".into(),
+        });
+        s.push(Step::Type {
+            selector: "#q".into(),
+            text: "hello".into(),
+        }); // same field → keep last
         assert_eq!(s.recording_len(), 3);
         let m = s.stop("search".into()).unwrap();
         assert_eq!(m.name, "search");
         assert_eq!(m.steps.len(), 3);
-        assert_eq!(m.steps[2], Step::Type { selector: "#q".into(), text: "hello".into() });
+        assert_eq!(
+            m.steps[2],
+            Step::Type {
+                selector: "#q".into(),
+                text: "hello".into()
+            }
+        );
         assert!(!s.is_recording());
     }
 
     #[test]
     fn push_ignored_when_not_recording() {
         let s = MacroState::default();
-        s.push(Step::Click { selector: "#x".into() });
+        s.push(Step::Click {
+            selector: "#x".into(),
+        });
         assert_eq!(s.recording_len(), 0);
     }
 
@@ -291,7 +356,9 @@ mod tests {
     #[test]
     fn list_delete_rename() {
         let s = MacroState::default();
-        s.start(Some(Step::Click { selector: "#a".into() }));
+        s.start(Some(Step::Click {
+            selector: "#a".into(),
+        }));
         let m = s.stop("m1".into()).unwrap();
         s.rename(m.id, "renamed".into());
         assert_eq!(s.get(m.id).unwrap().name, "renamed");

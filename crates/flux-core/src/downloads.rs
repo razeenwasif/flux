@@ -42,7 +42,10 @@ pub struct DownloadState {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 impl DownloadState {
@@ -85,12 +88,18 @@ impl DownloadState {
     }
 
     pub fn path_of(&self, id: u64) -> Option<String> {
-        self.items.lock().iter().find(|i| i.id == id).map(|i| i.path.clone())
+        self.items
+            .lock()
+            .iter()
+            .find(|i| i.id == id)
+            .map(|i| i.path.clone())
     }
 
     /// Drop everything that's no longer running.
     pub fn clear_finished(&self) {
-        self.items.lock().retain(|i| i.state == "in_progress" || i.state == "paused");
+        self.items
+            .lock()
+            .retain(|i| i.state == "in_progress" || i.state == "paused");
     }
 }
 
@@ -127,7 +136,9 @@ pub fn download_open(state: State<'_, DownloadState>, id: u64) -> Result<(), Str
 #[tauri::command]
 pub fn download_reveal(state: State<'_, DownloadState>, id: u64) -> Result<(), String> {
     let path = state.path_of(id).ok_or("no such download")?;
-    let parent = std::path::Path::new(&path).parent().ok_or("no parent folder")?;
+    let parent = std::path::Path::new(&path)
+        .parent()
+        .ok_or("no parent folder")?;
     open::that(parent).map_err(|e| e.to_string())
 }
 
@@ -188,10 +199,12 @@ mod gtk {
     use std::collections::{HashMap, HashSet};
     use std::path::PathBuf;
 
+    use glib::object::ObjectType as _;
     use tauri::webview::Webview;
     use tauri::{AppHandle, Emitter, Manager};
-    use glib::object::ObjectType as _;
-    use webkit2gtk::{Download, DownloadExt, URIRequestExt, URIResponseExt, WebContextExt, WebViewExt};
+    use webkit2gtk::{
+        Download, DownloadExt, URIRequestExt, URIResponseExt, WebContextExt, WebViewExt,
+    };
 
     use super::DownloadState;
 
@@ -226,7 +239,11 @@ mod gtk {
     /// Keep a suggested filename to one safe path component.
     fn sanitize(name: &str) -> String {
         let base = name.rsplit(['/', '\\']).next().unwrap_or(name).trim();
-        if base.is_empty() { "download".into() } else { base.to_string() }
+        if base.is_empty() {
+            "download".into()
+        } else {
+            base.to_string()
+        }
     }
 
     /// `name.ext` → first free of `name.ext`, `name (1).ext`, `name (2).ext`…
@@ -249,7 +266,11 @@ mod gtk {
     }
 
     fn on_started(app: &AppHandle, dl: &Download) {
-        let url = dl.request().and_then(|r| r.uri()).map(|u| u.to_string()).unwrap_or_default();
+        let url = dl
+            .request()
+            .and_then(|r| r.uri())
+            .map(|u| u.to_string())
+            .unwrap_or_default();
         // Register on decide-destination — that's when the filename is known.
         // id slot shared between the closures below; set exactly once.
         let id_slot = std::rc::Rc::new(std::cell::Cell::new(0u64));
@@ -264,8 +285,16 @@ mod gtk {
             dl.set_destination(&path.to_string_lossy());
             if let Some(state) = app_d.try_state::<DownloadState>() {
                 let total = dl.response().map(|r| r.content_length()).unwrap_or(0);
-                let filename = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-                let id = state.add(url_d.clone(), filename, path.to_string_lossy().into_owned(), total);
+                let filename = path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let id = state.add(
+                    url_d.clone(),
+                    filename,
+                    path.to_string_lossy().into_owned(),
+                    total,
+                );
                 id_a.set(id);
                 OPS.with(|m| m.borrow_mut().insert(id, dl.clone()));
                 let _ = app_d.emit("flux://download-updated", id);
@@ -277,7 +306,9 @@ mod gtk {
         let id_b = id_slot.clone();
         dl.connect_received_data(move |dl, _len| {
             let id = id_b.get();
-            if id == 0 { return; }
+            if id == 0 {
+                return;
+            }
             if let Some(state) = app_p.try_state::<DownloadState>() {
                 let total = dl.response().map(|r| r.content_length()).unwrap_or(0);
                 state.update(id, dl.received_data_length(), total, "in_progress");
@@ -294,11 +325,15 @@ mod gtk {
         dl.connect_failed(move |_dl, _err| {
             failed_f.set(true);
             let id = id_c.get();
-            if id == 0 { return; }
+            if id == 0 {
+                return;
+            }
             if let Some(state) = app_f.try_state::<DownloadState>() {
                 state.update(id, 0, 0, "interrupted");
             }
-            OPS.with(|m| { m.borrow_mut().remove(&id); });
+            OPS.with(|m| {
+                m.borrow_mut().remove(&id);
+            });
             let _ = app_f.emit("flux://download-updated", id);
         });
 
@@ -306,14 +341,18 @@ mod gtk {
         let id_d = id_slot;
         dl.connect_finished(move |dl| {
             let id = id_d.get();
-            if id == 0 { return; }
+            if id == 0 {
+                return;
+            }
             if !failed.get() {
                 if let Some(state) = app_e.try_state::<DownloadState>() {
                     let got = dl.received_data_length();
                     state.update(id, got, got, "completed");
                 }
             }
-            OPS.with(|m| { m.borrow_mut().remove(&id); });
+            OPS.with(|m| {
+                m.borrow_mut().remove(&id);
+            });
             let _ = app_e.emit("flux://download-updated", id);
         });
     }
@@ -337,8 +376,18 @@ mod tests {
     #[test]
     fn state_tracks_and_clears() {
         let s = DownloadState::new();
-        let a = s.add("https://x/a.zip".into(), "a.zip".into(), "/d/a.zip".into(), 100);
-        let b = s.add("https://x/b.bin".into(), "b.bin".into(), "/d/b.bin".into(), 0);
+        let a = s.add(
+            "https://x/a.zip".into(),
+            "a.zip".into(),
+            "/d/a.zip".into(),
+            100,
+        );
+        let b = s.add(
+            "https://x/b.bin".into(),
+            "b.bin".into(),
+            "/d/b.bin".into(),
+            0,
+        );
         assert_ne!(a, b);
 
         s.update(a, 100, 100, "completed");
@@ -409,17 +458,31 @@ mod win {
         };
 
         let mut uri = PWSTR::null();
-        let url = if op.Uri(&mut uri).is_ok() { webview2_com::take_pwstr(uri) } else { String::new() };
+        let url = if op.Uri(&mut uri).is_ok() {
+            webview2_com::take_pwstr(uri)
+        } else {
+            String::new()
+        };
         let mut p = PWSTR::null();
-        let path = if op.ResultFilePath(&mut p).is_ok() { webview2_com::take_pwstr(p) } else { String::new() };
-        let filename = path.rsplit(['\\', '/']).next().unwrap_or("download").to_string();
+        let path = if op.ResultFilePath(&mut p).is_ok() {
+            webview2_com::take_pwstr(p)
+        } else {
+            String::new()
+        };
+        let filename = path
+            .rsplit(['\\', '/'])
+            .next()
+            .unwrap_or("download")
+            .to_string();
         let mut total = 0i64;
         let _ = op.TotalBytesToReceive(&mut total);
 
         // Flux owns the download UI — suppress WebView2's default bubble.
         let _ = args.SetHandled(true);
 
-        let Some(state) = app.try_state::<DownloadState>() else { return };
+        let Some(state) = app.try_state::<DownloadState>() else {
+            return;
+        };
         let id = state.add(url, filename, path, total.max(0) as u64);
         OPS.with(|m| {
             m.borrow_mut().insert(id, op.clone());

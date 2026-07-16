@@ -164,10 +164,17 @@ pub enum AgentStatus {
     #[default]
     Idle,
     /// Model is generating; UI shows the kinetic gradient.
-    Thinking { prompt: String },
+    Thinking {
+        prompt: String,
+    },
     /// Action compiled and injected; UI flash-highlights the selector.
-    Acting { description: String, selector: String },
-    Error { message: String },
+    Acting {
+        description: String,
+        selector: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 /// Root application state, managed by Tauri (`app.manage(FluxState::new())`)
@@ -222,7 +229,11 @@ impl FluxState {
             next_group_id: AtomicU64::new(1),
             folders: RwLock::new(Vec::new()),
             next_folder_id: AtomicU64::new(1),
-            workspaces: RwLock::new(vec![Workspace { id: 1, name: "Personal".into(), color: 0x9d8df1 }]),
+            workspaces: RwLock::new(vec![Workspace {
+                id: 1,
+                name: "Personal".into(),
+                color: 0x9d8df1,
+            }]),
             active_workspace: AtomicU64::new(1),
             next_workspace_id: AtomicU64::new(2),
             panels: RwLock::new(Vec::new()),
@@ -248,13 +259,21 @@ impl FluxState {
         }
         let next = session.next_id.max(max_id + 1).max(1);
         // Only keep the active pointer if that tab actually came back.
-        let active = if tabs.contains_key(&session.active) { session.active } else { 0 };
+        let active = if tabs.contains_key(&session.active) {
+            session.active
+        } else {
+            0
+        };
         let next_group = session.groups.iter().map(|g| g.id).max().unwrap_or(0) as u64 + 1;
         let next_folder = session.folders.iter().map(|f| f.id).max().unwrap_or(0) as u64 + 1;
         // Workspaces: seed a default if the session had none (older files).
         let mut workspaces = session.workspaces;
         if workspaces.is_empty() {
-            workspaces.push(Workspace { id: 1, name: "Personal".into(), color: 0x9d8df1 });
+            workspaces.push(Workspace {
+                id: 1,
+                name: "Personal".into(),
+                color: 0x9d8df1,
+            });
         }
         let next_ws = workspaces.iter().map(|w| w.id).max().unwrap_or(1) as u64 + 1;
         let active_ws = if workspaces.iter().any(|w| w.id == session.active_workspace) {
@@ -298,8 +317,12 @@ impl FluxState {
                 seen.insert(*id);
             }
         }
-        let mut extra: Vec<TabMeta> =
-            self.tabs.iter().filter(|e| !seen.contains(e.key())).map(|e| e.value().clone()).collect();
+        let mut extra: Vec<TabMeta> = self
+            .tabs
+            .iter()
+            .filter(|e| !seen.contains(e.key()))
+            .map(|e| e.value().clone())
+            .collect();
         extra.sort_by_key(|t| t.id);
         out.extend(extra);
         out
@@ -321,7 +344,10 @@ impl FluxState {
     /// Replace the order with `ids` (filtered to live tabs; any live tab missing
     /// from `ids` is appended so none is ever dropped from the strip).
     pub fn set_order(&self, ids: Vec<TabId>) {
-        let mut next: Vec<TabId> = ids.into_iter().filter(|id| self.tabs.contains_key(id)).collect();
+        let mut next: Vec<TabId> = ids
+            .into_iter()
+            .filter(|id| self.tabs.contains_key(id))
+            .collect();
         for e in self.tabs.iter() {
             if !next.contains(e.key()) {
                 next.push(*e.key());
@@ -338,11 +364,22 @@ impl FluxState {
 
     pub fn group_create(&self, name: String, color: u32) -> u32 {
         let id = self.next_group_id.fetch_add(1, Ordering::Relaxed) as u32;
-        self.groups.write().push(TabGroup { id, name, color, collapsed: false });
+        self.groups.write().push(TabGroup {
+            id,
+            name,
+            color,
+            collapsed: false,
+        });
         id
     }
 
-    pub fn group_update(&self, id: u32, name: Option<String>, color: Option<u32>, collapsed: Option<bool>) {
+    pub fn group_update(
+        &self,
+        id: u32,
+        name: Option<String>,
+        color: Option<u32>,
+        collapsed: Option<bool>,
+    ) {
         if let Some(g) = self.groups.write().iter_mut().find(|g| g.id == id) {
             if let Some(n) = name {
                 g.name = n;
@@ -404,8 +441,16 @@ impl FluxState {
 
     pub fn folder_create(&self, name: String) -> u32 {
         let id = self.next_folder_id.fetch_add(1, Ordering::Relaxed) as u32;
-        let name = if name.trim().is_empty() { format!("Folder {id}") } else { name };
-        self.folders.write().push(TabFolder { id, name, collapsed: false });
+        let name = if name.trim().is_empty() {
+            format!("Folder {id}")
+        } else {
+            name
+        };
+        self.folders.write().push(TabFolder {
+            id,
+            name,
+            collapsed: false,
+        });
         id
     }
 
@@ -459,7 +504,11 @@ impl FluxState {
                 continue;
             }
             if let Some(c) = t.cluster {
-                by_cluster.entry(c.id).or_insert((c.color, Vec::new())).1.push(t.id);
+                by_cluster
+                    .entry(c.id)
+                    .or_insert((c.color, Vec::new()))
+                    .1
+                    .push(t.id);
             }
         }
         let mut created = 0;
@@ -519,8 +568,12 @@ impl FluxState {
         if self.workspaces.read().len() <= 1 {
             return Vec::new();
         }
-        let closed: Vec<TabId> =
-            self.tabs.iter().filter(|t| t.workspace == id).map(|t| t.id).collect();
+        let closed: Vec<TabId> = self
+            .tabs
+            .iter()
+            .filter(|t| t.workspace == id)
+            .map(|t| t.id)
+            .collect();
         for tid in &closed {
             self.tabs.remove(tid);
             self.dom_cache.remove(tid);
@@ -615,12 +668,18 @@ impl FluxState {
     /// the file is a few KB — and called after each tab mutation. Tabs are
     /// ordered by id (== creation order) so restore preserves the tab strip.
     pub fn persist(&self) {
-        let Some(path) = &self.session_path else { return };
+        let Some(path) = &self.session_path else {
+            return;
+        };
         let session = crate::session::Session {
             // Saved in display order, so a restart preserves the drag-reordered
             // strip (#30) — `restore` reads the sequence back as the order.
             // Private tabs (#59) are ephemeral — never written to disk.
-            tabs: self.ordered_tabs().into_iter().filter(|t| !t.private).collect(),
+            tabs: self
+                .ordered_tabs()
+                .into_iter()
+                .filter(|t| !t.private)
+                .collect(),
             active: self.active_tab.load(Ordering::Acquire),
             next_id: self.next_tab_id.load(Ordering::Acquire),
             groups: self.groups.read().clone(),

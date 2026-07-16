@@ -104,7 +104,8 @@ pub fn peek_promote(app: AppHandle, window: Window, url: String) -> Result<(), S
     if !is_peek(&window) {
         return Err("not a peek window".into());
     }
-    app.emit("flux://open-url", (url, false)).map_err(|e| e.to_string())?;
+    app.emit("flux://open-url", (url, false))
+        .map_err(|e| e.to_string())?;
     // Surface the main window so the freshly-promoted tab is actually seen — the
     // peek was always-on-top, so without this the new tab lands behind it.
     if let Some(main) = app.get_webview_window("main") {
@@ -138,6 +139,9 @@ mod tests {
     #[test]
     fn host_strips_scheme_and_www() {
         assert_eq!(host_of("https://www.example.com/x?y=1"), "example.com");
-        assert_eq!(host_of("http://news.ycombinator.com/"), "news.ycombinator.com");
+        assert_eq!(
+            host_of("http://news.ycombinator.com/"),
+            "news.ycombinator.com"
+        );
     }
 }

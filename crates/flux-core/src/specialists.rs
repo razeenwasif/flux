@@ -27,28 +27,83 @@ const DOMAINS: &[(&str, &str, &[&str])] = &[
         "physics",
         "Physics",
         &[
-            "physics", "quantum", "relativity", "gravity", "gravitational", "spacetime", "particle",
-            "thermodynamic", "entropy", "photon", "electron", "boson", "fermion", "hamiltonian",
-            "wavefunction", "lagrangian", "gauge", "renormali", "scattering", "lattice", "qubit",
-            "decoherence", "superconduct", "cosmolog", "string theory", "field theory", "symmetry",
+            "physics",
+            "quantum",
+            "relativity",
+            "gravity",
+            "gravitational",
+            "spacetime",
+            "particle",
+            "thermodynamic",
+            "entropy",
+            "photon",
+            "electron",
+            "boson",
+            "fermion",
+            "hamiltonian",
+            "wavefunction",
+            "lagrangian",
+            "gauge",
+            "renormali",
+            "scattering",
+            "lattice",
+            "qubit",
+            "decoherence",
+            "superconduct",
+            "cosmolog",
+            "string theory",
+            "field theory",
+            "symmetry",
         ],
     ),
     (
         "math",
         "Math",
         &[
-            "theorem", "proof", "lemma", "conjecture", "topology", "manifold", "homolog", "algebra",
-            "eigen", "matrix", "tensor", "integral", "derivative", "calculus", "polynomial",
-            "isomorph", "group theory", "category theory", "measure theory", "differential equation",
+            "theorem",
+            "proof",
+            "lemma",
+            "conjecture",
+            "topology",
+            "manifold",
+            "homolog",
+            "algebra",
+            "eigen",
+            "matrix",
+            "tensor",
+            "integral",
+            "derivative",
+            "calculus",
+            "polynomial",
+            "isomorph",
+            "group theory",
+            "category theory",
+            "measure theory",
+            "differential equation",
         ],
     ),
     (
         "cs",
         "CS",
         &[
-            "algorithm", "complexity", "np-hard", "np-complete", "compiler", "data structure",
-            "concurrency", "scheduler", "throughput", "cache", "amortized", "big-o", "turing",
-            "automat", "type system", "garbage collect", "distributed system", "consensus",
+            "algorithm",
+            "complexity",
+            "np-hard",
+            "np-complete",
+            "compiler",
+            "data structure",
+            "concurrency",
+            "scheduler",
+            "throughput",
+            "cache",
+            "amortized",
+            "big-o",
+            "turing",
+            "automat",
+            "type system",
+            "garbage collect",
+            "distributed system",
+            "consensus",
         ],
     ),
 ];
@@ -64,7 +119,11 @@ pub fn discover() -> Vec<Specialist> {
             models
                 .iter()
                 .find(|m| m.to_ascii_lowercase().starts_with(&prefix))
-                .map(|m| Specialist { domain: domain.to_string(), label: label.to_string(), model: m.clone() })
+                .map(|m| Specialist {
+                    domain: domain.to_string(),
+                    label: label.to_string(),
+                    model: m.clone(),
+                })
         })
         .collect()
 }
@@ -83,7 +142,9 @@ pub fn route_with(query: &str, available: &[Specialist]) -> Option<Specialist> {
     let q = query.to_ascii_lowercase();
     let mut best: Option<(usize, &Specialist)> = None;
     for (domain, _, kws) in DOMAINS {
-        let Some(spec) = available.iter().find(|s| s.domain == *domain) else { continue };
+        let Some(spec) = available.iter().find(|s| s.domain == *domain) else {
+            continue;
+        };
         let score = kws.iter().filter(|k| q.contains(**k)).count();
         if score >= ROUTE_THRESHOLD && best.map(|(b, _)| score > b).unwrap_or(true) {
             best = Some((score, spec));
@@ -100,7 +161,9 @@ pub fn route(query: &str) -> Option<Specialist> {
 /// Command: list installed specialists (for the UI to show what's routable).
 #[tauri::command]
 pub async fn agent_specialists() -> Vec<Specialist> {
-    tauri::async_runtime::spawn_blocking(discover).await.unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(discover)
+        .await
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -108,12 +171,19 @@ mod tests {
     use super::*;
 
     fn specs() -> Vec<Specialist> {
-        vec![Specialist { domain: "physics".into(), label: "Physics".into(), model: "physics-specialist:7b-council".into() }]
+        vec![Specialist {
+            domain: "physics".into(),
+            label: "Physics".into(),
+            model: "physics-specialist:7b-council".into(),
+        }]
     }
 
     #[test]
     fn routes_physics_questions_to_the_physics_specialist() {
-        let r = route_with("How does gravitational decoherence affect a qubit's wavefunction?", &specs());
+        let r = route_with(
+            "How does gravitational decoherence affect a qubit's wavefunction?",
+            &specs(),
+        );
         assert_eq!(r.unwrap().model, "physics-specialist:7b-council");
     }
 
