@@ -307,6 +307,14 @@ export type PacPlan = { command: string; explanation: string; danger: string | n
  */
 export type PacStatus = { installed: boolean; authenticated: boolean; detail: string }
 /**
+ * What a page *is or mentions* (payoff layer): a paper, a DOI, a code repo, a
+ * dataset. Extracted deterministically (no LLM — precision over recall) from
+ * the page URL and the dwell-snapshot text; shared entities between visits
+ * derive `Cites`/`Implements`/`Same` edges — "this repo implements that paper".
+ */
+export type EntityKind = "arxiv" | "doi" | "repo" | "dataset"
+export type Entity = { kind: EntityKind; value: string; primary: boolean }
+/**
  * Where a visit came from and why — the provenance that turns flat history into
  * a graph. All fields are best-effort; the slice fills `from_visit`/`referrer`
  * (from the tab's prior visit) and `task` (the active workspace). `query` is
@@ -317,7 +325,7 @@ export type Provenance = { from_visit: number | null; referrer: string | null; q
  * One page visit. Kept minimal in the slice; snapshot/chat/marks/entities join
  * in later phases (ADR 0011) as additive fields.
  */
-export type Visit = { id: number; url: string; title: string; first_ms: number; last_ms: number; hits: number; why: Provenance; snapshot_id?: number | null }
+export type Visit = { id: number; url: string; title: string; first_ms: number; last_ms: number; hits: number; why: Provenance; snapshot_id?: number | null; entities?: Entity[] }
 /**
  * Edge kinds. `Nav` is captured for free on every navigation; the rest are
  * derived in later phases (semantic neighbours, citation/repo detection).

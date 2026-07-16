@@ -2255,6 +2255,10 @@ body.resizing .start-card, body.busy .start-card { transition: none; }
 .trail-canvas:active { cursor: grabbing; }
 .trail-hud { position: absolute; top: 10px; left: 12px; font-size: 11.5px; color: var(--flux-text-mute); background: rgba(10,8,24,0.6); padding: 4px 10px; border-radius: 999px; }
 .trail-hud-sem { color: var(--flux-teal, #2ff3ff); }
+.trail-hud-cite { color: var(--flux-magenta, #ec4be0); }
+.trail-entities { display: flex; flex-wrap: wrap; gap: 5px; }
+.trail-entity { font-size: 10.5px; color: var(--flux-text-mute); background: rgba(236,75,224,0.08); border: 1px solid rgba(236,75,224,0.2); border-radius: 999px; padding: 2px 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trail-entity.primary { color: var(--flux-text); background: rgba(236,75,224,0.16); border-color: rgba(236,75,224,0.4); }
 .trail-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 15%; font-size: 13px; color: var(--flux-text-mute); line-height: 1.5; }
 .trail-detail { flex: 0 0 320px; display: flex; flex-direction: column; gap: 8px; background: rgba(12,10,26,0.55); border: 1px solid var(--flux-border); border-radius: var(--flux-radius-card, 14px); padding: 16px; overflow-y: auto; }
 .trail-detail-hint { color: var(--flux-text-mute); font-size: 13px; line-height: 1.5; margin: auto 0; text-align: center; }

@@ -76,6 +76,34 @@ pub struct Visit {
     /// after the snapshot is budget-evicted). Indexes `TraceSnapshots`.
     #[serde(default)]
     pub snapshot_id: Option<u64>,
+    /// Papers / DOIs / repos / datasets this page is or mentions (payoff layer).
+    /// URL-derived entities land at nav time; text-derived ones at dwell capture.
+    #[serde(default)]
+    pub entities: Vec<Entity>,
+}
+
+/// What a page *is or mentions* (payoff layer): a paper, a DOI, a code repo, a
+/// dataset. Extracted deterministically (no LLM — precision over recall) from
+/// the page URL and the dwell-snapshot text; shared entities between visits
+/// derive `Cites`/`Implements`/`Same` edges — "this repo implements that paper".
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityKind {
+    Arxiv,
+    Doi,
+    Repo,
+    Dataset,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+pub struct Entity {
+    pub kind: EntityKind,
+    /// Normalized: arXiv id without version ("2511.19477"), lowercased DOI,
+    /// lowercased "owner/name" repo, "hf:owner/name" / "kaggle:owner/name".
+    pub value: String,
+    /// True when derived from the page's own URL — the page *is* this thing
+    /// (the paper's abstract page, the repo itself) rather than mentioning it.
+    pub primary: bool,
 }
 
 /// Edge kinds. `Nav` is captured for free on every navigation; the rest are
@@ -239,6 +267,9 @@ impl TraceStore {
             hits: 1,
             why: Provenance { from_visit: prev_live, referrer, query: None, task },
             snapshot_id: None,
+            // URL-primary entities at nav time (a bare string scan — no text
+            // yet), so even a bounced paper/repo page can be cited *into* later.
+            entities: extract_entities(url, ""),
         });
         if let Some(p) = prev_live {
             let edge = Edge { from: p, to: id, kind: EdgeKind::Nav };
@@ -286,28 +317,29 @@ impl TraceStore {
         }
     }
 
-    /// Add derived `Semantic` edges from each of `froms` to `to` (payoff layer).
-    /// Direction carries no meaning for semantic links, so duplicates are checked
-    /// both ways; self-edges and edges to visits that no longer exist are skipped.
-    pub fn add_semantic_edges(&self, to: VisitId, froms: &[VisitId]) {
-        if froms.is_empty() {
+    /// Add derived (non-Nav) edges — semantic neighbours, citations, implements
+    /// (payoff layer). Duplicates are checked in both directions per kind (the
+    /// direction of a derived link is informative, not identity); self-edges and
+    /// edges whose endpoints no longer exist are skipped.
+    pub fn add_derived_edges(&self, new_edges: &[Edge]) {
+        if new_edges.is_empty() {
             return;
         }
         self.hydrate();
         let mut d = self.inner.write();
-        if !d.visits.iter().any(|v| v.id == to) {
-            return;
-        }
         let mut added = false;
-        for &f in froms {
-            if f == to || !d.visits.iter().any(|v| v.id == f) {
+        for e in new_edges {
+            if e.kind == EdgeKind::Nav || e.from == e.to {
                 continue;
             }
-            let dup = d.edges.iter().any(|e| {
-                e.kind == EdgeKind::Semantic && ((e.from == f && e.to == to) || (e.from == to && e.to == f))
+            if !d.visits.iter().any(|v| v.id == e.from) || !d.visits.iter().any(|v| v.id == e.to) {
+                continue;
+            }
+            let dup = d.edges.iter().any(|x| {
+                x.kind == e.kind && ((x.from == e.from && x.to == e.to) || (x.from == e.to && x.to == e.from))
             });
             if !dup {
-                d.edges.push(Edge { from: f, to, kind: EdgeKind::Semantic });
+                d.edges.push(e.clone());
                 added = true;
             }
         }
@@ -315,6 +347,78 @@ impl TraceStore {
             drop(d);
             self.dirty.store(true, Ordering::Relaxed);
         }
+    }
+
+    /// Convenience: `Semantic` edges from each of `froms` to `to`.
+    pub fn add_semantic_edges(&self, to: VisitId, froms: &[VisitId]) {
+        let edges: Vec<Edge> = froms.iter().map(|&f| Edge { from: f, to, kind: EdgeKind::Semantic }).collect();
+        self.add_derived_edges(&edges);
+    }
+
+    /// Replace a visit's entities with the full (URL + text) extraction — the
+    /// dwell-capture upgrade over the nav-time URL-only pass.
+    pub fn set_entities(&self, visit: VisitId, entities: Vec<Entity>) {
+        self.hydrate();
+        let mut d = self.inner.write();
+        if let Some(v) = d.visits.iter_mut().find(|v| v.id == visit) {
+            if v.entities != entities {
+                v.entities = entities;
+                drop(d);
+                self.dirty.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Derive citation edges for `id` from shared entities (payoff layer):
+    /// - it mentions something another visit *is* → `Cites` (or `Implements`
+    ///   when the mentioning page is itself a repo — "this repo implements
+    ///   that paper"), pointing citer → cited;
+    /// - both merely mention the same thing → `Same` (about the same topic).
+    /// One edge per visit pair, capped per derivation.
+    pub fn derive_entity_edges(&self, id: VisitId) {
+        const MAX_NEW: usize = 8;
+        self.hydrate();
+        let mut new_edges: Vec<Edge> = Vec::new();
+        {
+            let d = self.inner.read();
+            let Some(me) = d.visits.iter().find(|v| v.id == id) else { return };
+            if me.entities.is_empty() {
+                return;
+            }
+            let me_repo = me.entities.iter().any(|e| e.primary && e.kind == EntityKind::Repo);
+            for other in d.visits.iter().filter(|v| v.id != id && !v.entities.is_empty()) {
+                let other_repo = other.entities.iter().any(|e| e.primary && e.kind == EntityKind::Repo);
+                for em in &me.entities {
+                    let Some(eo) = other.entities.iter().find(|e| e.kind == em.kind && e.value == em.value) else {
+                        continue;
+                    };
+                    let edge = match (em.primary, eo.primary) {
+                        // I mention what the other page IS → I cite (or implement) it.
+                        (false, true) => Edge {
+                            from: id,
+                            to: other.id,
+                            kind: if me_repo { EdgeKind::Implements } else { EdgeKind::Cites },
+                        },
+                        // The other page mentions what I am → it cites/implements me.
+                        (true, false) => Edge {
+                            from: other.id,
+                            to: id,
+                            kind: if other_repo { EdgeKind::Implements } else { EdgeKind::Cites },
+                        },
+                        // Shared mention → both are about the same thing.
+                        (false, false) => Edge { from: other.id, to: id, kind: EdgeKind::Same },
+                        // Two visits of the same paper/repo — nav + semantic cover it.
+                        (true, true) => continue,
+                    };
+                    new_edges.push(edge);
+                    break; // one edge per pair
+                }
+                if new_edges.len() >= MAX_NEW {
+                    break;
+                }
+            }
+        }
+        self.add_derived_edges(&new_edges);
     }
 
     /// Most-recent visits (newest first).
@@ -408,6 +512,224 @@ fn host_matches(url: &str, host: &str) -> bool {
     let h = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
     let h = h.split(':').next().unwrap_or(h).to_ascii_lowercase();
     h == host || h.ends_with(&format!(".{host}"))
+}
+
+// ─── Entity extraction (payoff layer) ─────────────────────────────────────────
+// Deterministic scanners — no regex crate, no LLM. False positives here become
+// wrong "cites" edges in the graph, so each pattern is anchored and normalized.
+
+/// Cap per visit so a references page can't spray hundreds of entities.
+const MAX_ENTITIES: usize = 12;
+
+/// Extract entities from a page. `url` matches are marked `primary` (the page
+/// *is* the thing); `text` matches are mentions. Primaries win dedup and sort
+/// first; the result is capped at [`MAX_ENTITIES`].
+pub fn extract_entities(url: &str, text: &str) -> Vec<Entity> {
+    let mut out: Vec<Entity> = Vec::new();
+    scan_haystack(url, true, &mut out);
+    scan_haystack(text, false, &mut out);
+    // Primaries first (stable), then cap.
+    out.sort_by_key(|e| !e.primary);
+    out.truncate(MAX_ENTITIES);
+    out
+}
+
+fn push_entity(out: &mut Vec<Entity>, kind: EntityKind, value: String, primary: bool) {
+    if value.is_empty() {
+        return;
+    }
+    if let Some(e) = out.iter_mut().find(|e| e.kind == kind && e.value == value) {
+        e.primary |= primary; // primary wins on dedup
+        return;
+    }
+    out.push(Entity { kind, value, primary });
+}
+
+fn scan_haystack(hay: &str, primary: bool, out: &mut Vec<Entity>) {
+    let b = hay.as_bytes();
+    let lower = hay.to_ascii_lowercase();
+
+    // arXiv ids: after "arxiv.org/abs/", "arxiv.org/pdf/", or an "arxiv:" prefix.
+    for marker in ["arxiv.org/abs/", "arxiv.org/pdf/", "arxiv:"] {
+        let mut from = 0;
+        while let Some(p) = lower[from..].find(marker) {
+            let at = from + p + marker.len();
+            if let Some((id, _)) = scan_arxiv_id(b, at) {
+                push_entity(out, EntityKind::Arxiv, id, primary);
+            }
+            from = at;
+        }
+    }
+
+    // DOIs: "10.<4-9 digits>/<suffix>" — the registered-prefix shape.
+    let mut from = 0;
+    while let Some(p) = lower[from..].find("10.") {
+        let at = from + p;
+        // Word boundary on the left (start, or a non-alphanumeric).
+        let bounded = at == 0 || !b[at - 1].is_ascii_alphanumeric();
+        if bounded {
+            if let Some((doi, end)) = scan_doi(&lower, at) {
+                push_entity(out, EntityKind::Doi, doi, primary);
+                from = end;
+                continue;
+            }
+        }
+        from = at + 3;
+    }
+
+    // GitHub repos: "github.com/<owner>/<name>".
+    let mut from = 0;
+    while let Some(p) = lower[from..].find("github.com/") {
+        let at = from + p + "github.com/".len();
+        if let Some((repo, end)) = scan_repo(&lower, at) {
+            push_entity(out, EntityKind::Repo, repo, primary);
+            from = end;
+        } else {
+            from = at;
+        }
+    }
+
+    // Datasets: Hugging Face + Kaggle.
+    for (marker, prefix) in [("huggingface.co/datasets/", "hf:"), ("kaggle.com/datasets/", "kaggle:")] {
+        let mut from = 0;
+        while let Some(p) = lower[from..].find(marker) {
+            let at = from + p + marker.len();
+            if let Some((path, end)) = scan_owner_name(&lower, at) {
+                push_entity(out, EntityKind::Dataset, format!("{prefix}{path}"), primary);
+                from = end;
+            } else {
+                from = at;
+            }
+        }
+    }
+}
+
+/// "dddd.dddd[d]" (+ optional "vN", stripped) starting at `i`.
+fn scan_arxiv_id(b: &[u8], i: usize) -> Option<(String, usize)> {
+    let n = b.len();
+    let mut j = i;
+    while j < n && b[j].is_ascii_digit() {
+        j += 1;
+    }
+    if j - i != 4 || j >= n || b[j] != b'.' {
+        return None;
+    }
+    j += 1;
+    let s2 = j;
+    while j < n && b[j].is_ascii_digit() {
+        j += 1;
+    }
+    if !(4..=5).contains(&(j - s2)) {
+        return None;
+    }
+    let id = std::str::from_utf8(&b[i..j]).ok()?.to_string();
+    let mut end = j;
+    if end < n && (b[end] | 0x20) == b'v' {
+        let mut m = end + 1;
+        while m < n && b[m].is_ascii_digit() {
+            m += 1;
+        }
+        if m > end + 1 {
+            end = m;
+        }
+    }
+    Some((id, end))
+}
+
+/// A DOI starting at `i` in lowercased `hay` ("10." already sighted there).
+/// Suffix chars per the Crossref recommendation; trailing punctuation trimmed,
+/// with `)` kept only when balanced inside the suffix (DOIs like
+/// `10.1016/s0140-6736(20)30183-5` are real).
+fn scan_doi(hay: &str, i: usize) -> Option<(String, usize)> {
+    let b = hay.as_bytes();
+    let n = b.len();
+    let mut j = i + 3;
+    let reg_start = j;
+    while j < n && b[j].is_ascii_digit() {
+        j += 1;
+    }
+    if !(4..=9).contains(&(j - reg_start)) || j >= n || b[j] != b'/' {
+        return None;
+    }
+    j += 1;
+    let suf_start = j;
+    while j < n {
+        let c = b[j];
+        let ok = c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'_' | b';' | b'(' | b')' | b'/' | b':' | b'#');
+        if !ok {
+            break;
+        }
+        j += 1;
+    }
+    // Trim trailing punctuation that's almost certainly sentence/markup, not DOI.
+    let mut end = j;
+    loop {
+        if end <= suf_start {
+            break;
+        }
+        let c = b[end - 1];
+        let trim = matches!(c, b'.' | b',' | b';' | b':')
+            || (c == b')' && {
+                let suffix = &hay[suf_start..end];
+                suffix.matches('(').count() < suffix.matches(')').count()
+            });
+        if trim {
+            end -= 1;
+        } else {
+            break;
+        }
+    }
+    if end - suf_start < 2 {
+        return None;
+    }
+    Some((hay[i..end].to_string(), end))
+}
+
+/// "<owner>/<name>" starting at `i` (both segments non-empty, url-ish charset),
+/// skipping GitHub's non-repo first segments; strips a trailing ".git".
+fn scan_repo(hay: &str, i: usize) -> Option<(String, usize)> {
+    const NOT_REPOS: &[&str] = &[
+        "about", "apps", "collections", "contact", "events", "explore", "features", "issues", "login",
+        "marketplace", "new", "notifications", "orgs", "pricing", "pulls", "search", "security",
+        "settings", "signup", "site", "sponsors", "topics", "trending",
+    ];
+    let (path, end) = scan_owner_name(hay, i)?;
+    let owner = path.split('/').next().unwrap_or("");
+    if NOT_REPOS.contains(&owner) {
+        return None;
+    }
+    let path = path.strip_suffix(".git").unwrap_or(&path).to_string();
+    Some((path, end))
+}
+
+/// Two url-path segments "<a>/<b>" starting at `i` in lowercased `hay`.
+fn scan_owner_name(hay: &str, i: usize) -> Option<(String, usize)> {
+    let b = hay.as_bytes();
+    let n = b.len();
+    let seg = |mut j: usize| {
+        let s = j;
+        while j < n && (b[j].is_ascii_alphanumeric() || matches!(b[j], b'-' | b'_' | b'.')) {
+            j += 1;
+        }
+        (s, j)
+    };
+    let (s1, e1) = seg(i);
+    if e1 == s1 || e1 >= n || b[e1] != b'/' {
+        return None;
+    }
+    let (s2, e2) = seg(e1 + 1);
+    if e2 == s2 {
+        return None;
+    }
+    // Trim a trailing '.' (sentence period after a bare "owner/name" mention).
+    let mut e2t = e2;
+    while e2t > s2 && b[e2t - 1] == b'.' {
+        e2t -= 1;
+    }
+    if e2t == s2 {
+        return None;
+    }
+    Some((format!("{}/{}", &hay[s1..e1], &hay[s2..e2t]), e2))
 }
 
 // ─── Dwell-captured content snapshots (ADR 0011 step 1) ──────────────────────
@@ -876,9 +1198,14 @@ pub async fn trace_snapshot(
     const SEM_K: usize = 3;
     const SEM_THRESHOLD: f32 = 0.55;
     let neighbours = snaps.neighbours(&embedding, visit_id, SEM_K, SEM_THRESHOLD);
+    // Entities + citation edges (payoff layer): upgrade the nav-time URL-only
+    // pass with what the page text mentions, then link shared papers/repos.
+    let entities = extract_entities(&url, &text);
     let id = snaps.add(visit_id, url, title, text, embedding);
     trace.attach_snapshot(visit_id, id);
     trace.add_semantic_edges(visit_id, &neighbours);
+    trace.set_entities(visit_id, entities);
+    trace.derive_entity_edges(visit_id);
     Ok(Some(id))
 }
 
@@ -1145,6 +1472,71 @@ mod tests {
     }
 
     #[test]
+    fn extracts_and_normalizes_entities() {
+        // arXiv: URL is primary, version stripped; text mention is not primary.
+        let e = extract_entities("https://arxiv.org/abs/2511.19477v2", "see arXiv:1706.03762 for the transformer");
+        assert!(e.iter().any(|x| x.kind == EntityKind::Arxiv && x.value == "2511.19477" && x.primary));
+        assert!(e.iter().any(|x| x.kind == EntityKind::Arxiv && x.value == "1706.03762" && !x.primary));
+
+        // DOI: publisher-URL primary; text DOI with trailing period trimmed but
+        // balanced parens kept (real Lancet-style DOI).
+        let e = extract_entities(
+            "https://link.springer.com/article/10.1007/s11229-023-04281-5",
+            "as shown in 10.1016/s0140-6736(20)30183-5.",
+        );
+        assert!(e.iter().any(|x| x.kind == EntityKind::Doi && x.value == "10.1007/s11229-023-04281-5" && x.primary));
+        assert!(e.iter().any(|x| x.kind == EntityKind::Doi && x.value == "10.1016/s0140-6736(20)30183-5" && !x.primary));
+
+        // Repo: sub-page URL still yields owner/name, lowercased, .git stripped;
+        // GitHub's non-repo sections are skipped.
+        let e = extract_entities("https://GitHub.com/Razeen/Flux/issues/5", "clone github.com/foo/bar.git — not github.com/features/copilot");
+        assert!(e.iter().any(|x| x.kind == EntityKind::Repo && x.value == "razeen/flux" && x.primary));
+        assert!(e.iter().any(|x| x.kind == EntityKind::Repo && x.value == "foo/bar" && !x.primary));
+        assert!(!e.iter().any(|x| x.value.starts_with("features/")));
+
+        // Datasets + dedup (primary wins) + no junk from plain text.
+        let e = extract_entities(
+            "https://huggingface.co/datasets/allenai/c4",
+            "the C4 corpus (huggingface.co/datasets/allenai/c4) at version 10.5",
+        );
+        let ds: Vec<_> = e.iter().filter(|x| x.kind == EntityKind::Dataset).collect();
+        assert_eq!(ds.len(), 1, "same dataset deduped");
+        assert!(ds[0].primary, "primary wins the dedup");
+        assert!(!e.iter().any(|x| x.kind == EntityKind::Doi), "\"10.5\" is not a DOI");
+        assert!(extract_entities("https://example.com/", "nothing to see").is_empty());
+    }
+
+    #[test]
+    fn entity_edges_cites_implements_and_same() {
+        let s = TraceStore::default();
+        // The paper page (primary arXiv via URL, at nav time).
+        let paper = s.record(1, "https://arxiv.org/abs/2511.19477", "Paper", None).unwrap();
+        // A repo whose README mentions the paper → Implements repo→paper.
+        let repo = s.record(2, "https://github.com/foo/bar", "Repo", None).unwrap();
+        s.set_entities(repo, extract_entities("https://github.com/foo/bar", "implements arXiv:2511.19477"));
+        s.derive_entity_edges(repo);
+        // A blog post mentioning the paper → Cites blog→paper.
+        let blog = s.record(3, "https://blog.example/post", "Blog", None).unwrap();
+        s.set_entities(blog, extract_entities("https://blog.example/post", "great read: arxiv.org/abs/2511.19477"));
+        s.derive_entity_edges(blog);
+
+        let g = s.graph(None, None);
+        assert!(g.edges.iter().any(|e| e.kind == EdgeKind::Implements && e.from == repo && e.to == paper));
+        assert!(g.edges.iter().any(|e| e.kind == EdgeKind::Cites && e.from == blog && e.to == paper));
+        // Blog and repo both *mention* the paper → Same between them.
+        assert!(g.edges.iter().any(|e| e.kind == EdgeKind::Same
+            && ((e.from, e.to) == (repo, blog) || (e.from, e.to) == (blog, repo))));
+        // Re-deriving is idempotent (both-direction dedup).
+        let n = g.edges.len();
+        s.derive_entity_edges(blog);
+        assert_eq!(s.graph(None, None).edges.len(), n);
+        // Forget the paper → its citation edges go with it.
+        s.forget(&ForgetScope::Url { url: "https://arxiv.org/abs/2511.19477".into() });
+        let g = s.graph(None, None);
+        assert!(!g.edges.iter().any(|e| matches!(e.kind, EdgeKind::Cites | EdgeKind::Implements)));
+    }
+
+    #[test]
     fn neighbours_rank_threshold_and_exclude() {
         let snaps = test_snaps();
         // L2-normalized toy vectors: cosine == dot product.
@@ -1220,6 +1612,7 @@ mod tests {
             hits: 1,
             why: Provenance::default(),
             snapshot_id: Some(0),
+            entities: Vec::new(),
         };
         let thread: Vec<ChatMsg> = (0..20)
             .map(|i| ChatMsg { role: if i % 2 == 0 { "user".into() } else { "assistant".into() }, text: format!("t{i}"), ms: 0 })

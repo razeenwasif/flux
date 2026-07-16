@@ -44,7 +44,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   let canvas!: HTMLCanvasElement;
   let wrap!: HTMLDivElement;
   const [loading, setLoading] = createSignal(true);
-  const [stats, setStats] = createSignal({ nodes: 0, edges: 0, sem: 0 });
+  const [stats, setStats] = createSignal({ nodes: 0, edges: 0, sem: 0, cites: 0 });
   const [windowIdx, setWindowIdx] = createSignal(0);
   // Time-travel scrub (payoff layer): the END of the viewed window. null = live
   // ("now"); dragging back replays what the workspace looked like around then.
@@ -61,7 +61,9 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   let chatFor: number | null = null; // guards stale stream frames after reselect
 
   let nodes: GNode[] = [];
-  let edges: { s: number; t: number; w: number; sem: boolean }[] = [];
+  // style: 0 = nav (solid violet), 1 = semantic (dashed teal), 2 = citation
+  // (cites/implements/same — dashed magenta)
+  let edges: { s: number; t: number; w: number; style: 0 | 1 | 2 }[] = [];
   let raf = 0, alpha = 1, running = false;
   const cam = { x: 0, y: 0, scale: 1 };
   let dragNode: GNode | null = null, panning = false, moved = false;
@@ -133,15 +135,19 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     ctx.save();
     ctx.translate(W / 2 + cam.x, H / 2 + cam.y);
     ctx.scale(cam.scale, cam.scale);
-    // edges — nav solid violet; semantic ("same topic") dashed teal
+    // edges — nav solid violet; semantic ("same topic") dashed teal;
+    // citations (cites/implements/same-entity) long-dashed magenta
     ctx.lineWidth = 1 / cam.scale;
     for (const e of edges) {
       const a = nodes[e.s], b = nodes[e.t];
       if (!a || !b) continue;
       const lit = a === hoverNode || b === hoverNode || a === selNode || b === selNode;
-      if (e.sem) {
+      if (e.style === 1) {
         ctx.setLineDash([4 / cam.scale, 4 / cam.scale]);
         ctx.strokeStyle = lit ? "rgba(47,243,255,0.7)" : "rgba(47,243,255,0.18)";
+      } else if (e.style === 2) {
+        ctx.setLineDash([8 / cam.scale, 5 / cam.scale]);
+        ctx.strokeStyle = lit ? "rgba(236,75,224,0.75)" : "rgba(236,75,224,0.22)";
       } else {
         ctx.setLineDash([]);
         ctx.strokeStyle = lit ? "rgba(47,243,255,0.55)" : "rgba(123,97,255,0.14)";
@@ -333,11 +339,20 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
         };
       });
       edges = g.edges
-        // Semantic links pull related pages toward each other, but gently —
+        // Derived links pull related pages toward each other, but gently —
         // the navigation trail should still dominate the layout.
-        .map((e: Edge) => ({ s: idx.get(e.from), t: idx.get(e.to), w: e.kind === "semantic" ? 0.35 : 1, sem: e.kind === "semantic" }))
-        .filter((e): e is { s: number; t: number; w: number; sem: boolean } => e.s != null && e.t != null);
-      setStats({ nodes: nodes.length, edges: edges.length, sem: edges.filter((e) => e.sem).length });
+        .map((e: Edge) => {
+          const style: 0 | 1 | 2 = e.kind === "nav" ? 0 : e.kind === "semantic" ? 1 : 2;
+          const w = style === 0 ? 1 : style === 1 ? 0.35 : 0.2;
+          return { s: idx.get(e.from), t: idx.get(e.to), w, style };
+        })
+        .filter((e): e is { s: number; t: number; w: number; style: 0 | 1 | 2 } => e.s != null && e.t != null);
+      setStats({
+        nodes: nodes.length,
+        edges: edges.length,
+        sem: edges.filter((e) => e.style === 1).length,
+        cites: edges.filter((e) => e.style === 2).length,
+      });
       // Keep a live selection valid across reloads.
       selNode = selected() ? (nodes.find((n) => n.visit.id === selected()!.id) ?? null) : null;
       if (!selNode) setSelected(null);
@@ -479,8 +494,9 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
           <div class="trail-hud">
             <Show when={!loading()} fallback={<span>Loading the Trail…</span>}>
               <span>
-                {stats().nodes} pages · {stats().edges - stats().sem} steps
+                {stats().nodes} pages · {stats().edges - stats().sem - stats().cites} steps
                 <Show when={stats().sem > 0}> · <span class="trail-hud-sem">{stats().sem} related</span></Show>
+                <Show when={stats().cites > 0}> · <span class="trail-hud-cite">{stats().cites} citations</span></Show>
               </span>
             </Show>
           </div>
@@ -502,6 +518,18 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                 <div class="trail-detail-meta">
                   {new Date(v().last_ms).toLocaleString()} · {v().hits} visit{v().hits === 1 ? "" : "s"}
                 </div>
+                {/* Papers / repos / datasets this page is or mentions. */}
+                <Show when={(v().entities ?? []).length > 0}>
+                  <div class="trail-entities">
+                    <For each={v().entities ?? []}>
+                      {(en) => (
+                        <span class="trail-entity" classList={{ primary: en.primary }} title={en.primary ? "this page IS this" : "mentioned on this page"}>
+                          {en.kind === "arxiv" ? `📄 arXiv:${en.value}` : en.kind === "doi" ? `🔗 ${en.value}` : en.kind === "repo" ? `⌨ ${en.value}` : `🗃 ${en.value}`}
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                </Show>
                 <div class="trail-detail-snap">
                   <Show when={v().snapshot_id != null} fallback={<span class="trail-detail-nosnap">No snapshot — this page wasn’t engaged long enough to capture.</span>}>
                     <Show when={!snapLoading()} fallback={<span class="trail-detail-nosnap">Loading snapshot…</span>}>

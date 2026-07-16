@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The Trail payoff layer, part 2 — entities & citation edges (ADR 0011, #136)** — the Trail now
+  understands what a page *is or mentions*: **arXiv papers** (id normalized, version stripped),
+  **DOIs** (Crossref-shape scan, balanced-paren aware), **GitHub repos** (owner/name from any
+  sub-page, non-repo sections skipped), and **datasets** (Hugging Face / Kaggle). Extraction is
+  **deterministic** — hand-rolled scanners, no LLM, no new dependency — because a false positive
+  here becomes a wrong edge in the graph. URL-derived entities land at nav time (marked *primary*:
+  the page IS the thing — so even a bounced paper page can be cited into); text mentions land at
+  dwell capture. Shared entities derive typed edges: a repo mentioning a paper →
+  **`Implements` repo→paper**; any other page mentioning it → **`Cites`**; two pages both merely
+  mentioning the same thing → **`Same`**. One edge per pair, both-direction dedup, capped per
+  derivation, forgotten with the visit. In the Trail these render **long-dashed magenta**
+  ("citations" in the HUD), and the detail panel shows **entity chips** (📄 arXiv / 🔗 DOI /
+  ⌨ repo / 🗃 dataset; bright = the page is it, dim = mentioned). 2 new tests (174 total).
 - **The Trail payoff layer, part 1 — semantic edges, auto-indexed browsing, time-travel scrub
   (ADR 0011, #136)** — three features on top of the completed spine, each a thin layer because the
   data was already there:
