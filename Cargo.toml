@@ -33,9 +33,12 @@ repository = "https://github.com/flux-browser/flux"
 # clippy's default (correctness/style/complexity/perf) at deny-by-warn — the
 # codebase is warning-clean, so any new warning is new drift. Escapes are
 # per-site `#[allow]` with a reason comment, never a blanket group toggle.
-[workspace.lints.rust]
-unsafe_op_in_unsafe_fn = "warn"
-
+#
+# NB: we deliberately do NOT enable `unsafe_op_in_unsafe_fn`. This is an
+# edition-2021 workspace with large raw-FFI `unsafe fn`s (WebView2 COM on
+# Windows, WebKitGTK `-sys` on Linux) where per-op `unsafe {}` blocks are pure
+# noise — and it only lints on the platform target that's being compiled, so
+# clippy on one OS can't keep it clean for the other.
 [workspace.lints.clippy]
 dbg_macro = "warn"          # committed dbg!() is always an accident
 todo = "warn"               # committed todo!() panics in release

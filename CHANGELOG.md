@@ -15,7 +15,7 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   **(2) clippy-clean workspace** — all 47 findings fixed (Reverse-key sorts, checked division,
   boxed `ureq::Error`, type alias, `is_empty`, …; deliberate escapes are per-site `#[allow]` with a
   reason) plus a shared `[workspace.lints]` baseline (clippy defaults + `dbg_macro`/`todo`/
-  `print_stdout`/`unsafe_op_in_unsafe_fn`) inherited by every crate — zero warnings is now the bar.
+  `print_stdout`) inherited by every crate — zero warnings is now the bar.
   **(3) Prettier baseline** for the shell (pinned, 110-col, house style; `bindings.gen.ts` excluded
   — the drift test byte-compares it against codegen). Both mechanical commits are listed in
   `.git-blame-ignore-revs`.

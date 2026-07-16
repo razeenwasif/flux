@@ -126,9 +126,6 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
 }
 
 #[cfg(target_os = "linux")]
-// Raw `-sys` FFI callbacks: every operation in the unsafe fns below is FFI by
-// nature, so per-op `unsafe {}` blocks would be pure noise here.
-#[allow(unsafe_op_in_unsafe_fn)]
 mod gtk {
     //! One-time compile of the shields content-blocker JSON via WebKit's
     //! `UserContentFilterStore`, attached to every webview. The safe
