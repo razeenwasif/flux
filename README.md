@@ -273,6 +273,22 @@ op. The listing **watches the directory** and updates itself on external
 changes (no manual refresh), and reversible ops are **undoable** with ⌘/Ctrl-Z
 (rename/move/trash → restore).
 
+## Code style
+
+Formatting and lints are pinned, mechanical, and CI-checkable — no style debates:
+
+```sh
+cargo fmt --all                      # Rust: default rustfmt, no custom config
+cargo clippy --workspace --all-targets   # zero warnings is the bar ([workspace.lints])
+npx prettier --write "apps/shell/src/**/*.{ts,tsx,css}"   # frontend (.prettierrc.json)
+```
+
+Escapes are per-site `#[allow(...)]` with a reason comment, never a blanket
+toggle. The two mechanical adopt-the-formatter commits are listed in
+`.git-blame-ignore-revs` (`git config blame.ignoreRevsFile .git-blame-ignore-revs`
+keeps `git blame` useful). `apps/shell/src/bindings.gen.ts` is generated
+(specta) and excluded from formatting — the drift test byte-compares it.
+
 ## Roadmap
 
 `BACKLOG.md` carries the full feature roadmap — table-stakes browser features,

@@ -25,6 +25,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   cutting the eager bundle **70.1 → 64.4 KB gzip** and turning the **failing CI budget gate green**.
   The chrome-JS budget itself was re-baselined 50 → 65 KB with a dated rationale in ADR 0001 (the
   50 was set ~30 chrome features ago; what remains eager is load-bearing boot chrome).
+  **(5) `trace.rs` split into a module** — 1 981 lines holding five concerns became
+  `trace/{mod,store,snapshots,chats,entities}.rs` (IPC surface in `mod.rs`; every public path
+  `crate::trace::X` unchanged, so callers and bindings are untouched), with each unit's tests moved
+  next to it. A README "Code style" section documents the fmt/clippy/prettier commands.
 
 ### Added
 - **The Trail payoff layer, part 2 — entities & citation edges (ADR 0011, #136)** — the Trail now
