@@ -7,6 +7,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Changed
+- **Find-in-page is now permanently visible (#33)** — the find bar lives right under the search
+  bar in the sidebar instead of appearing on Ctrl+F. Ctrl+F now just focuses it; **Escape clears**
+  the query + page highlight (the bar never unmounts); the ‹ › navigation and ✕ clear buttons show
+  only while a query is active, and the ✦ semantic-find shortcut stays. The global Escape chain
+  still ends a find session from anywhere (the bar syncs its input when it does). Still a lazy
+  chunk — fetched right after boot, off the eager bundle, so the chrome budget is untouched.
+
 ### Internal
 - **Code audit — formatting/lint baselines, App.tsx decomposition, budget re-baseline (branch
   `chore/code-audit-136`)** — four-part professionalization pass, no behavior change:

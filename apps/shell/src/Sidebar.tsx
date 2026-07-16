@@ -56,7 +56,6 @@ import {
   deleteFolder,
   deleteGroup,
   filesPanelOpen,
-  findOpen,
   focusTab,
   folderTabs,
   folders,
@@ -1001,6 +1000,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Show>
         </form>
 
+        {/* Find-in-page (#33) — permanently visible under the search bar; the
+            native webview overlays the card, so it must live here. Lazy chunk
+            (fetched right after boot, off the eager bundle). */}
+        <FindBar />
+
         {/* Page actions row — bookmark / reader / capture / save-to-Omni, below
             the address bar (only for real web pages). */}
         <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
@@ -1111,10 +1115,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Portal>
         </Show>
 
-        {/* Find-in-page (#33) — also sidebar-resident, for the same reason. */}
-        <Show when={findOpen()}>
-          <FindBar />
-        </Show>
 
         {/* Pinned tiles (Arc Favorites) */}
         <Show when={pinnedTabs().length > 0}>
