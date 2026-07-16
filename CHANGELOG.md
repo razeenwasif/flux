@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Trail refinements — the page's thread in the agent sidebar + a real timeline scrubber
+  (ADR 0011, #136)** — two follow-ups from the payoff layer:
+  **💬 Page thread scope** — the agent sidebar grows a fourth scope next to This page / All tabs /
+  My notes: when the active page has a Visit, a "💬 Page thread" button appears (with a message
+  count once the thread exists). Selecting it replays the conversation's tail into the feed and
+  routes your messages through the *persistent* per-page thread — the same one the Trail's detail
+  panel shows, grounded in the page's dwell snapshot. Start a conversation while browsing, find it
+  again months later on the Trail node (or the moment you revisit the page). Falls back to plain
+  page chat on pages with no Visit (internal pages, private tabs — which never get one).
+  **Histogram scrubber** — the Trail's time scrubber is now a real timeline: an activity histogram
+  (visit density, √-scaled, from a new one-pass `trace_histogram`) renders behind a full-history
+  slider — no more 8-window limit — with the viewed span drawn as a teal band you drag through
+  your past. Refreshes after forgets.
 - **Ambient watcher — "you've seen/solved this before" (ADR 0011, #136, local-only)** — the final
   payoff-layer piece, scoped to the case that can be made *precise*: when the current page shows a
   shaped **error signature** (a Rust panic / `error[E…]`, a `SomethingError:`/`…Exception:` trace

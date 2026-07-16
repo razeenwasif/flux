@@ -172,10 +172,12 @@ pub fn generate_ts() -> String {
         specta::ts::export::<crate::trace::EdgeKind>(&c),
         specta::ts::export::<crate::trace::Edge>(&c),
         specta::ts::export::<crate::trace::TraceGraph>(&c),
+        specta::ts::export::<crate::trace::TraceHistogram>(&c),
         specta::ts::export::<crate::trace::ForgetScope>(&c),
         specta::ts::export::<crate::trace::SnapshotWire>(&c),
         specta::ts::export::<crate::trace::ChatMsg>(&c),
         specta::ts::export::<crate::trace::AmbientHint>(&c),
+        specta::ts::export::<crate::trace::TabThread>(&c),
         specta::ts::export::<flux_import::chrome::ProfilePreview>(&c),
         specta::ts::export::<flux_import::chrome::Bookmark>(&c),
     ];

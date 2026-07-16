@@ -115,6 +115,15 @@ pub struct TraceGraph {
     pub edges: Vec<Edge>,
 }
 
+/// Visit-density over time (the scrubber's activity backdrop): `counts[i]`
+/// covers the i-th equal slice of `[min_ms, max_ms]`.
+#[derive(Serialize, Default, specta::Type)]
+pub struct TraceHistogram {
+    pub min_ms: u64,
+    pub max_ms: u64,
+    pub counts: Vec<u32>,
+}
+
 /// What `trace_forget` removes. Every scope also drops edges touching removed
 /// visits and any `by_tab` pointers into them.
 #[derive(Deserialize, specta::Type)]
@@ -468,6 +477,39 @@ impl TraceStore {
         self.add_derived_edges(&new_edges);
     }
 
+    /// Visit-density histogram over the whole Trail — the scrubber's backdrop
+    /// ("where was I active"). One pass; `buckets` counts of visits by `last_ms`
+    /// between the oldest and newest visit. All-zero span when the Trail is empty.
+    pub fn histogram(&self, buckets: usize) -> TraceHistogram {
+        self.hydrate();
+        let d = self.inner.read();
+        let buckets = buckets.clamp(10, 400);
+        let mut counts = vec![0u32; buckets];
+        let (mut min_ms, mut max_ms) = (u64::MAX, 0u64);
+        for v in &d.visits {
+            min_ms = min_ms.min(v.last_ms);
+            max_ms = max_ms.max(v.last_ms);
+        }
+        if d.visits.is_empty() || max_ms <= min_ms {
+            return TraceHistogram {
+                min_ms: if d.visits.is_empty() { 0 } else { min_ms },
+                max_ms,
+                counts,
+            };
+        }
+        let span = max_ms - min_ms;
+        for v in &d.visits {
+            let i =
+                (((v.last_ms - min_ms) as u128 * buckets as u128) / (span as u128 + 1)) as usize;
+            counts[i.min(buckets - 1)] += 1;
+        }
+        TraceHistogram {
+            min_ms,
+            max_ms,
+            counts,
+        }
+    }
+
     /// Most-recent visits (newest first).
     pub fn recent(&self, limit: usize) -> Vec<Visit> {
         self.hydrate();
@@ -774,6 +816,42 @@ mod tests {
         assert_eq!(vb.why.from_visit, None);
         assert_eq!(vb.why.referrer, None);
         assert!(s.graph(None, None).edges.is_empty());
+    }
+
+    #[test]
+    fn histogram_buckets_by_last_ms() {
+        let s = TraceStore::default();
+        // Empty Trail → an all-zero span the frontend can hide on.
+        let h = s.histogram(10);
+        assert_eq!((h.min_ms, h.max_ms), (0, 0));
+        assert!(h.counts.iter().all(|&c| c == 0));
+
+        // Three visits; rewrite last_ms to a known spread (record uses now()).
+        s.record(1, "https://a/", "A", None).unwrap();
+        s.record(1, "https://b/", "B", None).unwrap();
+        s.record(1, "https://c/", "C", None).unwrap();
+        {
+            let mut d = s.inner.write();
+            d.visits[0].last_ms = 1_000;
+            d.visits[1].last_ms = 1_500; // same first half as A
+            d.visits[2].last_ms = 2_000;
+        }
+        let h = s.histogram(10);
+        assert_eq!((h.min_ms, h.max_ms), (1_000, 2_000));
+        assert_eq!(
+            h.counts.iter().sum::<u32>(),
+            3,
+            "every visit lands in a bucket"
+        );
+        assert_eq!(h.counts[0], 1);
+        assert_eq!(
+            *h.counts.last().unwrap(),
+            1,
+            "newest visit in the last bucket"
+        );
+        // Bucket count is clamped to something sane.
+        assert_eq!(s.histogram(1).counts.len(), 10);
+        assert_eq!(s.histogram(9999).counts.len(), 400);
     }
 
     #[test]

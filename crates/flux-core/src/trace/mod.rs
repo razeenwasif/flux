@@ -23,8 +23,8 @@ pub use chats::{ChatMsg, TraceChats};
 pub use entities::extract_entities;
 pub use snapshots::{Snapshot, SnapshotWire, TraceSnapshots, WebDoc};
 pub use store::{
-    Edge, EdgeKind, Entity, EntityKind, ForgetScope, Provenance, TraceGraph, TraceStore, Visit,
-    VisitId,
+    Edge, EdgeKind, Entity, EntityKind, ForgetScope, Provenance, TraceGraph, TraceHistogram,
+    TraceStore, Visit, VisitId,
 };
 
 use tauri::State;
@@ -63,6 +63,12 @@ pub fn trace_graph(
     before_ms: Option<u64>,
 ) -> TraceGraph {
     store.graph(after_ms, before_ms)
+}
+
+/// Visit-density histogram for the Trail scrubber's activity backdrop.
+#[tauri::command]
+pub fn trace_histogram(store: State<'_, TraceStore>, buckets: Option<usize>) -> TraceHistogram {
+    store.histogram(buckets.unwrap_or(120))
 }
 
 /// A dwell snapshot's content (node detail).
@@ -174,6 +180,30 @@ pub fn trace_ambient(
 #[tauri::command]
 pub fn trace_chat(chats: State<'_, TraceChats>, visit_id: VisitId) -> Vec<ChatMsg> {
     chats.get(visit_id)
+}
+
+/// The active page's persistent thread, re-attached by visit (ADR 0011
+/// follow-up): the agent sidebar shows a "💬 Page thread" scope when the tab
+/// has a current Visit, so the conversation you started on this page — in the
+/// sidebar or the Trail — continues in either place. `None` when the tab has
+/// no Visit (internal pages, private tabs).
+#[derive(serde::Serialize, specta::Type)]
+pub struct TabThread {
+    pub visit_id: VisitId,
+    pub msgs: Vec<ChatMsg>,
+}
+
+#[tauri::command]
+pub fn trace_tab_thread(
+    trace: State<'_, TraceStore>,
+    chats: State<'_, TraceChats>,
+    tab_id: TabId,
+) -> Option<TabThread> {
+    let visit_id = trace.current_visit(tab_id)?;
+    Some(TabThread {
+        visit_id,
+        msgs: chats.get(visit_id),
+    })
 }
 
 /// Send a message to a visit's chat (ADR 0011 step d): grounded in the visit's

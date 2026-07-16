@@ -101,6 +101,8 @@ import type {
   SnapshotWire as GenSnapshotWire,
   ChatMsg as GenChatMsg,
   AmbientHint as GenAmbientHint,
+  TabThread as GenTabThread,
+  TraceHistogram as GenTraceHistogram,
   ProcInfo as GenProcInfo,
   PwaApp as GenPwaApp,
   SavedSession as GenSavedSession,
@@ -157,6 +159,8 @@ export type ForgetScope = GenForgetScope;
 export type SnapshotWire = GenSnapshotWire;
 export type ChatMsg = GenChatMsg;
 export type AmbientHint = GenAmbientHint;
+export type TabThread = GenTabThread;
+export type TraceHistogram = GenTraceHistogram;
 export type SavedTab = GenSavedTab;
 export type SavedSession = GenSavedSession;
 export type DaySnapshot = GenDaySnapshot;
@@ -1154,6 +1158,12 @@ export const traceSnapshotGet = (id: number) => invoke<SnapshotWire | null>("tra
 export const traceAmbient = (tabId: number) => invoke<AmbientHint[]>("trace_ambient", { tabId });
 /** A visit's persistent chat thread (ADR 0011 step d) — empty if none yet. */
 export const traceChat = (visitId: number) => invoke<ChatMsg[]>("trace_chat", { visitId });
+/** The active page's persistent thread (re-attach by visit) — null when the
+ *  tab has no current Visit (internal pages, private tabs). */
+export const traceTabThread = (tabId: number) => invoke<TabThread | null>("trace_tab_thread", { tabId });
+/** Visit-density histogram — the Trail scrubber's activity backdrop. */
+export const traceHistogram = (buckets?: number) =>
+  invoke<TraceHistogram>("trace_histogram", { buckets: buckets ?? null });
 /** Event frames streamed back by `trace_chat_send` (same shape family as kb_answer). */
 export type TraceChatEvent = { kind: "token"; text: string } | { kind: "done" };
 /** Send a message to a visit's chat — grounded in its snapshot, streamed token-by-token.

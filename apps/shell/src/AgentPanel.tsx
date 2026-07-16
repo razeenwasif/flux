@@ -11,6 +11,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
   type Component,
   type JSX,
 } from "solid-js";
@@ -18,6 +19,9 @@ import { Portal } from "solid-js/web";
 import {
   agentChat,
   agentChatStream,
+  traceTabThread,
+  traceChatSend,
+  type TabThread,
   agentChatTabsStream,
   kbAnswer,
   kbCheck,
@@ -205,8 +209,52 @@ const AgentPanel: Component = () => {
     persistTimer = window.setTimeout(() => persistCurrent(f), 400);
   });
   // Chat-with-page/tabs (#34): "page" grounds in the active tab; "tabs" grounds
-  // in every open browser tab in the active workspace.
-  const [scope, setScope] = createSignal<"page" | "tabs" | "notes">("page");
+  // in every open browser tab in the active workspace; "thread" is the page's
+  // PERSISTENT conversation (ADR 0011) — the same thread the Trail shows,
+  // re-attached here whenever you're on the page.
+  const [scope, setScope] = createSignal<"page" | "tabs" | "notes" | "thread">("page");
+  // The active page's Trail thread (null = no Visit: internal page/private tab).
+  const [pageThread, setPageThread] = createSignal<TabThread | null>(null);
+  // Which visit's history was already replayed into the feed (avoid repeats).
+  let threadShownFor: number | null = null;
+  createEffect(() => {
+    const id = activeId();
+    if (id == null) {
+      setPageThread(null);
+      return;
+    }
+    void traceTabThread(id)
+      .then((t) => {
+        setPageThread(t);
+        // A page with no Visit can't hold a thread — fall back to plain page
+        // chat. Untracked read: this effect keys on the active tab only.
+        if (t == null && untrack(scope) === "thread") setScope("page");
+      })
+      .catch(() => setPageThread(null));
+  });
+  // Attach the thread scope: replay its tail into the feed once per visit so the
+  // conversation reads continuously ("you were here before").
+  const attachThread = () => {
+    const t = pageThread();
+    if (!t) return;
+    setScope("thread");
+    if (threadShownFor === t.visit_id) return;
+    threadShownFor = t.visit_id;
+    const n = t.msgs.length;
+    setFeed((f) => [
+      ...f,
+      {
+        role: "action",
+        text:
+          n > 0
+            ? `💬 Attached to this page's saved conversation (${n} message${n === 1 ? "" : "s"}) — replies persist with the page.`
+            : "💬 Started this page's conversation — it persists with the page (see it again in the Trail).",
+      },
+      ...t.msgs
+        .slice(-4)
+        .map((m): FeedItem => ({ role: m.role === "user" ? "user" : "assistant", text: m.text })),
+    ]);
+  };
   // Multi-step tasks (#A): the iterative agent loop. `taskRunning` gates input;
   // `taskAuto` = "run all" (auto-approve non-stop steps); `taskStep` holds the
   // step currently awaiting Approve/Skip/Stop in step-through mode.
@@ -1897,6 +1945,30 @@ const AgentPanel: Component = () => {
         } else {
           setFeed((f) => [...f, { role: "plan", text: describeAction(action), action, pending: true }]);
         }
+      } else if (scope() === "thread" && pageThread()) {
+        // The page's PERSISTENT thread (ADR 0011): route through trace_chat_send
+        // so both sides land in the visit's thread — the same conversation the
+        // Trail shows, continued from here.
+        const vid = pageThread()!.visit_id;
+        const gen = ++replyGen;
+        const idx = feed().length;
+        setFeed((f) => [...f, { role: "assistant", text: "" }]);
+        let acc = "";
+        await traceChatSend(vid, p, (e) => {
+          if (gen !== replyGen || e.kind !== "token") return;
+          acc += e.text;
+          setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + e.text } : it)));
+        });
+        if (gen !== replyGen) return;
+        const text = acc.trim() || "(no response)";
+        setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text } : it)));
+        // Keep the local mirror fresh (message count on the scope button).
+        const id = activeId();
+        if (id != null)
+          void traceTabThread(id)
+            .then(setPageThread)
+            .catch(() => {});
+        void speak(text);
       } else if (scope() === "notes") {
         // Ground the answer in the knowledge base (Onyx + Scroll) with citations
         // (#116). Uses kb_answer directly (its own grounded prompt), not the page
@@ -2584,6 +2656,20 @@ const AgentPanel: Component = () => {
           >
             ✦ My notes
           </button>
+          {/* The page's persistent Trail conversation, re-attached (ADR 0011).
+              Only offered when the page has a Visit to hang the thread on. */}
+          <Show when={pageThread()}>
+            <button
+              classList={{ "agent-scope": true, on: scope() === "thread" }}
+              title="This page's saved conversation — persists with the page, same thread as in the Trail"
+              onClick={attachThread}
+            >
+              💬 Page thread{" "}
+              <Show when={(pageThread()?.msgs.length ?? 0) > 0}>
+                <span class="agent-scope-n">{pageThread()!.msgs.length}</span>
+              </Show>
+            </button>
+          </Show>
         </div>
         <div class="agent-chips">
           <button

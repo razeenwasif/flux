@@ -10,10 +10,20 @@
  * heavy dependency. Colour encodes the research "task" (workspace); a hollow ring
  * means metadata-only (not yet dwell-captured), a filled node has a snapshot.
  */
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  type Component,
+} from "solid-js";
 
 import {
   traceGraph,
+  traceHistogram,
   traceSnapshotGet,
   traceForget,
   traceChat,
@@ -21,6 +31,7 @@ import {
   type Visit,
   type Edge,
   type ChatMsg,
+  type TraceHistogram,
 } from "./ipc";
 import { openTab } from "./store";
 
@@ -472,6 +483,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       selNode = null;
     }
     await load();
+    loadHist();
   };
   const forgetWindow = async () => {
     const win = WINDOWS[windowIdx()]!;
@@ -485,13 +497,69 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     setSelected(null);
     selNode = null;
     await load();
+    loadHist();
   };
 
   // ── time-travel scrub ──
-  /** How far back the slider reaches: 8 windows of the chosen span. */
+  // Visit-density histogram: the scrubber's backdrop, so dragging back through
+  // time shows *where you were active*. Fetched once + after forgets.
+  const [hist, setHist] = createSignal<TraceHistogram | null>(null);
+  let histCanvas: HTMLCanvasElement | undefined;
+  const loadHist = () =>
+    void traceHistogram(140)
+      .then(setHist)
+      .catch(() => {});
+  /** How far back the slider reaches: the whole Trail (oldest visit), with an
+   *  8-window fallback until the histogram arrives. */
   const scrubMin = createMemo(() => {
     const span = WINDOWS[windowIdx()]!.ms;
-    return span != null ? Date.now() - span * 8 : 0;
+    if (span == null) return 0;
+    const h = hist();
+    const fallback = Date.now() - span * 8;
+    // The window must still fit: never let min exceed now − span.
+    return h && h.max_ms > h.min_ms ? Math.min(h.min_ms, fallback) : fallback;
+  });
+  // Draw the histogram bars + the active window highlight. Re-runs when the
+  // data, span, or scrub position changes.
+  createEffect(() => {
+    const h = hist();
+    const span = WINDOWS[windowIdx()]!.ms;
+    const end = endMs() ?? Date.now();
+    const c = histCanvas;
+    if (!c || span == null) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth || 1;
+    const ht = c.clientHeight || 1;
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(ht * dpr);
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, ht);
+    const t0 = scrubMin();
+    const t1 = Date.now();
+    if (t1 <= t0) return;
+    const toX = (ms: number) => ((ms - t0) / (t1 - t0)) * w;
+    // Activity bars (sqrt scale so a single heavy day doesn't flatten the rest).
+    if (h && h.counts.length > 0 && h.max_ms > h.min_ms) {
+      const peak = Math.sqrt(Math.max(1, ...h.counts));
+      const bw = ((h.max_ms - h.min_ms) / h.counts.length / (t1 - t0)) * w;
+      ctx.fillStyle = "rgba(123,97,255,0.45)";
+      for (let i = 0; i < h.counts.length; i++) {
+        const n = h.counts[i]!;
+        if (n === 0) continue;
+        const x = toX(h.min_ms + ((h.max_ms - h.min_ms) * i) / h.counts.length);
+        const bh = Math.max(2, (Math.sqrt(n) / peak) * (ht - 4));
+        ctx.fillRect(x, ht - bh, Math.max(1, bw - 0.5), bh);
+      }
+    }
+    // The viewed window [end − span, end], teal-tinted.
+    const x0 = Math.max(0, toX(end - span));
+    const x1 = Math.min(w, toX(end));
+    ctx.fillStyle = "rgba(47,243,255,0.14)";
+    ctx.fillRect(x0, 0, Math.max(2, x1 - x0), ht);
+    ctx.strokeStyle = "rgba(47,243,255,0.5)";
+    ctx.strokeRect(x0 + 0.5, 0.5, Math.max(2, x1 - x0) - 1, ht - 1);
   });
   const onScrub = (v: number) => {
     // Snap the top of the range back to "live" so dragging fully right clears
@@ -546,6 +614,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     ro = new ResizeObserver(resize);
     ro.observe(wrap);
     void load();
+    loadHist();
   });
   onCleanup(() => {
     cancelAnimationFrame(raf);
@@ -594,14 +663,19 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
           bring that moment's pages back as tabs. */}
       <Show when={WINDOWS[windowIdx()]!.ms != null}>
         <div class="trail-scrub">
-          <input
-            type="range"
-            class="trail-scrub-slider"
-            min={scrubMin()}
-            max={Date.now()}
-            value={endMs() ?? Date.now()}
-            onInput={(e) => onScrub(Number(e.currentTarget.value))}
-          />
+          {/* Activity histogram behind a full-history slider: the bars show where
+              you were active; the teal band is the window you're viewing. */}
+          <div class="trail-scrub-track">
+            <canvas ref={histCanvas} class="trail-scrub-hist" />
+            <input
+              type="range"
+              class="trail-scrub-slider"
+              min={scrubMin()}
+              max={Date.now()}
+              value={endMs() ?? Date.now()}
+              onInput={(e) => onScrub(Number(e.currentTarget.value))}
+            />
+          </div>
           <span class="trail-scrub-label">{scrubLabel()}</span>
           <Show when={endMs() != null}>
             <button

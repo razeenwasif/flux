@@ -338,6 +338,11 @@ export type Edge = { from: number; to: number; kind: EdgeKind }
  */
 export type TraceGraph = { visits: Visit[]; edges: Edge[] }
 /**
+ * Visit-density over time (the scrubber's activity backdrop): `counts[i]`
+ * covers the i-th equal slice of `[min_ms, max_ms]`.
+ */
+export type TraceHistogram = { min_ms: number; max_ms: number; counts: number[] }
+/**
  * What `trace_forget` removes. Every scope also drops edges touching removed
  * visits and any `by_tab` pointers into them.
  */
@@ -354,6 +359,14 @@ export type ChatMsg = { role: string; text: string; ms: number }
  * A past sighting of the current page's error, for the Connections rail.
  */
 export type AmbientHint = { signature: string; visit_id: number; url: string; title: string; saved_ms: number; has_chat: boolean }
+/**
+ * The active page's persistent thread, re-attached by visit (ADR 0011
+ * follow-up): the agent sidebar shows a "💬 Page thread" scope when the tab
+ * has a current Visit, so the conversation you started on this page — in the
+ * sidebar or the Trail — continues in either place. `None` when the tab has
+ * no Visit (internal pages, private tabs).
+ */
+export type TabThread = { visit_id: number; msgs: ChatMsg[] }
 export type ChromeProfilePreview = { dir: string; name: string; bookmark_count: number; extension_count: number; has_saved_tab_groups: boolean }
 /**
  * A flattened bookmark: folder hierarchy preserved as a path string so the
