@@ -41,11 +41,10 @@ pub fn mem_status(mon: State<'_, SysMon>) -> MemInfo {
     sys.refresh_memory();
     let total = sys.total_memory(); // bytes (sysinfo 0.30+)
     let available = sys.available_memory();
-    let available_pct = if total > 0 {
-        (available.saturating_mul(100) / total) as u32
-    } else {
-        100
-    };
+    let available_pct = available
+        .saturating_mul(100)
+        .checked_div(total)
+        .map_or(100, |v| v as u32);
 
     // Flux's RSS — best-effort; refresh just our process.
     let process_mb = sysinfo::get_current_pid()
@@ -103,11 +102,10 @@ pub fn system_stats(mon: State<'_, SysMon>) -> SystemStats {
     sys.refresh_memory();
     let total = sys.total_memory();
     let used = total.saturating_sub(sys.available_memory());
-    let mem_pct = if total > 0 {
-        (used.saturating_mul(100) / total) as u32
-    } else {
-        0
-    };
+    let mem_pct = used
+        .saturating_mul(100)
+        .checked_div(total)
+        .map_or(0, |v| v as u32);
 
     sys.refresh_processes_specifics(
         sysinfo::ProcessesToUpdate::All,
@@ -123,7 +121,7 @@ pub fn system_stats(mon: State<'_, SysMon>) -> SystemStats {
             cpu: p.cpu_usage(),
         })
         .collect();
-    top.sort_by(|a, b| b.mem_mb.cmp(&a.mem_mb));
+    top.sort_by_key(|e| std::cmp::Reverse(e.mem_mb));
     top.truncate(6);
 
     SystemStats {

@@ -166,7 +166,7 @@ pub async fn webview_open(
                 .unwrap_or_default();
             if !css.is_empty() {
                 if let Ok(lit) = serde_json::to_string(&css) {
-                    let _ = webview.eval(&format!(
+                    let _ = webview.eval(format!(
                         "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-cosmetic');\
                          if(!s){{s=d.createElement('style');s.id='flux-cosmetic';}}s.textContent=c;\
                          var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
@@ -180,7 +180,7 @@ pub async fn webview_open(
                 let (bcss, bjs) = bs.injection_for(&crate::boosts::host_of(&url));
                 if !bcss.is_empty() {
                     if let Ok(lit) = serde_json::to_string(&bcss) {
-                        let _ = webview.eval(&format!(
+                        let _ = webview.eval(format!(
                             "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-boost');\
                              if(!s){{s=d.createElement('style');s.id='flux-boost';}}s.textContent=c;\
                              var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
@@ -205,7 +205,7 @@ pub async fn webview_open(
             };
             if !inj.css.is_empty() {
                 if let Ok(lit) = serde_json::to_string(&inj.css) {
-                    let _ = webview.eval(&format!(
+                    let _ = webview.eval(format!(
                         "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-ext-css');\
                          if(!s){{s=d.createElement('style');s.id='flux-ext-css';}}s.textContent=c;\
                          var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
@@ -223,7 +223,7 @@ pub async fn webview_open(
                     .try_state::<crate::hibernate::HibernateStore>()
                     .and_then(|s| s.take_for_restore(tab_id))
                 {
-                    let _ = webview.eval(&format!("window.__fluxRestore&&window.__fluxRestore({json})"));
+                    let _ = webview.eval(format!("window.__fluxRestore&&window.__fluxRestore({json})"));
                 }
             }
             let _ = app_for_load.emit("flux://tab-loaded", (tab_id, url, phase));

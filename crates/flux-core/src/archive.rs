@@ -306,6 +306,10 @@ impl ArchiveStore {
         self.entries.read().len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.read().is_empty()
+    }
+
     fn persist_after_mutation(&self, entries: &[ArchiveEntry]) {
         if self.hydrated.load(Ordering::Acquire) {
             write_json(&self.path, entries);

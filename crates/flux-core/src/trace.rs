@@ -410,6 +410,7 @@ impl TraceStore {
     ///   when the mentioning page is itself a repo — "this repo implements
     ///   that paper"), pointing citer → cited;
     /// - both merely mention the same thing → `Same` (about the same topic).
+    ///
     /// One edge per visit pair, capped per derivation.
     pub fn derive_entity_edges(&self, id: VisitId) {
         const MAX_NEW: usize = 8;
@@ -490,7 +491,7 @@ impl TraceStore {
         self.hydrate();
         let d = self.inner.read();
         let mut v: Vec<Visit> = d.visits.clone();
-        v.sort_unstable_by(|a, b| b.last_ms.cmp(&a.last_ms));
+        v.sort_unstable_by_key(|e| std::cmp::Reverse(e.last_ms));
         v.truncate(limit);
         v
     }
@@ -513,8 +514,7 @@ impl TraceStore {
             .visits
             .iter()
             .filter(|v| {
-                after_ms.map_or(true, |a| v.last_ms >= a)
-                    && before_ms.map_or(true, |b| v.last_ms <= b)
+                after_ms.is_none_or(|a| v.last_ms >= a) && before_ms.is_none_or(|b| v.last_ms <= b)
             })
             .cloned()
             .collect();
@@ -564,8 +564,8 @@ impl TraceStore {
                 .visits
                 .iter()
                 .filter(|v| {
-                    after_ms.map_or(true, |a| v.last_ms >= a)
-                        && before_ms.map_or(true, |b| v.last_ms <= b)
+                    after_ms.is_none_or(|a| v.last_ms >= a)
+                        && before_ms.is_none_or(|b| v.last_ms <= b)
                 })
                 .map(|v| v.id)
                 .collect(),

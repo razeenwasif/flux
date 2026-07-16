@@ -48,11 +48,11 @@ fn open_peek(app: &AppHandle, url: &str) -> Result<(), String> {
         .on_page_load(move |webview, payload| {
             let css = app_for_load
                 .try_state::<crate::shields::ShieldsState>()
-                .map(|s| s.cosmetic_css(&payload.url().to_string()))
+                .map(|s| s.cosmetic_css(payload.url().as_ref()))
                 .unwrap_or_default();
             if !css.is_empty() {
                 if let Ok(lit) = serde_json::to_string(&css) {
-                    let _ = webview.eval(&format!(
+                    let _ = webview.eval(format!(
                         "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-cosmetic');\
                          if(!s){{s=d.createElement('style');s.id='flux-cosmetic';}}s.textContent=c;\
                          var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"

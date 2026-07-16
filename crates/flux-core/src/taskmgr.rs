@@ -123,8 +123,8 @@ impl TaskManager {
             net.nets.refresh();
             let secs = net.last.elapsed().as_secs_f64().max(0.001);
             net.last = Instant::now();
-            let rx: u64 = net.nets.iter().map(|(_, d)| d.received()).sum();
-            let tx: u64 = net.nets.iter().map(|(_, d)| d.transmitted()).sum();
+            let rx: u64 = net.nets.values().map(|d| d.received()).sum();
+            let tx: u64 = net.nets.values().map(|d| d.transmitted()).sum();
             ((rx as f64 / secs) as u64, (tx as f64 / secs) as u64)
         };
         SysStats {
@@ -133,11 +133,10 @@ impl TaskManager {
             cpu_brand,
             mem_used_mb: used / 1_048_576,
             mem_total_mb: total / 1_048_576,
-            mem_pct: if total > 0 {
-                (used.saturating_mul(100) / total) as u32
-            } else {
-                0
-            },
+            mem_pct: used
+                .saturating_mul(100)
+                .checked_div(total)
+                .map_or(0, |v| v as u32),
             swap_used_mb: sys.used_swap() / 1_048_576,
             swap_total_mb: swap_total / 1_048_576,
             cores: sys.cpus().len(),

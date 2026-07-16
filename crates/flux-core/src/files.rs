@@ -79,7 +79,7 @@ mod restore {
     pub fn capture(paths: &[String]) -> Items {
         let want: HashSet<PathBuf> = paths.iter().map(PathBuf::from).collect();
         let mut items = trash::os_limited::list().unwrap_or_default();
-        items.sort_by(|a, b| b.time_deleted.cmp(&a.time_deleted));
+        items.sort_by_key(|e| std::cmp::Reverse(e.time_deleted));
         let mut seen = HashSet::new();
         items
             .into_iter()
@@ -493,7 +493,7 @@ fn search_tree(root: &str, query: &str, limit: usize) -> Result<Vec<SearchHit>, 
         }
     }
     // Best score first; ties keep discovery order (stable sort).
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|e| std::cmp::Reverse(e.0));
     scored.truncate(limit);
     Ok(scored.into_iter().map(|(_, h)| h).collect())
 }

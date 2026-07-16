@@ -160,7 +160,7 @@ fn parse_feed(doc: &str) -> Parsed {
     let header_end = find_tag_open(doc, item_tag, 0)
         .map(|(s, _)| s)
         .unwrap_or(doc.len());
-    let title = field(&doc[..header_end], "title").unwrap_or_else(|| String::new());
+    let title = field(&doc[..header_end], "title").unwrap_or_default();
 
     let mut items = Vec::new();
     for chunk in chunks(doc, item_tag) {

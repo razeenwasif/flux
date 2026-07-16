@@ -28,6 +28,19 @@ rust-version = "1.80"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/flux-browser/flux"
 
+# ── Lints ─────────────────────────────────────────────────────────────────────
+# One shared baseline (each crate opts in with `[lints] workspace = true`):
+# clippy's default (correctness/style/complexity/perf) at deny-by-warn — the
+# codebase is warning-clean, so any new warning is new drift. Escapes are
+# per-site `#[allow]` with a reason comment, never a blanket group toggle.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"          # committed dbg!() is always an accident
+todo = "warn"               # committed todo!() panics in release
+print_stdout = "warn"       # use tracing, not println (stdout is the CLI's)
+
 [workspace.dependencies]
 # Shared, version-pinned once so every crate agrees.
 serde = { version = "1", features = ["derive", "rc"] }

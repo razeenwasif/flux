@@ -42,16 +42,18 @@ fn start_helper() {
 pub async fn audioviz_stream(on_frame: Channel<String>) -> Result<(), String> {
     let url = format!("{}/levels", base());
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let connect = || ureq::get(&url).timeout(Duration::from_secs(3)).call();
+        // The error detail is never used (any failure means "helper not up"), so
+        // connect yields an Option — also keeps ureq's large error type off the stack.
+        let connect = || ureq::get(&url).timeout(Duration::from_secs(3)).call().ok();
         // Connect; if the helper isn't up, start it once and retry briefly.
         let resp = match connect() {
-            Ok(r) => r,
-            Err(_) => {
+            Some(r) => r,
+            None => {
                 start_helper();
                 let mut got = None;
                 for _ in 0..6 {
                     std::thread::sleep(Duration::from_millis(700));
-                    if let Ok(r) = connect() {
+                    if let Some(r) = connect() {
                         got = Some(r);
                         break;
                     }

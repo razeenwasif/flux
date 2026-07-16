@@ -367,8 +367,8 @@ impl vte::Perform for Grid {
             // CUP — cursor position (1-based in the protocol).
             'H' => {
                 let mut it = params.iter();
-                let row = it.next().map_or(1, |p| p[0].max(1)) as u16;
-                let col = it.next().map_or(1, |p| p[0].max(1)) as u16;
+                let row = it.next().map_or(1, |p| p[0].max(1));
+                let col = it.next().map_or(1, |p| p[0].max(1));
                 self.cursor = ((col - 1).min(self.cols - 1), (row - 1).min(self.rows - 1));
             }
             // ED — erase display (mode 2: all).

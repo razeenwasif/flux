@@ -372,11 +372,14 @@ fn clean_el_path_segment(label: &str, value: &str) -> Result<String, String> {
     Ok(v.to_string())
 }
 
-fn el_get_voice(key: &str, voice_id: &str) -> Result<ElVoice, ureq::Error> {
+// Boxed error: `ureq::Error` is ~500 bytes, which would dominate the Ok path's
+// stack size (clippy::result_large_err).
+fn el_get_voice(key: &str, voice_id: &str) -> Result<ElVoice, Box<ureq::Error>> {
     let v: Value = el_http()
         .get(&format!("{EL_API}/voices/{voice_id}"))
         .set("xi-api-key", key)
-        .call()?
+        .call()
+        .map_err(Box::new)?
         .into_json()
         .unwrap_or_else(|_| json!({}));
     let name = v.get("name").and_then(|n| n.as_str()).unwrap_or(voice_id);
@@ -517,7 +520,7 @@ pub async fn elevenlabs_speak(
         el_get_voice(&key, &voice_id).map_err(|e| {
             format!(
                 "{} ({key_label}; {voice_label})",
-                el_err("check voice access", e)
+                el_err("check voice access", *e)
             )
         })?;
         let model = if model_id.trim().is_empty() {
@@ -579,9 +582,7 @@ mod tests {
     #[test]
     fn strips_invisible_key_characters() {
         assert_eq!(
-            normalize_el_key(&format!(
-                "sk_\u{200B}1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJK"
-            )),
+            normalize_el_key("sk_\u{200B}1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJK"),
             KEY
         );
     }

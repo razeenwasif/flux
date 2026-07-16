@@ -153,7 +153,7 @@ impl HistoryStore {
     /// Most-recently-visited entries (the history page's default view).
     pub fn recent(&self, limit: usize) -> Vec<HistoryEntry> {
         let mut v: Vec<HistoryEntry> = self.entries.read().values().cloned().collect();
-        v.sort_unstable_by(|a, b| b.last_visit_ms.cmp(&a.last_visit_ms));
+        v.sort_unstable_by_key(|e| std::cmp::Reverse(e.last_visit_ms));
         v.truncate(limit);
         v
     }
@@ -172,7 +172,7 @@ impl HistoryStore {
             .filter(|e| e.key.contains(&q))
             .cloned()
             .collect();
-        v.sort_unstable_by(|a, b| b.score().cmp(&a.score()));
+        v.sort_unstable_by_key(|e| std::cmp::Reverse(e.score()));
         v.truncate(limit);
         v
     }
@@ -191,7 +191,7 @@ impl HistoryStore {
     /// encrypted blob stays bounded even with a large local history.
     pub fn export_for_sync(&self, limit: usize) -> Vec<HistoryEntry> {
         let mut v: Vec<HistoryEntry> = self.entries.read().values().cloned().collect();
-        v.sort_unstable_by(|a, b| b.score().cmp(&a.score()));
+        v.sort_unstable_by_key(|e| std::cmp::Reverse(e.score()));
         v.truncate(limit);
         v
     }

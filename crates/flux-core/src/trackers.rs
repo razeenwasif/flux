@@ -97,7 +97,7 @@ impl TrackerStore {
                 });
             }
         }
-        raw.sort_by(|a, b| b.requests.cmp(&a.requests));
+        raw.sort_by_key(|e| std::cmp::Reverse(e.requests));
         raw.truncate(MAX_EDGES);
 
         let mut idx: HashMap<String, usize> = HashMap::new();

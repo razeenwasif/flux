@@ -254,7 +254,7 @@ impl KbStore {
             .iter()
             .filter(|x| x.indexed_at > 0 && x.indexed_at >= cutoff)
             .collect();
-        docs.sort_by(|a, b| b.indexed_at.cmp(&a.indexed_at));
+        docs.sort_by_key(|e| std::cmp::Reverse(e.indexed_at));
         docs.truncate(cap);
         docs.into_iter()
             .map(|doc| {
@@ -1124,8 +1124,8 @@ related notes as [n]."
         };
         // The explanation is everything after the verdict word/line.
         let note = raw
-            .splitn(2, '\n')
-            .nth(1)
+            .split_once('\n')
+            .map(|x| x.1)
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| raw.to_string());

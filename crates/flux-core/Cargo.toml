@@ -5,6 +5,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 # The binary is the app; the lib exists so integration tests / benches can
 # exercise commands without spawning a window.
 [lib]

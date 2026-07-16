@@ -613,7 +613,7 @@ pub async fn agent_run_action(
     let webview = app
         .get_webview(&format!("tab-{tab}"))
         .ok_or_else(|| format!("webview tab-{tab} not found"))?;
-    webview.eval(&action.to_js()).map_err(|e| e.to_string())?;
+    webview.eval(action.to_js()).map_err(|e| e.to_string())?;
     *state.agent.write() = AgentStatus::Idle;
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     Ok(action)

@@ -57,11 +57,10 @@ impl CacheStats {
     /// Hit ratio in `[0,100]` (0 when nothing has been looked up yet).
     pub fn hit_pct(&self) -> u32 {
         let total = self.hits + self.misses;
-        if total == 0 {
-            0
-        } else {
-            ((self.hits.saturating_mul(100)) / total) as u32
-        }
+        self.hits
+            .saturating_mul(100)
+            .checked_div(total)
+            .unwrap_or(0) as u32
     }
 }
 

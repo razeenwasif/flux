@@ -16,6 +16,8 @@ use crate::ImportError;
 
 /// Chrome user-data roots per platform, in priority order. Chromium and
 /// Brave/Edge variants are BACKLOG #25 — the formats are identical.
+// Built with pushes (not vec![]) because each root is cfg-gated per OS.
+#[allow(clippy::vec_init_then_push)]
 fn user_data_roots() -> Vec<PathBuf> {
     // Only the Linux/macOS roots use $HOME; Windows uses %LOCALAPPDATA%.
     #[cfg(not(target_os = "windows"))]

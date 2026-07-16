@@ -189,7 +189,7 @@ fn reinject_active(app: &AppHandle, host: &str) {
     };
     let (css, _js) = store.injection_for(host);
     if let Ok(lit) = serde_json::to_string(&css) {
-        let _ = wv.eval(&format!(
+        let _ = wv.eval(format!(
             "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-boost');\
              if(!s){{s=d.createElement('style');s.id='flux-boost';}}s.textContent=c;\
              var t=d.head||d.documentElement;if(t&&!s.parentNode)t.appendChild(s);}})()"
@@ -209,6 +209,9 @@ pub fn boosts_for_host(store: State<'_, BoostStore>, host: String) -> Vec<Boost>
     store.for_host(&host)
 }
 
+// IPC surface: the arg list mirrors the frontend call 1:1 (specta-typed), so
+// bundling into a struct would only move the width across the wire boundary.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn boost_save(
     app: AppHandle,

@@ -180,7 +180,7 @@ fn set_page_flag(app: &AppHandle, on: bool) {
         return;
     };
     if let Some(wv) = app.get_webview(&format!("tab-{tab}")) {
-        let _ = wv.eval(&format!("window.__FLUX_MACRO_REC__ = {on};"));
+        let _ = wv.eval(format!("window.__FLUX_MACRO_REC__ = {on};"));
     }
 }
 
@@ -275,18 +275,18 @@ pub async fn macro_run(
         };
         match step {
             Step::Navigate { url } => {
-                let _ = wv.eval(&format!("location.assign({})", js(url)));
+                let _ = wv.eval(format!("location.assign({})", js(url)));
                 tokio::time::sleep(Duration::from_millis(1500)).await; // let the page load
             }
             Step::Click { selector } => {
-                let _ = wv.eval(&format!(
+                let _ = wv.eval(format!(
                     "(()=>{{const e=document.querySelector({});if(e){{e.scrollIntoView({{block:'center'}});e.click();}}}})()",
                     js(selector)
                 ));
                 tokio::time::sleep(Duration::from_millis(700)).await;
             }
             Step::Type { selector, text } => {
-                let _ = wv.eval(&format!(
+                let _ = wv.eval(format!(
                     "(()=>{{const e=document.querySelector({});if(e){{e.focus();const s=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(e),'value')?.set;if(s)s.call(e,{t});else e.value={t};e.dispatchEvent(new Event('input',{{bubbles:true}}));}}}})()",
                     js(selector), t = js(text)
                 ));

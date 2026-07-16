@@ -221,9 +221,7 @@ impl WatchStore {
         let mut changed_item = None;
         {
             let mut inner = self.inner.write();
-            let Some(e) = inner.entries.iter_mut().find(|e| e.id == id) else {
-                return None;
-            };
+            let e = inner.entries.iter_mut().find(|e| e.id == id)?;
             e.last_checked_ms = now_ms();
             match result {
                 Ok((new_text, added, removed)) => {
@@ -499,7 +497,7 @@ pub fn start_scheduler(app: AppHandle) {
                         .notification()
                         .builder()
                         .title("Flux — page changed")
-                        .body(&format!("{} updated (+{n_add} / −{n_rem})", item.title))
+                        .body(format!("{} updated (+{n_add} / −{n_rem})", item.title))
                         .show();
                 }
             }

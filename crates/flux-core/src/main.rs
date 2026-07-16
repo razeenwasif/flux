@@ -1,6 +1,9 @@
 // Windows: release builds must not spawn a console window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// This is the CLI entry point: stdout IS the product for `flux dom`,
+// `flux extract-json`, `--help`, … (the workspace lint bans println elsewhere).
+#[allow(clippy::print_stdout)]
 fn main() {
     // Context subcommands (`flux dom`, `flux extract-json`, …) read the active
     // page from $FLUX_RPC_DIR and print it — never touch the GUI (#65/#4).

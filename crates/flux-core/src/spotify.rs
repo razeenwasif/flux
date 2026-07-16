@@ -482,12 +482,14 @@ pub async fn spotify_play_playlist(name: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// A live headless-PTY session: the master side + the child process handle.
+type PtySession = (Box<dyn MasterPty + Send>, Box<dyn Child + Send + Sync>);
+
 /// Launch AudioPulse so its Spotify Connect device comes online. The TUI needs a
 /// real terminal, so we run it inside a headless PTY and keep the handle alive
 /// (dropping it would SIGHUP the TUI). Linux/WSL build only — the native Windows
 /// build would need to cross into WSL, which isn't wired yet.
-static AUDIOPULSE: Mutex<Option<(Box<dyn MasterPty + Send>, Box<dyn Child + Send + Sync>)>> =
-    Mutex::new(None);
+static AUDIOPULSE: Mutex<Option<PtySession>> = Mutex::new(None);
 
 /// Build the command that launches AudioPulse.
 ///

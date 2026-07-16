@@ -5,6 +5,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 # Brave's adblock engine: parses EasyList/uBO filter syntax and matches network
 # requests + cosmetic (element-hiding) rules. Pure Rust → unit-testable here,

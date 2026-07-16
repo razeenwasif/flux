@@ -127,6 +127,12 @@ pub struct IngestState {
     auto: AtomicBool,
 }
 
+impl Default for IngestState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IngestState {
     pub fn new() -> Self {
         let on = std::env::var("FLUX_OMNI_INGEST")

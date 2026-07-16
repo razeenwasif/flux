@@ -220,7 +220,7 @@ impl SnapshotStore {
     /// Newest day first.
     pub fn list(&self) -> Vec<DaySnapshot> {
         let mut v = self.snaps.read().clone();
-        v.sort_unstable_by(|a, b| b.day.cmp(&a.day));
+        v.sort_unstable_by_key(|e| std::cmp::Reverse(e.day));
         v
     }
 
@@ -254,7 +254,7 @@ impl SnapshotStore {
                 tabs,
             }),
         }
-        snaps.sort_unstable_by(|a, b| b.day.cmp(&a.day));
+        snaps.sort_unstable_by_key(|e| std::cmp::Reverse(e.day));
         snaps.truncate(SNAPSHOT_DAYS);
         let json = serde_json::to_string(&*snaps).ok();
         drop(snaps);
