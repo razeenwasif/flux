@@ -13,16 +13,50 @@ type Piece = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
 type Cell = string | null;
 
 const SHAPES: Record<Piece, number[][]> = {
-  I: [[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]],
-  O: [[1, 1], [1, 1]],
-  T: [[0, 1, 0], [1, 1, 1], [0, 0, 0]],
-  S: [[0, 1, 1], [1, 1, 0], [0, 0, 0]],
-  Z: [[1, 1, 0], [0, 1, 1], [0, 0, 0]],
-  J: [[1, 0, 0], [1, 1, 1], [0, 0, 0]],
-  L: [[0, 0, 1], [1, 1, 1], [0, 0, 0]],
+  I: [
+    [0, 0, 0, 0],
+    [1, 1, 1, 1],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ],
+  O: [
+    [1, 1],
+    [1, 1],
+  ],
+  T: [
+    [0, 1, 0],
+    [1, 1, 1],
+    [0, 0, 0],
+  ],
+  S: [
+    [0, 1, 1],
+    [1, 1, 0],
+    [0, 0, 0],
+  ],
+  Z: [
+    [1, 1, 0],
+    [0, 1, 1],
+    [0, 0, 0],
+  ],
+  J: [
+    [1, 0, 0],
+    [1, 1, 1],
+    [0, 0, 0],
+  ],
+  L: [
+    [0, 0, 1],
+    [1, 1, 1],
+    [0, 0, 0],
+  ],
 };
 const COLORS: Record<Piece, string> = {
-  I: "#2ff3ff", O: "#ffe14d", T: "#b07dff", S: "#5dff8f", Z: "#ff4d9d", J: "#4d8bff", L: "#ff8a3d",
+  I: "#2ff3ff",
+  O: "#ffe14d",
+  T: "#b07dff",
+  S: "#5dff8f",
+  Z: "#ff4d9d",
+  J: "#4d8bff",
+  L: "#ff8a3d",
 };
 const TYPES: Piece[] = ["I", "O", "T", "S", "Z", "J", "L"];
 
@@ -55,8 +89,12 @@ export default function tetris(ctx: GameCtx): GameHandle {
   let reported = false;
   let acc = 0;
 
-  function rng(): Piece { return TYPES[(Math.random() * TYPES.length) | 0]!; }
-  function stepMs() { return Math.max(80, 520 - (level - 1) * 42); }
+  function rng(): Piece {
+    return TYPES[(Math.random() * TYPES.length) | 0]!;
+  }
+  function stepMs() {
+    return Math.max(80, 520 - (level - 1) * 42);
+  }
 
   function collide(mat: number[][], x: number, y: number): boolean {
     for (let r = 0; r < mat.length; r++) {
@@ -111,12 +149,21 @@ export default function tetris(ctx: GameCtx): GameHandle {
 
   const k = keys((key) => {
     if (over) return;
-    if (key === "ArrowLeft" || key === "a") { if (!collide(m, px - 1, py)) px--; }
-    else if (key === "ArrowRight" || key === "d") { if (!collide(m, px + 1, py)) px++; }
-    else if (key === "ArrowDown" || key === "s") { drop(); acc = 0; }
-    else if (key === "ArrowUp" || key === "w") {
+    if (key === "ArrowLeft" || key === "a") {
+      if (!collide(m, px - 1, py)) px--;
+    } else if (key === "ArrowRight" || key === "d") {
+      if (!collide(m, px + 1, py)) px++;
+    } else if (key === "ArrowDown" || key === "s") {
+      drop();
+      acc = 0;
+    } else if (key === "ArrowUp" || key === "w") {
       const rm = rotate(m);
-      for (const off of [0, -1, 1, -2, 2]) if (!collide(rm, px + off, py)) { m = rm; px += off; break; }
+      for (const off of [0, -1, 1, -2, 2])
+        if (!collide(rm, px + off, py)) {
+          m = rm;
+          px += off;
+          break;
+        }
     } else if (key === " " || key === "Spacebar") {
       while (!collide(m, px, py + 1)) py++;
       lock();
@@ -144,8 +191,18 @@ export default function tetris(ctx: GameCtx): GameHandle {
     g.fillStyle = "#07060d";
     g.fillRect(BX, BY, COLS * CELL, ROWS * CELL);
     g.strokeStyle = "rgba(255,255,255,0.06)";
-    for (let x = 0; x <= COLS; x++) { g.beginPath(); g.moveTo(BX + x * CELL, BY); g.lineTo(BX + x * CELL, BY + ROWS * CELL); g.stroke(); }
-    for (let y = 0; y <= ROWS; y++) { g.beginPath(); g.moveTo(BX, BY + y * CELL); g.lineTo(BX + COLS * CELL, BY + y * CELL); g.stroke(); }
+    for (let x = 0; x <= COLS; x++) {
+      g.beginPath();
+      g.moveTo(BX + x * CELL, BY);
+      g.lineTo(BX + x * CELL, BY + ROWS * CELL);
+      g.stroke();
+    }
+    for (let y = 0; y <= ROWS; y++) {
+      g.beginPath();
+      g.moveTo(BX, BY + y * CELL);
+      g.lineTo(BX + COLS * CELL, BY + y * CELL);
+      g.stroke();
+    }
     for (let y = 0; y < ROWS; y++) {
       const row = board[y]!;
       for (let x = 0; x < COLS; x++) if (row[x]) cell(x, y, row[x]!);
@@ -178,7 +235,8 @@ export default function tetris(ctx: GameCtx): GameHandle {
     g.fillStyle = COLORS[nextType];
     for (let r = 0; r < nm.length; r++) {
       const row = nm[r]!;
-      for (let c = 0; c < row.length; c++) if (row[c]) g.fillRect(panelX + c * 18 + 1, 250 + r * 18 + 1, 16, 16);
+      for (let c = 0; c < row.length; c++)
+        if (row[c]) g.fillRect(panelX + c * 18 + 1, 250 + r * 18 + 1, 16, 16);
     }
     g.shadowBlur = 0;
   }
@@ -186,7 +244,10 @@ export default function tetris(ctx: GameCtx): GameHandle {
   const l = loop((dt) => {
     if (!over) {
       acc += dt;
-      if (acc >= stepMs()) { acc = 0; drop(); }
+      if (acc >= stepMs()) {
+        acc = 0;
+        drop();
+      }
     }
     draw();
     if (over && !reported) {
@@ -196,5 +257,10 @@ export default function tetris(ctx: GameCtx): GameHandle {
     }
   });
 
-  return { stop() { l.stop(); k.stop(); } };
+  return {
+    stop() {
+      l.stop();
+      k.stop();
+    },
+  };
 }

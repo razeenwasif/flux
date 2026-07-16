@@ -8,9 +8,15 @@ import { activeTab } from "./store";
 /** macOS-style traffic lights. Glyphs appear on hover (group-hover). */
 export const TrafficLights: Component = () => (
   <div class="traffic">
-    <button class="tl tl-close" onClick={() => win.close()} aria-label="Close">✕</button>
-    <button class="tl tl-min" onClick={() => win.minimize()} aria-label="Minimize">−</button>
-    <button class="tl tl-max" onClick={() => win.toggleMaximize()} aria-label="Zoom">+</button>
+    <button class="tl tl-close" onClick={() => win.close()} aria-label="Close">
+      ✕
+    </button>
+    <button class="tl tl-min" onClick={() => win.minimize()} aria-label="Minimize">
+      −
+    </button>
+    <button class="tl tl-max" onClick={() => win.toggleMaximize()} aria-label="Zoom">
+      +
+    </button>
   </div>
 );
 

@@ -133,23 +133,33 @@ const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = 
   onMount(() => {
     const c = canvas;
     if (!c) return;
-    const gl = c.getContext("webgl2", { alpha: true, antialias: false, depth: false, powerPreference: "low-power" });
+    const gl = c.getContext("webgl2", {
+      alpha: true,
+      antialias: false,
+      depth: false,
+      powerPreference: "low-power",
+    });
     if (!gl) return;
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
     const sh = (type: number, src: string): WebGLShader | null => {
-      const s = gl.createShader(type); if (!s) return null;
-      gl.shaderSource(s, src); gl.compileShader(s);
+      const s = gl.createShader(type);
+      if (!s) return null;
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
       return s;
     };
     const program = (vsSrc: string, fsSrc: string): WebGLProgram | null => {
-      const vs = sh(gl.VERTEX_SHADER, vsSrc), fs = sh(gl.FRAGMENT_SHADER, fsSrc);
+      const vs = sh(gl.VERTEX_SHADER, vsSrc),
+        fs = sh(gl.FRAGMENT_SHADER, fsSrc);
       const pr = gl.createProgram();
       if (!vs || !fs || !pr) return null;
-      gl.attachShader(pr, vs); gl.attachShader(pr, fs); gl.linkProgram(pr);
+      gl.attachShader(pr, vs);
+      gl.attachShader(pr, fs);
+      gl.linkProgram(pr);
       return pr;
     };
-    
+
     const prog = program(QUAD_VS, POLAR_AURORA_FS);
     if (!prog) return;
 
@@ -157,14 +167,19 @@ const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = 
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
 
-    let cw = 0, ch = 0, aspect = 1;
+    let cw = 0,
+      ch = 0,
+      aspect = 1;
     const resize = () => {
-      cw = Math.max(1, c.clientWidth); ch = Math.max(1, c.clientHeight);
+      cw = Math.max(1, c.clientWidth);
+      ch = Math.max(1, c.clientHeight);
       c.width = Math.max(1, Math.round(cw * 0.8));
       c.height = Math.max(1, Math.round(ch * 0.8));
       aspect = c.width / c.height;
     };
-    const ro = new ResizeObserver(resize); ro.observe(c); resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(c);
+    resize();
 
     const uTime = gl.getUniformLocation(prog, "u_time");
     const uAspect = gl.getUniformLocation(prog, "u_aspect");
@@ -184,28 +199,49 @@ const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = 
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 
-    const FPS = 30, MIN_DT = 1 / FPS;
-    let raf = 0, running = false, last = 0, acc = 0;
+    const FPS = 30,
+      MIN_DT = 1 / FPS;
+    let raf = 0,
+      running = false,
+      last = 0,
+      acc = 0;
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const d = last ? (now - last) / 1000 : 0; last = now;
+      const d = last ? (now - last) / 1000 : 0;
+      last = now;
       acc += d;
       if (acc < MIN_DT) return;
-      
+
       const targetBusy = props.busy?.() ? 1.0 : 0.0;
       busyVal += (targetBusy - busyVal) * 5.0 * acc;
-      
+
       time += acc * (1.0 + busyVal * 1.5);
       acc = 0;
       render();
     };
-    const start = () => { if (running) return; running = true; last = 0; raf = requestAnimationFrame(frame); };
-    const stop = () => { running = false; cancelAnimationFrame(raf); };
-    const shouldRun = () =>
-      props.active() && !reduce && !document.hidden && document.hasFocus();
-    const sync = () => { if (shouldRun()) start(); else { stop(); render(); } };
+    const start = () => {
+      if (running) return;
+      running = true;
+      last = 0;
+      raf = requestAnimationFrame(frame);
+    };
+    const stop = () => {
+      running = false;
+      cancelAnimationFrame(raf);
+    };
+    const shouldRun = () => props.active() && !reduce && !document.hidden && document.hasFocus();
+    const sync = () => {
+      if (shouldRun()) start();
+      else {
+        stop();
+        render();
+      }
+    };
 
-    createEffect(() => { props.active(); sync(); });
+    createEffect(() => {
+      props.active();
+      sync();
+    });
     const onState = () => sync();
     document.addEventListener("visibilitychange", onState);
     window.addEventListener("focus", onState);
@@ -214,15 +250,30 @@ const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = 
     sync();
 
     onCleanup(() => {
-      stop(); ro.disconnect();
+      stop();
+      ro.disconnect();
       document.removeEventListener("visibilitychange", onState);
       window.removeEventListener("focus", onState);
       window.removeEventListener("blur", onState);
-      gl.deleteBuffer(quad); gl.deleteProgram(prog);
+      gl.deleteBuffer(quad);
+      gl.deleteProgram(prog);
     });
   });
 
-  return <canvas ref={canvas} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", "pointer-events": "none", "border-radius": "inherit" }} aria-hidden="true" />;
+  return (
+    <canvas
+      ref={canvas}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        "pointer-events": "none",
+        "border-radius": "inherit",
+      }}
+      aria-hidden="true"
+    />
+  );
 };
 
 export default AgentAurora;

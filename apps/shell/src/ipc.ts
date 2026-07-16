@@ -12,8 +12,7 @@ export { Channel };
 // ─── Window controls (custom chrome — decorations are off) ──────────────────
 
 export type ResizeDir =
-  | "North" | "South" | "East" | "West"
-  | "NorthEast" | "NorthWest" | "SouthEast" | "SouthWest";
+  "North" | "South" | "East" | "West" | "NorthEast" | "NorthWest" | "SouthEast" | "SouthWest";
 
 /** True only inside the Tauri runtime — lets the mocked UI preview no-op. */
 const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -221,11 +220,17 @@ export type AgentAction = GenAgentAction;
 // ─── Commands ────────────────────────────────────────────────────────────
 
 export const tabCreate = (kind: TabKind, url?: string, isPrivate?: boolean, container?: number) =>
-  invoke<TabMeta>("tab_create", { kind, url: url ?? null, private: isPrivate ?? null, container: container ?? null });
+  invoke<TabMeta>("tab_create", {
+    kind,
+    url: url ?? null,
+    private: isPrivate ?? null,
+    container: container ?? null,
+  });
 export const shellSnapshot = () => invoke<ShellSnapshot>("shell_snapshot");
 // ─── Multi-account containers (BACKLOG #59) — Container type from bindings.gen ──
 export const containersList = () => invoke<Container[]>("containers_list");
-export const containerCreate = (name: string, color: number) => invoke<number>("container_create", { name, color });
+export const containerCreate = (name: string, color: number) =>
+  invoke<number>("container_create", { name, color });
 export const containerUpdate = (id: number, patch: { name?: string; color?: number }) =>
   invoke<void>("container_update", { id, name: patch.name ?? null, color: patch.color ?? null });
 export const containerDelete = (id: number) => invoke<void>("container_delete", { id });
@@ -234,8 +239,7 @@ export const tabClose = (id: number) => invoke<void>("tab_close", { id });
 /** Peek / glance (#50): open a link in a transient floating window, not a tab. */
 export const peekOpen = (url: string) => invoke<void>("peek_open", { url });
 export const tabList = () => invoke<TabMeta[]>("tab_list");
-export const tabSetPinned = (id: number, pinned: boolean) =>
-  invoke<void>("tab_set_pinned", { id, pinned });
+export const tabSetPinned = (id: number, pinned: boolean) => invoke<void>("tab_set_pinned", { id, pinned });
 /** Reorder the tab strip — `ids` is the new full display order (BACKLOG #30). */
 export const tabReorder = (ids: number[]) => invoke<void>("tab_reorder", { ids });
 // ─── Tab groups (BACKLOG #56) ────────────────────────────────────────────────
@@ -243,7 +247,12 @@ export const groupsList = () => invoke<TabGroup[]>("groups_list");
 export const groupCreate = (name: string, color: number, tabIds: number[]) =>
   invoke<number>("group_create", { name, color, tabIds });
 export const groupUpdate = (id: number, patch: { name?: string; color?: number; collapsed?: boolean }) =>
-  invoke<void>("group_update", { id, name: patch.name ?? null, color: patch.color ?? null, collapsed: patch.collapsed ?? null });
+  invoke<void>("group_update", {
+    id,
+    name: patch.name ?? null,
+    color: patch.color ?? null,
+    collapsed: patch.collapsed ?? null,
+  });
 export const groupDelete = (id: number) => invoke<void>("group_delete", { id });
 export const tabSetGroup = (tabId: number, group: number | null) =>
   invoke<void>("tab_set_group", { tabId, group });
@@ -259,7 +268,8 @@ export const groupsFromClusters = () => invoke<number>("groups_from_clusters");
 export const workspacesList = () => invoke<Workspace[]>("workspaces_list");
 export const workspaceActive = () => invoke<number>("workspace_active");
 export const workspaceSwitch = (id: number) => invoke<void>("workspace_switch", { id });
-export const workspaceCreate = (name: string, color: number) => invoke<number>("workspace_create", { name, color });
+export const workspaceCreate = (name: string, color: number) =>
+  invoke<number>("workspace_create", { name, color });
 export const workspaceUpdate = (id: number, patch: { name?: string; color?: number }) =>
   invoke<void>("workspace_update", { id, name: patch.name ?? null, color: patch.color ?? null });
 /** Delete a workspace + its tabs; returns the closed tab ids. */
@@ -276,7 +286,8 @@ export const panelSetBounds = (panelId: number, r: Rect) =>
   invoke<void>("panel_set_bounds", { panelId, x: r.x, y: r.y, width: r.width, height: r.height });
 export const panelShow = (panelId: number) => invoke<void>("panel_show", { panelId });
 export const panelHide = (panelId: number) => invoke<void>("panel_hide", { panelId });
-export const panelNavigate = (panelId: number, url: string) => invoke<void>("panel_navigate", { panelId, url });
+export const panelNavigate = (panelId: number, url: string) =>
+  invoke<void>("panel_navigate", { panelId, url });
 export const panelClose = (panelId: number) => invoke<void>("panel_close", { panelId });
 /** Fires when a web panel reports its unread count (#48), parsed from its title. */
 export const onPanelBadge = (cb: (panelId: number, count: number) => void): Promise<UnlistenFn> =>
@@ -287,8 +298,7 @@ export const tabSetUrl = (id: number, url: string, title?: string) =>
 /** The backend's currently-focused tab id (for restoring focus on boot). */
 export const tabActive = () => invoke<number | null>("tab_active");
 export const launchIntent = () => invoke<LaunchIntent>("launch_intent");
-export const chromeImportPreview = () =>
-  invoke<ChromeProfilePreview[]>("chrome_import_preview");
+export const chromeImportPreview = () => invoke<ChromeProfilePreview[]>("chrome_import_preview");
 export const chromeImportBookmarks = (profileDir: string) =>
   invoke<ChromeBookmark[]>("chrome_import_bookmarks", { profileDir });
 export const terminalEnv = () => invoke<Record<string, string>>("terminal_env");
@@ -318,7 +328,8 @@ export const shellGuard = (command: string) => invoke<string | null>("shell_guar
 /** Read a text file (WSL-aware) into the agent's context. */
 export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
 /** Write a text file (WSL-aware) — only after the user approves an edit. */
-export const writeTextFile = (path: string, content: string) => invoke<void>("write_text_file", { path, content });
+export const writeTextFile = (path: string, content: string) =>
+  invoke<void>("write_text_file", { path, content });
 export type EditPlan = GenEditPlan;
 /** Plan a file edit (search/replace) from an instruction; the UI diffs + approves. */
 export const agentEditPlan = (path: string, content: string, instruction: string) =>
@@ -360,14 +371,18 @@ export const porcupineSetKey = (key: string) => invoke<void>("porcupine_set_key"
 export const porcupineHasKey = () => invoke<boolean>("porcupine_has_key");
 /** Resolve the access key (keyring) + keyword/model files (base64) for the Web SDK. */
 export const porcupineConfig = (ppnPath: string, modelPath: string) =>
-  invoke<{ accessKey: string; keywordB64: string; modelB64: string }>("porcupine_config", { ppnPath, modelPath });
+  invoke<{ accessKey: string; keywordB64: string; modelB64: string }>("porcupine_config", {
+    ppnPath,
+    modelPath,
+  });
 /** Local TTS via Piper: returns a base64 WAV (errors if Piper isn't installed). */
 export const voiceSpeak = (text: string) => invoke<string>("voice_speak", { text });
 /** Store (or clear, with "") the ElevenLabs API key in the OS keyring. */
 export const elevenlabsSetKey = (key: string) => invoke<void>("elevenlabs_set_key", { key });
 export const elevenlabsHasKey = () => invoke<boolean>("elevenlabs_has_key");
 export const elevenlabsVerifyKey = () => invoke<string>("elevenlabs_verify_key");
-export const elevenlabsVerifyKeyValue = (key: string) => invoke<string>("elevenlabs_verify_key_value", { key });
+export const elevenlabsVerifyKeyValue = (key: string) =>
+  invoke<string>("elevenlabs_verify_key_value", { key });
 export const elevenlabsVoices = () => invoke<{ id: string; name: string }[]>("elevenlabs_voices");
 export const elevenlabsImportVoice = (voiceId: string, publicOwnerId = "", name = "") =>
   invoke<{ id: string; name: string }>("elevenlabs_import_voice", { voiceId, publicOwnerId, name });
@@ -409,7 +424,13 @@ export type VizFrame = { e: number; bass: number; mid: number; treble: number };
  *  Lazily starts the `audioviz` helper if it isn't running. */
 export const audivizStream = (onFrame: (f: VizFrame) => void): Promise<void> => {
   const ch = new Channel<string>();
-  ch.onmessage = (raw) => { try { onFrame(JSON.parse(raw) as VizFrame); } catch { /* skip bad frame */ } };
+  ch.onmessage = (raw) => {
+    try {
+      onFrame(JSON.parse(raw) as VizFrame);
+    } catch {
+      /* skip bad frame */
+    }
+  };
   return invoke<void>("audioviz_stream", { onFrame: ch });
 };
 /**
@@ -482,8 +503,7 @@ export const onFullscreenChanged = (cb: (fullscreen: boolean) => void): Promise<
 /** Find-in-page result from the page: [tabId, matchCount, found] (BACKLOG #33). */
 export const onFindResult = (
   cb: (tabId: number, count: number, found: boolean) => void,
-): Promise<UnlistenFn> =>
-  listen<[number, number, boolean]>("flux://find-result", (e) => cb(...e.payload));
+): Promise<UnlistenFn> => listen<[number, number, boolean]>("flux://find-result", (e) => cb(...e.payload));
 
 // ─── Search (pluggable backend) ─────────────────────────────────────────────
 
@@ -498,8 +518,7 @@ export const searchEngines = () => invoke<SearchEngine[]>("search_engines");
 export const searchDefault = () => invoke<string>("search_default");
 export const searchSetDefault = (id: string) => invoke<void>("search_set_default", { id });
 /** Register (or replace by id) an engine — e.g. your own search backend. */
-export const searchAddEngine = (engine: SearchEngine) =>
-  invoke<void>("search_add_engine", { engine });
+export const searchAddEngine = (engine: SearchEngine) => invoke<void>("search_add_engine", { engine });
 export const searchRemoveEngine = (id: string) => invoke<void>("search_remove_engine", { id });
 
 // ─── Omni index dashboard (flux://omni) ─────────────────────────────────────
@@ -567,7 +586,11 @@ export const kbAnswer = (
 ): Promise<void> => {
   const ch = new Channel<string>();
   ch.onmessage = (raw) => {
-    try { onEvent(JSON.parse(raw) as KbAnswerEvent); } catch { /* skip a bad frame */ }
+    try {
+      onEvent(JSON.parse(raw) as KbAnswerEvent);
+    } catch {
+      /* skip a bad frame */
+    }
   };
   return invoke<void>("kb_answer", { query, sources, onToken: ch });
 };
@@ -597,12 +620,10 @@ export interface OmniSite {
 }
 
 /** Fetch Omni's live `/stats` (proxied through Rust to dodge the webview CSP). */
-export const omniStats = async (): Promise<OmniStats> =>
-  JSON.parse(await invoke<string>("omni_stats"));
+export const omniStats = async (): Promise<OmniStats> => JSON.parse(await invoke<string>("omni_stats"));
 
 /** Fetch Omni's curated essential-site shortcuts (`/sites`). */
-export const omniSites = async (): Promise<OmniSite[]> =>
-  JSON.parse(await invoke<string>("omni_sites"));
+export const omniSites = async (): Promise<OmniSite[]> => JSON.parse(await invoke<string>("omni_sites"));
 
 /** Omni's semantic graph (#119): nodes (docs, sized by PageRank) + cosine-neighbour
  *  edges (`s`/`t` index into `nodes`). Hand-typed (the body is raw JSON from Omni). */
@@ -622,9 +643,7 @@ export interface OmniAnswerSource {
 
 /** One streamed answer event (mirrors Omni's SSE `data:` payloads). */
 export type OmniAnswerEvent =
-  | { type: "sources"; sources: OmniAnswerSource[] }
-  | { type: "token"; text: string }
-  | { type: "done" };
+  { type: "sources"; sources: OmniAnswerSource[] } | { type: "token"; text: string } | { type: "done" };
 
 /**
  * Stream a generative RAG answer for `query` from Omni, calling `onEvent` for each
@@ -652,8 +671,7 @@ export const omniAnswer = (
 /** Whether auto-ingest (index every substantial page on load) is on. */
 export const omniIngestStatus = () => invoke<boolean>("omni_ingest_status");
 /** Toggle auto-ingest for this session. */
-export const omniIngestSetAuto = (enabled: boolean) =>
-  invoke<void>("omni_ingest_set_auto", { enabled });
+export const omniIngestSetAuto = (enabled: boolean) => invoke<void>("omni_ingest_set_auto", { enabled });
 /** Explicitly save the active tab's page to Omni; returns Omni's JSON reply. */
 export const omniIngestActive = async (): Promise<{ added: number; skipped: number }> =>
   JSON.parse(await invoke<string>("omni_ingest_active"));
@@ -663,14 +681,12 @@ export const omniIngestActive = async (): Promise<{ added: number; skipped: numb
 export const shieldsStatus = () => invoke<ShieldsStatus>("shields_status");
 export const shieldsSetEnabled = (on: boolean) => invoke<void>("shields_set_enabled", { on });
 /** Turn shields on/off for one site (`on = false` allowlists it). */
-export const shieldsSetSite = (host: string, on: boolean) =>
-  invoke<void>("shields_set_site", { host, on });
+export const shieldsSetSite = (host: string, on: boolean) => invoke<void>("shields_set_site", { host, on });
 /** Re-fetch + rebuild the upstream filter lists (background). */
 export const shieldsRefresh = () => invoke<void>("shields_refresh");
 
 /** The session's hot rule set — filters that actually fired, busiest first (#99). */
-export const shieldsHotRules = (limit: number) =>
-  invoke<HotRule[]>("shields_hot_rules", { limit });
+export const shieldsHotRules = (limit: number) => invoke<HotRule[]>("shields_hot_rules", { limit });
 
 // ─── Per-site lean mode (BACKLOG #105) ───────────────────────────────────────
 export const leanStatus = () => invoke<LeanStatus>("lean_status");
@@ -724,8 +740,13 @@ export type PermAsk = GenPermAsk;
 export const onPermissionAsk = (cb: (a: PermAsk) => void): Promise<UnlistenFn> =>
   listen<PermAsk>("flux://permission-ask", (e) => cb(e.payload));
 /** Resolve a deferred Ask. `remember` persists the decision for the site. */
-export const permissionAnswer = (id: number, host: string, kind: PermKind, allow: boolean, remember: boolean) =>
-  invoke<void>("permission_answer", { id, host, kind, allow, remember });
+export const permissionAnswer = (
+  id: number,
+  host: string,
+  kind: PermKind,
+  allow: boolean,
+  remember: boolean,
+) => invoke<void>("permission_answer", { id, host, kind, allow, remember });
 
 // ─── Password vault (BACKLOG #61, ADR 0009) ──────────────────────────────────
 // Metadata only — passwords never come to the chrome except via vault_reveal
@@ -739,7 +760,8 @@ export const vaultUnlock = (password: string) => invoke<void>("vault_unlock", { 
 /** Lock now (clears the decrypted vault + key from memory). */
 export const vaultLock = () => invoke<void>("vault_lock");
 /** Enable/change master-password protection (Argon2id; removes the keychain key). */
-export const vaultSetMasterPassword = (password: string) => invoke<void>("vault_set_master_password", { password });
+export const vaultSetMasterPassword = (password: string) =>
+  invoke<void>("vault_set_master_password", { password });
 /** Remove master-password protection (verifies it, moves the key back to the keychain). */
 export const vaultDisableMasterPassword = (password: string) =>
   invoke<void>("vault_disable_master_password", { password });
@@ -749,8 +771,7 @@ export const vaultSetAutolock = (minutes: number) => invoke<void>("vault_set_aut
 export const onVaultLocked = (cb: () => void): Promise<UnlistenFn> =>
   listen("flux://vault-locked", () => cb());
 /** Fires when keychain-mode vault hydration finishes after startup. */
-export const onVaultReady = (cb: () => void): Promise<UnlistenFn> =>
-  listen("flux://vault-ready", () => cb());
+export const onVaultReady = (cb: () => void): Promise<UnlistenFn> => listen("flux://vault-ready", () => cb());
 /** Fires when the page sentinel saved a credential (registration sign-up). */
 export const onVaultSaved = (cb: (host: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://vault-saved", (e) => cb(e.payload));
@@ -788,7 +809,12 @@ export const extRemove = (id: string) => invoke<void>("ext_remove", { id });
 
 // ─── Per-tab web content (webviews) ─────────────────────────────────────────
 
-export interface Rect { x: number; y: number; width: number; height: number }
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export const webviewOpen = (tabId: number, url: string, r: Rect) =>
   invoke<void>("webview_open", { tabId, url, x: r.x, y: r.y, width: r.width, height: r.height });
@@ -962,7 +988,8 @@ export const semanticFind = (query: string, tabIds: number[], limit?: number) =>
 
 // ─── Local tasks / to-dos (BACKLOG #114) ─────────────────────────────────────
 export const todosList = () => invoke<Todo[]>("todos_list");
-export const todoAdd = (title: string, due?: string) => invoke<Todo | null>("todo_add", { title, due: due ?? null });
+export const todoAdd = (title: string, due?: string) =>
+  invoke<Todo | null>("todo_add", { title, due: due ?? null });
 export const todoToggle = (id: number) => invoke<void>("todo_toggle", { id });
 export const todoRemove = (id: number) => invoke<void>("todo_remove", { id });
 export const todosClearDone = () => invoke<number>("todos_clear_done");
@@ -970,8 +997,7 @@ export const todosClearDone = () => invoke<number>("todos_clear_done");
 // ─── Built-in PDF viewer (BACKLOG #35) ───────────────────────────────────────
 export const PDF_URL = "flux://pdf";
 /** Is this URL/path a PDF? (extension check, ignoring query/hash) */
-export const isPdfUrl = (url: string) =>
-  (url.split(/[?#]/)[0] ?? "").toLowerCase().endsWith(".pdf");
+export const isPdfUrl = (url: string) => (url.split(/[?#]/)[0] ?? "").toLowerCase().endsWith(".pdf");
 /** Route a PDF URL through the Flux viewer (no-op if it already is one). */
 export const pdfViewerUrl = (src: string) =>
   src.startsWith(PDF_URL) ? src : `${PDF_URL}?src=${encodeURIComponent(src)}`;
@@ -995,15 +1021,17 @@ export const SPEEDTEST_URL = "flux://speedtest";
 export const netspeedRun = () => invoke<SpeedResult>("netspeed_run");
 /** Live progress: phase ("ping"→"download"→"upload"→"done") + instantaneous
  *  Mbps (0 for ping/upload) so the dial can animate during download. */
-export interface NetProgress { phase: string; mbps: number }
+export interface NetProgress {
+  phase: string;
+  mbps: number;
+}
 export const onNetspeedProgress = (cb: (p: NetProgress) => void): Promise<UnlistenFn> =>
   listen<NetProgress>("flux://netspeed-progress", (e) => cb(e.payload));
 
 // ─── Predictive prefetch (BACKLOG #103) ──────────────────────────────────────
 export type PrefetchHint = GenPrefetchHint;
 /** Record a navigation transition so the model can learn (`from` may be ""). */
-export const prefetchRecord = (from: string, to: string) =>
-  invoke<void>("prefetch_record", { from, to });
+export const prefetchRecord = (from: string, to: string) => invoke<void>("prefetch_record", { from, to });
 /** Hosts worth preconnecting next from `url`, most-confident first. */
 export const prefetchHints = (url: string, max: number) =>
   invoke<PrefetchHint[]>("prefetch_hints", { url, max });
@@ -1031,12 +1059,22 @@ export const agentLens = (imagePath: string, prompt?: string) =>
 export const agentVision = (imageB64: string, prompt?: string) =>
   invoke<string>("agent_vision", { imageB64, prompt: prompt ?? null });
 /** Read a file dragged from the explorer into the agent (image → b64, text → text). */
-export interface DroppedAttachment { kind: "image" | "text"; name: string; b64: string; text: string; data_url: string }
+export interface DroppedAttachment {
+  kind: "image" | "text";
+  name: string;
+  b64: string;
+  text: string;
+  data_url: string;
+}
 export const attachmentRead = (path: string) => invoke<DroppedAttachment>("attachment_read", { path });
 export const onScreenshot = (cb: (path: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://screenshot", (e) => cb(e.payload));
-export const onReader = (cb: (tabId: number, title: string, blocks: ReaderBlock[]) => void): Promise<UnlistenFn> =>
-  listen<[number, string, ReaderBlock[]]>("flux://reader", (e) => cb(e.payload[0], e.payload[1], e.payload[2]));
+export const onReader = (
+  cb: (tabId: number, title: string, blocks: ReaderBlock[]) => void,
+): Promise<UnlistenFn> =>
+  listen<[number, string, ReaderBlock[]]>("flux://reader", (e) =>
+    cb(e.payload[0], e.payload[1], e.payload[2]),
+  );
 export const webviewBack = (tabId: number) => invoke<void>("webview_back", { tabId });
 export const webviewForward = (tabId: number) => invoke<void>("webview_forward", { tabId });
 export const webviewReload = (tabId: number) => invoke<void>("webview_reload", { tabId });
@@ -1049,7 +1087,13 @@ export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capt
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */
 export const memStatus = () => invoke<MemInfo>("mem_status");
-export type SystemStats = { cpuPct: number; memTotalMb: number; memUsedMb: number; memPct: number; top: { name: string; memMb: number; cpu: number }[] };
+export type SystemStats = {
+  cpuPct: number;
+  memTotalMb: number;
+  memUsedMb: number;
+  memPct: number;
+  top: { name: string; memMb: number; cpu: number }[];
+};
 /** CPU + memory + heaviest processes (agent "system awareness"). */
 export const systemStats = () => invoke<SystemStats>("system_stats");
 
@@ -1090,8 +1134,7 @@ export const historyDelete = (url: string) => invoke<void>("history_delete", { u
 
 // ─── The Trail — browsing provenance spine (ADR 0011) ────────────────────────
 /** Most-recent Visits for the Trail timeline (newest first). */
-export const traceRecent = (limit?: number) =>
-  invoke<Visit[]>("trace_recent", { limit: limit ?? null });
+export const traceRecent = (limit?: number) => invoke<Visit[]>("trace_recent", { limit: limit ?? null });
 /** A single Visit by id (node detail). */
 export const traceVisit = (id: number) => invoke<Visit | null>("trace_visit", { id });
 /** The provenance graph (optionally time-windowed by `last_ms`) for the Trail view. */
@@ -1117,7 +1160,11 @@ export const traceChatSend = (
 ): Promise<void> => {
   const ch = new Channel<string>();
   ch.onmessage = (raw) => {
-    try { onEvent(JSON.parse(raw) as TraceChatEvent); } catch { /* skip a bad frame */ }
+    try {
+      onEvent(JSON.parse(raw) as TraceChatEvent);
+    } catch {
+      /* skip a bad frame */
+    }
   };
   return invoke<void>("trace_chat_send", { visitId, message, onToken: ch });
 };
@@ -1131,8 +1178,7 @@ export const bookmarkAdd = (title: string, url: string, folder?: string) =>
   invoke<Bookmark>("bookmark_add", { title, url, folder: folder ?? null });
 export const bookmarkRemove = (id: number) => invoke<void>("bookmark_remove", { id });
 /** Rename a bookmark's display title (blank → host fallback). */
-export const bookmarkRename = (id: number, title: string) =>
-  invoke<void>("bookmark_rename", { id, title });
+export const bookmarkRename = (id: number, title: string) => invoke<void>("bookmark_rename", { id, title });
 export const bookmarksClear = () => invoke<void>("bookmarks_clear");
 /** Import every bookmark from a Chrome profile; returns the count added. */
 export const bookmarksImportChrome = (profileDir: string) =>
@@ -1229,12 +1275,8 @@ export const onFsChanged = (cb: (path: string) => void): Promise<UnlistenFn> =>
 // ─── Terminal (PTY) ────────────────────────────────────────────────────────
 
 /** Spawn a PTY for `session`; `onData` streams raw output bytes (number[]). */
-export const terminalSpawn = (
-  session: number,
-  cols: number,
-  rows: number,
-  onData: Channel<number[]>,
-) => invoke<void>("terminal_spawn", { session, cols, rows, onData });
+export const terminalSpawn = (session: number, cols: number, rows: number, onData: Channel<number[]>) =>
+  invoke<void>("terminal_spawn", { session, cols, rows, onData });
 
 /** Write input bytes (encoded keystrokes/paste) to the session's stdin. */
 export const terminalWrite = (session: number, data: Uint8Array) =>

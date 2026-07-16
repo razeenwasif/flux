@@ -27,8 +27,16 @@ const TerminalColumn: Component = () => {
     const id = ++paneSeq;
     const i = panes().indexOf(active());
     const at = i < 0 ? panes().length : i + 1; // insert after the focused pane
-    setPanes((p) => { const n = [...p]; n.splice(at, 0, id); return n; });
-    setSizes((s) => { const n = [...s]; n.splice(at, 0, 1); return n; });
+    setPanes((p) => {
+      const n = [...p];
+      n.splice(at, 0, id);
+      return n;
+    });
+    setSizes((s) => {
+      const n = [...s];
+      n.splice(at, 0, 1);
+      return n;
+    });
     setActive(id);
   };
   const closePane = (id: number) => {
@@ -58,7 +66,9 @@ const TerminalColumn: Component = () => {
     const MIN = 60; // px — smallest a pane can shrink to
     const startPos = horizontal ? e.clientX : e.clientY;
     const s0 = sizes();
-    const a = s0[idx - 1] ?? 1, b = s0[idx] ?? 1, pair = a + b;
+    const a = s0[idx - 1] ?? 1,
+      b = s0[idx] ?? 1,
+      pair = a + b;
     const totalGrow = s0.reduce((n, v) => n + v, 0) || 1;
     const pairPx = (pair / totalGrow) * total;
     const aPx0 = (a / totalGrow) * total;
@@ -67,7 +77,12 @@ const TerminalColumn: Component = () => {
       const pos = horizontal ? ev.clientX : ev.clientY;
       const aPx = Math.max(MIN, Math.min(pairPx - MIN, aPx0 + (pos - startPos)));
       const ratio = aPx / pairPx;
-      setSizes((s) => { const n = [...s]; n[idx - 1] = pair * ratio; n[idx] = pair * (1 - ratio); return n; });
+      setSizes((s) => {
+        const n = [...s];
+        n[idx - 1] = pair * ratio;
+        n[idx] = pair * (1 - ratio);
+        return n;
+      });
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -80,7 +95,11 @@ const TerminalColumn: Component = () => {
 
   return (
     <section class="terminal-col">
-      <div ref={panesEl} class="term-col-panes" style={{ "flex-direction": dir() === "row" ? "row" : "column" }}>
+      <div
+        ref={panesEl}
+        class="term-col-panes"
+        style={{ "flex-direction": dir() === "row" ? "row" : "column" }}
+      >
         <For each={panes()}>
           {(s, i) => (
             <>
@@ -105,7 +124,9 @@ const TerminalColumn: Component = () => {
         </For>
       </div>
       <div class="term-col-bar">
-        <button class="term-col-btn" title="Split terminal" onClick={split}>⊞</button>
+        <button class="term-col-btn" title="Split terminal" onClick={split}>
+          ⊞
+        </button>
         <button
           class="term-col-btn"
           title={dir() === "row" ? "Stack panes vertically" : "Place panes side by side"}
@@ -114,7 +135,9 @@ const TerminalColumn: Component = () => {
           {dir() === "row" ? "▭" : "▯"}
         </button>
         <Show when={panes().length > 1}>
-          <button class="term-col-btn danger" title="Close focused pane" onClick={() => closePane(active())}>✕</button>
+          <button class="term-col-btn danger" title="Close focused pane" onClick={() => closePane(active())}>
+            ✕
+          </button>
         </Show>
       </div>
     </section>

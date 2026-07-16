@@ -156,40 +156,67 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
   onMount(() => {
     const c = canvas;
     if (!c) return;
-    const gl = c.getContext("webgl2", { alpha: false, antialias: false, depth: false, powerPreference: "low-power" });
-    if (!gl) { props.onFallback?.(); return; }
+    const gl = c.getContext("webgl2", {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      powerPreference: "low-power",
+    });
+    if (!gl) {
+      props.onFallback?.();
+      return;
+    }
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
     const sh = (type: number, src: string): WebGLShader | null => {
-      const s = gl.createShader(type); if (!s) return null;
-      gl.shaderSource(s, src); gl.compileShader(s);
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.warn("[aurora]", gl.getShaderInfoLog(s)); return null; }
+      const s = gl.createShader(type);
+      if (!s) return null;
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.warn("[aurora]", gl.getShaderInfoLog(s));
+        return null;
+      }
       return s;
     };
     const program = (vsSrc: string, fsSrc: string): WebGLProgram | null => {
-      const vs = sh(gl.VERTEX_SHADER, vsSrc), fs = sh(gl.FRAGMENT_SHADER, fsSrc);
+      const vs = sh(gl.VERTEX_SHADER, vsSrc),
+        fs = sh(gl.FRAGMENT_SHADER, fsSrc);
       const pr = gl.createProgram();
       if (!vs || !fs || !pr) return null;
-      gl.attachShader(pr, vs); gl.attachShader(pr, fs); gl.linkProgram(pr);
-      if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) { console.warn("[aurora]", gl.getProgramInfoLog(pr)); return null; }
+      gl.attachShader(pr, vs);
+      gl.attachShader(pr, fs);
+      gl.linkProgram(pr);
+      if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) {
+        console.warn("[aurora]", gl.getProgramInfoLog(pr));
+        return null;
+      }
       return pr;
     };
-    
+
     const prog = program(QUAD_VS, AURORA_FS);
-    if (!prog) { props.onFallback?.(); return; }
+    if (!prog) {
+      props.onFallback?.();
+      return;
+    }
 
     const quad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
 
-    let cw = 0, ch = 0, aspect = 1;
+    let cw = 0,
+      ch = 0,
+      aspect = 1;
     const resize = () => {
-      cw = Math.max(1, c.clientWidth); ch = Math.max(1, c.clientHeight);
+      cw = Math.max(1, c.clientWidth);
+      ch = Math.max(1, c.clientHeight);
       c.width = Math.max(1, Math.round(cw * 0.8));
       c.height = Math.max(1, Math.round(ch * 0.8));
       aspect = c.width / c.height;
     };
-    const ro = new ResizeObserver(resize); ro.observe(c); resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(c);
+    resize();
 
     const uTime = gl.getUniformLocation(prog, "u_time");
     const uAspect = gl.getUniformLocation(prog, "u_aspect");
@@ -206,24 +233,50 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 
-    const FPS = 40, MIN_DT = 1 / FPS;
-    let raf = 0, running = false, last = 0, acc = 0;
+    const FPS = 40,
+      MIN_DT = 1 / FPS;
+    let raf = 0,
+      running = false,
+      last = 0,
+      acc = 0;
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const d = last ? (now - last) / 1000 : 0; last = now;
+      const d = last ? (now - last) / 1000 : 0;
+      last = now;
       acc += d;
       if (acc < MIN_DT) return;
-      time += acc; acc = 0;
+      time += acc;
+      acc = 0;
       render();
     };
-    const start = () => { if (running) return; running = true; last = 0; raf = requestAnimationFrame(frame); };
-    const stop = () => { running = false; cancelAnimationFrame(raf); };
+    const start = () => {
+      if (running) return;
+      running = true;
+      last = 0;
+      raf = requestAnimationFrame(frame);
+    };
+    const stop = () => {
+      running = false;
+      cancelAnimationFrame(raf);
+    };
     const shouldRun = () =>
-      props.active() && !reduce && !document.hidden && document.hasFocus() &&
+      props.active() &&
+      !reduce &&
+      !document.hidden &&
+      document.hasFocus() &&
       !document.body.classList.contains("resizing");
-    const sync = () => { if (shouldRun()) start(); else { stop(); render(); } };
+    const sync = () => {
+      if (shouldRun()) start();
+      else {
+        stop();
+        render();
+      }
+    };
 
-    createEffect(() => { props.active(); sync(); });
+    createEffect(() => {
+      props.active();
+      sync();
+    });
     const onState = () => sync();
     document.addEventListener("visibilitychange", onState);
     window.addEventListener("focus", onState);
@@ -234,7 +287,9 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
     sync();
 
     onCleanup(() => {
-      stop(); ro.disconnect(); bodyMo.disconnect();
+      stop();
+      ro.disconnect();
+      bodyMo.disconnect();
       document.removeEventListener("visibilitychange", onState);
       window.removeEventListener("focus", onState);
       window.removeEventListener("blur", onState);

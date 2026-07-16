@@ -36,14 +36,23 @@ export const setPreferredVoice = (name: string) => localStorage.setItem(VOICE_KE
 let cachedVoices: SpeechSynthesisVoice[] = [];
 /** Available OS voices (populates asynchronously on some platforms). */
 export function loadVoices(): SpeechSynthesisVoice[] {
-  try { cachedVoices = window.speechSynthesis?.getVoices() ?? []; } catch { /* no synth */ }
+  try {
+    cachedVoices = window.speechSynthesis?.getVoices() ?? [];
+  } catch {
+    /* no synth */
+  }
   return cachedVoices;
 }
-try { window.speechSynthesis?.addEventListener?.("voiceschanged", () => loadVoices()); } catch { /* ignore */ }
+try {
+  window.speechSynthesis?.addEventListener?.("voiceschanged", () => loadVoices());
+} catch {
+  /* ignore */
+}
 loadVoices();
 
 // Names that signal a female voice across Windows / macOS / Linux / Chromium.
-const FEMALE = /aria|jenny|zira|hazel|natasha|sonia|libby|michelle|clara|amy|emma|eva|ava|samantha|susan|fiona|google us english|female|woman/i;
+const FEMALE =
+  /aria|jenny|zira|hazel|natasha|sonia|libby|michelle|clara|amy|emma|eva|ava|samantha|susan|fiona|google us english|female|woman/i;
 /** Pick Gemma's voice: the user's choice if set, else a natural female English one. */
 function pickVoice(): SpeechSynthesisVoice | null {
   const voices = cachedVoices.length ? cachedVoices : loadVoices();
@@ -67,24 +76,27 @@ let currentContext: AudioContext | null = null;
 
 /** Strip emoji / markdown so the voice reads clean prose, not "asterisk asterisk". */
 export function cleanForSpeech(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, " code block ")
-    // Angle brackets first: many TTS backends parse `<…>` as SSML/markup and stop
-    // speaking at the `<` (e.g. "volatile <dtype>" cut off after "volatile"). Drop
-    // them so the rest of the line still gets read.
-    .replace(/[<>]/g, " ")
-    .replace(/[*_`#>]+/g, "")
-    .replace(/\[(.*?)\]\(.*?\)/g, "$1")
-    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    text
+      .replace(/```[\s\S]*?```/g, " code block ")
+      // Angle brackets first: many TTS backends parse `<…>` as SSML/markup and stop
+      // speaking at the `<` (e.g. "volatile <dtype>" cut off after "volatile"). Drop
+      // them so the rest of the line still gets read.
+      .replace(/[<>]/g, " ")
+      .replace(/[*_`#>]+/g, "")
+      .replace(/\[(.*?)\]\(.*?\)/g, "$1")
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 // How much of a reply Gemma speaks: "brief" (~2 sentences), "medium" (~6),
 // or "full" (everything). You can always cut her off (barge-in / Stop button).
 const SPEECH_LEN_KEY = "flux.voice.speechlen";
 export type SpeechLength = "brief" | "medium" | "full";
-export const speechLength = (): SpeechLength => (localStorage.getItem(SPEECH_LEN_KEY) as SpeechLength) || "medium";
+export const speechLength = (): SpeechLength =>
+  (localStorage.getItem(SPEECH_LEN_KEY) as SpeechLength) || "medium";
 export const setSpeechLength = (v: SpeechLength) => localStorage.setItem(SPEECH_LEN_KEY, v);
 
 /** Trim a reply for speech per the length setting — the full text always shows in
@@ -106,11 +118,36 @@ export function conciseForSpeech(text: string): string {
 
 export function stopSpeaking(): void {
   setSpeaking(false);
-  try { window.speechSynthesis?.cancel(); } catch { /* no synth */ }
-  if (current) { try { current.pause(); } catch { /* ignore */ } current.src = ""; current = null; }
-  if (currentUrl) { URL.revokeObjectURL(currentUrl); currentUrl = null; }
-  if (currentSource) { try { currentSource.stop(); } catch { /* ignore */ } currentSource = null; }
-  if (currentContext) { void currentContext.close().catch(() => {}); currentContext = null; }
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {
+    /* no synth */
+  }
+  if (current) {
+    try {
+      current.pause();
+    } catch {
+      /* ignore */
+    }
+    current.src = "";
+    current = null;
+  }
+  if (currentUrl) {
+    URL.revokeObjectURL(currentUrl);
+    currentUrl = null;
+  }
+  if (currentSource) {
+    try {
+      currentSource.stop();
+    } catch {
+      /* ignore */
+    }
+    currentSource = null;
+  }
+  if (currentContext) {
+    void currentContext.close().catch(() => {});
+    currentContext = null;
+  }
 }
 
 function speakSystem(text: string): Promise<void> {
@@ -118,13 +155,18 @@ function speakSystem(text: string): Promise<void> {
     try {
       const u = new SpeechSynthesisUtterance(text);
       const v = pickVoice();
-      if (v) { u.voice = v; u.lang = v.lang; }
+      if (v) {
+        u.voice = v;
+        u.lang = v.lang;
+      }
       u.rate = 1.02;
       u.pitch = 1.05; // a touch brighter — reads as a warmer female voice
       u.onend = () => resolve();
       u.onerror = () => resolve();
       window.speechSynthesis.speak(u);
-    } catch { resolve(); }
+    } catch {
+      resolve();
+    }
   });
 }
 
@@ -146,7 +188,10 @@ function audioBufferFromB64(b64: string): ArrayBuffer {
 }
 
 async function playAudioBufferB64(b64: string): Promise<void> {
-  if (currentContext) { await currentContext.close().catch(() => {}); currentContext = null; }
+  if (currentContext) {
+    await currentContext.close().catch(() => {});
+    currentContext = null;
+  }
   const ctx = new AudioContext();
   currentContext = ctx;
   if (ctx.state === "suspended") await ctx.resume();
@@ -173,7 +218,10 @@ async function playAudioBufferB64(b64: string): Promise<void> {
 
 function playAudioB64(b64: string, mime: string, rejectOnError = false): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (currentUrl) { URL.revokeObjectURL(currentUrl); currentUrl = null; }
+    if (currentUrl) {
+      URL.revokeObjectURL(currentUrl);
+      currentUrl = null;
+    }
     const url = audioUrlFromB64(b64, mime);
     currentUrl = url;
     const a = new Audio(url);
@@ -181,20 +229,30 @@ function playAudioB64(b64: string, mime: string, rejectOnError = false): Promise
     current = a;
     const cleanup = () => {
       if (current === a) current = null;
-      if (currentUrl === url) { URL.revokeObjectURL(url); currentUrl = null; }
+      if (currentUrl === url) {
+        URL.revokeObjectURL(url);
+        currentUrl = null;
+      }
     };
-    const done = () => { cleanup(); resolve(); };
+    const done = () => {
+      cleanup();
+      resolve();
+    };
     const fail = (err: unknown) => {
       cleanup();
       const firstError = err instanceof Error ? err : audioError(a, String(err || "unknown"));
-      void playAudioBufferB64(b64).then(resolve).catch((fallbackErr) => {
-        const combined = new Error(`${firstError.message}; Web Audio fallback failed (${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)})`);
-        if (rejectOnError) reject(combined);
-        else {
-          console.warn("[flux] TTS audio playback failed", combined);
-          resolve();
-        }
-      });
+      void playAudioBufferB64(b64)
+        .then(resolve)
+        .catch((fallbackErr) => {
+          const combined = new Error(
+            `${firstError.message}; Web Audio fallback failed (${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)})`,
+          );
+          if (rejectOnError) reject(combined);
+          else {
+            console.warn("[flux] TTS audio playback failed", combined);
+            resolve();
+          }
+        });
     };
     a.onended = done;
     a.onerror = () => fail(audioError(a, "media error"));
@@ -224,13 +282,17 @@ export async function speak(text: string): Promise<void> {
         const b64 = await voiceSpeak(t);
         await playAudioB64(b64, "audio/wav");
         return;
-      } catch { /* Piper missing/failed → fall back to the OS voice */ }
+      } catch {
+        /* Piper missing/failed → fall back to the OS voice */
+      }
     } else if (engine === "elevenlabs") {
       try {
         const b64 = await elevenlabsSpeak(t, elVoiceId(), elModel());
         await playAudioB64(b64, "audio/mpeg");
         return;
-      } catch { /* no key / network / quota → fall back to the OS voice */ }
+      } catch {
+        /* no key / network / quota → fall back to the OS voice */
+      }
     }
     await speakSystem(t);
   } finally {

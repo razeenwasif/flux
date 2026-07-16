@@ -12,7 +12,9 @@ let seq = 0;
 export async function addReminder(text: string, due: number | null): Promise<void> {
   await remindersAdd(`r${Date.now()}_${seq++}`, text.trim(), due, Date.now());
 }
-export async function removeReminder(id: string): Promise<void> { await remindersRemove(id); }
+export async function removeReminder(id: string): Promise<void> {
+  await remindersRemove(id);
+}
 
 /** Pending (not-yet-fired) reminders, soonest first; undated to-dos last. */
 export async function pendingReminders(): Promise<Reminder[]> {
@@ -27,7 +29,9 @@ export async function migrateReminders(): Promise<void> {
   try {
     const items = JSON.parse(raw) as Reminder[];
     if (items.length) await remindersImport(items);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   localStorage.removeItem("flux.reminders");
 }
 
@@ -36,9 +40,29 @@ export async function migrateReminders(): Promise<void> {
  *  injected so this stays pure/testable. */
 // Spelled-out counts ("in one minute", "in a couple of hours", "in half an hour").
 const NUMW: Record<string, number> = {
-  a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-  eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
-  half: 0.5, couple: 2, few: 3,
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  fifteen: 15,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  half: 0.5,
+  couple: 2,
+  few: 3,
 };
 
 export function parseWhen(input: string, now: number): { text: string; due: number | null } {
@@ -51,12 +75,20 @@ export function parseWhen(input: string, now: number): { text: string; due: numb
 
   // "in N minutes/hours/seconds/days" — N is a digit OR a spelled-out word, plus
   // an optional "of" ("in a couple of hours").
-  const rel = lower.match(/\bin\s+(?:(\d+(?:\.\d+)?)|([a-z]+))\s*(?:of\s+)?(sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?|days?)\b/);
+  const rel = lower.match(
+    /\bin\s+(?:(\d+(?:\.\d+)?)|([a-z]+))\s*(?:of\s+)?(sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?|days?)\b/,
+  );
   if (rel) {
     const n = rel[1] ? Number(rel[1]) : (NUMW[rel[2]!] ?? NaN);
     if (!Number.isNaN(n)) {
       const unit = rel[3]!;
-      const ms = unit.startsWith("sec") ? n * 1e3 : unit.startsWith("min") ? n * 6e4 : unit.startsWith("h") ? n * 36e5 : n * 864e5;
+      const ms = unit.startsWith("sec")
+        ? n * 1e3
+        : unit.startsWith("min")
+          ? n * 6e4
+          : unit.startsWith("h")
+            ? n * 36e5
+            : n * 864e5;
       text = strip(text, rel[0]!);
       return { text, due: now + Math.round(ms) };
     }
@@ -93,8 +125,11 @@ export function parseWhen(input: string, now: number): { text: string; due: numb
 
 function strip(text: string, phrase: string): string {
   const i = text.toLowerCase().indexOf(phrase.toLowerCase());
-  const out = i < 0 ? text : (text.slice(0, i) + text.slice(i + phrase.length));
-  return out.replace(/\s{2,}/g, " ").replace(/^[\s,–-]+|[\s,–-]+$/g, "").trim();
+  const out = i < 0 ? text : text.slice(0, i) + text.slice(i + phrase.length);
+  return out
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,–-]+|[\s,–-]+$/g, "")
+    .trim();
 }
 
 /** "in 5 min" / "tomorrow at 9am" / "" (no time). */

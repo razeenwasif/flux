@@ -1,0 +1,9 @@
+# Generated — bindings.gen.ts is byte-compared against specta codegen output
+# by the drift-gate test, so a formatter must never touch it.
+apps/shell/src/bindings.gen.ts
+apps/shell/dist/
+target/
+# Injected page scripts keep their hand-tuned minimal style (audited, inlined).
+crates/flux-core/assets/
+docs/
+research/

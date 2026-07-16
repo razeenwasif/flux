@@ -2,7 +2,11 @@
 // One touch and it's over. Endless, nudges faster as you go.
 import { type GameCtx, type GameHandle, W, H, loop, keys, saveHighScore } from "../engine";
 
-interface Pipe { x: number; gap: number; passed: boolean }
+interface Pipe {
+  x: number;
+  gap: number;
+  passed: boolean;
+}
 
 export default function flappy(ctx: GameCtx): GameHandle {
   const canvas = ctx.canvas;
@@ -38,7 +42,9 @@ export default function flappy(ctx: GameCtx): GameHandle {
     vy = FLAP_V;
     wingT = 120;
   };
-  const k = keys((key) => { if (key === " " || key === "Spacebar" || key === "ArrowUp" || key === "w") flap(); });
+  const k = keys((key) => {
+    if (key === " " || key === "Spacebar" || key === "ArrowUp" || key === "w") flap();
+  });
   const onDown = () => flap();
   canvas.addEventListener("mousedown", onDown);
 
@@ -60,9 +66,13 @@ export default function flappy(ctx: GameCtx): GameHandle {
         ctx.setScore(score);
         speed = Math.min(speed + 0.006, 0.42);
       }
-      if (BIRD_X + R > p.x && BIRD_X - R < p.x + PIPE_W && (y - R < p.gap || y + R > p.gap + GAP_H)) over = true;
+      if (BIRD_X + R > p.x && BIRD_X - R < p.x + PIPE_W && (y - R < p.gap || y + R > p.gap + GAP_H))
+        over = true;
     }
-    if (y + R > GROUND || y - R < 0) { y = Math.min(y, GROUND - R); over = true; }
+    if (y + R > GROUND || y - R < 0) {
+      y = Math.min(y, GROUND - R);
+      over = true;
+    }
   }
 
   function draw() {

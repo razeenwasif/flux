@@ -3,7 +3,12 @@
 // cells revealed, plus a bonus for a full clear.
 import { type GameCtx, type GameHandle, W, H, loop, saveHighScore } from "../engine";
 
-interface Cell { mine: boolean; rev: boolean; flag: boolean; count: number }
+interface Cell {
+  mine: boolean;
+  rev: boolean;
+  flag: boolean;
+  count: number;
+}
 
 const COLS = 16;
 const ROWS = 12;
@@ -14,7 +19,9 @@ const NUMCOL = ["", "#5b8cff", "#5dff8f", "#ff6f6f", "#b07dff", "#ff8a3d", "#2ff
 export default function minesweeper(ctx: GameCtx): GameHandle {
   const canvas = ctx.canvas;
   const g = canvas.getContext("2d")!;
-  let grid: Cell[][] = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => ({ mine: false, rev: false, flag: false, count: 0 })));
+  let grid: Cell[][] = Array.from({ length: ROWS }, () =>
+    Array.from({ length: COLS }, () => ({ mine: false, rev: false, flag: false, count: 0 })),
+  );
   let started = false;
   let over = false;
   let won = false;
@@ -24,7 +31,8 @@ export default function minesweeper(ctx: GameCtx): GameHandle {
 
   const inb = (r: number, c: number) => r >= 0 && r < ROWS && c >= 0 && c < COLS;
   const forNbrs = (r: number, c: number, fn: (r: number, c: number) => void) => {
-    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if ((dr || dc) && inb(r + dr, c + dc)) fn(r + dr, c + dc);
+    for (let dr = -1; dr <= 1; dr++)
+      for (let dc = -1; dc <= 1; dc++) if ((dr || dc) && inb(r + dr, c + dc)) fn(r + dr, c + dc);
   };
 
   function place(safeR: number, safeC: number) {
@@ -37,11 +45,14 @@ export default function minesweeper(ctx: GameCtx): GameHandle {
       grid[r]![c]!.mine = true;
       placed++;
     }
-    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-      let n = 0;
-      forNbrs(r, c, (rr, cc) => { if (grid[rr]![cc]!.mine) n++; });
-      grid[r]![c]!.count = n;
-    }
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++) {
+        let n = 0;
+        forNbrs(r, c, (rr, cc) => {
+          if (grid[rr]![cc]!.mine) n++;
+        });
+        grid[r]![c]!.count = n;
+      }
   }
 
   function reveal(r: number, c: number) {
@@ -51,16 +62,27 @@ export default function minesweeper(ctx: GameCtx): GameHandle {
       const cell = grid[cr]![cc]!;
       if (cell.rev || cell.flag) continue;
       cell.rev = true;
-      if (cell.mine) { over = true; revealAllMines(); return; }
+      if (cell.mine) {
+        over = true;
+        revealAllMines();
+        return;
+      }
       revealed++;
-      if (cell.count === 0) forNbrs(cr, cc, (rr, ccc) => { if (!grid[rr]![ccc]!.rev) stack.push([rr, ccc]); });
+      if (cell.count === 0)
+        forNbrs(cr, cc, (rr, ccc) => {
+          if (!grid[rr]![ccc]!.rev) stack.push([rr, ccc]);
+        });
     }
     ctx.setScore(revealed);
-    if (revealed === COLS * ROWS - MINES) { won = true; over = true; }
+    if (revealed === COLS * ROWS - MINES) {
+      won = true;
+      over = true;
+    }
   }
 
   function revealAllMines() {
-    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r]![c]!.mine) grid[r]![c]!.rev = true;
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++) if (grid[r]![c]!.mine) grid[r]![c]!.rev = true;
   }
 
   function cellAt(e: MouseEvent): [number, number] | null {
@@ -79,9 +101,15 @@ export default function minesweeper(ctx: GameCtx): GameHandle {
     const [r, c] = at;
     if (e.button === 2) {
       const cell = grid[r]![c]!;
-      if (!cell.rev) { cell.flag = !cell.flag; flags += cell.flag ? 1 : -1; }
+      if (!cell.rev) {
+        cell.flag = !cell.flag;
+        flags += cell.flag ? 1 : -1;
+      }
     } else if (!grid[r]![c]!.flag) {
-      if (!started) { started = true; place(r, c); }
+      if (!started) {
+        started = true;
+        place(r, c);
+      }
       reveal(r, c);
     }
   };
@@ -98,16 +126,27 @@ export default function minesweeper(ctx: GameCtx): GameHandle {
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const cell = grid[r]![c]!;
-        const x = c * CELL, y = r * CELL;
+        const x = c * CELL,
+          y = r * CELL;
         if (cell.rev) {
           g.fillStyle = cell.mine ? "#ff4d6d" : "#151226";
           g.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
-          if (cell.mine) { g.fillStyle = "#0c0a15"; g.beginPath(); g.arc(x + CELL / 2, y + CELL / 2, 8, 0, Math.PI * 2); g.fill(); }
-          else if (cell.count > 0) { g.fillStyle = NUMCOL[cell.count]!; g.fillText(String(cell.count), x + CELL / 2, y + CELL / 2 + 1); }
+          if (cell.mine) {
+            g.fillStyle = "#0c0a15";
+            g.beginPath();
+            g.arc(x + CELL / 2, y + CELL / 2, 8, 0, Math.PI * 2);
+            g.fill();
+          } else if (cell.count > 0) {
+            g.fillStyle = NUMCOL[cell.count]!;
+            g.fillText(String(cell.count), x + CELL / 2, y + CELL / 2 + 1);
+          }
         } else {
           g.fillStyle = "rgba(255,255,255,0.07)";
           g.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
-          if (cell.flag) { g.fillStyle = "#ffe14d"; g.fillText("⚑", x + CELL / 2, y + CELL / 2 + 1); }
+          if (cell.flag) {
+            g.fillStyle = "#ffe14d";
+            g.fillText("⚑", x + CELL / 2, y + CELL / 2 + 1);
+          }
         }
       }
     }

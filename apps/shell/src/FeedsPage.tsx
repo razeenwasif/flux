@@ -19,7 +19,11 @@ import { activeId, updateTabTitle } from "./store";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
-  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 const FeedsPage: Component = () => {
@@ -36,7 +40,10 @@ const FeedsPage: Component = () => {
     setError("");
     feedItems(id ?? 0)
       .then((r) => setItems(r ?? []))
-      .catch((e) => { setItems([]); setError(String(e)); })
+      .catch((e) => {
+        setItems([]);
+        setError(String(e));
+      })
       .finally(() => setLoading(false));
   };
 
@@ -83,7 +90,9 @@ const FeedsPage: Component = () => {
 
   const open = (link: string) => {
     if (!link) return;
-    void tabCreate("browser", link).then((t) => t && tabFocus(t.id)).catch(() => {});
+    void tabCreate("browser", link)
+      .then((t) => t && tabFocus(t.id))
+      .catch(() => {});
   };
 
   const selTitle = () => {
@@ -98,7 +107,10 @@ const FeedsPage: Component = () => {
         <div class="hist-title">📰 Feeds</div>
         <form
           class="feeds-add"
-          onSubmit={(e) => { e.preventDefault(); void add(); }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void add();
+          }}
         >
           <input
             class="arch-search"
@@ -110,26 +122,24 @@ const FeedsPage: Component = () => {
             {adding() ? "Adding…" : "Subscribe"}
           </button>
         </form>
-        <span class="res-mem">{feeds().length} {feeds().length === 1 ? "feed" : "feeds"}</span>
+        <span class="res-mem">
+          {feeds().length} {feeds().length === 1 ? "feed" : "feeds"}
+        </span>
       </header>
 
       <div class="arch-body feeds-body">
         <div class="arch-list feeds-list">
-          <div
-            classList={{ "feed-row": true, active: sel() == null }}
-            onClick={() => pick(null)}
-          >
+          <div classList={{ "feed-row": true, active: sel() == null }} onClick={() => pick(null)}>
             <span class="feed-row-title">★ All feeds</span>
           </div>
           <For each={feeds()}>
             {(f) => (
-              <div
-                classList={{ "feed-row": true, active: sel() === f.id }}
-                onClick={() => pick(f.id)}
-              >
+              <div classList={{ "feed-row": true, active: sel() === f.id }} onClick={() => pick(f.id)}>
                 <span class="feed-row-title">{f.title || hostOf(f.url)}</span>
                 <span class="feed-row-host">{hostOf(f.url)}</span>
-                <button class="arch-del" title="Unsubscribe" onClick={(e) => void remove(f.id, e)}>✕</button>
+                <button class="arch-del" title="Unsubscribe" onClick={(e) => void remove(f.id, e)}>
+                  ✕
+                </button>
               </div>
             )}
           </For>
@@ -141,27 +151,35 @@ const FeedsPage: Component = () => {
         <div class="arch-read feeds-items">
           <div class="feeds-items-head">
             <span class="feeds-items-title">{selTitle()}</span>
-            <button class="feeds-refresh" title="Refresh" onClick={() => loadItems(sel())} disabled={loading()}>
+            <button
+              class="feeds-refresh"
+              title="Refresh"
+              onClick={() => loadItems(sel())}
+              disabled={loading()}
+            >
               {loading() ? "…" : "↻"}
             </button>
           </div>
           <Show when={error()}>
             <div class="feeds-error">{error()}</div>
           </Show>
-          <Show
-            when={!loading()}
-            fallback={<div class="hist-empty">Loading…</div>}
-          >
+          <Show when={!loading()} fallback={<div class="hist-empty">Loading…</div>}>
             <Show
               when={items().length > 0}
               fallback={<div class="hist-empty">{error() ? "" : "No items."}</div>}
             >
               <For each={items()}>
                 {(it) => (
-                  <article class="feed-item" onClick={() => open(it.link)} onContextMenu={(e) => openLinkMenu(e, it.link)}>
+                  <article
+                    class="feed-item"
+                    onClick={() => open(it.link)}
+                    onContextMenu={(e) => openLinkMenu(e, it.link)}
+                  >
                     <div class="feed-item-top">
                       <span class="feed-item-title">{it.title || it.link}</span>
-                      <Show when={it.published}><span class="feed-item-date">{it.published}</span></Show>
+                      <Show when={it.published}>
+                        <span class="feed-item-date">{it.published}</span>
+                      </Show>
                     </div>
                     <Show when={sel() == null}>
                       <div class="feed-item-src">{it.feed_title}</div>

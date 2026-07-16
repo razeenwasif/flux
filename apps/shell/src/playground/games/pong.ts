@@ -43,7 +43,7 @@ export default function pong(ctx: GameCtx): GameHandle {
   );
   const onMove = (e: MouseEvent) => {
     const rect = canvas.getBoundingClientRect();
-    py = Math.max(0, Math.min(H - PH, ((e.clientY - rect.top) * (H / rect.height)) - PH / 2));
+    py = Math.max(0, Math.min(H - PH, (e.clientY - rect.top) * (H / rect.height) - PH / 2));
   };
   canvas.addEventListener("mousemove", onMove);
 
@@ -59,8 +59,14 @@ export default function pong(ctx: GameCtx): GameHandle {
 
     bx += bvx * dt;
     by += bvy * dt;
-    if (by < R) { by = R; bvy = Math.abs(bvy); }
-    if (by > H - R) { by = H - R; bvy = -Math.abs(bvy); }
+    if (by < R) {
+      by = R;
+      bvy = Math.abs(bvy);
+    }
+    if (by > H - R) {
+      by = H - R;
+      bvy = -Math.abs(bvy);
+    }
 
     // Player paddle.
     if (bvx < 0 && bx - R <= M + PW && bx - R > M - 6 && by >= py && by <= py + PH) {
@@ -77,8 +83,14 @@ export default function pong(ctx: GameCtx): GameHandle {
       bvy = sp * Math.sin(hit * 0.9);
     }
 
-    if (bx > W) { score++; ctx.setScore(score); serve(); }
-    if (bx < -R) { over = true; }
+    if (bx > W) {
+      score++;
+      ctx.setScore(score);
+      serve();
+    }
+    if (bx < -R) {
+      over = true;
+    }
   }
 
   function draw() {

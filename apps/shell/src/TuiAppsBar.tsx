@@ -11,7 +11,7 @@ import { tuiAppsDetect, tuiAppsList, tuiAppsSet, type TuiApp } from "./ipc";
 import { openTerminalApp } from "./store";
 
 const newId = () =>
-  (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const blankApp = (): TuiApp => ({ id: newId(), name: "", icon: "▸", cmd: "", cwd: "" });
 
 const TuiAppsBar: Component = () => {
@@ -20,7 +20,12 @@ const TuiAppsBar: Component = () => {
   const [draft, setDraft] = createSignal<TuiApp[]>([]);
   const [detected, setDetected] = createSignal<string[]>([]);
 
-  onMount(() => void tuiAppsList().then(setApps).catch(() => {}));
+  onMount(
+    () =>
+      void tuiAppsList()
+        .then(setApps)
+        .catch(() => {}),
+  );
 
   const launch = (a: TuiApp) => void openTerminalApp(a.cmd, a.cwd).catch(() => {});
 
@@ -54,7 +59,13 @@ const TuiAppsBar: Component = () => {
   const save = async () => {
     const clean = draft()
       .filter((a) => a.name.trim() && a.cmd.trim())
-      .map((a) => ({ ...a, name: a.name.trim(), cmd: a.cmd.trim(), cwd: a.cwd.trim(), icon: a.icon.trim() || "▸" }));
+      .map((a) => ({
+        ...a,
+        name: a.name.trim(),
+        cmd: a.cmd.trim(),
+        cwd: a.cwd.trim(),
+        icon: a.icon.trim() || "▸",
+      }));
     await tuiAppsSet(clean).catch(() => {});
     setApps(clean);
     setEditing(false);
@@ -63,7 +74,14 @@ const TuiAppsBar: Component = () => {
   return (
     <>
       <div class="tui-bar">
-        <For each={apps()} fallback={<button class="tui-edit tui-empty" onClick={openEditor}>+ Add your terminal apps</button>}>
+        <For
+          each={apps()}
+          fallback={
+            <button class="tui-edit tui-empty" onClick={openEditor}>
+              + Add your terminal apps
+            </button>
+          }
+        >
           {(a) => (
             <button
               class="tui-chip"
@@ -76,7 +94,9 @@ const TuiAppsBar: Component = () => {
           )}
         </For>
         <Show when={apps().length > 0}>
-          <button class="tui-edit" title="Edit terminal apps" onClick={openEditor}>✎</button>
+          <button class="tui-edit" title="Edit terminal apps" onClick={openEditor}>
+            ✎
+          </button>
         </Show>
       </div>
 
@@ -86,16 +106,46 @@ const TuiAppsBar: Component = () => {
             <div class="tui-modal" onClick={(e) => e.stopPropagation()}>
               <div class="tui-modal-title">Terminal apps</div>
               <div class="tui-modal-rows">
-                <For each={draft()} fallback={<div class="tui-modal-empty">No apps yet — add one below.</div>}>
+                <For
+                  each={draft()}
+                  fallback={<div class="tui-modal-empty">No apps yet — add one below.</div>}
+                >
                   {(a) => (
                     <div class="tui-row">
-                      <input class="tui-in tui-in-ico" value={a.icon} maxLength={2} title="Icon" onInput={(e) => upd(a.id, "icon", e.currentTarget.value)} />
-                      <input class="tui-in" value={a.name} placeholder="Name" onInput={(e) => upd(a.id, "name", e.currentTarget.value)} />
-                      <input class="tui-in tui-in-cmd" value={a.cmd} placeholder="command — e.g. onyx" onInput={(e) => upd(a.id, "cmd", e.currentTarget.value)} />
-                      <input class="tui-in" value={a.cwd} placeholder="working dir (optional)" onInput={(e) => upd(a.id, "cwd", e.currentTarget.value)} />
-                      <button class="tui-row-btn" title="Move up" onClick={() => move(a.id, -1)}>↑</button>
-                      <button class="tui-row-btn" title="Move down" onClick={() => move(a.id, 1)}>↓</button>
-                      <button class="tui-row-btn danger" title="Remove" onClick={() => remove(a.id)}>✕</button>
+                      <input
+                        class="tui-in tui-in-ico"
+                        value={a.icon}
+                        maxLength={2}
+                        title="Icon"
+                        onInput={(e) => upd(a.id, "icon", e.currentTarget.value)}
+                      />
+                      <input
+                        class="tui-in"
+                        value={a.name}
+                        placeholder="Name"
+                        onInput={(e) => upd(a.id, "name", e.currentTarget.value)}
+                      />
+                      <input
+                        class="tui-in tui-in-cmd"
+                        value={a.cmd}
+                        placeholder="command — e.g. onyx"
+                        onInput={(e) => upd(a.id, "cmd", e.currentTarget.value)}
+                      />
+                      <input
+                        class="tui-in"
+                        value={a.cwd}
+                        placeholder="working dir (optional)"
+                        onInput={(e) => upd(a.id, "cwd", e.currentTarget.value)}
+                      />
+                      <button class="tui-row-btn" title="Move up" onClick={() => move(a.id, -1)}>
+                        ↑
+                      </button>
+                      <button class="tui-row-btn" title="Move down" onClick={() => move(a.id, 1)}>
+                        ↓
+                      </button>
+                      <button class="tui-row-btn danger" title="Remove" onClick={() => remove(a.id)}>
+                        ✕
+                      </button>
                     </div>
                   )}
                 </For>
@@ -103,15 +153,33 @@ const TuiAppsBar: Component = () => {
               <Show when={detected().length}>
                 <div class="tui-detected">
                   <span class="tui-detected-label">Found in your bin dirs:</span>
-                  <For each={detected()}>{(n) => <button class="tui-detected-chip" onClick={() => addDetected(n)}>+ {n}</button>}</For>
+                  <For each={detected()}>
+                    {(n) => (
+                      <button class="tui-detected-chip" onClick={() => addDetected(n)}>
+                        + {n}
+                      </button>
+                    )}
+                  </For>
                 </div>
               </Show>
               <div class="tui-modal-actions">
-                <button class="tui-act" onClick={add}>+ Add app</button>
-                <button class="tui-act" title="Scan ~/.cargo/bin, ~/.local/bin, go/bin" onClick={() => void scan()}>⌕ Scan</button>
+                <button class="tui-act" onClick={add}>
+                  + Add app
+                </button>
+                <button
+                  class="tui-act"
+                  title="Scan ~/.cargo/bin, ~/.local/bin, go/bin"
+                  onClick={() => void scan()}
+                >
+                  ⌕ Scan
+                </button>
                 <span style={{ flex: 1 }} />
-                <button class="tui-act" onClick={() => setEditing(false)}>Cancel</button>
-                <button class="tui-act primary" onClick={() => void save()}>Save</button>
+                <button class="tui-act" onClick={() => setEditing(false)}>
+                  Cancel
+                </button>
+                <button class="tui-act primary" onClick={() => void save()}>
+                  Save
+                </button>
               </div>
             </div>
           </div>

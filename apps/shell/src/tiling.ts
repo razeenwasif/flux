@@ -152,8 +152,13 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
       // Only real web pages get a tiled webview; Flux's internal pages (any
       // flux:// url) render as DOM into their half — feeding them here would
       // open a black native webview over the page.
-      if (!isStartUrl(pair[0].url)) out.push({ tab: pair[0], rect: { x: rect.x, y: rect.y, width: lw, height: rect.height } });
-      if (!isStartUrl(pair[1].url)) out.push({ tab: pair[1], rect: { x: rect.x + lw + SPLIT_GAP, y: rect.y, width: rw, height: rect.height } });
+      if (!isStartUrl(pair[0].url))
+        out.push({ tab: pair[0], rect: { x: rect.x, y: rect.y, width: lw, height: rect.height } });
+      if (!isStartUrl(pair[1].url))
+        out.push({
+          tab: pair[1],
+          rect: { x: rect.x + lw + SPLIT_GAP, y: rect.y, width: rw, height: rect.height },
+        });
       return out;
     }
     const act = activeTab();
@@ -187,7 +192,10 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
     // Recover the layout after a video leaves fullscreen: the host window
     // regains focus / fires a fullscreenchange, but no resize, so we re-measure
     // AND force a bounds re-apply to shrink the page webview back down.
-    const recover = () => { measure(); forceRelayout(); };
+    const recover = () => {
+      measure();
+      forceRelayout();
+    };
     window.addEventListener("focus", recover);
     document.addEventListener("visibilitychange", recover);
     document.addEventListener("fullscreenchange", recover);

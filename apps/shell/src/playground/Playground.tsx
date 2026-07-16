@@ -38,29 +38,213 @@ interface Meta {
 }
 
 const GAMES: Meta[] = [
-  { id: "snake", name: "Snake", glyph: "🐍", tagline: "Eat, grow, don't bite yourself.", controls: "Arrows / WASD to steer", accent: "#2ff3ff", engine: snake },
-  { id: "tetris", name: "Tetris", glyph: "🟪", tagline: "Stack the falling blocks, clear lines.", controls: "← → move · ↑ rotate · ↓ soft · Space drop", accent: "#b07dff", engine: tetris },
-  { id: "breakout", name: "Breakout", glyph: "🧱", tagline: "Smash every brick, don't drop the ball.", controls: "Mouse / ← → · Space to launch", accent: "#ff8a3d", engine: breakout },
-  { id: "pong", name: "Pong", glyph: "🏓", tagline: "Rally against the machine, endlessly.", controls: "Mouse / ↑ ↓ · W S", accent: "#5dff8f", engine: pong },
-  { id: "invaders", name: "Invaders", glyph: "👾", tagline: "Hold the line against the fleet.", controls: "← → move · Space to fire", accent: "#ff4d9d", engine: invaders },
-  { id: "flappy", name: "Flappy", glyph: "🐤", tagline: "Flap through the gaps, don't touch.", controls: "Space / ↑ / click to flap", accent: "#ffe14d", engine: flappy },
-  { id: "asteroids", name: "Asteroids", glyph: "🚀", tagline: "Blast the rocks, mind the split.", controls: "← → rotate · ↑ thrust · Space fire", accent: "#c8c2ff", engine: asteroids },
-  { id: "2048", name: "2048", glyph: "🔢", tagline: "Slide and merge to the big tile.", controls: "Arrows / WASD to slide", accent: "#5dff8f", engine: game2048 },
-  { id: "minesweeper", name: "Minesweeper", glyph: "💣", tagline: "Clear the field, flag the mines.", controls: "Left reveal · Right flag", accent: "#ff6f6f", engine: minesweeper },
-  { id: "pacman", name: "Pac-Man", glyph: "🟡", tagline: "Eat the dots, outrun the ghosts.", controls: "Arrows to steer", accent: "#ffe14d", engine: pacman },
-  { id: "dino", name: "Dino Run", glyph: "🦖", tagline: "Jump the cacti, duck the birds.", controls: "Space / ↑ jump · ↓ duck", accent: "#aefcff", engine: dino },
-  { id: "stack", name: "Stack", glyph: "🧊", tagline: "Time the drop, build the tower.", controls: "Space / click to drop", accent: "#2ff3ff", engine: stack },
-  { id: "frogger", name: "Frogger", glyph: "🐸", tagline: "Cross the road and the river.", controls: "Arrows to hop", accent: "#7dff9d", engine: frogger },
-  { id: "whack", name: "Whack-a-Mole", glyph: "🔨", tagline: "Bonk the moles, dodge the bombs.", controls: "Click the moles", accent: "#ff8a3d", engine: whack },
-  { id: "doodle", name: "Doodle Jump", glyph: "🦘", tagline: "Bounce up, don't fall off.", controls: "← → to steer (auto-jump)", accent: "#5dff8f", engine: doodle },
-  { id: "simon", name: "Simon", glyph: "🎵", tagline: "Repeat the growing pattern.", controls: "Click the pads", accent: "#b07dff", engine: simon },
-  { id: "columns", name: "Columns", glyph: "💎", tagline: "Match 3+ gems any direction.", controls: "← → move · ↑ cycle · Space drop", accent: "#ff4d9d", engine: columns },
-  { id: "missile", name: "Missile Command", glyph: "🚀", tagline: "Intercept the barrage, save the cities.", controls: "Click to fire", accent: "#ff6f6f", engine: missile },
-  { id: "bubble", name: "Bubble Shooter", glyph: "🫧", tagline: "Match 3+ bubbles to pop them.", controls: "Aim mouse · click to shoot", accent: "#2ff3ff", engine: bubble },
-  { id: "bejeweled", name: "Bejeweled", glyph: "💠", tagline: "Swap gems to line up 3+.", controls: "Click two adjacent gems", accent: "#b07dff", engine: bejeweled },
-  { id: "centipede", name: "Centipede", glyph: "🐛", tagline: "Blast the splitting centipede.", controls: "Arrows move · Space fire", accent: "#ff4d9d", engine: centipede },
-  { id: "connect4", name: "Connect Four", glyph: "🔴", tagline: "Four in a row vs the AI — win-streak.", controls: "Click a column", accent: "#ffe14d", engine: connect4 },
-  { id: "reversi", name: "Reversi", glyph: "⚫", tagline: "Flank to flip, outscore the AI — win-streak.", controls: "Click a square", accent: "#5dff8f", engine: reversi },
+  {
+    id: "snake",
+    name: "Snake",
+    glyph: "🐍",
+    tagline: "Eat, grow, don't bite yourself.",
+    controls: "Arrows / WASD to steer",
+    accent: "#2ff3ff",
+    engine: snake,
+  },
+  {
+    id: "tetris",
+    name: "Tetris",
+    glyph: "🟪",
+    tagline: "Stack the falling blocks, clear lines.",
+    controls: "← → move · ↑ rotate · ↓ soft · Space drop",
+    accent: "#b07dff",
+    engine: tetris,
+  },
+  {
+    id: "breakout",
+    name: "Breakout",
+    glyph: "🧱",
+    tagline: "Smash every brick, don't drop the ball.",
+    controls: "Mouse / ← → · Space to launch",
+    accent: "#ff8a3d",
+    engine: breakout,
+  },
+  {
+    id: "pong",
+    name: "Pong",
+    glyph: "🏓",
+    tagline: "Rally against the machine, endlessly.",
+    controls: "Mouse / ↑ ↓ · W S",
+    accent: "#5dff8f",
+    engine: pong,
+  },
+  {
+    id: "invaders",
+    name: "Invaders",
+    glyph: "👾",
+    tagline: "Hold the line against the fleet.",
+    controls: "← → move · Space to fire",
+    accent: "#ff4d9d",
+    engine: invaders,
+  },
+  {
+    id: "flappy",
+    name: "Flappy",
+    glyph: "🐤",
+    tagline: "Flap through the gaps, don't touch.",
+    controls: "Space / ↑ / click to flap",
+    accent: "#ffe14d",
+    engine: flappy,
+  },
+  {
+    id: "asteroids",
+    name: "Asteroids",
+    glyph: "🚀",
+    tagline: "Blast the rocks, mind the split.",
+    controls: "← → rotate · ↑ thrust · Space fire",
+    accent: "#c8c2ff",
+    engine: asteroids,
+  },
+  {
+    id: "2048",
+    name: "2048",
+    glyph: "🔢",
+    tagline: "Slide and merge to the big tile.",
+    controls: "Arrows / WASD to slide",
+    accent: "#5dff8f",
+    engine: game2048,
+  },
+  {
+    id: "minesweeper",
+    name: "Minesweeper",
+    glyph: "💣",
+    tagline: "Clear the field, flag the mines.",
+    controls: "Left reveal · Right flag",
+    accent: "#ff6f6f",
+    engine: minesweeper,
+  },
+  {
+    id: "pacman",
+    name: "Pac-Man",
+    glyph: "🟡",
+    tagline: "Eat the dots, outrun the ghosts.",
+    controls: "Arrows to steer",
+    accent: "#ffe14d",
+    engine: pacman,
+  },
+  {
+    id: "dino",
+    name: "Dino Run",
+    glyph: "🦖",
+    tagline: "Jump the cacti, duck the birds.",
+    controls: "Space / ↑ jump · ↓ duck",
+    accent: "#aefcff",
+    engine: dino,
+  },
+  {
+    id: "stack",
+    name: "Stack",
+    glyph: "🧊",
+    tagline: "Time the drop, build the tower.",
+    controls: "Space / click to drop",
+    accent: "#2ff3ff",
+    engine: stack,
+  },
+  {
+    id: "frogger",
+    name: "Frogger",
+    glyph: "🐸",
+    tagline: "Cross the road and the river.",
+    controls: "Arrows to hop",
+    accent: "#7dff9d",
+    engine: frogger,
+  },
+  {
+    id: "whack",
+    name: "Whack-a-Mole",
+    glyph: "🔨",
+    tagline: "Bonk the moles, dodge the bombs.",
+    controls: "Click the moles",
+    accent: "#ff8a3d",
+    engine: whack,
+  },
+  {
+    id: "doodle",
+    name: "Doodle Jump",
+    glyph: "🦘",
+    tagline: "Bounce up, don't fall off.",
+    controls: "← → to steer (auto-jump)",
+    accent: "#5dff8f",
+    engine: doodle,
+  },
+  {
+    id: "simon",
+    name: "Simon",
+    glyph: "🎵",
+    tagline: "Repeat the growing pattern.",
+    controls: "Click the pads",
+    accent: "#b07dff",
+    engine: simon,
+  },
+  {
+    id: "columns",
+    name: "Columns",
+    glyph: "💎",
+    tagline: "Match 3+ gems any direction.",
+    controls: "← → move · ↑ cycle · Space drop",
+    accent: "#ff4d9d",
+    engine: columns,
+  },
+  {
+    id: "missile",
+    name: "Missile Command",
+    glyph: "🚀",
+    tagline: "Intercept the barrage, save the cities.",
+    controls: "Click to fire",
+    accent: "#ff6f6f",
+    engine: missile,
+  },
+  {
+    id: "bubble",
+    name: "Bubble Shooter",
+    glyph: "🫧",
+    tagline: "Match 3+ bubbles to pop them.",
+    controls: "Aim mouse · click to shoot",
+    accent: "#2ff3ff",
+    engine: bubble,
+  },
+  {
+    id: "bejeweled",
+    name: "Bejeweled",
+    glyph: "💠",
+    tagline: "Swap gems to line up 3+.",
+    controls: "Click two adjacent gems",
+    accent: "#b07dff",
+    engine: bejeweled,
+  },
+  {
+    id: "centipede",
+    name: "Centipede",
+    glyph: "🐛",
+    tagline: "Blast the splitting centipede.",
+    controls: "Arrows move · Space fire",
+    accent: "#ff4d9d",
+    engine: centipede,
+  },
+  {
+    id: "connect4",
+    name: "Connect Four",
+    glyph: "🔴",
+    tagline: "Four in a row vs the AI — win-streak.",
+    controls: "Click a column",
+    accent: "#ffe14d",
+    engine: connect4,
+  },
+  {
+    id: "reversi",
+    name: "Reversi",
+    glyph: "⚫",
+    tagline: "Flank to flip, outscore the AI — win-streak.",
+    controls: "Click a square",
+    accent: "#5dff8f",
+    engine: reversi,
+  },
 ];
 
 const Playground: Component<{ onClose: () => void }> = (props) => {
@@ -71,9 +255,21 @@ const Playground: Component<{ onClose: () => void }> = (props) => {
   let canvasRef: HTMLCanvasElement | undefined;
   let handle: GameHandle | null = null;
 
-  const play = (m: Meta) => { setResult(null); setScore(0); setGame(m); setRunId((n) => n + 1); };
-  const restart = () => { setResult(null); setScore(0); setRunId((n) => n + 1); };
-  const toHub = () => { setResult(null); setGame(null); };
+  const play = (m: Meta) => {
+    setResult(null);
+    setScore(0);
+    setGame(m);
+    setRunId((n) => n + 1);
+  };
+  const restart = () => {
+    setResult(null);
+    setScore(0);
+    setRunId((n) => n + 1);
+  };
+  const toHub = () => {
+    setResult(null);
+    setGame(null);
+  };
 
   // (Re)mount the engine whenever the chosen game or run id changes.
   createEffect(() => {
@@ -112,7 +308,10 @@ const Playground: Component<{ onClose: () => void }> = (props) => {
     window.addEventListener("keydown", onKey, true);
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
   });
-  onCleanup(() => { handle?.stop(); handle = null; });
+  onCleanup(() => {
+    handle?.stop();
+    handle = null;
+  });
 
   const best = () => Math.max(score(), highScore(game()!.id));
 
@@ -143,11 +342,21 @@ const Playground: Component<{ onClose: () => void }> = (props) => {
       >
         <div class="pg-play" style={{ "--accent": game()!.accent }}>
           <div class="pg-hud">
-            <button class="pg-hud-btn" onClick={toHub}>← Arcade</button>
-            <span class="pg-hud-name">{game()!.glyph} {game()!.name}</span>
-            <span class="pg-hud-stat">SCORE <b>{score()}</b></span>
-            <span class="pg-hud-stat">BEST <b>{best()}</b></span>
-            <button class="pg-hud-btn" onClick={restart}>↻ Restart</button>
+            <button class="pg-hud-btn" onClick={toHub}>
+              ← Arcade
+            </button>
+            <span class="pg-hud-name">
+              {game()!.glyph} {game()!.name}
+            </span>
+            <span class="pg-hud-stat">
+              SCORE <b>{score()}</b>
+            </span>
+            <span class="pg-hud-stat">
+              BEST <b>{best()}</b>
+            </span>
+            <button class="pg-hud-btn" onClick={restart}>
+              ↻ Restart
+            </button>
           </div>
           <div class="pg-stage">
             <canvas ref={canvasRef} width={W} height={H} class="pg-canvas" />
@@ -161,8 +370,12 @@ const Playground: Component<{ onClose: () => void }> = (props) => {
                   <div class="pg-over-score">{result()!.score}</div>
                   <div class="pg-over-sub">best {highScore(game()!.id)}</div>
                   <div class="pg-over-btns">
-                    <button class="pg-btn primary" onClick={restart}>Play again</button>
-                    <button class="pg-btn" onClick={toHub}>Arcade</button>
+                    <button class="pg-btn primary" onClick={restart}>
+                      Play again
+                    </button>
+                    <button class="pg-btn" onClick={toHub}>
+                      Arcade
+                    </button>
                   </div>
                 </div>
               </div>

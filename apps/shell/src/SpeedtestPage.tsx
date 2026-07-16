@@ -27,7 +27,14 @@ const Gauge: Component<{ value: number; label: string; color: string; active: bo
   return (
     <div classList={{ "st-gauge": true, active: props.active }}>
       <svg viewBox="0 0 120 120" class="st-gauge-svg">
-        <circle cx="60" cy="60" r={R} class="st-gauge-track" stroke-dasharray={`${TRACK} ${C}`} transform="rotate(135 60 60)" />
+        <circle
+          cx="60"
+          cy="60"
+          r={R}
+          class="st-gauge-track"
+          stroke-dasharray={`${TRACK} ${C}`}
+          transform="rotate(135 60 60)"
+        />
         <circle
           cx="60"
           cy="60"
@@ -37,8 +44,12 @@ const Gauge: Component<{ value: number; label: string; color: string; active: bo
           stroke-dasharray={`${len().toFixed(2)} ${C}`}
           transform="rotate(135 60 60)"
         />
-        <text x="60" y="58" class="st-gauge-num">{props.value >= 100 ? props.value.toFixed(0) : props.value.toFixed(1)}</text>
-        <text x="60" y="74" class="st-gauge-unit">Mbps</text>
+        <text x="60" y="58" class="st-gauge-num">
+          {props.value >= 100 ? props.value.toFixed(0) : props.value.toFixed(1)}
+        </text>
+        <text x="60" y="74" class="st-gauge-unit">
+          Mbps
+        </text>
       </svg>
       <div class="st-gauge-label">{props.label}</div>
     </div>
@@ -94,22 +105,41 @@ const SpeedtestPage: Component = () => {
 
       <div class="hist-body st-body">
         <div class="st-gauges">
-          <Gauge value={downValue()} label="↓ Download" color="var(--flux-teal)" active={phase() === "download"} />
+          <Gauge
+            value={downValue()}
+            label="↓ Download"
+            color="var(--flux-teal)"
+            active={phase() === "download"}
+          />
           <Gauge value={upValue()} label="↑ Upload" color="#9a7bff" active={phase() === "upload"} />
         </div>
 
         <div class="st-stats">
-          <div class="st-stat"><span class="st-stat-val">{result() ? result()!.ping_ms.toFixed(0) : "—"}</span><span class="st-stat-lbl">Ping (ms)</span></div>
-          <div class="st-stat"><span class="st-stat-val">{result() ? result()!.jitter_ms.toFixed(0) : "—"}</span><span class="st-stat-lbl">Jitter (ms)</span></div>
+          <div class="st-stat">
+            <span class="st-stat-val">{result() ? result()!.ping_ms.toFixed(0) : "—"}</span>
+            <span class="st-stat-lbl">Ping (ms)</span>
+          </div>
+          <div class="st-stat">
+            <span class="st-stat-val">{result() ? result()!.jitter_ms.toFixed(0) : "—"}</span>
+            <span class="st-stat-lbl">Jitter (ms)</span>
+          </div>
         </div>
 
-        <button classList={{ "st-run": true, running: running() }} disabled={running()} onClick={() => void run()}>
+        <button
+          classList={{ "st-run": true, running: running() }}
+          disabled={running()}
+          onClick={() => void run()}
+        >
           {running() ? (PHASE_LABEL[phase()] ?? "Testing…") : result() ? "Test again" : "Start speed test"}
         </button>
 
-        <Show when={error()}><div class="st-error">{error()}</div></Show>
+        <Show when={error()}>
+          <div class="st-error">{error()}</div>
+        </Show>
         <Show when={!running() && !result() && !error()}>
-          <div class="st-hint">Measures your real download/upload throughput and latency. Takes about 15 seconds.</div>
+          <div class="st-hint">
+            Measures your real download/upload throughput and latency. Takes about 15 seconds.
+          </div>
         </Show>
       </div>
     </div>

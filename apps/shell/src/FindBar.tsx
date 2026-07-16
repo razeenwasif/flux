@@ -63,12 +63,29 @@ const FindBar: Component = () => {
         }}
       />
       <Show when={count()}>
-        <span class="find-count" classList={{ none: findMatches() === 0 }}>{count()}</span>
+        <span class="find-count" classList={{ none: findMatches() === 0 }}>
+          {count()}
+        </span>
       </Show>
-      <button class="find-nav" title="Previous (Shift+Enter)" onClick={() => run(false)}>‹</button>
-      <button class="find-nav" title="Next (Enter)" onClick={() => run(true)}>›</button>
-      <button class="find-nav find-sem" title="Semantic find — by meaning, across tabs" onClick={() => { close(); setSemFindOpen(true); }}>✦</button>
-      <button class="find-nav" title="Close (Esc)" onClick={close}>✕</button>
+      <button class="find-nav" title="Previous (Shift+Enter)" onClick={() => run(false)}>
+        ‹
+      </button>
+      <button class="find-nav" title="Next (Enter)" onClick={() => run(true)}>
+        ›
+      </button>
+      <button
+        class="find-nav find-sem"
+        title="Semantic find — by meaning, across tabs"
+        onClick={() => {
+          close();
+          setSemFindOpen(true);
+        }}
+      >
+        ✦
+      </button>
+      <button class="find-nav" title="Close (Esc)" onClick={close}>
+        ✕
+      </button>
     </div>
   );
 };

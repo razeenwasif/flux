@@ -8,7 +8,11 @@ const ROWS = H / CELL; // 24
 
 export default function snake(ctx: GameCtx): GameHandle {
   const g = ctx.canvas.getContext("2d")!;
-  let body = [{ x: 8, y: 12 }, { x: 7, y: 12 }, { x: 6, y: 12 }];
+  let body = [
+    { x: 8, y: 12 },
+    { x: 7, y: 12 },
+    { x: 6, y: 12 },
+  ];
   let dir = { x: 1, y: 0 };
   let next = { x: 1, y: 0 };
   let food = spawn();
@@ -36,7 +40,13 @@ export default function snake(ctx: GameCtx): GameHandle {
     dir = next;
     const h0 = body[0]!;
     const head = { x: h0.x + dir.x, y: h0.y + dir.y };
-    if (head.x < 0 || head.y < 0 || head.x >= COLS || head.y >= ROWS || body.some((s) => s.x === head.x && s.y === head.y)) {
+    if (
+      head.x < 0 ||
+      head.y < 0 ||
+      head.x >= COLS ||
+      head.y >= ROWS ||
+      body.some((s) => s.x === head.x && s.y === head.y)
+    ) {
       over = true;
       return;
     }
@@ -55,7 +65,8 @@ export default function snake(ctx: GameCtx): GameHandle {
     g.fillStyle = "#0c0a15";
     g.fillRect(0, 0, W, H);
     g.fillStyle = "rgba(255,255,255,0.04)";
-    for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++) g.fillRect(x * CELL + CELL / 2 - 1, y * CELL + CELL / 2 - 1, 2, 2);
+    for (let x = 0; x < COLS; x++)
+      for (let y = 0; y < ROWS; y++) g.fillRect(x * CELL + CELL / 2 - 1, y * CELL + CELL / 2 - 1, 2, 2);
     g.shadowBlur = 16;
     g.shadowColor = "#ff4d9d";
     g.fillStyle = "#ff4d9d";
@@ -85,5 +96,10 @@ export default function snake(ctx: GameCtx): GameHandle {
     }
   });
 
-  return { stop() { l.stop(); k.stop(); } };
+  return {
+    stop() {
+      l.stop();
+      k.stop();
+    },
+  };
 }

@@ -9,12 +9,19 @@ import { ensureFavicon, faviconFor } from "./store";
 /** Favicon for a bare URL — the app-rail web-panel icons. */
 export const PanelIcon: Component<{ url: string }> = (props) => {
   const host = (): string | null => {
-    try { return new URL(props.url).hostname.replace(/^www\./, "") || null; } catch { return null; }
+    try {
+      return new URL(props.url).hostname.replace(/^www\./, "") || null;
+    } catch {
+      return null;
+    }
   };
   createEffect(() => ensureFavicon(host()));
   const data = () => faviconFor(host());
   return (
-    <Show when={typeof data() === "string"} fallback={<span class="fav-letter">{(host() ?? "?").charAt(0).toUpperCase()}</span>}>
+    <Show
+      when={typeof data() === "string"}
+      fallback={<span class="fav-letter">{(host() ?? "?").charAt(0).toUpperCase()}</span>}
+    >
       <img class="fav-img" src={data() as string} alt="" />
     </Show>
   );

@@ -16,7 +16,9 @@ const relTime = (ts: number | null): string => {
   if (!ts) return "";
   const secs = Math.floor(Date.now() / 1000) - ts;
   if (secs < 0) return "";
-  const m = Math.floor(secs / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  const m = Math.floor(secs / 60),
+    h = Math.floor(m / 60),
+    d = Math.floor(h / 24);
   if (d > 60) return `${Math.floor(d / 30)}mo ago`;
   if (d > 0) return `${d}d ago`;
   if (h > 0) return `${h}h ago`;
@@ -33,14 +35,27 @@ const ShellHistory: Component = () => {
   let timer: number | undefined;
 
   const runSearch = (q: string) => {
-    void shellHistorySearch(q, 40).then((h) => { setHits(h); setSel(0); }).catch(() => setHits([]));
+    void shellHistorySearch(q, 40)
+      .then((h) => {
+        setHits(h);
+        setSel(0);
+      })
+      .catch(() => setHits([]));
   };
 
   // On open: reset, focus, reindex the corpus, then show recent commands.
   createEffect(() => {
     if (!shellHistOpen()) return;
-    setQuery(""); setHits([]); setSel(0); setIndexing(true);
-    void shellHistoryReindex().catch(() => 0).finally(() => { setIndexing(false); runSearch(""); });
+    setQuery("");
+    setHits([]);
+    setSel(0);
+    setIndexing(true);
+    void shellHistoryReindex()
+      .catch(() => 0)
+      .finally(() => {
+        setIndexing(false);
+        runSearch("");
+      });
     requestAnimationFrame(() => inputEl?.focus());
   });
 
@@ -58,10 +73,20 @@ const ShellHistory: Component = () => {
     });
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); close(); }
-    else if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(s + 1, hits().length - 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
-    else if (e.key === "Enter") { e.preventDefault(); const h = hits()[sel()]; if (h) choose(h); }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSel((s) => Math.min(s + 1, hits().length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSel((s) => Math.max(s - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const h = hits()[sel()];
+      if (h) choose(h);
+    }
   };
 
   onCleanup(() => clearTimeout(timer));
@@ -82,12 +107,22 @@ const ShellHistory: Component = () => {
                 spellcheck={false}
                 autocomplete="off"
               />
-              <Show when={indexing()}><span class="shellhist-indexing">indexing…</span></Show>
+              <Show when={indexing()}>
+                <span class="shellhist-indexing">indexing…</span>
+              </Show>
             </div>
             <div class="shellhist-list">
               <For
                 each={hits()}
-                fallback={<div class="shellhist-empty">{indexing() ? "Reading your history…" : query() ? "No matching commands." : "No shell history found."}</div>}
+                fallback={
+                  <div class="shellhist-empty">
+                    {indexing()
+                      ? "Reading your history…"
+                      : query()
+                        ? "No matching commands."
+                        : "No shell history found."}
+                  </div>
+                }
               >
                 {(h, i) => (
                   <button
@@ -96,7 +131,9 @@ const ShellHistory: Component = () => {
                     onClick={() => choose(h)}
                   >
                     <span class="shellhist-cmd">{h.command}</span>
-                    <span class="shellhist-meta">{[relTime(h.ts), h.source].filter(Boolean).join(" · ")}</span>
+                    <span class="shellhist-meta">
+                      {[relTime(h.ts), h.source].filter(Boolean).join(" · ")}
+                    </span>
                   </button>
                 )}
               </For>

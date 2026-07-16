@@ -11,7 +11,16 @@
  */
 import { createEffect, createSignal, onCleanup, onMount, Show, type Component } from "solid-js";
 import type { Terminal as XTerm, IMarker, IDecoration } from "@xterm/xterm";
-import { agentChat, agentShellPlan, Channel, onTermExit, terminalKill, terminalResize, terminalSpawn, terminalWrite } from "./ipc";
+import {
+  agentChat,
+  agentShellPlan,
+  Channel,
+  onTermExit,
+  terminalKill,
+  terminalResize,
+  terminalSpawn,
+  terminalWrite,
+} from "./ipc";
 import { registerTerminal, setActiveTerminal, takePendingCommand, unregisterTerminal } from "./terminals";
 import { openTab } from "./store";
 import { speak, stopSpeaking } from "./speak";
@@ -183,7 +192,10 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
         const code = arg !== undefined ? Number.parseInt(arg, 10) : 0;
         const list = live();
         const last = list[list.length - 1];
-        if (last) { last.exit = Number.isNaN(code) ? undefined : code; paint(last); }
+        if (last) {
+          last.exit = Number.isNaN(code) ? undefined : code;
+          paint(last);
+        }
         // Drive the explain/fix affordance off the just-finished command's status.
         setFailedExit(Number.isNaN(code) ? null : code);
       }
@@ -206,24 +218,41 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
     // Explain the failure (chat) — shown in an overlay.
     explainRef = () => {
       const block = lastBlock();
-      if (!block) { flash("Nothing to explain yet"); return; }
+      if (!block) {
+        flash("Nothing to explain yet");
+        return;
+      }
       setAiText(null);
       setAiBusy(true);
-      void agentChat(`A shell command just failed in my terminal. Explain briefly why, and how to fix it. Command and output:\n\n${block}`)
-        .then((r) => { const t = r.trim() || "(no response)"; setAiText(t); void speak(t); })
+      void agentChat(
+        `A shell command just failed in my terminal. Explain briefly why, and how to fix it. Command and output:\n\n${block}`,
+      )
+        .then((r) => {
+          const t = r.trim() || "(no response)";
+          setAiText(t);
+          void speak(t);
+        })
         .catch((e) => setAiText(`Couldn't reach the agent: ${e}`))
         .finally(() => setAiBusy(false));
     };
     // Propose a corrected command and type it at the prompt (review + Enter to run).
     fixRef = () => {
       const block = lastBlock();
-      if (!block) { flash("Nothing to fix yet"); return; }
+      if (!block) {
+        flash("Nothing to fix yet");
+        return;
+      }
       setAiBusy(true);
-      void agentShellPlan(`Fix this failing shell command. Reply with ONLY the corrected command.\n\n${block}`)
+      void agentShellPlan(
+        `Fix this failing shell command. Reply with ONLY the corrected command.\n\n${block}`,
+      )
         .then((cmd) => {
           if (cmd && cmd.trim()) {
             // Ctrl-U clears the current line first, then type the fix (no Enter).
-            void terminalWrite(props.session, new TextEncoder().encode(String.fromCharCode(0x15) + cmd.trim()));
+            void terminalWrite(
+              props.session,
+              new TextEncoder().encode(String.fromCharCode(0x15) + cmd.trim()),
+            );
             flash("✓ Fix typed — review & press Enter");
           } else {
             flash("No fix suggested");
@@ -234,39 +263,84 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
     };
 
     const jumpPrompt = (dir: -1 | 1) => {
-      const lines = live().map((c) => c.marker.line).filter((l) => l >= 0).sort((a, b) => a - b);
-      if (!lines.length) { flash("No prompts marked — is shell integration on?"); return; }
+      const lines = live()
+        .map((c) => c.marker.line)
+        .filter((l) => l >= 0)
+        .sort((a, b) => a - b);
+      if (!lines.length) {
+        flash("No prompts marked — is shell integration on?");
+        return;
+      }
       const top = term.buffer.active.viewportY;
       let target: number | undefined;
-      if (dir < 0) { for (let i = lines.length - 1; i >= 0; i--) if (lines[i]! < top) { target = lines[i]; break; } }
-      else { for (const l of lines) if (l > top) { target = l; break; } }
-      if (target === undefined) { flash(dir < 0 ? "Top" : "Bottom"); return; }
+      if (dir < 0) {
+        for (let i = lines.length - 1; i >= 0; i--)
+          if (lines[i]! < top) {
+            target = lines[i];
+            break;
+          }
+      } else {
+        for (const l of lines)
+          if (l > top) {
+            target = l;
+            break;
+          }
+      }
+      if (target === undefined) {
+        flash(dir < 0 ? "Top" : "Bottom");
+        return;
+      }
       term.scrollToLine(target);
       flash(dir < 0 ? "↑ prompt" : "↓ prompt");
     };
 
     const copyLastOutput = async () => {
       const list = live();
-      if (list.length < 2) { flash("No completed command yet"); return; }
+      if (list.length < 2) {
+        flash("No completed command yet");
+        return;
+      }
       const prev = list[list.length - 2]!.marker.line;
       const cur = list[list.length - 1]!.marker.line;
-      if (prev < 0 || cur < 0) { flash("Output scrolled out of buffer"); return; }
+      if (prev < 0 || cur < 0) {
+        flash("Output scrolled out of buffer");
+        return;
+      }
       const buf = term.buffer.active;
       const lines: string[] = [];
       for (let i = prev + 1; i < cur; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? "");
       while (lines.length && !lines[lines.length - 1]!.trim()) lines.pop();
       const text = lines.join("\n");
-      if (!text) { flash("Last command produced no output"); return; }
-      try { await navigator.clipboard.writeText(text); flash(`Copied ${lines.length} line${lines.length === 1 ? "" : "s"}`); }
-      catch { flash("Copy failed"); }
+      if (!text) {
+        flash("Last command produced no output");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        flash(`Copied ${lines.length} line${lines.length === 1 ? "" : "s"}`);
+      } catch {
+        flash("Copy failed");
+      }
     };
 
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown" || !e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return true;
       const k = e.key.toLowerCase();
-      if (e.key === "ArrowUp") { e.preventDefault(); jumpPrompt(-1); return false; }
-      if (e.key === "ArrowDown") { e.preventDefault(); jumpPrompt(1); return false; }
-      if (k === "e") { e.preventDefault(); void copyLastOutput(); return false; }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        jumpPrompt(-1);
+        return false;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        jumpPrompt(1);
+        return false;
+      }
+      if (k === "e") {
+        e.preventDefault();
+        void copyLastOutput();
+        return false;
+      }
       return true;
     });
 
@@ -317,7 +391,16 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
   });
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden", "border-radius": "inherit", background: THEME.background }}>
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "100%",
+        overflow: "hidden",
+        "border-radius": "inherit",
+        background: THEME.background,
+      }}
+    >
       {/* The WebGL shader backdrop is decorative; skip it when the column is split
           (props.background=false) so split panes don't each hold a WebGL2 context —
           too many contexts white-out other GPU-composited glass surfaces (#75). */}
@@ -326,15 +409,24 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
           <LiquidBackground active={() => props.active ?? true} />
         </div>
       </Show>
-      <div ref={host} style={{ position: "relative", "z-index": 1, width: "100%", height: "100%", padding: "8px" }} />
+      <div
+        ref={host}
+        style={{ position: "relative", "z-index": 1, width: "100%", height: "100%", padding: "8px" }}
+      />
 
       {/* #121: a command just failed → offer to explain / fix it with the agent. */}
       <Show when={(failedExit() ?? 0) !== 0 && !aiText() && !aiBusy()}>
         <div class="term-fail">
           <span class="term-fail-x">⚠ exit {failedExit()}</span>
-          <button class="term-fail-btn" onClick={() => explainRef?.()}>✦ Explain</button>
-          <button class="term-fail-btn" onClick={() => fixRef?.()}>⚙ Fix</button>
-          <button class="term-fail-dismiss" title="Dismiss" onClick={() => setFailedExit(null)}>✕</button>
+          <button class="term-fail-btn" onClick={() => explainRef?.()}>
+            ✦ Explain
+          </button>
+          <button class="term-fail-btn" onClick={() => fixRef?.()}>
+            ⚙ Fix
+          </button>
+          <button class="term-fail-dismiss" title="Dismiss" onClick={() => setFailedExit(null)}>
+            ✕
+          </button>
         </div>
       </Show>
 
@@ -343,7 +435,16 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
         <div class="term-ai">
           <div class="term-ai-head">
             <span>✦ Gemma</span>
-            <button class="term-ai-close" onClick={() => { stopSpeaking(); setAiText(null); setAiBusy(false); }}>✕</button>
+            <button
+              class="term-ai-close"
+              onClick={() => {
+                stopSpeaking();
+                setAiText(null);
+                setAiBusy(false);
+              }}
+            >
+              ✕
+            </button>
           </div>
           <Show when={!aiBusy()} fallback={<div class="term-ai-body">Looking at the error…</div>}>
             <div class="term-ai-body">{aiText()}</div>
@@ -356,11 +457,19 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
         {(h) => (
           <div
             style={{
-              position: "absolute", bottom: "10px", right: "12px", "z-index": 2,
-              padding: "4px 10px", "border-radius": "8px", "font-size": "12px",
-              "font-family": "system-ui, sans-serif", color: "#eef0fb",
-              background: "rgba(26, 22, 64, 0.92)", border: "1px solid rgba(123, 97, 255, 0.4)",
-              "pointer-events": "none", "box-shadow": "0 4px 16px rgba(0,0,0,0.4)",
+              position: "absolute",
+              bottom: "10px",
+              right: "12px",
+              "z-index": 2,
+              padding: "4px 10px",
+              "border-radius": "8px",
+              "font-size": "12px",
+              "font-family": "system-ui, sans-serif",
+              color: "#eef0fb",
+              background: "rgba(26, 22, 64, 0.92)",
+              border: "1px solid rgba(123, 97, 255, 0.4)",
+              "pointer-events": "none",
+              "box-shadow": "0 4px 16px rgba(0,0,0,0.4)",
             }}
           >
             {h()}

@@ -30,24 +30,50 @@ const SemanticFind: Component = () => {
   let runId = 0;
 
   const tabIdsFor = (): number[] => {
-    if (scope() === "page") { const a = activeId(); return a != null ? [a] : []; }
-    return tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url)).map((t) => t.id);
+    if (scope() === "page") {
+      const a = activeId();
+      return a != null ? [a] : [];
+    }
+    return tabs()
+      .filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url))
+      .map((t) => t.id);
   };
 
   const runSearch = (q: string) => {
     const ids = tabIdsFor();
-    if (!q.trim() || !ids.length) { setHits([]); setErr(null); setBusy(false); return; }
+    if (!q.trim() || !ids.length) {
+      setHits([]);
+      setErr(null);
+      setBusy(false);
+      return;
+    }
     const my = ++runId;
-    setBusy(true); setErr(null);
+    setBusy(true);
+    setErr(null);
     void semanticFind(q, ids, 40)
-      .then((h) => { if (my === runId) { setHits(h); setSel(0); } })
-      .catch((e) => { if (my === runId) { setHits([]); setErr(String(e)); } })
-      .finally(() => { if (my === runId) setBusy(false); });
+      .then((h) => {
+        if (my === runId) {
+          setHits(h);
+          setSel(0);
+        }
+      })
+      .catch((e) => {
+        if (my === runId) {
+          setHits([]);
+          setErr(String(e));
+        }
+      })
+      .finally(() => {
+        if (my === runId) setBusy(false);
+      });
   };
 
   createEffect(() => {
     if (!semFindOpen()) return;
-    setQuery(""); setHits([]); setSel(0); setErr(null);
+    setQuery("");
+    setHits([]);
+    setSel(0);
+    setErr(null);
     requestAnimationFrame(() => inputEl?.focus());
   });
 
@@ -56,20 +82,37 @@ const SemanticFind: Component = () => {
     clearTimeout(timer);
     timer = window.setTimeout(() => runSearch(v), 200);
   };
-  const switchScope = (s: "page" | "tabs") => { setScope(s); runSearch(query()); };
+  const switchScope = (s: "page" | "tabs") => {
+    setScope(s);
+    runSearch(query());
+  };
 
   const close = () => setSemFindOpen(false);
   const choose = (h: FindHit) => {
     close();
     const go = () => void webviewFind(h.tab_id, findKey(h.passage)).catch(() => {});
-    if (h.tab_id !== activeId()) { void focusTab(h.tab_id); window.setTimeout(go, 220); }
-    else { window.setTimeout(go, 60); }
+    if (h.tab_id !== activeId()) {
+      void focusTab(h.tab_id);
+      window.setTimeout(go, 220);
+    } else {
+      window.setTimeout(go, 60);
+    }
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); close(); }
-    else if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(s + 1, hits().length - 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
-    else if (e.key === "Enter") { e.preventDefault(); const h = hits()[sel()]; if (h) choose(h); }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSel((s) => Math.min(s + 1, hits().length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSel((s) => Math.max(s - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const h = hits()[sel()];
+      if (h) choose(h);
+    }
   };
 
   onCleanup(() => clearTimeout(timer));
@@ -91,20 +134,38 @@ const SemanticFind: Component = () => {
                 autocomplete="off"
               />
               <div class="semfind-scope">
-                <button classList={{ on: scope() === "page" }} onClick={() => switchScope("page")}>This page</button>
-                <button classList={{ on: scope() === "tabs" }} onClick={() => switchScope("tabs")}>All tabs</button>
+                <button classList={{ on: scope() === "page" }} onClick={() => switchScope("page")}>
+                  This page
+                </button>
+                <button classList={{ on: scope() === "tabs" }} onClick={() => switchScope("tabs")}>
+                  All tabs
+                </button>
               </div>
             </div>
             <div class="semfind-list">
               <Show when={!err()} fallback={<div class="semfind-empty">{err()}</div>}>
                 <For
                   each={hits()}
-                  fallback={<div class="semfind-empty">{busy() ? "Searching…" : query().trim() ? "No relevant passages." : "Type to search the page's meaning."}</div>}
+                  fallback={
+                    <div class="semfind-empty">
+                      {busy()
+                        ? "Searching…"
+                        : query().trim()
+                          ? "No relevant passages."
+                          : "Type to search the page's meaning."}
+                    </div>
+                  }
                 >
                   {(h, i) => (
-                    <button classList={{ "semfind-item": true, sel: sel() === i() }} onMouseEnter={() => setSel(i())} onClick={() => choose(h)}>
+                    <button
+                      classList={{ "semfind-item": true, sel: sel() === i() }}
+                      onMouseEnter={() => setSel(i())}
+                      onClick={() => choose(h)}
+                    >
                       <span class="semfind-passage">{h.passage}</span>
-                      <Show when={scope() === "tabs"}><span class="semfind-tab">{h.title}</span></Show>
+                      <Show when={scope() === "tabs"}>
+                        <span class="semfind-tab">{h.title}</span>
+                      </Show>
                     </button>
                   )}
                 </For>

@@ -35,32 +35,63 @@ const SyncPage: Component = () => {
   const [err, setErr] = createSignal<string | null>(null);
 
   const refresh = () =>
-    void syncStatus().then((s) => { setStatus(s); setFolder(s.folder ?? ""); }).catch(() => {});
+    void syncStatus()
+      .then((s) => {
+        setStatus(s);
+        setFolder(s.folder ?? "");
+      })
+      .catch(() => {});
   onMount(async () => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Sync");
     refresh();
     // Reflect background (auto) syncs live.
-    const offDone = await onSyncDone((r) => { setErr(null); setMsg(`Auto-synced — ${summary(r)}.`); refresh(); });
+    const offDone = await onSyncDone((r) => {
+      setErr(null);
+      setMsg(`Auto-synced — ${summary(r)}.`);
+      refresh();
+    });
     const offErr = await onSyncError((e) => setErr(`Auto-sync: ${e}`));
-    onCleanup(() => { offDone(); offErr(); });
+    onCleanup(() => {
+      offDone();
+      offErr();
+    });
   });
 
-  const saveFolder = async () => { await syncSetFolder(folder().trim()); setErr(null); setMsg(null); refresh(); };
-  const unlock = async () => {
-    setErr(null); setMsg(null);
-    try { await syncUnlock(pass()); setPass(""); refresh(); }
-    catch (e) { setErr(String(e)); }
+  const saveFolder = async () => {
+    await syncSetFolder(folder().trim());
+    setErr(null);
+    setMsg(null);
+    refresh();
   };
-  const lock = async () => { await syncLock(); refresh(); };
+  const unlock = async () => {
+    setErr(null);
+    setMsg(null);
+    try {
+      await syncUnlock(pass());
+      setPass("");
+      refresh();
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+  const lock = async () => {
+    await syncLock();
+    refresh();
+  };
   const sync = async () => {
-    setBusy(true); setErr(null); setMsg(null);
+    setBusy(true);
+    setErr(null);
+    setMsg(null);
     try {
       const r = await syncNow();
       setMsg(`Synced — ${summary(r)}.`);
       refresh();
-    } catch (e) { setErr(String(e)); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
   };
   const toggleAuto = async () => {
     const next = !status()?.auto;
@@ -81,17 +112,24 @@ const SyncPage: Component = () => {
 
       <div class="hist-body sync-body">
         <p class="sync-intro">
-          End-to-end encrypted, no account. Point Flux at a folder your devices already
-          sync (Dropbox, Syncthing, iCloud Drive, a USB stick…). Flux writes one encrypted
-          file there; your passphrase never leaves this device, and the sync service only
-          ever sees ciphertext. <b>Bookmarks, saved sessions, and browsing history</b> merge
-          across devices, and deletions propagate.
+          End-to-end encrypted, no account. Point Flux at a folder your devices already sync (Dropbox,
+          Syncthing, iCloud Drive, a USB stick…). Flux writes one encrypted file there; your passphrase never
+          leaves this device, and the sync service only ever sees ciphertext.{" "}
+          <b>Bookmarks, saved sessions, and browsing history</b> merge across devices, and deletions
+          propagate.
         </p>
 
         <label class="sync-label">Sync folder</label>
         <div class="sync-row">
-          <input class="sync-input" placeholder="/path/to/Dropbox/Flux  (or a Windows path)" value={folder()} onInput={(e) => setFolder(e.currentTarget.value)} />
-          <button class="sync-btn" onClick={() => void saveFolder()}>Set</button>
+          <input
+            class="sync-input"
+            placeholder="/path/to/Dropbox/Flux  (or a Windows path)"
+            value={folder()}
+            onInput={(e) => setFolder(e.currentTarget.value)}
+          />
+          <button class="sync-btn" onClick={() => void saveFolder()}>
+            Set
+          </button>
         </div>
 
         <label class="sync-label">Passphrase</label>
@@ -99,15 +137,27 @@ const SyncPage: Component = () => {
           when={status()?.unlocked}
           fallback={
             <div class="sync-row">
-              <input class="sync-input" type="password" placeholder="Shared passphrase (same on every device)" value={pass()}
-                onInput={(e) => setPass(e.currentTarget.value)} onKeyDown={(e) => { if (e.key === "Enter") void unlock(); }} />
-              <button class="sync-btn" disabled={!status()?.folder} onClick={() => void unlock()}>Unlock</button>
+              <input
+                class="sync-input"
+                type="password"
+                placeholder="Shared passphrase (same on every device)"
+                value={pass()}
+                onInput={(e) => setPass(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void unlock();
+                }}
+              />
+              <button class="sync-btn" disabled={!status()?.folder} onClick={() => void unlock()}>
+                Unlock
+              </button>
             </div>
           }
         >
           <div class="sync-row">
             <span class="sync-unlocked">🔓 Unlocked on this device</span>
-            <button class="sync-btn" onClick={() => void lock()}>Lock</button>
+            <button class="sync-btn" onClick={() => void lock()}>
+              Lock
+            </button>
           </div>
         </Show>
 
@@ -117,23 +167,30 @@ const SyncPage: Component = () => {
 
         <Show when={status()?.unlocked}>
           <div class="sync-row sync-auto">
-            <span class="sync-auto-label">Auto-sync
+            <span class="sync-auto-label">
+              Auto-sync
               <span class="sync-auto-hint">re-sync every few minutes while unlocked</span>
             </span>
-            <button classList={{ "shields-toggle": true, on: !!status()?.auto }} onClick={() => void toggleAuto()}>
+            <button
+              classList={{ "shields-toggle": true, on: !!status()?.auto }}
+              onClick={() => void toggleAuto()}
+            >
               {status()?.auto ? "On" : "Off"}
             </button>
           </div>
         </Show>
 
-        <Show when={msg()}><div class="sync-msg">{msg()}</div></Show>
-        <Show when={err()}><div class="sync-err">{err()}</div></Show>
+        <Show when={msg()}>
+          <div class="sync-msg">{msg()}</div>
+        </Show>
+        <Show when={err()}>
+          <div class="sync-err">{err()}</div>
+        </Show>
 
         <p class="sync-note">
-          Same passphrase + same folder on each device = your data follows you. Lose the
-          passphrase and the data can't be recovered (that's the point — it's end-to-end
-          encrypted). Deletions propagate via tombstones; history syncs your most-frequent
-          pages (capped so the encrypted file stays small).
+          Same passphrase + same folder on each device = your data follows you. Lose the passphrase and the
+          data can't be recovered (that's the point — it's end-to-end encrypted). Deletions propagate via
+          tombstones; history syncs your most-frequent pages (capped so the encrypted file stays small).
         </p>
       </div>
     </div>

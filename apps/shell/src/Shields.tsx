@@ -49,14 +49,27 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const [lean, setLean] = createSignal<LeanStatus | null>(null);
   const [open, setOpen] = createSignal(false);
   // Just the blocked-count for the icon badge (cheap, refreshed on navigation).
-  const pollBadge = () => void shieldsStatus().then(setStatus).catch(() => {});
+  const pollBadge = () =>
+    void shieldsStatus()
+      .then(setStatus)
+      .catch(() => {});
   const poll = () => {
     pollBadge();
-    void httpsStatus().then(setHttps).catch(() => {});
-    void trackingStatus().then(setTracking).catch(() => {});
-    void cookiesStatus().then(setCookies).catch(() => {});
-    void permissionsStatus().then(setBlockPerms).catch(() => {});
-    void leanStatus().then(setLean).catch(() => {});
+    void httpsStatus()
+      .then(setHttps)
+      .catch(() => {});
+    void trackingStatus()
+      .then(setTracking)
+      .catch(() => {});
+    void cookiesStatus()
+      .then(setCookies)
+      .catch(() => {});
+    void permissionsStatus()
+      .then(setBlockPerms)
+      .catch(() => {});
+    void leanStatus()
+      .then(setLean)
+      .catch(() => {});
   };
 
   const togglePerms = () => void permissionsSetBlock(!blockPerms()).then(poll);
@@ -130,7 +143,11 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
     // No positioning context here: the popover anchors to .sidebar-footer so it
     // spans the sidebar width (never wider — it would fall behind the webview).
     <div style={{ display: "contents" }}>
-      <button classList={{ "icon-btn": true, active: open() }} title="Shields — content blocker" onClick={() => setOpen((v) => !v)}>
+      <button
+        classList={{ "icon-btn": true, active: open() }}
+        title="Shields — content blocker"
+        onClick={() => setOpen((v) => !v)}
+      >
         🛡
         <Show when={(status()?.blocked ?? 0) > 0}>
           <span class="shield-badge">{status()!.blocked > 999 ? "999+" : status()!.blocked}</span>
@@ -147,7 +164,9 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
           </div>
           <Show when={host()}>
             <div class="shields-row">
-              <span class="shields-host" title={host()!}>{host()}</span>
+              <span class="shields-host" title={host()!}>
+                {host()}
+              </span>
               <button classList={{ "shields-toggle": true, on: siteOn() }} onClick={toggleSite}>
                 {siteOn() ? "On" : "Off"}
               </button>
@@ -159,7 +178,11 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
             <select
               class="shields-select"
               value={String(tracking())}
-              onChange={(e) => { const v = Number(e.currentTarget.value); setTracking(v); void trackingSetLevel(v); }}
+              onChange={(e) => {
+                const v = Number(e.currentTarget.value);
+                setTracking(v);
+                void trackingSetLevel(v);
+              }}
             >
               <option value="0">Off</option>
               <option value="1">Basic</option>
@@ -187,12 +210,21 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
               {blockPerms() ? "On" : "Off"}
             </button>
           </div>
-          <button class="shields-update" onClick={() => { setOpen(false); props.onNavigate(PERMISSIONS_URL); }}>
+          <button
+            class="shields-update"
+            onClick={() => {
+              setOpen(false);
+              props.onNavigate(PERMISSIONS_URL);
+            }}
+          >
             Manage site permissions…
           </button>
           <Show when={host()}>
             <div class="shields-row">
-              <span class="shields-host" title="Block heavy third-party scripts (analytics, A/B, chat widgets) on this site. May break live chat / logins.">
+              <span
+                class="shields-host"
+                title="Block heavy third-party scripts (analytics, A/B, chat widgets) on this site. May break live chat / logins."
+              >
                 Lean mode here
               </span>
               <button classList={{ "shields-toggle": true, on: leanOn() }} onClick={toggleLean}>
@@ -207,7 +239,9 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
               {status()!.rules_fired} rules active · {status()!.cache_hit_pct}% cache hits
             </Show>
           </div>
-          <button class="shields-update" onClick={() => void shieldsRefresh()}>Update filter lists</button>
+          <button class="shields-update" onClick={() => void shieldsRefresh()}>
+            Update filter lists
+          </button>
           <div class="shields-sep" />
           <Show when={host()}>
             <div class="shields-row">
@@ -216,11 +250,19 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
                 {clearOnClose() ? "Yes" : "No"}
               </button>
             </div>
-            <button class="shields-update" onClick={() => { const h = host(); if (h) void cookiesClearSite(h); }}>
+            <button
+              class="shields-update"
+              onClick={() => {
+                const h = host();
+                if (h) void cookiesClearSite(h);
+              }}
+            >
               Clear cookies for this site
             </button>
           </Show>
-          <button class="shields-update" onClick={() => void cookiesClearAll()}>Clear all cookies</button>
+          <button class="shields-update" onClick={() => void cookiesClearAll()}>
+            Clear all cookies
+          </button>
         </div>
       </Show>
     </div>

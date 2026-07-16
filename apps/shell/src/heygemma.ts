@@ -107,7 +107,11 @@ function onAudio(e: AudioProcessingEvent) {
   if (ttsSpeaking()) {
     if (rms(frame) > Math.max(BARGE_ABS, noiseFloor * BARGE_MULT)) {
       bargeLen += frame.length;
-      if (bargeLen > rate * BARGE_S) { bargeLen = 0; warmUntil = Date.now() + WARM_MS; stopSpeaking(); }
+      if (bargeLen > rate * BARGE_S) {
+        bargeLen = 0;
+        warmUntil = Date.now() + WARM_MS;
+        stopSpeaking();
+      }
     } else {
       bargeLen = Math.max(0, bargeLen - frame.length);
     }
@@ -125,7 +129,9 @@ function onAudio(e: AudioProcessingEvent) {
   const loud = level > Math.max(MIN_ABS, noiseFloor * NOISE_MULT);
   if (loud) {
     if (!speaking) {
-      speaking = true; speechLen = 0; silenceLen = 0;
+      speaking = true;
+      speechLen = 0;
+      silenceLen = 0;
       utter = recent.slice(); // prepend pre-roll so the onset isn't clipped
       recent = [];
     }
@@ -169,14 +175,28 @@ function toI16B64(chunks: Float32Array[]): string {
 /** Accurate command transcription: whisper if selected (fallback to Vosk), else Vosk. */
 async function transcribeCommand(b64: string, voskText: string): Promise<string> {
   if (sttEngine() === "whisper") {
-    try { const t = (await sttWhisper(b64, rate)).trim(); if (t) return t; } catch { /* fall through to Vosk */ }
+    try {
+      const t = (await sttWhisper(b64, rate)).trim();
+      if (t) return t;
+    } catch {
+      /* fall through to Vosk */
+    }
   }
   if (voskText) return voskText;
-  try { return (await voiceTranscribe(b64, rate)).trim(); } catch { return ""; }
+  try {
+    return (await voiceTranscribe(b64, rate)).trim();
+  } catch {
+    return "";
+  }
 }
 function stripWake(text: string): string {
   const m = WAKE.exec(text);
-  return m ? text.slice(m.index + m[0].length).replace(/^[,.:;\s]+/, "").trim() : text.trim();
+  return m
+    ? text
+        .slice(m.index + m[0].length)
+        .replace(/^[,.:;\s]+/, "")
+        .trim()
+    : text.trim();
 }
 
 // Porcupine fired: open the warm window so the next captured utterance is the
@@ -191,7 +211,9 @@ function onPorcupineWake() {
     gateClosed = true;
     void speak("Mm-hm?").finally(() => {
       resetUtter();
-      window.setTimeout(() => { gateClosed = false; }, 250);
+      window.setTimeout(() => {
+        gateClosed = false;
+      }, 250);
     });
   }, 500);
 }
@@ -209,16 +231,28 @@ async function handleUtterance(chunks: Float32Array[]) {
       let detected = "";
       if (wakeEngine() === "whisper") {
         // Most accurate, slower — transcribe each utterance with whisper.
-        try { detected = (await sttWhisper(b64, rate)).trim(); } catch { detected = ""; }
+        try {
+          detected = (await sttWhisper(b64, rate)).trim();
+        } catch {
+          detected = "";
+        }
       }
       // Vosk grammar pass + full-model fallback. Also runs when whisper is selected
       // but returned nothing (not installed / blank on a short clip), so the wake
       // word never silently dies.
       if (!WAKE.test(detected)) {
-        try { detected = (await wakeTranscribe(b64, rate)).trim(); } catch { /* keep */ }
+        try {
+          detected = (await wakeTranscribe(b64, rate)).trim();
+        } catch {
+          /* keep */
+        }
       }
       if (!WAKE.test(detected)) {
-        try { detected = (await voiceTranscribe(b64, rate)).trim(); } catch { /* keep */ }
+        try {
+          detected = (await voiceTranscribe(b64, rate)).trim();
+        } catch {
+          /* keep */
+        }
       }
       if (!WAKE.test(detected)) return; // not addressed to Gemma → drop, nothing sent anywhere
     }
@@ -249,14 +283,17 @@ async function handleUtterance(chunks: Float32Array[]) {
     setListening(false);
     setVoiceStatus(running ? "say “hey Gemma”" : "");
     resetUtter();
-    setTimeout(() => { gateClosed = false; }, 250);
+    setTimeout(() => {
+      gateClosed = false;
+    }, 250);
   }
 }
 
 /** Map a getUserMedia failure to a short, actionable reason. */
 function micErrorText(e: unknown): string {
   const name = (e as { name?: string })?.name || "";
-  if (name === "NotAllowedError" || name === "SecurityError") return "mic permission denied — allow it in Windows/site settings";
+  if (name === "NotAllowedError" || name === "SecurityError")
+    return "mic permission denied — allow it in Windows/site settings";
   if (name === "NotFoundError" || name === "OverconstrainedError") return "no microphone found";
   if (name === "NotReadableError") return "mic is busy — another app may be using it";
   return "couldn't start the microphone";
@@ -310,8 +347,15 @@ export async function startConversation(): Promise<boolean> {
 export function stopConversation(): void {
   running = false;
   stopSpeaking();
-  if (porcupineOn) { porcupineOn = false; void stopPorcupine(); }
-  try { node?.disconnect(); } catch { /* ignore */ }
+  if (porcupineOn) {
+    porcupineOn = false;
+    void stopPorcupine();
+  }
+  try {
+    node?.disconnect();
+  } catch {
+    /* ignore */
+  }
   stream?.getTracks().forEach((t) => t.stop());
   void ctx?.close();
   node = null;
@@ -329,7 +373,10 @@ export async function setHeyGemmaEnabled(on: boolean): Promise<boolean> {
   setEnabledSig(on);
   if (on) {
     const ok = await startConversation();
-    if (!ok) { setEnabledSig(false); localStorage.setItem(ENABLED_KEY, "0"); }
+    if (!ok) {
+      setEnabledSig(false);
+      localStorage.setItem(ENABLED_KEY, "0");
+    }
     return ok;
   }
   stopConversation();

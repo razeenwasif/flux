@@ -4,7 +4,16 @@
  * its weight stays off the eager chrome bundle (ADR 0001's 50 KB gzip budget);
  * it only loads when the agent panel is first opened.
  */
-import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+  type Component,
+  type JSX,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 import {
   agentChat,
@@ -64,17 +73,57 @@ import {
   type NextStep,
   type AgentStatus,
 } from "./ipc";
-import { activeId, activeWorkspace, agentModelName, filesPanelOpen, fluxStateSnapshot, focusedAppId, openTab, pendingAsk, pendingLens, setAgentMenuOpen, setAgentModel, setPendingAsk, setPendingLens, tabs } from "./store";
+import {
+  activeId,
+  activeWorkspace,
+  agentModelName,
+  filesPanelOpen,
+  fluxStateSnapshot,
+  focusedAppId,
+  openTab,
+  pendingAsk,
+  pendingLens,
+  setAgentMenuOpen,
+  setAgentModel,
+  setPendingAsk,
+  setPendingLens,
+  tabs,
+} from "./store";
 import { FLUX_APPS } from "./apps";
 import AgentAurora from "./AgentAurora";
-import { heyGemmaEnabled, listening, micLive, setHeyGemmaEnabled, setVoiceHandler, startConversation, voiceStatus } from "./heygemma";
+import {
+  heyGemmaEnabled,
+  listening,
+  micLive,
+  setHeyGemmaEnabled,
+  setVoiceHandler,
+  startConversation,
+  voiceStatus,
+} from "./heygemma";
 import { micConstraints } from "./mic";
-import { activeTerminalText, activeTerminalCursorLine, activeTerminalLinesFrom, runInActiveTerminal } from "./terminals";
+import {
+  activeTerminalText,
+  activeTerminalCursorLine,
+  activeTerminalLinesFrom,
+  runInActiveTerminal,
+} from "./terminals";
 import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
-type FeedItem = { role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit"; text: string; action?: AgentAction; pending?: boolean; image?: string; shellCmd?: string; editPath?: string; editNew?: string; editDiff?: string; citations?: KbHit[]; voice?: string };
+type FeedItem = {
+  role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit";
+  text: string;
+  action?: AgentAction;
+  pending?: boolean;
+  image?: string;
+  shellCmd?: string;
+  editPath?: string;
+  editNew?: string;
+  editDiff?: string;
+  citations?: KbHit[];
+  voice?: string;
+};
 
 const AgentPanel: Component = () => {
   const [status, setStatus] = createSignal<AgentStatus>({ state: "idle" });
@@ -86,18 +135,37 @@ const AgentPanel: Component = () => {
   // live feed belongs to (assigned on the first message).
   type ChatSession = { id: string; title: string; ts: number; feed: FeedItem[] };
   const CHATS_KEY = "flux.chats";
-  const loadChats = (): ChatSession[] => { try { return JSON.parse(localStorage.getItem(CHATS_KEY) || "[]"); } catch { return []; } };
+  const loadChats = (): ChatSession[] => {
+    try {
+      return JSON.parse(localStorage.getItem(CHATS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  };
   const [chats, setChats] = createSignal<ChatSession[]>(loadChats());
   const [chatsMenu, setChatsMenu] = createSignal(false);
   let currentId = "";
   let seq = 0;
-  const titleOf = (f: FeedItem[]) => (f.find((it) => it.role === "user")?.text || "New chat").trim().slice(0, 44);
-  const persistChats = (next: ChatSession[]) => { setChats(next); try { localStorage.setItem(CHATS_KEY, JSON.stringify(next.slice(0, 50))); } catch { /* quota */ } };
+  const titleOf = (f: FeedItem[]) =>
+    (f.find((it) => it.role === "user")?.text || "New chat").trim().slice(0, 44);
+  const persistChats = (next: ChatSession[]) => {
+    setChats(next);
+    try {
+      localStorage.setItem(CHATS_KEY, JSON.stringify(next.slice(0, 50)));
+    } catch {
+      /* quota */
+    }
+  };
   const persistCurrent = (f: FeedItem[]) => {
     if (!f.length) return;
     if (!currentId) currentId = `c${Date.now()}_${seq++}`;
     // Strip live "pending" state so reopened chats are read-only history.
-    const session: ChatSession = { id: currentId, title: titleOf(f), ts: Date.now(), feed: f.map((it) => ({ ...it, pending: false })) };
+    const session: ChatSession = {
+      id: currentId,
+      title: titleOf(f),
+      ts: Date.now(),
+      feed: f.map((it) => ({ ...it, pending: false })),
+    };
     persistChats([session, ...chats().filter((s) => s.id !== currentId)].slice(0, 50));
   };
   const newChat = () => {
@@ -114,13 +182,20 @@ const AgentPanel: Component = () => {
   const deleteSession = (id: string, e: MouseEvent) => {
     e.stopPropagation();
     persistChats(chats().filter((s) => s.id !== id));
-    if (currentId === id) { currentId = ""; setFeed([]); }
+    if (currentId === id) {
+      currentId = "";
+      setFeed([]);
+    }
   };
   // Interrupt ("stop the rant"): bump the generation so in-flight stream tokens are
   // ignored, cut any TTS, and free the input. The backend completion may keep
   // running, but its late tokens no-op against the new generation.
   let replyGen = 0;
-  const cancelReply = () => { replyGen++; stopSpeaking(); setBusy(false); };
+  const cancelReply = () => {
+    replyGen++;
+    stopSpeaking();
+    setBusy(false);
+  };
 
   // Persist the live conversation (debounced so streaming tokens don't thrash localStorage).
   let persistTimer: number | undefined;
@@ -144,7 +219,11 @@ const AgentPanel: Component = () => {
   // Cancel (false) before moving to the next step. The existing approve/cancel
   // handlers resolve it.
   let chainGate: ((r: { ok: boolean; result: string }) => void) | null = null;
-  const resolveChainGate = (ok: boolean, result: string) => { const g = chainGate; chainGate = null; g?.({ ok, result }); };
+  const resolveChainGate = (ok: boolean, result: string) => {
+    const g = chainGate;
+    chainGate = null;
+    g?.({ ok, result });
+  };
   // Model picker (#81): the dropdown of locally-pulled Ollama models.
   const [models, setModels] = createSignal<string[]>([]);
   const [modelMenu, setModelMenu] = createSignal(false);
@@ -158,12 +237,20 @@ const AgentPanel: Component = () => {
   const menuPos = (btn?: HTMLElement): JSX.CSSProperties => {
     const r = btn?.getBoundingClientRect();
     if (!r) return { position: "fixed", top: "56px", right: "14px", "z-index": "9999" };
-    return { position: "fixed", top: `${Math.round(r.bottom + 5)}px`, right: `${Math.round(Math.max(8, window.innerWidth - r.right))}px`, "z-index": "9999" };
+    return {
+      position: "fixed",
+      top: `${Math.round(r.bottom + 5)}px`,
+      right: `${Math.round(Math.max(8, window.innerWidth - r.right))}px`,
+      "z-index": "9999",
+    };
   };
   const toggleModelMenu = () => {
     const open = !modelMenu();
     setModelMenu(open);
-    if (open) void agentModels().then(setModels).catch(() => setModels([]));
+    if (open)
+      void agentModels()
+        .then(setModels)
+        .catch(() => setModels([]));
   };
   const shortModel = () => {
     const m = agentModelName();
@@ -172,7 +259,9 @@ const AgentPanel: Component = () => {
   let feedEl: HTMLDivElement | undefined;
 
   const browserTabIds = () =>
-    tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url)).map((t) => t.id);
+    tabs()
+      .filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url))
+      .map((t) => t.id);
 
   onMount(async () => {
     const unlisten = await onAgentStatus(setStatus);
@@ -219,10 +308,32 @@ const AgentPanel: Component = () => {
     new Promise<string>((resolve, reject) => {
       let unlisten: (() => void) | null = null;
       let settled = false;
-      const done = () => { settled = true; unlisten?.(); clearTimeout(timer); };
-      const timer = setTimeout(() => { if (!settled) { done(); reject(new Error("page capture timed out")); } }, 9000);
-      void onScreenshot((path) => { if (!settled) { done(); resolve(path); } }).then((u) => { unlisten = u; if (settled) u(); });
-      void webviewCapture(tabId).catch((e) => { if (!settled) { done(); reject(e); } });
+      const done = () => {
+        settled = true;
+        unlisten?.();
+        clearTimeout(timer);
+      };
+      const timer = setTimeout(() => {
+        if (!settled) {
+          done();
+          reject(new Error("page capture timed out"));
+        }
+      }, 9000);
+      void onScreenshot((path) => {
+        if (!settled) {
+          done();
+          resolve(path);
+        }
+      }).then((u) => {
+        unlisten = u;
+        if (settled) u();
+      });
+      void webviewCapture(tabId).catch((e) => {
+        if (!settled) {
+          done();
+          reject(e);
+        }
+      });
     });
   const runLens = async (userPrompt?: string) => {
     if (working() || taskRunning()) return;
@@ -262,7 +373,8 @@ const AgentPanel: Component = () => {
   const [attachment, setAttachment] = createSignal<Attachment | null>(null);
   let fileInput: HTMLInputElement | undefined;
   const MAX_BYTES = 20 * 1024 * 1024;
-  const TEXT_EXT = /\.(txt|md|markdown|json|jsonc|csv|tsv|log|ya?ml|toml|ini|xml|html?|css|js|jsx|ts|tsx|rs|py|go|java|c|cpp|h|sh|sql|rb|php|swift|kt)$/i;
+  const TEXT_EXT =
+    /\.(txt|md|markdown|json|jsonc|csv|tsv|log|ya?ml|toml|ini|xml|html?|css|js|jsx|ts|tsx|rs|py|go|java|c|cpp|h|sh|sql|rb|php|swift|kt)$/i;
 
   const readFile = (file: File) =>
     new Promise<void>((resolve) => {
@@ -280,10 +392,19 @@ const AgentPanel: Component = () => {
         };
         reader.readAsDataURL(file);
       } else if (file.type.startsWith("text/") || TEXT_EXT.test(file.name)) {
-        reader.onload = () => { setAttachment({ kind: "text", name: file.name, text: String(reader.result || "") }); resolve(); };
+        reader.onload = () => {
+          setAttachment({ kind: "text", name: file.name, text: String(reader.result || "") });
+          resolve();
+        };
         reader.readAsText(file);
       } else {
-        setFeed((f) => [...f, { role: "error", text: `Can't read "${file.name}" — attach an image or a text file (video/binary isn't supported).` }]);
+        setFeed((f) => [
+          ...f,
+          {
+            role: "error",
+            text: `Can't read "${file.name}" — attach an image or a text file (video/binary isn't supported).`,
+          },
+        ]);
         resolve();
       }
     });
@@ -301,7 +422,10 @@ const AgentPanel: Component = () => {
     setDropping(false);
     const dt = e.dataTransfer;
     if (!dt) return;
-    if (dt.files && dt.files.length) { void readFile(dt.files[0]!); return; }
+    if (dt.files && dt.files.length) {
+      void readFile(dt.files[0]!);
+      return;
+    }
     const path = (dt.getData("text/plain") || "").split("\n")[0]?.trim();
     if (!path) return;
     try {
@@ -348,16 +472,31 @@ const AgentPanel: Component = () => {
     if (!recording()) return;
     setRecording(false);
     const rate = audioCtx?.sampleRate ?? 48000;
-    try { recNode?.disconnect(); } catch { /* ignore */ }
+    try {
+      recNode?.disconnect();
+    } catch {
+      /* ignore */
+    }
     micStream?.getTracks().forEach((t) => t.stop());
     void audioCtx?.close();
     const len = pcmChunks.reduce((n, c) => n + c.length, 0);
-    const chunks = pcmChunks; pcmChunks = []; micStream = null; audioCtx = null; recNode = null;
+    const chunks = pcmChunks;
+    pcmChunks = [];
+    micStream = null;
+    audioCtx = null;
+    recNode = null;
     if (len < rate * 0.25) return; // ignore < 0.25 s (a stray tap)
     const f32 = new Float32Array(len);
-    let o = 0; for (const c of chunks) { f32.set(c, o); o += c.length; }
+    let o = 0;
+    for (const c of chunks) {
+      f32.set(c, o);
+      o += c.length;
+    }
     const i16 = new Int16Array(len);
-    for (let i = 0; i < len; i++) { const s = Math.max(-1, Math.min(1, f32[i]!)); i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff; }
+    for (let i = 0; i < len; i++) {
+      const s = Math.max(-1, Math.min(1, f32[i]!));
+      i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
     setBusy(true);
     let spoken = "";
     try {
@@ -381,15 +520,26 @@ const AgentPanel: Component = () => {
   // "play X and Y" query (where "Y" isn't an intent) still plays as one search.
   const musicIntent = (clause: string): (() => Promise<string>) | null => {
     const cmd = clause
-      .replace(/^\/?(?:and\s+|also\s+|then\s+|make\s+sure\s+to\s+|be\s+sure\s+to\s+|please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)+/i, "")
+      .replace(
+        /^\/?(?:and\s+|also\s+|then\s+|make\s+sure\s+to\s+|be\s+sure\s+to\s+|please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)+/i,
+        "",
+      )
       .trim();
     let m: RegExpMatchArray | null;
     // "launch audiopulse" + synonyms; "spotify" is accepted too since Vosk often
     // mishears "pulse" (so "launch spotify" → launch AudioPulse).
-    if (/^(?:launch|start(?:\s*up)?|open|boot(?:\s*up)?|fire\s*up)\s+(?:audio\s*pulse|audiopulse|spotify|ap)\b/i.test(cmd)) return spotifyLaunch;
+    if (
+      /^(?:launch|start(?:\s*up)?|open|boot(?:\s*up)?|fire\s*up)\s+(?:audio\s*pulse|audiopulse|spotify|ap)\b/i.test(
+        cmd,
+      )
+    )
+      return spotifyLaunch;
     // STT often mangles the imperative "play" into "played"/"playing"/"plays" — accept those.
     const PLAY = "play(?:ed|s|ing)?|put\\s*on|start";
-    if (new RegExp(`^(?:${PLAY})\\s+(?:my\\s+|the\\s+)?liked(?:\\s+songs?)?(?:\\s+playlist)?$`, "i").test(cmd)) return spotifyPlayLiked;
+    if (
+      new RegExp(`^(?:${PLAY})\\s+(?:my\\s+|the\\s+)?liked(?:\\s+songs?)?(?:\\s+playlist)?$`, "i").test(cmd)
+    )
+      return spotifyPlayLiked;
     if ((m = cmd.match(new RegExp(`^(?:${PLAY})\\s+(?:my\\s+|the\\s+)?(.+?)\\s+playlist$`, "i")))) {
       const name = m[1]!.trim();
       return () => spotifyPlayPlaylist(name);
@@ -397,7 +547,12 @@ const AgentPanel: Component = () => {
     if ((m = cmd.match(new RegExp(`^(?:${PLAY}|queue)\\s+(.+)`, "i")))) {
       // Drop "the song"/"this track"/"a tune" filler so the search is just the title.
       const raw = m[1]!.trim();
-      const q = raw.replace(/^(?:me\s+)?(?:the|this|a|that)?\s*(?:song|track|tune)\s+(?:called\s+|named\s+|titled\s+)?/i, "").trim();
+      const q = raw
+        .replace(
+          /^(?:me\s+)?(?:the|this|a|that)?\s*(?:song|track|tune)\s+(?:called\s+|named\s+|titled\s+)?/i,
+          "",
+        )
+        .trim();
       return () => spotifyPlay(q || raw);
     }
     if (/^(?:turn\s+)?shuffle(?:\s+on)?$|^turn\s+on\s+shuffle$/i.test(cmd)) return () => spotifyShuffle(true);
@@ -406,7 +561,11 @@ const AgentPanel: Component = () => {
       const pct = Number(m[1]);
       return () => spotifyVolume(pct);
     }
-    if ((m = cmd.match(/^(?:set\s+)?repeat(?:\s+(?:to\s+|mode\s+)?(one|all|track|context|song|playlist|album|off|none))?$/i))) {
+    if (
+      (m = cmd.match(
+        /^(?:set\s+)?repeat(?:\s+(?:to\s+|mode\s+)?(one|all|track|context|song|playlist|album|off|none))?$/i,
+      ))
+    ) {
       const mode = (m[1] || "context").toLowerCase();
       return () => spotifyRepeat(mode);
     }
@@ -419,8 +578,15 @@ const AgentPanel: Component = () => {
     return null;
   };
   const callMusic = async (fn: () => Promise<string>): Promise<string> => {
-    try { const r = await fn(); setFeed((f) => [...f, { role: "action", text: r }]); return r; }
-    catch (e) { const m = String(e); setFeed((f) => [...f, { role: "error", text: m }]); return m; }
+    try {
+      const r = await fn();
+      setFeed((f) => [...f, { role: "action", text: r }]);
+      return r;
+    } catch (e) {
+      const m = String(e);
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    }
   };
   // Handle a music command (typed or voice). Returns the spoken summary if handled,
   // else null. Tries the COMPOUND split FIRST — "launch spotify and play my liked
@@ -433,7 +599,10 @@ const AgentPanel: Component = () => {
       .replace(/^(can|could|would)\s+you\s+/i, "")
       .replace(/^please\s+/i, "")
       .trim();
-    const clauses = cmd.split(/\s*(?:,|;|\.|\bthen\b|\band\b|\bwith\b)\s*/i).map((s) => s.trim()).filter(Boolean);
+    const clauses = cmd
+      .split(/\s*(?:,|;|\.|\bthen\b|\band\b|\bwith\b)\s*/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (clauses.length >= 2) {
       const steps = clauses.map(musicIntent);
       if (steps.every(Boolean)) {
@@ -475,18 +644,33 @@ const AgentPanel: Component = () => {
       }
       const plan = await agentPacPlan(q);
       if (!plan.command) {
-        return plan.explanation || "I couldn't map that to a `pac` command. Try naming the operation (export / import / unpack / list).";
+        return (
+          plan.explanation ||
+          "I couldn't map that to a `pac` command. Try naming the operation (export / import / unpack / list)."
+        );
       }
       // Context lines before the approval card: what it does, a read-only/write
       // hint, an auth nudge if we're not signed in, and any danger heads-up.
       if (plan.explanation) setFeed((f) => [...f, { role: "assistant", text: plan.explanation }]);
       if (st && st.installed && !st.authenticated && !plan.command.includes("auth")) {
-        setFeed((f) => [...f, { role: "assistant", text: "⚠ No active `pac` auth profile — run `/pac sign in to <env url>` first, or this will fail." }]);
+        setFeed((f) => [
+          ...f,
+          {
+            role: "assistant",
+            text: "⚠ No active `pac` auth profile — run `/pac sign in to <env url>` first, or this will fail.",
+          },
+        ]);
       }
       if (plan.danger) {
-        setFeed((f) => [...f, { role: "error", text: `⚠ Heads-up: this ${plan.danger} Review it before you run.` }]);
+        setFeed((f) => [
+          ...f,
+          { role: "error", text: `⚠ Heads-up: this ${plan.danger} Review it before you run.` },
+        ]);
       } else if (plan.read_only) {
-        setFeed((f) => [...f, { role: "assistant", text: "✓ Read-only — this can't change a remote environment." }]);
+        setFeed((f) => [
+          ...f,
+          { role: "assistant", text: "✓ Read-only — this can't change a remote environment." },
+        ]);
       }
       return await runShellCmd(plan.command);
     } catch (e) {
@@ -499,7 +683,9 @@ const AgentPanel: Component = () => {
   // a PTY has no exit signal, so "stopped changing for STABLE ms" is our done-ish
   // heuristic, capped at MAX. Returns the captured tail.
   const readBackTerminal = async (baseline: number): Promise<string> => {
-    const STEP = 350, STABLE = 1200, MAX = 30000;
+    const STEP = 350,
+      STABLE = 1200,
+      MAX = 30000;
     let last = "";
     let stable = 0;
     for (let t = 0; t < MAX; t += STEP) {
@@ -523,8 +709,15 @@ const AgentPanel: Component = () => {
       // Same denylist as the headless run — we're typing straight into the PTY,
       // which bypasses run_shell's guard, so check it ourselves first.
       let block: string | null = null;
-      try { block = await shellGuard(cmd); } catch { block = null; }
-      if (block) { setFeed((f) => [...f, { role: "error", text: block! }]); return; }
+      try {
+        block = await shellGuard(cmd);
+      } catch {
+        block = null;
+      }
+      if (block) {
+        setFeed((f) => [...f, { role: "error", text: block! }]);
+        return;
+      }
       // Baseline = the prompt's cursor row BEFORE running, so we read exactly this
       // command's echo + output (and nothing above it).
       const baseline = activeTerminalCursorLine();
@@ -537,7 +730,15 @@ const AgentPanel: Component = () => {
         return;
       }
       const out = (await readBackTerminal(baseline)).trim();
-      setFeed((f) => [...f, { role: "assistant", text: out ? `Terminal output:\n${out}` : "(ran in your terminal — no output captured; check the terminal)" }]);
+      setFeed((f) => [
+        ...f,
+        {
+          role: "assistant",
+          text: out
+            ? `Terminal output:\n${out}`
+            : "(ran in your terminal — no output captured; check the terminal)",
+        },
+      ]);
       resolveChainGate(true, out || "(ran, no output captured)");
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
@@ -547,7 +748,9 @@ const AgentPanel: Component = () => {
     }
   };
   const cancelShell = (idx: number) => {
-    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)));
+    setFeed((f) =>
+      f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)),
+    );
     resolveChainGate(false, "the user cancelled the command");
   };
 
@@ -564,7 +767,11 @@ const AgentPanel: Component = () => {
   const maybeShellPlan = async (p: string): Promise<string | null> => {
     if (!shellPlanAlways() && !SYSTEMISH.test(p)) return null;
     let cmd: string | null = null;
-    try { cmd = await agentShellPlan(p); } catch { return null; }
+    try {
+      cmd = await agentShellPlan(p);
+    } catch {
+      return null;
+    }
     if (!cmd) return null;
     return await runShellCmd(cmd);
   };
@@ -579,23 +786,23 @@ const AgentPanel: Component = () => {
   // (editable) persona so it can't be edited away. Only claim what's listed here.
   const CAPABILITIES =
     "Your capabilities in Flux (these run via the app, not just talk — tell the user the exact phrasing when helpful):\n" +
-    "- Reminders & to-dos: \"remind me to <x> in 10 min / at 3pm / tomorrow\"; \"what are my reminders\". They fire with an OS notification + spoken alert even if the panel is closed.\n" +
+    '- Reminders & to-dos: "remind me to <x> in 10 min / at 3pm / tomorrow"; "what are my reminders". They fire with an OS notification + spoken alert even if the panel is closed.\n' +
     "- The user's own apps (pinned in the bottom-right dock): Nexus (ML training console), Prism (AutoML + entity resolution), Vector (issue tracker), Oracle (plant ID). When one is open you get its full guide — help with its features, workflows, and results.\n" +
-    "- Calendar: \"what's on my calendar today / this week / friday\" reads your schedule (your Google ICS feed + Flux-local events); \"schedule lunch with Sam tomorrow at noon for 1h\" / \"add a dentist appointment friday 3pm\" creates an event; \"move my standup to 10am\"; \"cancel the dentist appointment\". You can add/move/delete events you created in Flux (Google-feed events are read-only — say so if asked to change one).\n" +
-    "- Long-term memory: \"remember that <x>\" saves a fact you'll recall in future chats; \"what do you remember\".\n" +
-    "- Run commands in the user's live terminal (one-tap approval; rm/destructive blocked): \"run <cmd>\" / \"execute <cmd>\", or ask naturally (\"list the files in my home directory\") and you propose the command. On approval it runs in their real terminal session (their cwd/env) and you read the output back — so you can edit a file, run the tests, read the result, and fix it.\n" +
-    "- Read files into context: \"read src/foo.rs\" / \"look at <path>\" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); \"forget the files\" clears. You can also drag a file from the explorer onto the panel.\n" +
-    "- Read the terminal: \"read the terminal\" / \"what's in my terminal\" pulls the active Terminal tab's recent output into context (great for debugging a failed command).\n" +
-    "- Edit files (with approval): \"edit src/foo.rs: rename X to Y\" / (after reading a file) \"change it to …\" — you propose a diff; nothing is written until the user taps Apply. Make surgical edits.\n" +
-    "- Inspect Flux's own UI (for debugging it): \"app state\" (UI snapshot), \"css variables\" / \"what's --flux-teal\", \"inspect <css selector>\" (computed style + visibility — e.g. why an element is hidden or a var isn't applying).\n" +
-    "- System awareness: \"system status\" / \"how's my CPU\" / \"what's using memory\" → CPU%, RAM, top processes.\n" +
-    "- Web search: \"search <x>\" / \"open a new tab and search <x>\".\n" +
-    "- Music (AudioPulse/Spotify): \"play <song>\", \"play my liked songs\", \"shuffle on\", \"skip\", \"pause\", \"launch spotify\".\n" +
-    "- Page actions: \"/act <do something on this page>\" (one step) or \"/task <multi-step goal>\" (you plan steps the user approves). You can also chat grounded in the current page or all open tabs.\n" +
-    "- Chain several of the above in one request: join steps with \"then\" / \"+\" — e.g. \"read src/foo.rs then fix the bug then run the tests\" or \"play my liked songs + shuffle on\". Each step runs in order; edits/commands still ask for approval.\n" +
-    "- Adaptive goal loop: \"/fix <goal>\" (e.g. \"/fix make the tests in src/foo.rs pass\") — you run one step, read the result, and re-plan: run → read the failure → edit a fix → re-run, until it's done or stuck. Each edit/command still asks for approval.\n" +
-    "- Power Platform (Power Apps / Power Automate ALM): \"/pac <request>\" maps to ONE Power Platform CLI command — e.g. \"/pac export my solution Contoso\", \"/pac unpack the solution zip\", \"/pac list my canvas apps\". It runs the command via the approval card; environment-mutating ones (import/delete/publish) are flagged first.\n" +
-    "- Voice: always-on \"Hey Gemma\" + push-to-talk; the user can interrupt you by talking or the Stop button.\n" +
+    '- Calendar: "what\'s on my calendar today / this week / friday" reads your schedule (your Google ICS feed + Flux-local events); "schedule lunch with Sam tomorrow at noon for 1h" / "add a dentist appointment friday 3pm" creates an event; "move my standup to 10am"; "cancel the dentist appointment". You can add/move/delete events you created in Flux (Google-feed events are read-only — say so if asked to change one).\n' +
+    '- Long-term memory: "remember that <x>" saves a fact you\'ll recall in future chats; "what do you remember".\n' +
+    '- Run commands in the user\'s live terminal (one-tap approval; rm/destructive blocked): "run <cmd>" / "execute <cmd>", or ask naturally ("list the files in my home directory") and you propose the command. On approval it runs in their real terminal session (their cwd/env) and you read the output back — so you can edit a file, run the tests, read the result, and fix it.\n' +
+    '- Read files into context: "read src/foo.rs" / "look at <path>" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); "forget the files" clears. You can also drag a file from the explorer onto the panel.\n' +
+    '- Read the terminal: "read the terminal" / "what\'s in my terminal" pulls the active Terminal tab\'s recent output into context (great for debugging a failed command).\n' +
+    '- Edit files (with approval): "edit src/foo.rs: rename X to Y" / (after reading a file) "change it to …" — you propose a diff; nothing is written until the user taps Apply. Make surgical edits.\n' +
+    '- Inspect Flux\'s own UI (for debugging it): "app state" (UI snapshot), "css variables" / "what\'s --flux-teal", "inspect <css selector>" (computed style + visibility — e.g. why an element is hidden or a var isn\'t applying).\n' +
+    '- System awareness: "system status" / "how\'s my CPU" / "what\'s using memory" → CPU%, RAM, top processes.\n' +
+    '- Web search: "search <x>" / "open a new tab and search <x>".\n' +
+    '- Music (AudioPulse/Spotify): "play <song>", "play my liked songs", "shuffle on", "skip", "pause", "launch spotify".\n' +
+    '- Page actions: "/act <do something on this page>" (one step) or "/task <multi-step goal>" (you plan steps the user approves). You can also chat grounded in the current page or all open tabs.\n' +
+    '- Chain several of the above in one request: join steps with "then" / "+" — e.g. "read src/foo.rs then fix the bug then run the tests" or "play my liked songs + shuffle on". Each step runs in order; edits/commands still ask for approval.\n' +
+    '- Adaptive goal loop: "/fix <goal>" (e.g. "/fix make the tests in src/foo.rs pass") — you run one step, read the result, and re-plan: run → read the failure → edit a fix → re-run, until it\'s done or stuck. Each edit/command still asks for approval.\n' +
+    '- Power Platform (Power Apps / Power Automate ALM): "/pac <request>" maps to ONE Power Platform CLI command — e.g. "/pac export my solution Contoso", "/pac unpack the solution zip", "/pac list my canvas apps". It runs the command via the approval card; environment-mutating ones (import/delete/publish) are flagged first.\n' +
+    '- Voice: always-on "Hey Gemma" + push-to-talk; the user can interrupt you by talking or the Stop button.\n' +
     "When asked what you can do, summarize the above. Don't claim abilities not listed.";
 
   // Conversation memory: prepend persona + capabilities + the recent turns so the
@@ -609,7 +816,9 @@ const AgentPanel: Component = () => {
     for (const f of fs) {
       const body = f.content.slice(0, Math.max(0, budget));
       budget -= body.length;
-      blocks.push(`--- file: ${f.path} ---\n${body}${body.length < f.content.length ? "\n…(truncated)" : ""}`);
+      blocks.push(
+        `--- file: ${f.path} ---\n${body}${body.length < f.content.length ? "\n…(truncated)" : ""}`,
+      );
       if (budget <= 0) break;
     }
     return `Files the user has open / asked you to read (use them to answer):\n${blocks.join("\n\n")}\n\n`;
@@ -626,9 +835,15 @@ const AgentPanel: Component = () => {
   const convoPrompt = (current: string): string => {
     const mem = memText().trim();
     const p0 = persona() ? `${persona()}\n\n` : "";
-    const preamble = `${p0}${CAPABILITIES}\n\n` + appContext() + filesContext() + (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
+    const preamble =
+      `${p0}${CAPABILITIES}\n\n` +
+      appContext() +
+      filesContext() +
+      (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
     const turns = feed().filter((it) => it.role === "user" || it.role === "assistant");
-    const prior = (turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns).slice(-8);
+    const prior = (
+      turns.length && turns[turns.length - 1]?.role === "user" ? turns.slice(0, -1) : turns
+    ).slice(-8);
     if (!prior.length) return preamble ? `${preamble}User: ${current}` : current;
     const transcript = prior.map((it) => `${it.role === "user" ? "User" : "Gemma"}: ${it.text}`).join("\n");
     return `${preamble}Conversation so far:\n${transcript}\n\nReply to the new message, using the memory + conversation above for context.\nUser: ${current}`;
@@ -642,7 +857,8 @@ const AgentPanel: Component = () => {
   // Files Gemma is "looking at" — read into context so she can answer without
   // copy-paste, and stay there for follow-ups. Capped so the prompt stays sane.
   const [ctxFiles, setCtxFiles] = createSignal<{ path: string; name: string; content: string }[]>([]);
-  const FILE_RE = /^(?:read|open|load|look at|show me|check out|cat|add)\s+(?:the\s+)?(?:file\s+|context\s+)?(~?\/?[\w. /\\@-]*?(?:\.[a-z0-9]{1,8}|\/[\w.-]+)|[~/][\w. /\\@.-]+)\s*$/i;
+  const FILE_RE =
+    /^(?:read|open|load|look at|show me|check out|cat|add)\s+(?:the\s+)?(?:file\s+|context\s+)?(~?\/?[\w. /\\@-]*?(?:\.[a-z0-9]{1,8}|\/[\w.-]+)|[~/][\w. /\\@.-]+)\s*$/i;
   const runReadFile = async (raw: string): Promise<string> => {
     const path = raw.trim().replace(/^["']|["']$/g, "");
     if (!path) return "";
@@ -651,7 +867,13 @@ const AgentPanel: Component = () => {
       const name = path.split(/[/\\]/).pop() || path;
       setCtxFiles((c) => [...c.filter((f) => f.path !== path), { path, name, content }].slice(-8));
       const lines = content.split("\n").length;
-      setFeed((f) => [...f, { role: "action", text: `📄 Reading ${name} (${lines} lines) — it's in context now; ask me anything about it.` }]);
+      setFeed((f) => [
+        ...f,
+        {
+          role: "action",
+          text: `📄 Reading ${name} (${lines} lines) — it's in context now; ask me anything about it.`,
+        },
+      ]);
       return `Got ${name} — what would you like to know about it?`;
     } catch (e) {
       const m = String(e);
@@ -661,29 +883,51 @@ const AgentPanel: Component = () => {
   };
   const clearCtxFiles = () => setCtxFiles([]);
   const lastCtxFile = () =>
-    [...ctxFiles()].reverse().find((f) => !["terminal", "css-vars", "app-state"].includes(f.path) && !f.path.startsWith("inspect:"));
+    [...ctxFiles()]
+      .reverse()
+      .find((f) => !["terminal", "css-vars", "app-state"].includes(f.path) && !f.path.startsWith("inspect:"));
 
   // "edit <file>: <instruction>" / "change it to …" → propose search/replace edits,
   // show a diff, and write only on approval (apply happens client-side).
-  const EDIT_RE = /^(?:\/edit|edit|modify|change|update|patch|fix|refactor)\s+(~?[\w./\\@-]+\.[a-z0-9]{1,8})\s*[:,–-]?\s*([\s\S]+)/i;
-  const EDIT_IT_RE = /^(?:\/edit|edit|modify|change|update|patch|apply|fix|refactor)\s+(?:it|this(?:\s+file)?|that|the\s+file)\b[:,–-]?\s*([\s\S]+)/i;
-  const applyEdits = (content: string, edits: { search: string; replace: string }[]): { out: string; failed: string[] } => {
+  const EDIT_RE =
+    /^(?:\/edit|edit|modify|change|update|patch|fix|refactor)\s+(~?[\w./\\@-]+\.[a-z0-9]{1,8})\s*[:,–-]?\s*([\s\S]+)/i;
+  const EDIT_IT_RE =
+    /^(?:\/edit|edit|modify|change|update|patch|apply|fix|refactor)\s+(?:it|this(?:\s+file)?|that|the\s+file)\b[:,–-]?\s*([\s\S]+)/i;
+  const applyEdits = (
+    content: string,
+    edits: { search: string; replace: string }[],
+  ): { out: string; failed: string[] } => {
     let out = content;
     const failed: string[] = [];
     for (const e of edits) {
       if (!e.search) continue;
-      if (out.includes(e.search)) { out = out.replace(e.search, e.replace); continue; }
+      if (out.includes(e.search)) {
+        out = out.replace(e.search, e.replace);
+        continue;
+      }
       const s2 = e.search.replace(/\r\n/g, "\n");
       const n = out.replace(/\r\n/g, "\n");
-      if (n.includes(s2)) { out = n.replace(s2, e.replace.replace(/\r\n/g, "\n")); continue; }
+      if (n.includes(s2)) {
+        out = n.replace(s2, e.replace.replace(/\r\n/g, "\n"));
+        continue;
+      }
       failed.push((e.search.split("\n")[0] || "").slice(0, 50));
     }
     return { out, failed };
   };
   const editDiffText = (edits: { search: string; replace: string }[]): string =>
-    edits.map((e, i) =>
-      `@@ change ${i + 1} @@\n${e.search.split("\n").map((l) => `- ${l}`).join("\n")}\n${e.replace.split("\n").map((l) => `+ ${l}`).join("\n")}`,
-    ).join("\n\n");
+    edits
+      .map(
+        (e, i) =>
+          `@@ change ${i + 1} @@\n${e.search
+            .split("\n")
+            .map((l) => `- ${l}`)
+            .join("\n")}\n${e.replace
+            .split("\n")
+            .map((l) => `+ ${l}`)
+            .join("\n")}`,
+      )
+      .join("\n\n");
   const runEdit = async (filePath: string, instruction: string): Promise<string> => {
     const path = filePath.trim().replace(/^["']|["']$/g, "");
     if (!path || !instruction.trim()) return "";
@@ -698,11 +942,29 @@ const AgentPanel: Component = () => {
       }
       const { out, failed } = applyEdits(content, plan.edits);
       if (out === content) {
-        setFeed((f) => [...f, { role: "error", text: `Couldn't find the text to change in ${path}${failed.length ? ` (missed: ${failed.join("; ")})` : ""}. Try “read ${path}” first so I'm looking at the current version.` }]);
+        setFeed((f) => [
+          ...f,
+          {
+            role: "error",
+            text: `Couldn't find the text to change in ${path}${failed.length ? ` (missed: ${failed.join("; ")})` : ""}. Try “read ${path}” first so I'm looking at the current version.`,
+          },
+        ]);
         return "Couldn't apply the edit.";
       }
-      const diff = editDiffText(plan.edits) + (failed.length ? `\n\n⚠ ${failed.length} edit(s) didn't match the file and were skipped.` : "");
-      setFeed((f) => [...f, { role: "edit", text: `✏ ${path} — ${plan.summary}`, editPath: path, editNew: out, editDiff: diff, pending: true }]);
+      const diff =
+        editDiffText(plan.edits) +
+        (failed.length ? `\n\n⚠ ${failed.length} edit(s) didn't match the file and were skipped.` : "");
+      setFeed((f) => [
+        ...f,
+        {
+          role: "edit",
+          text: `✏ ${path} — ${plan.summary}`,
+          editPath: path,
+          editNew: out,
+          editDiff: diff,
+          pending: true,
+        },
+      ]);
       return `Drafted an edit to ${path.split(/[/\\]/).pop()} — review the diff and tap Apply.`;
     } catch (e) {
       const m = String(e);
@@ -725,21 +987,35 @@ const AgentPanel: Component = () => {
     }
   };
   const cancelEdit = (idx: number) => {
-    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)));
+    setFeed((f) =>
+      f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)),
+    );
     resolveChainGate(false, "the user cancelled the edit");
   };
 
   // "read the terminal" → pull the active terminal's scrollback into context.
-  const TERM_RE = /^(?:read|look at|show me|check|grab|capture|see)\s+(?:the\s+|my\s+)?terminal(?:\s+(?:output|buffer|scrollback|window))?\s*$|^what(?:'?s| does| is)?\s*(?:in|on)?\s*(?:the\s+|my\s+)?terminal(?:\s+say(?:ing)?)?\s*\??$|^terminal\s+(?:output|contents?)\s*$/i;
+  const TERM_RE =
+    /^(?:read|look at|show me|check|grab|capture|see)\s+(?:the\s+|my\s+)?terminal(?:\s+(?:output|buffer|scrollback|window))?\s*$|^what(?:'?s| does| is)?\s*(?:in|on)?\s*(?:the\s+|my\s+)?terminal(?:\s+say(?:ing)?)?\s*\??$|^terminal\s+(?:output|contents?)\s*$/i;
   const runReadTerminal = (): string => {
     const t = activeTerminalText();
     if (!t || !t.text.trim()) {
-      setFeed((f) => [...f, { role: "error", text: "No terminal output to read — open a Terminal tab and run something first." }]);
+      setFeed((f) => [
+        ...f,
+        { role: "error", text: "No terminal output to read — open a Terminal tab and run something first." },
+      ]);
       return "There's no terminal output yet.";
     }
-    setCtxFiles((c) => [...c.filter((f) => f.path !== "terminal"), { path: "terminal", name: "terminal output", content: t.text }].slice(-8));
+    setCtxFiles((c) =>
+      [
+        ...c.filter((f) => f.path !== "terminal"),
+        { path: "terminal", name: "terminal output", content: t.text },
+      ].slice(-8),
+    );
     const lines = t.text.split("\n").length;
-    setFeed((f) => [...f, { role: "action", text: `🖥 Read your terminal (${lines} lines) — it's in context now.` }]);
+    setFeed((f) => [
+      ...f,
+      { role: "action", text: `🖥 Read your terminal (${lines} lines) — it's in context now.` },
+    ]);
     return "Got your terminal output — what's up with it?";
   };
 
@@ -747,8 +1023,10 @@ const AgentPanel: Component = () => {
   // CSS theme variables, or snapshot the app state. Results go into context too.
   const addContext = (path: string, name: string, content: string) =>
     setCtxFiles((c) => [...c.filter((f) => f.path !== path), { path, name, content }].slice(-8));
-  const STATE_RE = /^(?:flux|app|ui)\s+state\b|^(?:debug|inspect|show)\s+(?:the\s+)?(?:app|ui|flux)\s+state\b|^what(?:'?s| is)\s+(?:the\s+)?(?:current\s+)?(?:app|ui|flux)\s+state\b/i;
-  const VARS_RE = /^(?:(?:list|show|dump)\s+(?:me\s+)?)?(?:css|theme)\s+(?:variables?|vars|custom\s+properties)\b|^(?:what(?:'?s| is)|show me)\s+(?:the\s+(?:value\s+of\s+)?)?(--[\w-]+)\b/i;
+  const STATE_RE =
+    /^(?:flux|app|ui)\s+state\b|^(?:debug|inspect|show)\s+(?:the\s+)?(?:app|ui|flux)\s+state\b|^what(?:'?s| is)\s+(?:the\s+)?(?:current\s+)?(?:app|ui|flux)\s+state\b/i;
+  const VARS_RE =
+    /^(?:(?:list|show|dump)\s+(?:me\s+)?)?(?:css|theme)\s+(?:variables?|vars|custom\s+properties)\b|^(?:what(?:'?s| is)|show me)\s+(?:the\s+(?:value\s+of\s+)?)?(--[\w-]+)\b/i;
   const INSPECT_RE = /^(?:inspect|examine)\s+(?:the\s+|element\s+)?(\S[\s\S]*?)\s*$/i;
   const runState = (): string => {
     const r = fluxStateSnapshot();
@@ -768,9 +1046,14 @@ const AgentPanel: Component = () => {
     setFeed((f) => [...f, { role: "assistant", text: r }]);
     return "Inspected it — details are in the panel and context.";
   };
-  const refreshMemory = () => void memoryRead().then(setMemText).catch(() => {});
-  const REMEMBER_RE = /^(?:\/remember|remember|note|make a note|keep in mind|save (?:to memory|this))\b[:,]?\s+(?:that\s+|to\s+)?(.+)/i;
-  const RECALL_RE = /^(?:\/memory|what do you remember|show (?:me )?(?:your |the )?memory|what'?s in your memory)\b/i;
+  const refreshMemory = () =>
+    void memoryRead()
+      .then(setMemText)
+      .catch(() => {});
+  const REMEMBER_RE =
+    /^(?:\/remember|remember|note|make a note|keep in mind|save (?:to memory|this))\b[:,]?\s+(?:that\s+|to\s+)?(.+)/i;
+  const RECALL_RE =
+    /^(?:\/memory|what do you remember|show (?:me )?(?:your |the )?memory|what'?s in your memory)\b/i;
   const runRemember = async (fact: string): Promise<string> => {
     const f = fact.trim().replace(/[?.!]+$/, "");
     if (!f) return "";
@@ -787,13 +1070,16 @@ const AgentPanel: Component = () => {
   };
   const runRecall = (): string => {
     const mem = memText().trim();
-    const text = mem ? mem : "I don't have anything in my memory yet. Say “remember that …” to add something.";
+    const text = mem
+      ? mem
+      : "I don't have anything in my memory yet. Say “remember that …” to add something.";
     setFeed((fd) => [...fd, { role: "assistant", text }]);
     return mem ? "Here's what I remember." : "Nothing in my memory yet.";
   };
 
   // "what can you do" / "/help" → a deterministic capabilities card.
-  const HELP_RE = /^(?:\/help|\/capabilities|what can you do\b|what (?:are|r) your (?:capabilities|features|abilities|powers)|show (?:me )?(?:your )?(?:capabilities|features)|list (?:your )?(?:commands|capabilities)|what can i (?:ask|say|tell you)\b)/i;
+  const HELP_RE =
+    /^(?:\/help|\/capabilities|what can you do\b|what (?:are|r) your (?:capabilities|features|abilities|powers)|show (?:me )?(?:your )?(?:capabilities|features)|list (?:your )?(?:commands|capabilities)|what can i (?:ask|say|tell you)\b)/i;
   const runHelp = (): string => {
     const card =
       "Here's what I can do in Flux 💫\n" +
@@ -813,14 +1099,24 @@ const AgentPanel: Component = () => {
   };
 
   // System awareness — "system status" / "how's my cpu/memory" / "what's using ram".
-  const SYS_RE = /^(?:system\s+(?:status|stats|info|usage)|how'?s?\s+my\s+(?:system|cpu|memory|ram|pc|computer)|(?:cpu|memory|ram)\s+usage|what'?s\s+(?:using|eating|hogging)\s+(?:my\s+)?(?:memory|ram|cpu))\b/i;
+  const SYS_RE =
+    /^(?:system\s+(?:status|stats|info|usage)|how'?s?\s+my\s+(?:system|cpu|memory|ram|pc|computer)|(?:cpu|memory|ram)\s+usage|what'?s\s+(?:using|eating|hogging)\s+(?:my\s+)?(?:memory|ram|cpu))\b/i;
   const runSysStats = async (): Promise<string> => {
     try {
       const s = await systemStats();
       const gb = (mb: number) => (mb / 1024).toFixed(1);
       const sz = (mb: number) => (mb >= 1024 ? `${gb(mb)} GB` : `${mb} MB`);
-      const top = s.top.slice(0, 5).map((p) => `${p.name} ${sz(p.memMb)}`).join(", ");
-      setFeed((fd) => [...fd, { role: "assistant", text: `🖥 CPU ${s.cpuPct}% · RAM ${gb(s.memUsedMb)}/${gb(s.memTotalMb)} GB (${s.memPct}%)\nTop by memory: ${top}` }]);
+      const top = s.top
+        .slice(0, 5)
+        .map((p) => `${p.name} ${sz(p.memMb)}`)
+        .join(", ");
+      setFeed((fd) => [
+        ...fd,
+        {
+          role: "assistant",
+          text: `🖥 CPU ${s.cpuPct}% · RAM ${gb(s.memUsedMb)}/${gb(s.memTotalMb)} GB (${s.memPct}%)\nTop by memory: ${top}`,
+        },
+      ]);
       const hog = s.top[0]?.name;
       return `CPU's at ${s.cpuPct} percent, memory at ${s.memPct} percent${hog ? `. ${hog} is using the most.` : "."}`;
     } catch (e) {
@@ -834,12 +1130,20 @@ const AgentPanel: Component = () => {
   // Dated ones fire at their time (spoken + shown); "what are my reminders" lists.
   const userName = () => (localStorage.getItem("flux.user.name") || "").trim();
   const remindersSpoken = () => localStorage.getItem("flux.reminders.speak") !== "0";
-  const REMIND_RE = /^(?:remind me|set (?:a )?reminder|add (?:a )?(?:reminder|to-?do|task)|reminder)\b(?:\s+to)?[:,]?\s+(.+)/i;
-  const REMINDERS_LIST_RE = /^(?:what(?:'?s| is| are)?(?:\s+on)?\s+my|list (?:my)?|show (?:me )?(?:my )?|do i have any)\s*(?:reminders?|to-?dos?|tasks?)\b|^my (?:reminders?|to-?dos?|tasks?)\b/i;
+  const REMIND_RE =
+    /^(?:remind me|set (?:a )?reminder|add (?:a )?(?:reminder|to-?do|task)|reminder)\b(?:\s+to)?[:,]?\s+(.+)/i;
+  const REMINDERS_LIST_RE =
+    /^(?:what(?:'?s| is| are)?(?:\s+on)?\s+my|list (?:my)?|show (?:me )?(?:my )?|do i have any)\s*(?:reminders?|to-?dos?|tasks?)\b|^my (?:reminders?|to-?dos?|tasks?)\b/i;
   const runRemind = async (raw: string): Promise<string> => {
     const { text, due } = parseWhen(raw.trim().replace(/[?.!]+$/, ""), Date.now());
     if (!text) return "";
-    try { await addReminder(text, due); } catch (e) { const m = String(e); setFeed((f) => [...f, { role: "error", text: m }]); return m; }
+    try {
+      await addReminder(text, due);
+    } catch (e) {
+      const m = String(e);
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    }
     if (due != null) {
       setFeed((f) => [...f, { role: "action", text: `⏰ Reminder set (${whenLabel(due)}): ${text}` }]);
       return `Okay — I'll remind you ${whenLabel(due)}.`;
@@ -849,7 +1153,10 @@ const AgentPanel: Component = () => {
   };
   const runListReminders = async (): Promise<string> => {
     const ps = await pendingReminders().catch(() => []);
-    if (!ps.length) { setFeed((f) => [...f, { role: "assistant", text: "You have no reminders or to-dos." }]); return "Nothing on your list."; }
+    if (!ps.length) {
+      setFeed((f) => [...f, { role: "assistant", text: "You have no reminders or to-dos." }]);
+      return "Nothing on your list.";
+    }
     const lines = ps.map((r) => `- ${r.text}${r.due != null ? ` — ${whenLabel(r.due)}` : ""}`).join("\n");
     setFeed((f) => [...f, { role: "assistant", text: `Your reminders & to-dos:\n${lines}` }]);
     return "Here's what's on your list.";
@@ -861,8 +1168,11 @@ const AgentPanel: Component = () => {
     let unlisten: (() => void) | undefined;
     void onReminderDue((r) => {
       setFeed((f) => [...f, { role: "assistant", text: `🔔 Reminder: ${r.text}` }]);
-      if (remindersSpoken()) void speak(`Hey${userName() ? ` ${userName()}` : ""}, just popping in — ${r.text}.`);
-    }).then((u) => { unlisten = u; });
+      if (remindersSpoken())
+        void speak(`Hey${userName() ? ` ${userName()}` : ""}, just popping in — ${r.text}.`);
+    }).then((u) => {
+      unlisten = u;
+    });
     onCleanup(() => unlisten?.());
   });
 
@@ -915,8 +1225,17 @@ const AgentPanel: Component = () => {
     if (musicReply !== null) return musicReply;
     const vs = stripped.match(SEARCH_RE);
     if (vs?.[1]) return await runSearch(vs[1]);
-    { const me = stripped.match(EDIT_RE); if (me?.[1] && me[2]) return await runEdit(me[1], me[2]); }
-    { const mei = stripped.match(EDIT_IT_RE); if (mei?.[1]) { const lf = lastCtxFile(); if (lf) return await runEdit(lf.path, mei[1]); } }
+    {
+      const me = stripped.match(EDIT_RE);
+      if (me?.[1] && me[2]) return await runEdit(me[1], me[2]);
+    }
+    {
+      const mei = stripped.match(EDIT_IT_RE);
+      if (mei?.[1]) {
+        const lf = lastCtxFile();
+        if (lf) return await runEdit(lf.path, mei[1]);
+      }
+    }
     if (TERM_RE.test(stripped)) return runReadTerminal();
     const vrf = stripped.match(FILE_RE);
     if (vrf?.[1]) return await runReadFile(vrf[1]);
@@ -929,15 +1248,24 @@ const AgentPanel: Component = () => {
     if (SYS_RE.test(stripped)) return await runSysStats();
     if (HELP_RE.test(stripped)) return runHelp();
     if (STATE_RE.test(stripped)) return runState();
-    { const mv = stripped.match(VARS_RE); if (mv) return runVars(mv[1]); }
-    { const mi = stripped.match(INSPECT_RE); if (mi?.[1]) return runInspect(mi[1]); }
+    {
+      const mv = stripped.match(VARS_RE);
+      if (mv) return runVars(mv[1]);
+    }
+    {
+      const mi = stripped.match(INSPECT_RE);
+      if (mi?.[1]) return runInspect(mi[1]);
+    }
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
     const cp = convoPrompt(t); // memory
     const idx = feed().length;
     setFeed((f) => [...f, { role: "assistant", text: "" }]);
     let acc = "";
-    const append = (c: string) => { acc += c; setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it))); };
+    const append = (c: string) => {
+      acc += c;
+      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it)));
+    };
     setBusy(true);
     try {
       await agentChatStream(cp, append);
@@ -973,10 +1301,20 @@ const AgentPanel: Component = () => {
     let url = text.match(/https?:\/\/[^\s)]+/i)?.[0] ?? null;
     if (!url) url = activePageUrl();
     if (!url) {
-      setFeed((f) => [...f, { role: "error", text: 'Give me a URL to clip, or open the article first ("clip this page to scroll").' }]);
+      setFeed((f) => [
+        ...f,
+        {
+          role: "error",
+          text: 'Give me a URL to clip, or open the article first ("clip this page to scroll").',
+        },
+      ]);
       return true;
     }
-    const tags = text.match(/\btags?\b\s*[:=]?\s*([^\n]+)$/i)?.[1]?.replace(/\band\b/gi, ",").replace(/\s+/g, " ").trim();
+    const tags = text
+      .match(/\btags?\b\s*[:=]?\s*([^\n]+)$/i)?.[1]
+      ?.replace(/\band\b/gi, ",")
+      .replace(/\s+/g, " ")
+      .trim();
     setFeed((f) => [...f, { role: "task", text: "📎 Clipping to Scroll…" }]);
     try {
       const r = await scrollClip(url, tags);
@@ -995,14 +1333,30 @@ const AgentPanel: Component = () => {
     if (/\b(that|this answer|the answer|your answer|last answer)\b/i.test(text)) {
       content = [...feed()].reverse().find((it) => it.role === "assistant")?.text ?? "";
       if (!content.trim()) {
-        setFeed((f) => [...f, { role: "error", text: "No previous answer to save — ask me something first, then \"save that to Onyx\"." }]);
+        setFeed((f) => [
+          ...f,
+          {
+            role: "error",
+            text: 'No previous answer to save — ask me something first, then "save that to Onyx".',
+          },
+        ]);
         return true;
       }
     } else {
       // Everything after "… to onyx" (minus a trailing "as <title>") is the note body.
-      content = text.replace(/^.*?\bto\s+onyx\b/i, "").replace(/\bas\s+"?[^"\n]+"?\s*$/i, "").replace(/^[\s:–-]+/, "").trim();
+      content = text
+        .replace(/^.*?\bto\s+onyx\b/i, "")
+        .replace(/\bas\s+"?[^"\n]+"?\s*$/i, "")
+        .replace(/^[\s:–-]+/, "")
+        .trim();
       if (!content) {
-        setFeed((f) => [...f, { role: "error", text: 'Tell me what to save, e.g. "save to Onyx: gravity-wave detector notes…" or "save that to Onyx".' }]);
+        setFeed((f) => [
+          ...f,
+          {
+            role: "error",
+            text: 'Tell me what to save, e.g. "save to Onyx: gravity-wave detector notes…" or "save that to Onyx".',
+          },
+        ]);
         return true;
       }
     }
@@ -1015,9 +1369,25 @@ const AgentPanel: Component = () => {
       // what's already in the KB? Best-effort — never blocks the save.
       try {
         const chk = await kbCheck(content);
-        const icon = chk.verdict === "contradicts" ? "⚠" : chk.verdict === "overlaps" ? "↔" : chk.verdict === "adds" ? "➕" : "✦";
-        setFeed((f) => [...f, { role: "assistant", text: `${icon} ${chk.note}`, citations: chk.related.length ? chk.related : undefined }]);
-      } catch { /* check is best-effort */ }
+        const icon =
+          chk.verdict === "contradicts"
+            ? "⚠"
+            : chk.verdict === "overlaps"
+              ? "↔"
+              : chk.verdict === "adds"
+                ? "➕"
+                : "✦";
+        setFeed((f) => [
+          ...f,
+          {
+            role: "assistant",
+            text: `${icon} ${chk.note}`,
+            citations: chk.related.length ? chk.related : undefined,
+          },
+        ]);
+      } catch {
+        /* check is best-effort */
+      }
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
     }
@@ -1046,10 +1416,22 @@ const AgentPanel: Component = () => {
     let date: Date | null = null;
     let start: string = "";
     let durMin = 60;
-    const cut = (re: RegExp) => { const m = rest.match(re); if (m) { rest = (rest.slice(0, m.index) + rest.slice(m.index! + m[0].length)).replace(/\s{2,}/g, " ").trim(); } return m; };
+    const cut = (re: RegExp) => {
+      const m = rest.match(re);
+      if (m) {
+        rest = (rest.slice(0, m.index) + rest.slice(m.index! + m[0].length)).replace(/\s{2,}/g, " ").trim();
+      }
+      return m;
+    };
 
     // Duration — "for 90 min" / "for 2 hours".
-    { const m = cut(/\bfor\s+(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b/i); if (m) { const n = Number(m[1]); durMin = /^h/i.test(m[2]!) ? Math.round(n * 60) : Math.round(n); } }
+    {
+      const m = cut(/\bfor\s+(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b/i);
+      if (m) {
+        const n = Number(m[1]);
+        durMin = /^h/i.test(m[2]!) ? Math.round(n * 60) : Math.round(n);
+      }
+    }
 
     // Date — today / tomorrow / weekday / "next week" / month-day.
     if (cut(/\btoday\b/i)) date = new Date(now);
@@ -1064,8 +1446,11 @@ const AgentPanel: Component = () => {
       } else if (cut(/\bnext\s+week\b/i)) {
         date = new Date(now.getTime() + 7 * 864e5);
       } else {
-        const mo = cut(new RegExp(`\\b(?:on\\s+)?(${MONTHS_L.join("|")})\\w*\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, "i"))
-          || cut(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTHS_L.join("|")})\\w*\\b`, "i"));
+        const mo =
+          cut(
+            new RegExp(`\\b(?:on\\s+)?(${MONTHS_L.join("|")})\\w*\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, "i"),
+          ) ||
+          cut(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTHS_L.join("|")})\\w*\\b`, "i"));
         if (mo) {
           const firstIsMonth = MONTHS_L.includes(mo[1]!.slice(0, 3).toLowerCase());
           const monIdx = MONTHS_L.indexOf((firstIsMonth ? mo[1]! : mo[2]!).slice(0, 3).toLowerCase());
@@ -1081,9 +1466,12 @@ const AgentPanel: Component = () => {
     if (cut(/\b(?:at\s+)?noon\b/i)) start = "12:00";
     else if (cut(/\b(?:at\s+)?midnight\b/i)) start = "00:00";
     else {
-      const tm = cut(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) || cut(/\bat\s+(\d{1,2})(?::(\d{2}))?\b/i);
+      const tm =
+        cut(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) || cut(/\bat\s+(\d{1,2})(?::(\d{2}))?\b/i);
       if (tm) {
-        let h = Number(tm[1]); const mi = tm[2] ? Number(tm[2]) : 0; const ap = (tm[3] ?? "").toLowerCase();
+        let h = Number(tm[1]);
+        const mi = tm[2] ? Number(tm[2]) : 0;
+        const ap = (tm[3] ?? "").toLowerCase();
         if (ap === "pm" && h < 12) h += 12;
         if (ap === "am" && h === 12) h = 0;
         start = `${pad2c(h)}:${pad2c(mi)}`;
@@ -1093,20 +1481,38 @@ const AgentPanel: Component = () => {
     if (!date) {
       // No explicit date: if a time was given and it's already past today, use tomorrow.
       date = new Date(now);
-      if (start) { const [h, m] = start.split(":").map(Number); const cand = new Date(now); cand.setHours(h!, m!, 0, 0); if (cand.getTime() <= now.getTime()) date = new Date(now.getTime() + 864e5); }
+      if (start) {
+        const [h, m] = start.split(":").map(Number);
+        const cand = new Date(now);
+        cand.setHours(h!, m!, 0, 0);
+        if (cand.getTime() <= now.getTime()) date = new Date(now.getTime() + 864e5);
+      }
     }
     let end = "";
-    if (start) { const [h, m] = start.split(":").map(Number); const e = new Date(0); e.setHours(h!, (m ?? 0) + durMin, 0, 0); end = hmOf(e); }
+    if (start) {
+      const [h, m] = start.split(":").map(Number);
+      const e = new Date(0);
+      e.setHours(h!, (m ?? 0) + durMin, 0, 0);
+      end = hmOf(e);
+    }
     // Clean leftover connective words from the title.
-    const title = rest.replace(/^(?:to|for|about|:|-|–)\s+/i, "").replace(/\b(?:on|in|to)\s+(?:my\s+)?calendar\b/gi, "").replace(/\s{2,}/g, " ").trim();
+    const title = rest
+      .replace(/^(?:to|for|about|:|-|–)\s+/i, "")
+      .replace(/\b(?:on|in|to)\s+(?:my\s+)?calendar\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
     return { date: isoOf(date), start, end, title };
   };
 
   const calRange = (text: string): { lo: string; hi: string; label: string } => {
     const today = new Date();
     const t = isoOf(today);
-    if (/\btomorrow\b/i.test(text)) { const d = isoOf(new Date(Date.now() + 864e5)); return { lo: d, hi: d, label: "tomorrow" }; }
-    if (/\b(this\s+)?week\b|\bnext\s+7\b|\bcoming\s+up\b|\bupcoming\b/i.test(text)) return { lo: t, hi: isoOf(new Date(Date.now() + 7 * 864e5)), label: "this week" };
+    if (/\btomorrow\b/i.test(text)) {
+      const d = isoOf(new Date(Date.now() + 864e5));
+      return { lo: d, hi: d, label: "tomorrow" };
+    }
+    if (/\b(this\s+)?week\b|\bnext\s+7\b|\bcoming\s+up\b|\bupcoming\b/i.test(text))
+      return { lo: t, hi: isoOf(new Date(Date.now() + 7 * 864e5)), label: "this week" };
     for (let i = 0; i < 7; i++) {
       if (new RegExp(`\\b${WEEKDAYS_L[i]}\\b`, "i").test(text)) {
         const delta = (i - today.getDay() + 7) % 7;
@@ -1121,34 +1527,71 @@ const AgentPanel: Component = () => {
   /** Read the calendar — "what's on my calendar today / this week / friday". */
   const tryCalendarQuery = async (text: string): Promise<boolean> => {
     if (!/\b(calendar|schedule|agenda|events?|meetings?|appointments?|free|busy)\b/i.test(text)) return false;
-    if (!/\b(what|whats|what'?s|show|list|any|anything|do i have|free|busy|when|view|my)\b/i.test(text)) return false;
+    if (!/\b(what|whats|what'?s|show|list|any|anything|do i have|free|busy|when|view|my)\b/i.test(text))
+      return false;
     const { lo, hi, label } = calRange(text);
     setFeed((f) => [...f, { role: "task", text: "📅 Checking your calendar…" }]);
     let evs;
-    try { evs = (await calEvents()).filter((e) => e.date >= lo && e.date <= hi); }
-    catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); return true; }
-    if (!evs.length) { const msg = `You're free ${label}. 🎉`; setFeed((f) => [...f, { role: "assistant", text: msg }]); return true; }
+    try {
+      evs = (await calEvents()).filter((e) => e.date >= lo && e.date <= hi);
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+      return true;
+    }
+    if (!evs.length) {
+      const msg = `You're free ${label}. 🎉`;
+      setFeed((f) => [...f, { role: "assistant", text: msg }]);
+      return true;
+    }
     const groups: { date: string; items: typeof evs }[] = [];
-    for (const e of evs) { const g = groups.at(-1); if (g && g.date === e.date) g.items.push(e); else groups.push({ date: e.date, items: [e] }); }
-    const body = groups.map((g) => `**${dayLabelOf(g.date)}**\n` + g.items.map((e) => `• ${e.time ? `${e.time}${e.end ? `–${e.end}` : ""}` : "all-day"} — ${e.summary}${e.location ? ` (${e.location})` : ""}`).join("\n")).join("\n\n");
+    for (const e of evs) {
+      const g = groups.at(-1);
+      if (g && g.date === e.date) g.items.push(e);
+      else groups.push({ date: e.date, items: [e] });
+    }
+    const body = groups
+      .map(
+        (g) =>
+          `**${dayLabelOf(g.date)}**\n` +
+          g.items
+            .map(
+              (e) =>
+                `• ${e.time ? `${e.time}${e.end ? `–${e.end}` : ""}` : "all-day"} — ${e.summary}${e.location ? ` (${e.location})` : ""}`,
+            )
+            .join("\n"),
+      )
+      .join("\n\n");
     setFeed((f) => [...f, { role: "assistant", text: `Here's your schedule for ${label}:\n\n${body}` }]);
     return true;
   };
 
   /** Add a local event — "schedule lunch with Sam friday at noon for 90 min". */
   const tryCalendarAdd = async (text: string): Promise<boolean> => {
-    const m = text.match(/^(?:schedule|book|plan|add|create|put|set\s*up|new)\b\s*(?:an?\s+)?(?:event|meeting|appointment|call)?\s*[:\-]?\s*([\s\S]+)/i);
+    const m = text.match(
+      /^(?:schedule|book|plan|add|create|put|set\s*up|new)\b\s*(?:an?\s+)?(?:event|meeting|appointment|call)?\s*[:\-]?\s*([\s\S]+)/i,
+    );
     if (!m?.[1]) return false;
     const spec = parseEventSpec(m[1]);
     // Only treat as a calendar add if we found a date/time or the user said "calendar/event".
-    if (!spec.start && !/\b(calendar|event|meeting|appointment|all[\s-]?day|today|tomorrow|next|on)\b/i.test(text)) return false;
-    if (!spec.title) { setFeed((f) => [...f, { role: "error", text: "What should I call the event?" }]); return true; }
+    if (
+      !spec.start &&
+      !/\b(calendar|event|meeting|appointment|all[\s-]?day|today|tomorrow|next|on)\b/i.test(text)
+    )
+      return false;
+    if (!spec.title) {
+      setFeed((f) => [...f, { role: "error", text: "What should I call the event?" }]);
+      return true;
+    }
     setFeed((f) => [...f, { role: "task", text: "📅 Adding to your calendar…" }]);
     try {
       const ev = await calEventAdd({ title: spec.title, date: spec.date, start: spec.start, end: spec.end });
-      const when = spec.start ? `${dayLabelOf(spec.date)} at ${spec.start}${spec.end ? `–${spec.end}` : ""}` : `${dayLabelOf(spec.date)} (all day)`;
+      const when = spec.start
+        ? `${dayLabelOf(spec.date)} at ${spec.start}${spec.end ? `–${spec.end}` : ""}`
+        : `${dayLabelOf(spec.date)} (all day)`;
       setFeed((f) => [...f, { role: "action", text: `✓ Added "${ev.title}" — ${when}` }]);
-    } catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); }
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+    }
     return true;
   };
 
@@ -1162,39 +1605,101 @@ const AgentPanel: Component = () => {
   /** Delete a local event — "cancel my dentist appointment". */
   const tryCalendarDelete = async (text: string): Promise<boolean> => {
     if (!/\b(calendar|event|meeting|appointment)\b/i.test(text)) return false;
-    const m = text.match(/^(?:delete|cancel|remove|clear)\s+(?:the\s+|my\s+)?(?:event\s+|meeting\s+|appointment\s+)?(.+?)(?:\s+(?:event|meeting|appointment))?(?:\s+(?:from|on|in|off)\s+(?:my\s+)?calendar)?\s*$/i);
+    const m = text.match(
+      /^(?:delete|cancel|remove|clear)\s+(?:the\s+|my\s+)?(?:event\s+|meeting\s+|appointment\s+)?(.+?)(?:\s+(?:event|meeting|appointment))?(?:\s+(?:from|on|in|off)\s+(?:my\s+)?calendar)?\s*$/i,
+    );
     if (!m?.[1]) return false;
     const q = m[1].replace(/\b(?:event|meeting|appointment)\b/gi, "").trim();
     if (!q) return false;
     const hits = await findLocalByTitle(q);
-    if (!hits.length) { setFeed((f) => [...f, { role: "assistant", text: `I couldn't find a calendar event matching "${q}". (I can only edit events you added in Flux — Google-feed events are read-only.)` }]); return true; }
-    if (hits.length > 1) { setFeed((f) => [...f, { role: "assistant", text: `I found ${hits.length} matching events:\n${hits.map((e) => `• ${e.title} — ${dayLabelOf(e.date)}${e.start ? ` ${e.start}` : ""}`).join("\n")}\nWhich one? Be more specific.` }]); return true; }
+    if (!hits.length) {
+      setFeed((f) => [
+        ...f,
+        {
+          role: "assistant",
+          text: `I couldn't find a calendar event matching "${q}". (I can only edit events you added in Flux — Google-feed events are read-only.)`,
+        },
+      ]);
+      return true;
+    }
+    if (hits.length > 1) {
+      setFeed((f) => [
+        ...f,
+        {
+          role: "assistant",
+          text: `I found ${hits.length} matching events:\n${hits.map((e) => `• ${e.title} — ${dayLabelOf(e.date)}${e.start ? ` ${e.start}` : ""}`).join("\n")}\nWhich one? Be more specific.`,
+        },
+      ]);
+      return true;
+    }
     const ev = hits[0]!;
-    try { await calEventDelete(ev.id); setFeed((f) => [...f, { role: "action", text: `✓ Deleted "${ev.title}" (${dayLabelOf(ev.date)}).` }]); }
-    catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); }
+    try {
+      await calEventDelete(ev.id);
+      setFeed((f) => [...f, { role: "action", text: `✓ Deleted "${ev.title}" (${dayLabelOf(ev.date)}).` }]);
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+    }
     return true;
   };
 
   /** Move a local event — "move my standup to tomorrow at 10am". */
   const tryCalendarMove = async (text: string): Promise<boolean> => {
-    const m = text.match(/^(?:move|reschedule|shift|push|change)\s+(?:the\s+|my\s+)?(.+?)\s+to\s+([\s\S]+)$/i);
+    const m = text.match(
+      /^(?:move|reschedule|shift|push|change)\s+(?:the\s+|my\s+)?(.+?)\s+to\s+([\s\S]+)$/i,
+    );
     if (!m?.[1] || !m[2]) return false;
     if (!/\b(calendar|event|meeting|appointment)\b/i.test(text) && !parseEventSpec(m[2]).start) return false;
     const q = m[1].replace(/\b(?:event|meeting|appointment)\b/gi, "").trim();
     const hits = await findLocalByTitle(q);
-    if (!hits.length) { setFeed((f) => [...f, { role: "assistant", text: `I couldn't find an event matching "${q}" to move. (Only Flux-added events are editable.)` }]); return true; }
-    if (hits.length > 1) { setFeed((f) => [...f, { role: "assistant", text: `Several events match "${q}" — which? ${hits.map((e) => e.title).join(", ")}` }]); return true; }
+    if (!hits.length) {
+      setFeed((f) => [
+        ...f,
+        {
+          role: "assistant",
+          text: `I couldn't find an event matching "${q}" to move. (Only Flux-added events are editable.)`,
+        },
+      ]);
+      return true;
+    }
+    if (hits.length > 1) {
+      setFeed((f) => [
+        ...f,
+        {
+          role: "assistant",
+          text: `Several events match "${q}" — which? ${hits.map((e) => e.title).join(", ")}`,
+        },
+      ]);
+      return true;
+    }
     const ev = hits[0]!;
     const spec = parseEventSpec(`x ${m[2]}`); // prefix so leftover title is ignored
     const patch: { date: string; start?: string; end?: string } = { date: spec.date };
     if (spec.start) {
       // Preserve the original duration if known.
-      const origDur = ev.start && ev.end ? (Number(ev.end.slice(0, 2)) * 60 + Number(ev.end.slice(3))) - (Number(ev.start.slice(0, 2)) * 60 + Number(ev.start.slice(3))) : 60;
+      const origDur =
+        ev.start && ev.end
+          ? Number(ev.end.slice(0, 2)) * 60 +
+            Number(ev.end.slice(3)) -
+            (Number(ev.start.slice(0, 2)) * 60 + Number(ev.start.slice(3)))
+          : 60;
       patch.start = spec.start;
-      const [h, mm] = spec.start.split(":").map(Number); const e = new Date(0); e.setHours(h!, (mm ?? 0) + origDur, 0, 0); patch.end = hmOf(e);
+      const [h, mm] = spec.start.split(":").map(Number);
+      const e = new Date(0);
+      e.setHours(h!, (mm ?? 0) + origDur, 0, 0);
+      patch.end = hmOf(e);
     }
-    try { await calEventUpdate(ev.id, patch); setFeed((f) => [...f, { role: "action", text: `✓ Moved "${ev.title}" to ${dayLabelOf(spec.date)}${spec.start ? ` at ${spec.start}` : ""}.` }]); }
-    catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); }
+    try {
+      await calEventUpdate(ev.id, patch);
+      setFeed((f) => [
+        ...f,
+        {
+          role: "action",
+          text: `✓ Moved "${ev.title}" to ${dayLabelOf(spec.date)}${spec.start ? ` at ${spec.start}` : ""}.`,
+        },
+      ]);
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e) }]);
+    }
     return true;
   };
 
@@ -1248,7 +1753,10 @@ const AgentPanel: Component = () => {
             acc += chunk;
             setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + chunk } : it)));
           };
-          await agentChatStream(`${p || "Summarize this file."}\n\n--- file: ${att.name} ---\n${att.text}`, append);
+          await agentChatStream(
+            `${p || "Summarize this file."}\n\n--- file: ${att.name} ---\n${att.text}`,
+            append,
+          );
           const text = acc.trim() || "(no response)";
           setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text } : it)));
           void speak(text);
@@ -1256,9 +1764,13 @@ const AgentPanel: Component = () => {
         return;
       }
       // Visual Lens — "/lens", "what is this", "identify this/it", "what am I looking at".
-      const lens = p.match(/^\/lens(?:\s+([\s\S]+))?$/i) ||
+      const lens =
+        p.match(/^\/lens(?:\s+([\s\S]+))?$/i) ||
         p.match(/^(?:what(?:'?s| is) this|identify (?:this|it)|what am i looking at)\b[\s\S]*/i);
-      if (lens) { await runLens(lens[1]?.trim() || (/^\/lens/i.test(p) ? "" : p)); return; }
+      if (lens) {
+        await runLens(lens[1]?.trim() || (/^\/lens/i.test(p) ? "" : p));
+        return;
+      }
       // Strip a typed "hey gemma," prefix AND polite lead-ins so "hey gemma, can you
       // remind me to …" / "please run …" still match the ^-anchored intent regexes.
       const pc = p
@@ -1273,38 +1785,102 @@ const AgentPanel: Component = () => {
       if (await maybeRunChain(pc)) return;
       // Shell command — "run …" / "execute …" / "/run …" (rm + destructive blocked).
       const shell = pc.match(SHELL_RE);
-      if (shell?.[1]) { await runShellCmd(shell[1].trim()); return; }
+      if (shell?.[1]) {
+        await runShellCmd(shell[1].trim());
+        return;
+      }
       // Music command (AudioPulse) before chat — "play …" / "skip" / "pause" / …
       if (await runMusic(p)) return;
       // "search …" / "open a new tab and search …" → open a browser tab.
       const search = pc.match(SEARCH_RE);
-      if (search?.[1]) { await runSearch(search[1]); return; }
+      if (search?.[1]) {
+        await runSearch(search[1]);
+        return;
+      }
       // "edit <file>: <instruction>" / "change it to …" → propose an edit (diff + approve).
-      { const me = pc.match(EDIT_RE); if (me?.[1] && me[2]) { await runEdit(me[1], me[2]); return; } }
-      { const mei = pc.match(EDIT_IT_RE); if (mei?.[1]) { const lf = lastCtxFile(); if (lf) { await runEdit(lf.path, mei[1]); return; } } }
+      {
+        const me = pc.match(EDIT_RE);
+        if (me?.[1] && me[2]) {
+          await runEdit(me[1], me[2]);
+          return;
+        }
+      }
+      {
+        const mei = pc.match(EDIT_IT_RE);
+        if (mei?.[1]) {
+          const lf = lastCtxFile();
+          if (lf) {
+            await runEdit(lf.path, mei[1]);
+            return;
+          }
+        }
+      }
       // "read the terminal" → pull its scrollback into context (before the file read).
-      if (TERM_RE.test(pc)) { runReadTerminal(); return; }
+      if (TERM_RE.test(pc)) {
+        runReadTerminal();
+        return;
+      }
       // "read <file>" → pull a file into Gemma's context; "forget the files" clears.
       const rf = pc.match(FILE_RE);
-      if (rf?.[1]) { await runReadFile(rf[1]); return; }
-      if (/^(?:forget|clear|drop|remove)\s+(?:the\s+)?(?:files?|file\s+context|context)\b/i.test(pc)) { clearCtxFiles(); setFeed((f) => [...f, { role: "action", text: "🗑 Cleared the file context." }]); return; }
+      if (rf?.[1]) {
+        await runReadFile(rf[1]);
+        return;
+      }
+      if (/^(?:forget|clear|drop|remove)\s+(?:the\s+)?(?:files?|file\s+context|context)\b/i.test(pc)) {
+        clearCtxFiles();
+        setFeed((f) => [...f, { role: "action", text: "🗑 Cleared the file context." }]);
+        return;
+      }
       // Long-term memory — "remember that …" / "what do you remember".
       const rem = pc.match(REMEMBER_RE);
-      if (rem?.[1]) { await runRemember(rem[1]); return; }
-      if (RECALL_RE.test(pc)) { runRecall(); return; }
+      if (rem?.[1]) {
+        await runRemember(rem[1]);
+        return;
+      }
+      if (RECALL_RE.test(pc)) {
+        runRecall();
+        return;
+      }
       // Reminders / to-dos — "remind me to …" / "what are my reminders".
       const rmd = pc.match(REMIND_RE);
-      if (rmd?.[1]) { await runRemind(rmd[1]); return; }
-      if (REMINDERS_LIST_RE.test(pc)) { await runListReminders(); return; }
+      if (rmd?.[1]) {
+        await runRemind(rmd[1]);
+        return;
+      }
+      if (REMINDERS_LIST_RE.test(pc)) {
+        await runListReminders();
+        return;
+      }
       // Calendar (#114) — "what's on my calendar", "schedule lunch tomorrow at noon",
       // "move my standup to 10am", "cancel the dentist appointment". Local events only.
       if (await tryCalendar(pc)) return;
-      if (SYS_RE.test(pc)) { await runSysStats(); return; }
-      if (HELP_RE.test(pc)) { runHelp(); return; }
+      if (SYS_RE.test(pc)) {
+        await runSysStats();
+        return;
+      }
+      if (HELP_RE.test(pc)) {
+        runHelp();
+        return;
+      }
       // #4 UI introspection (check state/vars before the broad "inspect <selector>").
-      if (STATE_RE.test(pc)) { runState(); return; }
-      { const mv = pc.match(VARS_RE); if (mv) { runVars(mv[1]); return; } }
-      { const mi = pc.match(INSPECT_RE); if (mi?.[1]) { runInspect(mi[1]); return; } }
+      if (STATE_RE.test(pc)) {
+        runState();
+        return;
+      }
+      {
+        const mv = pc.match(VARS_RE);
+        if (mv) {
+          runVars(mv[1]);
+          return;
+        }
+      }
+      {
+        const mi = pc.match(INSPECT_RE);
+        if (mi?.[1]) {
+          runInspect(mi[1]);
+          return;
+        }
+      }
       // Write access to the user's corpora (#118): clip to Scroll / save to Onyx.
       if (await tryClipToScroll(p)) return;
       if (await trySaveToOnyx(p)) return;
@@ -1331,9 +1907,14 @@ const AgentPanel: Component = () => {
         let acc = "";
         await kbAnswer(p, (e) => {
           if (gen !== replyGen) return;
-          if (e.kind === "sources") setFeed((f) => f.map((it, i) => (i === idx ? { ...it, citations: e.hits } : it)));
-          else if (e.kind === "voice") setFeed((f) => f.map((it, i) => (i === idx ? { ...it, voice: e.label } : it)));
-          else if (e.kind === "token") { acc += e.text; setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + e.text } : it))); }
+          if (e.kind === "sources")
+            setFeed((f) => f.map((it, i) => (i === idx ? { ...it, citations: e.hits } : it)));
+          else if (e.kind === "voice")
+            setFeed((f) => f.map((it, i) => (i === idx ? { ...it, voice: e.label } : it)));
+          else if (e.kind === "token") {
+            acc += e.text;
+            setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + e.text } : it)));
+          }
         });
         if (gen !== replyGen) return;
         const text = acc.trim() || "(no relevant notes found — try Reindex in the Notebook)";
@@ -1362,9 +1943,7 @@ const AgentPanel: Component = () => {
         if (!acc.trim()) await agentChatStream(p, append);
         if (gen !== replyGen) return;
         const text = acc.trim() || "(no response)";
-        setFeed((f) =>
-          f.map((it, i) => (i === idx ? { ...it, text } : it)),
-        );
+        setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text } : it)));
         void speak(text);
       }
     } catch (err) {
@@ -1373,7 +1952,10 @@ const AgentPanel: Component = () => {
       setBusy(false);
     }
   };
-  const run = (e: SubmitEvent) => { e.preventDefault(); void send(prompt().trim()); };
+  const run = (e: SubmitEvent) => {
+    e.preventDefault();
+    void send(prompt().trim());
+  };
 
   // Open a KB citation: Scroll articles (http) in a tab, Onyx notes (paths) in the OS.
   const openCitation = (h: KbHit) => {
@@ -1395,7 +1977,9 @@ const AgentPanel: Component = () => {
     }
   };
   const cancelPlan = (idx: number) =>
-    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false, text: `Skipped: ${it.text}` } : it)));
+    setFeed((f) =>
+      f.map((it, i) => (i === idx ? { ...it, pending: false, text: `Skipped: ${it.text}` } : it)),
+    );
 
   // ── Multi-step task loop (#A) ──────────────────────────────────────────────
   const MAX_TASK_STEPS = 8;
@@ -1425,9 +2009,16 @@ const AgentPanel: Component = () => {
   // Does a step look like a concrete action (vs. plain chat)? Guards the trigger so a
   // chatty "what's X and then Y" doesn't get treated as a chain.
   const isActionStep = (s: string): boolean =>
-    SHELL_RE.test(s) || EDIT_RE.test(s) || EDIT_IT_RE.test(s) || SEARCH_RE.test(s) ||
-    FILE_RE.test(s) || TERM_RE.test(s) || REMEMBER_RE.test(s) || REMIND_RE.test(s) ||
-    SYS_RE.test(s) || /^(?:play|pause|skip|resume|shuffle|launch|open)\b/i.test(s);
+    SHELL_RE.test(s) ||
+    EDIT_RE.test(s) ||
+    EDIT_IT_RE.test(s) ||
+    SEARCH_RE.test(s) ||
+    FILE_RE.test(s) ||
+    TERM_RE.test(s) ||
+    REMEMBER_RE.test(s) ||
+    REMIND_RE.test(s) ||
+    SYS_RE.test(s) ||
+    /^(?:play|pause|skip|resume|shuffle|launch|open)\b/i.test(s);
 
   type StepOutcome = { ok: boolean; result: string };
 
@@ -1436,7 +2027,9 @@ const AgentPanel: Component = () => {
   const awaitChainApproval = async (): Promise<StepOutcome> => {
     const last = feed()[feed().length - 1];
     if (last?.pending && (last.role === "edit" || last.role === "shell")) {
-      return await new Promise<StepOutcome>((res) => { chainGate = res; });
+      return await new Promise<StepOutcome>((res) => {
+        chainGate = res;
+      });
     }
     return { ok: true, result: last?.text ?? "" }; // nothing to approve (e.g. edit couldn't be drafted)
   };
@@ -1445,19 +2038,38 @@ const AgentPanel: Component = () => {
   // chain (user cancelled); `result` (output / reply / status) feeds the adaptive
   // loop's re-planning. Mirrors send()'s tool order, minus page actions.
   const routeChainStep = async (raw: string): Promise<StepOutcome> => {
-    const pc = raw.trim()
+    const pc = raw
+      .trim()
       .replace(/^\/?(?:hey\s+)?gemma[,:\s]+/i, "")
       .replace(/^(?:can|could|would|will)\s+you\s+/i, "")
       .replace(/^(?:please|kindly)\s+/i, "")
       .trim();
     if (!pc) return { ok: true, result: "" };
     const shell = pc.match(SHELL_RE);
-    if (shell?.[1]) { await runShellCmd(shell[1].trim()); return await awaitChainApproval(); }
+    if (shell?.[1]) {
+      await runShellCmd(shell[1].trim());
+      return await awaitChainApproval();
+    }
     if (await runMusic(raw)) return { ok: true, result: "music command done" };
     const search = pc.match(SEARCH_RE);
     if (search?.[1]) return { ok: true, result: await runSearch(search[1]) };
-    { const me = pc.match(EDIT_RE); if (me?.[1] && me[2]) { await runEdit(me[1], me[2]); return await awaitChainApproval(); } }
-    { const mei = pc.match(EDIT_IT_RE); if (mei?.[1]) { const lf = lastCtxFile(); if (lf) { await runEdit(lf.path, mei[1]); return await awaitChainApproval(); } } }
+    {
+      const me = pc.match(EDIT_RE);
+      if (me?.[1] && me[2]) {
+        await runEdit(me[1], me[2]);
+        return await awaitChainApproval();
+      }
+    }
+    {
+      const mei = pc.match(EDIT_IT_RE);
+      if (mei?.[1]) {
+        const lf = lastCtxFile();
+        if (lf) {
+          await runEdit(lf.path, mei[1]);
+          return await awaitChainApproval();
+        }
+      }
+    }
     if (TERM_RE.test(pc)) return { ok: true, result: runReadTerminal() };
     const rf = pc.match(FILE_RE);
     if (rf?.[1]) return { ok: true, result: await runReadFile(rf[1]) };
@@ -1474,10 +2086,15 @@ const AgentPanel: Component = () => {
     let acc = "";
     setBusy(true);
     try {
-      await agentChatStream(convoPrompt(raw), (c) => { acc += c; setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it))); });
+      await agentChatStream(convoPrompt(raw), (c) => {
+        acc += c;
+        setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it)));
+      });
     } catch (e) {
       setFeed((f) => f.map((it, i) => (i === idx ? { ...it, role: "error", text: String(e) } : it)));
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)));
     return { ok: true, result: acc.trim() };
   };
@@ -1490,7 +2107,10 @@ const AgentPanel: Component = () => {
       for (let i = 0; i < steps.length; i++) {
         setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}/${steps.length}: ${steps[i]}` }]);
         const { ok } = await routeChainStep(steps[i]!);
-        if (!ok) { setFeed((f) => [...f, { role: "task", text: "⏹ Chain stopped (step cancelled)." }]); return; }
+        if (!ok) {
+          setFeed((f) => [...f, { role: "task", text: "⏹ Chain stopped (step cancelled)." }]);
+          return;
+        }
       }
       setFeed((f) => [...f, { role: "task", text: "✓ Chain complete." }]);
     } finally {
@@ -1513,7 +2133,14 @@ const AgentPanel: Component = () => {
       for (let i = 0; i < MAX_FIX_STEPS; i++) {
         setBusy(true);
         let step: NextStep;
-        try { step = await agentNextStep(goal, history); } catch (e) { setFeed((f) => [...f, { role: "error", text: String(e) }]); return; } finally { setBusy(false); }
+        try {
+          step = await agentNextStep(goal, history);
+        } catch (e) {
+          setFeed((f) => [...f, { role: "error", text: String(e) }]);
+          return;
+        } finally {
+          setBusy(false);
+        }
         // The wire type mirrors Rust's #[serde(default)] fields as optional.
         const command = step.command ?? "";
         if (step.done || !command.trim()) {
@@ -1522,7 +2149,10 @@ const AgentPanel: Component = () => {
         }
         setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}: ${command}` }]);
         const { ok, result } = await routeChainStep(command);
-        if (!ok) { setFeed((f) => [...f, { role: "task", text: "⏹ Stopped (step cancelled)." }]); return; }
+        if (!ok) {
+          setFeed((f) => [...f, { role: "task", text: "⏹ Stopped (step cancelled)." }]);
+          return;
+        }
         // Cap each result so a long build log doesn't blow the model's context.
         history.push(`STEP: ${command}\nRESULT: ${result.slice(0, 1500)}`);
       }
@@ -1553,7 +2183,13 @@ const AgentPanel: Component = () => {
     let steps = splitOnConnectors(text);
     if (steps.length < 2 || !isActionStep(steps[0]!)) {
       setBusy(true);
-      try { steps = await agentPlanSteps(text); } catch { steps = []; } finally { setBusy(false); }
+      try {
+        steps = await agentPlanSteps(text);
+      } catch {
+        steps = [];
+      } finally {
+        setBusy(false);
+      }
     }
     if (steps.length < 2 || !isActionStep(steps[0]!)) return false;
     await runChain(steps, text);
@@ -1563,7 +2199,11 @@ const AgentPanel: Component = () => {
   const runTask = async (goal: string) => {
     if (taskRunning()) return;
     setTaskRunning(true);
-    setFeed((f) => [...f, { role: "user", text: `/task ${goal}` }, { role: "task", text: `▶ Task: ${goal}` }]);
+    setFeed((f) => [
+      ...f,
+      { role: "user", text: `/task ${goal}` },
+      { role: "task", text: `▶ Task: ${goal}` },
+    ]);
     const history: string[] = [];
     try {
       for (let i = 0; i < MAX_TASK_STEPS; i++) {
@@ -1625,8 +2265,14 @@ const AgentPanel: Component = () => {
     <aside
       class="agent"
       classList={{ "agent-droppable": filesPanelOpen(), "agent-dropping": dropping() }}
-      onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"; setDropping(true); }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+        setDropping(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false);
+      }}
       onDrop={(e) => void onDrop(e)}
     >
       <div class="agent-inner">
@@ -1648,17 +2294,31 @@ const AgentPanel: Component = () => {
           />
           <strong>Flux Agent</strong>
           <div class="agent-model">
-            <button ref={modelBtn} class="agent-model-btn" title="Pick the local model (Ollama)" onClick={toggleModelMenu}>
+            <button
+              ref={modelBtn}
+              class="agent-model-btn"
+              title="Pick the local model (Ollama)"
+              onClick={toggleModelMenu}
+            >
               {shortModel()} · local ▾
             </button>
             <Show when={modelMenu()}>
               <Portal>
                 <div class="agent-menu-backdrop" onClick={() => setModelMenu(false)} />
                 <div class="agent-model-menu" style={menuPos(modelBtn)}>
-                  <Show when={models().length > 0} fallback={<div class="agent-model-empty">No Ollama models found (is it running?)</div>}>
+                  <Show
+                    when={models().length > 0}
+                    fallback={<div class="agent-model-empty">No Ollama models found (is it running?)</div>}
+                  >
                     <For each={models()}>
                       {(m) => (
-                        <button classList={{ "agent-model-item": true, on: agentModelName() === m }} onClick={() => { setAgentModel(m); setModelMenu(false); }}>
+                        <button
+                          classList={{ "agent-model-item": true, on: agentModelName() === m }}
+                          onClick={() => {
+                            setAgentModel(m);
+                            setModelMenu(false);
+                          }}
+                        >
                           {m}
                         </button>
                       )}
@@ -1677,7 +2337,14 @@ const AgentPanel: Component = () => {
             onClick={async () => {
               const turningOn = !heyGemmaEnabled();
               const ok = await setHeyGemmaEnabled(turningOn);
-              if (turningOn && !ok) setFeed((f) => [...f, { role: "error", text: `🎤 Couldn't start always-on voice — ${voiceStatus() || "microphone unavailable"}.` }]);
+              if (turningOn && !ok)
+                setFeed((f) => [
+                  ...f,
+                  {
+                    role: "error",
+                    text: `🎤 Couldn't start always-on voice — ${voiceStatus() || "microphone unavailable"}.`,
+                  },
+                ]);
             }}
           >
             <Show when={micLive()} fallback="🎙">
@@ -1693,17 +2360,42 @@ const AgentPanel: Component = () => {
             ＋
           </button>
           <div class="agent-model">
-            <button ref={chatsBtn} class="agent-model-btn" title="Past chats" aria-label="Past chats" onClick={() => setChatsMenu(!chatsMenu())}>☰</button>
+            <button
+              ref={chatsBtn}
+              class="agent-model-btn"
+              title="Past chats"
+              aria-label="Past chats"
+              onClick={() => setChatsMenu(!chatsMenu())}
+            >
+              ☰
+            </button>
             <Show when={chatsMenu()}>
               <Portal>
                 <div class="agent-menu-backdrop" onClick={() => setChatsMenu(false)} />
                 <div class="agent-model-menu" style={menuPos(chatsBtn)}>
-                  <Show when={chats().length > 0} fallback={<div class="agent-model-empty">No saved chats yet</div>}>
+                  <Show
+                    when={chats().length > 0}
+                    fallback={<div class="agent-model-empty">No saved chats yet</div>}
+                  >
                     <For each={chats()}>
                       {(s) => (
-                        <button classList={{ "agent-model-item": true, on: s.id === currentId }} onClick={() => loadSession(s)}>
-                          <span style={{ flex: 1, overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{s.title}</span>
-                          <span class="agent-chat-del" title="Delete" onClick={(e) => deleteSession(s.id, e)}>✕</span>
+                        <button
+                          classList={{ "agent-model-item": true, on: s.id === currentId }}
+                          onClick={() => loadSession(s)}
+                        >
+                          <span
+                            style={{
+                              flex: 1,
+                              overflow: "hidden",
+                              "text-overflow": "ellipsis",
+                              "white-space": "nowrap",
+                            }}
+                          >
+                            {s.title}
+                          </span>
+                          <span class="agent-chat-del" title="Delete" onClick={(e) => deleteSession(s.id, e)}>
+                            ✕
+                          </span>
                         </button>
                       )}
                     </For>
@@ -1719,14 +2411,14 @@ const AgentPanel: Component = () => {
             when={feed().length > 0}
             fallback={
               <div class="agent-empty">
-                Chat with your local Gemma — ask anything. Use <kbd>/act</kbd> for a
-                single page action, or <kbd>/task</kbd> for a multi-step goal
-                (e.g. <em>/task find the cheapest listing and open it</em>) — the agent
-                plans one step at a time and you approve each (or tick “Run all”).
+                Chat with your local Gemma — ask anything. Use <kbd>/act</kbd> for a single page action, or{" "}
+                <kbd>/task</kbd> for a multi-step goal (e.g.{" "}
+                <em>/task find the cheapest listing and open it</em>) — the agent plans one step at a time and
+                you approve each (or tick “Run all”).
                 <div class="agent-empty-tips">
                   Try: <em>“what can you do”</em> · <em>“remember that …”</em> ·
-                  <em>“remind me to … at 3pm”</em> · <em>“system status”</em> ·
-                  <em>“search …”</em> · <em>“run …”</em> · <em>“play …”</em>
+                  <em>“remind me to … at 3pm”</em> · <em>“system status”</em> ·<em>“search …”</em> ·{" "}
+                  <em>“run …”</em> · <em>“play …”</em>
                 </div>
               </div>
             }
@@ -1734,14 +2426,24 @@ const AgentPanel: Component = () => {
             <For each={feed()}>
               {(item, i) => (
                 <div classList={{ "agent-msg": true, [`agent-${item.role}`]: true }}>
-                  <Show when={item.image}><img class="agent-thumb" src={item.image} alt="attachment" /></Show>
-                  <Show when={item.voice}><div class="agent-voice" title="A fine-tuned domain specialist answered">⚛ {item.voice} specialist</div></Show>
+                  <Show when={item.image}>
+                    <img class="agent-thumb" src={item.image} alt="attachment" />
+                  </Show>
+                  <Show when={item.voice}>
+                    <div class="agent-voice" title="A fine-tuned domain specialist answered">
+                      ⚛ {item.voice} specialist
+                    </div>
+                  </Show>
                   <div>{item.text}</div>
                   <Show when={item.citations?.length}>
                     <div class="agent-cites">
                       <For each={item.citations}>
                         {(h, n) => (
-                          <button class="agent-cite" title={`[${n() + 1}] ${h.title} — open ${h.path}`} onClick={() => openCitation(h)}>
+                          <button
+                            class="agent-cite"
+                            title={`[${n() + 1}] ${h.title} — open ${h.path}`}
+                            onClick={() => openCitation(h)}
+                          >
                             <span class="agent-cite-n">{n() + 1}</span>
                             <span class="agent-cite-title">{h.title}</span>
                           </button>
@@ -1751,26 +2453,54 @@ const AgentPanel: Component = () => {
                   </Show>
                   <Show when={item.role === "plan" && item.pending && item.action}>
                     <div class="agent-approve">
-                      <button class="agent-approve-yes" onClick={() => void approve(i(), item.action!)}>✓ Approve</button>
-                      <button class="agent-approve-no" onClick={() => cancelPlan(i())}>Skip</button>
+                      <button class="agent-approve-yes" onClick={() => void approve(i(), item.action!)}>
+                        ✓ Approve
+                      </button>
+                      <button class="agent-approve-no" onClick={() => cancelPlan(i())}>
+                        Skip
+                      </button>
                     </div>
                   </Show>
                   <Show when={item.role === "shell" && item.pending && item.shellCmd}>
                     <div class="agent-approve">
-                      <button class="agent-approve-yes" onClick={() => void approveShell(i(), item.shellCmd!)}>▶ Run in terminal</button>
-                      <button class="agent-approve-no" onClick={() => cancelShell(i())}>Cancel</button>
+                      <button
+                        class="agent-approve-yes"
+                        onClick={() => void approveShell(i(), item.shellCmd!)}
+                      >
+                        ▶ Run in terminal
+                      </button>
+                      <button class="agent-approve-no" onClick={() => cancelShell(i())}>
+                        Cancel
+                      </button>
                     </div>
                   </Show>
                   <Show when={item.role === "edit" && item.editDiff}>
                     <div class="agent-diff">
                       <For each={item.editDiff!.split("\n")}>
-                        {(ln) => <div classList={{ "diff-add": ln.startsWith("+ "), "diff-del": ln.startsWith("- "), "diff-hunk": ln.startsWith("@@") }}>{ln || " "}</div>}
+                        {(ln) => (
+                          <div
+                            classList={{
+                              "diff-add": ln.startsWith("+ "),
+                              "diff-del": ln.startsWith("- "),
+                              "diff-hunk": ln.startsWith("@@"),
+                            }}
+                          >
+                            {ln || " "}
+                          </div>
+                        )}
                       </For>
                     </div>
                     <Show when={item.pending && item.editPath && item.editNew !== undefined}>
                       <div class="agent-approve">
-                        <button class="agent-approve-yes" onClick={() => void approveEdit(i(), item.editPath!, item.editNew!)}>✓ Apply</button>
-                        <button class="agent-approve-no" onClick={() => cancelEdit(i())}>Cancel</button>
+                        <button
+                          class="agent-approve-yes"
+                          onClick={() => void approveEdit(i(), item.editPath!, item.editNew!)}
+                        >
+                          ✓ Apply
+                        </button>
+                        <button class="agent-approve-no" onClick={() => cancelEdit(i())}>
+                          Cancel
+                        </button>
                       </div>
                     </Show>
                   </Show>
@@ -1790,21 +2520,39 @@ const AgentPanel: Component = () => {
           <div class="agent-task-bar">
             <Show
               when={taskStep()}
-              fallback={<span class="agent-task-status">{working() ? "planning next step…" : "working…"}</span>}
+              fallback={
+                <span class="agent-task-status">{working() ? "planning next step…" : "working…"}</span>
+              }
             >
               {(s) => (
                 <div class="agent-task-step">
-                  <div class="agent-task-step-label">Step {s().n}: {describeAction(s().action)}</div>
+                  <div class="agent-task-step-label">
+                    Step {s().n}: {describeAction(s().action)}
+                  </div>
                   <div class="agent-approve">
-                    <button class="agent-approve-yes" onClick={() => decideStep("approve")}>✓ Run</button>
-                    <button class="agent-approve-no" onClick={() => decideStep("skip")}>Skip</button>
-                    <button class="agent-approve-no" onClick={() => decideStep("stop")}>⏹ Stop</button>
+                    <button class="agent-approve-yes" onClick={() => decideStep("approve")}>
+                      ✓ Run
+                    </button>
+                    <button class="agent-approve-no" onClick={() => decideStep("skip")}>
+                      Skip
+                    </button>
+                    <button class="agent-approve-no" onClick={() => decideStep("stop")}>
+                      ⏹ Stop
+                    </button>
                   </div>
                 </div>
               )}
             </Show>
-            <label class="agent-task-auto" title="Auto-approve each step (destructive clicks are still blocked at click time)">
-              <input type="checkbox" checked={taskAuto()} onChange={(e) => setTaskAuto(e.currentTarget.checked)} /> Run all
+            <label
+              class="agent-task-auto"
+              title="Auto-approve each step (destructive clicks are still blocked at click time)"
+            >
+              <input
+                type="checkbox"
+                checked={taskAuto()}
+                onChange={(e) => setTaskAuto(e.currentTarget.checked)}
+              />{" "}
+              Run all
             </label>
           </div>
         </Show>
@@ -1812,26 +2560,77 @@ const AgentPanel: Component = () => {
         {/* Chat-with-page/tabs (#34): scope toggle + one-tap prompts grounded in
             the captured DOM (the agent already receives the page/tab text). */}
         <div class="agent-context">
-          <button classList={{ "agent-scope": true, on: scope() === "page" }} title="Answer using the current page" onClick={() => setScope("page")}>📄 This page</button>
-          <button classList={{ "agent-scope": true, on: scope() === "tabs" }} title="Answer across all open tabs in this space" onClick={() => setScope("tabs")}>🗂 All tabs <Show when={scope() === "tabs"}><span class="agent-scope-n">{browserTabIds().length}</span></Show></button>
-          <button classList={{ "agent-scope": true, on: scope() === "notes" }} title="Answer from your notes & papers (Onyx + Scroll), with citations" onClick={() => setScope("notes")}>✦ My notes</button>
+          <button
+            classList={{ "agent-scope": true, on: scope() === "page" }}
+            title="Answer using the current page"
+            onClick={() => setScope("page")}
+          >
+            📄 This page
+          </button>
+          <button
+            classList={{ "agent-scope": true, on: scope() === "tabs" }}
+            title="Answer across all open tabs in this space"
+            onClick={() => setScope("tabs")}
+          >
+            🗂 All tabs{" "}
+            <Show when={scope() === "tabs"}>
+              <span class="agent-scope-n">{browserTabIds().length}</span>
+            </Show>
+          </button>
+          <button
+            classList={{ "agent-scope": true, on: scope() === "notes" }}
+            title="Answer from your notes & papers (Onyx + Scroll), with citations"
+            onClick={() => setScope("notes")}
+          >
+            ✦ My notes
+          </button>
         </div>
         <div class="agent-chips">
-          <button class="agent-chip" disabled={working()} onClick={() => void send("Summarize this in a few clear bullet points.")}>Summarize</button>
-          <button class="agent-chip" disabled={working()} onClick={() => void send("What are the key points and any action items?")}>Key points</button>
-          <button class="agent-chip" disabled={working()} onClick={() => void send("Explain this like I'm new to the topic.")}>Explain</button>
+          <button
+            class="agent-chip"
+            disabled={working()}
+            onClick={() => void send("Summarize this in a few clear bullet points.")}
+          >
+            Summarize
+          </button>
+          <button
+            class="agent-chip"
+            disabled={working()}
+            onClick={() => void send("What are the key points and any action items?")}
+          >
+            Key points
+          </button>
+          <button
+            class="agent-chip"
+            disabled={working()}
+            onClick={() => void send("Explain this like I'm new to the topic.")}
+          >
+            Explain
+          </button>
           <Show when={activePageUrl()}>
-            <button class="agent-chip" disabled={working()} title="Save this page to your Scroll library" onClick={() => void send("clip this page to scroll")}>📎 Clip to Scroll</button>
+            <button
+              class="agent-chip"
+              disabled={working()}
+              title="Save this page to your Scroll library"
+              onClick={() => void send("clip this page to scroll")}
+            >
+              📎 Clip to Scroll
+            </button>
           </Show>
         </div>
         <Show when={attachment()}>
           {(a) => (
             <div class="agent-attach">
-              <Show when={a().kind === "image"} fallback={<span class="agent-attach-name">📄 {a().name}</span>}>
+              <Show
+                when={a().kind === "image"}
+                fallback={<span class="agent-attach-name">📄 {a().name}</span>}
+              >
                 <img class="agent-attach-thumb" src={(a() as { dataUrl: string }).dataUrl} alt="" />
                 <span class="agent-attach-name">{a().name}</span>
               </Show>
-              <button class="agent-attach-x" title="Remove" onClick={() => setAttachment(null)}>✕</button>
+              <button class="agent-attach-x" title="Remove" onClick={() => setAttachment(null)}>
+                ✕
+              </button>
             </div>
           )}
         </Show>
@@ -1841,12 +2640,20 @@ const AgentPanel: Component = () => {
               {(f) => (
                 <span class="agent-ctxchip" title={f.path}>
                   📄 {f.name}
-                  <span class="agent-ctxchip-x" title="Remove from context" onClick={() => setCtxFiles((c) => c.filter((x) => x.path !== f.path))}>✕</span>
+                  <span
+                    class="agent-ctxchip-x"
+                    title="Remove from context"
+                    onClick={() => setCtxFiles((c) => c.filter((x) => x.path !== f.path))}
+                  >
+                    ✕
+                  </span>
                 </span>
               )}
             </For>
             <Show when={ctxFiles().length > 1}>
-              <button class="agent-ctxchip-clear" onClick={clearCtxFiles}>clear all</button>
+              <button class="agent-ctxchip-clear" onClick={clearCtxFiles}>
+                clear all
+              </button>
             </Show>
           </div>
         </Show>
@@ -1859,25 +2666,65 @@ const AgentPanel: Component = () => {
             onChange={onPickFile}
           />
           <div class="agent-input-row" classList={{ "ai-thinking-border": working() }}>
-            <button type="button" class="agent-attach-btn" title="Attach an image or text file" disabled={working() || taskRunning()} onClick={() => fileInput?.click()}>📎</button>
+            <button
+              type="button"
+              class="agent-attach-btn"
+              title="Attach an image or text file"
+              disabled={working() || taskRunning()}
+              onClick={() => fileInput?.click()}
+            >
+              📎
+            </button>
             <button
               type="button"
               classList={{ "agent-attach-btn": true, "agent-mic-on": recording() }}
               title="Hold to talk (push-to-talk)"
               disabled={working() || taskRunning()}
-              onPointerDown={(e) => { e.preventDefault(); void startRec(); }}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                void startRec();
+              }}
               onPointerUp={() => void stopRec()}
-              onPointerLeave={() => { if (recording()) void stopRec(); }}
-            >🎤</button>
+              onPointerLeave={() => {
+                if (recording()) void stopRec();
+              }}
+            >
+              🎤
+            </button>
             <input
               value={prompt()}
               onInput={(e) => setPrompt(e.currentTarget.value)}
-              placeholder={taskRunning() ? "task running…" : working() ? "thinking…" : attachment() ? "Ask about the attachment…" : scope() === "notes" ? "Ask your notes & papers…" : scope() === "tabs" ? "Ask across tabs · /act · /task" : "Ask · attach 📎 · /act · /task"}
+              placeholder={
+                taskRunning()
+                  ? "task running…"
+                  : working()
+                    ? "thinking…"
+                    : attachment()
+                      ? "Ask about the attachment…"
+                      : scope() === "notes"
+                        ? "Ask your notes & papers…"
+                        : scope() === "tabs"
+                          ? "Ask across tabs · /act · /task"
+                          : "Ask · attach 📎 · /act · /task"
+              }
               disabled={working() || taskRunning()}
-              style={{ flex: "1", "min-width": "0", padding: "10px 12px", border: working() ? "none" : undefined }}
+              style={{
+                flex: "1",
+                "min-width": "0",
+                padding: "10px 12px",
+                border: working() ? "none" : undefined,
+              }}
             />
             <Show when={working() || speaking()}>
-              <button type="button" class="agent-attach-btn agent-stop-btn" title="Stop Gemma" aria-label="Stop" onClick={cancelReply}>■</button>
+              <button
+                type="button"
+                class="agent-attach-btn agent-stop-btn"
+                title="Stop Gemma"
+                aria-label="Stop"
+                onClick={cancelReply}
+              >
+                ■
+              </button>
             </Show>
           </div>
         </form>

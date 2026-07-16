@@ -2,7 +2,12 @@
 // bombs you; each cleared wave comes back faster. 3 lives.
 import { type GameCtx, type GameHandle, W, H, loop, keys, saveHighScore } from "../engine";
 
-interface Alien { x: number; y: number; alive: boolean; row: number }
+interface Alien {
+  x: number;
+  y: number;
+  alive: boolean;
+  row: number;
+}
 
 export default function invaders(ctx: GameCtx): GameHandle {
   const g = ctx.canvas.getContext("2d")!;
@@ -58,7 +63,9 @@ export default function invaders(ctx: GameCtx): GameHandle {
     },
   );
 
-  function alive() { return aliens.filter((a) => a.alive); }
+  function alive() {
+    return aliens.filter((a) => a.alive);
+  }
 
   function stepAliens() {
     const live = alive();
@@ -88,7 +95,10 @@ export default function invaders(ctx: GameCtx): GameHandle {
     if (left) sx = Math.max(6, sx - 0.5 * dt);
     if (right) sx = Math.min(W - SW - 6, sx + 0.5 * dt);
     cool -= dt;
-    if (shoot && cool <= 0) { bullets.push({ x: sx + SW / 2, y: SY }); cool = 300; }
+    if (shoot && cool <= 0) {
+      bullets.push({ x: sx + SW / 2, y: SY });
+      cool = 300;
+    }
 
     for (const b of bullets) b.y -= 0.6 * dt;
     bullets = bullets.filter((b) => b.y > -10);
@@ -99,7 +109,10 @@ export default function invaders(ctx: GameCtx): GameHandle {
     const live = alive();
     const ratio = live.length / (COLS * ROWS);
     moveAcc += dt;
-    if (moveAcc >= 120 + baseMs * ratio) { moveAcc = 0; stepAliens(); }
+    if (moveAcc >= 120 + baseMs * ratio) {
+      moveAcc = 0;
+      stepAliens();
+    }
 
     // Aliens drop bombs.
     bombAcc += dt;
@@ -176,5 +189,10 @@ export default function invaders(ctx: GameCtx): GameHandle {
     }
   });
 
-  return { stop() { l.stop(); k.stop(); } };
+  return {
+    stop() {
+      l.stop();
+      k.stop();
+    },
+  };
 }

@@ -43,15 +43,23 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
   };
 
   const refresh = () => {
-    void vaultStatus().then(setStatus).catch(() => {});
+    void vaultStatus()
+      .then(setStatus)
+      .catch(() => {});
     const h = host();
-    if (h && !locked()) void vaultForHost(h).then(setMatches).catch(() => setMatches([]));
+    if (h && !locked())
+      void vaultForHost(h)
+        .then(setMatches)
+        .catch(() => setMatches([]));
     else setMatches([]);
   };
   onMount(async () => {
     const unLocked = await onVaultLocked(() => refresh());
     const unReady = await onVaultReady(() => refresh());
-    onCleanup(() => { unLocked(); unReady(); });
+    onCleanup(() => {
+      unLocked();
+      unReady();
+    });
   });
   // Poll for host matches only while the popover is open (was an always-on 2.5s
   // timer). The locked-state badge stays fresh via the onVaultLocked event.
@@ -62,18 +70,37 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
 
   const fill = (c: CredentialMeta) => {
     const id = activeId();
-    if (id != null) void vaultFill(id, c.id).then(() => setOpen(false)).catch((e) => setMsg(String(e)));
+    if (id != null)
+      void vaultFill(id, c.id)
+        .then(() => setOpen(false))
+        .catch((e) => setMsg(String(e)));
   };
   const unlock = async () => {
     if (!unlockPw()) return;
-    try { await vaultUnlock(unlockPw()); setUnlockPw(""); setMsg(null); refresh(); }
-    catch (e) { setMsg(String(e)); }
+    try {
+      await vaultUnlock(unlockPw());
+      setUnlockPw("");
+      setMsg(null);
+      refresh();
+    } catch (e) {
+      setMsg(String(e));
+    }
   };
-  const openManager = () => { setOpen(false); void openTab("browser", VAULT_URL); };
+  const openManager = () => {
+    setOpen(false);
+    void openTab("browser", VAULT_URL);
+  };
 
   return (
     <div style={{ display: "contents" }}>
-      <button classList={{ "icon-btn": true, active: open() }} title={locked() ? "Passwords (locked)" : "Passwords"} onClick={() => { setOpen((v) => !v); if (!open()) refresh(); }}>
+      <button
+        classList={{ "icon-btn": true, active: open() }}
+        title={locked() ? "Passwords (locked)" : "Passwords"}
+        onClick={() => {
+          setOpen((v) => !v);
+          if (!open()) refresh();
+        }}
+      >
         {locked() ? "🔒" : "🔑"}
       </button>
       <Show when={open()}>
@@ -85,11 +112,22 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
           </div>
 
           <Show when={locked()}>
-            <div class="start-empty" style={{ padding: "2px 8px 6px" }}>Enter your master password to unlock.</div>
+            <div class="start-empty" style={{ padding: "2px 8px 6px" }}>
+              Enter your master password to unlock.
+            </div>
             <div class="ext-install">
-              <input class="ext-path" type="password" placeholder="Master password" value={unlockPw()} autofocus
-                onInput={(e) => setUnlockPw(e.currentTarget.value)} onKeyDown={(e) => e.key === "Enter" && void unlock()} />
-              <button class="shields-update" disabled={!unlockPw()} onClick={() => void unlock()}>Unlock</button>
+              <input
+                class="ext-path"
+                type="password"
+                placeholder="Master password"
+                value={unlockPw()}
+                autofocus
+                onInput={(e) => setUnlockPw(e.currentTarget.value)}
+                onKeyDown={(e) => e.key === "Enter" && void unlock()}
+              />
+              <button class="shields-update" disabled={!unlockPw()} onClick={() => void unlock()}>
+                Unlock
+              </button>
             </div>
           </Show>
 
@@ -99,14 +137,27 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
             </Show>
 
             <Show when={host()}>
-              <div class="sidebar-section" style={{ padding: "4px 8px 2px" }}>For {host()}</div>
-              <Show when={matches().length > 0} fallback={<div class="start-empty" style={{ padding: "2px 8px 6px" }}>No saved logins for this site.</div>}>
+              <div class="sidebar-section" style={{ padding: "4px 8px 2px" }}>
+                For {host()}
+              </div>
+              <Show
+                when={matches().length > 0}
+                fallback={
+                  <div class="start-empty" style={{ padding: "2px 8px 6px" }}>
+                    No saved logins for this site.
+                  </div>
+                }
+              >
                 <For each={matches()}>
                   {(c) => (
                     <div class="ext-row">
                       <div class="ext-head">
-                        <span class="ext-name" title={c.urls[0] ?? ""}>{c.name || c.urls[0]} <span class="ext-ver">{c.username}</span></span>
-                        <button class="vault-fill" title="Fill this page" onClick={() => fill(c)}>Fill</button>
+                        <span class="ext-name" title={c.urls[0] ?? ""}>
+                          {c.name || c.urls[0]} <span class="ext-ver">{c.username}</span>
+                        </span>
+                        <button class="vault-fill" title="Fill this page" onClick={() => fill(c)}>
+                          Fill
+                        </button>
                       </div>
                     </div>
                   )}
@@ -115,13 +166,21 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
             </Show>
 
             <div class="shields-sep" />
-            <button class="shields-update" onClick={openManager}>⤢ Open Passwords manager</button>
+            <button class="shields-update" onClick={openManager}>
+              ⤢ Open Passwords manager
+            </button>
             <Show when={status()?.protection === "password"}>
-              <button class="shields-update" onClick={() => void vaultLock().then(refresh)}>🔒 Lock now</button>
+              <button class="shields-update" onClick={() => void vaultLock().then(refresh)}>
+                🔒 Lock now
+              </button>
             </Show>
           </Show>
 
-          <Show when={msg()}><div class="ext-error" style={{ color: "var(--flux-text-dim)" }}>{msg()}</div></Show>
+          <Show when={msg()}>
+            <div class="ext-error" style={{ color: "var(--flux-text-dim)" }}>
+              {msg()}
+            </div>
+          </Show>
         </div>
       </Show>
     </div>

@@ -39,18 +39,31 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
 
   if (mod && !e.altKey && !e.shiftKey) {
     switch (k) {
-      case "t": return "new-tab";
-      case "w": return "close-tab";
-      case "b": return "toggle-sidebar";
-      case "l": return "focus-address";
-      case "k": return "palette";
-      case "f": return "find";
-      case "r": return "reload";
-      case "`": return "toggle-terminal";
-      case "=": case "+": return "zoom-in"; // Ctrl+= / numpad +
-      case "-": return "zoom-out";
-      case "0": return "zoom-reset";
-      case "d": return "bookmark-page"; // Ctrl/Cmd+D → bookmark this page
+      case "t":
+        return "new-tab";
+      case "w":
+        return "close-tab";
+      case "b":
+        return "toggle-sidebar";
+      case "l":
+        return "focus-address";
+      case "k":
+        return "palette";
+      case "f":
+        return "find";
+      case "r":
+        return "reload";
+      case "`":
+        return "toggle-terminal";
+      case "=":
+      case "+":
+        return "zoom-in"; // Ctrl+= / numpad +
+      case "-":
+        return "zoom-out";
+      case "0":
+        return "zoom-reset";
+      case "d":
+        return "bookmark-page"; // Ctrl/Cmd+D → bookmark this page
     }
     if (e.key === "Tab") return "next-tab";
     if (k >= "1" && k <= "9") return `tab-${Number(k)}`;

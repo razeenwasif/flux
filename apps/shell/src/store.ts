@@ -70,7 +70,8 @@ const [activeId, setActiveId] = createSignal<number | null>(null);
 const [workspaces, setWorkspaces] = createSignal<Workspace[]>([]);
 const [activeWorkspace, setActiveWorkspaceSig] = createSignal<number>(1);
 export { workspaces, activeWorkspace };
-export const workspaceColor = (w: Workspace): string => `#${(w.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
+export const workspaceColor = (w: Workspace): string =>
+  `#${(w.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
 async function refreshWorkspaces(): Promise<void> {
   const [ws, act] = await Promise.all([workspacesList().catch(() => []), workspaceActive().catch(() => 1)]);
   setWorkspaces(ws);
@@ -105,8 +106,14 @@ const SPLITS_KEY = "flux.splits";
 function loadSplitsRaw(): [number, number][] {
   try {
     const v = JSON.parse(localStorage.getItem(SPLITS_KEY) || "[]");
-    return Array.isArray(v) ? v.filter((p) => Array.isArray(p) && p.length === 2 && typeof p[0] === "number" && typeof p[1] === "number") : [];
-  } catch { return []; }
+    return Array.isArray(v)
+      ? v.filter(
+          (p) => Array.isArray(p) && p.length === 2 && typeof p[0] === "number" && typeof p[1] === "number",
+        )
+      : [];
+  } catch {
+    return [];
+  }
 }
 const [splits, setSplitsRaw] = createSignal<[number, number][]>([]);
 // Persist every mutation to localStorage (tab ids survive restart — the session
@@ -115,7 +122,11 @@ const [splits, setSplitsRaw] = createSignal<[number, number][]>([]);
 function setSplits(update: [number, number][] | ((prev: [number, number][]) => [number, number][])): void {
   setSplitsRaw((prev) => {
     const next = typeof update === "function" ? update(prev) : update;
-    try { localStorage.setItem(SPLITS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+    try {
+      localStorage.setItem(SPLITS_KEY, JSON.stringify(next));
+    } catch {
+      /* private mode */
+    }
     return next;
   });
 }
@@ -131,7 +142,8 @@ export function restoreSplits(): void {
   const clean = loadSplitsRaw().filter((p) => {
     if (!existing.has(p[0]) || !existing.has(p[1]) || p[0] === p[1]) return false;
     if (seen.has(p[0]) || seen.has(p[1])) return false;
-    seen.add(p[0]); seen.add(p[1]);
+    seen.add(p[0]);
+    seen.add(p[1]);
     return true;
   });
   setSplits(clean);
@@ -204,11 +216,17 @@ const [panelSplitRatio, setPanelSplitRatioSig] = createSignal(
   Math.min(0.8, Math.max(0.2, Number(localStorage.getItem("flux.panel.split")) || 0.5)),
 );
 const [panelDragging, setPanelDragging] = createSignal(false);
-export { panels, activePanelId, activePanelIdB, panelWidth, panelSplitRatio, panelDragging, setPanelDragging };
-export const activePanel = (): WebPanel | null =>
-  panels().find((p) => p.id === activePanelId()) ?? null;
-export const activePanelB = (): WebPanel | null =>
-  panels().find((p) => p.id === activePanelIdB()) ?? null;
+export {
+  panels,
+  activePanelId,
+  activePanelIdB,
+  panelWidth,
+  panelSplitRatio,
+  panelDragging,
+  setPanelDragging,
+};
+export const activePanel = (): WebPanel | null => panels().find((p) => p.id === activePanelId()) ?? null;
+export const activePanelB = (): WebPanel | null => panels().find((p) => p.id === activePanelIdB()) ?? null;
 export function setPanelWidth(px: number): void {
   const w = Math.round(Math.max(280, Math.min(640, px)));
   setPanelWidthSig(w);
@@ -226,8 +244,10 @@ function applyPanels(list: WebPanel[]): void {
   if (activePanelId() == null && saved && list.some((p) => p.id === saved)) setActivePanelIdRaw(saved);
   else if (activePanelId() != null && !list.some((p) => p.id === activePanelId())) setActivePanelIdRaw(null);
   const savedB = Number(localStorage.getItem("flux.panel.activeB") || "0");
-  if (activePanelIdB() == null && savedB && savedB !== activePanelId() && list.some((p) => p.id === savedB)) setActivePanelIdBRaw(savedB);
-  else if (activePanelIdB() != null && !list.some((p) => p.id === activePanelIdB())) setActivePanelIdBRaw(null);
+  if (activePanelIdB() == null && savedB && savedB !== activePanelId() && list.some((p) => p.id === savedB))
+    setActivePanelIdBRaw(savedB);
+  else if (activePanelIdB() != null && !list.some((p) => p.id === activePanelIdB()))
+    setActivePanelIdBRaw(null);
 }
 async function refreshPanels(): Promise<void> {
   const list = await panelsList().catch(() => []);
@@ -268,7 +288,10 @@ export function closePanel(): void {
   // with a panel still parked below.
   const b = activePanelIdB();
   setActivePanelId(null);
-  if (b != null) { setActivePanelIdB(null); setActivePanelId(b); }
+  if (b != null) {
+    setActivePanelIdB(null);
+    setActivePanelId(b);
+  }
 }
 export function closePanelB(): void {
   setActivePanelIdB(null);
@@ -278,10 +301,14 @@ export function closePanelB(): void {
 // re-applied on each load. 1.0 = 100% (not stored).
 const ZOOM_STEPS = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 const loadZoom = (): Record<string, number> => {
-  try { return JSON.parse(localStorage.getItem("flux.zoom") || "{}"); } catch { return {}; }
+  try {
+    return JSON.parse(localStorage.getItem("flux.zoom") || "{}");
+  } catch {
+    return {};
+  }
 };
 const [zoomMap, setZoomMap] = createSignal<Record<string, number>>(loadZoom());
-export const zoomFor = (host: string | null): number => (host ? zoomMap()[host] ?? 1 : 1);
+export const zoomFor = (host: string | null): number => (host ? (zoomMap()[host] ?? 1) : 1);
 function setZoomFor(host: string, factor: number): void {
   setZoomMap((m) => {
     const next = { ...m };
@@ -293,10 +320,20 @@ function setZoomFor(host: string, factor: number): void {
 }
 /** Step the zoom for `host` (in/out/reset), persist, and return the new factor. */
 export function nudgeZoom(host: string, dir: "in" | "out" | "reset"): number {
-  if (dir === "reset") { setZoomFor(host, 1); return 1; }
+  if (dir === "reset") {
+    setZoomFor(host, 1);
+    return 1;
+  }
   const cur = zoomFor(host);
-  let i = 0, best = Infinity;
-  ZOOM_STEPS.forEach((s, idx) => { const d = Math.abs(s - cur); if (d < best) { best = d; i = idx; } });
+  let i = 0,
+    best = Infinity;
+  ZOOM_STEPS.forEach((s, idx) => {
+    const d = Math.abs(s - cur);
+    if (d < best) {
+      best = d;
+      i = idx;
+    }
+  });
   const ni = dir === "in" ? Math.min(ZOOM_STEPS.length - 1, i + 1) : Math.max(0, i - 1);
   const next = ZOOM_STEPS[ni]!;
   setZoomFor(host, next);
@@ -325,7 +362,8 @@ export function closeReader(): void {
 // Multi-account containers (BACKLOG #59): isolated cookie/storage jars.
 const [containers, setContainers] = createSignal<Container[]>([]);
 export { containers };
-export const containerColor = (c: Container): string => `#${(c.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
+export const containerColor = (c: Container): string =>
+  `#${(c.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
 export const containerById = (id: number): Container | null => containers().find((c) => c.id === id) ?? null;
 async function refreshContainers(): Promise<void> {
   setContainers(await containersList().catch(() => []));
@@ -368,7 +406,8 @@ async function refreshGroups(): Promise<void> {
   setGroups(await groupsList().catch(() => []));
 }
 /** Color of a group as a CSS hex string. */
-export const groupColor = (g: TabGroup): string => `#${(g.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
+export const groupColor = (g: TabGroup): string =>
+  `#${(g.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
 
 export async function newGroupWithTab(tabId: number): Promise<void> {
   const palette = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
@@ -526,7 +565,9 @@ export function setHibernated(id: number, on: boolean): void {
 
 // Hibernation settings (persisted). Default on, 30 min — the RAM win.
 const [hibernateEnabled, setHibEnabledRaw] = createSignal(localStorage.getItem("flux.hibernate") !== "0");
-const [hibernateMins, setHibMinsRaw] = createSignal(Number(localStorage.getItem("flux.hibernate.mins")) || 30);
+const [hibernateMins, setHibMinsRaw] = createSignal(
+  Number(localStorage.getItem("flux.hibernate.mins")) || 30,
+);
 export { hibernateEnabled, hibernateMins };
 export function setHibernateEnabled(on: boolean): void {
   setHibEnabledRaw(on);
@@ -619,7 +660,9 @@ export function setPagesBarOpen(on: boolean): void {
 // from the toolbar, separate from Files *tabs*. Its cwd persists (localStorage)
 // so it reopens where you left off.
 const [filesPanelOpen, setFilesPanelOpen] = createSignal(false);
-const [filesPanelPath, setFilesPanelPathRaw] = createSignal(localStorage.getItem("flux.filespanel.path") ?? "");
+const [filesPanelPath, setFilesPanelPathRaw] = createSignal(
+  localStorage.getItem("flux.filespanel.path") ?? "",
+);
 export { filesPanelOpen, setFilesPanelOpen, filesPanelPath };
 export function setFilesPanelPath(p: string): void {
   setFilesPanelPathRaw(p);
@@ -777,7 +820,10 @@ export function setAgentModel(name: string): void {
 export function applyAgentModel(): void {
   const saved = agentModelName();
   if (saved) void agentSetModel(saved).catch(() => {});
-  else void agentModel().then((m) => setAgentModelRaw(m)).catch(() => {});
+  else
+    void agentModel()
+      .then((m) => setAgentModelRaw(m))
+      .catch(() => {});
 }
 
 // Omnibox search suggestions (#32). On by default; gating it off keeps your
@@ -809,8 +855,7 @@ export function ensureFavicon(host: string | null): void {
 }
 
 /** Whether a tab (default: the active one) is mid-load. */
-export const isLoading = (id: number | null = activeId()): boolean =>
-  id != null && loadingTabs().has(id);
+export const isLoading = (id: number | null = activeId()): boolean => id != null && loadingTabs().has(id);
 
 export function setTabLoading(id: number, loading: boolean): void {
   setLoadingTabs((s) => {
@@ -824,16 +869,19 @@ export function setTabLoading(id: number, loading: boolean): void {
 
 // Memoized — read in many reactive scopes per render (effects, components, the
 // sidebar); recompute once per tabs()/activeId() change, not per call.
-export const activeTab = createMemo((): TabMeta | null =>
-  tabs().find((t) => t.id === activeId()) ?? null);
+export const activeTab = createMemo((): TabMeta | null => tabs().find((t) => t.id === activeId()) ?? null);
 
 // Only the active workspace's tabs appear in the strip (#44). Memoized — these
 // are read many times per render (every tab row, group section, split fold), so
 // recomputing the filter each call was O(tabs) per call → O(tabs²) per render.
-export const pinnedTabs = createMemo(() => tabs().filter((t) => t.pinned && t.folder == null && t.workspace === activeWorkspace()));
+export const pinnedTabs = createMemo(() =>
+  tabs().filter((t) => t.pinned && t.folder == null && t.workspace === activeWorkspace()),
+);
 // Folder tabs are parked out of the strip (rendered in the folder section); they
 // stay hibernated for ≈0 RAM.
-export const unpinnedTabs = createMemo(() => tabs().filter((t) => !t.pinned && t.folder == null && t.workspace === activeWorkspace()));
+export const unpinnedTabs = createMemo(() =>
+  tabs().filter((t) => !t.pinned && t.folder == null && t.workspace === activeWorkspace()),
+);
 /** Active-workspace tabs in a given folder (for the folder section). */
 export const folderTabs = (folderId: number) =>
   tabs().filter((t) => t.folder === folderId && t.workspace === activeWorkspace());
@@ -868,7 +916,12 @@ export async function refreshTabs(): Promise<void> {
   setContainers(snapshot.containers);
 }
 
-export async function openTab(kind: TabKind, url?: string, isPrivate?: boolean, background?: boolean): Promise<TabMeta> {
+export async function openTab(
+  kind: TabKind,
+  url?: string,
+  isPrivate?: boolean,
+  background?: boolean,
+): Promise<TabMeta> {
   const tab = await tabCreate(kind, url, isPrivate);
   if (!background) setActiveId(tab.id); // background tabs (middle/Ctrl-click) don't steal focus
   await refreshTabs();
@@ -935,8 +988,12 @@ const ACCESS_KEY = "flux.tabAccess";
 const ARCHIVED_KEY = "flux.archivedTabs";
 const ARCH_DAYS_KEY = "flux.autoArchive.days";
 
-const readJson = <T,>(key: string, fallback: T): T => {
-  try { return JSON.parse(localStorage.getItem(key) || "") as T; } catch { return fallback; }
+const readJson = <T>(key: string, fallback: T): T => {
+  try {
+    return JSON.parse(localStorage.getItem(key) || "") as T;
+  } catch {
+    return fallback;
+  }
 };
 let accessMap: Record<string, number> = readJson(ACCESS_KEY, {});
 const saveAccess = () => localStorage.setItem(ACCESS_KEY, JSON.stringify(accessMap));
@@ -951,7 +1008,11 @@ export function touchTabUrl(url: string): void {
 export function seedTabAccess(urls: string[]): void {
   const now = Date.now();
   let changed = false;
-  for (const u of urls) if (u && u !== START_URL && accessMap[u] == null) { accessMap[u] = now; changed = true; }
+  for (const u of urls)
+    if (u && u !== START_URL && accessMap[u] == null) {
+      accessMap[u] = now;
+      changed = true;
+    }
   if (changed) saveAccess();
 }
 
@@ -968,10 +1029,19 @@ function persistArchived(list: ArchivedTab[]): void {
 /** Record a tab in the archived list (newest first; dedup by URL). */
 export function archiveTabRecord(url: string, title: string): void {
   if (!url || url === START_URL) return;
-  persistArchived([{ url, title: title || url, ts: Date.now() }, ...archivedTabs().filter((a) => a.url !== url)].slice(0, 200));
+  persistArchived(
+    [{ url, title: title || url, ts: Date.now() }, ...archivedTabs().filter((a) => a.url !== url)].slice(
+      0,
+      200,
+    ),
+  );
 }
-export function removeArchived(url: string): void { persistArchived(archivedTabs().filter((a) => a.url !== url)); }
-export function clearArchived(): void { persistArchived([]); }
+export function removeArchived(url: string): void {
+  persistArchived(archivedTabs().filter((a) => a.url !== url));
+}
+export function clearArchived(): void {
+  persistArchived([]);
+}
 /** Reopen an archived tab and drop it from the list. */
 export async function restoreArchived(a: ArchivedTab): Promise<void> {
   removeArchived(a.url);
@@ -985,7 +1055,15 @@ export function staleTabIds(now: number): number[] {
   if (days <= 0) return [];
   const cutoff = days * 86_400_000;
   return tabs()
-    .filter((t) => t.kind === "browser" && !t.pinned && t.folder == null && t.id !== activeId() && t.url !== START_URL && now - (accessMap[t.url] ?? now) > cutoff)
+    .filter(
+      (t) =>
+        t.kind === "browser" &&
+        !t.pinned &&
+        t.folder == null &&
+        t.id !== activeId() &&
+        t.url !== START_URL &&
+        now - (accessMap[t.url] ?? now) > cutoff,
+    )
     .map((t) => t.id);
 }
 

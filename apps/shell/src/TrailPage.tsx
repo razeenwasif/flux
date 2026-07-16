@@ -12,12 +12,28 @@
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
-import { traceGraph, traceSnapshotGet, traceForget, traceChat, traceChatSend, type Visit, type Edge, type ChatMsg } from "./ipc";
+import {
+  traceGraph,
+  traceSnapshotGet,
+  traceForget,
+  traceChat,
+  traceChatSend,
+  type Visit,
+  type Edge,
+  type ChatMsg,
+} from "./ipc";
 import { openTab } from "./store";
 
 type GNode = {
-  x: number; y: number; vx: number; vy: number; fx: number; fy: number;
-  r: number; visit: Visit; color: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  fx: number;
+  fy: number;
+  r: number;
+  visit: Visit;
+  color: string;
 };
 
 /** Time windows for the scrubber (ms lookback; null = all time). */
@@ -37,7 +53,11 @@ function hueOf(task: string | null | undefined): number {
 }
 
 function hostOf(url: string): string {
-  try { return new URL(url).host; } catch { return url; }
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
@@ -64,47 +84,80 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   // style: 0 = nav (solid violet), 1 = semantic (dashed teal), 2 = citation
   // (cites/implements/same — dashed magenta)
   let edges: { s: number; t: number; w: number; style: 0 | 1 | 2 }[] = [];
-  let raf = 0, alpha = 1, running = false;
+  let raf = 0,
+    alpha = 1,
+    running = false;
   const cam = { x: 0, y: 0, scale: 1 };
-  let dragNode: GNode | null = null, panning = false, moved = false;
-  let lastX = 0, lastY = 0, hoverNode: GNode | null = null, selNode: GNode | null = null;
-  let dpr = 1, W = 0, H = 0;
+  let dragNode: GNode | null = null,
+    panning = false,
+    moved = false;
+  let lastX = 0,
+    lastY = 0,
+    hoverNode: GNode | null = null,
+    selNode: GNode | null = null;
+  let dpr = 1,
+    W = 0,
+    H = 0;
 
   const resize = () => {
     dpr = window.devicePixelRatio || 1;
-    W = wrap.clientWidth; H = wrap.clientHeight;
+    W = wrap.clientWidth;
+    H = wrap.clientHeight;
     canvas.width = Math.max(1, Math.round(W * dpr));
     canvas.height = Math.max(1, Math.round(H * dpr));
     draw();
   };
 
   // ── force simulation (same params as the Omni graph #119) ──
-  const REP = 2400, SPRING = 0.05, LEN = 70, GRAV = 0.02, DAMP = 0.84;
+  const REP = 2400,
+    SPRING = 0.05,
+    LEN = 70,
+    GRAV = 0.02,
+    DAMP = 0.84;
   const step = () => {
     const n = nodes.length;
-    for (let i = 0; i < n; i++) { nodes[i]!.fx = 0; nodes[i]!.fy = 0; }
+    for (let i = 0; i < n; i++) {
+      nodes[i]!.fx = 0;
+      nodes[i]!.fy = 0;
+    }
     for (let i = 0; i < n; i++) {
       const a = nodes[i]!;
       for (let j = i + 1; j < n; j++) {
         const b = nodes[j]!;
-        let dx = a.x - b.x, dy = a.y - b.y;
+        let dx = a.x - b.x,
+          dy = a.y - b.y;
         let d2 = dx * dx + dy * dy;
-        if (d2 < 0.01) { d2 = 0.01; dx = (i - j) * 0.1; dy = 0.1; }
+        if (d2 < 0.01) {
+          d2 = 0.01;
+          dx = (i - j) * 0.1;
+          dy = 0.1;
+        }
         const d = Math.sqrt(d2);
         const f = REP / d2;
-        const ux = (dx / d) * f, uy = (dy / d) * f;
-        a.fx += ux; a.fy += uy; b.fx -= ux; b.fy -= uy;
+        const ux = (dx / d) * f,
+          uy = (dy / d) * f;
+        a.fx += ux;
+        a.fy += uy;
+        b.fx -= ux;
+        b.fy -= uy;
       }
-      a.fx -= a.x * GRAV; a.fy -= a.y * GRAV;
+      a.fx -= a.x * GRAV;
+      a.fy -= a.y * GRAV;
     }
     for (const e of edges) {
-      const a = nodes[e.s], b = nodes[e.t];
+      const a = nodes[e.s],
+        b = nodes[e.t];
       if (!a || !b) continue;
-      const dx = b.x - a.x, dy = b.y - a.y;
+      const dx = b.x - a.x,
+        dy = b.y - a.y;
       const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
       const f = SPRING * (d - LEN) * (0.6 + e.w);
-      const ux = (dx / d) * f, uy = (dy / d) * f;
-      a.fx += ux; a.fy += uy; b.fx -= ux; b.fy -= uy;
+      const ux = (dx / d) * f,
+        uy = (dy / d) * f;
+      a.fx += ux;
+      a.fy += uy;
+      b.fx -= ux;
+      b.fy -= uy;
     }
     for (const a of nodes) {
       if (a === dragNode) continue;
@@ -124,7 +177,10 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   };
   const kick = (a = 0.5) => {
     alpha = Math.max(alpha, a);
-    if (!running) { running = true; raf = requestAnimationFrame(loop); }
+    if (!running) {
+      running = true;
+      raf = requestAnimationFrame(loop);
+    }
   };
 
   const draw = () => {
@@ -139,7 +195,8 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     // citations (cites/implements/same-entity) long-dashed magenta
     ctx.lineWidth = 1 / cam.scale;
     for (const e of edges) {
-      const a = nodes[e.s], b = nodes[e.t];
+      const a = nodes[e.s],
+        b = nodes[e.t];
       if (!a || !b) continue;
       const lit = a === hoverNode || b === hoverNode || a === selNode || b === selNode;
       if (e.style === 1) {
@@ -207,47 +264,74 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   });
   const hit = (px: number, py: number): GNode | null => {
     const w = toWorld(px, py);
-    let best: GNode | null = null, bestD = Infinity;
+    let best: GNode | null = null,
+      bestD = Infinity;
     for (const a of nodes) {
-      const dx = a.x - w.x, dy = a.y - w.y;
+      const dx = a.x - w.x,
+        dy = a.y - w.y;
       const d = Math.sqrt(dx * dx + dy * dy);
-      if (d < a.r + 4 / cam.scale && d < bestD) { best = a; bestD = d; }
+      if (d < a.r + 4 / cam.scale && d < bestD) {
+        best = a;
+        bestD = d;
+      }
     }
     return best;
   };
 
   const onDown = (e: PointerEvent) => {
     const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    lastX = px; lastY = py; moved = false;
+    const px = e.clientX - rect.left,
+      py = e.clientY - rect.top;
+    lastX = px;
+    lastY = py;
+    moved = false;
     const n = hit(px, py);
-    if (n) dragNode = n; else panning = true;
+    if (n) dragNode = n;
+    else panning = true;
     canvas.setPointerCapture(e.pointerId);
   };
   const onMove = (e: PointerEvent) => {
     const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const px = e.clientX - rect.left,
+      py = e.clientY - rect.top;
     if (dragNode) {
       const w = toWorld(px, py);
-      dragNode.x = w.x; dragNode.y = w.y; dragNode.vx = 0; dragNode.vy = 0;
-      moved = true; kick(0.3);
+      dragNode.x = w.x;
+      dragNode.y = w.y;
+      dragNode.vx = 0;
+      dragNode.vy = 0;
+      moved = true;
+      kick(0.3);
     } else if (panning) {
-      cam.x += px - lastX; cam.y += py - lastY; moved = true; draw();
+      cam.x += px - lastX;
+      cam.y += py - lastY;
+      moved = true;
+      draw();
     } else {
       const n = hit(px, py);
-      if (n !== hoverNode) { hoverNode = n; draw(); }
+      if (n !== hoverNode) {
+        hoverNode = n;
+        draw();
+      }
     }
-    lastX = px; lastY = py;
+    lastX = px;
+    lastY = py;
   };
   const onUp = (e: PointerEvent) => {
     if (dragNode && !moved) selectNode(dragNode); // a click, not a drag → open detail
-    dragNode = null; panning = false;
-    try { canvas.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+    dragNode = null;
+    panning = false;
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch {
+      /* not captured */
+    }
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const px = e.clientX - rect.left,
+      py = e.clientY - rect.top;
     const before = toWorld(px, py);
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
     cam.scale = Math.max(0.2, Math.min(5, cam.scale * factor));
@@ -266,7 +350,11 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     chatFor = g.visit.id;
     setChatMsgs([]);
     setChatStream("");
-    void traceChat(g.visit.id).then((m) => { if (chatFor === g.visit.id) setChatMsgs(m); }).catch(() => {});
+    void traceChat(g.visit.id)
+      .then((m) => {
+        if (chatFor === g.visit.id) setChatMsgs(m);
+      })
+      .catch(() => {});
   };
 
   const sendChat = async () => {
@@ -281,7 +369,10 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     try {
       await traceChatSend(vid, msg, (e) => {
         if (chatFor !== vid) return; // user selected another node mid-stream
-        if (e.kind === "token") { acc += e.text; setChatStream(acc); }
+        if (e.kind === "token") {
+          acc += e.text;
+          setChatStream(acc);
+        }
       });
       if (chatFor === vid) {
         setChatMsgs((m) => [...m, { role: "assistant", text: acc, ms: Date.now() }]);
@@ -303,8 +394,11 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     try {
       const s = await traceSnapshotGet(v.snapshot_id);
       setSnapText(s?.text ?? null);
-    } catch { setSnapText(null); }
-    finally { setSnapLoading(false); }
+    } catch {
+      setSnapText(null);
+    } finally {
+      setSnapLoading(false);
+    }
   };
 
   const load = async () => {
@@ -332,7 +426,12 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
         const ang = (i / Math.max(1, vs.length)) * Math.PI * 2;
         const rad = R * (0.2 + 0.8 * Math.sqrt((i + 1) / Math.max(1, vs.length)));
         return {
-          x: Math.cos(ang) * rad, y: Math.sin(ang) * rad, vx: 0, vy: 0, fx: 0, fy: 0,
+          x: Math.cos(ang) * rad,
+          y: Math.sin(ang) * rad,
+          vx: 0,
+          vy: 0,
+          fx: 0,
+          fy: 0,
           r: 4 + Math.sqrt(Math.max(0, v.hits - 1)) * 3,
           visit: v,
           color: `hsl(${hueOf(v.why.task)} 70% 62%)`,
@@ -346,7 +445,9 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
           const w = style === 0 ? 1 : style === 1 ? 0.35 : 0.2;
           return { s: idx.get(e.from), t: idx.get(e.to), w, style };
         })
-        .filter((e): e is { s: number; t: number; w: number; style: 0 | 1 | 2 } => e.s != null && e.t != null);
+        .filter(
+          (e): e is { s: number; t: number; w: number; style: 0 | 1 | 2 } => e.s != null && e.t != null,
+        );
       setStats({
         nodes: nodes.length,
         edges: edges.length,
@@ -357,7 +458,8 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       selNode = selected() ? (nodes.find((n) => n.visit.id === selected()!.id) ?? null) : null;
       if (!selNode) setSelected(null);
       setLoading(false);
-      alpha = 1; kick(1);
+      alpha = 1;
+      kick(1);
     } catch {
       setLoading(false);
     }
@@ -365,7 +467,10 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
 
   const forgetPage = async (v: Visit) => {
     await traceForget({ kind: "url", url: v.url }).catch(() => {});
-    if (selected()?.id === v.id) { setSelected(null); selNode = null; }
+    if (selected()?.id === v.id) {
+      setSelected(null);
+      selNode = null;
+    }
     await load();
   };
   const forgetWindow = async () => {
@@ -377,7 +482,8 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       if (!window.confirm(`Forget everything in the Trail from the last ${win.label}?`)) return;
       await traceForget({ kind: "range", after_ms: Date.now() - win.ms, before_ms: null }).catch(() => {});
     }
-    setSelected(null); selNode = null;
+    setSelected(null);
+    selNode = null;
     await load();
   };
 
@@ -395,7 +501,12 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     scrubTimer = window.setTimeout(() => void load(), 160);
   };
   const fmtT = (ms: number) =>
-    new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    new Date(ms).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   const scrubLabel = createMemo(() => {
     const span = WINDOWS[windowIdx()]!.ms;
     if (span == null) return "";
@@ -413,7 +524,10 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       if (urls.length >= 6) break;
     }
     if (urls.length === 0) return;
-    if (!window.confirm(`Reopen ${urls.length} page${urls.length === 1 ? "" : "s"} from this window as tabs?`)) return;
+    if (
+      !window.confirm(`Reopen ${urls.length} page${urls.length === 1 ? "" : "s"} from this window as tabs?`)
+    )
+      return;
     for (const u of urls) await openTab("browser", u).catch(() => {});
   };
 
@@ -433,12 +547,18 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     ro.observe(wrap);
     void load();
   });
-  onCleanup(() => { cancelAnimationFrame(raf); ro?.disconnect(); });
+  onCleanup(() => {
+    cancelAnimationFrame(raf);
+    ro?.disconnect();
+  });
 
   return (
     <div class="trail">
       <header class="trail-head">
-        <span class="trail-brand"><span class="trail-spark">🧭</span> The Trail <span class="trail-sub">your browsing, as a graph</span></span>
+        <span class="trail-brand">
+          <span class="trail-spark">🧭</span> The Trail{" "}
+          <span class="trail-sub">your browsing, as a graph</span>
+        </span>
         <div class="trail-controls">
           <div class="trail-window">
             <For each={WINDOWS}>
@@ -446,13 +566,27 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                 <button
                   class="trail-win-btn"
                   classList={{ on: windowIdx() === i() }}
-                  onClick={() => { setWindowIdx(i()); setEndMs(null); void load(); }}
-                >{w.label}</button>
+                  onClick={() => {
+                    setWindowIdx(i());
+                    setEndMs(null);
+                    void load();
+                  }}
+                >
+                  {w.label}
+                </button>
               )}
             </For>
           </div>
-          <button class="trail-forget" onClick={() => void forgetWindow()} title="Forget the pages in this window">Forget…</button>
-          <button class="trail-reload" onClick={() => void load()}>↻</button>
+          <button
+            class="trail-forget"
+            onClick={() => void forgetWindow()}
+            title="Forget the pages in this window"
+          >
+            Forget…
+          </button>
+          <button class="trail-reload" onClick={() => void load()}>
+            ↻
+          </button>
         </div>
       </header>
 
@@ -470,14 +604,24 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
           />
           <span class="trail-scrub-label">{scrubLabel()}</span>
           <Show when={endMs() != null}>
-            <button class="trail-scrub-now" onClick={() => { setEndMs(null); void load(); }}>Now</button>
+            <button
+              class="trail-scrub-now"
+              onClick={() => {
+                setEndMs(null);
+                void load();
+              }}
+            >
+              Now
+            </button>
           </Show>
           <button
             class="trail-scrub-reopen"
             disabled={stats().nodes === 0}
             title="Reopen this window's most recent pages as tabs"
             onClick={() => void reopenWindow()}
-          >⏪ Reopen these pages</button>
+          >
+            ⏪ Reopen these pages
+          </button>
         </div>
       </Show>
 
@@ -495,26 +639,41 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
             <Show when={!loading()} fallback={<span>Loading the Trail…</span>}>
               <span>
                 {stats().nodes} pages · {stats().edges - stats().sem - stats().cites} steps
-                <Show when={stats().sem > 0}> · <span class="trail-hud-sem">{stats().sem} related</span></Show>
-                <Show when={stats().cites > 0}> · <span class="trail-hud-cite">{stats().cites} citations</span></Show>
+                <Show when={stats().sem > 0}>
+                  {" "}
+                  · <span class="trail-hud-sem">{stats().sem} related</span>
+                </Show>
+                <Show when={stats().cites > 0}>
+                  {" "}
+                  · <span class="trail-hud-cite">{stats().cites} citations</span>
+                </Show>
               </span>
             </Show>
           </div>
           <Show when={!loading() && stats().nodes === 0}>
             <div class="trail-empty">
-              Nothing captured yet. Browse a few pages (stay ~8s so they’re snapshotted),
-              then come back — your path shows up here.
+              Nothing captured yet. Browse a few pages (stay ~8s so they’re snapshotted), then come back —
+              your path shows up here.
             </div>
           </Show>
         </div>
 
         <aside class="trail-detail" classList={{ open: !!selected() }}>
-          <Show when={selected()} fallback={<div class="trail-detail-hint">Click a page to see how you got there and what it said.</div>}>
+          <Show
+            when={selected()}
+            fallback={
+              <div class="trail-detail-hint">Click a page to see how you got there and what it said.</div>
+            }
+          >
             {(v) => (
               <>
                 <div class="trail-detail-title">{v().title || hostOf(v().url)}</div>
-                <button class="trail-detail-url" onClick={() => props.onNavigate(v().url)} title={v().url}>{hostOf(v().url)} ↗</button>
-                <Show when={selWhy()}><div class="trail-detail-why">{selWhy()}</div></Show>
+                <button class="trail-detail-url" onClick={() => props.onNavigate(v().url)} title={v().url}>
+                  {hostOf(v().url)} ↗
+                </button>
+                <Show when={selWhy()}>
+                  <div class="trail-detail-why">{selWhy()}</div>
+                </Show>
                 <div class="trail-detail-meta">
                   {new Date(v().last_ms).toLocaleString()} · {v().hits} visit{v().hits === 1 ? "" : "s"}
                 </div>
@@ -523,18 +682,46 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                   <div class="trail-entities">
                     <For each={v().entities ?? []}>
                       {(en) => (
-                        <span class="trail-entity" classList={{ primary: en.primary }} title={en.primary ? "this page IS this" : "mentioned on this page"}>
-                          {en.kind === "arxiv" ? `📄 arXiv:${en.value}` : en.kind === "doi" ? `🔗 ${en.value}` : en.kind === "repo" ? `⌨ ${en.value}` : `🗃 ${en.value}`}
+                        <span
+                          class="trail-entity"
+                          classList={{ primary: en.primary }}
+                          title={en.primary ? "this page IS this" : "mentioned on this page"}
+                        >
+                          {en.kind === "arxiv"
+                            ? `📄 arXiv:${en.value}`
+                            : en.kind === "doi"
+                              ? `🔗 ${en.value}`
+                              : en.kind === "repo"
+                                ? `⌨ ${en.value}`
+                                : `🗃 ${en.value}`}
                         </span>
                       )}
                     </For>
                   </div>
                 </Show>
                 <div class="trail-detail-snap">
-                  <Show when={v().snapshot_id != null} fallback={<span class="trail-detail-nosnap">No snapshot — this page wasn’t engaged long enough to capture.</span>}>
-                    <Show when={!snapLoading()} fallback={<span class="trail-detail-nosnap">Loading snapshot…</span>}>
-                      <Show when={snapText()} fallback={<span class="trail-detail-nosnap">Snapshot content was evicted.</span>}>
-                        {(t) => <p class="trail-detail-text">{t().slice(0, 1500)}{t().length > 1500 ? "…" : ""}</p>}
+                  <Show
+                    when={v().snapshot_id != null}
+                    fallback={
+                      <span class="trail-detail-nosnap">
+                        No snapshot — this page wasn’t engaged long enough to capture.
+                      </span>
+                    }
+                  >
+                    <Show
+                      when={!snapLoading()}
+                      fallback={<span class="trail-detail-nosnap">Loading snapshot…</span>}
+                    >
+                      <Show
+                        when={snapText()}
+                        fallback={<span class="trail-detail-nosnap">Snapshot content was evicted.</span>}
+                      >
+                        {(t) => (
+                          <p class="trail-detail-text">
+                            {t().slice(0, 1500)}
+                            {t().length > 1500 ? "…" : ""}
+                          </p>
+                        )}
                       </Show>
                     </Show>
                   </Show>
@@ -545,13 +732,19 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                   <div class="trail-chat-label">✦ Ask about this page</div>
                   <div class="trail-chat-thread">
                     <For each={chatMsgs()}>
-                      {(m) => <div class="trail-chat-msg" classList={{ user: m.role === "user" }}>{m.text}</div>}
+                      {(m) => (
+                        <div class="trail-chat-msg" classList={{ user: m.role === "user" }}>
+                          {m.text}
+                        </div>
+                      )}
                     </For>
                     <Show when={chatStream()}>
                       <div class="trail-chat-msg streaming">{chatStream()}</div>
                     </Show>
                     <Show when={chatMsgs().length === 0 && !chatStream()}>
-                      <div class="trail-chat-empty">No conversation yet — ask something; the thread stays attached to this page.</div>
+                      <div class="trail-chat-empty">
+                        No conversation yet — ask something; the thread stays attached to this page.
+                      </div>
                     </Show>
                   </div>
                   <div class="trail-chat-inputrow">
@@ -561,14 +754,29 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                       value={chatDraft()}
                       disabled={chatBusy()}
                       onInput={(e) => setChatDraft(e.currentTarget.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendChat(); } }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          void sendChat();
+                        }
+                      }}
                     />
-                    <button class="trail-chat-send" disabled={chatBusy() || !chatDraft().trim()} onClick={() => void sendChat()}>↑</button>
+                    <button
+                      class="trail-chat-send"
+                      disabled={chatBusy() || !chatDraft().trim()}
+                      onClick={() => void sendChat()}
+                    >
+                      ↑
+                    </button>
                   </div>
                 </div>
                 <div class="trail-detail-actions">
-                  <button class="trail-detail-open" onClick={() => props.onNavigate(v().url)}>Open page</button>
-                  <button class="trail-detail-forget" onClick={() => void forgetPage(v())}>Forget this page</button>
+                  <button class="trail-detail-open" onClick={() => props.onNavigate(v().url)}>
+                    Open page
+                  </button>
+                  <button class="trail-detail-forget" onClick={() => void forgetPage(v())}>
+                    Forget this page
+                  </button>
                 </div>
               </>
             )}

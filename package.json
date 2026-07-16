@@ -15,6 +15,7 @@
     "perf": "npm run shell:build && node scripts/perf-budget.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.5.0"
+    "@tauri-apps/cli": "^2.5.0",
+    "prettier": "3.9.5"
   }
 }

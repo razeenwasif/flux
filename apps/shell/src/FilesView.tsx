@@ -62,7 +62,12 @@ type Creating = { kind: "dir" | "file"; value: string } | null;
 type Confirm = { title: string; body: string; danger: boolean; yesLabel?: string; onYes: () => void } | null;
 type AiModal = { title: string; state: "loading" | "ok" | "error"; text?: string; err?: string } | null;
 
-const FilesView: Component<{ id: number; path: string; onPathChange: (p: string) => void; onOpenInTab: (url: string) => void }> = (props) => {
+const FilesView: Component<{
+  id: number;
+  path: string;
+  onPathChange: (p: string) => void;
+  onOpenInTab: (url: string) => void;
+}> = (props) => {
   const [cwd, setCwd] = createSignal(props.path);
   const [listing, setListing] = createSignal<DirListing | null>(null);
   const [loading, setLoading] = createSignal(true);
@@ -75,7 +80,11 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   // Preview pane (#87): when on, the single selected file previews on the right
   // (image thumbnail / text contents; binaries → open in default app).
   const [previewOpen, setPreviewOpen] = createSignal(localStorage.getItem("flux.files.preview") === "1");
-  const togglePreview = () => { const v = !previewOpen(); setPreviewOpen(v); localStorage.setItem("flux.files.preview", v ? "1" : "0"); };
+  const togglePreview = () => {
+    const v = !previewOpen();
+    setPreviewOpen(v);
+    localStorage.setItem("flux.files.preview", v ? "1" : "0");
+  };
   type Preview = { state: "loading" | "ok" | "error" } & { att?: DroppedAttachment; err?: string };
   const [preview, setPreview] = createSignal<Preview | null>(null);
   // Recursive search (#88): when on, the Filter box searches filenames under the
@@ -84,7 +93,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   // Semantic re-rank of search hits by filename relevance (#88/#11) — opt-in, since
   // it adds an embed round-trip (and only helps with the model embedder running).
   const [semantic, setSemantic] = createSignal(localStorage.getItem("flux.files.semantic") === "1");
-  const setSemanticPersist = (v: boolean) => { setSemantic(v); localStorage.setItem("flux.files.semantic", v ? "1" : "0"); };
+  const setSemanticPersist = (v: boolean) => {
+    setSemantic(v);
+    localStorage.setItem("flux.files.semantic", v ? "1" : "0");
+  };
   const [searchHits, setSearchHits] = createSignal<FsHit[]>([]);
   const [searching, setSearching] = createSignal(false);
   const searchMode = () => recursive() && filter().trim().length > 0;
@@ -159,7 +171,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     } catch (e) {
       if (gen === loadGen) setError(String(e));
     } finally {
-      if (gen === loadGen) { setLoading(false); setStreaming(false); }
+      if (gen === loadGen) {
+        setLoading(false);
+        setStreaming(false);
+      }
     }
   };
   /** Reload the current directory, optionally selecting a freshly-made entry. */
@@ -186,8 +201,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const undo = async () => {
     try {
       const desc = await fsUndo();
-      if (desc) { await softRefresh(); toast(desc); }
-      else toast("Nothing to undo");
+      if (desc) {
+        await softRefresh();
+        toast(desc);
+      } else toast("Nothing to undo");
     } catch (e) {
       toast(String(e), "err");
     }
@@ -202,11 +219,19 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   };
   const goBack = () => {
     const p = back.pop();
-    if (p) { fwd.push(cwd()); syncNav(); void load(p); }
+    if (p) {
+      fwd.push(cwd());
+      syncNav();
+      void load(p);
+    }
   };
   const goFwd = () => {
     const p = fwd.pop();
-    if (p) { back.push(cwd()); syncNav(); void load(p); }
+    if (p) {
+      back.push(cwd());
+      syncNav();
+      void load(p);
+    }
   };
   const goUp = () => {
     const par = listing()?.parent;
@@ -271,7 +296,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     if (anchor < 0) return selectOnly(i);
     const [lo, hi] = anchor < i ? [anchor, i] : [i, anchor];
     const next = new Set<string>();
-    for (let k = lo; k <= hi; k++) { const n = nameAt(k); if (n) next.add(n); }
+    for (let k = lo; k <= hi; k++) {
+      const n = nameAt(k);
+      if (n) next.add(n);
+    }
     setCursor(i);
     setSelected(next);
   };
@@ -289,7 +317,11 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     setCursor(view().length - 1);
     anchor = 0;
   };
-  const clearSel = () => { setSelected(new Set<string>()); setCursor(-1); anchor = -1; };
+  const clearSel = () => {
+    setSelected(new Set<string>());
+    setCursor(-1);
+    anchor = -1;
+  };
 
   const onRowClick = (i: number, e: MouseEvent) => {
     if (e.shiftKey) selectRange(i);
@@ -299,7 +331,9 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
 
   /** Full paths of the current selection, in view order. */
   const selectedPaths = () =>
-    view().filter((e) => selected().has(e.name)).map((e) => joinPath(cwd(), e.name));
+    view()
+      .filter((e) => selected().has(e.name))
+      .map((e) => joinPath(cwd(), e.name));
 
   // ── File operations ──
   const startCreate = (kind: "dir" | "file") => {
@@ -343,12 +377,18 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
 
   const copySel = () => {
     const paths = selectedPaths();
-    if (paths.length) { setClipboard({ mode: "copy", paths }); toast(`Copied ${paths.length} item${plural(paths.length)}`); }
+    if (paths.length) {
+      setClipboard({ mode: "copy", paths });
+      toast(`Copied ${paths.length} item${plural(paths.length)}`);
+    }
     setMenu(null);
   };
   const cutSel = () => {
     const paths = selectedPaths();
-    if (paths.length) { setClipboard({ mode: "cut", paths }); toast(`Cut ${paths.length} item${plural(paths.length)}`); }
+    if (paths.length) {
+      setClipboard({ mode: "cut", paths });
+      toast(`Cut ${paths.length} item${plural(paths.length)}`);
+    }
     setMenu(null);
   };
   const paste = async () => {
@@ -357,7 +397,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     if (!cb) return;
     try {
       if (cb.mode === "copy") await fsCopy(cb.paths, cwd());
-      else { await fsMove(cb.paths, cwd()); setClipboard(null); }
+      else {
+        await fsMove(cb.paths, cwd());
+        setClipboard(null);
+      }
       await refresh();
     } catch (e) {
       toast(String(e), "err");
@@ -384,9 +427,7 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     const what = n === 1 ? `“${baseName(paths[0]!)}”` : `${n} items`;
     setConfirm({
       title: permanent ? "Delete permanently?" : "Move to Trash?",
-      body: permanent
-        ? `Permanently delete ${what}. This cannot be undone.`
-        : `Move ${what} to the Trash.`,
+      body: permanent ? `Permanently delete ${what}. This cannot be undone.` : `Move ${what} to the Trash.`,
       danger: permanent,
       onYes: async () => {
         setConfirm(null);
@@ -449,7 +490,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
         );
         const ext = extOf(entry.name);
         const suggested = safeBaseName(reply) + (ext ? "." + ext : "");
-        if (suggested === entry.name) { setAi({ title, state: "ok", text: `The current name already fits: “${entry.name}”.` }); return; }
+        if (suggested === entry.name) {
+          setAi({ title, state: "ok", text: `The current name already fits: “${entry.name}”.` });
+          return;
+        }
         setAi(null);
         setConfirm({
           title: "Rename by content?",
@@ -486,7 +530,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     const ro = new ResizeObserver(() => setVh(scroller.clientHeight));
     ro.observe(scroller);
     setVh(scroller.clientHeight);
-    onCleanup(() => { ro.disconnect(); clearTimeout(noticeTimer); });
+    onCleanup(() => {
+      ro.disconnect();
+      clearTimeout(noticeTimer);
+    });
   });
 
   // ── Marquee (rubber-band) selection (#90) ──
@@ -511,7 +558,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     const lo = Math.max(0, Math.floor(Math.min(m.y1, m.y2) / ROW_H));
     const hi = Math.min(view().length - 1, Math.floor(Math.max(m.y1, m.y2) / ROW_H));
     const next = new Set(marqueeBase);
-    for (let i = lo; i <= hi; i++) { const name = nameAt(i); if (name) next.add(name); }
+    for (let i = lo; i <= hi; i++) {
+      const name = nameAt(i);
+      if (name) next.add(name);
+    }
     setSelected(next);
     if (hi >= lo) setCursor(hi);
     marqueeRaf = requestAnimationFrame(marqueeTick);
@@ -530,7 +580,9 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     setMarquee({ x1: x, y1: y, x2: x, y2: y });
     marqueePtr = { x: e.clientX, y: e.clientY };
     filesRoot?.focus(); // keep keyboard nav after the drag
-    const onMove = (ev: MouseEvent) => { marqueePtr = { x: ev.clientX, y: ev.clientY }; };
+    const onMove = (ev: MouseEvent) => {
+      marqueePtr = { x: ev.clientX, y: ev.clientY };
+    };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
@@ -550,16 +602,42 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   const onKey = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement)?.tagName === "INPUT") return;
     if (creating() || renaming()) return;
-    if (ai()) { if (e.key === "Escape") setAi(null); return; }
-    if (confirm()) { if (e.key === "Escape") setConfirm(null); return; }
-    if (menu()) { if (e.key === "Escape") setMenu(null); return; }
+    if (ai()) {
+      if (e.key === "Escape") setAi(null);
+      return;
+    }
+    if (confirm()) {
+      if (e.key === "Escape") setConfirm(null);
+      return;
+    }
+    if (menu()) {
+      if (e.key === "Escape") setMenu(null);
+      return;
+    }
 
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); void undo(); return; }
-    if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); selectAll(); return; }
-    if (mod && e.key.toLowerCase() === "c") { copySel(); return; }
-    if (mod && e.key.toLowerCase() === "x") { cutSel(); return; }
-    if (mod && e.key.toLowerCase() === "v") { void paste(); return; }
+    if (mod && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      void undo();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      selectAll();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === "c") {
+      copySel();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === "x") {
+      cutSel();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === "v") {
+      void paste();
+      return;
+    }
 
     const n = view().length;
     if (e.key === "ArrowDown") {
@@ -608,15 +686,22 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     const q = filter().trim();
     const dir = cwd();
     const sem = semantic();
-    if (!recursive() || !q) { setSearchHits([]); setSearching(false); return; }
+    if (!recursive() || !q) {
+      setSearchHits([]);
+      setSearching(false);
+      return;
+    }
     setSearching(true);
     clearTimeout(searchTimer);
-    searchTimer = window.setTimeout(() => {
-      void fsSearch(dir, q, 500, sem)
-        .then(setSearchHits)
-        .catch(() => setSearchHits([]))
-        .finally(() => setSearching(false));
-    }, sem ? 350 : 200); // a touch more debounce when the embed round-trip is on
+    searchTimer = window.setTimeout(
+      () => {
+        void fsSearch(dir, q, 500, sem)
+          .then(setSearchHits)
+          .catch(() => setSearchHits([]))
+          .finally(() => setSearching(false));
+      },
+      sem ? 350 : 200,
+    ); // a touch more debounce when the embed round-trip is on
     onCleanup(() => clearTimeout(searchTimer));
   });
   const dirOf = (p: string): string => {
@@ -646,7 +731,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
   let previewTimer: number | undefined;
   createEffect(() => {
     const t = previewTarget();
-    if (!t) { setPreview(null); return; }
+    if (!t) {
+      setPreview(null);
+      return;
+    }
     const path = joinPath(cwd(), t.name);
     setPreview({ state: "loading" });
     clearTimeout(previewTimer);
@@ -671,14 +759,32 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     const hasClip = !!clipboard();
     if (m.entry) {
       const items: (MenuItem | "sep")[] = [
-        { label: "Open", run: () => { setMenu(null); openEntry(m.entry!); } },
+        {
+          label: "Open",
+          run: () => {
+            setMenu(null);
+            openEntry(m.entry!);
+          },
+        },
       ];
       if (!m.entry.is_dir)
-        items.push({ label: "Open in default app", run: () => { setMenu(null); void fsOpen(joinPath(cwd(), m.entry!.name)).catch((e) => toast(String(e), "err")); } });
+        items.push({
+          label: "Open in default app",
+          run: () => {
+            setMenu(null);
+            void fsOpen(joinPath(cwd(), m.entry!.name)).catch((e) => toast(String(e), "err"));
+          },
+        });
       if (!m.entry.is_dir && BROWSER_EXTS.has(extOf(m.entry.name)))
         items.push({ label: "Open in browser", run: () => openInBrowser(m.entry!) });
       if (m.entry.is_dir)
-        items.push({ label: "Open terminal here", run: () => { setMenu(null); void openTab("terminal", joinPath(cwd(), m.entry!.name)); } });
+        items.push({
+          label: "Open terminal here",
+          run: () => {
+            setMenu(null);
+            void openTab("terminal", joinPath(cwd(), m.entry!.name));
+          },
+        });
       if (!m.entry.is_dir && selCount <= 1) {
         items.push(
           "sep",
@@ -708,10 +814,36 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     if (hasClip) items.push({ label: "Paste", key: mod("V"), run: () => void paste() });
     items.push(
       "sep",
-      { label: "Open terminal here", run: () => { setMenu(null); void openTab("terminal", cwd()); } },
-      { label: "Undo", key: mod("Z"), run: () => { setMenu(null); void undo(); } },
-      { label: "Select All", key: mod("A"), run: () => { setMenu(null); selectAll(); } },
-      { label: "Refresh", run: () => { setMenu(null); void refresh(); } },
+      {
+        label: "Open terminal here",
+        run: () => {
+          setMenu(null);
+          void openTab("terminal", cwd());
+        },
+      },
+      {
+        label: "Undo",
+        key: mod("Z"),
+        run: () => {
+          setMenu(null);
+          void undo();
+        },
+      },
+      {
+        label: "Select All",
+        key: mod("A"),
+        run: () => {
+          setMenu(null);
+          selectAll();
+        },
+      },
+      {
+        label: "Refresh",
+        run: () => {
+          setMenu(null);
+          void refresh();
+        },
+      },
     );
     return items;
   };
@@ -723,39 +855,80 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
     <div class="files" tabindex={0} ref={filesRoot} onKeyDown={onKey}>
       {/* Toolbar: nav + breadcrumb + actions + search */}
       <div class="files-toolbar">
-        <button class="files-nav" disabled={!canBack()} title="Back" onClick={goBack}>‹</button>
-        <button class="files-nav" disabled={!canFwd()} title="Forward" onClick={goFwd}>›</button>
-        <button class="files-nav" disabled={!listing()?.parent} title="Up" onClick={goUp}>↑</button>
+        <button class="files-nav" disabled={!canBack()} title="Back" onClick={goBack}>
+          ‹
+        </button>
+        <button class="files-nav" disabled={!canFwd()} title="Forward" onClick={goFwd}>
+          ›
+        </button>
+        <button class="files-nav" disabled={!listing()?.parent} title="Up" onClick={goUp}>
+          ↑
+        </button>
         <div class="files-crumbs">
           <For each={crumbs(cwd())}>
             {(c, i) => (
               <>
-                <Show when={i() > 0}><span class="files-crumb-sep">›</span></Show>
+                <Show when={i() > 0}>
+                  <span class="files-crumb-sep">›</span>
+                </Show>
                 <button
                   classList={{ "files-crumb": true, drop: dropTarget() === c.path }}
                   onClick={() => navigate(c.path)}
-                  onDragOver={(e) => { if (dragPaths.length) { e.preventDefault(); setDropTarget(c.path); } }}
+                  onDragOver={(e) => {
+                    if (dragPaths.length) {
+                      e.preventDefault();
+                      setDropTarget(c.path);
+                    }
+                  }}
                   onDragLeave={() => setDropTarget((d) => (d === c.path ? null : d))}
-                  onDrop={(e) => { e.preventDefault(); setDropTarget(null); void doMove(dragPaths, c.path); }}
-                >{c.name}</button>
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDropTarget(null);
+                    void doMove(dragPaths, c.path);
+                  }}
+                >
+                  {c.name}
+                </button>
               </>
             )}
           </For>
         </div>
-        <button class="files-act" title="New folder" onClick={() => startCreate("dir")}><NewFolderIcon /></button>
-        <button class="files-act" title="Refresh" onClick={() => void refresh()}><RefreshIcon /></button>
-        <button classList={{ "files-act": true, on: previewOpen() }} title="Preview pane" onClick={togglePreview}>◰</button>
+        <button class="files-act" title="New folder" onClick={() => startCreate("dir")}>
+          <NewFolderIcon />
+        </button>
+        <button class="files-act" title="Refresh" onClick={() => void refresh()}>
+          <RefreshIcon />
+        </button>
+        <button
+          classList={{ "files-act": true, on: previewOpen() }}
+          title="Preview pane"
+          onClick={togglePreview}
+        >
+          ◰
+        </button>
         <button
           classList={{ "files-act": true, "files-search-toggle": true, on: recursive() }}
-          title={recursive() ? "Searching subfolders — click to filter this folder only" : "Search subfolders (recursive)"}
+          title={
+            recursive()
+              ? "Searching subfolders — click to filter this folder only"
+              : "Search subfolders (recursive)"
+          }
           onClick={() => setRecursive((v) => !v)}
-        >⌕</button>
+        >
+          ⌕
+        </button>
         <Show when={recursive()}>
           <button
             classList={{ "files-act": true, "files-search-toggle": true, on: semantic() }}
-            title={semantic() ? "Semantic ranking on — re-orders matches by relevance (needs the local embed model)" : "Rank matches by semantic relevance (✦)"}
+            title={
+              semantic()
+                ? "Semantic ranking on — re-orders matches by relevance (needs the local embed model)"
+                : "Rank matches by semantic relevance (✦)"
+            }
             onClick={() => setSemanticPersist(!semantic())}
-          >✦</button>
+          >
+            ✦
+          </button>
         </Show>
         <input
           class="files-search"
@@ -771,21 +944,48 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
         <nav class="files-rail">
           <div class="files-rail-section">Quick access</div>
           <For each={places().filter((p) => p.kind === "home" || p.kind === "folder")}>
-            {(p) => <RailItem p={p} cwd={cwd()} dropTarget={dropTarget()} dragging={() => dragPaths.length > 0}
-              onNav={navigate} onOver={setDropTarget} onDrop={(dest) => void doMove(dragPaths, dest)} />}
+            {(p) => (
+              <RailItem
+                p={p}
+                cwd={cwd()}
+                dropTarget={dropTarget()}
+                dragging={() => dragPaths.length > 0}
+                onNav={navigate}
+                onOver={setDropTarget}
+                onDrop={(dest) => void doMove(dragPaths, dest)}
+              />
+            )}
           </For>
           <Show when={places().some((p) => p.kind === "linux")}>
             <div class="files-rail-section">Linux</div>
             <For each={places().filter((p) => p.kind === "linux")}>
-              {(p) => <RailItem p={p} cwd={cwd()} dropTarget={dropTarget()} dragging={() => dragPaths.length > 0}
-                onNav={navigate} onOver={setDropTarget} onDrop={(dest) => void doMove(dragPaths, dest)} />}
+              {(p) => (
+                <RailItem
+                  p={p}
+                  cwd={cwd()}
+                  dropTarget={dropTarget()}
+                  dragging={() => dragPaths.length > 0}
+                  onNav={navigate}
+                  onOver={setDropTarget}
+                  onDrop={(dest) => void doMove(dragPaths, dest)}
+                />
+              )}
             </For>
           </Show>
           <Show when={places().some((p) => p.kind === "drive")}>
             <div class="files-rail-section">Drives</div>
             <For each={places().filter((p) => p.kind === "drive")}>
-              {(p) => <RailItem p={p} cwd={cwd()} dropTarget={dropTarget()} dragging={() => dragPaths.length > 0}
-                onNav={navigate} onOver={setDropTarget} onDrop={(dest) => void doMove(dragPaths, dest)} />}
+              {(p) => (
+                <RailItem
+                  p={p}
+                  cwd={cwd()}
+                  dropTarget={dropTarget()}
+                  dragging={() => dragPaths.length > 0}
+                  onNav={navigate}
+                  onOver={setDropTarget}
+                  onDrop={(dest) => void doMove(dragPaths, dest)}
+                />
+              )}
             </For>
           </Show>
         </nav>
@@ -793,13 +993,22 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
         {/* Listing */}
         <main class="files-main">
           <div class="files-head">
-            <button classList={{ "files-col": true, name: true, sorted: sort().key === "name" }} onClick={() => toggleSort("name")}>
+            <button
+              classList={{ "files-col": true, name: true, sorted: sort().key === "name" }}
+              onClick={() => toggleSort("name")}
+            >
               Name {sortCaret(sort(), "name")}
             </button>
-            <button classList={{ "files-col": true, size: true, sorted: sort().key === "size" }} onClick={() => toggleSort("size")}>
+            <button
+              classList={{ "files-col": true, size: true, sorted: sort().key === "size" }}
+              onClick={() => toggleSort("size")}
+            >
               Size {sortCaret(sort(), "size")}
             </button>
-            <button classList={{ "files-col": true, modified: true, sorted: sort().key === "modified" }} onClick={() => toggleSort("modified")}>
+            <button
+              classList={{ "files-col": true, modified: true, sorted: sort().key === "modified" }}
+              onClick={() => toggleSort("modified")}
+            >
               Modified {sortCaret(sort(), "modified")}
             </button>
           </div>
@@ -808,7 +1017,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
           <Show when={creating()}>
             {(c) => (
               <div class="files-create">
-                <span class="file-icon" style={{ color: c().kind === "dir" ? "var(--flux-violet)" : "var(--flux-teal)" }}>
+                <span
+                  class="file-icon"
+                  style={{ color: c().kind === "dir" ? "var(--flux-violet)" : "var(--flux-teal)" }}
+                >
                   {c().kind === "dir" ? <FolderIcon /> : <FileIcon />}
                 </span>
                 <input
@@ -833,18 +1045,44 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
             ref={scroller}
             onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
             onMouseDown={onListMouseDown}
-            onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains("files-spacer")) clearSel(); }}
-            onContextMenu={(e) => { if (e.target === scroller || (e.target as HTMLElement).classList.contains("files-spacer")) openMenu(e, null); }}
-            onDragOver={(e) => { if (dragPaths.length) { e.preventDefault(); setDropTarget(cwd()); } }}
-            onDrop={(e) => { if (dragPaths.length) { e.preventDefault(); setDropTarget(null); void doMove(dragPaths, cwd()); } }}
+            onClick={(e) => {
+              if (
+                e.target === e.currentTarget ||
+                (e.target as HTMLElement).classList.contains("files-spacer")
+              )
+                clearSel();
+            }}
+            onContextMenu={(e) => {
+              if (e.target === scroller || (e.target as HTMLElement).classList.contains("files-spacer"))
+                openMenu(e, null);
+            }}
+            onDragOver={(e) => {
+              if (dragPaths.length) {
+                e.preventDefault();
+                setDropTarget(cwd());
+              }
+            }}
+            onDrop={(e) => {
+              if (dragPaths.length) {
+                e.preventDefault();
+                setDropTarget(null);
+                void doMove(dragPaths, cwd());
+              }
+            }}
           >
             <Show when={searchMode()}>
               <Show when={!searching()} fallback={<div class="files-empty">Searching…</div>}>
-                <Show when={searchHits().length > 0} fallback={<div class="files-empty">No matches under this folder.</div>}>
+                <Show
+                  when={searchHits().length > 0}
+                  fallback={<div class="files-empty">No matches under this folder.</div>}
+                >
                   <For each={searchHits()}>
                     {(hit) => (
                       <div class="files-hit" title={hit.path} onClick={() => openHit(hit)}>
-                        <span class="file-icon" style={{ color: hit.is_dir ? "var(--flux-violet)" : "var(--flux-teal)" }}>
+                        <span
+                          class="file-icon"
+                          style={{ color: hit.is_dir ? "var(--flux-violet)" : "var(--flux-teal)" }}
+                        >
                           {hit.is_dir ? <FolderIcon /> : <FileIcon />}
                         </span>
                         <span class="files-hit-name">{hit.name}</span>
@@ -855,9 +1093,19 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                 </Show>
               </Show>
             </Show>
-            <Show when={!searchMode() && !loading()} fallback={<Show when={!searchMode()}><div class="files-empty">Loading…</div></Show>}>
+            <Show
+              when={!searchMode() && !loading()}
+              fallback={
+                <Show when={!searchMode()}>
+                  <div class="files-empty">Loading…</div>
+                </Show>
+              }
+            >
               <Show when={!error()} fallback={<div class="files-empty files-err">{error()}</div>}>
-                <Show when={view().length > 0} fallback={<div class="files-empty">This folder is empty.</div>}>
+                <Show
+                  when={view().length > 0}
+                  fallback={<div class="files-empty">This folder is empty.</div>}
+                >
                   <div class="files-spacer" style={{ height: `${view().length * ROW_H}px` }}>
                     <For each={slice()}>
                       {(entry, i) => {
@@ -886,7 +1134,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                                 e.dataTransfer.setData("text/plain", dragPaths.join("\n"));
                               }
                             }}
-                            onDragEnd={() => { dragPaths = []; setDropTarget(null); }}
+                            onDragEnd={() => {
+                              dragPaths = [];
+                              setDropTarget(null);
+                            }}
                             onDragOver={(e) => {
                               if (entry.is_dir && dragPaths.length) {
                                 e.preventDefault();
@@ -906,7 +1157,10 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                             title={entry.name}
                           >
                             <span class="files-cell name">
-                              <span class="file-icon" style={{ color: entry.is_dir ? "var(--flux-violet)" : iconColor(entry.name) }}>
+                              <span
+                                class="file-icon"
+                                style={{ color: entry.is_dir ? "var(--flux-violet)" : iconColor(entry.name) }}
+                              >
                                 {entry.is_dir ? <FolderIcon /> : <FileIcon />}
                               </span>
                               <Show
@@ -917,17 +1171,25 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                                   class="files-rename-input"
                                   autofocus
                                   value={entry.name}
-                                  ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
+                                  ref={(el) =>
+                                    queueMicrotask(() => {
+                                      el.focus();
+                                      el.select();
+                                    })
+                                  }
                                   onClick={(e) => e.stopPropagation()}
                                   onBlur={(e) => void commitRename(entry.name, e.currentTarget.value)}
                                   onKeyDown={(e) => {
                                     e.stopPropagation();
-                                    if (e.key === "Enter") void commitRename(entry.name, e.currentTarget.value);
+                                    if (e.key === "Enter")
+                                      void commitRename(entry.name, e.currentTarget.value);
                                     else if (e.key === "Escape") setRenaming(null);
                                   }}
                                 />
                               </Show>
-                              <Show when={entry.symlink}><span class="files-link">↗</span></Show>
+                              <Show when={entry.symlink}>
+                                <span class="files-link">↗</span>
+                              </Show>
                             </span>
                             <span class="files-cell size">{fmtSize(entry.size, entry.is_dir)}</span>
                             <span class="files-cell modified">{fmtDate(entry.modified)}</span>
@@ -958,12 +1220,17 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
         {/* Preview pane (#87) — the single selected file */}
         <Show when={previewOpen()}>
           <aside class="files-preview">
-            <Show when={preview()} fallback={<div class="files-preview-empty">Select a file to preview.</div>}>
+            <Show
+              when={preview()}
+              fallback={<div class="files-preview-empty">Select a file to preview.</div>}
+            >
               {(p) => (
                 <Switch fallback={<div class="files-preview-empty">Loading…</div>}>
                   <Match when={p().state === "ok" && p().att?.kind === "image"}>
                     <img class="files-preview-img" src={p().att!.data_url} alt={p().att!.name} />
-                    <div class="files-preview-name" title={p().att!.name}>{p().att!.name}</div>
+                    <div class="files-preview-name" title={p().att!.name}>
+                      {p().att!.name}
+                    </div>
                   </Match>
                   <Match when={p().state === "ok" && p().att?.kind === "text"}>
                     <pre class="files-preview-text">{p().att!.text.slice(0, 100_000)}</pre>
@@ -971,7 +1238,15 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                   <Match when={p().state === "error"}>
                     <div class="files-preview-empty">
                       <div>No inline preview for this file type.</div>
-                      <button class="files-btn" onClick={() => { const t = previewTarget(); if (t) void fsOpen(joinPath(cwd(), t.name)).catch((e) => toast(String(e), "err")); }}>Open in default app</button>
+                      <button
+                        class="files-btn"
+                        onClick={() => {
+                          const t = previewTarget();
+                          if (t) void fsOpen(joinPath(cwd(), t.name)).catch((e) => toast(String(e), "err"));
+                        }}
+                      >
+                        Open in default app
+                      </button>
                     </div>
                   </Match>
                 </Switch>
@@ -983,20 +1258,31 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
 
       {/* Status bar */}
       <div class="files-statusbar">
-        <Show when={selected().size > 0} fallback={
-          <span>
-            {counts().total} items · {counts().dirs} folders · {counts().files} files
-            <Show when={streaming()}> · loading more…</Show>
-          </span>
-        }>
+        <Show
+          when={selected().size > 0}
+          fallback={
+            <span>
+              {counts().total} items · {counts().dirs} folders · {counts().files} files
+              <Show when={streaming()}> · loading more…</Show>
+            </span>
+          }
+        >
           <span>{selected().size} selected</span>
         </Show>
         <span style={{ flex: 1 }} />
         <Show when={clipboard()}>
-          {(cb) => <span class="files-clip">{cb().mode === "cut" ? "Cut" : "Copied"} {cb().paths.length}</span>}
+          {(cb) => (
+            <span class="files-clip">
+              {cb().mode === "cut" ? "Cut" : "Copied"} {cb().paths.length}
+            </span>
+          )}
         </Show>
         <label class="files-toggle">
-          <input type="checkbox" checked={showHidden()} onChange={(e) => setShowHidden(e.currentTarget.checked)} />
+          <input
+            type="checkbox"
+            checked={showHidden()}
+            onChange={(e) => setShowHidden(e.currentTarget.checked)}
+          />
           Hidden
         </label>
       </div>
@@ -1007,7 +1293,14 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
           // Portal to <body>: the content card's backdrop-filter is a containing block
           // for position:fixed, which would otherwise offset/clip this menu off-screen.
           <Portal>
-            <div class="files-menu-backdrop" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+            <div
+              class="files-menu-backdrop"
+              onClick={() => setMenu(null)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu(null);
+              }}
+            />
             <div class="files-menu" style={menuStyle(m())}>
               <For each={menuItems()}>
                 {(it) =>
@@ -1016,7 +1309,9 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
                   ) : (
                     <button classList={{ "files-menu-item": true, danger: !!it.danger }} onClick={it.run}>
                       <span>{it.label}</span>
-                      <Show when={it.key}><span class="files-menu-key">{it.key}</span></Show>
+                      <Show when={it.key}>
+                        <span class="files-menu-key">{it.key}</span>
+                      </Show>
                     </button>
                   )
                 }
@@ -1034,8 +1329,13 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
               <div class="files-confirm-title">{c().title}</div>
               <div class="files-confirm-body">{c().body}</div>
               <div class="files-confirm-actions">
-                <button class="files-btn" onClick={() => setConfirm(null)}>Cancel</button>
-                <button classList={{ "files-btn": true, primary: !c().danger, danger: c().danger }} onClick={c().onYes}>
+                <button class="files-btn" onClick={() => setConfirm(null)}>
+                  Cancel
+                </button>
+                <button
+                  classList={{ "files-btn": true, primary: !c().danger, danger: c().danger }}
+                  onClick={c().onYes}
+                >
                   {c().yesLabel ?? (c().danger ? "Delete" : "Move to Trash")}
                 </button>
               </div>
@@ -1063,9 +1363,21 @@ const FilesView: Component<{ id: number; path: string; onPathChange: (p: string)
               </Switch>
               <div class="files-confirm-actions">
                 <Show when={a().state === "ok" && a().text}>
-                  <button class="files-btn" onClick={() => { void navigator.clipboard.writeText(a().text!).then(() => toast("Copied")).catch(() => {}); }}>Copy</button>
+                  <button
+                    class="files-btn"
+                    onClick={() => {
+                      void navigator.clipboard
+                        .writeText(a().text!)
+                        .then(() => toast("Copied"))
+                        .catch(() => {});
+                    }}
+                  >
+                    Copy
+                  </button>
                 </Show>
-                <button class="files-btn primary" onClick={() => setAi(null)}>Close</button>
+                <button class="files-btn primary" onClick={() => setAi(null)}>
+                  Close
+                </button>
               </div>
             </div>
           </div>
@@ -1094,17 +1406,35 @@ const RailItem: Component<{
   onDrop: (p: string) => void;
 }> = (props) => (
   <button
-    classList={{ "files-loc": true, active: props.cwd === props.p.path, drop: props.dropTarget === props.p.path }}
+    classList={{
+      "files-loc": true,
+      active: props.cwd === props.p.path,
+      drop: props.dropTarget === props.p.path,
+    }}
     onClick={() => props.onNav(props.p.path)}
-    onDragOver={(e) => { if (props.dragging()) { e.preventDefault(); props.onOver(props.p.path); } }}
+    onDragOver={(e) => {
+      if (props.dragging()) {
+        e.preventDefault();
+        props.onOver(props.p.path);
+      }
+    }}
     onDragLeave={() => props.onOver(null)}
-    onDrop={(e) => { e.preventDefault(); props.onOver(null); props.onDrop(props.p.path); }}
+    onDrop={(e) => {
+      e.preventDefault();
+      props.onOver(null);
+      props.onDrop(props.p.path);
+    }}
   >
     <span class="files-loc-icon">
-      {props.p.kind === "home" ? <HomeIcon />
-        : props.p.kind === "drive" ? <DriveIcon />
-        : props.p.kind === "linux" ? <LinuxIcon />
-        : <FolderIcon />}
+      {props.p.kind === "home" ? (
+        <HomeIcon />
+      ) : props.p.kind === "drive" ? (
+        <DriveIcon />
+      ) : props.p.kind === "linux" ? (
+        <LinuxIcon />
+      ) : (
+        <FolderIcon />
+      )}
     </span>
     {props.p.name}
   </button>
@@ -1114,7 +1444,9 @@ const RailItem: Component<{
 
 const mod = (k: string): string => (navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+") + k;
 
-function plural(n: number): string { return n === 1 ? "" : "s"; }
+function plural(n: number): string {
+  return n === 1 ? "" : "s";
+}
 
 function extOf(name: string): string {
   const i = name.lastIndexOf(".");
@@ -1123,8 +1455,29 @@ function extOf(name: string): string {
 
 // File types a browser tab can render directly — gate "Open in browser" on these.
 const BROWSER_EXTS = new Set([
-  "html", "htm", "pdf", "svg", "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
-  "txt", "md", "json", "xml", "csv", "log", "mp4", "webm", "mov", "mp3", "wav", "ogg",
+  "html",
+  "htm",
+  "pdf",
+  "svg",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "ico",
+  "txt",
+  "md",
+  "json",
+  "xml",
+  "csv",
+  "log",
+  "mp4",
+  "webm",
+  "mov",
+  "mp3",
+  "wav",
+  "ogg",
 ]);
 
 /** Turn a local OS path into a file:// URL (handles Windows drive paths + backslashes). */
@@ -1137,16 +1490,20 @@ function toFileUrl(p: string): string {
 /** Coerce a model-suggested filename into a safe, single base name (no ext, no path). */
 function safeBaseName(raw: string): string {
   const first = (raw.split(/[\r\n]/)[0] ?? "").trim();
-  return first
-    .replace(/["'`*]/g, "")
-    .replace(/[\\/:]+/g, "-")
-    .replace(/\s+/g, "-")
-    .replace(/\.+$/, "")
-    .slice(0, 80)
-    .trim() || "untitled";
+  return (
+    first
+      .replace(/["'`*]/g, "")
+      .replace(/[\\/:]+/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/\.+$/, "")
+      .slice(0, 80)
+      .trim() || "untitled"
+  );
 }
 
-function sepOf(p: string): string { return p.includes("\\") ? "\\" : "/"; }
+function sepOf(p: string): string {
+  return p.includes("\\") ? "\\" : "/";
+}
 
 function joinPath(dir: string, name: string): string {
   const sep = sepOf(dir);
@@ -1170,7 +1527,8 @@ function invalidName(n: string): boolean {
 }
 
 function menuStyle(m: { x: number; y: number }): JSX.CSSProperties {
-  const W = 210, H = 320;
+  const W = 210,
+    H = 320;
   const x = typeof window !== "undefined" ? Math.min(m.x, window.innerWidth - W - 8) : m.x;
   const y = typeof window !== "undefined" ? Math.min(m.y, window.innerHeight - H - 8) : m.y;
   return { left: `${Math.max(8, x)}px`, top: `${Math.max(8, y)}px` };
@@ -1184,8 +1542,13 @@ function crumbs(path: string): { name: string; path: string }[] {
   let acc = "";
   path.split(sep).forEach((part, i) => {
     if (i === 0) {
-      if (win) { acc = part + sep; out.push({ name: part, path: acc }); }
-      else { acc = "/"; out.push({ name: "/", path: "/" }); }
+      if (win) {
+        acc = part + sep;
+        out.push({ name: part, path: acc });
+      } else {
+        acc = "/";
+        out.push({ name: "/", path: "/" });
+      }
     } else if (part) {
       acc = acc.endsWith(sep) ? acc + part : acc + sep + part;
       out.push({ name: part, path: acc });
@@ -1200,7 +1563,10 @@ function fmtSize(n: number | null, isDir: boolean): string {
   const u = ["KB", "MB", "GB", "TB"];
   let v = n;
   let i = -1;
-  do { v /= 1024; i++; } while (v >= 1024 && i < u.length - 1);
+  do {
+    v /= 1024;
+    i++;
+  } while (v >= 1024 && i < u.length - 1);
   return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${u[i]}`;
 }
 
@@ -1217,7 +1583,8 @@ function fmtDate(ms: number | null): string {
 function iconColor(name: string): string {
   const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
   const inSet = (s: string) => s.split(" ").includes(ext);
-  if (inSet("rs ts tsx js jsx py go c cpp h hpp java rb php sh json toml yaml yml html css md sql lua")) return "#2ff3ff";
+  if (inSet("rs ts tsx js jsx py go c cpp h hpp java rb php sh json toml yaml yml html css md sql lua"))
+    return "#2ff3ff";
   if (inSet("png jpg jpeg gif svg webp bmp ico avif")) return "#9d8df1";
   if (inSet("mp4 mov mp3 wav flac mkv avi webm")) return "#ec4be0";
   if (inSet("zip tar gz 7z rar xz bz2")) return "#ff9f45";
@@ -1235,35 +1602,95 @@ const FolderIcon = () => (
   </svg>
 );
 const FileIcon = () => (
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
+  <svg
+    viewBox="0 0 24 24"
+    width="16"
+    height="16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
     <path d="M14 3v5h5" />
   </svg>
 );
 const HomeIcon = () => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
-    <path d="M3 11l9-7 9 7" /><path d="M5 10v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9" />
+  <svg
+    viewBox="0 0 24 24"
+    width="15"
+    height="15"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M3 11l9-7 9 7" />
+    <path d="M5 10v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9" />
   </svg>
 );
 const DriveIcon = () => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
-    <rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="16.5" cy="12" r="1.3" fill="currentColor" stroke="none" />
+  <svg
+    viewBox="0 0 24 24"
+    width="15"
+    height="15"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <circle cx="16.5" cy="12" r="1.3" fill="currentColor" stroke="none" />
   </svg>
 );
 // WSL distro — a terminal-in-a-box mark (>_), signalling a Linux shell/distro.
 const LinuxIcon = () => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 9l3 3-3 3M13 15h4" />
+  <svg
+    viewBox="0 0 24 24"
+    width="15"
+    height="15"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M7 9l3 3-3 3M13 15h4" />
   </svg>
 );
 const NewFolderIcon = () => (
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg
+    viewBox="0 0 24 24"
+    width="16"
+    height="16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
     <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-7" />
     <path d="M18 3v6M15 6h6" />
   </svg>
 );
 const RefreshIcon = () => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg
+    viewBox="0 0 24 24"
+    width="15"
+    height="15"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
     <path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" />
   </svg>
 );

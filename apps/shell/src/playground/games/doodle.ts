@@ -2,7 +2,11 @@
 // edges). Land on platforms, don't fall off the bottom. Score = height climbed.
 import { type GameCtx, type GameHandle, W, H, loop, keys, saveHighScore } from "../engine";
 
-interface Plat { x: number; y: number; vx: number }
+interface Plat {
+  x: number;
+  y: number;
+  vx: number;
+}
 
 const PW = 66;
 const PH = 12;
@@ -29,14 +33,24 @@ export default function doodle(ctx: GameCtx): GameHandle {
   plats.push({ x: px - PW / 2, y: H - 90, vx: 0 });
 
   const k = keys(
-    (key) => { if (key === "ArrowLeft" || key === "a") left = true; else if (key === "ArrowRight" || key === "d") right = true; },
-    (key) => { if (key === "ArrowLeft" || key === "a") left = false; else if (key === "ArrowRight" || key === "d") right = false; },
+    (key) => {
+      if (key === "ArrowLeft" || key === "a") left = true;
+      else if (key === "ArrowRight" || key === "d") right = true;
+    },
+    (key) => {
+      if (key === "ArrowLeft" || key === "a") left = false;
+      else if (key === "ArrowRight" || key === "d") right = false;
+    },
   );
 
   function addPlatform() {
     const highest = plats.reduce((m, p) => Math.min(m, p.y), H);
     const moving = climbed > 1200 && Math.random() < 0.28;
-    plats.push({ x: Math.random() * (W - PW), y: highest - (48 + Math.random() * 26), vx: moving ? (Math.random() < 0.5 ? -0.12 : 0.12) : 0 });
+    plats.push({
+      x: Math.random() * (W - PW),
+      y: highest - (48 + Math.random() * 26),
+      vx: moving ? (Math.random() < 0.5 ? -0.12 : 0.12) : 0,
+    });
   }
 
   function step(dt: number) {
@@ -49,7 +63,10 @@ export default function doodle(ctx: GameCtx): GameHandle {
     py += vy * dt;
 
     for (const p of plats) {
-      if (p.vx) { p.x += p.vx * dt; if (p.x < 0 || p.x > W - PW) p.vx = -p.vx; }
+      if (p.vx) {
+        p.x += p.vx * dt;
+        if (p.x < 0 || p.x > W - PW) p.vx = -p.vx;
+      }
       // Land only when falling and crossing the platform top within its span.
       if (vy > 0 && px > p.x - PLR && px < p.x + PW + PLR && py + PLR > p.y && py + PLR < p.y + PH + 12) {
         vy = JUMP;
@@ -79,17 +96,32 @@ export default function doodle(ctx: GameCtx): GameHandle {
       g.fillStyle = p.vx ? "#ff8a3d" : "#3ddc78";
       g.fillRect(p.x, p.y, PW, PH);
     }
-    g.shadowBlur = 14; g.shadowColor = "#2ff3ff"; g.fillStyle = "#aefcff";
-    g.beginPath(); g.arc(px, py, PLR, 0, Math.PI * 2); g.fill();
-    g.shadowBlur = 0; g.fillStyle = "#0c0a15";
-    g.fillRect(px - 7, py - 6, 4, 5); g.fillRect(px + 3, py - 6, 4, 5);
+    g.shadowBlur = 14;
+    g.shadowColor = "#2ff3ff";
+    g.fillStyle = "#aefcff";
+    g.beginPath();
+    g.arc(px, py, PLR, 0, Math.PI * 2);
+    g.fill();
+    g.shadowBlur = 0;
+    g.fillStyle = "#0c0a15";
+    g.fillRect(px - 7, py - 6, 4, 5);
+    g.fillRect(px + 3, py - 6, 4, 5);
   }
 
   const l = loop((dt) => {
     if (!over) step(dt);
     draw();
-    if (over && !reported) { reported = true; saveHighScore("doodle", score); ctx.onGameOver(score); }
+    if (over && !reported) {
+      reported = true;
+      saveHighScore("doodle", score);
+      ctx.onGameOver(score);
+    }
   });
 
-  return { stop() { l.stop(); k.stop(); } };
+  return {
+    stop() {
+      l.stop();
+      k.stop();
+    },
+  };
 }

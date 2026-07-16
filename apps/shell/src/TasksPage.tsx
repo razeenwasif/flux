@@ -7,7 +7,15 @@
 import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
 
 import { visibleInterval } from "./poll";
-import { gpuStats, tasksKill, tasksList, tasksStats, type GpuInfo, type ProcInfo, type SysStats } from "./ipc";
+import {
+  gpuStats,
+  tasksKill,
+  tasksList,
+  tasksStats,
+  type GpuInfo,
+  type ProcInfo,
+  type SysStats,
+} from "./ipc";
 import { activeId, updateTabTitle } from "./store";
 
 type SortKey = "mem" | "cpu" | "name";
@@ -22,13 +30,16 @@ const fmtBps = (b: number): string => {
   return `${(b / 1048576).toFixed(1)} MB/s`;
 };
 const fmtUptime = (s: number): string => {
-  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  const d = Math.floor(s / 86400),
+    h = Math.floor((s % 86400) / 3600),
+    m = Math.floor((s % 3600) / 60);
   return [d ? `${d}d` : "", h ? `${h}h` : "", `${m}m`].filter(Boolean).join(" ") || "0m";
 };
 
 /** A live area-graph of a 0–100 series (newest sample on the right), stretched. */
 const Graph: Component<{ data: number[]; color: string }> = (props) => {
-  const W = 240, H = 40;
+  const W = 240,
+    H = 40;
   const geom = createMemo(() => {
     const d = props.data;
     if (!d.length) return { line: "", area: "" };
@@ -44,7 +55,13 @@ const Graph: Component<{ data: number[]; color: string }> = (props) => {
   return (
     <svg class="tm-graph-svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
       <polygon points={geom().area} fill={props.color} opacity="0.16" />
-      <polyline points={geom().line} fill="none" stroke={props.color} stroke-width="1.6" vector-effect="non-scaling-stroke" />
+      <polyline
+        points={geom().line}
+        fill="none"
+        stroke={props.color}
+        stroke-width="1.6"
+        vector-effect="non-scaling-stroke"
+      />
     </svg>
   );
 };
@@ -53,7 +70,9 @@ const Graph: Component<{ data: number[]; color: string }> = (props) => {
 const Bar: Component<{ label: string; pct: number; text: string; color: string }> = (p) => (
   <div class="tm-bar-row">
     <span class="tm-bar-label">{p.label}</span>
-    <div class="tm-bar"><div class="tm-bar-fill" style={{ width: `${Math.min(100, p.pct)}%`, background: p.color }} /></div>
+    <div class="tm-bar">
+      <div class="tm-bar-fill" style={{ width: `${Math.min(100, p.pct)}%`, background: p.color }} />
+    </div>
     <span class="tm-bar-text">{p.text}</span>
   </div>
 );
@@ -71,7 +90,9 @@ const TasksPage: Component = () => {
   const [busy, setBusy] = createSignal<number | null>(null);
 
   const refresh = () => {
-    void tasksList().then((p) => setProcs(p ?? [])).catch(() => {});
+    void tasksList()
+      .then((p) => setProcs(p ?? []))
+      .catch(() => {});
     void tasksStats()
       .then((s) => {
         if (!s) return;
@@ -118,7 +139,8 @@ const TasksPage: Component = () => {
 
   const SortTh = (props: { k: SortKey; label: string }) => (
     <button classList={{ "tm-th": true, active: sort() === props.k }} onClick={() => setSort(props.k)}>
-      {props.label}{sort() === props.k ? " ↓" : ""}
+      {props.label}
+      {sort() === props.k ? " ↓" : ""}
     </button>
   );
 
@@ -129,23 +151,36 @@ const TasksPage: Component = () => {
         <Show when={stats()}>
           {(s) => (
             <span class="tm-sub" title={s().cpu_brand}>
-              {s().cpu_brand || "CPU"} · {s().cores} cores · up {fmtUptime(s().uptime_secs)} · {procs().length} procs · Flux {fluxProcs().length} ({fluxMem()} MB)
+              {s().cpu_brand || "CPU"} · {s().cores} cores · up {fmtUptime(s().uptime_secs)} ·{" "}
+              {procs().length} procs · Flux {fluxProcs().length} ({fluxMem()} MB)
             </span>
           )}
         </Show>
-        <button class="tm-refresh" title="Refresh now" onClick={refresh}>↻</button>
+        <button class="tm-refresh" title="Refresh now" onClick={refresh}>
+          ↻
+        </button>
       </header>
 
       <div class="tm-grid">
         {/* CPU — overall graph + per-core bars */}
         <div class="tm-card tm-card-wide">
-          <div class="tm-card-head"><span>CPU</span><span class="tm-card-val" style={{ color: loadColor(stats()?.cpu ?? 0) }}>{(stats()?.cpu ?? 0).toFixed(0)}%</span></div>
+          <div class="tm-card-head">
+            <span>CPU</span>
+            <span class="tm-card-val" style={{ color: loadColor(stats()?.cpu ?? 0) }}>
+              {(stats()?.cpu ?? 0).toFixed(0)}%
+            </span>
+          </div>
           <Graph data={cpuHist()} color="var(--flux-teal)" />
           <div class="tm-cores">
             <For each={stats()?.per_core ?? []}>
               {(c, i) => (
                 <div class="tm-core" title={`core ${i()}: ${c.toFixed(0)}%`}>
-                  <div class="tm-core-bar"><div class="tm-core-fill" style={{ height: `${Math.min(100, c)}%`, background: loadColor(c) }} /></div>
+                  <div class="tm-core-bar">
+                    <div
+                      class="tm-core-fill"
+                      style={{ height: `${Math.min(100, c)}%`, background: loadColor(c) }}
+                    />
+                  </div>
                   <span class="tm-core-n">{i()}</span>
                 </div>
               )}
@@ -155,14 +190,29 @@ const TasksPage: Component = () => {
 
         {/* Memory + swap */}
         <div class="tm-card">
-          <div class="tm-card-head"><span>Memory</span><span class="tm-card-val" style={{ color: "#9a7bff" }}>{stats()?.mem_pct ?? 0}%</span></div>
+          <div class="tm-card-head">
+            <span>Memory</span>
+            <span class="tm-card-val" style={{ color: "#9a7bff" }}>
+              {stats()?.mem_pct ?? 0}%
+            </span>
+          </div>
           <Graph data={memHist()} color="#9a7bff" />
           <Show when={stats()}>
             {(s) => (
               <>
-                <Bar label="RAM" pct={s().mem_pct} text={`${gb(s().mem_used_mb)} / ${gb(s().mem_total_mb)} GB`} color="#9a7bff" />
+                <Bar
+                  label="RAM"
+                  pct={s().mem_pct}
+                  text={`${gb(s().mem_used_mb)} / ${gb(s().mem_total_mb)} GB`}
+                  color="#9a7bff"
+                />
                 <Show when={s().swap_total_mb > 0}>
-                  <Bar label="Swap" pct={pctOf(s().swap_used_mb, s().swap_total_mb)} text={`${gb(s().swap_used_mb)} / ${gb(s().swap_total_mb)} GB`} color="#ec7bd0" />
+                  <Bar
+                    label="Swap"
+                    pct={pctOf(s().swap_used_mb, s().swap_total_mb)}
+                    text={`${gb(s().swap_used_mb)} / ${gb(s().swap_total_mb)} GB`}
+                    color="#ec7bd0"
+                  />
                 </Show>
               </>
             )}
@@ -171,7 +221,9 @@ const TasksPage: Component = () => {
 
         {/* Network */}
         <div class="tm-card">
-          <div class="tm-card-head"><span>Network</span></div>
+          <div class="tm-card-head">
+            <span>Network</span>
+          </div>
           <Graph data={netHist().map((r) => (r / netPeak()) * 100)} color="#5bc0eb" />
           <Show when={stats()}>
             {(s) => (
@@ -187,12 +239,28 @@ const TasksPage: Component = () => {
         <For each={gpus()}>
           {(g, i) => (
             <div class="tm-card">
-              <div class="tm-card-head"><span title={g.name}>GPU{gpus().length > 1 ? ` ${i()}` : ""}</span><span class="tm-card-val" style={{ color: loadColor(g.util_pct) }}>{g.util_pct.toFixed(0)}%</span></div>
-              <Show when={i() === 0}><Graph data={gpuHist()} color="#7CF5B0" /></Show>
-              <Bar label="VRAM" pct={pctOf(g.mem_used_mb, g.mem_total_mb)} text={`${gb(g.mem_used_mb)} / ${gb(g.mem_total_mb)} GB`} color="#7CF5B0" />
+              <div class="tm-card-head">
+                <span title={g.name}>GPU{gpus().length > 1 ? ` ${i()}` : ""}</span>
+                <span class="tm-card-val" style={{ color: loadColor(g.util_pct) }}>
+                  {g.util_pct.toFixed(0)}%
+                </span>
+              </div>
+              <Show when={i() === 0}>
+                <Graph data={gpuHist()} color="#7CF5B0" />
+              </Show>
+              <Bar
+                label="VRAM"
+                pct={pctOf(g.mem_used_mb, g.mem_total_mb)}
+                text={`${gb(g.mem_used_mb)} / ${gb(g.mem_total_mb)} GB`}
+                color="#7CF5B0"
+              />
               <div class="tm-gpu-meta">
-                <span class="tm-gpu-name" title={g.name}>{g.name}</span>
-                <span>{g.temp_c.toFixed(0)}°C · {g.power_w.toFixed(0)} W</span>
+                <span class="tm-gpu-name" title={g.name}>
+                  {g.name}
+                </span>
+                <span>
+                  {g.temp_c.toFixed(0)}°C · {g.power_w.toFixed(0)} W
+                </span>
               </div>
             </div>
           )}
@@ -214,12 +282,23 @@ const TasksPage: Component = () => {
             <For each={sorted()}>
               {(p) => (
                 <div classList={{ "tm-row": true, flux: p.is_flux, self: p.current }}>
-                  <span class="tm-badge" title={p.is_flux ? "Flux process" : "System process"}>{p.current ? "★" : p.is_flux ? "●" : ""}</span>
-                  <span class="tm-name" title={p.name}>{p.name || "(unknown)"}</span>
+                  <span class="tm-badge" title={p.is_flux ? "Flux process" : "System process"}>
+                    {p.current ? "★" : p.is_flux ? "●" : ""}
+                  </span>
+                  <span class="tm-name" title={p.name}>
+                    {p.name || "(unknown)"}
+                  </span>
                   <span class="tm-pid">{p.pid}</span>
                   <span classList={{ "tm-cpu": true, hot: p.cpu >= 25 }}>{p.cpu.toFixed(1)}%</span>
                   <span class="tm-mem">{p.mem_mb} MB</span>
-                  <button class="tm-kill" disabled={busy() === p.pid} onClick={() => void end(p)} title="End task">✕</button>
+                  <button
+                    class="tm-kill"
+                    disabled={busy() === p.pid}
+                    onClick={() => void end(p)}
+                    title="End task"
+                  >
+                    ✕
+                  </button>
                 </div>
               )}
             </For>

@@ -7,7 +7,17 @@
  * (Open-Meteo); recent tabs; an editable speed dial (persisted); quick
  * actions; and a subtle flowing wave for the "flux" feel.
  */
-import { For, Match, Show, Switch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+  type Component,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { visibleInterval } from "./poll";
@@ -47,10 +57,18 @@ import Converter from "./Converter";
 
 /** Hostname without `www.`, best-effort. */
 function hostOf(url: string): string {
-  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url.split("/")[2] ?? url; }
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url.split("/")[2] ?? url;
+  }
 }
 
-interface TopSite { url: string; title: string; host: string }
+interface TopSite {
+  url: string;
+  title: string;
+  host: string;
+}
 
 /** Persisted home-page scratchpad note (reuses the notes store, #53). */
 const SCRATCH_KEY = "flux://start#scratchpad";
@@ -69,7 +87,18 @@ interface Shortcut {
   tint: string;
 }
 
-type ExpandedWidget = "recent" | "shortcuts" | "topSites" | "headlines" | "scratch" | "calendar" | "tasks" | "actions" | "calc" | "convert" | null;
+type ExpandedWidget =
+  | "recent"
+  | "shortcuts"
+  | "topSites"
+  | "headlines"
+  | "scratch"
+  | "calendar"
+  | "tasks"
+  | "actions"
+  | "calc"
+  | "convert"
+  | null;
 
 const TINTS = ["#7b61ff", "#ec4be0", "#2ff3ff", "#ff9f45", "#ff6b4a", "#9d8df1", "#5bc0eb", "#7cf5b0"];
 
@@ -121,7 +150,9 @@ const StartPage: Component<{
     try {
       const c = JSON.parse(localStorage.getItem(BRIEF_KEY) || "null");
       if (c && c.date === briefDay() && c.text) setBriefing({ state: "ok", text: c.text });
-    } catch { /* ignore a bad cache entry */ }
+    } catch {
+      /* ignore a bad cache entry */
+    }
   });
   const generateBriefing = async () => {
     const hs = headlines().slice(0, 12);
@@ -169,7 +200,13 @@ const StartPage: Component<{
     { key: "omni", label: "Omni index" },
     { key: "actions", label: "Quick actions" },
   ];
-  const readHidden = (): string[] => { try { return JSON.parse(localStorage.getItem("flux.start.hidden") || "[]"); } catch { return []; } };
+  const readHidden = (): string[] => {
+    try {
+      return JSON.parse(localStorage.getItem("flux.start.hidden") || "[]");
+    } catch {
+      return [];
+    }
+  };
   const [hiddenWidgets, setHiddenWidgets] = createSignal<string[]>(readHidden());
   const widgetOn = (k: string) => !hiddenWidgets().includes(k);
   const toggleWidget = (k: string) => {
@@ -183,7 +220,11 @@ const StartPage: Component<{
   // the clock/hero stays first (order 0, since widget orders are 1-based).
   const readOrder = (): string[] => {
     let saved: string[] = [];
-    try { saved = JSON.parse(localStorage.getItem("flux.start.order") || "[]"); } catch { saved = []; }
+    try {
+      saved = JSON.parse(localStorage.getItem("flux.start.order") || "[]");
+    } catch {
+      saved = [];
+    }
     const keys = WIDGETS.map((w) => w.key);
     const ordered = saved.filter((k) => keys.includes(k));
     for (const k of keys) if (!ordered.includes(k)) ordered.push(k);
@@ -191,7 +232,10 @@ const StartPage: Component<{
   };
   const [widgetOrder, setWidgetOrder] = createSignal<string[]>(readOrder());
   const orderOf = (k: string) => widgetOrder().indexOf(k) + 1;
-  const orderedWidgets = () => widgetOrder().map((k) => WIDGETS.find((w) => w.key === k)).filter((w): w is { key: string; label: string } => !!w);
+  const orderedWidgets = () =>
+    widgetOrder()
+      .map((k) => WIDGETS.find((w) => w.key === k))
+      .filter((w): w is { key: string; label: string } => !!w);
   const moveWidget = (k: string, dir: -1 | 1) => {
     const arr = [...widgetOrder()];
     const i = arr.indexOf(k);
@@ -206,7 +250,10 @@ const StartPage: Component<{
   // Custom start-page background (#71): an image URL or any CSS color/gradient.
   // Empty = the liquid/wave backdrop. Persisted.
   const [bg, setBgRaw] = createSignal(localStorage.getItem("flux.start.bg") || "");
-  const setBg = (v: string) => { setBgRaw(v.trim()); localStorage.setItem("flux.start.bg", v.trim()); };
+  const setBg = (v: string) => {
+    setBgRaw(v.trim());
+    localStorage.setItem("flux.start.bg", v.trim());
+  };
   const bgStyle = () => {
     const v = bg();
     if (!v) return undefined;
@@ -222,9 +269,27 @@ const StartPage: Component<{
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
   );
   // Event editor draft (add/edit/read-only view) + live drag-to-move state (#91b).
-  type EvtDraft = { id: number | null; title: string; date: string; start: string; end: string; location: string; notes: string; rrule: string; allDay: boolean; readonly: boolean; calendar: string };
+  type EvtDraft = {
+    id: number | null;
+    title: string;
+    date: string;
+    start: string;
+    end: string;
+    location: string;
+    notes: string;
+    rrule: string;
+    allDay: boolean;
+    readonly: boolean;
+    calendar: string;
+  };
   const [editing, setEditing] = createSignal<EvtDraft | null>(null);
-  const [drag, setDrag] = createSignal<{ id: number; title: string; date: string; startMin: number; durMin: number } | null>(null);
+  const [drag, setDrag] = createSignal<{
+    id: number;
+    title: string;
+    date: string;
+    startMin: number;
+    durMin: number;
+  } | null>(null);
   const [todos, setTodos] = createSignal<Todo[]>([]);
   const [newTodo, setNewTodo] = createSignal("");
 
@@ -247,7 +312,9 @@ const StartPage: Component<{
 
   onMount(async () => {
     visibleInterval(() => setNow(new Date()), 1000);
-    void omniStats().then(setOmni).catch(() => {}); // #97 glance widget (best-effort)
+    void omniStats()
+      .then(setOmni)
+      .catch(() => {}); // #97 glance widget (best-effort)
 
     try {
       const [def, engines] = await Promise.all([searchDefault(), searchEngines()]);
@@ -262,13 +329,19 @@ const StartPage: Component<{
       const w = await fetch(
         `https://api.open-meteo.com/v1/forecast?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,weather_code`,
       ).then((r) => r.json());
-      setWeather({ temp: Math.round(w.current.temperature_2m), code: w.current.weather_code, city: geo.city });
+      setWeather({
+        temp: Math.round(w.current.temperature_2m),
+        code: w.current.weather_code,
+        city: geo.city,
+      });
     } catch {
       /* offline — the widget just omits weather */
     }
 
     // Feed headlines (#72) — aggregate of all subscribed feeds, newest-ish first.
-    feedItems(0).then((items) => setHeadlines(items ?? [])).catch(() => {});
+    feedItems(0)
+      .then((items) => setHeadlines(items ?? []))
+      .catch(() => {});
 
     // Top sites — most-visited hosts from history, deduped by host.
     historyRecent(250)
@@ -284,15 +357,23 @@ const StartPage: Component<{
       .catch(() => {});
 
     // Scratchpad — persisted via the notes store.
-    noteGet(SCRATCH_KEY).then((t) => setScratch(t ?? "")).catch(() => {});
+    noteGet(SCRATCH_KEY)
+      .then((t) => setScratch(t ?? ""))
+      .catch(() => {});
 
     // Calendar events (#114) from subscribed ICS feeds + local tasks.
     loadEvents();
     refreshTodos();
   });
 
-  const loadEvents = () => void calEvents().then((e) => setEvents(e ?? [])).catch(() => {});
-  const refreshTodos = () => void todosList().then((t) => setTodos(t ?? [])).catch(() => {});
+  const loadEvents = () =>
+    void calEvents()
+      .then((e) => setEvents(e ?? []))
+      .catch(() => {});
+  const refreshTodos = () =>
+    void todosList()
+      .then((t) => setTodos(t ?? []))
+      .catch(() => {});
 
   const onScratch = (text: string) => {
     setScratch(text);
@@ -311,7 +392,11 @@ const StartPage: Component<{
     return cells;
   };
   const zoneTime = (tz: string) => {
-    try { return now().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: tz }); } catch { return ""; }
+    try {
+      return now().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: tz });
+    } catch {
+      return "";
+    }
   };
 
   // ── Calendar (#114) ──────────────────────────────────────────────────────
@@ -335,28 +420,37 @@ const StartPage: Component<{
   const eventsForDate = (date: string | null): CalEvent[] =>
     date ? events().filter((e) => e.date === date) : [];
   /** Next few events from today onward, for the list under the grid. */
-  const upcoming = () => events().filter((e) => e.date >= todayStr()).slice(0, 4);
-  const visibleCardEvents = () => selectedCalDate() ? eventsForDate(selectedCalDate()) : upcoming();
+  const upcoming = () =>
+    events()
+      .filter((e) => e.date >= todayStr())
+      .slice(0, 4);
+  const visibleCardEvents = () => (selectedCalDate() ? eventsForDate(selectedCalDate()) : upcoming());
   const whenLabel = (e: CalEvent) => {
-    const d = e.date === todayStr() ? "Today" : new Date(`${e.date}T00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    const d =
+      e.date === todayStr()
+        ? "Today"
+        : new Date(`${e.date}T00:00`).toLocaleDateString([], {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+          });
     return e.time ? `${d} · ${e.time}` : d;
   };
   const dayLabel = (date: string) =>
-    date === todayStr() ? "Today" : new Date(`${date}T00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
-  const eventListTitle = () => selectedCalDate() ? dayLabel(selectedCalDate()!) : "Upcoming";
+    date === todayStr()
+      ? "Today"
+      : new Date(`${date}T00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+  const eventListTitle = () => (selectedCalDate() ? dayLabel(selectedCalDate()!) : "Upcoming");
   const selectCalDay = (day: number) => {
     const date = dateForDay(day);
-    setSelectedCalDate((cur) => cur === date ? null : date);
+    setSelectedCalDate((cur) => (cur === date ? null : date));
   };
   const CalendarGrid: Component<{ modal?: boolean }> = (gridProps) => (
     <div classList={{ "start-cal": true, "cal-modal-cal": !!gridProps.modal }}>
       <For each={WEEKDAYS}>{(w) => <span class="start-cal-wd">{w}</span>}</For>
       <For each={monthCells()}>
         {(c) => (
-          <Show
-            when={c !== null}
-            fallback={<span class="start-cal-day blank" />}
-          >
+          <Show when={c !== null} fallback={<span class="start-cal-day blank" />}>
             <button
               type="button"
               classList={{
@@ -380,38 +474,59 @@ const StartPage: Component<{
     ev.preventDefault();
     const url = newCalUrl().trim();
     if (!url) return;
-    void calAdd(url).then(() => { setNewCalUrl(""); setAddingCal(false); loadEvents(); }).catch(() => {});
+    void calAdd(url)
+      .then(() => {
+        setNewCalUrl("");
+        setAddingCal(false);
+        loadEvents();
+      })
+      .catch(() => {});
   };
 
   // ── Expanded calendar: Google-Calendar-style day/week grid (#91) ─────────────
   const HOUR_H = 46; // px per hour row
   const HOURS = Array.from({ length: 24 }, (_, h) => h);
-  const minsOf = (t: string) => { const [h, m] = t.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
-  const addDaysStr = (date: string, n: number) => { const d = new Date(`${date}T00:00`); d.setDate(d.getDate() + n); return dateStrOf(d); };
+  const minsOf = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  const addDaysStr = (date: string, n: number) => {
+    const d = new Date(`${date}T00:00`);
+    d.setDate(d.getDate() + n);
+    return dateStrOf(d);
+  };
   const startOfWeekStr = (date: string) => addDaysStr(date, -new Date(`${date}T00:00`).getDay());
-  const calDays = () => calView() === "week"
-    ? Array.from({ length: 7 }, (_, i) => addDaysStr(startOfWeekStr(calAnchor()), i))
-    : [calAnchor()];
+  const calDays = () =>
+    calView() === "week"
+      ? Array.from({ length: 7 }, (_, i) => addDaysStr(startOfWeekStr(calAnchor()), i))
+      : [calAnchor()];
   const calStep = (dir: number) => setCalAnchor((a) => addDaysStr(a, dir * (calView() === "week" ? 7 : 1)));
   const calToday = () => setCalAnchor(todayStr());
   const dowShort = (date: string) => new Date(`${date}T00:00`).toLocaleDateString([], { weekday: "short" });
-  const monthDay = (date: string) => new Date(`${date}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
+  const monthDay = (date: string) =>
+    new Date(`${date}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
   const calTitle = () => {
     if (calView() === "day") return dayLabel(calAnchor());
     const ds = calDays();
-    const first = ds[0]!, last = ds[ds.length - 1]!;
-    const a = new Date(`${first}T00:00`), b = new Date(`${last}T00:00`);
+    const first = ds[0]!,
+      last = ds[ds.length - 1]!;
+    const a = new Date(`${first}T00:00`),
+      b = new Date(`${last}T00:00`);
     const right = a.getMonth() === b.getMonth() ? String(b.getDate()) : monthDay(last);
     return `${monthDay(first)} – ${right}, ${b.getFullYear()}`;
   };
-  const hourLabel = (h: number) => h === 0 ? "" : h === 12 ? "12 PM" : h < 12 ? `${h} AM` : `${h - 12} PM`;
+  const hourLabel = (h: number) => (h === 0 ? "" : h === 12 ? "12 PM" : h < 12 ? `${h} AM` : `${h - 12} PM`);
   const nowMins = () => now().getHours() * 60 + now().getMinutes();
   const allDayFor = (date: string) => eventsForDate(date).filter((e) => !e.time);
   /** Pack a day's timed events into overlap-aware columns (GCal-style). */
   const packDay = (date: string) => {
     const items = eventsForDate(date)
       .filter((e) => e.time)
-      .map((e) => ({ e, s: minsOf(e.time), en: e.end ? Math.max(minsOf(e.end), minsOf(e.time) + 20) : minsOf(e.time) + 50 }))
+      .map((e) => ({
+        e,
+        s: minsOf(e.time),
+        en: e.end ? Math.max(minsOf(e.end), minsOf(e.time) + 20) : minsOf(e.time) + 50,
+      }))
       .sort((a, b) => a.s - b.s || a.en - b.en);
     const out: { e: CalEvent; s: number; en: number; col: number; ncols: number }[] = [];
     let cluster: typeof items = [];
@@ -421,7 +536,12 @@ const StartPage: Component<{
       const placed: { it: (typeof items)[number]; col: number }[] = [];
       for (const it of cluster) {
         let c = cols.findIndex((end) => end <= it.s);
-        if (c === -1) { c = cols.length; cols.push(it.en); } else { cols[c] = it.en; }
+        if (c === -1) {
+          c = cols.length;
+          cols.push(it.en);
+        } else {
+          cols[c] = it.en;
+        }
         placed.push({ it, col: c });
       }
       for (const p of placed) out.push({ ...p.it, col: p.col, ncols: cols.length });
@@ -442,10 +562,34 @@ const StartPage: Component<{
   const minToHHMM = (m: number) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
   const openNewEvent = (date: string, startMin = 9 * 60) => {
     const s = clampN(startMin, 0, 23 * 60);
-    setEditing({ id: null, title: "", date, start: minToHHMM(s), end: minToHHMM(Math.min(s + 60, 23 * 60 + 59)), location: "", notes: "", rrule: "", allDay: false, readonly: false, calendar: "" });
+    setEditing({
+      id: null,
+      title: "",
+      date,
+      start: minToHHMM(s),
+      end: minToHHMM(Math.min(s + 60, 23 * 60 + 59)),
+      location: "",
+      notes: "",
+      rrule: "",
+      allDay: false,
+      readonly: false,
+      calendar: "",
+    });
   };
   const openEvent = (e: CalEvent) => {
-    setEditing({ id: e.editable ? e.id : null, title: e.summary, date: e.date, start: e.time, end: e.end, location: e.location, notes: e.notes, rrule: e.rrule ?? "", allDay: !e.time, readonly: !e.editable, calendar: e.calendar });
+    setEditing({
+      id: e.editable ? e.id : null,
+      title: e.summary,
+      date: e.date,
+      start: e.time,
+      end: e.end,
+      location: e.location,
+      notes: e.notes,
+      rrule: e.rrule ?? "",
+      allDay: !e.time,
+      readonly: !e.editable,
+      calendar: e.calendar,
+    });
   };
   const patchDraft = (p: Partial<EvtDraft>) => setEditing((d) => (d ? { ...d, ...p } : d));
   // Repeat presets → iCalendar RRULE (the backend expands these over the grid
@@ -462,14 +606,32 @@ const StartPage: Component<{
   const saveEvent = () => {
     const d = editing();
     if (!d || !d.title.trim()) return;
-    const fields = { title: d.title.trim(), date: d.date, start: d.allDay ? "" : d.start, end: d.allDay ? "" : d.end, location: d.location, notes: d.notes, rrule: d.rrule };
+    const fields = {
+      title: d.title.trim(),
+      date: d.date,
+      start: d.allDay ? "" : d.start,
+      end: d.allDay ? "" : d.end,
+      location: d.location,
+      notes: d.notes,
+      rrule: d.rrule,
+    };
     const p = d.id != null ? calEventUpdate(d.id, fields) : calEventAdd(fields);
-    void p.then(() => { setEditing(null); loadEvents(); }).catch((err) => console.error("save event", err));
+    void p
+      .then(() => {
+        setEditing(null);
+        loadEvents();
+      })
+      .catch((err) => console.error("save event", err));
   };
   const deleteEvent = () => {
     const d = editing();
     if (!d || d.id == null) return;
-    void calEventDelete(d.id).then(() => { setEditing(null); loadEvents(); }).catch((err) => console.error("delete event", err));
+    void calEventDelete(d.id)
+      .then(() => {
+        setEditing(null);
+        loadEvents();
+      })
+      .catch((err) => console.error("delete event", err));
   };
 
   let bodyEl: HTMLDivElement | undefined;
@@ -493,7 +655,11 @@ const StartPage: Component<{
       const r = bodyEl!.getBoundingClientRect();
       const colW = (r.width - GUTTER) / cols;
       const idx = clampN(Math.floor((me.clientX - r.left - GUTTER) / colW), 0, cols - 1);
-      const sm = clampN(Math.round((((me.clientY - r.top) / HOUR_H) * 60 - grabOffset) / 15) * 15, 0, 24 * 60 - durMin);
+      const sm = clampN(
+        Math.round((((me.clientY - r.top) / HOUR_H) * 60 - grabOffset) / 15) * 15,
+        0,
+        24 * 60 - durMin,
+      );
       const date = calDays()[idx]!;
       if (Math.abs(me.clientY - e.clientY) > 3 || Math.abs(me.clientX - e.clientX) > 3) dragMoved = true;
       setDrag({ id: ev.id, title: ev.summary, date, startMin: sm, durMin });
@@ -504,23 +670,33 @@ const StartPage: Component<{
       const d = drag();
       setDrag(null);
       if (dragMoved && d) {
-        void calEventUpdate(d.id, { date: d.date, start: minToHHMM(d.startMin), end: minToHHMM(d.startMin + d.durMin) })
-          .then(() => loadEvents()).catch((err) => console.error("move event", err));
+        void calEventUpdate(d.id, {
+          date: d.date,
+          start: minToHHMM(d.startMin),
+          end: minToHHMM(d.startMin + d.durMin),
+        })
+          .then(() => loadEvents())
+          .catch((err) => console.error("move event", err));
       } else {
         openEvent(ev); // a click, not a drag → open the editor
       }
       // Clear AFTER the trailing click fires, so a drag that ends over empty column
       // space doesn't also open the new-event dialog (onColumnClick reads this).
-      setTimeout(() => { dragMoved = false; }, 0);
+      setTimeout(() => {
+        dragMoved = false;
+      }, 0);
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   };
   // Click empty space in a day column → new event at that (hour-snapped) time.
   const onColumnClick = (e: MouseEvent, date: string) => {
-    if (dragMoved) { dragMoved = false; return; }
+    if (dragMoved) {
+      dragMoved = false;
+      return;
+    }
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    openNewEvent(date, Math.floor(((e.clientY - r.top) / HOUR_H)) * 60);
+    openNewEvent(date, Math.floor((e.clientY - r.top) / HOUR_H) * 60);
   };
 
   let weekScroll: HTMLDivElement | undefined;
@@ -528,27 +704,51 @@ const StartPage: Component<{
   createEffect(() => {
     if (expandedWidget() === "calendar" && weekScroll) {
       const el = weekScroll;
-      requestAnimationFrame(() => { el.scrollTop = 7 * HOUR_H; });
+      requestAnimationFrame(() => {
+        el.scrollTop = 7 * HOUR_H;
+      });
     }
   });
   const CalWeek: Component = () => (
     <div class="cal-week">
       <div class="cal-week-toolbar">
-        <button class="cal-week-nav" title="Previous" onClick={() => calStep(-1)}>‹</button>
-        <button class="cal-week-todaybtn" onClick={calToday}>Today</button>
-        <button class="cal-week-nav" title="Next" onClick={() => calStep(1)}>›</button>
+        <button class="cal-week-nav" title="Previous" onClick={() => calStep(-1)}>
+          ‹
+        </button>
+        <button class="cal-week-todaybtn" onClick={calToday}>
+          Today
+        </button>
+        <button class="cal-week-nav" title="Next" onClick={() => calStep(1)}>
+          ›
+        </button>
         <span class="cal-week-title">{calTitle()}</span>
-        <button class="cal-week-new" title="New event" onClick={() => openNewEvent(calView() === "day" ? calAnchor() : todayStr())}>+ New</button>
+        <button
+          class="cal-week-new"
+          title="New event"
+          onClick={() => openNewEvent(calView() === "day" ? calAnchor() : todayStr())}
+        >
+          + New
+        </button>
         <div class="cal-week-views">
-          <button classList={{ on: calView() === "day" }} onClick={() => setCalView("day")}>Day</button>
-          <button classList={{ on: calView() === "week" }} onClick={() => setCalView("week")}>Week</button>
+          <button classList={{ on: calView() === "day" }} onClick={() => setCalView("day")}>
+            Day
+          </button>
+          <button classList={{ on: calView() === "week" }} onClick={() => setCalView("week")}>
+            Week
+          </button>
         </div>
       </div>
       <div class="cal-week-head" style={{ "--cols": calDays().length }}>
         <div class="cal-week-gutter-h" />
         <For each={calDays()}>
           {(d) => (
-            <button classList={{ "cal-week-dayhead": true, today: d === todayStr() }} onClick={() => { setCalView("day"); setCalAnchor(d); }}>
+            <button
+              classList={{ "cal-week-dayhead": true, today: d === todayStr() }}
+              onClick={() => {
+                setCalView("day");
+                setCalAnchor(d);
+              }}
+            >
               <span class="cal-week-dow">{dowShort(d)}</span>
               <span class="cal-week-dom">{Number(d.slice(8, 10))}</span>
             </button>
@@ -562,7 +762,16 @@ const StartPage: Component<{
             {(d) => (
               <div class="cal-week-allday-col">
                 <For each={allDayFor(d)}>
-                  {(e) => <button classList={{ "cal-allday-chip": true, ics: !e.editable }} title={`${e.summary}${e.location ? ` · ${e.location}` : ""}${e.rrule ? " · repeats" : ""}`} onClick={() => openEvent(e)}>{e.rrule ? "🔁 " : ""}{e.summary}</button>}
+                  {(e) => (
+                    <button
+                      classList={{ "cal-allday-chip": true, ics: !e.editable }}
+                      title={`${e.summary}${e.location ? ` · ${e.location}` : ""}${e.rrule ? " · repeats" : ""}`}
+                      onClick={() => openEvent(e)}
+                    >
+                      {e.rrule ? "🔁 " : ""}
+                      {e.summary}
+                    </button>
+                  )}
                 </For>
               </div>
             )}
@@ -570,13 +779,26 @@ const StartPage: Component<{
         </div>
       </Show>
       <div class="cal-week-scroll" ref={weekScroll}>
-        <div class="cal-week-body" ref={bodyEl} style={{ height: `${24 * HOUR_H}px`, "--cols": calDays().length, "--hour-h": `${HOUR_H}px` }}>
+        <div
+          class="cal-week-body"
+          ref={bodyEl}
+          style={{ height: `${24 * HOUR_H}px`, "--cols": calDays().length, "--hour-h": `${HOUR_H}px` }}
+        >
           <div class="cal-week-times">
-            <For each={HOURS}>{(h) => <div class="cal-week-hour"><span>{hourLabel(h)}</span></div>}</For>
+            <For each={HOURS}>
+              {(h) => (
+                <div class="cal-week-hour">
+                  <span>{hourLabel(h)}</span>
+                </div>
+              )}
+            </For>
           </div>
           <For each={calDays()}>
             {(d) => (
-              <div classList={{ "cal-week-col": true, today: d === todayStr() }} onClick={(e) => onColumnClick(e, d)}>
+              <div
+                classList={{ "cal-week-col": true, today: d === todayStr() }}
+                onClick={(e) => onColumnClick(e, d)}
+              >
                 <Show when={d === todayStr()}>
                   <div class="cal-now-line" style={{ top: `${(nowMins() / 60) * HOUR_H}px` }} />
                 </Show>
@@ -592,15 +814,27 @@ const StartPage: Component<{
                       }}
                       title={`${b.e.time}${b.e.end ? `–${b.e.end}` : ""} · ${b.e.summary}${b.e.location ? ` · ${b.e.location}` : ""}${b.e.editable ? " · drag to move" : ` · ${b.e.calendar} (read-only)`}`}
                       onMouseDown={(pe) => beginDrag(pe, b.e)}
-                      onClick={(ce) => { ce.stopPropagation(); if (!b.e.editable) openEvent(b.e); }}
+                      onClick={(ce) => {
+                        ce.stopPropagation();
+                        if (!b.e.editable) openEvent(b.e);
+                      }}
                     >
                       <span class="cal-evt-time">{b.e.time}</span>
-                      <span class="cal-evt-title">{b.e.rrule ? "🔁 " : ""}{b.e.summary}</span>
+                      <span class="cal-evt-title">
+                        {b.e.rrule ? "🔁 " : ""}
+                        {b.e.summary}
+                      </span>
                     </button>
                   )}
                 </For>
                 <Show when={drag() && drag()!.date === d}>
-                  <div class="cal-evt cal-evt-ghost" style={{ top: `${(drag()!.startMin / 60) * HOUR_H}px`, height: `${(drag()!.durMin / 60) * HOUR_H}px` }}>
+                  <div
+                    class="cal-evt cal-evt-ghost"
+                    style={{
+                      top: `${(drag()!.startMin / 60) * HOUR_H}px`,
+                      height: `${(drag()!.durMin / 60) * HOUR_H}px`,
+                    }}
+                  >
                     <span class="cal-evt-time">{minToHHMM(drag()!.startMin)}</span>
                     <span class="cal-evt-title">{drag()!.title}</span>
                   </div>
@@ -612,38 +846,106 @@ const StartPage: Component<{
       </div>
       <Show when={editing()}>
         <Portal>
-          <div class="evt-editor-backdrop" onClick={() => setEditing(null)} onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }}>
+          <div
+            class="evt-editor-backdrop"
+            onClick={() => setEditing(null)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setEditing(null);
+            }}
+          >
             <div class="evt-editor glass" onClick={(e) => e.stopPropagation()}>
-              <div class="evt-editor-head">{editing()!.readonly ? editing()!.calendar || "Event" : editing()!.id != null ? "Edit event" : "New event"}</div>
-              <input class="evt-in evt-title" placeholder="Add title" value={editing()!.title} disabled={editing()!.readonly} autofocus onInput={(e) => patchDraft({ title: e.currentTarget.value })} />
-              <label class="evt-allday"><input type="checkbox" checked={editing()!.allDay} disabled={editing()!.readonly} onChange={(e) => patchDraft({ allDay: e.currentTarget.checked })} /> All day</label>
+              <div class="evt-editor-head">
+                {editing()!.readonly
+                  ? editing()!.calendar || "Event"
+                  : editing()!.id != null
+                    ? "Edit event"
+                    : "New event"}
+              </div>
+              <input
+                class="evt-in evt-title"
+                placeholder="Add title"
+                value={editing()!.title}
+                disabled={editing()!.readonly}
+                autofocus
+                onInput={(e) => patchDraft({ title: e.currentTarget.value })}
+              />
+              <label class="evt-allday">
+                <input
+                  type="checkbox"
+                  checked={editing()!.allDay}
+                  disabled={editing()!.readonly}
+                  onChange={(e) => patchDraft({ allDay: e.currentTarget.checked })}
+                />{" "}
+                All day
+              </label>
               <div class="evt-row">
-                <input class="evt-in" type="date" value={editing()!.date} disabled={editing()!.readonly} onInput={(e) => patchDraft({ date: e.currentTarget.value })} />
+                <input
+                  class="evt-in"
+                  type="date"
+                  value={editing()!.date}
+                  disabled={editing()!.readonly}
+                  onInput={(e) => patchDraft({ date: e.currentTarget.value })}
+                />
                 <Show when={!editing()!.allDay}>
-                  <input class="evt-in evt-time" type="time" value={editing()!.start} disabled={editing()!.readonly} onInput={(e) => patchDraft({ start: e.currentTarget.value })} />
+                  <input
+                    class="evt-in evt-time"
+                    type="time"
+                    value={editing()!.start}
+                    disabled={editing()!.readonly}
+                    onInput={(e) => patchDraft({ start: e.currentTarget.value })}
+                  />
                   <span class="evt-dash">–</span>
-                  <input class="evt-in evt-time" type="time" value={editing()!.end} disabled={editing()!.readonly} onInput={(e) => patchDraft({ end: e.currentTarget.value })} />
+                  <input
+                    class="evt-in evt-time"
+                    type="time"
+                    value={editing()!.end}
+                    disabled={editing()!.readonly}
+                    onInput={(e) => patchDraft({ end: e.currentTarget.value })}
+                  />
                 </Show>
               </div>
               <label class="evt-repeat">
                 <span class="evt-repeat-ico">🔁</span>
-                <select class="evt-in" disabled={editing()!.readonly} value={editing()!.rrule} onChange={(e) => patchDraft({ rrule: e.currentTarget.value })}>
+                <select
+                  class="evt-in"
+                  disabled={editing()!.readonly}
+                  value={editing()!.rrule}
+                  onChange={(e) => patchDraft({ rrule: e.currentTarget.value })}
+                >
                   <For each={REPEAT_PRESETS}>{(p) => <option value={p.v}>{p.label}</option>}</For>
                   <Show when={editing()!.rrule && !REPEAT_PRESETS.some((p) => p.v === editing()!.rrule)}>
                     <option value={editing()!.rrule}>Custom ({editing()!.rrule})</option>
                   </Show>
                 </select>
               </label>
-              <input class="evt-in" placeholder="Location" value={editing()!.location} disabled={editing()!.readonly} onInput={(e) => patchDraft({ location: e.currentTarget.value })} />
-              <textarea class="evt-in evt-notes" placeholder="Notes" value={editing()!.notes} disabled={editing()!.readonly} onInput={(e) => patchDraft({ notes: e.currentTarget.value })} />
+              <input
+                class="evt-in"
+                placeholder="Location"
+                value={editing()!.location}
+                disabled={editing()!.readonly}
+                onInput={(e) => patchDraft({ location: e.currentTarget.value })}
+              />
+              <textarea
+                class="evt-in evt-notes"
+                placeholder="Notes"
+                value={editing()!.notes}
+                disabled={editing()!.readonly}
+                onInput={(e) => patchDraft({ notes: e.currentTarget.value })}
+              />
               <div class="evt-editor-foot">
                 <Show when={editing()!.id != null && !editing()!.readonly}>
-                  <button class="evt-del" onClick={deleteEvent}>Delete</button>
+                  <button class="evt-del" onClick={deleteEvent}>
+                    Delete
+                  </button>
                 </Show>
                 <span class="evt-foot-sp" />
-                <button class="evt-cancel" onClick={() => setEditing(null)}>{editing()!.readonly ? "Close" : "Cancel"}</button>
+                <button class="evt-cancel" onClick={() => setEditing(null)}>
+                  {editing()!.readonly ? "Close" : "Cancel"}
+                </button>
                 <Show when={!editing()!.readonly}>
-                  <button class="evt-save" disabled={!editing()!.title.trim()} onClick={saveEvent}>Save</button>
+                  <button class="evt-save" disabled={!editing()!.title.trim()} onClick={saveEvent}>
+                    Save
+                  </button>
                 </Show>
               </div>
             </div>
@@ -658,11 +960,25 @@ const StartPage: Component<{
     ev.preventDefault();
     const title = newTodo().trim();
     if (!title) return;
-    void todoAdd(title).then(() => { setNewTodo(""); refreshTodos(); }).catch(() => {});
+    void todoAdd(title)
+      .then(() => {
+        setNewTodo("");
+        refreshTodos();
+      })
+      .catch(() => {});
   };
-  const toggleTodo = (id: number) => void todoToggle(id).then(refreshTodos).catch(() => {});
-  const removeTodo = (id: number) => void todoRemove(id).then(refreshTodos).catch(() => {});
-  const clearDoneTodos = () => void todosClearDone().then(refreshTodos).catch(() => {});
+  const toggleTodo = (id: number) =>
+    void todoToggle(id)
+      .then(refreshTodos)
+      .catch(() => {});
+  const removeTodo = (id: number) =>
+    void todoRemove(id)
+      .then(refreshTodos)
+      .catch(() => {});
+  const clearDoneTodos = () =>
+    void todosClearDone()
+      .then(refreshTodos)
+      .catch(() => {});
   const openTodos = () => todos().filter((t) => !t.done).length;
   const sortedTodos = () => [...todos()].sort((a, b) => Number(a.done) - Number(b.done));
 
@@ -702,7 +1018,9 @@ const StartPage: Component<{
 
   return (
     <div class="start" style={bgStyle()}>
-      <button class="start-customize" title="Show/hide widgets" onClick={() => setCustomizing((v) => !v)}>⚙</button>
+      <button class="start-customize" title="Show/hide widgets" onClick={() => setCustomizing((v) => !v)}>
+        ⚙
+      </button>
       <Show when={customizing()}>
         <div class="shield-backdrop" onClick={() => setCustomizing(false)} />
         <div class="glass popover start-customize-pop">
@@ -712,8 +1030,22 @@ const StartPage: Component<{
               <div class="start-customize-row">
                 <input type="checkbox" checked={widgetOn(w.key)} onChange={() => toggleWidget(w.key)} />
                 <span class="start-customize-name">{w.label}</span>
-                <button class="start-customize-move" disabled={i() === 0} title="Move up" onClick={() => moveWidget(w.key, -1)}>↑</button>
-                <button class="start-customize-move" disabled={i() === orderedWidgets().length - 1} title="Move down" onClick={() => moveWidget(w.key, 1)}>↓</button>
+                <button
+                  class="start-customize-move"
+                  disabled={i() === 0}
+                  title="Move up"
+                  onClick={() => moveWidget(w.key, -1)}
+                >
+                  ↑
+                </button>
+                <button
+                  class="start-customize-move"
+                  disabled={i() === orderedWidgets().length - 1}
+                  title="Move down"
+                  onClick={() => moveWidget(w.key, 1)}
+                >
+                  ↓
+                </button>
               </div>
             )}
           </For>
@@ -753,369 +1085,576 @@ const StartPage: Component<{
       </header>
 
       <div class="start-scroll">
-      <section class="start-cards">
-        {/* Clock + weather */}
-        <div class="glass start-card start-clock">
-          <div class="start-clock-time">{clock()}</div>
-          <div class="start-clock-date">{dateStr()}</div>
-          <Show when={weather()}>
-            {(w) => (
-              <div class="start-weather">
-                {weatherInfo(w().code)[0]} {w().temp}° · {weatherInfo(w().code)[1]}
-                <span class="start-weather-city">{w().city}</span>
-              </div>
-            )}
-          </Show>
-        </div>
-
-        {/* Recent tabs */}
-        <div class="glass start-card" style={{ display: widgetOn("recent") ? undefined : "none", order: orderOf("recent") }}>
-          <div class="start-card-title">
-            Recent
-            <button class="start-card-link" title="Expand recent tabs" onClick={() => setExpandedWidget("recent")}>⤢ Expand</button>
-          </div>
-          <Show
-            when={recent().length > 0}
-            fallback={<div class="start-empty">Open a few tabs and they'll show up here.</div>}
-          >
-            <div class="start-list start-card-body">
-              <For each={recent().slice(0, 6)}>
-                {(t) => (
-                  <button class="start-row" onClick={() => focusTab(t.id)} title={t.url}>
-                    <span class="start-fav">{favicon(t.url)}</span>
-                    <span class="start-row-label">{t.title || t.url}</span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
-
-        {/* Editable speed dial */}
-        <div class="glass start-card" style={{ display: widgetOn("shortcuts") ? undefined : "none", order: orderOf("shortcuts") }}>
-          <div class="start-card-title">
-            Shortcuts
-            <button class="start-card-link" title="Expand shortcuts" onClick={() => setExpandedWidget("shortcuts")}>⤢ Expand</button>
-          </div>
-          <div class="start-card-body">
-            <div class="start-dial">
-              <For each={shortcuts().slice(0, 5)}>
-                {(s, i) => (
-                  <div class="start-tile-wrap">
-                    <button class="start-tile" style={{ "--tint": s.tint }} onClick={() => props.onNavigate(s.url)} title={s.url}>
-                      {s.label}
-                    </button>
-                    <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>×</button>
-                  </div>
-                )}
-              </For>
-              <button class="start-tile start-tile-add" title="Add shortcut" onClick={() => setExpandedWidget("shortcuts")}>+</button>
-            </div>
-          </div>
-        </div>
-
-        {/* Top sites */}
-        <Show when={widgetOn("topsites") && topSites().length > 0}>
-          <div class="glass start-card" style={{ order: orderOf("topsites") }}>
-            <div class="start-card-title">
-              Top sites
-              <button class="start-card-link" title="Expand top sites" onClick={() => setExpandedWidget("topSites")}>⤢ Expand</button>
-            </div>
-            <div class="start-dial start-card-body">
-              <For each={topSites().slice(0, 6)}>
-                {(s, i) => (
-                  <div class="start-tile-wrap">
-                    <button
-                      class="start-tile"
-                      style={{ "--tint": TINTS[i() % TINTS.length] }}
-                      onClick={() => props.onNavigate(s.url)}
-                      title={s.title}
-                    >
-                      {(s.host[0] ?? "?").toUpperCase()}
-                    </button>
-                  </div>
-                )}
-              </For>
-            </div>
-          </div>
-        </Show>
-
-        {/* Feed headlines (#72) */}
-        <div class="glass start-card" style={{ display: widgetOn("headlines") ? undefined : "none", order: orderOf("headlines") }}>
-          <div class="start-card-title">
-            Headlines
-            <span class="start-card-actions">
-              <button class="start-card-link" title="Expand headlines" onClick={() => setExpandedWidget("headlines")}>⤢ Expand</button>
-              <button class="start-card-link" onClick={() => props.onNavigate(FEEDS_URL)}>Feeds →</button>
-            </span>
-          </div>
-          <Show
-            when={headlines().length > 0}
-            fallback={<div class="start-empty">Subscribe to feeds in <b>Feeds</b> and the latest items show here.</div>}
-          >
-            <div class="start-list start-card-body">
-              <For each={headlines().slice(0, 6)}>
-                {(it) => (
-                  <button class="start-row" onClick={() => props.onNavigate(it.link)} title={`${it.feed_title} — ${it.title}`}>
-                    <span class="start-fav">📰</span>
-                    <span class="start-row-label">{it.title}</span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
-
-        {/* Daily briefing (#71) — local agent summary of the headlines */}
-        <div class="glass start-card" style={{ display: widgetOn("briefing") ? undefined : "none", order: orderOf("briefing") }}>
-          <div class="start-card-title">
-            Daily briefing
-            <Show when={briefing().state === "ok"}>
-              <button class="start-card-link" title="Regenerate from the latest headlines" onClick={generateBriefing}>↻ Refresh</button>
-            </Show>
-          </div>
-          <div class="start-card-body">
-            <Switch>
-              <Match when={headlines().length === 0}>
-                <div class="start-empty">Subscribe to feeds and Gemma will brief you on the day's headlines — privately, on-device.</div>
-              </Match>
-              <Match when={briefing().state === "loading"}>
-                <div class="start-empty">Gemma is reading the headlines…</div>
-              </Match>
-              <Match when={briefing().state === "error"}>
-                <div class="start-empty">Couldn't reach the local model. <button class="start-card-link" onClick={generateBriefing}>Retry</button></div>
-              </Match>
-              <Match when={briefing().state === "ok"}>
-                <div class="start-briefing">{briefing().text}</div>
-              </Match>
-              <Match when={briefing().state === "idle"}>
-                <button class="start-brief-btn" onClick={generateBriefing}>✦ Brief me on today</button>
-              </Match>
-            </Switch>
-          </div>
-        </div>
-
-        {/* Scratchpad */}
-        <div class="glass start-card" style={{ display: widgetOn("scratchpad") ? undefined : "none", order: orderOf("scratchpad") }}>
-          <div class="start-card-title">
-            Scratchpad
-            <button class="start-card-link" title="Expand scratchpad" onClick={() => setExpandedWidget("scratch")}>⤢ Expand</button>
-          </div>
-          <textarea
-            class="start-scratch"
-            value={scratch()}
-            onInput={(e) => onScratch(e.currentTarget.value)}
-            placeholder="Jot a quick note, todo, or link… saved automatically."
-            spellcheck={false}
-          />
-        </div>
-
-        {/* Calendar (Google via ICS, #114) + world clocks */}
-        <div class="glass start-card" style={{ display: widgetOn("calendar") ? undefined : "none", order: orderOf("calendar") }}>
-          <div class="start-card-title">
-            {monthLabel()}
-            <span class="start-card-actions">
-              <Show when={events().length > 0}>
-                <button class="start-card-link" title="Expand — see all events" onClick={() => setExpandedWidget("calendar")}>⤢ Expand</button>
-              </Show>
-              <button class="start-card-link" title="Subscribe to a calendar's secret ICS URL" onClick={() => setAddingCal((v) => !v)}>＋ Calendar</button>
-            </span>
-          </div>
-          <Show when={addingCal()}>
-            <form class="start-add" onSubmit={addCalendar}>
-              <input
-                value={newCalUrl()}
-                onInput={(e) => setNewCalUrl(e.currentTarget.value)}
-                placeholder="Paste your calendar's secret .ics URL"
-                spellcheck={false}
-                autofocus
-              />
-              <button type="submit">Add</button>
-            </form>
-          </Show>
-          <CalendarGrid />
-          <Show when={visibleCardEvents().length > 0}>
-            <div class="start-events">
-              <div class="start-event-list-title">{eventListTitle()}</div>
-              <For each={visibleCardEvents().slice(0, 2)}>
-                {(e) => (
-                  <div class="start-event" title={e.location ? `${e.summary} · ${e.location}` : e.summary}>
-                    <span class="start-event-when">{whenLabel(e)}</span>
-                    <span class="start-event-title">{e.summary}</span>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-          <Show when={selectedCalDate() && visibleCardEvents().length === 0}>
-            <div class="start-events">
-              <div class="start-event-list-title">{eventListTitle()}</div>
-              <div class="start-empty">No events for this day.</div>
-            </div>
-          </Show>
-          <div class="start-zones">
-            <For each={WORLD_ZONES}>
-              {(z) => (
-                <div class="start-zone">
-                  <span class="start-zone-label">{z.label}</span>
-                  <span class="start-zone-time">{zoneTime(z.tz)}</span>
+        <section class="start-cards">
+          {/* Clock + weather */}
+          <div class="glass start-card start-clock">
+            <div class="start-clock-time">{clock()}</div>
+            <div class="start-clock-date">{dateStr()}</div>
+            <Show when={weather()}>
+              {(w) => (
+                <div class="start-weather">
+                  {weatherInfo(w().code)[0]} {w().temp}° · {weatherInfo(w().code)[1]}
+                  <span class="start-weather-city">{w().city}</span>
                 </div>
               )}
-            </For>
+            </Show>
           </div>
-        </div>
 
-        {/* Tasks (#114) — local, on-device */}
-        <div class="glass start-card" style={{ display: widgetOn("tasks") ? undefined : "none", order: orderOf("tasks") }}>
-          <div class="start-card-title">
-            Tasks
-            <span class="start-card-actions">
-              <button class="start-card-link" title="Expand tasks" onClick={() => setExpandedWidget("tasks")}>⤢ Expand</button>
-              <Show when={todos().some((t) => t.done)}>
-                <button class="start-card-link" onClick={clearDoneTodos}>Clear done</button>
-              </Show>
-            </span>
+          {/* Recent tabs */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("recent") ? undefined : "none", order: orderOf("recent") }}
+          >
+            <div class="start-card-title">
+              Recent
+              <button
+                class="start-card-link"
+                title="Expand recent tabs"
+                onClick={() => setExpandedWidget("recent")}
+              >
+                ⤢ Expand
+              </button>
+            </div>
+            <Show
+              when={recent().length > 0}
+              fallback={<div class="start-empty">Open a few tabs and they'll show up here.</div>}
+            >
+              <div class="start-list start-card-body">
+                <For each={recent().slice(0, 6)}>
+                  {(t) => (
+                    <button class="start-row" onClick={() => focusTab(t.id)} title={t.url}>
+                      <span class="start-fav">{favicon(t.url)}</span>
+                      <span class="start-row-label">{t.title || t.url}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
           </div>
-          <form class="start-todo-add" onSubmit={addTodo}>
-            <input
-              value={newTodo()}
-              onInput={(e) => setNewTodo(e.currentTarget.value)}
-              placeholder="Add a task…"
+
+          {/* Editable speed dial */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("shortcuts") ? undefined : "none", order: orderOf("shortcuts") }}
+          >
+            <div class="start-card-title">
+              Shortcuts
+              <button
+                class="start-card-link"
+                title="Expand shortcuts"
+                onClick={() => setExpandedWidget("shortcuts")}
+              >
+                ⤢ Expand
+              </button>
+            </div>
+            <div class="start-card-body">
+              <div class="start-dial">
+                <For each={shortcuts().slice(0, 5)}>
+                  {(s, i) => (
+                    <div class="start-tile-wrap">
+                      <button
+                        class="start-tile"
+                        style={{ "--tint": s.tint }}
+                        onClick={() => props.onNavigate(s.url)}
+                        title={s.url}
+                      >
+                        {s.label}
+                      </button>
+                      <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>
+                        ×
+                      </button>
+                    </div>
+                  )}
+                </For>
+                <button
+                  class="start-tile start-tile-add"
+                  title="Add shortcut"
+                  onClick={() => setExpandedWidget("shortcuts")}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Top sites */}
+          <Show when={widgetOn("topsites") && topSites().length > 0}>
+            <div class="glass start-card" style={{ order: orderOf("topsites") }}>
+              <div class="start-card-title">
+                Top sites
+                <button
+                  class="start-card-link"
+                  title="Expand top sites"
+                  onClick={() => setExpandedWidget("topSites")}
+                >
+                  ⤢ Expand
+                </button>
+              </div>
+              <div class="start-dial start-card-body">
+                <For each={topSites().slice(0, 6)}>
+                  {(s, i) => (
+                    <div class="start-tile-wrap">
+                      <button
+                        class="start-tile"
+                        style={{ "--tint": TINTS[i() % TINTS.length] }}
+                        onClick={() => props.onNavigate(s.url)}
+                        title={s.title}
+                      >
+                        {(s.host[0] ?? "?").toUpperCase()}
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
+
+          {/* Feed headlines (#72) */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("headlines") ? undefined : "none", order: orderOf("headlines") }}
+          >
+            <div class="start-card-title">
+              Headlines
+              <span class="start-card-actions">
+                <button
+                  class="start-card-link"
+                  title="Expand headlines"
+                  onClick={() => setExpandedWidget("headlines")}
+                >
+                  ⤢ Expand
+                </button>
+                <button class="start-card-link" onClick={() => props.onNavigate(FEEDS_URL)}>
+                  Feeds →
+                </button>
+              </span>
+            </div>
+            <Show
+              when={headlines().length > 0}
+              fallback={
+                <div class="start-empty">
+                  Subscribe to feeds in <b>Feeds</b> and the latest items show here.
+                </div>
+              }
+            >
+              <div class="start-list start-card-body">
+                <For each={headlines().slice(0, 6)}>
+                  {(it) => (
+                    <button
+                      class="start-row"
+                      onClick={() => props.onNavigate(it.link)}
+                      title={`${it.feed_title} — ${it.title}`}
+                    >
+                      <span class="start-fav">📰</span>
+                      <span class="start-row-label">{it.title}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+
+          {/* Daily briefing (#71) — local agent summary of the headlines */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("briefing") ? undefined : "none", order: orderOf("briefing") }}
+          >
+            <div class="start-card-title">
+              Daily briefing
+              <Show when={briefing().state === "ok"}>
+                <button
+                  class="start-card-link"
+                  title="Regenerate from the latest headlines"
+                  onClick={generateBriefing}
+                >
+                  ↻ Refresh
+                </button>
+              </Show>
+            </div>
+            <div class="start-card-body">
+              <Switch>
+                <Match when={headlines().length === 0}>
+                  <div class="start-empty">
+                    Subscribe to feeds and Gemma will brief you on the day's headlines — privately, on-device.
+                  </div>
+                </Match>
+                <Match when={briefing().state === "loading"}>
+                  <div class="start-empty">Gemma is reading the headlines…</div>
+                </Match>
+                <Match when={briefing().state === "error"}>
+                  <div class="start-empty">
+                    Couldn't reach the local model.{" "}
+                    <button class="start-card-link" onClick={generateBriefing}>
+                      Retry
+                    </button>
+                  </div>
+                </Match>
+                <Match when={briefing().state === "ok"}>
+                  <div class="start-briefing">{briefing().text}</div>
+                </Match>
+                <Match when={briefing().state === "idle"}>
+                  <button class="start-brief-btn" onClick={generateBriefing}>
+                    ✦ Brief me on today
+                  </button>
+                </Match>
+              </Switch>
+            </div>
+          </div>
+
+          {/* Scratchpad */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("scratchpad") ? undefined : "none", order: orderOf("scratchpad") }}
+          >
+            <div class="start-card-title">
+              Scratchpad
+              <button
+                class="start-card-link"
+                title="Expand scratchpad"
+                onClick={() => setExpandedWidget("scratch")}
+              >
+                ⤢ Expand
+              </button>
+            </div>
+            <textarea
+              class="start-scratch"
+              value={scratch()}
+              onInput={(e) => onScratch(e.currentTarget.value)}
+              placeholder="Jot a quick note, todo, or link… saved automatically."
               spellcheck={false}
             />
-          </form>
-          <Show
-            when={todos().length > 0}
-            fallback={<div class="start-empty">Nothing yet — add a task above. Stored on your device.</div>}
+          </div>
+
+          {/* Calendar (Google via ICS, #114) + world clocks */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("calendar") ? undefined : "none", order: orderOf("calendar") }}
           >
-            <div class="start-todos start-card-body">
-              <For each={sortedTodos().slice(0, 5)}>
-                {(t) => (
-                  <div classList={{ "start-todo": true, done: t.done }}>
-                    <button class="start-todo-check" title={t.done ? "Mark not done" : "Mark done"} onClick={() => toggleTodo(t.id)}>{t.done ? "☑" : "☐"}</button>
-                    <span class="start-todo-title">{t.title}</span>
-                    <Show when={t.due}><span class="start-todo-due">{t.due}</span></Show>
-                    <button class="start-todo-x" title="Remove" onClick={() => removeTodo(t.id)}>×</button>
+            <div class="start-card-title">
+              {monthLabel()}
+              <span class="start-card-actions">
+                <Show when={events().length > 0}>
+                  <button
+                    class="start-card-link"
+                    title="Expand — see all events"
+                    onClick={() => setExpandedWidget("calendar")}
+                  >
+                    ⤢ Expand
+                  </button>
+                </Show>
+                <button
+                  class="start-card-link"
+                  title="Subscribe to a calendar's secret ICS URL"
+                  onClick={() => setAddingCal((v) => !v)}
+                >
+                  ＋ Calendar
+                </button>
+              </span>
+            </div>
+            <Show when={addingCal()}>
+              <form class="start-add" onSubmit={addCalendar}>
+                <input
+                  value={newCalUrl()}
+                  onInput={(e) => setNewCalUrl(e.currentTarget.value)}
+                  placeholder="Paste your calendar's secret .ics URL"
+                  spellcheck={false}
+                  autofocus
+                />
+                <button type="submit">Add</button>
+              </form>
+            </Show>
+            <CalendarGrid />
+            <Show when={visibleCardEvents().length > 0}>
+              <div class="start-events">
+                <div class="start-event-list-title">{eventListTitle()}</div>
+                <For each={visibleCardEvents().slice(0, 2)}>
+                  {(e) => (
+                    <div class="start-event" title={e.location ? `${e.summary} · ${e.location}` : e.summary}>
+                      <span class="start-event-when">{whenLabel(e)}</span>
+                      <span class="start-event-title">{e.summary}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <Show when={selectedCalDate() && visibleCardEvents().length === 0}>
+              <div class="start-events">
+                <div class="start-event-list-title">{eventListTitle()}</div>
+                <div class="start-empty">No events for this day.</div>
+              </div>
+            </Show>
+            <div class="start-zones">
+              <For each={WORLD_ZONES}>
+                {(z) => (
+                  <div class="start-zone">
+                    <span class="start-zone-label">{z.label}</span>
+                    <span class="start-zone-time">{zoneTime(z.tz)}</span>
                   </div>
                 )}
               </For>
             </div>
-          </Show>
-          <Show when={openTodos() > 0}><div class="start-todo-count">{openTodos()} open</div></Show>
-        </div>
+          </div>
 
-        {/* Calculator (#130) — compact; expands to a scientific calculator. */}
-        {/* Timers, stopwatch & alarms (#134) — state lives in clocks.ts, so a
-            running timer / your alarms persist after you leave the start page. */}
-        <div class="glass start-card" style={{ display: widgetOn("clocks") ? undefined : "none", order: orderOf("clocks") }}>
-          <div class="start-card-title">Time</div>
-          <div class="start-card-body">
-            <ClockWidget />
-          </div>
-        </div>
-
-        <div class="glass start-card" style={{ display: widgetOn("calc") ? undefined : "none", order: orderOf("calc") }}>
-          <div class="start-card-title">
-            Calculator
-            <button class="start-card-link" title="Scientific calculator" onClick={() => setExpandedWidget("calc")}>⤢ Scientific</button>
-          </div>
-          <div class="start-card-body">
-            <Calculator />
-          </div>
-        </div>
-
-        {/* Unit converter (#130) — length/mass/temp/…; expands with currency. */}
-        <div class="glass start-card" style={{ display: widgetOn("convert") ? undefined : "none", order: orderOf("convert") }}>
-          <div class="start-card-title">
-            Unit converter
-            <button class="start-card-link" title="All categories + currency" onClick={() => setExpandedWidget("convert")}>⤢ Expand</button>
-          </div>
-          <div class="start-card-body">
-            <Converter />
-          </div>
-        </div>
-
-        {/* Maps (#130) — Australia cover; opens the full map panel. */}
-        <div class="glass start-card start-map-card" style={{ display: widgetOn("map") ? undefined : "none", order: orderOf("map") }}>
-          <div class="start-card-title">
-            Maps
-            <button class="start-card-link" title="Open maps" onClick={() => props.onOpenMap()}>⤢ Open</button>
-          </div>
-          <button class="start-map-cover" title="Open Maps" onClick={() => props.onOpenMap()}>
-            <iframe
-              class="start-map-frame"
-              src="https://www.google.com/maps?q=Australia&z=3&output=embed"
-              title="Australia"
-              loading="lazy"
-              tabindex={-1}
-              aria-hidden="true"
-            />
-            <span class="start-map-label">🗺 Open Maps</span>
-          </button>
-        </div>
-
-        {/* Omni index glance (#97) */}
-        <div class="glass start-card" style={{ display: widgetOn("omni") ? undefined : "none", order: orderOf("omni") }}>
-          <div class="start-card-title">
-            Omni index
-            <button class="start-card-link" title="Open the Omni dashboard" onClick={() => props.onNavigate(OMNI_URL)}>⤢ Dashboard</button>
-          </div>
-          <Show when={omni()} fallback={<div class="start-empty">Your local search index — save pages with ⌘⇧O and they're searchable here.</div>}>
-            {(s) => (
-              <div class="start-card-body start-omni">
-                <div class="start-omni-row">
-                  <div class="start-omni-stat"><span class="start-omni-num">{s().live_docs.toLocaleString()}</span><span class="start-omni-lbl">pages</span></div>
-                  <div class="start-omni-stat"><span class="start-omni-num">{s().ann_vectors.toLocaleString()}</span><span class="start-omni-lbl">vectors</span></div>
-                </div>
-                <div class="start-omni-meta">{s().embedder_kind}{s().embedded ? ` · ${s().embedder_dim}-dim` : " · hashing (offline)"}</div>
+          {/* Tasks (#114) — local, on-device */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("tasks") ? undefined : "none", order: orderOf("tasks") }}
+          >
+            <div class="start-card-title">
+              Tasks
+              <span class="start-card-actions">
+                <button
+                  class="start-card-link"
+                  title="Expand tasks"
+                  onClick={() => setExpandedWidget("tasks")}
+                >
+                  ⤢ Expand
+                </button>
+                <Show when={todos().some((t) => t.done)}>
+                  <button class="start-card-link" onClick={clearDoneTodos}>
+                    Clear done
+                  </button>
+                </Show>
+              </span>
+            </div>
+            <form class="start-todo-add" onSubmit={addTodo}>
+              <input
+                value={newTodo()}
+                onInput={(e) => setNewTodo(e.currentTarget.value)}
+                placeholder="Add a task…"
+                spellcheck={false}
+              />
+            </form>
+            <Show
+              when={todos().length > 0}
+              fallback={<div class="start-empty">Nothing yet — add a task above. Stored on your device.</div>}
+            >
+              <div class="start-todos start-card-body">
+                <For each={sortedTodos().slice(0, 5)}>
+                  {(t) => (
+                    <div classList={{ "start-todo": true, done: t.done }}>
+                      <button
+                        class="start-todo-check"
+                        title={t.done ? "Mark not done" : "Mark done"}
+                        onClick={() => toggleTodo(t.id)}
+                      >
+                        {t.done ? "☑" : "☐"}
+                      </button>
+                      <span class="start-todo-title">{t.title}</span>
+                      <Show when={t.due}>
+                        <span class="start-todo-due">{t.due}</span>
+                      </Show>
+                      <button class="start-todo-x" title="Remove" onClick={() => removeTodo(t.id)}>
+                        ×
+                      </button>
+                    </div>
+                  )}
+                </For>
               </div>
-            )}
-          </Show>
-        </div>
+            </Show>
+            <Show when={openTodos() > 0}>
+              <div class="start-todo-count">{openTodos()} open</div>
+            </Show>
+          </div>
 
-        {/* Quick actions */}
-        <div class="glass start-card" style={{ display: widgetOn("actions") ? undefined : "none", order: orderOf("actions") }}>
-          <div class="start-card-title">
-            Quick actions
-            <button class="start-card-link" title="Expand quick actions" onClick={() => setExpandedWidget("actions")}>⤢ Expand</button>
+          {/* Calculator (#130) — compact; expands to a scientific calculator. */}
+          {/* Timers, stopwatch & alarms (#134) — state lives in clocks.ts, so a
+            running timer / your alarms persist after you leave the start page. */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("clocks") ? undefined : "none", order: orderOf("clocks") }}
+          >
+            <div class="start-card-title">Time</div>
+            <div class="start-card-body">
+              <ClockWidget />
+            </div>
           </div>
-          <div class="start-actions">
-            <button class="start-action" onClick={props.onNewTerminal}>
-              <span class="start-action-icon">⌨</span> New terminal
-            </button>
-            <button class="start-action" onClick={props.onToggleAgent}>
-              <span class="start-action-icon" style={{ color: "var(--flux-violet)" }}>✦</span> Ask Flux Agent
-            </button>
-            <button class="start-action" onClick={() => props.onNavigate(OMNI_URL)}>
-              <span class="start-action-icon" style={{ color: "var(--flux-teal)" }}>✦</span> Omni index
-            </button>
-            <button class="start-action" onClick={() => props.onNavigate(HISTORY_URL)}>
-              <span class="start-action-icon">🕘</span> History
+
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("calc") ? undefined : "none", order: orderOf("calc") }}
+          >
+            <div class="start-card-title">
+              Calculator
+              <button
+                class="start-card-link"
+                title="Scientific calculator"
+                onClick={() => setExpandedWidget("calc")}
+              >
+                ⤢ Scientific
+              </button>
+            </div>
+            <div class="start-card-body">
+              <Calculator />
+            </div>
+          </div>
+
+          {/* Unit converter (#130) — length/mass/temp/…; expands with currency. */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("convert") ? undefined : "none", order: orderOf("convert") }}
+          >
+            <div class="start-card-title">
+              Unit converter
+              <button
+                class="start-card-link"
+                title="All categories + currency"
+                onClick={() => setExpandedWidget("convert")}
+              >
+                ⤢ Expand
+              </button>
+            </div>
+            <div class="start-card-body">
+              <Converter />
+            </div>
+          </div>
+
+          {/* Maps (#130) — Australia cover; opens the full map panel. */}
+          <div
+            class="glass start-card start-map-card"
+            style={{ display: widgetOn("map") ? undefined : "none", order: orderOf("map") }}
+          >
+            <div class="start-card-title">
+              Maps
+              <button class="start-card-link" title="Open maps" onClick={() => props.onOpenMap()}>
+                ⤢ Open
+              </button>
+            </div>
+            <button class="start-map-cover" title="Open Maps" onClick={() => props.onOpenMap()}>
+              <iframe
+                class="start-map-frame"
+                src="https://www.google.com/maps?q=Australia&z=3&output=embed"
+                title="Australia"
+                loading="lazy"
+                tabindex={-1}
+                aria-hidden="true"
+              />
+              <span class="start-map-label">🗺 Open Maps</span>
             </button>
           </div>
-        </div>
-      </section>
+
+          {/* Omni index glance (#97) */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("omni") ? undefined : "none", order: orderOf("omni") }}
+          >
+            <div class="start-card-title">
+              Omni index
+              <button
+                class="start-card-link"
+                title="Open the Omni dashboard"
+                onClick={() => props.onNavigate(OMNI_URL)}
+              >
+                ⤢ Dashboard
+              </button>
+            </div>
+            <Show
+              when={omni()}
+              fallback={
+                <div class="start-empty">
+                  Your local search index — save pages with ⌘⇧O and they're searchable here.
+                </div>
+              }
+            >
+              {(s) => (
+                <div class="start-card-body start-omni">
+                  <div class="start-omni-row">
+                    <div class="start-omni-stat">
+                      <span class="start-omni-num">{s().live_docs.toLocaleString()}</span>
+                      <span class="start-omni-lbl">pages</span>
+                    </div>
+                    <div class="start-omni-stat">
+                      <span class="start-omni-num">{s().ann_vectors.toLocaleString()}</span>
+                      <span class="start-omni-lbl">vectors</span>
+                    </div>
+                  </div>
+                  <div class="start-omni-meta">
+                    {s().embedder_kind}
+                    {s().embedded ? ` · ${s().embedder_dim}-dim` : " · hashing (offline)"}
+                  </div>
+                </div>
+              )}
+            </Show>
+          </div>
+
+          {/* Quick actions */}
+          <div
+            class="glass start-card"
+            style={{ display: widgetOn("actions") ? undefined : "none", order: orderOf("actions") }}
+          >
+            <div class="start-card-title">
+              Quick actions
+              <button
+                class="start-card-link"
+                title="Expand quick actions"
+                onClick={() => setExpandedWidget("actions")}
+              >
+                ⤢ Expand
+              </button>
+            </div>
+            <div class="start-actions">
+              <button class="start-action" onClick={props.onNewTerminal}>
+                <span class="start-action-icon">⌨</span> New terminal
+              </button>
+              <button class="start-action" onClick={props.onToggleAgent}>
+                <span class="start-action-icon" style={{ color: "var(--flux-violet)" }}>
+                  ✦
+                </span>{" "}
+                Ask Flux Agent
+              </button>
+              <button class="start-action" onClick={() => props.onNavigate(OMNI_URL)}>
+                <span class="start-action-icon" style={{ color: "var(--flux-teal)" }}>
+                  ✦
+                </span>{" "}
+                Omni index
+              </button>
+              <button class="start-action" onClick={() => props.onNavigate(HISTORY_URL)}>
+                <span class="start-action-icon">🕘</span> History
+              </button>
+            </div>
+          </div>
+        </section>
       </div>
 
       {/* Expanded widgets — dashboard cards keep a fixed footprint; dense content
           opens here instead of resizing the grid. */}
       <Show when={expandedWidget()}>
-        <div class="cal-modal-backdrop" onClick={() => setExpandedWidget(null)} onKeyDown={(e) => { if (e.key === "Escape") setExpandedWidget(null); }}>
-          <div classList={{ "cal-modal": true, glass: true, "cal-week-modal": expandedWidget() === "calendar" }} onClick={(e) => e.stopPropagation()}>
+        <div
+          class="cal-modal-backdrop"
+          onClick={() => setExpandedWidget(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setExpandedWidget(null);
+          }}
+        >
+          <div
+            classList={{ "cal-modal": true, glass: true, "cal-week-modal": expandedWidget() === "calendar" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div class="cal-modal-head">
               <span class="cal-modal-title">
-                {expandedWidget() === "recent" ? "Recent tabs"
-                  : expandedWidget() === "shortcuts" ? "Shortcuts"
-                  : expandedWidget() === "topSites" ? "Top sites"
-                  : expandedWidget() === "headlines" ? "Headlines"
-                  : expandedWidget() === "scratch" ? "Scratchpad"
-                  : expandedWidget() === "tasks" ? "Tasks"
-                  : expandedWidget() === "actions" ? "Quick actions"
-                  : expandedWidget() === "calc" ? "Scientific calculator"
-                  : expandedWidget() === "convert" ? "Unit & currency converter"
-                  : monthLabel()}
+                {expandedWidget() === "recent"
+                  ? "Recent tabs"
+                  : expandedWidget() === "shortcuts"
+                    ? "Shortcuts"
+                    : expandedWidget() === "topSites"
+                      ? "Top sites"
+                      : expandedWidget() === "headlines"
+                        ? "Headlines"
+                        : expandedWidget() === "scratch"
+                          ? "Scratchpad"
+                          : expandedWidget() === "tasks"
+                            ? "Tasks"
+                            : expandedWidget() === "actions"
+                              ? "Quick actions"
+                              : expandedWidget() === "calc"
+                                ? "Scientific calculator"
+                                : expandedWidget() === "convert"
+                                  ? "Unit & currency converter"
+                                  : monthLabel()}
               </span>
-              <button class="files-panel-x" title="Close (Esc)" onClick={() => setExpandedWidget(null)}>✕</button>
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => setExpandedWidget(null)}>
+                ✕
+              </button>
             </div>
             <Show when={expandedWidget() === "calendar"}>
               <CalWeek />
@@ -1124,7 +1663,21 @@ const StartPage: Component<{
               <div class="widget-modal-body">
                 <Show when={expandedWidget() === "recent"}>
                   <div class="start-list">
-                    <For each={recent()}>{(t) => <button class="start-row" onClick={() => { setExpandedWidget(null); focusTab(t.id); }} title={t.url}><span class="start-fav">{favicon(t.url)}</span><span class="start-row-label">{t.title || t.url}</span></button>}</For>
+                    <For each={recent()}>
+                      {(t) => (
+                        <button
+                          class="start-row"
+                          onClick={() => {
+                            setExpandedWidget(null);
+                            focusTab(t.id);
+                          }}
+                          title={t.url}
+                        >
+                          <span class="start-fav">{favicon(t.url)}</span>
+                          <span class="start-row-label">{t.title || t.url}</span>
+                        </button>
+                      )}
+                    </For>
                   </div>
                 </Show>
                 <Show when={expandedWidget() === "shortcuts"}>
@@ -1132,44 +1685,107 @@ const StartPage: Component<{
                     <For each={shortcuts()}>
                       {(s, i) => (
                         <div class="start-tile-wrap">
-                          <button class="start-tile" style={{ "--tint": s.tint }} onClick={() => { setExpandedWidget(null); props.onNavigate(s.url); }} title={s.url}>{s.label}</button>
-                          <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>×</button>
+                          <button
+                            class="start-tile"
+                            style={{ "--tint": s.tint }}
+                            onClick={() => {
+                              setExpandedWidget(null);
+                              props.onNavigate(s.url);
+                            }}
+                            title={s.url}
+                          >
+                            {s.label}
+                          </button>
+                          <button class="start-tile-x" title="Remove" onClick={() => removeShortcut(i())}>
+                            ×
+                          </button>
                         </div>
                       )}
                     </For>
                   </div>
                   <form class="start-add" onSubmit={addShortcut}>
-                    <input value={newUrl()} onInput={(e) => setNewUrl(e.currentTarget.value)} placeholder="example.com" spellcheck={false} />
+                    <input
+                      value={newUrl()}
+                      onInput={(e) => setNewUrl(e.currentTarget.value)}
+                      placeholder="example.com"
+                      spellcheck={false}
+                    />
                     <button type="submit">Add</button>
                   </form>
                 </Show>
                 <Show when={expandedWidget() === "topSites"}>
                   <div class="start-dial widget-modal-dial">
                     <For each={topSites()}>
-                      {(s, i) => <button class="start-tile" style={{ "--tint": TINTS[i() % TINTS.length] }} onClick={() => { setExpandedWidget(null); props.onNavigate(s.url); }} title={s.title}>{(s.host[0] ?? "?").toUpperCase()}</button>}
+                      {(s, i) => (
+                        <button
+                          class="start-tile"
+                          style={{ "--tint": TINTS[i() % TINTS.length] }}
+                          onClick={() => {
+                            setExpandedWidget(null);
+                            props.onNavigate(s.url);
+                          }}
+                          title={s.title}
+                        >
+                          {(s.host[0] ?? "?").toUpperCase()}
+                        </button>
+                      )}
                     </For>
                   </div>
                 </Show>
                 <Show when={expandedWidget() === "headlines"}>
                   <div class="start-list">
-                    <For each={headlines()}>{(it) => <button class="start-row" onClick={() => { setExpandedWidget(null); props.onNavigate(it.link); }} title={`${it.feed_title} — ${it.title}`}><span class="start-fav">📰</span><span class="start-row-label">{it.title}</span></button>}</For>
+                    <For each={headlines()}>
+                      {(it) => (
+                        <button
+                          class="start-row"
+                          onClick={() => {
+                            setExpandedWidget(null);
+                            props.onNavigate(it.link);
+                          }}
+                          title={`${it.feed_title} — ${it.title}`}
+                        >
+                          <span class="start-fav">📰</span>
+                          <span class="start-row-label">{it.title}</span>
+                        </button>
+                      )}
+                    </For>
                   </div>
                 </Show>
                 <Show when={expandedWidget() === "scratch"}>
-                  <textarea class="start-scratch widget-modal-scratch" value={scratch()} onInput={(e) => onScratch(e.currentTarget.value)} spellcheck={false} />
+                  <textarea
+                    class="start-scratch widget-modal-scratch"
+                    value={scratch()}
+                    onInput={(e) => onScratch(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
                 </Show>
                 <Show when={expandedWidget() === "tasks"}>
                   <form class="start-todo-add" onSubmit={addTodo}>
-                    <input value={newTodo()} onInput={(e) => setNewTodo(e.currentTarget.value)} placeholder="Add a task…" spellcheck={false} />
+                    <input
+                      value={newTodo()}
+                      onInput={(e) => setNewTodo(e.currentTarget.value)}
+                      placeholder="Add a task…"
+                      spellcheck={false}
+                    />
                   </form>
                   <div class="start-todos">
                     <For each={sortedTodos()}>
                       {(t) => (
                         <div classList={{ "start-todo": true, done: t.done }}>
-                          <button class="start-todo-check" title={t.done ? "Mark not done" : "Mark done"} onClick={() => toggleTodo(t.id)}>{t.done ? "☑" : "☐"}</button>
+                          <button
+                            class="start-todo-check"
+                            title={t.done ? "Mark not done" : "Mark done"}
+                            onClick={() => toggleTodo(t.id)}
+                          >
+                            {t.done ? "☑" : "☐"}
+                          </button>
                           <span class="start-todo-title">{t.title}</span>
-                          <Show when={t.due}><span class="start-todo-due">{t.due}</span></Show>
-                          <button class="start-todo-x" title="Remove" onClick={() => removeTodo(t.id)}>×</button>
+                          <Show when={t.due}>
+                            <span class="start-todo-due">{t.due}</span>
+                          </Show>
+                          <button class="start-todo-x" title="Remove" onClick={() => removeTodo(t.id)}>
+                            ×
+                          </button>
                         </div>
                       )}
                     </For>
@@ -1177,14 +1793,54 @@ const StartPage: Component<{
                 </Show>
                 <Show when={expandedWidget() === "actions"}>
                   <div class="start-actions widget-modal-actions">
-                    <button class="start-action" onClick={() => { setExpandedWidget(null); props.onNewTerminal(); }}><span class="start-action-icon">⌨</span> New terminal</button>
-                    <button class="start-action" onClick={() => { setExpandedWidget(null); props.onToggleAgent(); }}><span class="start-action-icon" style={{ color: "var(--flux-violet)" }}>✦</span> Ask Flux Agent</button>
-                    <button class="start-action" onClick={() => { setExpandedWidget(null); props.onNavigate(OMNI_URL); }}><span class="start-action-icon" style={{ color: "var(--flux-teal)" }}>✦</span> Omni index</button>
-                    <button class="start-action" onClick={() => { setExpandedWidget(null); props.onNavigate(HISTORY_URL); }}><span class="start-action-icon">🕘</span> History</button>
+                    <button
+                      class="start-action"
+                      onClick={() => {
+                        setExpandedWidget(null);
+                        props.onNewTerminal();
+                      }}
+                    >
+                      <span class="start-action-icon">⌨</span> New terminal
+                    </button>
+                    <button
+                      class="start-action"
+                      onClick={() => {
+                        setExpandedWidget(null);
+                        props.onToggleAgent();
+                      }}
+                    >
+                      <span class="start-action-icon" style={{ color: "var(--flux-violet)" }}>
+                        ✦
+                      </span>{" "}
+                      Ask Flux Agent
+                    </button>
+                    <button
+                      class="start-action"
+                      onClick={() => {
+                        setExpandedWidget(null);
+                        props.onNavigate(OMNI_URL);
+                      }}
+                    >
+                      <span class="start-action-icon" style={{ color: "var(--flux-teal)" }}>
+                        ✦
+                      </span>{" "}
+                      Omni index
+                    </button>
+                    <button
+                      class="start-action"
+                      onClick={() => {
+                        setExpandedWidget(null);
+                        props.onNavigate(HISTORY_URL);
+                      }}
+                    >
+                      <span class="start-action-icon">🕘</span> History
+                    </button>
                   </div>
                 </Show>
                 <Show when={expandedWidget() === "calc"}>
-                  <div class="calc-modal-wrap"><Calculator scientific /></div>
+                  <div class="calc-modal-wrap">
+                    <Calculator scientific />
+                  </div>
                 </Show>
                 <Show when={expandedWidget() === "convert"}>
                   <Converter full />
@@ -1203,12 +1859,32 @@ const StartPage: Component<{
         fallback={
           <svg class="start-wave" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
             <g>
-              <path class="start-wave-1" d="M0 120 Q 240 60 480 120 T 960 120 T 1440 120 T 1920 120 V220 H0 Z" />
-              <animateTransform attributeName="transform" type="translate" from="0 0" to="-480 0" dur="14s" repeatCount="indefinite" />
+              <path
+                class="start-wave-1"
+                d="M0 120 Q 240 60 480 120 T 960 120 T 1440 120 T 1920 120 V220 H0 Z"
+              />
+              <animateTransform
+                attributeName="transform"
+                type="translate"
+                from="0 0"
+                to="-480 0"
+                dur="14s"
+                repeatCount="indefinite"
+              />
             </g>
             <g>
-              <path class="start-wave-2" d="M0 150 Q 240 110 480 150 T 960 150 T 1440 150 T 1920 150 V220 H0 Z" />
-              <animateTransform attributeName="transform" type="translate" from="0 0" to="-480 0" dur="9s" repeatCount="indefinite" />
+              <path
+                class="start-wave-2"
+                d="M0 150 Q 240 110 480 150 T 960 150 T 1440 150 T 1920 150 V220 H0 Z"
+              />
+              <animateTransform
+                attributeName="transform"
+                type="translate"
+                from="0 0"
+                to="-480 0"
+                dur="9s"
+                repeatCount="indefinite"
+              />
             </g>
           </svg>
         }

@@ -11,17 +11,28 @@ import { visibleInterval } from "./poll";
 import { activeId, activeWorkspace, isHibernated, tabs, updateTabTitle } from "./store";
 
 function hostOf(url: string): string | null {
-  try { return new URL(url).hostname.replace(/^www\./, "") || null; } catch { return null; }
+  try {
+    return new URL(url).hostname.replace(/^www\./, "") || null;
+  } catch {
+    return null;
+  }
 }
-const mb = (bytes: number) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+const mb = (bytes: number) =>
+  bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
-const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackground: () => void }> = (props) => {
+const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackground: () => void }> = (
+  props,
+) => {
   const [mem, setMem] = createSignal<MemInfo | null>(null);
   const [sizes, setSizes] = createSignal<Record<number, number>>({});
 
   const refresh = () => {
-    void memStatus().then(setMem).catch(() => {});
-    void tabDomSizes().then((s) => setSizes(Object.fromEntries(s))).catch(() => {});
+    void memStatus()
+      .then(setMem)
+      .catch(() => {});
+    void tabDomSizes()
+      .then((s) => setSizes(Object.fromEntries(s)))
+      .catch(() => {});
   };
   onMount(() => {
     const id = activeId();
@@ -32,7 +43,9 @@ const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackg
   // Browser tabs in the active workspace, heaviest first.
   const rows = createMemo(() =>
     tabs()
-      .filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !t.url.startsWith("flux://"))
+      .filter(
+        (t) => t.kind === "browser" && t.workspace === activeWorkspace() && !t.url.startsWith("flux://"),
+      )
       .map((t) => ({ tab: t, size: sizes()[t.id] ?? 0 }))
       .sort((a, b) => b.size - a.size),
   );
@@ -45,19 +58,25 @@ const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackg
         <Show when={mem()}>
           {(m) => (
             <span class="res-mem">
-              Flux {Math.round(m().process_mb)} MB · {Math.round(m().available_mb)} MB free ({m().available_pct}%)
+              Flux {Math.round(m().process_mb)} MB · {Math.round(m().available_mb)} MB free (
+              {m().available_pct}%)
             </span>
           )}
         </Show>
-        <button class="hist-clear" onClick={() => props.onSleepBackground()}>💤 Sleep background tabs</button>
+        <button class="hist-clear" onClick={() => props.onSleepBackground()}>
+          💤 Sleep background tabs
+        </button>
       </header>
 
       <div class="hist-body">
         <div class="res-note">
-          {rows().length} tab{rows().length === 1 ? "" : "s"} in this space · {liveCount()} live.
-          Per-tab CPU isn't separable (shared engine processes) — weight below is the captured page payload.
+          {rows().length} tab{rows().length === 1 ? "" : "s"} in this space · {liveCount()} live. Per-tab CPU
+          isn't separable (shared engine processes) — weight below is the captured page payload.
         </div>
-        <Show when={rows().length > 0} fallback={<div class="hist-empty">No web tabs in this workspace.</div>}>
+        <Show
+          when={rows().length > 0}
+          fallback={<div class="hist-empty">No web tabs in this workspace.</div>}
+        >
           <For each={rows()}>
             {(r) => (
               <div class="hist-row" onClick={() => props.onNavigate(r.tab.url)}>

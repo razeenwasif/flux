@@ -85,8 +85,16 @@ export async function stopPorcupine(): Promise<void> {
   worker = null;
   resid = new Float32Array(0);
   if (w) {
-    try { await w.release(); } catch { /* ignore */ }
-    try { w.terminate(); } catch { /* ignore */ }
+    try {
+      await w.release();
+    } catch {
+      /* ignore */
+    }
+    try {
+      w.terminate();
+    } catch {
+      /* ignore */
+    }
   }
 }
 

@@ -9,10 +9,28 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 
-import { agentChat, fsOpen, kbAnswer, kbRecent, kbReindex, kbSetSource, kbStatus, servicesStart, servicesStatus, type KbHit, type KbStatus, type ServiceStatus } from "./ipc";
+import {
+  agentChat,
+  fsOpen,
+  kbAnswer,
+  kbRecent,
+  kbReindex,
+  kbSetSource,
+  kbStatus,
+  servicesStart,
+  servicesStatus,
+  type KbHit,
+  type KbStatus,
+  type ServiceStatus,
+} from "./ipc";
 import { openTab } from "./store";
 
-const SOURCE_LABEL: Record<string, string> = { onyx: "Onyx vault", scroll: "Scroll papers", council: "Council briefs", web: "Browsing" };
+const SOURCE_LABEL: Record<string, string> = {
+  onyx: "Onyx vault",
+  scroll: "Scroll papers",
+  council: "Council briefs",
+  web: "Browsing",
+};
 const SOURCE_HINT: Record<string, string> = {
   onyx: "Vault path — e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault",
   scroll: "Scroll base URL — e.g. http://localhost:3131",
@@ -50,9 +68,15 @@ const NotebookPage: Component = () => {
     setDigest({ state: "loading" });
     try {
       const items = await kbRecent(7);
-      if (!items.length) { setDigest({ state: "empty" }); return; }
+      if (!items.length) {
+        setDigest({ state: "empty" });
+        return;
+      }
       const list = items
-        .map((i) => `- [${SOURCE_LABEL[i.source] ?? i.source}] ${i.title}${i.snippet ? ` — ${i.snippet.replace(/\s+/g, " ").trim()}` : ""}`)
+        .map(
+          (i) =>
+            `- [${SOURCE_LABEL[i.source] ?? i.source}] ${i.title}${i.snippet ? ` — ${i.snippet.replace(/\s+/g, " ").trim()}` : ""}`,
+        )
         .join("\n");
       const prompt =
         "You are my private research companion. Below is everything I added to my knowledge base this week " +
@@ -71,8 +95,14 @@ const NotebookPage: Component = () => {
     }
   };
 
-  const refresh = () => void kbStatus().then(setStatus).catch(() => {});
-  const refreshServices = () => void servicesStatus().then(setServices).catch(() => {});
+  const refresh = () =>
+    void kbStatus()
+      .then(setStatus)
+      .catch(() => {});
+  const refreshServices = () =>
+    void servicesStatus()
+      .then(setServices)
+      .catch(() => {});
   onMount(() => {
     refresh();
     refreshServices();
@@ -80,10 +110,16 @@ const NotebookPage: Component = () => {
     try {
       const c = JSON.parse(localStorage.getItem(DIGEST_KEY) || "null");
       if (c && c.week === weekKey() && c.text) setDigest({ state: "ok", text: c.text });
-    } catch { /* ignore a bad cache entry */ }
+    } catch {
+      /* ignore a bad cache entry */
+    }
   });
   const startService = async (name: string) => {
-    try { await servicesStart(name); } catch { /* best-effort */ }
+    try {
+      await servicesStart(name);
+    } catch {
+      /* best-effort */
+    }
     setTimeout(refreshServices, 1500); // give it a moment to come up
   };
 
@@ -158,7 +194,9 @@ const NotebookPage: Component = () => {
   return (
     <div class="nb">
       <header class="nb-head">
-        <span class="nb-brand"><span class="nb-spark">✦</span> Notebook <span class="nb-sub">your knowledge, grounded</span></span>
+        <span class="nb-brand">
+          <span class="nb-spark">✦</span> Notebook <span class="nb-sub">your knowledge, grounded</span>
+        </span>
         <button class="nb-reindex" disabled={reindexing()} onClick={reindex}>
           {reindexing() ? "Indexing…" : "↻ Reindex"}
         </button>
@@ -168,13 +206,16 @@ const NotebookPage: Component = () => {
       <div class="nb-sources">
         <For each={status()?.sources ?? []}>
           {(s) => (
-            <div class="nb-source-chip" classList={{ empty: s.chunks === 0, error: !!s.error }} title={s.error ?? undefined}>
+            <div
+              class="nb-source-chip"
+              classList={{ empty: s.chunks === 0, error: !!s.error }}
+              title={s.error ?? undefined}
+            >
               <span class="nb-source-name">{SOURCE_LABEL[s.source] ?? s.source}</span>
-              <Show
-                when={!s.error}
-                fallback={<span class="nb-source-err">{s.error}</span>}
-              >
-                <span class="nb-source-stat">{s.docs} docs · {s.chunks} chunks · {fmtAgo(s.last_ms)}</span>
+              <Show when={!s.error} fallback={<span class="nb-source-err">{s.error}</span>}>
+                <span class="nb-source-stat">
+                  {s.docs} docs · {s.chunks} chunks · {fmtAgo(s.last_ms)}
+                </span>
               </Show>
             </div>
           )}
@@ -193,9 +234,12 @@ const NotebookPage: Component = () => {
           <For each={services()}>
             {(s) => (
               <span class="nb-svc" classList={{ down: !s.running }}>
-                <span class="nb-svc-dot" />{s.label}
+                <span class="nb-svc-dot" />
+                {s.label}
                 <Show when={!s.running}>
-                  <button class="nb-svc-start" onClick={() => void startService(s.name)}>Start</button>
+                  <button class="nb-svc-start" onClick={() => void startService(s.name)}>
+                    Start
+                  </button>
                 </Show>
               </span>
             )}
@@ -213,7 +257,12 @@ const NotebookPage: Component = () => {
               placeholder={SOURCE_HINT[s.source] ?? ""}
               value={loc()[s.source] ?? s.location ?? ""}
               onInput={(e) => setLoc((m) => ({ ...m, [s.source]: e.currentTarget.value }))}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveLocation(s.source); } }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void saveLocation(s.source);
+                }
+              }}
             />
             <button class="nb-fix-save" disabled={reindexing()} onClick={() => void saveLocation(s.source)}>
               Save &amp; index
@@ -232,15 +281,29 @@ const NotebookPage: Component = () => {
       <div class="nb-digest">
         <div class="nb-digest-head">
           <span class="nb-digest-title">📅 This week in your knowledge base</span>
-          <button class="nb-digest-go" disabled={digest().state === "loading"} onClick={() => void generateDigest()}>
-            {digest().state === "loading" ? "Writing…" : digest().state === "ok" ? "↻ Regenerate" : "Generate digest"}
+          <button
+            class="nb-digest-go"
+            disabled={digest().state === "loading"}
+            onClick={() => void generateDigest()}
+          >
+            {digest().state === "loading"
+              ? "Writing…"
+              : digest().state === "ok"
+                ? "↻ Regenerate"
+                : "Generate digest"}
           </button>
         </div>
         <Show when={digest().state === "idle"}>
-          <div class="nb-digest-hint">Let Gemma review what you indexed, clipped, and debated this week — threads, connections, and open questions. Stays on your machine.</div>
+          <div class="nb-digest-hint">
+            Let Gemma review what you indexed, clipped, and debated this week — threads, connections, and open
+            questions. Stays on your machine.
+          </div>
         </Show>
         <Show when={digest().state === "empty"}>
-          <div class="nb-digest-hint">Nothing new indexed in the last 7 days. Clip a paper to Scroll or add an Onyx note, then ↻ Reindex.</div>
+          <div class="nb-digest-hint">
+            Nothing new indexed in the last 7 days. Clip a paper to Scroll or add an Onyx note, then ↻
+            Reindex.
+          </div>
         </Show>
         <Show when={digest().state === "error"}>
           <div class="nb-err">{digest().error}</div>
@@ -257,7 +320,12 @@ const NotebookPage: Component = () => {
           placeholder="Ask your notes & papers… e.g. “summarise what I've saved on diffusion models”"
           value={q()}
           onInput={(e) => setQ(e.currentTarget.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void ask(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void ask();
+            }
+          }}
         />
         <button class="nb-go" disabled={busy() || !q().trim()} onClick={() => void ask()}>
           {busy() ? "Thinking…" : "Ask ⌘↵"}
@@ -272,9 +340,14 @@ const NotebookPage: Component = () => {
       <Show when={asked()}>
         <div class="nb-answer-card">
           <Show when={voice()}>
-            <div class="nb-voice" title="A fine-tuned domain specialist answered this">⚛ {voice()} specialist</div>
+            <div class="nb-voice" title="A fine-tuned domain specialist answered this">
+              ⚛ {voice()} specialist
+            </div>
           </Show>
-          <Show when={answer()} fallback={<div class="nb-thinking">{busy() ? "Searching your knowledge base…" : ""}</div>}>
+          <Show
+            when={answer()}
+            fallback={<div class="nb-thinking">{busy() ? "Searching your knowledge base…" : ""}</div>}
+          >
             <div class="nb-answer">{answer()}</div>
           </Show>
           <Show when={hits().length > 0}>
@@ -282,11 +355,7 @@ const NotebookPage: Component = () => {
               <div class="nb-cites-title">Sources</div>
               <For each={hits()}>
                 {(h, i) => (
-                  <button
-                    class="nb-cite"
-                    title={`Open ${h.path}`}
-                    onClick={() => openCitation(h)}
-                  >
+                  <button class="nb-cite" title={`Open ${h.path}`} onClick={() => openCitation(h)}>
                     <span class="nb-cite-n">{i() + 1}</span>
                     <span class="nb-cite-body">
                       <span class="nb-cite-title">{h.title}</span>

@@ -18,9 +18,19 @@ export const AppIcon: Component<{ app: FluxApp; size?: number }> = (props) => {
   return (
     <Show
       when={!failed()}
-      fallback={<span class="appdock-mono" style={{ background: props.app.tint, width: px, height: px }}>{props.app.name[0]}</span>}
+      fallback={
+        <span class="appdock-mono" style={{ background: props.app.tint, width: px, height: px }}>
+          {props.app.name[0]}
+        </span>
+      }
     >
-      <img class="appdock-fav" style={{ width: px, height: px }} src={src()} alt="" onError={() => setFailed(true)} />
+      <img
+        class="appdock-fav"
+        style={{ width: px, height: px }}
+        src={src()}
+        alt=""
+        onError={() => setFailed(true)}
+      />
     </Show>
   );
 };

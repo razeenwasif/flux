@@ -4,8 +4,15 @@
 import { type Component, Show } from "solid-js";
 import { panelNavigate, type WebPanel } from "./ipc";
 import {
-  activePanel, activePanelB, closePanel, closePanelB,
-  panelSplitRatio, panelWidth, setPanelDragging, setPanelSplitRatio, setPanelWidth,
+  activePanel,
+  activePanelB,
+  closePanel,
+  closePanelB,
+  panelSplitRatio,
+  panelWidth,
+  setPanelDragging,
+  setPanelSplitRatio,
+  setPanelWidth,
 } from "./store";
 
 const WebPanelPane: Component = () => {
@@ -51,17 +58,18 @@ const WebPanelPane: Component = () => {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
-  const slot = (
-    id: string,
-    p: WebPanel,
-    onClose: () => void,
-    grow: () => number,
-  ) => (
+  const slot = (id: string, p: WebPanel, onClose: () => void, grow: () => number) => (
     <div class="webpanel-surface" id={id} style={{ "flex-grow": String(grow()) }}>
       <div class="panel-toolbar">
-        <span class="panel-title" title={p.url}>{p.title || p.url}</span>
-        <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p.id, p.url)}>⟳</button>
-        <button class="panel-btn" title="Close panel" onClick={onClose}>✕</button>
+        <span class="panel-title" title={p.url}>
+          {p.title || p.url}
+        </span>
+        <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p.id, p.url)}>
+          ⟳
+        </button>
+        <button class="panel-btn" title="Close panel" onClick={onClose}>
+          ✕
+        </button>
       </div>
       <div class="panel-placeholder" />
     </div>
@@ -73,13 +81,27 @@ const WebPanelPane: Component = () => {
           reserved gutter the native webview is inset from, so it's grabbable. */}
       <div class="panel-edge-resize" title="Drag to resize the panel" onPointerDown={startWidthDrag} />
       <Show when={activePanel()}>
-        {(p) => slot("flux-panel-area", p(), () => closePanel(), () => (both() ? panelSplitRatio() : 1))}
+        {(p) =>
+          slot(
+            "flux-panel-area",
+            p(),
+            () => closePanel(),
+            () => (both() ? panelSplitRatio() : 1),
+          )
+        }
       </Show>
       <Show when={both()}>
         <div class="webpanel-vdiv" onPointerDown={startSplitDrag} title="Drag to resize split" />
       </Show>
       <Show when={activePanelB()}>
-        {(p) => slot("flux-panel-area-b", p(), () => closePanelB(), () => (both() ? 1 - panelSplitRatio() : 1))}
+        {(p) =>
+          slot(
+            "flux-panel-area-b",
+            p(),
+            () => closePanelB(),
+            () => (both() ? 1 - panelSplitRatio() : 1),
+          )
+        }
       </Show>
     </aside>
   );

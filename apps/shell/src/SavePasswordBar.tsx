@@ -10,9 +10,18 @@ import { savePrompt, setSavePrompt } from "./store";
 const SavePasswordBar: Component = () => {
   const p = () => savePrompt();
   const close = () => setSavePrompt(null);
-  const save = () => { void vaultSaveConfirm(); close(); };
-  const notNow = () => { void vaultSaveDismiss(); close(); };
-  const never = () => { void vaultNeverSave(); close(); };
+  const save = () => {
+    void vaultSaveConfirm();
+    close();
+  };
+  const notNow = () => {
+    void vaultSaveDismiss();
+    close();
+  };
+  const never = () => {
+    void vaultNeverSave();
+    close();
+  };
 
   return (
     <Show when={p()}>
@@ -24,9 +33,15 @@ const SavePasswordBar: Component = () => {
             <b>{prompt().host}</b>
             <Show when={prompt().username}> · {prompt().username}</Show>?
           </span>
-          <button class="perm-btn allow" onClick={save}>{prompt().update ? "Update" : "Save"}</button>
-          <button class="perm-btn deny" onClick={notNow}>Not now</button>
-          <button class="perm-btn dismiss" title="Never save for this site" onClick={never}>Never</button>
+          <button class="perm-btn allow" onClick={save}>
+            {prompt().update ? "Update" : "Save"}
+          </button>
+          <button class="perm-btn deny" onClick={notNow}>
+            Not now
+          </button>
+          <button class="perm-btn dismiss" title="Never save for this site" onClick={never}>
+            Never
+          </button>
         </div>
       )}
     </Show>

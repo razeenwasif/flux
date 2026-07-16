@@ -4,10 +4,23 @@
  * content card like flux://history. Distinct from the always-on session restore.
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
-import { sessionDelete, sessionSave, sessionsList, snapshotsList, type DaySnapshot, type SavedSession } from "./ipc";
+import {
+  sessionDelete,
+  sessionSave,
+  sessionsList,
+  snapshotsList,
+  type DaySnapshot,
+  type SavedSession,
+} from "./ipc";
 import { activeId, restoreSession, restoreSnapshot, updateTabTitle } from "./store";
 
-const when = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const when = (ms: number) =>
+  new Date(ms).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
 // A friendly label for an auto-snapshot day relative to today.
 const dayLabel = (ms: number) => {
@@ -28,8 +41,12 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
   const [note, setNote] = createSignal("");
 
   const load = () => {
-    void sessionsList().then(setSessions).catch(() => setSessions([]));
-    void snapshotsList().then(setSnaps).catch(() => setSnaps([]));
+    void sessionsList()
+      .then(setSessions)
+      .catch(() => setSessions([]));
+    void snapshotsList()
+      .then(setSnaps)
+      .catch(() => setSnaps([]));
   };
   onMount(() => {
     const id = activeId();
@@ -62,9 +79,13 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
           placeholder="Name this session…"
           value={name()}
           onInput={(e) => setName(e.currentTarget.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") void save(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void save();
+          }}
         />
-        <button class="hist-clear" onClick={() => void save()}>＋ Save current tabs</button>
+        <button class="hist-clear" onClick={() => void save()}>
+          ＋ Save current tabs
+        </button>
       </header>
 
       <Show when={note()}>{(n) => <div class="bm-flash">{n()}</div>}</Show>
@@ -77,22 +98,46 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
               {(snap) => (
                 <div class="bm-folder">
                   <span class="bm-folder-name">🕒 {dayLabel(snap.captured_ms)}</span>
-                  <span class="hist-day" style={{ "margin-left": "auto" }}>{snap.tabs.length} tab{snap.tabs.length === 1 ? "" : "s"} · {when(snap.captured_ms)}</span>
-                  <button class="bm-open-group" disabled={snap.tabs.length === 0} onClick={() => void reopenDay(snap)}>↺ Reopen</button>
+                  <span class="hist-day" style={{ "margin-left": "auto" }}>
+                    {snap.tabs.length} tab{snap.tabs.length === 1 ? "" : "s"} · {when(snap.captured_ms)}
+                  </span>
+                  <button
+                    class="bm-open-group"
+                    disabled={snap.tabs.length === 0}
+                    onClick={() => void reopenDay(snap)}
+                  >
+                    ↺ Reopen
+                  </button>
                 </div>
               )}
             </For>
           </div>
         </Show>
-        <Show when={sessions().length > 0} fallback={<div class="hist-empty">No saved sessions yet — name your current set of tabs and save it.</div>}>
+        <Show
+          when={sessions().length > 0}
+          fallback={
+            <div class="hist-empty">No saved sessions yet — name your current set of tabs and save it.</div>
+          }
+        >
           <For each={sessions()}>
             {(s) => (
               <div class="hist-group">
                 <div class="bm-folder">
                   <span class="bm-folder-name">🗃 {s.name}</span>
-                  <span class="hist-day" style={{ "margin-left": "auto" }}>{s.tabs.length} · {when(s.created_ms)}</span>
-                  <button class="bm-open-group" onClick={() => void restore(s)}>↺ Reopen</button>
-                  <button class="hist-forget" title="Delete session" style={{ opacity: 1 }} onClick={() => remove(s)}>✕</button>
+                  <span class="hist-day" style={{ "margin-left": "auto" }}>
+                    {s.tabs.length} · {when(s.created_ms)}
+                  </span>
+                  <button class="bm-open-group" onClick={() => void restore(s)}>
+                    ↺ Reopen
+                  </button>
+                  <button
+                    class="hist-forget"
+                    title="Delete session"
+                    style={{ opacity: 1 }}
+                    onClick={() => remove(s)}
+                  >
+                    ✕
+                  </button>
                 </div>
                 <For each={s.tabs.slice(0, 8)}>
                   {(t) => (
@@ -105,7 +150,9 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
                   )}
                 </For>
                 <Show when={s.tabs.length > 8}>
-                  <div class="hist-url" style={{ "padding-left": "10px" }}>+{s.tabs.length - 8} more</div>
+                  <div class="hist-url" style={{ "padding-left": "10px" }}>
+                    +{s.tabs.length - 8} more
+                  </div>
                 </Show>
               </div>
             )}

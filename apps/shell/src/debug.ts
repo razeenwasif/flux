@@ -4,9 +4,24 @@
 // — this covers the practical cases (CSS not applying, element hidden/mis-sized).
 
 const STYLE_PROPS = [
-  "display", "visibility", "opacity", "position", "z-index", "pointer-events",
-  "width", "height", "color", "background-color", "border", "border-radius",
-  "font-size", "font-family", "transform", "overflow", "margin", "padding",
+  "display",
+  "visibility",
+  "opacity",
+  "position",
+  "z-index",
+  "pointer-events",
+  "width",
+  "height",
+  "color",
+  "background-color",
+  "border",
+  "border-radius",
+  "font-size",
+  "font-family",
+  "transform",
+  "overflow",
+  "margin",
+  "padding",
 ];
 
 /** Inspect the first element matching `selector`: visibility, box, computed style. */
@@ -18,14 +33,32 @@ export function inspectElement(selector: string): string {
     return `“${selector}” isn't a valid CSS selector.`;
   }
   if (!el) {
-    const count = (() => { try { return document.querySelectorAll(selector).length; } catch { return 0; } })();
+    const count = (() => {
+      try {
+        return document.querySelectorAll(selector).length;
+      } catch {
+        return 0;
+      }
+    })();
     return `No element matches “${selector}” (querySelectorAll → ${count}). It may not be rendered (a <Show>/route that's off) or the selector is wrong.`;
   }
-  const all = (() => { try { return document.querySelectorAll(selector).length; } catch { return 1; } })();
+  const all = (() => {
+    try {
+      return document.querySelectorAll(selector).length;
+    } catch {
+      return 1;
+    }
+  })();
   const cs = getComputedStyle(el as HTMLElement);
   const rect = (el as HTMLElement).getBoundingClientRect();
-  const visible = rect.width > 0 && rect.height > 0 && cs.display !== "none" && cs.visibility !== "hidden" && cs.opacity !== "0";
-  const cls = typeof el.className === "string" && el.className ? `.${el.className.trim().split(/\s+/).join(".")}` : "";
+  const visible =
+    rect.width > 0 &&
+    rect.height > 0 &&
+    cs.display !== "none" &&
+    cs.visibility !== "hidden" &&
+    cs.opacity !== "0";
+  const cls =
+    typeof el.className === "string" && el.className ? `.${el.className.trim().split(/\s+/).join(".")}` : "";
   const styles = STYLE_PROPS.map((p) => `  ${p}: ${cs.getPropertyValue(p).trim()}`).join("\n");
   const note = !visible
     ? `\nNOT VISIBLE — ${cs.display === "none" ? "display:none" : cs.visibility === "hidden" ? "visibility:hidden" : cs.opacity === "0" ? "opacity:0" : "zero size"}.`
@@ -52,7 +85,11 @@ export function themeVarsDump(name?: string): string {
   const out: string[] = [];
   for (const sheet of Array.from(document.styleSheets)) {
     let rules: CSSRuleList;
-    try { rules = sheet.cssRules; } catch { continue; } // cross-origin sheet
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    } // cross-origin sheet
     for (const rule of Array.from(rules)) {
       if (rule instanceof CSSStyleRule && rule.selectorText.split(",").some((s) => s.trim() === ":root")) {
         const st = rule.style;
@@ -67,5 +104,7 @@ export function themeVarsDump(name?: string): string {
     }
   }
   out.sort();
-  return out.length ? `CSS theme variables (:root):\n${out.join("\n")}` : "No :root custom properties found (stylesheets may be cross-origin).";
+  return out.length
+    ? `CSS theme variables (:root):\n${out.join("\n")}`
+    : "No :root custom properties found (stylesheets may be cross-origin).";
 }

@@ -32,15 +32,24 @@ const ConnectionsRail: Component = () => {
   // Refresh when the page's captured DOM changes (navigation / load) and on first
   // mount. Debounced so a burst of dom-updated events coalesces into one query.
   let timer: number | undefined;
-  const schedule = () => { clearTimeout(timer); timer = window.setTimeout(() => void refresh(), 400); };
+  const schedule = () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => void refresh(), 400);
+  };
 
   onMount(() => {
     let un: (() => void) | undefined;
     void onDomUpdated(() => schedule()).then((u) => (un = u));
-    onCleanup(() => { un?.(); clearTimeout(timer); });
+    onCleanup(() => {
+      un?.();
+      clearTimeout(timer);
+    });
   });
   // Re-query whenever the active tab changes (also runs once on mount).
-  createEffect(() => { activeId(); schedule(); });
+  createEffect(() => {
+    activeId();
+    schedule();
+  });
 
   const open = (h: KbHit) => {
     if (/^https?:\/\//i.test(h.path)) void openTab("browser", h.path);
@@ -50,14 +59,20 @@ const ConnectionsRail: Component = () => {
   return (
     <aside class="connect-rail">
       <div class="connect-head">
-        <span><span class="connect-spark">✦</span> Connections</span>
-        <button class="connect-refresh" title="Refresh" onClick={() => void refresh()}>↻</button>
+        <span>
+          <span class="connect-spark">✦</span> Connections
+        </span>
+        <button class="connect-refresh" title="Refresh" onClick={() => void refresh()}>
+          ↻
+        </button>
       </div>
       <Show
         when={hits().length > 0}
         fallback={
           <div class="connect-empty">
-            {loading() ? "Looking through your knowledge…" : "Nothing in your notes connects to this page yet."}
+            {loading()
+              ? "Looking through your knowledge…"
+              : "Nothing in your notes connects to this page yet."}
           </div>
         }
       >

@@ -10,7 +10,11 @@
 import { For, Show, createSignal, onCleanup, type Component } from "solid-js";
 import { peekOpen } from "./ipc";
 
-interface MenuState { x: number; y: number; url: string }
+interface MenuState {
+  x: number;
+  y: number;
+  url: string;
+}
 const [menu, setMenu] = createSignal<MenuState | null>(null);
 
 /** Open the link menu at the cursor for `url` (suppresses the browser menu). */
@@ -35,7 +39,9 @@ export const LinkMenu: Component<{
     closeLinkMenu();
   };
   const onScroll = () => closeLinkMenu();
-  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeLinkMenu(); };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") closeLinkMenu();
+  };
   document.addEventListener("click", onDocClick, true);
   document.addEventListener("scroll", onScroll, true);
   document.addEventListener("keydown", onKey, true);
@@ -59,10 +65,22 @@ export const LinkMenu: Component<{
         const left = Math.min(m().x, window.innerWidth - 220);
         const top = Math.min(m().y, window.innerHeight - 120);
         return (
-          <div class="link-menu glass" style={{ left: `${left}px`, top: `${top}px` }} onClick={(e) => e.stopPropagation()}>
+          <div
+            class="link-menu glass"
+            style={{ left: `${left}px`, top: `${top}px` }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <For each={items(m())}>
               {(it) => (
-                <button class="link-menu-item" onClick={() => { it.run(); closeLinkMenu(); }}>{it.label}</button>
+                <button
+                  class="link-menu-item"
+                  onClick={() => {
+                    it.run();
+                    closeLinkMenu();
+                  }}
+                >
+                  {it.label}
+                </button>
               )}
             </For>
           </div>

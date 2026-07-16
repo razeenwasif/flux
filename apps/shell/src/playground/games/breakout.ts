@@ -3,7 +3,12 @@
 // a faster wall (endless). 3 lives.
 import { type GameCtx, type GameHandle, W, H, loop, keys, saveHighScore } from "../engine";
 
-interface Brick { x: number; y: number; alive: boolean; color: string }
+interface Brick {
+  x: number;
+  y: number;
+  alive: boolean;
+  color: string;
+}
 
 export default function breakout(ctx: GameCtx): GameHandle {
   const canvas = ctx.canvas;
@@ -39,7 +44,12 @@ export default function breakout(ctx: GameCtx): GameHandle {
     bricks = [];
     for (let r = 0; r < ROWS; r++)
       for (let c = 0; c < COLS; c++)
-        bricks.push({ x: LEFTX + c * (BW + GAP), y: TOP + r * (BH + GAP), alive: true, color: palette[r % palette.length]! });
+        bricks.push({
+          x: LEFTX + c * (BW + GAP),
+          y: TOP + r * (BH + GAP),
+          alive: true,
+          color: palette[r % palette.length]!,
+        });
   }
   buildWall();
 
@@ -63,7 +73,7 @@ export default function breakout(ctx: GameCtx): GameHandle {
   );
   const onMove = (e: MouseEvent) => {
     const rect = canvas.getBoundingClientRect();
-    px = Math.max(0, Math.min(W - PW, ((e.clientX - rect.left) * (W / rect.width)) - PW / 2));
+    px = Math.max(0, Math.min(W - PW, (e.clientX - rect.left) * (W / rect.width) - PW / 2));
   };
   const onClick = () => launch();
   canvas.addEventListener("mousemove", onMove);
@@ -72,7 +82,10 @@ export default function breakout(ctx: GameCtx): GameHandle {
   function loseLife() {
     lives--;
     launched = false;
-    if (lives <= 0) { over = true; return; }
+    if (lives <= 0) {
+      over = true;
+      return;
+    }
     bx = px + PW / 2;
     by = PY - R - 1;
   }
@@ -80,14 +93,30 @@ export default function breakout(ctx: GameCtx): GameHandle {
   function step(dt: number) {
     if (left) px = Math.max(0, px - 0.6 * dt);
     if (right) px = Math.min(W - PW, px + 0.6 * dt);
-    if (!launched) { bx = px + PW / 2; by = PY - R - 1; return; }
+    if (!launched) {
+      bx = px + PW / 2;
+      by = PY - R - 1;
+      return;
+    }
 
     bx += bvx * dt;
     by += bvy * dt;
-    if (bx < R) { bx = R; bvx = Math.abs(bvx); }
-    if (bx > W - R) { bx = W - R; bvx = -Math.abs(bvx); }
-    if (by < R) { by = R; bvy = Math.abs(bvy); }
-    if (by > H + R) { loseLife(); return; }
+    if (bx < R) {
+      bx = R;
+      bvx = Math.abs(bvx);
+    }
+    if (bx > W - R) {
+      bx = W - R;
+      bvx = -Math.abs(bvx);
+    }
+    if (by < R) {
+      by = R;
+      bvy = Math.abs(bvy);
+    }
+    if (by > H + R) {
+      loseLife();
+      return;
+    }
 
     // Paddle
     if (by + R >= PY && by - R <= PY + PH && bx >= px && bx <= px + PW && bvy > 0) {
@@ -108,7 +137,8 @@ export default function breakout(ctx: GameCtx): GameHandle {
         // Reflect off the nearer axis.
         const overlapX = Math.min(bx + R - b.x, b.x + BW - (bx - R));
         const overlapY = Math.min(by + R - b.y, b.y + BH - (by - R));
-        if (overlapX < overlapY) bvx = -bvx; else bvy = -bvy;
+        if (overlapX < overlapY) bvx = -bvx;
+        else bvy = -bvy;
         break;
       }
     }

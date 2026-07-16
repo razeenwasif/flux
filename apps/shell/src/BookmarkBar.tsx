@@ -10,7 +10,11 @@ import { bookmarkRemove, bookmarkRename, bookmarksList, type Bookmark } from "./
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
-  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 /** Letter stand-in favicon (matches the start page / tab strip convention). */
 function letter(b: Bookmark): string {
@@ -21,7 +25,10 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
   const [bookmarks, setBookmarks] = createSignal<Bookmark[]>([]);
   const [editing, setEditing] = createSignal<number | null>(null);
   const [draft, setDraft] = createSignal("");
-  const refresh = () => void bookmarksList().then((b) => setBookmarks(b ?? [])).catch(() => {});
+  const refresh = () =>
+    void bookmarksList()
+      .then((b) => setBookmarks(b ?? []))
+      .catch(() => {});
 
   onMount(() => {
     refresh();
@@ -34,7 +41,10 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
   const remove = (id: number, e: MouseEvent) => {
     e.stopPropagation();
     void bookmarkRemove(id)
-      .then(() => { refresh(); window.dispatchEvent(new Event("flux:bookmarks-changed")); })
+      .then(() => {
+        refresh();
+        window.dispatchEvent(new Event("flux:bookmarks-changed"));
+      })
       .catch(() => {});
   };
 
@@ -49,7 +59,10 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
     const title = draft();
     setEditing(null);
     void bookmarkRename(id, title)
-      .then(() => { refresh(); window.dispatchEvent(new Event("flux:bookmarks-changed")); })
+      .then(() => {
+        refresh();
+        window.dispatchEvent(new Event("flux:bookmarks-changed"));
+      })
       .catch(() => {});
   };
 
@@ -57,7 +70,11 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
     <div class="bookmark-bar">
       <Show
         when={bookmarks().length > 0}
-        fallback={<span class="bookmark-bar-empty">No bookmarks yet — press <kbd>Ctrl+D</kbd> to pin the current page here.</span>}
+        fallback={
+          <span class="bookmark-bar-empty">
+            No bookmarks yet — press <kbd>Ctrl+D</kbd> to pin the current page here.
+          </span>
+        }
       >
         <For each={bookmarks()}>
           {(b) => (
@@ -73,7 +90,9 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
                 >
                   <span class="bookmark-chip-ico">{letter(b)}</span>
                   <span class="bookmark-chip-label">{b.title || hostOf(b.url)}</span>
-                  <span class="bookmark-chip-x" title="Remove bookmark" onClick={(e) => remove(b.id, e)}>×</span>
+                  <span class="bookmark-chip-x" title="Remove bookmark" onClick={(e) => remove(b.id, e)}>
+                    ×
+                  </span>
                 </button>
               }
             >

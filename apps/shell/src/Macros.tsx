@@ -30,8 +30,15 @@ const Macros: Component<{ initialOpen?: boolean }> = (props) => {
   const [edit, setEdit] = createSignal<number | null>(null);
 
   const refresh = () => {
-    void macrosList().then(setList).catch(() => {});
-    void macrosStatus().then((s) => { setRecording(s.recording); setSteps(s.step_count); }).catch(() => {});
+    void macrosList()
+      .then(setList)
+      .catch(() => {});
+    void macrosStatus()
+      .then((s) => {
+        setRecording(s.recording);
+        setSteps(s.step_count);
+      })
+      .catch(() => {});
   };
   createEffect(() => {
     if (!open()) return;
@@ -40,18 +47,36 @@ const Macros: Component<{ initialOpen?: boolean }> = (props) => {
     visibleInterval(refresh, recording() ? 700 : 2000);
   });
 
-  const start = () => void macroStartRecord().then(() => { setName(""); refresh(); });
-  const save = () => void macroStopRecord(name().trim()).then(() => { setName(""); refresh(); });
+  const start = () =>
+    void macroStartRecord().then(() => {
+      setName("");
+      refresh();
+    });
+  const save = () =>
+    void macroStopRecord(name().trim()).then(() => {
+      setName("");
+      refresh();
+    });
   const discard = () => void macroCancelRecord().then(refresh);
   const run = async (id: number) => {
     setRunning(id);
-    try { await macroRun(id); } finally { setRunning(null); }
+    try {
+      await macroRun(id);
+    } finally {
+      setRunning(null);
+    }
   };
   const del = (id: number) => void macroDelete(id).then(refresh);
 
   return (
     <div style={{ display: "contents" }}>
-      <button classList={{ "icon-btn": true, active: open(), "rec-pulse": recording() }} title="Macros — record & replay flows" onClick={() => setOpen((v) => !v)}>⏺</button>
+      <button
+        classList={{ "icon-btn": true, active: open(), "rec-pulse": recording() }}
+        title="Macros — record & replay flows"
+        onClick={() => setOpen((v) => !v)}
+      >
+        ⏺
+      </button>
       <Show when={open()}>
         <div class="shield-backdrop" onClick={() => setOpen(false)} />
         <div class="glass popover shields-pop footer-pop">
@@ -61,7 +86,11 @@ const Macros: Component<{ initialOpen?: boolean }> = (props) => {
 
           <Show
             when={recording()}
-            fallback={<button class="macro-rec" onClick={start}>● Record a flow</button>}
+            fallback={
+              <button class="macro-rec" onClick={start}>
+                ● Record a flow
+              </button>
+            }
           >
             <div class="macro-recording">
               <span class="macro-rec-dot" /> Recording — {steps()} step{steps() === 1 ? "" : "s"}
@@ -72,11 +101,17 @@ const Macros: Component<{ initialOpen?: boolean }> = (props) => {
               placeholder="Name this macro…"
               value={name()}
               onInput={(e) => setName(e.currentTarget.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") save();
+              }}
             />
             <div class="macro-actions">
-              <button class="boost-apply" onClick={save}>✓ Save macro</button>
-              <button class="macro-discard" onClick={discard}>Discard</button>
+              <button class="boost-apply" onClick={save}>
+                ✓ Save macro
+              </button>
+              <button class="macro-discard" onClick={discard}>
+                Discard
+              </button>
             </div>
           </Show>
 
@@ -85,23 +120,45 @@ const Macros: Component<{ initialOpen?: boolean }> = (props) => {
             <For each={list()}>
               {(m) => (
                 <div class="macro-row">
-                  <button class="macro-run" title="Run macro" disabled={running() != null} onClick={() => void run(m.id)}>
+                  <button
+                    class="macro-run"
+                    title="Run macro"
+                    disabled={running() != null}
+                    onClick={() => void run(m.id)}
+                  >
                     {running() === m.id ? "…" : "▶"}
                   </button>
                   <Show
                     when={edit() === m.id}
-                    fallback={<span class="macro-name" onDblClick={() => setEdit(m.id)} title={`${m.steps.length} steps`}>{m.name}</span>}
+                    fallback={
+                      <span
+                        class="macro-name"
+                        onDblClick={() => setEdit(m.id)}
+                        title={`${m.steps.length} steps`}
+                      >
+                        {m.name}
+                      </span>
+                    }
                   >
                     <input
                       class="macro-rename"
                       value={m.name}
                       autofocus
-                      onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void macroRename(m.id, v).then(refresh); setEdit(null); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEdit(null); }}
+                      onBlur={(e) => {
+                        const v = e.currentTarget.value.trim();
+                        if (v) void macroRename(m.id, v).then(refresh);
+                        setEdit(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        else if (e.key === "Escape") setEdit(null);
+                      }}
                     />
                   </Show>
                   <span class="macro-count">{m.steps.length}</span>
-                  <button class="macro-del" title="Delete" onClick={() => del(m.id)}>✕</button>
+                  <button class="macro-del" title="Delete" onClick={() => del(m.id)}>
+                    ✕
+                  </button>
                 </div>
               )}
             </For>

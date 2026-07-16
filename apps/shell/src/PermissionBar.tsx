@@ -38,11 +38,19 @@ const PermissionBar: Component = () => {
             <span class="perm-more">+{permAsks().length - 1} more</span>
           </Show>
           <label class="perm-remember">
-            <input type="checkbox" checked={remember()} onInput={(e) => setRemember(e.currentTarget.checked)} />
+            <input
+              type="checkbox"
+              checked={remember()}
+              onInput={(e) => setRemember(e.currentTarget.checked)}
+            />
             Remember for this site
           </label>
-          <button class="perm-btn allow" onClick={() => answer(true)}>Allow</button>
-          <button class="perm-btn deny" onClick={() => answer(false)}>Block</button>
+          <button class="perm-btn allow" onClick={() => answer(true)}>
+            Allow
+          </button>
+          <button class="perm-btn deny" onClick={() => answer(false)}>
+            Block
+          </button>
           {/* ✕ = deny once, never remembered — same as ignoring a native prompt. */}
           <button
             class="perm-btn dismiss"

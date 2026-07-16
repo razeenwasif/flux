@@ -25,7 +25,9 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
   });
 
   const focus = () => setFocusedAppId(props.app.id);
-  const close = () => { setOpenAppIds((ids) => ids.filter((i) => i !== props.app.id)); };
+  const close = () => {
+    setOpenAppIds((ids) => ids.filter((i) => i !== props.app.id));
+  };
   const z = () => (focusedAppId() === props.app.id ? 86 : 84);
 
   // Pointer-drag the title bar to move; drag the corner handle to resize.
@@ -34,13 +36,19 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
     focus();
     e.preventDefault();
     setDragging(true);
-    const sx = e.clientX, sy = e.clientY, p0 = pos();
+    const sx = e.clientX,
+      sy = e.clientY,
+      p0 = pos();
     const move = (me: PointerEvent) => {
       const x = Math.max(0, Math.min(window.innerWidth - 80, p0.x + me.clientX - sx));
       const y = Math.max(0, Math.min(window.innerHeight - 40, p0.y + me.clientY - sy));
       setPos({ x, y });
     };
-    const up = () => { setDragging(false); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
@@ -49,11 +57,17 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
     e.preventDefault();
     e.stopPropagation();
     setDragging(true);
-    const sx = e.clientX, sy = e.clientY, s0 = size();
+    const sx = e.clientX,
+      sy = e.clientY,
+      s0 = size();
     const move = (me: PointerEvent) => {
       setSize({ w: Math.max(360, s0.w + me.clientX - sx), h: Math.max(260, s0.h + me.clientY - sy) });
     };
-    const up = () => { setDragging(false); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
@@ -63,7 +77,13 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
       <div
         class="apppane glass"
         classList={{ focused: focusedAppId() === props.app.id }}
-        style={{ left: `${pos().x}px`, top: `${pos().y}px`, width: `${size().w}px`, height: `${size().h}px`, "z-index": z() }}
+        style={{
+          left: `${pos().x}px`,
+          top: `${pos().y}px`,
+          width: `${size().w}px`,
+          height: `${size().h}px`,
+          "z-index": z(),
+        }}
         onPointerDown={focus}
       >
         <div class="apppane-head" onPointerDown={startDrag}>
@@ -71,8 +91,25 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
           <span class="apppane-name">{props.app.name}</span>
           <span class="apppane-host">{props.app.host}</span>
           <span class="apppane-sp" />
-          <button class="apppane-btn" title="Open in a tab" onPointerDown={(e) => e.stopPropagation()} onClick={() => { close(); void openTab("browser", props.app.url); }}>↗</button>
-          <button class="apppane-btn" title="Close" onPointerDown={(e) => e.stopPropagation()} onClick={close}>✕</button>
+          <button
+            class="apppane-btn"
+            title="Open in a tab"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              close();
+              void openTab("browser", props.app.url);
+            }}
+          >
+            ↗
+          </button>
+          <button
+            class="apppane-btn"
+            title="Close"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={close}
+          >
+            ✕
+          </button>
         </div>
         <iframe
           class="apppane-frame"

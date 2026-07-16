@@ -8,7 +8,17 @@
 import { createSignal, onCleanup, onMount, Show, type Component } from "solid-js";
 import { omniGraph } from "./ipc";
 
-type GNode = { x: number; y: number; vx: number; vy: number; fx: number; fy: number; r: number; title: string; url: string };
+type GNode = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  fx: number;
+  fy: number;
+  r: number;
+  title: string;
+  url: string;
+};
 
 const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
   let canvas!: HTMLCanvasElement;
@@ -27,9 +37,12 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
   let dragNode: GNode | null = null;
   let panning = false;
   let moved = false;
-  let lastX = 0, lastY = 0;
+  let lastX = 0,
+    lastY = 0;
   let hoverNode: GNode | null = null;
-  let dpr = 1, W = 0, H = 0;
+  let dpr = 1,
+    W = 0,
+    H = 0;
 
   const resize = () => {
     dpr = window.devicePixelRatio || 1;
@@ -41,32 +54,55 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
   };
 
   // ── force simulation ──
-  const REP = 2400, SPRING = 0.05, LEN = 64, GRAV = 0.02, DAMP = 0.84;
+  const REP = 2400,
+    SPRING = 0.05,
+    LEN = 64,
+    GRAV = 0.02,
+    DAMP = 0.84;
   const step = () => {
     const n = nodes.length;
-    for (let i = 0; i < n; i++) { nodes[i]!.fx = 0; nodes[i]!.fy = 0; }
+    for (let i = 0; i < n; i++) {
+      nodes[i]!.fx = 0;
+      nodes[i]!.fy = 0;
+    }
     for (let i = 0; i < n; i++) {
       const a = nodes[i]!;
       for (let j = i + 1; j < n; j++) {
         const b = nodes[j]!;
-        let dx = a.x - b.x, dy = a.y - b.y;
+        let dx = a.x - b.x,
+          dy = a.y - b.y;
         let d2 = dx * dx + dy * dy;
-        if (d2 < 0.01) { d2 = 0.01; dx = (i - j) * 0.1; dy = 0.1; }
+        if (d2 < 0.01) {
+          d2 = 0.01;
+          dx = (i - j) * 0.1;
+          dy = 0.1;
+        }
         const d = Math.sqrt(d2);
         const f = REP / d2;
-        const ux = (dx / d) * f, uy = (dy / d) * f;
-        a.fx += ux; a.fy += uy; b.fx -= ux; b.fy -= uy;
+        const ux = (dx / d) * f,
+          uy = (dy / d) * f;
+        a.fx += ux;
+        a.fy += uy;
+        b.fx -= ux;
+        b.fy -= uy;
       }
-      a.fx -= a.x * GRAV; a.fy -= a.y * GRAV; // pull toward origin
+      a.fx -= a.x * GRAV;
+      a.fy -= a.y * GRAV; // pull toward origin
     }
     for (const e of edges) {
-      const a = nodes[e.s], b = nodes[e.t];
+      const a = nodes[e.s],
+        b = nodes[e.t];
       if (!a || !b) continue;
-      const dx = b.x - a.x, dy = b.y - a.y;
+      const dx = b.x - a.x,
+        dy = b.y - a.y;
       const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
       const f = SPRING * (d - LEN) * (0.6 + e.w);
-      const ux = (dx / d) * f, uy = (dy / d) * f;
-      a.fx += ux; a.fy += uy; b.fx -= ux; b.fy -= uy;
+      const ux = (dx / d) * f,
+        uy = (dy / d) * f;
+      a.fx += ux;
+      a.fy += uy;
+      b.fx -= ux;
+      b.fy -= uy;
     }
     for (const a of nodes) {
       if (a === dragNode) continue;
@@ -89,7 +125,10 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
   };
   const kick = (a = 0.5) => {
     alpha = Math.max(alpha, a);
-    if (!running) { running = true; raf = requestAnimationFrame(loop); }
+    if (!running) {
+      running = true;
+      raf = requestAnimationFrame(loop);
+    }
   };
 
   const draw = () => {
@@ -103,7 +142,8 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
     // edges
     ctx.lineWidth = 1 / cam.scale;
     for (const e of edges) {
-      const a = nodes[e.s], b = nodes[e.t];
+      const a = nodes[e.s],
+        b = nodes[e.t];
       if (!a || !b) continue;
       const lit = a === hoverNode || b === hoverNode;
       ctx.strokeStyle = lit ? `rgba(47,243,255,${0.4 + e.w * 0.4})` : `rgba(123,97,255,${0.06 + e.w * 0.16})`;
@@ -143,47 +183,78 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
   });
   const hit = (px: number, py: number): GNode | null => {
     const w = toWorld(px, py);
-    let best: GNode | null = null, bestD = Infinity;
+    let best: GNode | null = null,
+      bestD = Infinity;
     for (const a of nodes) {
-      const dx = a.x - w.x, dy = a.y - w.y;
+      const dx = a.x - w.x,
+        dy = a.y - w.y;
       const d = Math.sqrt(dx * dx + dy * dy);
-      if (d < a.r + 4 / cam.scale && d < bestD) { best = a; bestD = d; }
+      if (d < a.r + 4 / cam.scale && d < bestD) {
+        best = a;
+        bestD = d;
+      }
     }
     return best;
   };
 
   const onDown = (e: PointerEvent) => {
     const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    lastX = px; lastY = py; moved = false;
+    const px = e.clientX - rect.left,
+      py = e.clientY - rect.top;
+    lastX = px;
+    lastY = py;
+    moved = false;
     const n = hit(px, py);
-    if (n) { dragNode = n; } else { panning = true; }
+    if (n) {
+      dragNode = n;
+    } else {
+      panning = true;
+    }
     canvas.setPointerCapture(e.pointerId);
   };
   const onMove = (e: PointerEvent) => {
     const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const px = e.clientX - rect.left,
+      py = e.clientY - rect.top;
     if (dragNode) {
       const w = toWorld(px, py);
-      dragNode.x = w.x; dragNode.y = w.y; dragNode.vx = 0; dragNode.vy = 0;
-      moved = true; kick(0.3);
+      dragNode.x = w.x;
+      dragNode.y = w.y;
+      dragNode.vx = 0;
+      dragNode.vy = 0;
+      moved = true;
+      kick(0.3);
     } else if (panning) {
-      cam.x += px - lastX; cam.y += py - lastY; moved = true; draw();
+      cam.x += px - lastX;
+      cam.y += py - lastY;
+      moved = true;
+      draw();
     } else {
       const n = hit(px, py);
-      if (n !== hoverNode) { hoverNode = n; setHover(n?.title ?? null); draw(); }
+      if (n !== hoverNode) {
+        hoverNode = n;
+        setHover(n?.title ?? null);
+        draw();
+      }
     }
-    lastX = px; lastY = py;
+    lastX = px;
+    lastY = py;
   };
   const onUp = (e: PointerEvent) => {
     if (dragNode && !moved) props.onNavigate(dragNode.url); // a click, not a drag
-    dragNode = null; panning = false;
-    try { canvas.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+    dragNode = null;
+    panning = false;
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch {
+      /* not captured */
+    }
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const px = e.clientX - rect.left,
+      py = e.clientY - rect.top;
     const before = toWorld(px, py);
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
     cam.scale = Math.max(0.2, Math.min(5, cam.scale * factor));
@@ -204,9 +275,15 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
         const ang = (i / g.nodes.length) * Math.PI * 2;
         const rad = R * (0.2 + 0.8 * Math.sqrt((i + 1) / g.nodes.length));
         return {
-          x: Math.cos(ang) * rad, y: Math.sin(ang) * rad, vx: 0, vy: 0, fx: 0, fy: 0,
+          x: Math.cos(ang) * rad,
+          y: Math.sin(ang) * rad,
+          vx: 0,
+          vy: 0,
+          fx: 0,
+          fy: 0,
           r: 3 + Math.sqrt(d.rank / maxRank) * 11,
-          title: d.title || d.url, url: d.url,
+          title: d.title || d.url,
+          url: d.url,
         };
       });
       edges = g.edges.filter((e) => e.s < nodes.length && e.t < nodes.length);
@@ -227,7 +304,10 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
     ro.observe(wrap);
     void load();
   });
-  onCleanup(() => { cancelAnimationFrame(raf); ro?.disconnect(); });
+  onCleanup(() => {
+    cancelAnimationFrame(raf);
+    ro?.disconnect();
+  });
 
   return (
     <div class="omni-graph" ref={wrap}>
@@ -241,11 +321,19 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
       />
       <div class="omni-graph-hud">
         <Show when={!loading() && !error()}>
-          <span>{stats().nodes} nodes · {stats().edges} links</span>
-          <button class="start-card-link" onClick={() => void load()}>↻ Rebuild</button>
+          <span>
+            {stats().nodes} nodes · {stats().edges} links
+          </span>
+          <button class="start-card-link" onClick={() => void load()}>
+            ↻ Rebuild
+          </button>
         </Show>
-        <Show when={loading()}><span>Building graph…</span></Show>
-        <Show when={error()}><span class="omni-graph-err">{error()}</span></Show>
+        <Show when={loading()}>
+          <span>Building graph…</span>
+        </Show>
+        <Show when={error()}>
+          <span class="omni-graph-err">{error()}</span>
+        </Show>
       </div>
       <Show when={hover()}>
         <div class="omni-graph-tip">{hover()}</div>

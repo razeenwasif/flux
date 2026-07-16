@@ -5,7 +5,16 @@
  * practical bridge for "import my Chrome tab groups". Import pulls every bookmark
  * from a Chrome profile (via flux-import) under an "Imported" folder.
  */
-import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import {
+  For,
+  Show,
+  createMemo,
+  createResource,
+  createSignal,
+  onCleanup,
+  onMount,
+  type Component,
+} from "solid-js";
 import {
   bookmarkRemove,
   bookmarkRename,
@@ -32,7 +41,10 @@ const RowIcon: Component<{ url: string }> = (props) => {
   ensureFavicon(host());
   const data = () => faviconFor(host());
   return (
-    <Show when={typeof data() === "string"} fallback={<span class="hist-letter">{(host() ?? "?").charAt(0).toUpperCase()}</span>}>
+    <Show
+      when={typeof data() === "string"}
+      fallback={<span class="hist-letter">{(host() ?? "?").charAt(0).toUpperCase()}</span>}
+    >
       <img class="fav-img" src={data() as string} alt="" />
     </Show>
   );
@@ -44,7 +56,10 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
   const [importing, setImporting] = createSignal(false);
   const [note, setNote] = createSignal("");
 
-  const load = () => void bookmarksList().then(setItems).catch(() => setItems([]));
+  const load = () =>
+    void bookmarksList()
+      .then(setItems)
+      .catch(() => setItems([]));
   onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Bookmarks");
@@ -52,8 +67,8 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
   });
 
   // Chrome profiles for the import menu (lazy — only when the menu opens).
-  const [profiles, { refetch: loadProfiles }] = createResource<ChromeProfilePreview[]>(
-    () => (importing() ? chromeImportPreview().catch(() => []) : Promise.resolve([])),
+  const [profiles, { refetch: loadProfiles }] = createResource<ChromeProfilePreview[]>(() =>
+    importing() ? chromeImportPreview().catch(() => []) : Promise.resolve([]),
   );
 
   // Filter by query (flat), then group the result by folder.
@@ -85,15 +100,23 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
     if (editId() !== id) return;
     const title = draft();
     setEditId(null);
-    void bookmarkRename(id, title).then(() => { load(); window.dispatchEvent(new Event("flux:bookmarks-changed")); });
+    void bookmarkRename(id, title).then(() => {
+      load();
+      window.dispatchEvent(new Event("flux:bookmarks-changed"));
+    });
   };
   const clearAll = () => {
     if (confirm("Remove all bookmarks?")) void bookmarksClear().then(load);
   };
   const openFolderAsGroup = async (folder: string, rows: Bookmark[]) => {
     const name = folder.split("/").pop() || folder;
-    const n = await openUrlsAsGroup(name, rows.map((r) => r.url));
-    setNote(`Opened ${n} tab${n === 1 ? "" : "s"} as group “${name}”${rows.length > n ? ` (capped from ${rows.length})` : ""}`);
+    const n = await openUrlsAsGroup(
+      name,
+      rows.map((r) => r.url),
+    );
+    setNote(
+      `Opened ${n} tab${n === 1 ? "" : "s"} as group “${name}”${rows.length > n ? ` (capped from ${rows.length})` : ""}`,
+    );
   };
   const doImport = async (dir: string) => {
     const n = await bookmarksImportChrome(dir).catch(() => 0);
@@ -103,21 +126,45 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
   };
 
   let noteTimer: number | undefined;
-  const flashNote = () => { clearTimeout(noteTimer); if (note()) noteTimer = window.setTimeout(() => setNote(""), 4000); };
+  const flashNote = () => {
+    clearTimeout(noteTimer);
+    if (note()) noteTimer = window.setTimeout(() => setNote(""), 4000);
+  };
   onCleanup(() => clearTimeout(noteTimer));
 
   return (
     <div class="hist-page">
       <header class="hist-head">
         <div class="hist-title">🔖 Bookmarks</div>
-        <input class="hist-search" placeholder="Search bookmarks…" value={query()} autofocus onInput={(e) => setQuery(e.currentTarget.value)} />
-        <button class="hist-clear" onClick={() => { setImporting((v) => !v); if (!importing()) void loadProfiles(); }}>Import from Chrome</button>
-        <button class="hist-clear" onClick={clearAll}>Clear all</button>
+        <input
+          class="hist-search"
+          placeholder="Search bookmarks…"
+          value={query()}
+          autofocus
+          onInput={(e) => setQuery(e.currentTarget.value)}
+        />
+        <button
+          class="hist-clear"
+          onClick={() => {
+            setImporting((v) => !v);
+            if (!importing()) void loadProfiles();
+          }}
+        >
+          Import from Chrome
+        </button>
+        <button class="hist-clear" onClick={clearAll}>
+          Clear all
+        </button>
       </header>
 
       <Show when={importing()}>
         <div class="bm-import">
-          <Show when={(profiles() ?? []).length > 0} fallback={<span class="bm-note">No Chrome profile found (looked in the default user-data dir).</span>}>
+          <Show
+            when={(profiles() ?? []).length > 0}
+            fallback={
+              <span class="bm-note">No Chrome profile found (looked in the default user-data dir).</span>
+            }
+          >
             <span class="bm-note">Pick a profile to import its bookmarks:</span>
             <For each={profiles()}>
               {(p) => (
@@ -130,21 +177,47 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
         </div>
       </Show>
 
-      <Show when={note()}>{(n) => { flashNote(); return <div class="bm-flash">{n()}</div>; }}</Show>
+      <Show when={note()}>
+        {(n) => {
+          flashNote();
+          return <div class="bm-flash">{n()}</div>;
+        }}
+      </Show>
 
       <div class="hist-body">
-        <Show when={groups().length > 0} fallback={<div class="hist-empty">{query() ? "No matching bookmarks." : "No bookmarks yet — bookmark a page (🔖) or import from Chrome."}</div>}>
+        <Show
+          when={groups().length > 0}
+          fallback={
+            <div class="hist-empty">
+              {query()
+                ? "No matching bookmarks."
+                : "No bookmarks yet — bookmark a page (🔖) or import from Chrome."}
+            </div>
+          }
+        >
           <For each={groups()}>
             {([folder, rows]) => (
               <div class="hist-group">
                 <div class="bm-folder">
                   <span class="bm-folder-name">📁 {folder}</span>
-                  <span class="hist-day" style={{ "margin-left": "auto" }}>{rows.length}</span>
-                  <button class="bm-open-group" title="Open this folder's bookmarks as a tab group" onClick={() => void openFolderAsGroup(folder, rows)}>⊞ Open as group</button>
+                  <span class="hist-day" style={{ "margin-left": "auto" }}>
+                    {rows.length}
+                  </span>
+                  <button
+                    class="bm-open-group"
+                    title="Open this folder's bookmarks as a tab group"
+                    onClick={() => void openFolderAsGroup(folder, rows)}
+                  >
+                    ⊞ Open as group
+                  </button>
                 </div>
                 <For each={rows}>
                   {(b) => (
-                    <div class="hist-row" onClick={() => editId() === b.id ? undefined : open(b)} onContextMenu={(ev) => openLinkMenu(ev, b.url)}>
+                    <div
+                      class="hist-row"
+                      onClick={() => (editId() === b.id ? undefined : open(b))}
+                      onContextMenu={(ev) => openLinkMenu(ev, b.url)}
+                    >
                       <RowIcon url={b.url} />
                       <span class="hist-text">
                         <Show
@@ -158,13 +231,27 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
                             onClick={(ev) => ev.stopPropagation()}
                             onInput={(ev) => setDraft(ev.currentTarget.value)}
                             onBlur={() => commitEdit(b.id)}
-                            onKeyDown={(ev) => { if (ev.key === "Enter") ev.currentTarget.blur(); else if (ev.key === "Escape") setEditId(null); }}
+                            onKeyDown={(ev) => {
+                              if (ev.key === "Enter") ev.currentTarget.blur();
+                              else if (ev.key === "Escape") setEditId(null);
+                            }}
                           />
                         </Show>
                         <span class="hist-url">{b.url}</span>
                       </span>
-                      <button class="hist-forget" title="Rename" onClick={(ev) => startEdit(b, ev)}>✎</button>
-                      <button class="hist-forget" title="Remove" onClick={(ev) => { ev.stopPropagation(); remove(b); }}>✕</button>
+                      <button class="hist-forget" title="Rename" onClick={(ev) => startEdit(b, ev)}>
+                        ✎
+                      </button>
+                      <button
+                        class="hist-forget"
+                        title="Remove"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          remove(b);
+                        }}
+                      >
+                        ✕
+                      </button>
                     </div>
                   )}
                 </For>

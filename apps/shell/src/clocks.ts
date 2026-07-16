@@ -19,11 +19,22 @@ export function swElapsed(): number {
   return swRunning() ? swBase + (performance.now() - swStart) : swBase;
 }
 export function swToggle(): void {
-  if (swRunning()) { swBase = swElapsed(); setSwRunning(false); }
-  else { swStart = performance.now(); setSwRunning(true); }
+  if (swRunning()) {
+    swBase = swElapsed();
+    setSwRunning(false);
+  } else {
+    swStart = performance.now();
+    setSwRunning(true);
+  }
 }
-export function swReset(): void { setSwRunning(false); swBase = 0; setSwLaps([]); }
-export function swLap(): void { if (swRunning() || swBase > 0) setSwLaps((l) => [swElapsed(), ...l]); }
+export function swReset(): void {
+  setSwRunning(false);
+  swBase = 0;
+  setSwLaps([]);
+}
+export function swLap(): void {
+  if (swRunning() || swBase > 0) setSwLaps((l) => [swElapsed(), ...l]);
+}
 
 // ── Timer ────────────────────────────────────────────────────────────────────
 const [timerRunning, setTimerRunning] = createSignal(false);
@@ -55,7 +66,11 @@ export function timerStartPause(): void {
     setTimerRunning(true);
   }
 }
-export function timerReset(): void { setTimerRunning(false); setTimerEndsAt(null); timerPaused = timerTotal(); }
+export function timerReset(): void {
+  setTimerRunning(false);
+  setTimerEndsAt(null);
+  timerPaused = timerTotal();
+}
 export function timerBump(ms: number): void {
   if (timerRunning() && timerEndsAt() != null) setTimerEndsAt(Math.max(Date.now(), timerEndsAt()! + ms));
   else timerPaused = Math.max(0, timerPaused + ms);
@@ -68,17 +83,33 @@ function fireTimer(): void {
 }
 
 // ── Alarms ───────────────────────────────────────────────────────────────────
-export interface Alarm { id: string; time: string; label: string; enabled: boolean; lastMin: number }
+export interface Alarm {
+  id: string;
+  time: string;
+  label: string;
+  enabled: boolean;
+  lastMin: number;
+}
 const [alarms, setAlarms] = createSignal<Alarm[]>([]);
 export { alarms };
 
 export function addAlarm(time: string, label: string): void {
   if (!/^\d{2}:\d{2}$/.test(time)) return;
-  setAlarms((a) => [...a, { id: `a${Date.now()}`, time, label: label.trim(), enabled: true, lastMin: 0 }].sort((x, y) => x.time.localeCompare(y.time)));
+  setAlarms((a) =>
+    [...a, { id: `a${Date.now()}`, time, label: label.trim(), enabled: true, lastMin: 0 }].sort((x, y) =>
+      x.time.localeCompare(y.time),
+    ),
+  );
   persist();
 }
-export function removeAlarm(id: string): void { setAlarms((a) => a.filter((x) => x.id !== id)); persist(); }
-export function toggleAlarm(id: string): void { setAlarms((a) => a.map((x) => (x.id === id ? { ...x, enabled: !x.enabled } : x))); persist(); }
+export function removeAlarm(id: string): void {
+  setAlarms((a) => a.filter((x) => x.id !== id));
+  persist();
+}
+export function toggleAlarm(id: string): void {
+  setAlarms((a) => a.map((x) => (x.id === id ? { ...x, enabled: !x.enabled } : x)));
+  persist();
+}
 
 // ── Ringing / alert ──────────────────────────────────────────────────────────
 const [ringing, setRinging] = createSignal<{ kind: "timer" | "alarm"; label: string } | null>(null);
@@ -91,9 +122,14 @@ function ring(kind: "timer" | "alarm", label: string): void {
   void osNotify(kind === "alarm" ? "⏰ Alarm" : "⏱ Timer", label).catch(() => {});
   startBeeping();
   // Stop ringing on its own after a minute if nobody's around to dismiss it.
-  window.setTimeout(() => { if (ringing() === r) dismissRing(); }, 60_000);
+  window.setTimeout(() => {
+    if (ringing() === r) dismissRing();
+  }, 60_000);
 }
-export function dismissRing(): void { setRinging(null); stopBeeping(); }
+export function dismissRing(): void {
+  setRinging(null);
+  stopBeeping();
+}
 export function snoozeRing(min = 5): void {
   const r = ringing();
   dismissRing();
@@ -104,7 +140,9 @@ let actx: AudioContext | null = null;
 let beepTimer = 0;
 function tone(): void {
   try {
-    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     actx = actx || new Ctx();
     const t0 = actx.currentTime;
     for (let i = 0; i < 3; i++) {
@@ -121,10 +159,20 @@ function tone(): void {
       o.start(t);
       o.stop(t + 0.22);
     }
-  } catch { /* audio blocked — the banner still shows */ }
+  } catch {
+    /* audio blocked — the banner still shows */
+  }
 }
-function startBeeping(): void { tone(); if (!beepTimer) beepTimer = window.setInterval(tone, 1600); }
-function stopBeeping(): void { if (beepTimer) { clearInterval(beepTimer); beepTimer = 0; } }
+function startBeeping(): void {
+  tone();
+  if (!beepTimer) beepTimer = window.setInterval(tone, 1600);
+}
+function stopBeeping(): void {
+  if (beepTimer) {
+    clearInterval(beepTimer);
+    beepTimer = 0;
+  }
+}
 
 // ── Driver ───────────────────────────────────────────────────────────────────
 let driver = 0;
@@ -137,7 +185,10 @@ function clockTick(): void {
   if (timerRunning() && timerRemaining() <= 0) fireTimer();
 
   const s = snoozeUntil();
-  if (s && Date.now() >= s.at) { setSnoozeUntil(null); ring("alarm", s.label); }
+  if (s && Date.now() >= s.at) {
+    setSnoozeUntil(null);
+    ring("alarm", s.label);
+  }
 
   const now = new Date();
   const hhmm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
@@ -153,7 +204,11 @@ function clockTick(): void {
 
 // ── Persistence (alarms + configured timer length) ───────────────────────────
 function persist(): void {
-  try { localStorage.setItem("flux.clocks", JSON.stringify({ alarms: alarms(), timerTotal: timerTotal() })); } catch { /* private */ }
+  try {
+    localStorage.setItem("flux.clocks", JSON.stringify({ alarms: alarms(), timerTotal: timerTotal() }));
+  } catch {
+    /* private */
+  }
 }
 function loadPersisted(): void {
   try {
@@ -161,8 +216,13 @@ function loadPersisted(): void {
     if (!raw) return;
     const v = JSON.parse(raw) as { alarms?: Alarm[]; timerTotal?: number };
     if (Array.isArray(v.alarms)) setAlarms(v.alarms.map((a) => ({ ...a, lastMin: 0 })));
-    if (typeof v.timerTotal === "number") { setTimerTotal(v.timerTotal); timerPaused = v.timerTotal; }
-  } catch { /* ignore */ }
+    if (typeof v.timerTotal === "number") {
+      setTimerTotal(v.timerTotal);
+      timerPaused = v.timerTotal;
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 // ── Formatting helpers (shared with the widget) ──────────────────────────────

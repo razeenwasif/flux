@@ -3,7 +3,11 @@
 // it's over. Score = blocks stacked.
 import { type GameCtx, type GameHandle, W, H, loop, keys, saveHighScore } from "../engine";
 
-interface Block { x: number; w: number; hue: number }
+interface Block {
+  x: number;
+  w: number;
+  hue: number;
+}
 
 const BH = 30; // block height
 const CX = W / 2;
@@ -24,7 +28,10 @@ export default function stack(ctx: GameCtx): GameHandle {
     const left = Math.max(cur.x, top.x);
     const right = Math.min(cur.x + cur.w, top.x + top.w);
     const overlap = right - left;
-    if (overlap <= 0) { over = true; return; }
+    if (overlap <= 0) {
+      over = true;
+      return;
+    }
     placed.push({ x: left, w: overlap, hue: cur.hue });
     score++;
     ctx.setScore(score);
@@ -32,18 +39,28 @@ export default function stack(ctx: GameCtx): GameHandle {
     cur = { x: dir > 0 ? -overlap : W, w: overlap, hue: (cur.hue + 24) % 360 };
     dir = -dir;
   };
-  const k = keys((key) => { if (key === " " || key === "Spacebar" || key === "ArrowUp") drop(); });
+  const k = keys((key) => {
+    if (key === " " || key === "Spacebar" || key === "ArrowUp") drop();
+  });
   const onDown = () => drop();
   ctx.canvas.addEventListener("mousedown", onDown);
 
   // The tower is drawn from the top block downward; as it grows we keep the
   // active block near the vertical middle by offsetting everything.
-  function baseY() { return H - 90 + Math.max(0, placed.length - 6) * BH; }
+  function baseY() {
+    return H - 90 + Math.max(0, placed.length - 6) * BH;
+  }
 
   function step(dt: number) {
     cur.x += dir * speed * dt;
-    if (cur.x < -cur.w + 8) { cur.x = -cur.w + 8; dir = 1; }
-    if (cur.x > W - 8) { cur.x = W - 8; dir = -1; }
+    if (cur.x < -cur.w + 8) {
+      cur.x = -cur.w + 8;
+      dir = 1;
+    }
+    if (cur.x > W - 8) {
+      cur.x = W - 8;
+      dir = -1;
+    }
   }
 
   function block(b: Block, y: number, glow: boolean) {
@@ -68,10 +85,18 @@ export default function stack(ctx: GameCtx): GameHandle {
   const l = loop((dt) => {
     if (!over) step(dt);
     draw();
-    if (over && !reported) { reported = true; saveHighScore("stack", score); ctx.onGameOver(score); }
+    if (over && !reported) {
+      reported = true;
+      saveHighScore("stack", score);
+      ctx.onGameOver(score);
+    }
   });
 
   return {
-    stop() { l.stop(); k.stop(); ctx.canvas.removeEventListener("mousedown", onDown); },
+    stop() {
+      l.stop();
+      k.stop();
+      ctx.canvas.removeEventListener("mousedown", onDown);
+    },
   };
 }

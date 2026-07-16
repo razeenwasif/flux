@@ -17,7 +17,20 @@
  * Sidebar collapses to a 60px icon rail; terminal and agent columns each
  * collapse to 0. Defaults: sidebar open, agent open, terminal closed.
  */
-import { For, Match, Show, Suspense, Switch, createEffect, createMemo, createSignal, lazy, onCleanup, onMount, type Component } from "solid-js";
+import {
+  For,
+  Match,
+  Show,
+  Suspense,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  lazy,
+  onCleanup,
+  onMount,
+  type Component,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 import {
   NOTEBOOK_URL,
@@ -354,14 +367,31 @@ const App: Component = () => {
   const [winW, setWinW] = createSignal(window.innerWidth);
   // #46: track per-URL last-access (keyed by URL so it survives restarts) and seed
   // restored tabs so they aren't treated as stale on the first auto-archive sweep.
-  createEffect(() => { const t = activeTab(); if (t?.kind === "browser") touchTabUrl(t.url); });
-  createEffect(() => { seedTabAccess(tabs().filter((t) => t.kind === "browser").map((t) => t.url)); });
+  createEffect(() => {
+    const t = activeTab();
+    if (t?.kind === "browser") touchTabUrl(t.url);
+  });
+  createEffect(() => {
+    seedTabAccess(
+      tabs()
+        .filter((t) => t.kind === "browser")
+        .map((t) => t.url),
+    );
+  });
   // Webview tiling (rect math, measurement, show/hide reconciliation, panel
   // slots) lives in tiling.ts — App supplies its local overlay/drag/focus
   // accessors and keeps the returned liveness bookkeeping for hibernation,
   // navigation and workspace switches.
-  const { openedWebviews, openingWebviews, lastActive, wv, forgetWebview, scheduleRelayout, forceRelayout, paneLayout } =
-    createWebviewTiling({ overlayActive, uiDragging, focusMode });
+  const {
+    openedWebviews,
+    openingWebviews,
+    lastActive,
+    wv,
+    forgetWebview,
+    scheduleRelayout,
+    forceRelayout,
+    paneLayout,
+  } = createWebviewTiling({ overlayActive, uiDragging, focusMode });
   // Last finished URL per tab — the "from" of the next navigation, for training
   // the predictive-prefetch Markov model (#103).
   const prevUrlByTab = new Map<number, string>();
@@ -408,14 +438,25 @@ const App: Component = () => {
     // Ctrl+B tmux prefix, …) and must reach the shell. Only claim chords that
     // don't collide — shifted/alt variants, the terminal toggle, and tab nav.
     const terminalSafe = new Set([
-      "toggle-terminal", "toggle-agent", "new-terminal", "next-tab", "prev-tab", "back", "forward", "shell-history",
+      "toggle-terminal",
+      "toggle-agent",
+      "new-terminal",
+      "next-tab",
+      "prev-tab",
+      "back",
+      "forward",
+      "shell-history",
     ]);
     const inTerminal = () => !!(document.activeElement as HTMLElement | null)?.closest?.(".xterm");
     const onKey = (e: KeyboardEvent) => {
       // The command palette (#6) is modal: only Ctrl+K (to toggle it closed) is
       // a chrome shortcut while it's open; everything else goes to its input.
       if (paletteOpen()) {
-        if (keyToAction(e) === "palette") { e.preventDefault(); e.stopPropagation(); dispatch("palette"); }
+        if (keyToAction(e) === "palette") {
+          e.preventDefault();
+          e.stopPropagation();
+          dispatch("palette");
+        }
         return;
       }
       // Esc closes the find bar (#33), else stops the active page load (#31).
@@ -465,7 +506,10 @@ const App: Component = () => {
       busyTimer = window.setTimeout(() => document.body.classList.remove("busy"), 160);
     };
     window.addEventListener("resize", onWinResize);
-    onCleanup(() => { window.removeEventListener("resize", onWinResize); clearTimeout(busyTimer); });
+    onCleanup(() => {
+      window.removeEventListener("resize", onWinResize);
+      clearTimeout(busyTimer);
+    });
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     const unShortcut = await onShortcut((a) => dispatch(a));
     // A page left HTML5 fullscreen (video): wry restored the webview to fill the
@@ -515,11 +559,12 @@ const App: Component = () => {
     // (In split view both panes are visible, so neither is hibernatable.)
     const liveBackground = (_act: number | null) => {
       const visible = new Set(paneLayout().map((p) => p.tab.id));
-      return tabs().filter((t) =>
-        t.kind === "browser" &&
-        !visible.has(t.id) &&
-        !isStartUrl(t.url) &&
-        (openedWebviews.has(t.id) || openingWebviews.has(t.id))
+      return tabs().filter(
+        (t) =>
+          t.kind === "browser" &&
+          !visible.has(t.id) &&
+          !isStartUrl(t.url) &&
+          (openedWebviews.has(t.id) || openingWebviews.has(t.id)),
       );
     };
     const hibTimer = window.setInterval(async () => {
@@ -531,7 +576,10 @@ const App: Component = () => {
       // usually already hibernated (so not "live").
       for (const id of staleTabIds(now).slice(0, 5)) {
         const t = tabs().find((x) => x.id === id);
-        if (t) { archiveTabRecord(t.url, t.title); void closeTab(id); }
+        if (t) {
+          archiveTabRecord(t.url, t.title);
+          void closeTab(id);
+        }
       }
       // Nothing live in the background → no idle-sleep candidates and no reason
       // to scan system memory. Bail before the sysinfo IPC (the periodic cost).
@@ -566,7 +614,9 @@ const App: Component = () => {
           const order =
             ranked && ranked.length
               ? ranked.filter((r) => !r.protected).map((r) => r.tab_id)
-              : bgNow.sort((a, b) => (lastActive.get(a.id) ?? 0) - (lastActive.get(b.id) ?? 0)).map((t) => t.id);
+              : bgNow
+                  .sort((a, b) => (lastActive.get(a.id) ?? 0) - (lastActive.get(b.id) ?? 0))
+                  .map((t) => t.id);
           for (const id of order.slice(0, limit)) hibernateTab(id);
         }
       }
@@ -625,7 +675,6 @@ const App: Component = () => {
       unLoaded();
       unBadge();
     });
-
   });
 
   // Capture a tab's scroll/form state the moment you switch away from it (#45),
@@ -711,7 +760,10 @@ const App: Component = () => {
   };
   createEffect(() => {
     const url = bookmarkableUrl();
-    if (!url) { setBookmarkedId(null); return; }
+    if (!url) {
+      setBookmarkedId(null);
+      return;
+    }
     void bookmarksList()
       .then((bms) => setBookmarkedId(bms.find((b) => b.url === url)?.id ?? null))
       .catch(() => setBookmarkedId(null));
@@ -720,19 +772,38 @@ const App: Component = () => {
     const t = activeTab();
     const url = bookmarkableUrl();
     if (!t || !url) return;
-    const flash = (m: string) => { setOmniToast(m); window.setTimeout(() => setOmniToast(null), 1800); };
+    const flash = (m: string) => {
+      setOmniToast(m);
+      window.setTimeout(() => setOmniToast(null), 1800);
+    };
     const existing = bookmarkedId();
     const notify = () => window.dispatchEvent(new Event("flux:bookmarks-changed"));
     if (existing != null) {
-      void bookmarkRemove(existing).then(() => { setBookmarkedId(null); flash("Bookmark removed"); notify(); }).catch(() => {});
+      void bookmarkRemove(existing)
+        .then(() => {
+          setBookmarkedId(null);
+          flash("Bookmark removed");
+          notify();
+        })
+        .catch(() => {});
     } else {
-      void bookmarkAdd(t.title || url, url).then((b) => { setBookmarkedId(b?.id ?? null); flash("★ Bookmarked"); notify(); }).catch(() => {});
+      void bookmarkAdd(t.title || url, url)
+        .then((b) => {
+          setBookmarkedId(b?.id ?? null);
+          flash("★ Bookmarked");
+          notify();
+        })
+        .catch(() => {});
     }
   };
 
   // Per-site zoom (#36). Ctrl +/-/0 step the active page's zoom, persisted per host.
   const hostOfUrl = (url: string): string | null => {
-    try { return new URL(url).hostname.replace(/^www\./, "") || null; } catch { return null; }
+    try {
+      return new URL(url).hostname.replace(/^www\./, "") || null;
+    } catch {
+      return null;
+    }
   };
   const zoom = (dir: "in" | "out" | "reset") => {
     const t = activeTab();
@@ -749,7 +820,12 @@ const App: Component = () => {
     const visible = new Set(paneLayout().map((p) => p.tab.id));
     let n = 0;
     for (const t of tabs()) {
-      if (t.kind === "browser" && !visible.has(t.id) && !isStartUrl(t.url) && (openedWebviews.has(t.id) || openingWebviews.has(t.id))) {
+      if (
+        t.kind === "browser" &&
+        !visible.has(t.id) &&
+        !isStartUrl(t.url) &&
+        (openedWebviews.has(t.id) || openingWebviews.has(t.id))
+      ) {
         forgetWebview(t.id);
         setHibernated(t.id, true);
         wv(webviewHibernate(t.id));
@@ -774,7 +850,11 @@ const App: Component = () => {
         .map((s) => s.trim())
         .filter(Boolean)
         .map((p) => ({ kind: "p", text: p, level: 0, src: "" }));
-      openReader(t.id, `Translated · ${lang}`, blocks.length ? blocks : [{ kind: "p", text, level: 0, src: "" }]);
+      openReader(
+        t.id,
+        `Translated · ${lang}`,
+        blocks.length ? blocks : [{ kind: "p", text, level: 0, src: "" }],
+      );
       setOmniToast(null);
     } catch (e) {
       setOmniToast(`Translate: ${String(e)}`);
@@ -786,14 +866,19 @@ const App: Component = () => {
     try {
       const base = (navigator.language || "en").split("-")[0]!;
       return new Intl.DisplayNames([navigator.language], { type: "language" }).of(base) || "English";
-    } catch { return "English"; }
+    } catch {
+      return "English";
+    }
   })();
 
   // Web capture (#54): screenshot the visible page (async; toast on completion).
   const capturePage = () => {
     const t = activeTab();
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
-    void webviewCapture(t.id).catch((e) => { setOmniToast(`Capture: ${String(e)}`); window.setTimeout(() => setOmniToast(null), 3000); });
+    void webviewCapture(t.id).catch((e) => {
+      setOmniToast(`Capture: ${String(e)}`);
+      window.setTimeout(() => setOmniToast(null), 3000);
+    });
   };
 
   // Install-site-as-app (#42): open the active site in its own window + save it.
@@ -801,8 +886,14 @@ const App: Component = () => {
     const t = activeTab();
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
     void pwaInstall(t.url, t.title || t.url)
-      .then(() => { setOmniToast("🧩 Installed as app"); window.setTimeout(() => setOmniToast(null), 2400); })
-      .catch((e) => { setOmniToast(`Install: ${String(e)}`); window.setTimeout(() => setOmniToast(null), 3000); });
+      .then(() => {
+        setOmniToast("🧩 Installed as app");
+        window.setTimeout(() => setOmniToast(null), 2400);
+      })
+      .catch((e) => {
+        setOmniToast(`Install: ${String(e)}`);
+        window.setTimeout(() => setOmniToast(null), 3000);
+      });
   };
 
   // Offline archive / read-later (#69): save the active page's text for offline
@@ -810,7 +901,10 @@ const App: Component = () => {
   const saveToArchive = () => {
     const t = activeTab();
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
-    const flash = (m: string) => { setOmniToast(m); window.setTimeout(() => setOmniToast(null), 2400); };
+    const flash = (m: string) => {
+      setOmniToast(m);
+      window.setTimeout(() => setOmniToast(null), 2400);
+    };
     void archiveSave()
       .then((m) => flash(m ? `📚 Saved “${m.title || "page"}” for offline` : "Nothing to save"))
       .catch((e) => flash(`Archive: ${String(e)}`));
@@ -819,7 +913,10 @@ const App: Component = () => {
   // Reader mode (#41): inject the extractor (result arrives via onReader → opens
   // the reader view), or close it if already open.
   const toggleReader = () => {
-    if (readerOpen()) { closeReader(); return; }
+    if (readerOpen()) {
+      closeReader();
+      return;
+    }
     const t = activeTab();
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
     void webviewExtractReader(t.id).catch(() => {});
@@ -832,7 +929,8 @@ const App: Component = () => {
     const list = unpinnedTabs();
     if (list.length === 0) return;
     const i = list.findIndex((t) => t.id === activeId());
-    const next = i < 0 ? (dir === 1 ? list[0] : list[list.length - 1]) : list[(i + dir + list.length) % list.length];
+    const next =
+      i < 0 ? (dir === 1 ? list[0] : list[list.length - 1]) : list[(i + dir + list.length) % list.length];
     if (next) void focusTab(next.id);
   };
 
@@ -966,20 +1064,54 @@ const App: Component = () => {
   };
   const showActivePageIfClear = () => {
     const t = activeTab();
-    if (t?.kind === "browser" && openedWebviews.has(t.id) && !isStartUrl(t.url) && !pageOverlayActive() && !paletteOpen()) wv(webviewShow(t.id));
+    if (
+      t?.kind === "browser" &&
+      openedWebviews.has(t.id) &&
+      !isStartUrl(t.url) &&
+      !pageOverlayActive() &&
+      !paletteOpen()
+    )
+      wv(webviewShow(t.id));
   };
 
   // Command palette (#6) — centered modal over the (hidden) page.
-  const openPalette = () => { hideActivePage(); setPaletteOpen(true); };
-  const closePalette = () => { setPaletteOpen(false); showActivePageIfClear(); };
+  const openPalette = () => {
+    hideActivePage();
+    setPaletteOpen(true);
+  };
+  const closePalette = () => {
+    setPaletteOpen(false);
+    showActivePageIfClear();
+  };
   // Files / Maps / Notebook / Playground popouts — same native-layer dance.
-  const openFilesPanel = () => { hideActivePage(); setFilesPanelOpen(true); };
-  const closeFilesPanel = () => { setFilesPanelOpen(false); showActivePageIfClear(); };
-  const openMapPanel = () => { hideActivePage(); setMapPanelOpen(true); };
-  const openKbPanel = () => { hideActivePage(); setKbPanelOpen(true); };
-  const closeKbPanel = () => { setKbPanelOpen(false); showActivePageIfClear(); };
-  const openPlayground = () => { hideActivePage(); setPlaygroundOpen(true); };
-  const closePlayground = () => { setPlaygroundOpen(false); showActivePageIfClear(); };
+  const openFilesPanel = () => {
+    hideActivePage();
+    setFilesPanelOpen(true);
+  };
+  const closeFilesPanel = () => {
+    setFilesPanelOpen(false);
+    showActivePageIfClear();
+  };
+  const openMapPanel = () => {
+    hideActivePage();
+    setMapPanelOpen(true);
+  };
+  const openKbPanel = () => {
+    hideActivePage();
+    setKbPanelOpen(true);
+  };
+  const closeKbPanel = () => {
+    setKbPanelOpen(false);
+    showActivePageIfClear();
+  };
+  const openPlayground = () => {
+    hideActivePage();
+    setPlaygroundOpen(true);
+  };
+  const closePlayground = () => {
+    setPlaygroundOpen(false);
+    showActivePageIfClear();
+  };
   // Promote the pane to a full tab (⤢) — focus an open Notebook tab or open one.
   const openNotebookTab = () => {
     closeKbPanel();
@@ -987,7 +1119,10 @@ const App: Component = () => {
     if (existing) void focusTab(existing.id);
     else void openTab("browser", NOTEBOOK_URL);
   };
-  const closeMapPanel = () => { setMapPanelOpen(false); showActivePageIfClear(); };
+  const closeMapPanel = () => {
+    setMapPanelOpen(false);
+    showActivePageIfClear();
+  };
   const [mapDraft, setMapDraft] = createSignal(mapQuery());
   // Keyless Google Maps embed — only the `output=embed` endpoint is frameable
   // (the full site sets X-Frame-Options); a `q=` jumps to a place.
@@ -1000,40 +1135,94 @@ const App: Component = () => {
   // Esc closes the map pane while it's open.
   createEffect(() => {
     if (!mapPanelOpen()) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeMapPanel(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeMapPanel();
+    };
     document.addEventListener("keydown", onKey);
     onCleanup(() => document.removeEventListener("keydown", onKey));
   });
   // Esc closes the Notebook (KB) pane while it's open.
   createEffect(() => {
     if (!kbPanelOpen()) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeKbPanel(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeKbPanel();
+    };
     document.addEventListener("keydown", onKey);
     onCleanup(() => document.removeEventListener("keydown", onKey));
   });
   // Actions offered by the palette (tab-switching + history are built in).
   const paletteActions = (): PaletteAction[] => [
     { id: "new-tab", label: "New browser tab", icon: "🌐", run: () => void openTab("browser") },
-    { id: "new-private", label: "New private tab", icon: "🕶", run: () => void openTab("browser", undefined, true) },
-    { id: "new-term", label: "New terminal tab", icon: "⌨", run: () => void openTab("terminal").then(() => setTerminalOpen(true)) },
+    {
+      id: "new-private",
+      label: "New private tab",
+      icon: "🕶",
+      run: () => void openTab("browser", undefined, true),
+    },
+    {
+      id: "new-term",
+      label: "New terminal tab",
+      icon: "⌨",
+      run: () => void openTab("terminal").then(() => setTerminalOpen(true)),
+    },
     { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
     { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
     { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
-    { id: "bookmark-bar", label: bookmarkBarOpen() ? "Hide bookmark bar" : "Show bookmark bar", icon: "🔖", run: () => setBookmarkBarOpen(!bookmarkBarOpen()) },
-    { id: "pages-bar", label: pagesBarOpen() ? "Hide pages bar" : "Show pages bar", icon: "🗂️", run: () => setPagesBarOpen(!pagesBarOpen()) },
-    { id: "connect-rail", label: connectOpen() ? "Hide connections rail" : "Show connections rail", icon: "✦", run: () => setConnectOpen(!connectOpen()) },
-    { id: "music-bubble", label: musicOpen() ? "Hide music bubble" : "Show music bubble", icon: "🎵", run: () => setMusicOpen(!musicOpen()) },
+    {
+      id: "bookmark-bar",
+      label: bookmarkBarOpen() ? "Hide bookmark bar" : "Show bookmark bar",
+      icon: "🔖",
+      run: () => setBookmarkBarOpen(!bookmarkBarOpen()),
+    },
+    {
+      id: "pages-bar",
+      label: pagesBarOpen() ? "Hide pages bar" : "Show pages bar",
+      icon: "🗂️",
+      run: () => setPagesBarOpen(!pagesBarOpen()),
+    },
+    {
+      id: "connect-rail",
+      label: connectOpen() ? "Hide connections rail" : "Show connections rail",
+      icon: "✦",
+      run: () => setConnectOpen(!connectOpen()),
+    },
+    {
+      id: "music-bubble",
+      label: musicOpen() ? "Hide music bubble" : "Show music bubble",
+      icon: "🎵",
+      run: () => setMusicOpen(!musicOpen()),
+    },
     { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "notebook", label: "Open Notebook (ask your notes)", icon: "✦", run: () => go(NOTEBOOK_URL) },
     { id: "trail", label: "Open the Trail (your browsing graph)", icon: "🧭", run: () => go(TRAIL_URL) },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
-    { id: "semantic-find", label: "Semantic find (by meaning · across tabs)", icon: "✦", run: () => setSemFindOpen(true) },
-    { id: "shell-history", label: "Search shell history (by meaning)", icon: "⌘", run: () => setShellHistOpen(true) },
+    {
+      id: "semantic-find",
+      label: "Semantic find (by meaning · across tabs)",
+      icon: "✦",
+      run: () => setSemFindOpen(true),
+    },
+    {
+      id: "shell-history",
+      label: "Search shell history (by meaning)",
+      icon: "⌘",
+      run: () => setShellHistOpen(true),
+    },
     { id: "watches", label: "Watched pages (change monitor)", icon: "👁", run: () => setWatchPanelOpen(true) },
-    { id: "tracker-graph", label: "Tracker graph (privacy viz)", icon: "🕸", run: () => setTrackerGraphOpen(true) },
-    { id: "split", label: activeSplit() != null ? "Exit split view" : "Split view (tile with another tab)", icon: "◫", run: () => activeSplit() != null ? clearSplit() : setSplitPickerOpen(true) },
+    {
+      id: "tracker-graph",
+      label: "Tracker graph (privacy viz)",
+      icon: "🕸",
+      run: () => setTrackerGraphOpen(true),
+    },
+    {
+      id: "split",
+      label: activeSplit() != null ? "Exit split view" : "Split view (tile with another tab)",
+      icon: "◫",
+      run: () => (activeSplit() != null ? clearSplit() : setSplitPickerOpen(true)),
+    },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
     { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
@@ -1041,14 +1230,29 @@ const App: Component = () => {
     { id: "tasks", label: "Open Task manager", icon: "🗂️", run: () => go(TASKS_URL) },
     { id: "speedtest", label: "Network speed test", icon: "⚡", run: () => go(SPEEDTEST_URL) },
     { id: "permissions", label: "Site permissions", icon: "🔐", run: () => go(PERMISSIONS_URL) },
-    { id: "archive-save", label: "Save page for offline (read later)", icon: "📚", run: () => saveToArchive() },
+    {
+      id: "archive-save",
+      label: "Save page for offline (read later)",
+      icon: "📚",
+      run: () => saveToArchive(),
+    },
     { id: "archive", label: "Open Archive", icon: "📚", run: () => go(ARCHIVE_URL) },
     { id: "feeds", label: "Open Feeds (RSS reader)", icon: "📰", run: () => go(FEEDS_URL) },
     { id: "sync", label: "Sync (encrypted, across devices)", icon: "🔄", run: () => go(SYNC_URL) },
-    { id: "translate", label: `Translate page → ${myLang}`, icon: "🌐", run: () => void translatePage(myLang) },
+    {
+      id: "translate",
+      label: `Translate page → ${myLang}`,
+      icon: "🌐",
+      run: () => void translatePage(myLang),
+    },
     ...["English", "Spanish", "French", "German", "Japanese", "Chinese", "Arabic", "Hindi"]
       .filter((l) => l !== myLang)
-      .map((l) => ({ id: `translate-${l}`, label: `Translate page → ${l}`, icon: "🌐", run: () => void translatePage(l) })),
+      .map((l) => ({
+        id: `translate-${l}`,
+        label: `Translate page → ${l}`,
+        icon: "🌐",
+        run: () => void translatePage(l),
+      })),
     { id: "install-app", label: "Install this site as app", icon: "🧩", run: () => installApp() },
     { id: "apps", label: "Open installed apps", icon: "🧩", run: () => go(APPS_URL) },
     { id: "settings", label: "Open Settings", icon: "⚙", run: () => go(SETTINGS_URL) },
@@ -1059,40 +1263,104 @@ const App: Component = () => {
     { id: "reload", label: "Reload page", icon: "⟳", run: () => navActive(webviewReload) },
     { id: "tog-term", label: "Toggle terminal", icon: "⌨", run: () => setTerminalOpen((v) => !v) },
     { id: "tog-agent", label: "Toggle agent", icon: "✦", run: () => setAgentOpen((v) => !v) },
-    { id: "lens", label: "Identify page (Lens)", icon: "🔍", run: () => { setAgentOpen(true); setPendingLens(true); } },
+    {
+      id: "lens",
+      label: "Identify page (Lens)",
+      icon: "🔍",
+      run: () => {
+        setAgentOpen(true);
+        setPendingLens(true);
+      },
+    },
     { id: "tog-side", label: "Toggle sidebar", icon: "◧", run: () => setSidebarOpen((v) => !v) },
-    { id: "close", label: "Close current tab", icon: "✕", run: () => { const id = activeId(); if (id != null) void closeTab(id); } },
+    {
+      id: "close",
+      label: "Close current tab",
+      icon: "✕",
+      run: () => {
+        const id = activeId();
+        if (id != null) void closeTab(id);
+      },
+    },
   ];
 
   // Run an app keyboard action — shared by the chrome's keydown listener and
   // the chords forwarded from a focused tab webview (#18).
   const dispatch = (action: string): boolean => {
     switch (action) {
-      case "new-tab": void openTab("browser"); return true;
-      case "new-terminal": void openTab("terminal").then(() => setTerminalOpen(true)); return true;
-      case "close-tab": { const id = activeId(); if (id != null) void closeTab(id); return true; }
-      case "next-tab": cycleTab(1); return true;
-      case "prev-tab": cycleTab(-1); return true;
-      case "toggle-terminal": setTerminalOpen((v) => !v); return true;
-      case "toggle-agent": setAgentOpen((v) => !v); return true;
-      case "toggle-sidebar": setSidebarOpen((v) => !v); return true;
-      case "focus-address": focusAddress(); return true;
-      case "palette": if (paletteOpen()) closePalette(); else openPalette(); return true;
-      case "find": openFind(); return true;
-      case "reload": navActive(webviewReload); return true;
-      case "back": navActive(webviewBack); return true;
-      case "forward": navActive(webviewForward); return true;
-      case "save-to-omni": void saveToOmni(); return true;
-      case "shell-history": setShellHistOpen(true); return true;
-      case "zoom-in": zoom("in"); return true;
-      case "zoom-out": zoom("out"); return true;
-      case "zoom-reset": zoom("reset"); return true;
-      case "bookmark-page": toggleBookmark(); return true;
-      case "devtools": navActive((id) => webviewDevtools(id)); return true;
+      case "new-tab":
+        void openTab("browser");
+        return true;
+      case "new-terminal":
+        void openTab("terminal").then(() => setTerminalOpen(true));
+        return true;
+      case "close-tab": {
+        const id = activeId();
+        if (id != null) void closeTab(id);
+        return true;
+      }
+      case "next-tab":
+        cycleTab(1);
+        return true;
+      case "prev-tab":
+        cycleTab(-1);
+        return true;
+      case "toggle-terminal":
+        setTerminalOpen((v) => !v);
+        return true;
+      case "toggle-agent":
+        setAgentOpen((v) => !v);
+        return true;
+      case "toggle-sidebar":
+        setSidebarOpen((v) => !v);
+        return true;
+      case "focus-address":
+        focusAddress();
+        return true;
+      case "palette":
+        if (paletteOpen()) closePalette();
+        else openPalette();
+        return true;
+      case "find":
+        openFind();
+        return true;
+      case "reload":
+        navActive(webviewReload);
+        return true;
+      case "back":
+        navActive(webviewBack);
+        return true;
+      case "forward":
+        navActive(webviewForward);
+        return true;
+      case "save-to-omni":
+        void saveToOmni();
+        return true;
+      case "shell-history":
+        setShellHistOpen(true);
+        return true;
+      case "zoom-in":
+        zoom("in");
+        return true;
+      case "zoom-out":
+        zoom("out");
+        return true;
+      case "zoom-reset":
+        zoom("reset");
+        return true;
+      case "bookmark-page":
+        toggleBookmark();
+        return true;
+      case "devtools":
+        navActive((id) => webviewDevtools(id));
+        return true;
       case "focus-mode": {
         const on = !focusMode();
         setFocusMode(on);
-        if (on) { setOmniToast("Focus mode — Esc or Ctrl+Shift+F to exit"); window.setTimeout(() => setOmniToast(null), 2600); }
+        if (on) {
+          setOmniToast("Focus mode — Esc or Ctrl+Shift+F to exit");
+          window.setTimeout(() => setOmniToast(null), 2600);
+        }
         return true;
       }
       default:
@@ -1141,7 +1409,10 @@ const App: Component = () => {
       ["connect", connectW()],
     ];
     for (const [k, extra] of order) {
-      if (want[k] && used + extra <= w) { out[k] = true; used += extra; }
+      if (want[k] && used + extra <= w) {
+        out[k] = true;
+        used += extra;
+      }
     }
     return out;
   });
@@ -1213,8 +1484,16 @@ const App: Component = () => {
         onToggleTerminal={() => setTerminalOpen((v) => !v)}
         onToggleAgent={() => setAgentOpen((v) => !v)}
         onSaveToOmni={saveToOmni}
-        onToast={(m) => { setOmniToast(m); window.setTimeout(() => setOmniToast(null), 2800); }}
-        onAiSearch={(q) => { if (aiAnswersOn()) { setAgentOpen(true); setPendingAsk(q); } }}
+        onToast={(m) => {
+          setOmniToast(m);
+          window.setTimeout(() => setOmniToast(null), 2800);
+        }}
+        onAiSearch={(q) => {
+          if (aiAnswersOn()) {
+            setAgentOpen(true);
+            setPendingAsk(q);
+          }
+        }}
         onSwitchWorkspace={switchWorkspace}
         onNewWorkspace={newWorkspace}
         onDeleteWorkspace={removeWorkspace}
@@ -1227,9 +1506,9 @@ const App: Component = () => {
         onTranslate={() => void translatePage(myLang)}
         onToggleBookmark={toggleBookmark}
         isBookmarked={() => bookmarkedId() != null}
-        onToggleFilesPanel={() => filesPanelOpen() ? closeFilesPanel() : openFilesPanel()}
-        onOpenPlayground={() => playgroundOpen() ? closePlayground() : openPlayground()}
-        onOpenNotebook={() => kbPanelOpen() ? closeKbPanel() : openKbPanel()}
+        onToggleFilesPanel={() => (filesPanelOpen() ? closeFilesPanel() : openFilesPanel())}
+        onOpenPlayground={() => (playgroundOpen() ? closePlayground() : openPlayground())}
+        onOpenNotebook={() => (kbPanelOpen() ? closeKbPanel() : openKbPanel())}
       />
       <ContentArea
         onNavigate={go}
@@ -1245,14 +1524,20 @@ const App: Component = () => {
         <TerminalColumn />
       </Show>
       <Show when={agentColVisible()}>
-        <Suspense><AgentPanel /></Suspense>
+        <Suspense>
+          <AgentPanel />
+        </Suspense>
       </Show>
       <Show when={connectColVisible()}>
-        <Suspense><ConnectionsRail /></Suspense>
+        <Suspense>
+          <ConnectionsRail />
+        </Suspense>
       </Show>
       {/* Floating music bubble (#125) — position:fixed, lives over the chrome. */}
       <Show when={musicOpen() && !focusMode()}>
-        <Suspense><MusicBubble /></Suspense>
+        <Suspense>
+          <MusicBubble />
+        </Suspense>
       </Show>
 
       {/* Pane splitters — drag to resize (BACKLOG #27). */}
@@ -1307,7 +1592,9 @@ const App: Component = () => {
 
       {/* Command palette (#6) — overlay; renders above the (hidden) webview. */}
       <Show when={paletteOpen()}>
-        <Suspense><CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} /></Suspense>
+        <Suspense>
+          <CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} />
+        </Suspense>
       </Show>
       {/* Semantic shell-history search (#122) — Ctrl+Shift+R; self-gated overlay. */}
       <ShellHistory />
@@ -1327,7 +1614,11 @@ const App: Component = () => {
       </For>
 
       {/* Right-click "open in new tab" menu for links in internal DOM pages. */}
-      <LinkMenu onOpen={(url, background) => void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {})} />
+      <LinkMenu
+        onOpen={(url, background) =>
+          void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {})
+        }
+      />
 
       {/* Files popout panel — a DOM file explorer over the (hidden) webview; its
           cwd persists so it reopens where you left off. Click outside to close. */}
@@ -1336,7 +1627,9 @@ const App: Component = () => {
           <div class="files-panel glass" onClick={(e) => e.stopPropagation()}>
             <div class="files-panel-head">
               <span class="files-panel-title">🗁 Files</span>
-              <button class="files-panel-x" title="Close (Esc)" onClick={() => closeFilesPanel()}>✕</button>
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => closeFilesPanel()}>
+                ✕
+              </button>
             </div>
             <div class="files-panel-body">
               <Suspense>
@@ -1344,7 +1637,10 @@ const App: Component = () => {
                   id={FILES_PANEL_ID}
                   path={filesPanelPath() || ""}
                   onPathChange={setFilesPanelPath}
-                  onOpenInTab={(url) => { closeFilesPanel(); go(url); }}
+                  onOpenInTab={(url) => {
+                    closeFilesPanel();
+                    go(url);
+                  }}
                 />
               </Suspense>
             </div>
@@ -1359,7 +1655,9 @@ const App: Component = () => {
             <div class="files-panel-head">
               <span class="files-panel-title">🎮 Playground</span>
               <span style={{ flex: 1 }} />
-              <button class="files-panel-x" title="Close (Esc)" onClick={() => closePlayground()}>✕</button>
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => closePlayground()}>
+                ✕
+              </button>
             </div>
             <div class="playground-panel-body">
               <Suspense>
@@ -1377,8 +1675,12 @@ const App: Component = () => {
             <div class="files-panel-head">
               <span class="files-panel-title">📓 Notebook</span>
               <span style={{ flex: 1 }} />
-              <button class="files-panel-x" title="Open as a full tab" onClick={() => openNotebookTab()}>⤢</button>
-              <button class="files-panel-x" title="Close (Esc)" onClick={() => closeKbPanel()}>✕</button>
+              <button class="files-panel-x" title="Open as a full tab" onClick={() => openNotebookTab()}>
+                ⤢
+              </button>
+              <button class="files-panel-x" title="Close (Esc)" onClick={() => closeKbPanel()}>
+                ✕
+              </button>
             </div>
             <div class="files-panel-body">
               <Suspense>
@@ -1395,7 +1697,13 @@ const App: Component = () => {
           <div class="map-panel glass" onClick={(e) => e.stopPropagation()}>
             <div class="map-panel-head">
               <span class="map-panel-title">🗺 Maps</span>
-              <form class="map-search" onSubmit={(e) => { e.preventDefault(); setMapQuery(mapDraft().trim()); }}>
+              <form
+                class="map-search"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setMapQuery(mapDraft().trim());
+                }}
+              >
                 <input
                   class="map-search-input"
                   placeholder="Search a place or address…"
@@ -1403,7 +1711,9 @@ const App: Component = () => {
                   onInput={(e) => setMapDraft(e.currentTarget.value)}
                 />
               </form>
-              <button class="map-panel-x" title="Close (Esc)" onClick={() => closeMapPanel()}>✕</button>
+              <button class="map-panel-x" title="Close (Esc)" onClick={() => closeMapPanel()}>
+                ✕
+              </button>
             </div>
             <iframe
               class="map-frame"
@@ -1489,18 +1799,30 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [watched, setWatched] = createSignal(false);
   createEffect(() => {
     const t = activeTab();
-    if (t?.kind === "browser" && !isStartUrl(t.url)) void watchIsWatched(t.url).then(setWatched).catch(() => setWatched(false));
+    if (t?.kind === "browser" && !isStartUrl(t.url))
+      void watchIsWatched(t.url)
+        .then(setWatched)
+        .catch(() => setWatched(false));
     else setWatched(false);
   });
   const toggleWatch = () => {
     const t = activeTab();
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
-    if (watched()) { setWatchPanelOpen(true); return; } // already watching → manage in the panel
-    void watchAdd(t.url, t.title || t.url).then(() => setWatched(true)).catch(() => {});
+    if (watched()) {
+      setWatchPanelOpen(true);
+      return;
+    } // already watching → manage in the panel
+    void watchAdd(t.url, t.title || t.url)
+      .then(() => setWatched(true))
+      .catch(() => {});
   };
   const splitCandidates = () =>
     tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && t.id !== activeId());
-  const doSplit = (rightId: number) => { const left = activeId(); setSplitPicker(false); if (left != null) startSplit(left, rightId); };
+  const doSplit = (rightId: number) => {
+    const left = activeId();
+    setSplitPicker(false);
+    if (left != null) startSplit(left, rightId);
+  };
   const doSplitNew = async () => {
     const left = activeId();
     setSplitPicker(false);
@@ -1521,7 +1843,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
     setDragPanel(null);
     setDropPanel(null);
     if (from == null || from === targetId) return;
-    const ids = panels().map((p) => p.id).filter((i) => i !== from);
+    const ids = panels()
+      .map((p) => p.id)
+      .filter((i) => i !== from);
     const at = ids.indexOf(targetId);
     ids.splice(at < 0 ? ids.length : at, 0, from);
     reorderPanels(ids);
@@ -1535,7 +1859,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
   let noteTimer: number | undefined;
   const loadNote = () => {
     const t = activeTab();
-    if (t?.kind === "browser" && !isStartUrl(t.url)) void noteGet(t.url).then(setNoteText).catch(() => setNoteText(""));
+    if (t?.kind === "browser" && !isStartUrl(t.url))
+      void noteGet(t.url)
+        .then(setNoteText)
+        .catch(() => setNoteText(""));
     else setNoteText("");
   };
   const saveNote = (text: string) => {
@@ -1550,7 +1877,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const activeZoom = (): number => {
     const t = activeTab();
     if (!t || t.kind !== "browser") return 1;
-    try { return zoomFor(new URL(t.url).hostname.replace(/^www\./, "")); } catch { return 1; }
+    try {
+      return zoomFor(new URL(t.url).hostname.replace(/^www\./, ""));
+    } catch {
+      return 1;
+    }
   };
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
   const [defaultEngine, setDefaultEngine] = createSignal("");
@@ -1568,7 +1899,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [editContainer, setEditContainer] = createSignal<number | null>(null);
   const [editFolder, setEditFolder] = createSignal<number | null>(null);
   const [editTab, setEditTab] = createSignal<number | null>(null);
-  const openCtx = (e: MouseEvent, tab: TabMeta) => { e.preventDefault(); setCtxTab(tab); setCtxPos({ x: e.clientX, y: e.clientY }); };
+  const openCtx = (e: MouseEvent, tab: TabMeta) => {
+    e.preventDefault();
+    setCtxTab(tab);
+    setCtxPos({ x: e.clientX, y: e.clientY });
+  };
   const closeCtx = () => setCtxTab(null);
   // Keep a context menu fully on-screen: after it renders, nudge it left/up if it
   // would overflow the viewport (e.g. a tall menu opened near the bottom).
@@ -1604,7 +1939,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
     }
     return m;
   });
-  const ungroupedTabs = createMemo(() => unpinnedTabs().filter((t) => t.group == null || !groupIds().has(t.group)));
+  const ungroupedTabs = createMemo(() =>
+    unpinnedTabs().filter((t) => t.group == null || !groupIds().has(t.group)),
+  );
   const GROUP_PALETTE = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
   const cycleGroupColor = (g: TabGroup) => {
     const i = GROUP_PALETTE.indexOf(g.color);
@@ -1619,14 +1956,37 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // One tab row — reused for grouped + ungrouped lists.
   const TabRow: Component<{ tab: TabMeta }> = (p) => (
     <div
-      classList={{ "tab-row": true, active: activeId() === p.tab.id, sleeping: isHibernated(p.tab.id), private: p.tab.private, dragging: dragId() === p.tab.id, "drag-over": dropId() === p.tab.id }}
-      style={{ "border-left-color": p.tab.container && containerById(p.tab.container) ? containerColor(containerById(p.tab.container)!) : clusterColor(p.tab) }}
+      classList={{
+        "tab-row": true,
+        active: activeId() === p.tab.id,
+        sleeping: isHibernated(p.tab.id),
+        private: p.tab.private,
+        dragging: dragId() === p.tab.id,
+        "drag-over": dropId() === p.tab.id,
+      }}
+      style={{
+        "border-left-color":
+          p.tab.container && containerById(p.tab.container)
+            ? containerColor(containerById(p.tab.container)!)
+            : clusterColor(p.tab),
+      }}
       draggable={true}
       onClick={() => focusTab(p.tab.id)}
       onContextMenu={(e) => openCtx(e, p.tab)}
-      onDragStart={(e) => { setDragId(p.tab.id); e.dataTransfer!.effectAllowed = "move"; e.dataTransfer!.setData("text/plain", String(p.tab.id)); }}
-      onDragOver={(e) => { if (dragId() == null || dragId() === p.tab.id) return; e.preventDefault(); e.dataTransfer!.dropEffect = "move"; setDropId(p.tab.id); }}
-      onDragLeave={() => { if (dropId() === p.tab.id) setDropId(null); }}
+      onDragStart={(e) => {
+        setDragId(p.tab.id);
+        e.dataTransfer!.effectAllowed = "move";
+        e.dataTransfer!.setData("text/plain", String(p.tab.id));
+      }}
+      onDragOver={(e) => {
+        if (dragId() == null || dragId() === p.tab.id) return;
+        e.preventDefault();
+        e.dataTransfer!.dropEffect = "move";
+        setDropId(p.tab.id);
+      }}
+      onDragLeave={() => {
+        if (dropId() === p.tab.id) setDropId(null);
+      }}
       onDrop={(e) => {
         e.preventDefault();
         const d = dragId();
@@ -1636,28 +1996,68 @@ const Sidebar: Component<SidebarProps> = (props) => {
           const fy = (e.clientY - r.top) / r.height;
           const dragged = tabs().find((t) => t.id === d);
           const bothPages = dragged?.kind === "browser" && p.tab.kind === "browser";
-          if (fx > 0.6 && bothPages) startSplit(p.tab.id, d); // right side → split (#43)
-          else if (fy > 0.25 && fy < 0.75) void groupWithTab(d, p.tab.id); // center → group
+          if (fx > 0.6 && bothPages)
+            startSplit(p.tab.id, d); // right side → split (#43)
+          else if (fy > 0.25 && fy < 0.75)
+            void groupWithTab(d, p.tab.id); // center → group
           else void reorderTabs(d, p.tab.id, fy >= 0.75); // top/bottom → reorder
         }
         setDragId(null);
         setDropId(null);
       }}
-      onDragEnd={() => { setDragId(null); setDropId(null); }}
-      title={isHibernated(p.tab.id) ? "sleeping — click to wake" : "drag: top/bottom reorder · middle group · right edge split · right-click for menu"}
+      onDragEnd={() => {
+        setDragId(null);
+        setDropId(null);
+      }}
+      title={
+        isHibernated(p.tab.id)
+          ? "sleeping — click to wake"
+          : "drag: top/bottom reorder · middle group · right edge split · right-click for menu"
+      }
     >
-      <span class="tab-favicon">{p.tab.private ? "🕶" : isHibernated(p.tab.id) ? "💤" : <Favicon tab={p.tab} />}</span>
-      <Show when={editTab() === p.tab.id} fallback={<span class="title" onDblClick={(e) => { e.stopPropagation(); setEditTab(p.tab.id); }}>{tabLabel(p.tab)}</span>}>
+      <span class="tab-favicon">
+        {p.tab.private ? "🕶" : isHibernated(p.tab.id) ? "💤" : <Favicon tab={p.tab} />}
+      </span>
+      <Show
+        when={editTab() === p.tab.id}
+        fallback={
+          <span
+            class="title"
+            onDblClick={(e) => {
+              e.stopPropagation();
+              setEditTab(p.tab.id);
+            }}
+          >
+            {tabLabel(p.tab)}
+          </span>
+        }
+      >
         <input
           class="tab-rename"
           value={tabLabel(p.tab)}
           autofocus
           onClick={(e) => e.stopPropagation()}
-          onBlur={(e) => { void renameTab(p.tab.id, e.currentTarget.value.trim()); setEditTab(null); }}
-          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditTab(null); }}
+          onBlur={(e) => {
+            void renameTab(p.tab.id, e.currentTarget.value.trim());
+            setEditTab(null);
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") e.currentTarget.blur();
+            else if (e.key === "Escape") setEditTab(null);
+          }}
         />
       </Show>
-      <button class="close" title="Close tab" onClick={(e) => { e.stopPropagation(); void closeTab(p.tab.id); }}>✕</button>
+      <button
+        class="close"
+        title="Close tab"
+        onClick={(e) => {
+          e.stopPropagation();
+          void closeTab(p.tab.id);
+        }}
+      >
+        ✕
+      </button>
     </div>
   );
 
@@ -1666,7 +2066,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const SplitPair: Component<{ a: TabMeta; b: TabMeta }> = (p) => (
     <div class="split-pair" title="Split view — the two tiled tabs">
       <TabRow tab={p.a} />
-      <button class="split-pair-merge" title="Merge — back to a single tab" onClick={(e) => { e.stopPropagation(); clearSplit(p.a.id); }}>⤢</button>
+      <button
+        class="split-pair-merge"
+        title="Merge — back to a single tab"
+        onClick={(e) => {
+          e.stopPropagation();
+          clearSplit(p.a.id);
+        }}
+      >
+        ⤢
+      </button>
       <TabRow tab={p.b} />
     </div>
   );
@@ -1674,32 +2083,43 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // The ungrouped strip, with each split pair (whose BOTH members are ungrouped
   // & present in this space) folded into a single combined item at whichever
   // member appears first. Any number of pairs can coexist.
-  const ungroupedItems = createMemo((): ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] => {
-    const list = ungroupedTabs();
-    const ids = new Set(list.map((t) => t.id));
-    const memberOf = new Map<number, [number, number]>();
-    for (const p of splits()) {
-      if (ids.has(p[0]) && ids.has(p[1])) { memberOf.set(p[0], p); memberOf.set(p[1], p); }
-    }
-    const placed = new Set<number>();
-    const out: ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] = [];
-    for (const t of list) {
-      const pair = memberOf.get(t.id);
-      if (pair) {
-        if (placed.has(pair[0])) continue; // pair already emitted at its first member
-        out.push({ kind: "split", a: list.find((x) => x.id === pair[0])!, b: list.find((x) => x.id === pair[1])! });
-        placed.add(pair[0]);
-        continue;
+  const ungroupedItems = createMemo(
+    (): ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] => {
+      const list = ungroupedTabs();
+      const ids = new Set(list.map((t) => t.id));
+      const memberOf = new Map<number, [number, number]>();
+      for (const p of splits()) {
+        if (ids.has(p[0]) && ids.has(p[1])) {
+          memberOf.set(p[0], p);
+          memberOf.set(p[1], p);
+        }
       }
-      out.push({ kind: "tab", tab: t });
-    }
-    return out;
-  });
+      const placed = new Set<number>();
+      const out: ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] = [];
+      for (const t of list) {
+        const pair = memberOf.get(t.id);
+        if (pair) {
+          if (placed.has(pair[0])) continue; // pair already emitted at its first member
+          out.push({
+            kind: "split",
+            a: list.find((x) => x.id === pair[0])!,
+            b: list.find((x) => x.id === pair[1])!,
+          });
+          placed.add(pair[0]);
+          continue;
+        }
+        out.push({ kind: "tab", tab: t });
+      }
+      return out;
+    },
+  );
 
   const openPanel = async (p: FooterPanel) => {
     setPanel((cur) => (cur === p ? null : p));
     if (p === "settings") {
-      void memStatus().then(setMem).catch(() => {});
+      void memStatus()
+        .then(setMem)
+        .catch(() => {});
       try {
         const [es, d] = await Promise.all([searchEngines(), searchDefault()]);
         setEngines(es);
@@ -1713,8 +2133,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // (was an always-on 2.5s timer that ran even with the panel closed).
   createEffect(() => {
     if (panel() !== "settings") return;
-    void memStatus().then(setMem).catch(() => {});
-    const t = window.setInterval(() => void memStatus().then(setMem).catch(() => {}), 2500);
+    void memStatus()
+      .then(setMem)
+      .catch(() => {});
+    const t = window.setInterval(
+      () =>
+        void memStatus()
+          .then(setMem)
+          .catch(() => {}),
+      2500,
+    );
     onCleanup(() => clearInterval(t));
   });
 
@@ -1733,8 +2161,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const security = (): { icon: string; title: string; cls: string } | null => {
     const u = activeTab()?.url ?? "";
     if (!u || isStartUrl(u)) return null;
-    if (u.startsWith("https://")) return { icon: "🔒", title: "Connection is secure (HTTPS)", cls: "sec-secure" };
-    if (u.startsWith("http://")) return { icon: "⚠", title: "Not secure — sent over plain HTTP", cls: "sec-insecure" };
+    if (u.startsWith("https://"))
+      return { icon: "🔒", title: "Connection is secure (HTTPS)", cls: "sec-secure" };
+    if (u.startsWith("http://"))
+      return { icon: "⚠", title: "Not secure — sent over plain HTTP", cls: "sec-insecure" };
     return null;
   };
 
@@ -1751,7 +2181,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [addrFocused, setAddrFocused] = createSignal(false);
   let omniGen = 0; // ignore events from a superseded request
   let omniDismissTimer: number | undefined;
-  const closeSuggest = () => { setSuggestions([]); setSelIdx(-1); };
+  const closeSuggest = () => {
+    setSuggestions([]);
+    setSelIdx(-1);
+  };
   const clearOmniAns = () => {
     omniGen++;
     window.clearTimeout(omniDismissTimer);
@@ -1776,12 +2209,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
       else if (e.type === "token") setOmniAns((a) => (a ? { ...a, text: a.text + e.text } : a));
       else if (e.type === "done") {
         setOmniAns((a) => (a ? { ...a, streaming: false } : a));
-        omniDismissTimer = window.setTimeout(() => { if (gen === omniGen) clearOmniAns(); }, 9000);
+        omniDismissTimer = window.setTimeout(() => {
+          if (gen === omniGen) clearOmniAns();
+        }, 9000);
       }
     }).catch(() => {
       if (gen === omniGen) {
         setOmniAns((a) => (a ? { ...a, streaming: false } : a));
-        omniDismissTimer = window.setTimeout(() => { if (gen === omniGen) clearOmniAns(); }, 5000);
+        omniDismissTimer = window.setTimeout(() => {
+          if (gen === omniGen) clearOmniAns();
+        }, 5000);
       }
     });
   };
@@ -1792,15 +2229,24 @@ const Sidebar: Component<SidebarProps> = (props) => {
     clearOmniAns(); // a new query invalidates any shown answer
     clearTimeout(sugTimer);
     const q = v.trim();
-    if (!q || q.startsWith("flux://")) { setSuggestions([]); return; }
+    if (!q || q.startsWith("flux://")) {
+      setSuggestions([]);
+      return;
+    }
     sugTimer = window.setTimeout(async () => {
       const hist = await historySearch(q, 5).catch(() => []);
-      const out: Suggestion[] = hist.map((h) => ({ kind: "history", label: h.title || h.url, sub: h.url, url: h.url }));
+      const out: Suggestion[] = hist.map((h) => ({
+        kind: "history",
+        label: h.title || h.url,
+        sub: h.url,
+        url: h.url,
+      }));
       if (searchSuggestOn()) {
         const sug = await searchSuggest(q).catch(() => []);
         for (const t of sug) {
           if (out.length >= 8) break;
-          if (!out.some((x) => x.label.toLowerCase() === t.toLowerCase())) out.push({ kind: "search", label: t });
+          if (!out.some((x) => x.label.toLowerCase() === t.toLowerCase()))
+            out.push({ kind: "search", label: t });
         }
       }
       // Drop suggestions if the user already moved on / cleared the field.
@@ -1821,13 +2267,24 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
   const onAddressKeyDown = (e: KeyboardEvent) => {
     const n = suggestions().length;
-    if (e.key === "Enter" && e.altKey) { e.preventDefault(); startOmniAnswer(address()); }
-    else if (e.key === "ArrowDown" && n) { e.preventDefault(); setSelIdx((i) => (i + 1) % n); }
-    else if (e.key === "ArrowUp" && n) { e.preventDefault(); setSelIdx((i) => (i - 1 + n) % n); }
-    else if (e.key === "Escape") { closeSuggest(); clearOmniAns(); }
-    else if (e.key === "Enter") {
+    if (e.key === "Enter" && e.altKey) {
+      e.preventDefault();
+      startOmniAnswer(address());
+    } else if (e.key === "ArrowDown" && n) {
+      e.preventDefault();
+      setSelIdx((i) => (i + 1) % n);
+    } else if (e.key === "ArrowUp" && n) {
+      e.preventDefault();
+      setSelIdx((i) => (i - 1 + n) % n);
+    } else if (e.key === "Escape") {
+      closeSuggest();
+      clearOmniAns();
+    } else if (e.key === "Enter") {
       const s = suggestions()[selIdx()];
-      if (s) { e.preventDefault(); void chooseSuggestion(s); }
+      if (s) {
+        e.preventDefault();
+        void chooseSuggestion(s);
+      }
     }
   };
 
@@ -1878,15 +2335,36 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <For each={panels()}>
             {(p) => (
               <button
-                classList={{ "app-rail-icon": true, active: activePanelId() === p.id, dragging: dragPanel() === p.id, "drop-into": dropPanel() === p.id }}
+                classList={{
+                  "app-rail-icon": true,
+                  active: activePanelId() === p.id,
+                  dragging: dragPanel() === p.id,
+                  "drop-into": dropPanel() === p.id,
+                }}
                 title={p.title || p.url}
                 draggable={true}
                 onClick={() => togglePanel(p.id)}
-                onDragStart={(e) => { setDragPanel(p.id); e.dataTransfer!.effectAllowed = "move"; }}
-                onDragOver={(e) => { if (dragPanel() != null) { e.preventDefault(); setDropPanel(p.id); } }}
-                onDragLeave={() => { if (dropPanel() === p.id) setDropPanel(null); }}
-                onDrop={(e) => { e.preventDefault(); dropOnPanel(p.id); }}
-                onDragEnd={() => { setDragPanel(null); setDropPanel(null); }}
+                onDragStart={(e) => {
+                  setDragPanel(p.id);
+                  e.dataTransfer!.effectAllowed = "move";
+                }}
+                onDragOver={(e) => {
+                  if (dragPanel() != null) {
+                    e.preventDefault();
+                    setDropPanel(p.id);
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dropPanel() === p.id) setDropPanel(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  dropOnPanel(p.id);
+                }}
+                onDragEnd={() => {
+                  setDragPanel(null);
+                  setDropPanel(null);
+                }}
               >
                 <PanelIcon url={p.url} />
                 <Show when={(panelBadges[p.id] ?? 0) > 0}>
@@ -1895,32 +2373,64 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </button>
             )}
           </For>
-          <button class="app-rail-add" title="Pin a web app (panels)" onClick={() => openPanel("webpanels")}>+</button>
+          <button class="app-rail-add" title="Pin a web app (panels)" onClick={() => openPanel("webpanels")}>
+            +
+          </button>
         </div>
       </Show>
       {/* Nav row. Also a drag region (`deep`) for extra grab area; buttons
           still click through. Traffic lights live in the title bar now. */}
-      <div
-        class="sidebar-controls"
-        classList={{ collapsed: props.collapsed }}
-        data-tauri-drag-region="deep"
-      >
+      <div class="sidebar-controls" classList={{ collapsed: props.collapsed }} data-tauri-drag-region="deep">
         <button class="icon-btn" title="Toggle sidebar (Ctrl+B)" onClick={props.onToggleSidebar}>
           {props.collapsed ? "»" : "«"}
         </button>
         <Show when={!props.collapsed}>
-          <button class="icon-btn" title="Back (Alt+←)" onClick={() => navActive(webviewBack)}>‹</button>
-          <button class="icon-btn" title="Forward (Alt+→)" onClick={() => navActive(webviewForward)}>›</button>
+          <button class="icon-btn" title="Back (Alt+←)" onClick={() => navActive(webviewBack)}>
+            ‹
+          </button>
+          <button class="icon-btn" title="Forward (Alt+→)" onClick={() => navActive(webviewForward)}>
+            ›
+          </button>
           <Show
             when={isLoading(activeId())}
-            fallback={<button class="icon-btn" title="Reload (Ctrl+R)" onClick={() => navActive(webviewReload)}>⟳</button>}
+            fallback={
+              <button class="icon-btn" title="Reload (Ctrl+R)" onClick={() => navActive(webviewReload)}>
+                ⟳
+              </button>
+            }
           >
-            <button class="icon-btn" title="Stop (Esc)" onClick={() => navActive(webviewStop)}>✕</button>
+            <button class="icon-btn" title="Stop (Esc)" onClick={() => navActive(webviewStop)}>
+              ✕
+            </button>
           </Show>
-          <button class="icon-btn" title="Home (new tab page)" onClick={() => props.onNavigate("flux://start")}>⌂</button>
-          <button classList={{ "icon-btn": true, active: filesPanelOpen() }} title="File explorer" onClick={props.onToggleFilesPanel}>🗁</button>
-          <button classList={{ "icon-btn": true, active: playgroundOpen() }} title="Playground — offline arcade" onClick={props.onOpenPlayground}>🎮</button>
-          <button classList={{ "icon-btn": true, active: kbPanelOpen() }} title="Notebook — your knowledge base (Onyx + Scroll)" onClick={props.onOpenNotebook}>📓</button>
+          <button
+            class="icon-btn"
+            title="Home (new tab page)"
+            onClick={() => props.onNavigate("flux://start")}
+          >
+            ⌂
+          </button>
+          <button
+            classList={{ "icon-btn": true, active: filesPanelOpen() }}
+            title="File explorer"
+            onClick={props.onToggleFilesPanel}
+          >
+            🗁
+          </button>
+          <button
+            classList={{ "icon-btn": true, active: playgroundOpen() }}
+            title="Playground — offline arcade"
+            onClick={props.onOpenPlayground}
+          >
+            🎮
+          </button>
+          <button
+            classList={{ "icon-btn": true, active: kbPanelOpen() }}
+            title="Notebook — your knowledge base (Onyx + Scroll)"
+            onClick={props.onOpenNotebook}
+          >
+            📓
+          </button>
           <span style={{ flex: 1 }} />
         </Show>
       </div>
@@ -1929,23 +2439,38 @@ const Sidebar: Component<SidebarProps> = (props) => {
         {/* Address / search pill */}
         <form onSubmit={submitAddress} class="address-row">
           <Show when={security()}>
-            {(s) => <span class={`sec ${s().cls}`} title={s().title}>{s().icon}</span>}
+            {(s) => (
+              <span class={`sec ${s().cls}`} title={s().title}>
+                {s().icon}
+              </span>
+            )}
           </Show>
           <input
             id="flux-address"
             class="address"
             value={address() || currentUrl()}
             onInput={(e) => onAddressInput(e.currentTarget.value)}
-            onFocus={(e) => { e.currentTarget.select(); setAddrFocused(true); }}
+            onFocus={(e) => {
+              e.currentTarget.select();
+              setAddrFocused(true);
+            }}
             onKeyDown={onAddressKeyDown}
-            onBlur={() => { setAddrFocused(false); setTimeout(closeSuggest, 150); }}
+            onBlur={() => {
+              setAddrFocused(false);
+              setTimeout(closeSuggest, 150);
+            }}
             placeholder="Search or enter address  (Ctrl+L)"
             spellcheck={false}
             autocomplete="off"
           />
           {/* Per-site zoom (#36): shown only when ≠ 100%; click to reset. */}
           <Show when={activeZoom() !== 1}>
-            <button type="button" class="zoom-pill" title="Reset zoom (Ctrl+0)" onClick={() => props.onZoomReset()}>
+            <button
+              type="button"
+              class="zoom-pill"
+              title="Reset zoom (Ctrl+0)"
+              onClick={() => props.onZoomReset()}
+            >
               {Math.round(activeZoom() * 100)}%
             </button>
           </Show>
@@ -1963,12 +2488,17 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   <div class="omni-answer">
                     <div class="omni-answer-head">
                       <span class="spark">✦</span> Omni answer
-                      <Show when={a().streaming}><span class="omni-answer-dot" /></Show>
+                      <Show when={a().streaming}>
+                        <span class="omni-answer-dot" />
+                      </Show>
                       <button
                         type="button"
                         class="omni-answer-close"
                         title="Dismiss Omni answer"
-                        onMouseDown={(e) => { e.preventDefault(); clearOmniAns(); }}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          clearOmniAns();
+                        }}
                       >
                         ×
                       </button>
@@ -2005,7 +2535,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
                               type="button"
                               class="omni-answer-cite"
                               title={s.url}
-                              onMouseDown={(e) => { e.preventDefault(); props.onNavigate(s.url); }}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                props.onNavigate(s.url);
+                              }}
                             >
                               [{s.n}] {s.title}
                             </button>
@@ -2021,7 +2554,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 <button
                   type="button"
                   class="omni-sug omni-ask"
-                  onMouseDown={(e) => { e.preventDefault(); startOmniAnswer(address()); }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    startOmniAnswer(address());
+                  }}
                 >
                   <span class="omni-sug-icon">✦</span>
                   <span class="omni-sug-text">
@@ -2035,13 +2571,18 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   <button
                     type="button"
                     classList={{ "omni-sug": true, sel: selIdx() === i() }}
-                    onMouseDown={(e) => { e.preventDefault(); void chooseSuggestion(s); }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      void chooseSuggestion(s);
+                    }}
                     onMouseEnter={() => setSelIdx(i())}
                   >
                     <span class="omni-sug-icon">{s.kind === "history" ? "🕘" : "🔍"}</span>
                     <span class="omni-sug-text">
                       <span class="omni-sug-label">{s.label}</span>
-                      <Show when={s.sub}><span class="omni-sug-sub">{s.sub}</span></Show>
+                      <Show when={s.sub}>
+                        <span class="omni-sug-sub">{s.sub}</span>
+                      </Show>
                     </span>
                   </button>
                 )}
@@ -2057,18 +2598,71 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <button
               type="button"
               classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
-              title={props.isBookmarked() ? "Bookmarked — click to remove (Ctrl+D)" : "Bookmark this page (Ctrl+D)"}
+              title={
+                props.isBookmarked() ? "Bookmarked — click to remove (Ctrl+D)" : "Bookmark this page (Ctrl+D)"
+              }
               onClick={() => props.onToggleBookmark()}
             >
               {props.isBookmarked() ? "★" : "☆"}
             </button>
-            <button type="button" classList={{ "icon-btn": true, active: activeSplit() != null }} title={activeSplit() != null ? "Exit split view" : "Split view — tile this page with another tab"} onClick={() => activeSplit() != null ? clearSplit() : setSplitPicker(true)}>◫</button>
-            <button type="button" classList={{ "icon-btn": true, active: readerOpen() }} title="Reader mode" onClick={() => props.onToggleReader()}>📖</button>
-            <button type="button" class="icon-btn" title="Capture page (screenshot)" onClick={() => props.onCapture()}>📸</button>
-            <button type="button" class="icon-btn" title="Translate this page" onClick={() => props.onTranslate()}>🌐</button>
-            <button type="button" class="icon-btn" title="Save for offline (read later)" onClick={() => props.onArchive()}>📚</button>
-            <button type="button" classList={{ "icon-btn": true, active: watched() }} title={watched() ? "Watching for changes — click to manage" : "Watch this page for changes"} onClick={toggleWatch}>👁</button>
-            <button type="button" class="icon-btn" title="Save this page to Omni (Ctrl+Shift+O)" onClick={() => props.onSaveToOmni()}>✦</button>
+            <button
+              type="button"
+              classList={{ "icon-btn": true, active: activeSplit() != null }}
+              title={
+                activeSplit() != null ? "Exit split view" : "Split view — tile this page with another tab"
+              }
+              onClick={() => (activeSplit() != null ? clearSplit() : setSplitPicker(true))}
+            >
+              ◫
+            </button>
+            <button
+              type="button"
+              classList={{ "icon-btn": true, active: readerOpen() }}
+              title="Reader mode"
+              onClick={() => props.onToggleReader()}
+            >
+              📖
+            </button>
+            <button
+              type="button"
+              class="icon-btn"
+              title="Capture page (screenshot)"
+              onClick={() => props.onCapture()}
+            >
+              📸
+            </button>
+            <button
+              type="button"
+              class="icon-btn"
+              title="Translate this page"
+              onClick={() => props.onTranslate()}
+            >
+              🌐
+            </button>
+            <button
+              type="button"
+              class="icon-btn"
+              title="Save for offline (read later)"
+              onClick={() => props.onArchive()}
+            >
+              📚
+            </button>
+            <button
+              type="button"
+              classList={{ "icon-btn": true, active: watched() }}
+              title={watched() ? "Watching for changes — click to manage" : "Watch this page for changes"}
+              onClick={toggleWatch}
+            >
+              👁
+            </button>
+            <button
+              type="button"
+              class="icon-btn"
+              title="Save this page to Omni (Ctrl+Shift+O)"
+              onClick={() => props.onSaveToOmni()}
+            >
+              ✦
+            </button>
           </div>
         </Show>
 
@@ -2076,11 +2670,20 @@ const Sidebar: Component<SidebarProps> = (props) => {
             fresh blank pane. Portaled to <body> so the glass card isn't clipped. */}
         <Show when={splitPicker()}>
           <Portal>
-            <div class="split-picker-backdrop" onClick={() => setSplitPicker(false)} onKeyDown={(e) => { if (e.key === "Escape") setSplitPicker(false); }}>
+            <div
+              class="split-picker-backdrop"
+              onClick={() => setSplitPicker(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setSplitPicker(false);
+              }}
+            >
               <div class="split-picker glass" onClick={(e) => e.stopPropagation()}>
                 <div class="split-picker-head">◫ Split with…</div>
                 <div class="split-picker-list">
-                  <For each={splitCandidates()} fallback={<div class="split-picker-empty">No other pages open to split with.</div>}>
+                  <For
+                    each={splitCandidates()}
+                    fallback={<div class="split-picker-empty">No other pages open to split with.</div>}
+                  >
                     {(t) => (
                       <button class="split-picker-item" onClick={() => doSplit(t.id)}>
                         <Favicon tab={t} />
@@ -2143,21 +2746,29 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <button onClick={() => create("browser")}>
                 🌐 Browser tab <kbd>Ctrl+T</kbd>
               </button>
-              <button onClick={() => { setPicker(false); void openTab("browser", undefined, true); }}>
+              <button
+                onClick={() => {
+                  setPicker(false);
+                  void openTab("browser", undefined, true);
+                }}
+              >
                 🕶 Private tab
               </button>
               <button onClick={() => create("terminal")}>
                 ⌨ Terminal tab <kbd>Ctrl+Shift+T</kbd>
               </button>
-              <button onClick={() => create("files")}>
-                📁 Files tab
-              </button>
+              <button onClick={() => create("files")}>📁 Files tab</button>
               <Show when={containers().length > 0}>
                 <div class="ctx-sep" />
                 <div class="ctx-label">Open in container</div>
                 <For each={containers()}>
                   {(c) => (
-                    <button onClick={() => { setPicker(false); void openTabInContainer(c.id); }}>
+                    <button
+                      onClick={() => {
+                        setPicker(false);
+                        void openTabInContainer(c.id);
+                      }}
+                    >
                       <span class="ws-dot" style={{ background: containerColor(c) }} /> {c.name}
                     </button>
                   )}
@@ -2171,10 +2782,20 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <div class="tab-list-head">
           <span class="sidebar-section">Tabs</span>
           <Show when={unpinnedTabs().some((t) => t.cluster) || groups().length > 0}>
-            <button class="group-topic" title="Group tabs by topic (from semantic clusters)" onClick={async () => {
-              const n = await groupByTopic();
-              props.onToast(n > 0 ? `⊞ Grouped tabs into ${n} topic${n === 1 ? "" : "s"}` : "No clear topics yet — open a few related pages, let them load, then try again");
-            }}>⊞ Group</button>
+            <button
+              class="group-topic"
+              title="Group tabs by topic (from semantic clusters)"
+              onClick={async () => {
+                const n = await groupByTopic();
+                props.onToast(
+                  n > 0
+                    ? `⊞ Grouped tabs into ${n} topic${n === 1 ? "" : "s"}`
+                    : "No clear topics yet — open a few related pages, let them load, then try again",
+                );
+              }}
+            >
+              ⊞ Group
+            </button>
           </Show>
         </div>
         <div class="tab-list">
@@ -2187,27 +2808,81 @@ const Sidebar: Component<SidebarProps> = (props) => {
                     <div
                       classList={{ "tab-group-head": true, "drag-over": dropId() === -g.id }}
                       onClick={() => void toggleGroupCollapsed(g)}
-                      onContextMenu={(e) => { e.preventDefault(); setCtxGroup(g); setCtxPos({ x: e.clientX, y: e.clientY }); }}
-                      onDragOver={(e) => { if (dragId() != null) { e.preventDefault(); e.dataTransfer!.dropEffect = "move"; setDropId(-g.id); } }}
-                      onDragLeave={() => { if (dropId() === -g.id) setDropId(null); }}
-                      onDrop={(e) => { e.preventDefault(); const d = dragId(); if (d != null) void setTabGroup(d, g.id); setDragId(null); setDropId(null); }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setCtxGroup(g);
+                        setCtxPos({ x: e.clientX, y: e.clientY });
+                      }}
+                      onDragOver={(e) => {
+                        if (dragId() != null) {
+                          e.preventDefault();
+                          e.dataTransfer!.dropEffect = "move";
+                          setDropId(-g.id);
+                        }
+                      }}
+                      onDragLeave={() => {
+                        if (dropId() === -g.id) setDropId(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const d = dragId();
+                        if (d != null) void setTabGroup(d, g.id);
+                        setDragId(null);
+                        setDropId(null);
+                      }}
                     >
-                      <span class="tab-group-dot" title="Recolor" style={{ background: groupColor(g) }} onClick={(e) => { e.stopPropagation(); cycleGroupColor(g); }} />
+                      <span
+                        class="tab-group-dot"
+                        title="Recolor"
+                        style={{ background: groupColor(g) }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          cycleGroupColor(g);
+                        }}
+                      />
                       <Show
                         when={editGroup() === g.id}
-                        fallback={<span class="tab-group-name" title="Double-click to rename" onDblClick={(e) => { e.stopPropagation(); setEditGroup(g.id); }}>{g.name}</span>}
+                        fallback={
+                          <span
+                            class="tab-group-name"
+                            title="Double-click to rename"
+                            onDblClick={(e) => {
+                              e.stopPropagation();
+                              setEditGroup(g.id);
+                            }}
+                          >
+                            {g.name}
+                          </span>
+                        }
                       >
                         <input
                           class="inline-edit"
                           value={g.name}
                           autofocus
                           onClick={(e) => e.stopPropagation()}
-                          onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameGroup(g.id, v); setEditGroup(null); }}
-                          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditGroup(null); }}
+                          onBlur={(e) => {
+                            const v = e.currentTarget.value.trim();
+                            if (v) void renameGroup(g.id, v);
+                            setEditGroup(null);
+                          }}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter") e.currentTarget.blur();
+                            else if (e.key === "Escape") setEditGroup(null);
+                          }}
                         />
                       </Show>
                       <span class="tab-group-count">{members().length}</span>
-                      <button class="tab-group-x" title="Ungroup" onClick={(e) => { e.stopPropagation(); void deleteGroup(g.id); }}>✕</button>
+                      <button
+                        class="tab-group-x"
+                        title="Ungroup"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteGroup(g.id);
+                        }}
+                      >
+                        ✕
+                      </button>
                       <span class="tab-group-chev">{g.collapsed ? "▸" : "▾"}</span>
                     </div>
                     <Show when={!g.collapsed}>
@@ -2221,7 +2896,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             }}
           </For>
           <For each={ungroupedItems()}>
-            {(it) => it.kind === "split" ? <SplitPair a={it.a} b={it.b} /> : <TabRow tab={it.tab} />}
+            {(it) => (it.kind === "split" ? <SplitPair a={it.a} b={it.b} /> : <TabRow tab={it.tab} />)}
           </For>
         </div>
       </Show>
@@ -2232,56 +2907,156 @@ const Sidebar: Component<SidebarProps> = (props) => {
       <Show when={ctxTab()}>
         {(t) => (
           <Portal>
-            <div class="ctx-backdrop" onClick={closeCtx} onContextMenu={(e) => { e.preventDefault(); closeCtx(); }} />
-            <div class="tab-ctx glass" ref={clampMenu} style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}>
-              <button onClick={() => { void togglePin(t()); closeCtx(); }}>{t().pinned ? "Unpin" : "Pin tab"}</button>
-              <button onClick={() => { const id = t().id; closeCtx(); setEditTab(id); }}>Rename tab</button>
-              <button onClick={() => { void newGroupWithTab(t().id); closeCtx(); }}>New group with tab</button>
+            <div
+              class="ctx-backdrop"
+              onClick={closeCtx}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                closeCtx();
+              }}
+            />
+            <div
+              class="tab-ctx glass"
+              ref={clampMenu}
+              style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}
+            >
+              <button
+                onClick={() => {
+                  void togglePin(t());
+                  closeCtx();
+                }}
+              >
+                {t().pinned ? "Unpin" : "Pin tab"}
+              </button>
+              <button
+                onClick={() => {
+                  const id = t().id;
+                  closeCtx();
+                  setEditTab(id);
+                }}
+              >
+                Rename tab
+              </button>
+              <button
+                onClick={() => {
+                  void newGroupWithTab(t().id);
+                  closeCtx();
+                }}
+              >
+                New group with tab
+              </button>
               <Show when={groups().length > 0}>
                 <div class="ctx-sep" />
                 <div class="ctx-label">Add to group</div>
                 <For each={groups()}>
                   {(g) => (
-                    <button onClick={() => { void setTabGroup(t().id, g.id); closeCtx(); }}>
+                    <button
+                      onClick={() => {
+                        void setTabGroup(t().id, g.id);
+                        closeCtx();
+                      }}
+                    >
                       <span class="tab-group-dot" style={{ background: groupColor(g) }} /> {g.name}
                     </button>
                   )}
                 </For>
               </Show>
               <Show when={t().group != null}>
-                <button onClick={() => { void setTabGroup(t().id, null); closeCtx(); }}>Remove from group</button>
+                <button
+                  onClick={() => {
+                    void setTabGroup(t().id, null);
+                    closeCtx();
+                  }}
+                >
+                  Remove from group
+                </button>
               </Show>
-              <Show when={t().kind === "browser" && !isStartUrl(t().url) && activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url) && activeId() !== t().id}>
+              <Show
+                when={
+                  t().kind === "browser" &&
+                  !isStartUrl(t().url) &&
+                  activeTab()?.kind === "browser" &&
+                  !isStartUrl(activeTab()!.url) &&
+                  activeId() !== t().id
+                }
+              >
                 <div class="ctx-sep" />
-                <button onClick={() => { startSplit(activeId()!, t().id); closeCtx(); }}>⊟ Split with current tab</button>
+                <button
+                  onClick={() => {
+                    startSplit(activeId()!, t().id);
+                    closeCtx();
+                  }}
+                >
+                  ⊟ Split with current tab
+                </button>
               </Show>
               <Show when={splitPairFor(t().id)}>
-                <button onClick={() => { clearSplit(t().id); closeCtx(); }}>Exit split view</button>
+                <button
+                  onClick={() => {
+                    clearSplit(t().id);
+                    closeCtx();
+                  }}
+                >
+                  Exit split view
+                </button>
               </Show>
               <div class="ctx-sep" />
               <div class="ctx-label">Move to folder (sleeps to save RAM)</div>
-              <button onClick={() => { void newFolderWithTab(t().id); closeCtx(); }}>+ New folder with tab</button>
+              <button
+                onClick={() => {
+                  void newFolderWithTab(t().id);
+                  closeCtx();
+                }}
+              >
+                + New folder with tab
+              </button>
               <For each={folders()}>
                 {(f) => (
-                  <button onClick={() => { void setTabFolder(t().id, f.id); closeCtx(); }}>🗂 {f.name}</button>
+                  <button
+                    onClick={() => {
+                      void setTabFolder(t().id, f.id);
+                      closeCtx();
+                    }}
+                  >
+                    🗂 {f.name}
+                  </button>
                 )}
               </For>
               <Show when={t().folder != null}>
-                <button onClick={() => { void setTabFolder(t().id, null); closeCtx(); }}>Take out of folder</button>
+                <button
+                  onClick={() => {
+                    void setTabFolder(t().id, null);
+                    closeCtx();
+                  }}
+                >
+                  Take out of folder
+                </button>
               </Show>
               <Show when={workspaces().length > 1}>
                 <div class="ctx-sep" />
                 <div class="ctx-label">Send to workspace</div>
                 <For each={workspaces().filter((w) => w.id !== t().workspace)}>
                   {(w) => (
-                    <button onClick={() => { props.onSendTabToWorkspace(t().id, w.id); closeCtx(); }}>
+                    <button
+                      onClick={() => {
+                        props.onSendTabToWorkspace(t().id, w.id);
+                        closeCtx();
+                      }}
+                    >
                       <span class="ws-dot" style={{ background: workspaceColor(w) }} /> {w.name}
                     </button>
                   )}
                 </For>
               </Show>
               <div class="ctx-sep" />
-              <button onClick={() => { void closeTab(t().id); closeCtx(); }}>Close tab</button>
+              <button
+                onClick={() => {
+                  void closeTab(t().id);
+                  closeCtx();
+                }}
+              >
+                Close tab
+              </button>
             </div>
           </Portal>
         )}
@@ -2291,23 +3066,60 @@ const Sidebar: Component<SidebarProps> = (props) => {
       <Show when={ctxGroup()}>
         {(g) => (
           <Portal>
-            <div class="ctx-backdrop" onClick={() => setCtxGroup(null)} onContextMenu={(e) => { e.preventDefault(); setCtxGroup(null); }} />
-            <div class="tab-ctx glass" ref={clampMenu} style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}>
-              <button onClick={() => { setEditGroup(g().id); setCtxGroup(null); }}>Rename group</button>
-              <button onClick={() => { cycleGroupColor(g()); setCtxGroup(null); }}>Change color</button>
+            <div
+              class="ctx-backdrop"
+              onClick={() => setCtxGroup(null)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setCtxGroup(null);
+              }}
+            />
+            <div
+              class="tab-ctx glass"
+              ref={clampMenu}
+              style={{ left: `${ctxPos().x}px`, top: `${ctxPos().y}px` }}
+            >
+              <button
+                onClick={() => {
+                  setEditGroup(g().id);
+                  setCtxGroup(null);
+                }}
+              >
+                Rename group
+              </button>
+              <button
+                onClick={() => {
+                  cycleGroupColor(g());
+                  setCtxGroup(null);
+                }}
+              >
+                Change color
+              </button>
               <Show when={workspaces().length > 1}>
                 <div class="ctx-sep" />
                 <div class="ctx-label">Send group to workspace</div>
                 <For each={workspaces().filter((w) => w.id !== activeWorkspace())}>
                   {(w) => (
-                    <button onClick={() => { props.onSendGroupToWorkspace(g().id, w.id); setCtxGroup(null); }}>
+                    <button
+                      onClick={() => {
+                        props.onSendGroupToWorkspace(g().id, w.id);
+                        setCtxGroup(null);
+                      }}
+                    >
                       <span class="ws-dot" style={{ background: workspaceColor(w) }} /> {w.name}
                     </button>
                   )}
                 </For>
               </Show>
               <div class="ctx-sep" />
-              <button onClick={() => { void deleteGroup(g().id); setCtxGroup(null); }}>Ungroup</button>
+              <button
+                onClick={() => {
+                  void deleteGroup(g().id);
+                  setCtxGroup(null);
+                }}
+              >
+                Ungroup
+              </button>
             </div>
           </Portal>
         )}
@@ -2345,23 +3157,57 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   onClick={() => props.onSwitchWorkspace(w.id)}
                 />
                 <div class="ws-rail-pop glass">
-                  <span class="ws-dot" title="Recolor" style={{ background: workspaceColor(w) }} onClick={(e) => { e.stopPropagation(); cycleWsColor(w); }} />
-                  <Show when={editWs() === w.id} fallback={<span class="ws-name" title="Double-click to rename" onDblClick={() => setEditWs(w.id)}>{w.name}</span>}>
+                  <span
+                    class="ws-dot"
+                    title="Recolor"
+                    style={{ background: workspaceColor(w) }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      cycleWsColor(w);
+                    }}
+                  />
+                  <Show
+                    when={editWs() === w.id}
+                    fallback={
+                      <span class="ws-name" title="Double-click to rename" onDblClick={() => setEditWs(w.id)}>
+                        {w.name}
+                      </span>
+                    }
+                  >
                     <input
                       class="inline-edit ws"
                       value={w.name}
                       autofocus
                       onClick={(e) => e.stopPropagation()}
-                      onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameWorkspace(w.id, v); setEditWs(null); }}
-                      onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditWs(null); }}
+                      onBlur={(e) => {
+                        const v = e.currentTarget.value.trim();
+                        if (v) void renameWorkspace(w.id, v);
+                        setEditWs(null);
+                      }}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        else if (e.key === "Escape") setEditWs(null);
+                      }}
                     />
                   </Show>
-                  <button class="ws-rail-x" title="Delete workspace" onClick={(e) => { e.stopPropagation(); props.onDeleteWorkspace(w.id); }}>✕</button>
+                  <button
+                    class="ws-rail-x"
+                    title="Delete workspace"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onDeleteWorkspace(w.id);
+                    }}
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
             )}
           </For>
-          <button class="ws-rail-add" title="New workspace" onClick={() => props.onNewWorkspace()}>+</button>
+          <button class="ws-rail-add" title="New workspace" onClick={() => props.onNewWorkspace()}>
+            +
+          </button>
         </div>
       </Show>
 
@@ -2379,20 +3225,56 @@ const Sidebar: Component<SidebarProps> = (props) => {
                     <span class="folder-icon">🗂</span>
                     <Show
                       when={editFolder() === f.id}
-                      fallback={<span class="folder-name" onDblClick={(e) => { e.stopPropagation(); setEditFolder(f.id); }}>{f.name}</span>}
+                      fallback={
+                        <span
+                          class="folder-name"
+                          onDblClick={(e) => {
+                            e.stopPropagation();
+                            setEditFolder(f.id);
+                          }}
+                        >
+                          {f.name}
+                        </span>
+                      }
                     >
                       <input
                         class="folder-rename"
                         value={f.name}
                         autofocus
                         onClick={(e) => e.stopPropagation()}
-                        onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameFolder(f.id, v); setEditFolder(null); }}
-                        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditFolder(null); }}
+                        onBlur={(e) => {
+                          const v = e.currentTarget.value.trim();
+                          if (v) void renameFolder(f.id, v);
+                          setEditFolder(null);
+                        }}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === "Enter") e.currentTarget.blur();
+                          else if (e.key === "Escape") setEditFolder(null);
+                        }}
                       />
                     </Show>
                     <span class="folder-count">{members().length}</span>
-                    <button class="folder-edit" title="Rename folder" onClick={(e) => { e.stopPropagation(); setEditFolder(f.id); }}>✎</button>
-                    <button class="folder-x" title="Delete folder (tabs return to the strip)" onClick={(e) => { e.stopPropagation(); void deleteFolder(f.id); }}>✕</button>
+                    <button
+                      class="folder-edit"
+                      title="Rename folder"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditFolder(f.id);
+                      }}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      class="folder-x"
+                      title="Delete folder (tabs return to the strip)"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void deleteFolder(f.id);
+                      }}
+                    >
+                      ✕
+                    </button>
                   </div>
                   <Show when={!f.collapsed}>
                     <div class="folder-tabs">
@@ -2403,9 +3285,20 @@ const Sidebar: Component<SidebarProps> = (props) => {
                             title={t.title || t.url}
                             onClick={() => void focusTab(t.id)}
                           >
-                            <span class="folder-tab-ico"><Favicon tab={t} /></span>
+                            <span class="folder-tab-ico">
+                              <Favicon tab={t} />
+                            </span>
                             <span class="folder-tab-title">{tabLabel(t)}</span>
-                            <button class="folder-tab-out" title="Take out of folder" onClick={(e) => { e.stopPropagation(); void setTabFolder(t.id, null); }}>⏏</button>
+                            <button
+                              class="folder-tab-out"
+                              title="Take out of folder"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void setTabFolder(t.id, null);
+                              }}
+                            >
+                              ⏏
+                            </button>
                           </div>
                         )}
                       </For>
@@ -2420,127 +3313,349 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
       {/* Footer: tool toggles + bookmarks / extensions / settings (chrome
           melts here — no status bar). */}
-      <div
-        class="sidebar-footer"
-        classList={{ collapsed: props.collapsed }}
-        style={{ position: "relative" }}
-      >
-        <button classList={{ "icon-btn": true, active: props.terminalOpen }} title="Terminal (Ctrl+`)" onClick={props.onToggleTerminal}>⌨</button>
-        <button classList={{ "icon-btn": true, active: props.agentOpen }} title="Flux Agent (Ctrl+Shift+A)" onClick={props.onToggleAgent}>✦</button>
+      <div class="sidebar-footer" classList={{ collapsed: props.collapsed }} style={{ position: "relative" }}>
+        <button
+          classList={{ "icon-btn": true, active: props.terminalOpen }}
+          title="Terminal (Ctrl+`)"
+          onClick={props.onToggleTerminal}
+        >
+          ⌨
+        </button>
+        <button
+          classList={{ "icon-btn": true, active: props.agentOpen }}
+          title="Flux Agent (Ctrl+Shift+A)"
+          onClick={props.onToggleAgent}
+        >
+          ✦
+        </button>
         <Shields onNavigate={props.onNavigate} />
-        <Show when={boostsLoaded()} fallback={
-          <button class="icon-btn" title="Boosts — customize this site with AI" onClick={() => setBoostsLoaded(true)}>✨</button>
-        }>
-          <Suspense fallback={<button class="icon-btn active" title="Boosts — customize this site with AI">✨</button>}>
+        <Show
+          when={boostsLoaded()}
+          fallback={
+            <button
+              class="icon-btn"
+              title="Boosts — customize this site with AI"
+              onClick={() => setBoostsLoaded(true)}
+            >
+              ✨
+            </button>
+          }
+        >
+          <Suspense
+            fallback={
+              <button class="icon-btn active" title="Boosts — customize this site with AI">
+                ✨
+              </button>
+            }
+          >
             <Boosts initialOpen />
           </Suspense>
         </Show>
-        <Show when={macrosLoaded()} fallback={
-          <button class="icon-btn" title="Macros — record & replay flows" onClick={() => setMacrosLoaded(true)}>⏺</button>
-        }>
-          <Suspense fallback={<button class="icon-btn active" title="Macros — record & replay flows">⏺</button>}>
+        <Show
+          when={macrosLoaded()}
+          fallback={
+            <button
+              class="icon-btn"
+              title="Macros — record & replay flows"
+              onClick={() => setMacrosLoaded(true)}
+            >
+              ⏺
+            </button>
+          }
+        >
+          <Suspense
+            fallback={
+              <button class="icon-btn active" title="Macros — record & replay flows">
+                ⏺
+              </button>
+            }
+          >
             <Macros initialOpen />
           </Suspense>
         </Show>
-        <Show when={passwordsLoaded()} fallback={
-          <button class="icon-btn" title="Passwords" onClick={() => setPasswordsLoaded(true)}>🔑</button>
-        }>
-          <Suspense fallback={<button class="icon-btn active" title="Passwords">🔑</button>}>
+        <Show
+          when={passwordsLoaded()}
+          fallback={
+            <button class="icon-btn" title="Passwords" onClick={() => setPasswordsLoaded(true)}>
+              🔑
+            </button>
+          }
+        >
+          <Suspense
+            fallback={
+              <button class="icon-btn active" title="Passwords">
+                🔑
+              </button>
+            }
+          >
             <Passwords initialOpen />
           </Suspense>
         </Show>
         <Downloads />
-        <button classList={{ "icon-btn": true, active: panel() === "bookmarks" }} title="Bookmarks" onClick={() => openPanel("bookmarks")}>🔖</button>
-        <button classList={{ "icon-btn": true, active: panel() === "notes" }} title="Note for this page" onClick={() => { openPanel("notes"); loadNote(); }}>📝</button>
-        <button classList={{ "icon-btn": true, active: panel() === "webpanels" || activePanelId() != null }} title="Web panels — pin a site beside your tabs" onClick={() => openPanel("webpanels")}>◨</button>
+        <button
+          classList={{ "icon-btn": true, active: panel() === "bookmarks" }}
+          title="Bookmarks"
+          onClick={() => openPanel("bookmarks")}
+        >
+          🔖
+        </button>
+        <button
+          classList={{ "icon-btn": true, active: panel() === "notes" }}
+          title="Note for this page"
+          onClick={() => {
+            openPanel("notes");
+            loadNote();
+          }}
+        >
+          📝
+        </button>
+        <button
+          classList={{ "icon-btn": true, active: panel() === "webpanels" || activePanelId() != null }}
+          title="Web panels — pin a site beside your tabs"
+          onClick={() => openPanel("webpanels")}
+        >
+          ◨
+        </button>
         <Show when={archivedTabs().length > 0}>
-          <button classList={{ "icon-btn": true, active: panel() === "archived" }} title="Archived tabs — auto-closed stale tabs you can reopen" onClick={() => openPanel("archived")}>🗄</button>
+          <button
+            classList={{ "icon-btn": true, active: panel() === "archived" }}
+            title="Archived tabs — auto-closed stale tabs you can reopen"
+            onClick={() => openPanel("archived")}
+          >
+            🗄
+          </button>
         </Show>
-        <button classList={{ "icon-btn": true, active: panel() === "extensions" }} title="Extensions" onClick={() => openPanel("extensions")}>🧩</button>
-        <button classList={{ "icon-btn": true, active: panel() === "settings" }} title="Settings" onClick={() => openPanel("settings")}>⚙</button>
+        <button
+          classList={{ "icon-btn": true, active: panel() === "extensions" }}
+          title="Extensions"
+          onClick={() => openPanel("extensions")}
+        >
+          🧩
+        </button>
+        <button
+          classList={{ "icon-btn": true, active: panel() === "settings" }}
+          title="Settings"
+          onClick={() => openPanel("settings")}
+        >
+          ⚙
+        </button>
 
         <Show when={panel()}>
           <div class="glass popover footer-pop">
             <Show when={panel() === "settings"}>
-              <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(SETTINGS_URL); }}>⚙ Open full Settings ↗</button>
+              <button
+                class="shields-update"
+                onClick={() => {
+                  setPanel(null);
+                  props.onNavigate(SETTINGS_URL);
+                }}
+              >
+                ⚙ Open full Settings ↗
+              </button>
               <div class="ctx-sep" />
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Containers <span style={{ color: "var(--flux-text-mute)", "font-weight": 400 }}>· isolated logins</span></div>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
+                Containers{" "}
+                <span style={{ color: "var(--flux-text-mute)", "font-weight": 400 }}>· isolated logins</span>
+              </div>
               <For each={containers()}>
                 {(c) => (
                   <div class="panel-row">
-                    <span class="ws-dot" title="Recolor" style={{ background: containerColor(c), "margin-left": "8px", cursor: "pointer" }} onClick={() => void recolorContainer(c.id)} />
-                    <Show when={editContainer() === c.id} fallback={
-                      <span class="panel-row-open" onDblClick={() => setEditContainer(c.id)} title="Double-click to rename">{c.name}</span>
-                    }>
-                      <input class="inline-edit" value={c.name} autofocus
+                    <span
+                      class="ws-dot"
+                      title="Recolor"
+                      style={{ background: containerColor(c), "margin-left": "8px", cursor: "pointer" }}
+                      onClick={() => void recolorContainer(c.id)}
+                    />
+                    <Show
+                      when={editContainer() === c.id}
+                      fallback={
+                        <span
+                          class="panel-row-open"
+                          onDblClick={() => setEditContainer(c.id)}
+                          title="Double-click to rename"
+                        >
+                          {c.name}
+                        </span>
+                      }
+                    >
+                      <input
+                        class="inline-edit"
+                        value={c.name}
+                        autofocus
                         onClick={(e) => e.stopPropagation()}
-                        onBlur={(e) => { const v = e.currentTarget.value.trim(); if (v) void renameContainer(c.id, v); setEditContainer(null); }}
-                        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") setEditContainer(null); }} />
+                        onBlur={(e) => {
+                          const v = e.currentTarget.value.trim();
+                          if (v) void renameContainer(c.id, v);
+                          setEditContainer(null);
+                        }}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === "Enter") e.currentTarget.blur();
+                          else if (e.key === "Escape") setEditContainer(null);
+                        }}
+                      />
                     </Show>
-                    <button class="panel-row-x" title="Delete container" onClick={() => void deleteContainer(c.id)}>✕</button>
+                    <button
+                      class="panel-row-x"
+                      title="Delete container"
+                      onClick={() => void deleteContainer(c.id)}
+                    >
+                      ✕
+                    </button>
                   </div>
                 )}
               </For>
-              <button class="shields-update" onClick={() => void createContainer().then((id) => id && setEditContainer(id))}>＋ New container</button>
+              <button
+                class="shields-update"
+                onClick={() => void createContainer().then((id) => id && setEditContainer(id))}
+              >
+                ＋ New container
+              </button>
               <div class="ctx-sep" />
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Default search engine</div>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
+                Default search engine
+              </div>
               <For each={engines()}>
                 {(e) => (
-                  <button onClick={() => pickEngine(e.id)} style={{ "justify-content": "space-between", display: "flex" }}>
+                  <button
+                    onClick={() => pickEngine(e.id)}
+                    style={{ "justify-content": "space-between", display: "flex" }}
+                  >
                     {e.name}
-                    <Show when={defaultEngine() === e.id}><span style={{ color: "var(--flux-teal)" }}>✓</span></Show>
+                    <Show when={defaultEngine() === e.id}>
+                      <span style={{ color: "var(--flux-teal)" }}>✓</span>
+                    </Show>
                   </button>
                 )}
               </For>
               <Show when={engines().length === 0}>
-                <div class="start-empty" style={{ padding: "6px 8px" }}>Engines load in the running app.</div>
+                <div class="start-empty" style={{ padding: "6px 8px" }}>
+                  Engines load in the running app.
+                </div>
               </Show>
               <div class="shields-row" style={{ padding: "4px 8px 2px" }}>
-                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Send what you type to the search engine for live suggestions. History suggestions stay local either way.">Search suggestions</span>
-                <button classList={{ "shields-toggle": true, on: searchSuggestOn() }} onClick={() => setSearchSuggestOn(!searchSuggestOn())}>
+                <span
+                  class="shields-label"
+                  style={{ "font-weight": 500, "font-size": "12px" }}
+                  title="Send what you type to the search engine for live suggestions. History suggestions stay local either way."
+                >
+                  Search suggestions
+                </span>
+                <button
+                  classList={{ "shields-toggle": true, on: searchSuggestOn() }}
+                  onClick={() => setSearchSuggestOn(!searchSuggestOn())}
+                >
                   {searchSuggestOn() ? "On" : "Off"}
                 </button>
               </div>
               <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="When you search, the local Gemma drafts a quick answer in the agent panel. Runs on-device.">AI answers for searches</span>
-                <button classList={{ "shields-toggle": true, on: aiAnswersOn() }} onClick={() => setAiAnswersOn(!aiAnswersOn())}>
+                <span
+                  class="shields-label"
+                  style={{ "font-weight": 500, "font-size": "12px" }}
+                  title="When you search, the local Gemma drafts a quick answer in the agent panel. Runs on-device."
+                >
+                  AI answers for searches
+                </span>
+                <button
+                  classList={{ "shields-toggle": true, on: aiAnswersOn() }}
+                  onClick={() => setAiAnswersOn(!aiAnswersOn())}
+                >
                   {aiAnswersOn() ? "On" : "Off"}
                 </button>
               </div>
               <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="On every search, stream a grounded answer card from your Omni index in the omnibox (with citations). Off by default — it runs the local LLM each time. The 'Ask Omni' row and Alt+Enter work regardless.">Omni answer on search</span>
-                <button classList={{ "shields-toggle": true, on: omniAutoAnswer() }} onClick={() => setOmniAutoAnswer(!omniAutoAnswer())}>
+                <span
+                  class="shields-label"
+                  style={{ "font-weight": 500, "font-size": "12px" }}
+                  title="On every search, stream a grounded answer card from your Omni index in the omnibox (with citations). Off by default — it runs the local LLM each time. The 'Ask Omni' row and Alt+Enter work regardless."
+                >
+                  Omni answer on search
+                </span>
+                <button
+                  classList={{ "shields-toggle": true, on: omniAutoAnswer() }}
+                  onClick={() => setOmniAutoAnswer(!omniAutoAnswer())}
+                >
                   {omniAutoAnswer() ? "On" : "Off"}
                 </button>
               </div>
               <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Ask websites to render dark (prefers-color-scheme). Works on most modern sites.">Dark mode (websites)</span>
-                <button classList={{ "shields-toggle": true, on: darkMode() }} onClick={() => setDarkMode(!darkMode())}>
+                <span
+                  class="shields-label"
+                  style={{ "font-weight": 500, "font-size": "12px" }}
+                  title="Ask websites to render dark (prefers-color-scheme). Works on most modern sites."
+                >
+                  Dark mode (websites)
+                </span>
+                <button
+                  classList={{ "shields-toggle": true, on: darkMode() }}
+                  onClick={() => setDarkMode(!darkMode())}
+                >
                   {darkMode() ? "On" : "Off"}
                 </button>
               </div>
               <div class="shields-sep" />
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Navigation</div>
-              <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Press f to label links/buttons, then type the label to click. Also j/k scroll, gg/G top/bottom.">Vim link hints (f)</span>
-                <button classList={{ "shields-toggle": true, on: vimHints() }} onClick={() => setVimHints(!vimHints())}>{vimHints() ? "On" : "Off"}</button>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
+                Navigation
               </div>
               <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Hold the right mouse button and drag: left = back, right = forward, down = reload, up = top.">Mouse gestures</span>
-                <button classList={{ "shields-toggle": true, on: mouseGestures() }} onClick={() => setMouseGestures(!mouseGestures())}>{mouseGestures() ? "On" : "Off"}</button>
+                <span
+                  class="shields-label"
+                  style={{ "font-weight": 500, "font-size": "12px" }}
+                  title="Press f to label links/buttons, then type the label to click. Also j/k scroll, gg/G top/bottom."
+                >
+                  Vim link hints (f)
+                </span>
+                <button
+                  classList={{ "shields-toggle": true, on: vimHints() }}
+                  onClick={() => setVimHints(!vimHints())}
+                >
+                  {vimHints() ? "On" : "Off"}
+                </button>
+              </div>
+              <div class="shields-row" style={{ padding: "2px 8px" }}>
+                <span
+                  class="shields-label"
+                  style={{ "font-weight": 500, "font-size": "12px" }}
+                  title="Hold the right mouse button and drag: left = back, right = forward, down = reload, up = top."
+                >
+                  Mouse gestures
+                </span>
+                <button
+                  classList={{ "shields-toggle": true, on: mouseGestures() }}
+                  onClick={() => setMouseGestures(!mouseGestures())}
+                >
+                  {mouseGestures() ? "On" : "Off"}
+                </button>
               </div>
               <div class="shields-sep" />
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Memory</div>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
+                Memory
+              </div>
               <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="Free a background tab's memory by unloading it; it reloads when you return.">Sleep inactive tabs</span>
-                <button classList={{ "shields-toggle": true, on: hibernateEnabled() }} onClick={() => setHibernateEnabled(!hibernateEnabled())}>
+                <span
+                  class="shields-label"
+                  style={{ "font-weight": 500, "font-size": "12px" }}
+                  title="Free a background tab's memory by unloading it; it reloads when you return."
+                >
+                  Sleep inactive tabs
+                </span>
+                <button
+                  classList={{ "shields-toggle": true, on: hibernateEnabled() }}
+                  onClick={() => setHibernateEnabled(!hibernateEnabled())}
+                >
                   {hibernateEnabled() ? "On" : "Off"}
                 </button>
               </div>
               <Show when={hibernateEnabled()}>
                 <div class="shields-row" style={{ padding: "2px 8px" }}>
-                  <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }}>After</span>
-                  <select class="shields-select" value={String(hibernateMins())} onChange={(e) => setHibernateMins(Number(e.currentTarget.value))}>
+                  <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }}>
+                    After
+                  </span>
+                  <select
+                    class="shields-select"
+                    value={String(hibernateMins())}
+                    onChange={(e) => setHibernateMins(Number(e.currentTarget.value))}
+                  >
                     <option value="5">5 min</option>
                     <option value="15">15 min</option>
                     <option value="30">30 min</option>
@@ -2549,60 +3664,166 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 </div>
               </Show>
               <div class="shields-row" style={{ padding: "2px 8px" }}>
-                <span class="shields-label" style={{ "font-weight": 500, "font-size": "12px" }} title="When free system memory runs low, sleep the least-recently-used tabs early.">Sleep under memory pressure</span>
-                <button classList={{ "shields-toggle": true, on: memEvict() }} onClick={() => setMemEvict(!memEvict())}>
+                <span
+                  class="shields-label"
+                  style={{ "font-weight": 500, "font-size": "12px" }}
+                  title="When free system memory runs low, sleep the least-recently-used tabs early."
+                >
+                  Sleep under memory pressure
+                </span>
+                <button
+                  classList={{ "shields-toggle": true, on: memEvict() }}
+                  onClick={() => setMemEvict(!memEvict())}
+                >
                   {memEvict() ? "On" : "Off"}
                 </button>
               </div>
               <Show when={mem()}>
                 <div class="shields-stat" style={{ padding: "2px 8px 4px" }}>
-                  Flux {mem()!.process_mb} MB · {(mem()!.available_mb / 1024).toFixed(1)} GB free ({mem()!.available_pct}%)
+                  Flux {mem()!.process_mb} MB · {(mem()!.available_mb / 1024).toFixed(1)} GB free (
+                  {mem()!.available_pct}%)
                 </div>
               </Show>
             </Show>
             <Show when={panel() === "bookmarks"}>
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Library</div>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
+                Library
+              </div>
               <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
-                <button class="shields-update" onClick={() => {
-                  const t = activeTab()!;
-                  void bookmarkAdd(t.title || t.url, t.url).then(() => { setBmFlash("✓ saved"); window.setTimeout(() => setBmFlash(""), 2000); }).catch(() => {});
-                }}>★ Bookmark this page <Show when={bmFlash()}><span class="bm-inline-flash">{bmFlash()}</span></Show></button>
+                <button
+                  class="shields-update"
+                  onClick={() => {
+                    const t = activeTab()!;
+                    void bookmarkAdd(t.title || t.url, t.url)
+                      .then(() => {
+                        setBmFlash("✓ saved");
+                        window.setTimeout(() => setBmFlash(""), 2000);
+                      })
+                      .catch(() => {});
+                  }}
+                >
+                  ★ Bookmark this page{" "}
+                  <Show when={bmFlash()}>
+                    <span class="bm-inline-flash">{bmFlash()}</span>
+                  </Show>
+                </button>
               </Show>
-              <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(BOOKMARKS_URL); }}>🔖 All bookmarks</button>
-              <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(SESSIONS_URL); }}>🗃 Sessions</button>
-              <button class="shields-update" onClick={() => { setPanel(null); props.onNavigate(HISTORY_URL); }}>🕘 Browsing history</button>
+              <button
+                class="shields-update"
+                onClick={() => {
+                  setPanel(null);
+                  props.onNavigate(BOOKMARKS_URL);
+                }}
+              >
+                🔖 All bookmarks
+              </button>
+              <button
+                class="shields-update"
+                onClick={() => {
+                  setPanel(null);
+                  props.onNavigate(SESSIONS_URL);
+                }}
+              >
+                🗃 Sessions
+              </button>
+              <button
+                class="shields-update"
+                onClick={() => {
+                  setPanel(null);
+                  props.onNavigate(HISTORY_URL);
+                }}
+              >
+                🕘 Browsing history
+              </button>
               <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
                 Import Chrome bookmarks and open folders as tab groups from the <b>All bookmarks</b> page.
               </div>
             </Show>
             <Show when={panel() === "webpanels"}>
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Web panels</div>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
+                Web panels
+              </div>
               <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
-                <button class="shields-update" onClick={() => {
-                  const t = activeTab()!;
-                  void pinPanel(t.url, t.title || t.url);
-                  setPanel(null);
-                }}>＋ Pin this page as a panel</button>
+                <button
+                  class="shields-update"
+                  onClick={() => {
+                    const t = activeTab()!;
+                    void pinPanel(t.url, t.title || t.url);
+                    setPanel(null);
+                  }}
+                >
+                  ＋ Pin this page as a panel
+                </button>
               </Show>
-              <Show when={panels().length > 0} fallback={<div class="start-empty" style={{ padding: "4px 10px 8px" }}>Pin a site (chat, docs, music) to keep it in a slim pane beside any tab.</div>}>
+              <Show
+                when={panels().length > 0}
+                fallback={
+                  <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
+                    Pin a site (chat, docs, music) to keep it in a slim pane beside any tab.
+                  </div>
+                }
+              >
                 <div class="ctx-sep" />
                 <For each={panels()}>
                   {(p) => (
-                    <div class="panel-row" classList={{ active: activePanelId() === p.id || activePanelIdB() === p.id }}>
-                      <button class="panel-row-open" onClick={() => { togglePanel(p.id); setPanel(null); }} title="Show in panel (top)">
+                    <div
+                      class="panel-row"
+                      classList={{ active: activePanelId() === p.id || activePanelIdB() === p.id }}
+                    >
+                      <button
+                        class="panel-row-open"
+                        onClick={() => {
+                          togglePanel(p.id);
+                          setPanel(null);
+                        }}
+                        title="Show in panel (top)"
+                      >
                         <span class="panel-row-title">{p.title || p.url}</span>
                       </button>
-                      <button class="panel-slot-btn" classList={{ on: activePanelIdB() === p.id }} title="Stack in bottom split" onClick={(e) => { e.stopPropagation(); togglePanelBottom(p.id); }}>⬓</button>
-                      <button class="panel-row-x" title="Unpin" onClick={(e) => { e.stopPropagation(); void unpinPanel(p.id); }}>✕</button>
+                      <button
+                        class="panel-slot-btn"
+                        classList={{ on: activePanelIdB() === p.id }}
+                        title="Stack in bottom split"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePanelBottom(p.id);
+                        }}
+                      >
+                        ⬓
+                      </button>
+                      <button
+                        class="panel-row-x"
+                        title="Unpin"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void unpinPanel(p.id);
+                        }}
+                      >
+                        ✕
+                      </button>
                     </div>
                   )}
                 </For>
-                <div class="start-empty" style={{ padding: "6px 10px 4px", "font-size": "11px", opacity: "0.7" }}>Tap a panel for the top; ⬓ stacks it below — e.g. calendar over email.</div>
+                <div
+                  class="start-empty"
+                  style={{ padding: "6px 10px 4px", "font-size": "11px", opacity: "0.7" }}
+                >
+                  Tap a panel for the top; ⬓ stacks it below — e.g. calendar over email.
+                </div>
               </Show>
             </Show>
             <Show when={panel() === "notes"}>
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>Note for this page</div>
-              <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)} fallback={<div class="start-empty" style={{ padding: "4px 10px 8px" }}>Open a web page to jot a note.</div>}>
+              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
+                Note for this page
+              </div>
+              <Show
+                when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}
+                fallback={
+                  <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
+                    Open a web page to jot a note.
+                  </div>
+                }
+              >
                 <div class="note-url">{activeTab()!.url}</div>
                 <textarea
                   class="note-area"
@@ -2613,27 +3834,63 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </Show>
             </Show>
             <Show when={panel() === "archived"}>
-              <div class="sidebar-section" style={{ padding: "4px 8px", display: "flex", "align-items": "center", "justify-content": "space-between" }}>
+              <div
+                class="sidebar-section"
+                style={{
+                  padding: "4px 8px",
+                  display: "flex",
+                  "align-items": "center",
+                  "justify-content": "space-between",
+                }}
+              >
                 <span>Archived tabs</span>
                 <Show when={archivedTabs().length > 0}>
-                  <button class="panel-row-x" title="Clear all" onClick={() => clearArchived()}>Clear</button>
+                  <button class="panel-row-x" title="Clear all" onClick={() => clearArchived()}>
+                    Clear
+                  </button>
                 </Show>
               </div>
-              <Show when={archivedTabs().length > 0} fallback={<div class="start-empty" style={{ padding: "4px 10px 8px" }}>Stale tabs auto-archive here (set the threshold in Settings → Tabs). Reopen any with one tap.</div>}>
+              <Show
+                when={archivedTabs().length > 0}
+                fallback={
+                  <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
+                    Stale tabs auto-archive here (set the threshold in Settings → Tabs). Reopen any with one
+                    tap.
+                  </div>
+                }
+              >
                 <For each={archivedTabs()}>
                   {(a) => (
                     <div class="panel-row">
-                      <button class="panel-row-open" title={a.url} onClick={() => { void restoreArchived(a); setPanel(null); }}>
+                      <button
+                        class="panel-row-open"
+                        title={a.url}
+                        onClick={() => {
+                          void restoreArchived(a);
+                          setPanel(null);
+                        }}
+                      >
                         <span class="panel-row-title">{a.title || a.url}</span>
                       </button>
-                      <button class="panel-row-x" title="Remove" onClick={(e) => { e.stopPropagation(); removeArchived(a.url); }}>✕</button>
+                      <button
+                        class="panel-row-x"
+                        title="Remove"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeArchived(a.url);
+                        }}
+                      >
+                        ✕
+                      </button>
                     </div>
                   )}
                 </For>
               </Show>
             </Show>
             <Show when={panel() === "extensions"}>
-              <Suspense><Extensions /></Suspense>
+              <Suspense>
+                <Extensions />
+              </Suspense>
             </Show>
           </div>
         </Show>
@@ -2655,7 +3912,11 @@ const ContentArea: Component<{
   onSleepBackground: () => void;
 }> = (props) => {
   // Keyed by id (primitive) so the list is stable across unrelated tab updates.
-  const terminalIds = createMemo(() => tabs().filter((t) => t.kind === "terminal").map((t) => t.id));
+  const terminalIds = createMemo(() =>
+    tabs()
+      .filter((t) => t.kind === "terminal")
+      .map((t) => t.id),
+  );
 
   // The internal (DOM) page for a tab — Flux's own pages render here; a real web
   // page falls through to the placeholder its native webview overlays. Parameterized
@@ -2678,117 +3939,174 @@ const ContentArea: Component<{
             <FilesView
               id={id}
               path={tabs().find((t) => t.id === id)?.url ?? ""}
-              onPathChange={(p) => { updateTabUrl(id, p); updateTabTitle(id, basename(p)); }}
+              onPathChange={(p) => {
+                updateTabUrl(id, p);
+                updateTabTitle(id, basename(p));
+              }}
               onOpenInTab={props.onNavigate}
             />
           )}
         </Show>
       </Match>
-      <Match when={tab()?.url === OMNI_URL}><OmniDashboard onNavigate={props.onNavigate} /></Match>
-      <Match when={tab()?.url === NOTEBOOK_URL}><NotebookPage /></Match>
-      <Match when={tab()?.url === TRAIL_URL}><TrailPage onNavigate={props.onNavigate} /></Match>
-      <Match when={tab()?.url === VAULT_URL}><VaultPage onNavigate={props.onNavigate} /></Match>
-      <Match when={tab()?.url === HISTORY_URL}><HistoryPage onNavigate={props.onNavigate} /></Match>
-      <Match when={tab()?.url === BOOKMARKS_URL}><BookmarksPage onNavigate={props.onNavigate} /></Match>
-      <Match when={tab()?.url === SESSIONS_URL}><SessionsPage onNavigate={props.onNavigate} /></Match>
-      <Match when={tab()?.url === RESOURCES_URL}><ResourcesPage onNavigate={props.onNavigate} onSleepBackground={props.onSleepBackground} /></Match>
-      <Match when={tab()?.url === TASKS_URL}><TasksPage /></Match>
-      <Match when={tab()?.url === SPEEDTEST_URL}><SpeedtestPage /></Match>
-      <Match when={tab()?.url === PERMISSIONS_URL}><PermissionsPage /></Match>
-      <Match when={tab()?.url?.startsWith(PDF_URL)}><PdfViewer /></Match>
-      <Match when={tab()?.url === ARCHIVE_URL}><ArchivePage onNavigate={props.onNavigate} /></Match>
-      <Match when={tab()?.url === FEEDS_URL}><FeedsPage /></Match>
-      <Match when={tab()?.url === SYNC_URL}><SyncPage /></Match>
-      <Match when={tab()?.url === APPS_URL}><AppsPage /></Match>
-      <Match when={tab()?.url === SETTINGS_URL}><SettingsPage onNavigate={props.onNavigate} /></Match>
+      <Match when={tab()?.url === OMNI_URL}>
+        <OmniDashboard onNavigate={props.onNavigate} />
+      </Match>
+      <Match when={tab()?.url === NOTEBOOK_URL}>
+        <NotebookPage />
+      </Match>
+      <Match when={tab()?.url === TRAIL_URL}>
+        <TrailPage onNavigate={props.onNavigate} />
+      </Match>
+      <Match when={tab()?.url === VAULT_URL}>
+        <VaultPage onNavigate={props.onNavigate} />
+      </Match>
+      <Match when={tab()?.url === HISTORY_URL}>
+        <HistoryPage onNavigate={props.onNavigate} />
+      </Match>
+      <Match when={tab()?.url === BOOKMARKS_URL}>
+        <BookmarksPage onNavigate={props.onNavigate} />
+      </Match>
+      <Match when={tab()?.url === SESSIONS_URL}>
+        <SessionsPage onNavigate={props.onNavigate} />
+      </Match>
+      <Match when={tab()?.url === RESOURCES_URL}>
+        <ResourcesPage onNavigate={props.onNavigate} onSleepBackground={props.onSleepBackground} />
+      </Match>
+      <Match when={tab()?.url === TASKS_URL}>
+        <TasksPage />
+      </Match>
+      <Match when={tab()?.url === SPEEDTEST_URL}>
+        <SpeedtestPage />
+      </Match>
+      <Match when={tab()?.url === PERMISSIONS_URL}>
+        <PermissionsPage />
+      </Match>
+      <Match when={tab()?.url?.startsWith(PDF_URL)}>
+        <PdfViewer />
+      </Match>
+      <Match when={tab()?.url === ARCHIVE_URL}>
+        <ArchivePage onNavigate={props.onNavigate} />
+      </Match>
+      <Match when={tab()?.url === FEEDS_URL}>
+        <FeedsPage />
+      </Match>
+      <Match when={tab()?.url === SYNC_URL}>
+        <SyncPage />
+      </Match>
+      <Match when={tab()?.url === APPS_URL}>
+        <AppsPage />
+      </Match>
+      <Match when={tab()?.url === SETTINGS_URL}>
+        <SettingsPage onNavigate={props.onNavigate} />
+      </Match>
       <Match when={tab() && isStartUrl(tab()!.url)}>
-        <StartPage onNavigate={props.onNavigate} onNewTerminal={props.onNewTerminal} onToggleAgent={props.onToggleAgent} onOpenMap={props.onOpenMap} />
+        <StartPage
+          onNavigate={props.onNavigate}
+          onNewTerminal={props.onNewTerminal}
+          onToggleAgent={props.onToggleAgent}
+          onOpenMap={props.onOpenMap}
+        />
       </Match>
     </Switch>
   );
   return (
-  <main class="content">
-    {/* Pages bar: quick-access native-page chips docked above the card. A sibling
+    <main class="content">
+      {/* Pages bar: quick-access native-page chips docked above the card. A sibling
         (not an overlay) so the card shrinks and the native webview follows it. */}
-    <Show when={pagesBarOpen()}>
-      <Suspense><PagesBar /></Suspense>
-      <Suspense><TuiAppsBar /></Suspense>
-    </Show>
-    {/* Permission bar (#38): answers a deferred engine permission Ask. Also a
-        sibling — never an overlay over the native webview. */}
-    <PermissionBar />
-    <SavePasswordBar />
-    <ClockAlarm />
-    <div class="card" id="flux-web-area">
-      {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
-      <Show when={readerOpen()}>
-        <ReaderView />
+      <Show when={pagesBarOpen()}>
+        <Suspense>
+          <PagesBar />
+        </Suspense>
+        <Suspense>
+          <TuiAppsBar />
+        </Suspense>
       </Show>
-      {/* Split-view seam (#43): sits in the gap between the two tiled webviews
+      {/* Permission bar (#38): answers a deferred engine permission Ask. Also a
+        sibling — never an overlay over the native webview. */}
+      <PermissionBar />
+      <SavePasswordBar />
+      <ClockAlarm />
+      <div class="card" id="flux-web-area">
+        {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
+        <Show when={readerOpen()}>
+          <ReaderView />
+        </Show>
+        {/* Split-view seam (#43): sits in the gap between the two tiled webviews
           (the one strip of card the OS webview layers don't cover), so it's
           visible + draggable. Dragging hides the panes (setSplitDragging) so the
           chrome can track the pointer, then re-tiles at the new ratio on release. */}
-      <Show when={splitPanes()}>
-        <div
-          class="pane-splitter"
-          style={{ left: `${Math.min(80, Math.max(20, splitRatio() * 100))}%` }}
-          title="Drag to resize · double-click to even out"
-          onDblClick={() => setSplitRatio(0.5)}
-          onPointerDown={(e) => {
-            e.preventDefault();
-            const card = document.getElementById("flux-web-area");
-            if (!card) return;
-            const rect = card.getBoundingClientRect();
-            setSplitDragging(true);
-            const move = (ev: PointerEvent) =>
-              setSplitRatio(Math.min(0.8, Math.max(0.2, (ev.clientX - rect.left) / rect.width)));
-            const up = () => {
-              setSplitDragging(false);
-              window.removeEventListener("pointermove", move);
-              window.removeEventListener("pointerup", up);
-            };
-            window.addEventListener("pointermove", move);
-            window.addEventListener("pointerup", up);
-          }}
-        />
-      </Show>
-      {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
+        <Show when={splitPanes()}>
+          <div
+            class="pane-splitter"
+            style={{ left: `${Math.min(80, Math.max(20, splitRatio() * 100))}%` }}
+            title="Drag to resize · double-click to even out"
+            onDblClick={() => setSplitRatio(0.5)}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              const card = document.getElementById("flux-web-area");
+              if (!card) return;
+              const rect = card.getBoundingClientRect();
+              setSplitDragging(true);
+              const move = (ev: PointerEvent) =>
+                setSplitRatio(Math.min(0.8, Math.max(0.2, (ev.clientX - rect.left) / rect.width)));
+              const up = () => {
+                setSplitDragging(false);
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+              };
+              window.addEventListener("pointermove", move);
+              window.addEventListener("pointerup", up);
+            }}
+          />
+        </Show>
+        {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
           its PTY + scrollback survive tab switches; only the active one shows.
           (TerminalView only unmounts — and kills its PTY — when the tab closes,
           which removes it from this list.) */}
-      <For each={terminalIds()}>
-        {(id) => (
-          <div class="term-layer" style={{ display: activeTab()?.id === id ? "block" : "none" }}>
-            {/* Only the visible terminal tab draws the WebGL backdrop — hidden
+        <For each={terminalIds()}>
+          {(id) => (
+            <div class="term-layer" style={{ display: activeTab()?.id === id ? "block" : "none" }}>
+              {/* Only the visible terminal tab draws the WebGL backdrop — hidden
                 keep-alive tabs would otherwise each hold a WebGL2 context (#75). */}
-            <TerminalView session={id} active={activeTab()?.id === id} background={activeTab()?.id === id} />
-          </div>
-        )}
-      </For>
-      <Show when={activeTab()?.kind !== "terminal"}>
-      <Suspense>
-        {/* Split view (#43): two DOM halves, each rendering its tab's internal page
+              <TerminalView
+                session={id}
+                active={activeTab()?.id === id}
+                background={activeTab()?.id === id}
+              />
+            </div>
+          )}
+        </For>
+        <Show when={activeTab()?.kind !== "terminal"}>
+          <Suspense>
+            {/* Split view (#43): two DOM halves, each rendering its tab's internal page
             (a real web page falls through to the placeholder its tiled webview
             overlays). Accessors keep navigation reactive without remounting. */}
-        <Show when={splitPanes()} fallback={pageFor(activeTab)}>
-          <div class="split-dom-pane" style={{ left: "0", width: `calc(${Math.min(80, Math.max(20, splitRatio() * 100))}% - 4px)` }}>
-            {pageFor(() => splitPanes()?.[0])}
-          </div>
-          <div class="split-dom-pane" style={{ left: `calc(${Math.min(80, Math.max(20, splitRatio() * 100))}% + 4px)`, right: "0" }}>
-            {pageFor(() => splitPanes()?.[1])}
-          </div>
+            <Show when={splitPanes()} fallback={pageFor(activeTab)}>
+              <div
+                class="split-dom-pane"
+                style={{ left: "0", width: `calc(${Math.min(80, Math.max(20, splitRatio() * 100))}% - 4px)` }}
+              >
+                {pageFor(() => splitPanes()?.[0])}
+              </div>
+              <div
+                class="split-dom-pane"
+                style={{ left: `calc(${Math.min(80, Math.max(20, splitRatio() * 100))}% + 4px)`, right: "0" }}
+              >
+                {pageFor(() => splitPanes()?.[1])}
+              </div>
+            </Show>
+          </Suspense>
         </Show>
-      </Suspense>
-      </Show>
-    </div>
-    {/* Bookmark bar (#22): docked under the card. A sibling (not an overlay), so
+      </div>
+      {/* Bookmark bar (#22): docked under the card. A sibling (not an overlay), so
         the card shrinks and the native webview relayout follows it. */}
-    <Show when={bookmarkBarOpen()}>
-      <Suspense><BookmarkBar onNavigate={props.onNavigate} /></Suspense>
-    </Show>
-  </main>
+      <Show when={bookmarkBarOpen()}>
+        <Suspense>
+          <BookmarkBar onNavigate={props.onNavigate} />
+        </Suspense>
+      </Show>
+    </main>
   );
 };
-
 
 export default App;

@@ -35,7 +35,11 @@ export function highScore(id: string): number {
 /** Persist `score` if it beats the stored best. Returns true if it's a new record. */
 export function saveHighScore(id: string, score: number): boolean {
   if (score > highScore(id)) {
-    try { localStorage.setItem(hiKey(id), String(Math.floor(score))); } catch { /* private mode */ }
+    try {
+      localStorage.setItem(hiKey(id), String(Math.floor(score)));
+    } catch {
+      /* private mode */
+    }
     return true;
   }
   return false;
@@ -54,7 +58,12 @@ export function loop(frame: (dt: number) => void): { stop(): void } {
     raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
-  return { stop() { alive = false; cancelAnimationFrame(raf); } };
+  return {
+    stop() {
+      alive = false;
+      cancelAnimationFrame(raf);
+    },
+  };
 }
 
 /** Standard key handler wiring that swallows arrows/space (so the pane never scrolls). */
@@ -67,5 +76,10 @@ export function keys(onDown: (k: string) => void, onUp?: (k: string) => void): {
   const up = (e: KeyboardEvent) => onUp?.(e.key);
   window.addEventListener("keydown", down);
   window.addEventListener("keyup", up);
-  return { stop() { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); } };
+  return {
+    stop() {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    },
+  };
 }

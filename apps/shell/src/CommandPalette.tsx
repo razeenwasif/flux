@@ -30,8 +30,17 @@ const CommandPalette: Component<{
     setSel(0);
     clearTimeout(debounce);
     const q = v.trim();
-    if (!q) { setResults([]); return; }
-    debounce = window.setTimeout(() => void omniSearch(q, 14).then(setResults).catch(() => setResults([])), 120);
+    if (!q) {
+      setResults([]);
+      return;
+    }
+    debounce = window.setTimeout(
+      () =>
+        void omniSearch(q, 14)
+          .then(setResults)
+          .catch(() => setResults([])),
+      120,
+    );
   };
 
   const items = createMemo<Item[]>(() => {
@@ -60,26 +69,43 @@ const CommandPalette: Component<{
     // Search mode: one ranked list across tabs (by content), bookmarks, history.
     for (const h of results()) {
       const icon = h.kind === "tab" ? "🗗" : h.kind === "bookmark" ? "🔖" : "🕘";
-      const sub = h.snippet || (h.kind === "tab" ? "Switch to tab" : h.kind === "bookmark" ? "Bookmark" : h.url);
+      const sub =
+        h.snippet || (h.kind === "tab" ? "Switch to tab" : h.kind === "bookmark" ? "Bookmark" : h.url);
       out.push({
         key: `${h.kind}-${h.tab_id ?? h.url}`,
         icon,
         label: h.title || h.url,
         sub,
-        run: h.kind === "tab" && h.tab_id != null ? () => void focusTab(h.tab_id!) : () => props.onNavigate(h.url),
+        run:
+          h.kind === "tab" && h.tab_id != null
+            ? () => void focusTab(h.tab_id!)
+            : () => props.onNavigate(h.url),
       });
     }
     return out;
   });
 
-  const choose = (it: Item) => { props.onClose(); it.run(); };
+  const choose = (it: Item) => {
+    props.onClose();
+    it.run();
+  };
 
   const onKey = (e: KeyboardEvent) => {
     const n = items().length;
-    if (e.key === "ArrowDown") { e.preventDefault(); setSel((i) => (n ? (i + 1) % n : 0)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setSel((i) => (n ? (i - 1 + n) % n : 0)); }
-    else if (e.key === "Enter") { e.preventDefault(); const it = items()[sel()]; if (it) choose(it); }
-    else if (e.key === "Escape") { e.preventDefault(); props.onClose(); }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSel((i) => (n ? (i + 1) % n : 0));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSel((i) => (n ? (i - 1 + n) % n : 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const it = items()[sel()];
+      if (it) choose(it);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      props.onClose();
+    }
   };
 
   return (
@@ -102,7 +128,10 @@ const CommandPalette: Component<{
                 <button
                   classList={{ "palette-item": true, sel: sel() === i() }}
                   onMouseEnter={() => setSel(i())}
-                  onMouseDown={(e) => { e.preventDefault(); choose(it); }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    choose(it);
+                  }}
                 >
                   <span class="palette-icon">{it.icon}</span>
                   <span class="palette-text">

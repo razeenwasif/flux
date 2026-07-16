@@ -14,9 +14,13 @@ const ClockAlarm: Component = () => (
           <b>{r().kind === "alarm" ? "Alarm" : "Timer"}</b> · {r().label}
         </span>
         <Show when={r().kind === "alarm"}>
-          <button class="perm-btn" onClick={() => snoozeRing(5)}>Snooze 5m</button>
+          <button class="perm-btn" onClick={() => snoozeRing(5)}>
+            Snooze 5m
+          </button>
         </Show>
-        <button class="perm-btn allow" onClick={dismissRing}>Dismiss</button>
+        <button class="perm-btn allow" onClick={dismissRing}>
+          Dismiss
+        </button>
       </div>
     )}
   </Show>

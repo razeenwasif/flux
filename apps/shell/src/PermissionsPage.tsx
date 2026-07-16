@@ -32,7 +32,10 @@ const PermissionsPage: Component = () => {
   const [newKind, setNewKind] = createSignal<PermKind>("camera");
   const [newDecision, setNewDecision] = createSignal<PermDecision>("allow");
 
-  const refresh = () => void permissionsList().then((p) => setPerms(p ?? [])).catch(() => {});
+  const refresh = () =>
+    void permissionsList()
+      .then((p) => setPerms(p ?? []))
+      .catch(() => {});
   onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Site Permissions");
@@ -58,7 +61,10 @@ const PermissionsPage: Component = () => {
     refresh();
   };
   const addRule = async () => {
-    const host = newHost().trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    const host = newHost()
+      .trim()
+      .replace(/^https?:\/\//, "")
+      .replace(/\/.*$/, "");
     if (!host) return;
     await permissionsSet(host, newKind(), newDecision());
     setNewHost("");
@@ -84,9 +90,13 @@ const PermissionsPage: Component = () => {
     <div class="hist-page">
       <header class="hist-head">
         <div class="hist-title">🔐 Site Permissions</div>
-        <span class="res-mem">{perms().length} saved rule{perms().length === 1 ? "" : "s"}</span>
+        <span class="res-mem">
+          {perms().length} saved rule{perms().length === 1 ? "" : "s"}
+        </span>
         <Show when={perms().length > 0}>
-          <button class="hist-clear" onClick={() => void permissionsClearAll().then(refresh)}>Clear all</button>
+          <button class="hist-clear" onClick={() => void permissionsClearAll().then(refresh)}>
+            Clear all
+          </button>
         </Show>
       </header>
 
@@ -105,14 +115,24 @@ const PermissionsPage: Component = () => {
             onInput={(e) => setNewHost(e.currentTarget.value)}
             onKeyDown={(e) => e.key === "Enter" && void addRule()}
           />
-          <select class="shields-select" value={newKind()} onChange={(e) => setNewKind(e.currentTarget.value as PermKind)}>
+          <select
+            class="shields-select"
+            value={newKind()}
+            onChange={(e) => setNewKind(e.currentTarget.value as PermKind)}
+          >
             <For each={KINDS}>{(k) => <option value={k.kind}>{k.label}</option>}</For>
           </select>
-          <select class="shields-select" value={newDecision()} onChange={(e) => setNewDecision(e.currentTarget.value as PermDecision)}>
+          <select
+            class="shields-select"
+            value={newDecision()}
+            onChange={(e) => setNewDecision(e.currentTarget.value as PermDecision)}
+          >
             <option value="allow">Allow</option>
             <option value="deny">Block</option>
           </select>
-          <button class="perm-add-btn" onClick={() => void addRule()}>Add</button>
+          <button class="perm-add-btn" onClick={() => void addRule()}>
+            Add
+          </button>
         </div>
 
         <Show when={byHost().length > 0} fallback={<div class="hist-empty">No saved permissions yet.</div>}>
@@ -121,12 +141,20 @@ const PermissionsPage: Component = () => {
               <div class="perm-site">
                 <div class="perm-site-head">
                   <span class="perm-site-host">{host}</span>
-                  <button class="perm-site-clear" title="Forget this site" onClick={() => void clearHost(host)}>✕</button>
+                  <button
+                    class="perm-site-clear"
+                    title="Forget this site"
+                    onClick={() => void clearHost(host)}
+                  >
+                    ✕
+                  </button>
                 </div>
                 <For each={rules}>
                   {(r) => (
                     <div class="perm-rule">
-                      <span class="perm-kind">{kindMeta(r.kind).icon} {kindMeta(r.kind).label}</span>
+                      <span class="perm-kind">
+                        {kindMeta(r.kind).icon} {kindMeta(r.kind).label}
+                      </span>
                       <DecisionPicker value={r.decision} onChange={(d) => void change(host, r.kind, d)} />
                     </div>
                   )}

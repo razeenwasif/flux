@@ -20,21 +20,64 @@ import { activeId, activeTab, updateTabTitle } from "./store";
 
 // ─── Annotation model (all geometry in PDF points, origin top-left, y-down) ──
 type Tool = "pan" | "highlight" | "pen" | "text" | "rect" | "arrow" | "erase";
-interface Base { id: number; page: number; color: string }
-interface RectAnnot extends Base { kind: "highlight" | "rect"; x: number; y: number; w: number; h: number }
-interface InkAnnot extends Base { kind: "pen"; pts: [number, number][]; width: number }
-interface LineAnnot extends Base { kind: "arrow"; x1: number; y1: number; x2: number; y2: number; width: number }
-interface TextAnnot extends Base { kind: "text"; x: number; y: number; text: string; size: number }
+interface Base {
+  id: number;
+  page: number;
+  color: string;
+}
+interface RectAnnot extends Base {
+  kind: "highlight" | "rect";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+interface InkAnnot extends Base {
+  kind: "pen";
+  pts: [number, number][];
+  width: number;
+}
+interface LineAnnot extends Base {
+  kind: "arrow";
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  width: number;
+}
+interface TextAnnot extends Base {
+  kind: "text";
+  x: number;
+  y: number;
+  text: string;
+  size: number;
+}
 type Annot = RectAnnot | InkAnnot | LineAnnot | TextAnnot;
 
-interface Dims { w: number; h: number } // PDF points
+interface Dims {
+  w: number;
+  h: number;
+} // PDF points
 
 // ─── AcroForm fields (BACKLOG #113) ──────────────────────────────────────────
 type FieldType = "text" | "checkbox" | "radio" | "dropdown";
-interface FormField { name: string; type: FieldType; options?: string[] }
+interface FormField {
+  name: string;
+  type: FieldType;
+  options?: string[];
+}
 type FieldValue = string | boolean;
 /** A form widget's on-page box (PDF.js geometry), for in-place editing. */
-interface WidgetBox { id: number; page: number; name: string; x: number; y: number; w: number; h: number; exportValue?: string }
+interface WidgetBox {
+  id: number;
+  page: number;
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  exportValue?: string;
+}
 
 const PALETTE = ["#ffd60a", "#ff453a", "#32d74b", "#0a84ff", "#bf5af2", "#1c1c1e"];
 const TOOLS: { id: Tool; icon: string; label: string }[] = [
@@ -49,7 +92,15 @@ const TOOLS: { id: Tool; icon: string; label: string }[] = [
 
 function hexToRgb01(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
-  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  const n = parseInt(
+    h.length === 3
+      ? h
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : h,
+    16,
+  );
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 function bytesToB64(bytes: Uint8Array): string {
@@ -77,7 +128,13 @@ const PdfViewer: Component = () => {
   const [color, setColor] = createSignal(PALETTE[0]!);
   const [annots, setAnnots] = createSignal<Annot[]>([]);
   const [draft, setDraft] = createSignal<Annot | null>(null);
-  const [textDraft, setTextDraft] = createSignal<{ page: number; x: number; y: number; left: number; top: number } | null>(null);
+  const [textDraft, setTextDraft] = createSignal<{
+    page: number;
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+  } | null>(null);
   const [dirty, setDirty] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [toast, setToast] = createSignal("");
@@ -101,11 +158,19 @@ const PdfViewer: Component = () => {
     const url = activeTab()?.url ?? "";
     const q = url.split("?")[1] ?? "";
     const s = new URLSearchParams(q).get("src");
-    try { return s ? decodeURIComponent(s) : ""; } catch { return s ?? ""; }
+    try {
+      return s ? decodeURIComponent(s) : "";
+    } catch {
+      return s ?? "";
+    }
   };
   const filename = () => {
     const tail = (src().split(/[?#]/)[0] ?? "").split("/").pop() || "PDF";
-    try { return decodeURIComponent(tail); } catch { return tail; }
+    try {
+      return decodeURIComponent(tail);
+    } catch {
+      return tail;
+    }
   };
   const saveName = () => {
     const f = filename();
@@ -160,10 +225,18 @@ const PdfViewer: Component = () => {
     setSrc(s);
     const id = activeId();
     if (id != null) updateTabTitle(id, "PDF");
-    if (!s) { setError("No PDF source."); setLoading(false); return; }
+    if (!s) {
+      setError("No PDF source.");
+      setLoading(false);
+      return;
+    }
     try {
       const b64 = await pdfFetch(s);
-      if (!b64) { setError("Couldn't load this PDF."); setLoading(false); return; }
+      if (!b64) {
+        setError("Couldn't load this PDF.");
+        setLoading(false);
+        return;
+      }
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       await loadBytes(bytes);
       const id2 = activeId();
@@ -179,7 +252,9 @@ const PdfViewer: Component = () => {
   // Re-render every page when the doc reloads or the zoom changes.
   createEffect(() => {
     if (!ready()) return;
-    docVersion(); scale(); pages();
+    docVersion();
+    scale();
+    pages();
     const token = ++renderToken;
     void (async () => {
       for (const p of pages()) {
@@ -190,7 +265,10 @@ const PdfViewer: Component = () => {
   });
 
   const zoom = (d: number) => setScale((v) => Math.min(4, Math.max(0.4, +(v + d).toFixed(2))));
-  const flash = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(""), 3200); };
+  const flash = (msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(""), 3200);
+  };
 
   // ── Annotation drawing ───────────────────────────────────────────────────
   const pt = (e: PointerEvent): [number, number] => {
@@ -216,7 +294,8 @@ const PdfViewer: Component = () => {
     }
     const c = color();
     if (t === "pen") setDraft({ id: 0, page: pageNo, color: c, kind: "pen", pts: [[x, y]], width: 2 });
-    else if (t === "arrow") setDraft({ id: 0, page: pageNo, color: c, kind: "arrow", x1: x, y1: y, x2: x, y2: y, width: 2 });
+    else if (t === "arrow")
+      setDraft({ id: 0, page: pageNo, color: c, kind: "arrow", x1: x, y1: y, x2: x, y2: y, width: 2 });
     else setDraft({ id: 0, page: pageNo, color: c, kind: t, x, y, w: 0, h: 0 });
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp, { once: true });
@@ -239,7 +318,7 @@ const PdfViewer: Component = () => {
     if (!cur) return;
     // Discard degenerate marks.
     if (cur.kind === "pen" && cur.pts.length < 2) return;
-    if ((cur.kind === "highlight" || cur.kind === "rect")) {
+    if (cur.kind === "highlight" || cur.kind === "rect") {
       const r = normRect(cur);
       if (r.w < 3 || r.h < 3) return;
       commit({ ...r, id: 0 });
@@ -277,8 +356,14 @@ const PdfViewer: Component = () => {
     setDirty(true);
   };
 
-  const undo = () => { setAnnots((prev) => prev.slice(0, -1)); setDirty(true); };
-  const clearAll = () => { setAnnots([]); setDirty(true); };
+  const undo = () => {
+    setAnnots((prev) => prev.slice(0, -1));
+    setDirty(true);
+  };
+  const clearAll = () => {
+    setAnnots([]);
+    setDirty(true);
+  };
 
   // ── pdf-lib: burn annotations + page operations ────────────────────────────
   const burnAnnots = async (bytes: Uint8Array): Promise<Uint8Array> => {
@@ -296,19 +381,39 @@ const PdfViewer: Component = () => {
       if (a.kind === "highlight") {
         pg.drawRectangle({ x: a.x, y: H - (a.y + a.h), width: a.w, height: a.h, color: col, opacity: 0.35 });
       } else if (a.kind === "rect") {
-        pg.drawRectangle({ x: a.x, y: H - (a.y + a.h), width: a.w, height: a.h, borderColor: col, borderWidth: 1.5, opacity: 0 });
+        pg.drawRectangle({
+          x: a.x,
+          y: H - (a.y + a.h),
+          width: a.w,
+          height: a.h,
+          borderColor: col,
+          borderWidth: 1.5,
+          opacity: 0,
+        });
       } else if (a.kind === "pen") {
         for (let i = 1; i < a.pts.length; i++) {
-          const p0 = a.pts[i - 1]!; const p1 = a.pts[i]!;
-          pg.drawLine({ start: { x: p0[0], y: H - p0[1] }, end: { x: p1[0], y: H - p1[1] }, thickness: a.width, color: col });
+          const p0 = a.pts[i - 1]!;
+          const p1 = a.pts[i]!;
+          pg.drawLine({
+            start: { x: p0[0], y: H - p0[1] },
+            end: { x: p1[0], y: H - p1[1] },
+            thickness: a.width,
+            color: col,
+          });
         }
       } else if (a.kind === "arrow") {
-        const s = { x: a.x1, y: H - a.y1 }; const en = { x: a.x2, y: H - a.y2 };
+        const s = { x: a.x1, y: H - a.y1 };
+        const en = { x: a.x2, y: H - a.y2 };
         pg.drawLine({ start: s, end: en, thickness: a.width, color: col });
         const ang = Math.atan2(en.y - s.y, en.x - s.x);
         const head = 8;
         for (const off of [Math.PI - 0.4, Math.PI + 0.4]) {
-          pg.drawLine({ start: en, end: { x: en.x + head * Math.cos(ang + off), y: en.y + head * Math.sin(ang + off) }, thickness: a.width, color: col });
+          pg.drawLine({
+            start: en,
+            end: { x: en.x + head * Math.cos(ang + off), y: en.y + head * Math.sin(ang + off) },
+            thickness: a.width,
+            color: col,
+          });
         }
       } else if (a.kind === "text") {
         pg.drawText(a.text, { x: a.x, y: H - a.y - a.size, size: a.size, color: col });
@@ -330,16 +435,20 @@ const PdfViewer: Component = () => {
     }
   };
 
-  const rotatePage = (i: number) => applyPageOp(async (bytes) => {
-    const { PDFDocument, degrees } = await import("pdf-lib");
-    const d = await PDFDocument.load(bytes);
-    const p = d.getPage(i);
-    p.setRotation(degrees((p.getRotation().angle + 90) % 360));
-    return new Uint8Array(await d.save());
-  });
+  const rotatePage = (i: number) =>
+    applyPageOp(async (bytes) => {
+      const { PDFDocument, degrees } = await import("pdf-lib");
+      const d = await PDFDocument.load(bytes);
+      const p = d.getPage(i);
+      p.setRotation(degrees((p.getRotation().angle + 90) % 360));
+      return new Uint8Array(await d.save());
+    });
 
   const deletePage = (i: number) => {
-    if (numPages() <= 1) { flash("Can't delete the only page."); return; }
+    if (numPages() <= 1) {
+      flash("Can't delete the only page.");
+      return;
+    }
     void applyPageOp(async (bytes) => {
       const { PDFDocument } = await import("pdf-lib");
       const src = await PDFDocument.load(bytes);
@@ -448,10 +557,19 @@ const PdfViewer: Component = () => {
     for (const ff of formFields()) {
       try {
         if (ff.type === "text") form.getTextField(ff.name).setText(String(vals[ff.name] ?? ""));
-        else if (ff.type === "checkbox") { const cb = form.getCheckBox(ff.name); vals[ff.name] ? cb.check() : cb.uncheck(); }
-        else if (ff.type === "radio") { const v = String(vals[ff.name] ?? ""); if (v) form.getRadioGroup(ff.name).select(v); }
-        else if (ff.type === "dropdown") { const v = String(vals[ff.name] ?? ""); if (v) form.getDropdown(ff.name).select(v); }
-      } catch { /* a field that won't take the value is skipped, not fatal */ }
+        else if (ff.type === "checkbox") {
+          const cb = form.getCheckBox(ff.name);
+          vals[ff.name] ? cb.check() : cb.uncheck();
+        } else if (ff.type === "radio") {
+          const v = String(vals[ff.name] ?? "");
+          if (v) form.getRadioGroup(ff.name).select(v);
+        } else if (ff.type === "dropdown") {
+          const v = String(vals[ff.name] ?? "");
+          if (v) form.getDropdown(ff.name).select(v);
+        }
+      } catch {
+        /* a field that won't take the value is skipped, not fatal */
+      }
     }
     if (flatten) form.flatten();
     return new Uint8Array(await doc.save());
@@ -461,7 +579,10 @@ const PdfViewer: Component = () => {
    *  PDF.js gives us per-widget geometry (incl. rotation) + the radio export
    *  value; the field *type* comes from the pdf-lib pass (`formFields`). */
   const gatherWidgets = async () => {
-    if (!pdfDoc) { setWidgets([]); return; }
+    if (!pdfDoc) {
+      setWidgets([]);
+      return;
+    }
     const out: WidgetBox[] = [];
     try {
       for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -472,11 +593,23 @@ const PdfViewer: Component = () => {
         for (const a of anns) {
           if (a.subtype !== "Widget" || !a.fieldName || a.fieldType === "Sig" || a.pushButton) continue;
           const r = vp1.convertToViewportRectangle(a.rect) as number[];
-          const x = Math.min(r[0]!, r[2]!), y = Math.min(r[1]!, r[3]!);
-          out.push({ id: out.length, page: i, name: a.fieldName, x, y, w: Math.abs(r[2]! - r[0]!), h: Math.abs(r[3]! - r[1]!), exportValue: a.buttonValue ?? undefined });
+          const x = Math.min(r[0]!, r[2]!),
+            y = Math.min(r[1]!, r[3]!);
+          out.push({
+            id: out.length,
+            page: i,
+            name: a.fieldName,
+            x,
+            y,
+            w: Math.abs(r[2]! - r[0]!),
+            h: Math.abs(r[3]! - r[1]!),
+            exportValue: a.buttonValue ?? undefined,
+          });
         }
       }
-    } catch { /* leave whatever we gathered */ }
+    } catch {
+      /* leave whatever we gathered */
+    }
     setWidgets(out);
   };
 
@@ -486,26 +619,60 @@ const PdfViewer: Component = () => {
   /** Render one in-place form widget, positioned over its page box. */
   const fieldWidget = (wd: WidgetBox) => {
     const s = () => scale();
-    const pos = () => ({ left: `${wd.x * s()}px`, top: `${wd.y * s()}px`, width: `${wd.w * s()}px`, height: `${wd.h * s()}px` });
+    const pos = () => ({
+      left: `${wd.x * s()}px`,
+      top: `${wd.y * s()}px`,
+      width: `${wd.w * s()}px`,
+      height: `${wd.h * s()}px`,
+    });
     const t = fieldType(wd.name);
     const font = () => `${Math.max(8, Math.min(16, wd.h * s() * 0.62))}px`;
     if (t === "checkbox") {
-      return <input type="checkbox" class="pdf-fw" style={pos()} checked={Boolean(formValues()[wd.name])} onChange={(e) => setFieldValue(wd.name, e.currentTarget.checked)} />;
+      return (
+        <input
+          type="checkbox"
+          class="pdf-fw"
+          style={pos()}
+          checked={Boolean(formValues()[wd.name])}
+          onChange={(e) => setFieldValue(wd.name, e.currentTarget.checked)}
+        />
+      );
     }
     if (t === "radio") {
-      return <input type="radio" class="pdf-fw" style={pos()} checked={String(formValues()[wd.name] ?? "") === wd.exportValue} onChange={() => setFieldValue(wd.name, wd.exportValue ?? "")} />;
+      return (
+        <input
+          type="radio"
+          class="pdf-fw"
+          style={pos()}
+          checked={String(formValues()[wd.name] ?? "") === wd.exportValue}
+          onChange={() => setFieldValue(wd.name, wd.exportValue ?? "")}
+        />
+      );
     }
     if (t === "dropdown") {
       const ff = formFields().find((f) => f.name === wd.name);
       return (
-        <select class="pdf-fw pdf-fw-text" style={{ ...pos(), "font-size": font() }} value={String(formValues()[wd.name] ?? "")} onChange={(e) => setFieldValue(wd.name, e.currentTarget.value)}>
+        <select
+          class="pdf-fw pdf-fw-text"
+          style={{ ...pos(), "font-size": font() }}
+          value={String(formValues()[wd.name] ?? "")}
+          onChange={(e) => setFieldValue(wd.name, e.currentTarget.value)}
+        >
           <option value="">—</option>
           <For each={ff?.options ?? []}>{(o) => <option value={o}>{o}</option>}</For>
         </select>
       );
     }
     // default: text
-    return <input type="text" class="pdf-fw pdf-fw-text" style={{ ...pos(), "font-size": font() }} value={String(formValues()[wd.name] ?? "")} onInput={(e) => setFieldValue(wd.name, e.currentTarget.value)} />;
+    return (
+      <input
+        type="text"
+        class="pdf-fw pdf-fw-text"
+        style={{ ...pos(), "font-size": font() }}
+        value={String(formValues()[wd.name] ?? "")}
+        onInput={(e) => setFieldValue(wd.name, e.currentTarget.value)}
+      />
+    );
   };
 
   const setFieldValue = (name: string, v: FieldValue) => {
@@ -529,7 +696,10 @@ const PdfViewer: Component = () => {
   createEffect(() => {
     if (mode() === "forms" && ready()) {
       docVersion();
-      void (async () => { await loadFields(); await gatherWidgets(); })();
+      void (async () => {
+        await loadFields();
+        await gatherWidgets();
+      })();
     }
   });
 
@@ -567,22 +737,64 @@ const PdfViewer: Component = () => {
   return (
     <div class="pdf-view">
       <div class="pdf-toolbar">
-        <span class="pdf-title" title={src()}>{filename()}{dirty() ? " •" : ""}</span>
-        <Show when={numPages() > 0}><span class="pdf-pages">{numPages()} page{numPages() === 1 ? "" : "s"}</span></Show>
+        <span class="pdf-title" title={src()}>
+          {filename()}
+          {dirty() ? " •" : ""}
+        </span>
+        <Show when={numPages() > 0}>
+          <span class="pdf-pages">
+            {numPages()} page{numPages() === 1 ? "" : "s"}
+          </span>
+        </Show>
         <span style={{ flex: 1 }} />
         <div class="pdf-modes">
-          <button classList={{ "pdf-mode": true, active: mode() === "view" }} onClick={() => setMode("view")} disabled={!ready()}>View</button>
-          <button classList={{ "pdf-mode": true, active: mode() === "edit" }} onClick={() => setMode("edit")} disabled={!ready()}>✎ Edit</button>
-          <button classList={{ "pdf-mode": true, active: mode() === "pages" }} onClick={() => setMode("pages")} disabled={!ready()}>▦ Pages</button>
-          <button classList={{ "pdf-mode": true, active: mode() === "forms" }} onClick={() => setMode("forms")} disabled={!ready()}>🖊 Forms</button>
+          <button
+            classList={{ "pdf-mode": true, active: mode() === "view" }}
+            onClick={() => setMode("view")}
+            disabled={!ready()}
+          >
+            View
+          </button>
+          <button
+            classList={{ "pdf-mode": true, active: mode() === "edit" }}
+            onClick={() => setMode("edit")}
+            disabled={!ready()}
+          >
+            ✎ Edit
+          </button>
+          <button
+            classList={{ "pdf-mode": true, active: mode() === "pages" }}
+            onClick={() => setMode("pages")}
+            disabled={!ready()}
+          >
+            ▦ Pages
+          </button>
+          <button
+            classList={{ "pdf-mode": true, active: mode() === "forms" }}
+            onClick={() => setMode("forms")}
+            disabled={!ready()}
+          >
+            🖊 Forms
+          </button>
         </div>
-        <button class="pdf-btn" onClick={() => zoom(-0.2)} title="Zoom out" disabled={!ready()}>−</button>
+        <button class="pdf-btn" onClick={() => zoom(-0.2)} title="Zoom out" disabled={!ready()}>
+          −
+        </button>
         <span class="pdf-zoom">{Math.round(scale() * 100)}%</span>
-        <button class="pdf-btn" onClick={() => zoom(0.2)} title="Zoom in" disabled={!ready()}>+</button>
-        <button class="pdf-btn pdf-save" onClick={() => void save()} title="Save edited copy to Downloads" disabled={!ready() || saving()}>
+        <button class="pdf-btn" onClick={() => zoom(0.2)} title="Zoom in" disabled={!ready()}>
+          +
+        </button>
+        <button
+          class="pdf-btn pdf-save"
+          onClick={() => void save()}
+          title="Save edited copy to Downloads"
+          disabled={!ready() || saving()}
+        >
           {saving() ? "…" : "Save"}
         </button>
-        <a class="pdf-btn" href={src()} download={filename()} title="Download original">↓</a>
+        <a class="pdf-btn" href={src()} download={filename()} title="Download original">
+          ↓
+        </a>
       </div>
 
       {/* Edit toolbar */}
@@ -590,7 +802,13 @@ const PdfViewer: Component = () => {
         <div class="pdf-edit-bar">
           <For each={TOOLS}>
             {(t) => (
-              <button classList={{ "pdf-tool": true, active: tool() === t.id }} title={t.label} onClick={() => setTool(t.id)}>{t.icon}</button>
+              <button
+                classList={{ "pdf-tool": true, active: tool() === t.id }}
+                title={t.label}
+                onClick={() => setTool(t.id)}
+              >
+                {t.icon}
+              </button>
             )}
           </For>
           <span class="pdf-sep" />
@@ -605,21 +823,44 @@ const PdfViewer: Component = () => {
             )}
           </For>
           <span class="pdf-sep" />
-          <button class="pdf-btn" onClick={undo} title="Undo last" disabled={annots().length === 0}>↶ Undo</button>
-          <button class="pdf-btn" onClick={clearAll} title="Clear all annotations" disabled={annots().length === 0}>Clear</button>
-          <span class="pdf-edit-hint">{annots().length} annotation{annots().length === 1 ? "" : "s"}</span>
+          <button class="pdf-btn" onClick={undo} title="Undo last" disabled={annots().length === 0}>
+            ↶ Undo
+          </button>
+          <button
+            class="pdf-btn"
+            onClick={clearAll}
+            title="Clear all annotations"
+            disabled={annots().length === 0}
+          >
+            Clear
+          </button>
+          <span class="pdf-edit-hint">
+            {annots().length} annotation{annots().length === 1 ? "" : "s"}
+          </span>
         </div>
       </Show>
 
-      <Show when={error()}><div class="pdf-msg">{error()}</div></Show>
-      <Show when={loading() && !error()}><div class="pdf-msg">Loading PDF…</div></Show>
+      <Show when={error()}>
+        <div class="pdf-msg">{error()}</div>
+      </Show>
+      <Show when={loading() && !error()}>
+        <div class="pdf-msg">Loading PDF…</div>
+      </Show>
 
       {/* Pages panel */}
       <Show when={mode() === "pages" && ready()}>
         <div class="pdf-pages-panel">
           <div class="pdf-pages-actions">
-            <button class="pdf-btn" onClick={() => mergeInput?.click()}>＋ Merge PDF…</button>
-            <input ref={mergeInput} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={(e) => void onMergeFile(e)} />
+            <button class="pdf-btn" onClick={() => mergeInput?.click()}>
+              ＋ Merge PDF…
+            </button>
+            <input
+              ref={mergeInput}
+              type="file"
+              accept="application/pdf,.pdf"
+              style={{ display: "none" }}
+              onChange={(e) => void onMergeFile(e)}
+            />
             <span class="pdf-edit-hint">Drag to reorder · rotate / delete / extract per page</span>
           </div>
           <div class="pdf-thumbs">
@@ -630,14 +871,25 @@ const PdfViewer: Component = () => {
                   draggable={true}
                   onDragStart={() => setDragIdx(i())}
                   onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => { e.preventDefault(); const from = dragIdx(); if (from !== null) reorder(from, i()); setDragIdx(null); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const from = dragIdx();
+                    if (from !== null) reorder(from, i());
+                    setDragIdx(null);
+                  }}
                 >
                   <PageThumb pageNo={p} getDoc={() => pdfDoc} version={docVersion()} />
                   <div class="pdf-thumb-bar">
                     <span class="pdf-thumb-no">{i() + 1}</span>
-                    <button class="pdf-thumb-btn" title="Rotate 90°" onClick={() => void rotatePage(i())}>⟳</button>
-                    <button class="pdf-thumb-btn" title="Extract page" onClick={() => void extractPage(i())}>⤓</button>
-                    <button class="pdf-thumb-btn danger" title="Delete page" onClick={() => deletePage(i())}>✕</button>
+                    <button class="pdf-thumb-btn" title="Rotate 90°" onClick={() => void rotatePage(i())}>
+                      ⟳
+                    </button>
+                    <button class="pdf-thumb-btn" title="Extract page" onClick={() => void extractPage(i())}>
+                      ⤓
+                    </button>
+                    <button class="pdf-thumb-btn danger" title="Delete page" onClick={() => deletePage(i())}>
+                      ✕
+                    </button>
                   </div>
                 </div>
               )}
@@ -648,150 +900,216 @@ const PdfViewer: Component = () => {
 
       {/* Page render + annotation overlay (+ Forms side panel) */}
       <div class="pdf-body" classList={{ hidden: mode() === "pages" }}>
-      <div class="pdf-pages-wrap" classList={{ "mode-edit": mode() === "edit" }}>
-        <For each={pages()}>
-          {(p) => {
-            const d = () => dims()[p - 1] ?? { w: 600, h: 800 };
-            const cssW = () => d().w * scale();
-            const cssH = () => d().h * scale();
-            return (
-              <div class="pdf-page-wrap" style={{ width: `${cssW()}px`, height: `${cssH()}px` }}>
-                <canvas class="pdf-page" ref={(el) => (canvases[p - 1] = el)} />
-                <Show when={mode() === "forms"}>
-                  <For each={widgetsForPage(p)}>{(wd) => fieldWidget(wd)}</For>
-                </Show>
-                <Show when={mode() === "edit"}>
-                  <svg
-                    class="pdf-annot-layer"
-                    viewBox={`0 0 ${d().w} ${d().h}`}
-                    preserveAspectRatio="none"
-                    style={{ "pointer-events": interactiveSvg() ? "auto" : "none", cursor: interactiveSvg() ? "crosshair" : "default" }}
-                    onPointerDown={(e) => onPointerDown(e, p)}
-                  >
-                    <For each={shapesFor(p)}>
-                      {(a) => {
-                        const pe = () => (interactiveShape() ? "auto" : "none");
-                        if (a.kind === "highlight" || a.kind === "rect") {
-                          const r = normRect(a);
-                          return (
-                            <rect
-                              x={r.x} y={r.y} width={r.w} height={r.h}
-                              fill={a.kind === "highlight" ? a.color : "none"}
-                              fill-opacity={a.kind === "highlight" ? 0.35 : 0}
-                              stroke={a.kind === "rect" ? a.color : "none"}
-                              stroke-width={a.kind === "rect" ? 1.5 : 0}
-                              style={{ "pointer-events": pe(), cursor: "pointer" }}
-                              onClick={(e) => eraseAnnot(a.id, e)}
-                            />
-                          );
-                        }
-                        if (a.kind === "pen") {
-                          return (
-                            <polyline
-                              points={polyPoints(a.pts)} fill="none" stroke={a.color}
-                              stroke-width={a.width} stroke-linecap="round" stroke-linejoin="round"
-                              style={{ "pointer-events": pe(), cursor: "pointer" }}
-                              onClick={(e) => eraseAnnot(a.id, e)}
-                            />
-                          );
-                        }
-                        if (a.kind === "arrow") {
-                          const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1);
-                          const head = 8;
-                          const hx = (o: number) => a.x2 + head * Math.cos(ang + Math.PI + o);
-                          const hy = (o: number) => a.y2 + head * Math.sin(ang + Math.PI + o);
-                          return (
-                            <g style={{ "pointer-events": pe(), cursor: "pointer" }} onClick={(e) => eraseAnnot(a.id, e)}>
-                              <line x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2} stroke={a.color} stroke-width={a.width} stroke-linecap="round" />
-                              <line x1={a.x2} y1={a.y2} x2={hx(0.4)} y2={hy(0.4)} stroke={a.color} stroke-width={a.width} stroke-linecap="round" />
-                              <line x1={a.x2} y1={a.y2} x2={hx(-0.4)} y2={hy(-0.4)} stroke={a.color} stroke-width={a.width} stroke-linecap="round" />
-                            </g>
-                          );
-                        }
-                        if (a.kind !== "text") return null;
-                        return (
-                          <text
-                            x={a.x} y={a.y + a.size * 0.8} font-size={`${a.size}`} fill={a.color}
-                            style={{ "pointer-events": pe(), cursor: "pointer", "font-family": "sans-serif" }}
-                            onClick={(e) => eraseAnnot(a.id, e)}
-                          >{a.text}</text>
-                        );
+        <div class="pdf-pages-wrap" classList={{ "mode-edit": mode() === "edit" }}>
+          <For each={pages()}>
+            {(p) => {
+              const d = () => dims()[p - 1] ?? { w: 600, h: 800 };
+              const cssW = () => d().w * scale();
+              const cssH = () => d().h * scale();
+              return (
+                <div class="pdf-page-wrap" style={{ width: `${cssW()}px`, height: `${cssH()}px` }}>
+                  <canvas class="pdf-page" ref={(el) => (canvases[p - 1] = el)} />
+                  <Show when={mode() === "forms"}>
+                    <For each={widgetsForPage(p)}>{(wd) => fieldWidget(wd)}</For>
+                  </Show>
+                  <Show when={mode() === "edit"}>
+                    <svg
+                      class="pdf-annot-layer"
+                      viewBox={`0 0 ${d().w} ${d().h}`}
+                      preserveAspectRatio="none"
+                      style={{
+                        "pointer-events": interactiveSvg() ? "auto" : "none",
+                        cursor: interactiveSvg() ? "crosshair" : "default",
                       }}
-                    </For>
-                  </svg>
-                </Show>
-                {/* Inline text entry */}
-                <Show when={textDraft()?.page === p}>
-                  <input
-                    class="pdf-text-input"
-                    autofocus
-                    style={{ left: `${textDraft()!.left}px`, top: `${textDraft()!.top}px`, color: color() }}
-                    onBlur={(e) => commitText(e.currentTarget.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { setTextDraft(null); } }}
-                  />
-                </Show>
-              </div>
-            );
-          }}
-        </For>
-      </div>
-
-      {/* Forms panel */}
-      <Show when={mode() === "forms"}>
-        <div class="pdf-forms-panel">
-          <div class="pdf-forms-head">
-            <span class="pdf-forms-title">Form fields</span>
-            <label class="pdf-forms-flatten">
-              <input type="checkbox" checked={flattenOnSave()} onChange={(e) => setFlattenOnSave(e.currentTarget.checked)} />
-              Flatten on save
-            </label>
-          </div>
-          <Show when={formMsg()}><div class="pdf-edit-hint">{formMsg()}</div></Show>
-          <div class="pdf-fields">
-            <For each={formFields()}>
-              {(ff) => (
-                <label class="pdf-field">
-                  <span class="pdf-field-name" title={ff.name}>{ff.name}</span>
-                  <Switch>
-                    <Match when={ff.type === "checkbox"}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(formValues()[ff.name])}
-                        onChange={(e) => setFieldValue(ff.name, e.currentTarget.checked)}
-                      />
-                    </Match>
-                    <Match when={ff.type === "radio" || ff.type === "dropdown"}>
-                      <select
-                        class="pdf-field-input"
-                        value={String(formValues()[ff.name] ?? "")}
-                        onChange={(e) => setFieldValue(ff.name, e.currentTarget.value)}
-                      >
-                        <option value="">—</option>
-                        <For each={ff.options ?? []}>{(o) => <option value={o}>{o}</option>}</For>
-                      </select>
-                    </Match>
-                    <Match when={ff.type === "text"}>
-                      <input
-                        class="pdf-field-input"
-                        type="text"
-                        value={String(formValues()[ff.name] ?? "")}
-                        onInput={(e) => setFieldValue(ff.name, e.currentTarget.value)}
-                      />
-                    </Match>
-                  </Switch>
-                </label>
-              )}
-            </For>
-          </div>
-          <Show when={formFields().length > 0}>
-            <button class="pdf-btn pdf-forms-apply" onClick={() => void applyForm()}>Apply to document</button>
-            <span class="pdf-edit-hint">Apply fills the values into the page. Save writes a copy to Downloads (Flatten = no longer editable).</span>
-          </Show>
+                      onPointerDown={(e) => onPointerDown(e, p)}
+                    >
+                      <For each={shapesFor(p)}>
+                        {(a) => {
+                          const pe = () => (interactiveShape() ? "auto" : "none");
+                          if (a.kind === "highlight" || a.kind === "rect") {
+                            const r = normRect(a);
+                            return (
+                              <rect
+                                x={r.x}
+                                y={r.y}
+                                width={r.w}
+                                height={r.h}
+                                fill={a.kind === "highlight" ? a.color : "none"}
+                                fill-opacity={a.kind === "highlight" ? 0.35 : 0}
+                                stroke={a.kind === "rect" ? a.color : "none"}
+                                stroke-width={a.kind === "rect" ? 1.5 : 0}
+                                style={{ "pointer-events": pe(), cursor: "pointer" }}
+                                onClick={(e) => eraseAnnot(a.id, e)}
+                              />
+                            );
+                          }
+                          if (a.kind === "pen") {
+                            return (
+                              <polyline
+                                points={polyPoints(a.pts)}
+                                fill="none"
+                                stroke={a.color}
+                                stroke-width={a.width}
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                style={{ "pointer-events": pe(), cursor: "pointer" }}
+                                onClick={(e) => eraseAnnot(a.id, e)}
+                              />
+                            );
+                          }
+                          if (a.kind === "arrow") {
+                            const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1);
+                            const head = 8;
+                            const hx = (o: number) => a.x2 + head * Math.cos(ang + Math.PI + o);
+                            const hy = (o: number) => a.y2 + head * Math.sin(ang + Math.PI + o);
+                            return (
+                              <g
+                                style={{ "pointer-events": pe(), cursor: "pointer" }}
+                                onClick={(e) => eraseAnnot(a.id, e)}
+                              >
+                                <line
+                                  x1={a.x1}
+                                  y1={a.y1}
+                                  x2={a.x2}
+                                  y2={a.y2}
+                                  stroke={a.color}
+                                  stroke-width={a.width}
+                                  stroke-linecap="round"
+                                />
+                                <line
+                                  x1={a.x2}
+                                  y1={a.y2}
+                                  x2={hx(0.4)}
+                                  y2={hy(0.4)}
+                                  stroke={a.color}
+                                  stroke-width={a.width}
+                                  stroke-linecap="round"
+                                />
+                                <line
+                                  x1={a.x2}
+                                  y1={a.y2}
+                                  x2={hx(-0.4)}
+                                  y2={hy(-0.4)}
+                                  stroke={a.color}
+                                  stroke-width={a.width}
+                                  stroke-linecap="round"
+                                />
+                              </g>
+                            );
+                          }
+                          if (a.kind !== "text") return null;
+                          return (
+                            <text
+                              x={a.x}
+                              y={a.y + a.size * 0.8}
+                              font-size={`${a.size}`}
+                              fill={a.color}
+                              style={{
+                                "pointer-events": pe(),
+                                cursor: "pointer",
+                                "font-family": "sans-serif",
+                              }}
+                              onClick={(e) => eraseAnnot(a.id, e)}
+                            >
+                              {a.text}
+                            </text>
+                          );
+                        }}
+                      </For>
+                    </svg>
+                  </Show>
+                  {/* Inline text entry */}
+                  <Show when={textDraft()?.page === p}>
+                    <input
+                      class="pdf-text-input"
+                      autofocus
+                      style={{ left: `${textDraft()!.left}px`, top: `${textDraft()!.top}px`, color: color() }}
+                      onBlur={(e) => commitText(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        if (e.key === "Escape") {
+                          setTextDraft(null);
+                        }
+                      }}
+                    />
+                  </Show>
+                </div>
+              );
+            }}
+          </For>
         </div>
-      </Show>
+
+        {/* Forms panel */}
+        <Show when={mode() === "forms"}>
+          <div class="pdf-forms-panel">
+            <div class="pdf-forms-head">
+              <span class="pdf-forms-title">Form fields</span>
+              <label class="pdf-forms-flatten">
+                <input
+                  type="checkbox"
+                  checked={flattenOnSave()}
+                  onChange={(e) => setFlattenOnSave(e.currentTarget.checked)}
+                />
+                Flatten on save
+              </label>
+            </div>
+            <Show when={formMsg()}>
+              <div class="pdf-edit-hint">{formMsg()}</div>
+            </Show>
+            <div class="pdf-fields">
+              <For each={formFields()}>
+                {(ff) => (
+                  <label class="pdf-field">
+                    <span class="pdf-field-name" title={ff.name}>
+                      {ff.name}
+                    </span>
+                    <Switch>
+                      <Match when={ff.type === "checkbox"}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(formValues()[ff.name])}
+                          onChange={(e) => setFieldValue(ff.name, e.currentTarget.checked)}
+                        />
+                      </Match>
+                      <Match when={ff.type === "radio" || ff.type === "dropdown"}>
+                        <select
+                          class="pdf-field-input"
+                          value={String(formValues()[ff.name] ?? "")}
+                          onChange={(e) => setFieldValue(ff.name, e.currentTarget.value)}
+                        >
+                          <option value="">—</option>
+                          <For each={ff.options ?? []}>{(o) => <option value={o}>{o}</option>}</For>
+                        </select>
+                      </Match>
+                      <Match when={ff.type === "text"}>
+                        <input
+                          class="pdf-field-input"
+                          type="text"
+                          value={String(formValues()[ff.name] ?? "")}
+                          onInput={(e) => setFieldValue(ff.name, e.currentTarget.value)}
+                        />
+                      </Match>
+                    </Switch>
+                  </label>
+                )}
+              </For>
+            </div>
+            <Show when={formFields().length > 0}>
+              <button class="pdf-btn pdf-forms-apply" onClick={() => void applyForm()}>
+                Apply to document
+              </button>
+              <span class="pdf-edit-hint">
+                Apply fills the values into the page. Save writes a copy to Downloads (Flatten = no longer
+                editable).
+              </span>
+            </Show>
+          </div>
+        </Show>
       </div>
 
-      <Show when={toast()}><div class="pdf-toast">{toast()}</div></Show>
+      <Show when={toast()}>
+        <div class="pdf-toast">{toast()}</div>
+      </Show>
     </div>
   );
 };
@@ -801,7 +1119,14 @@ const PageThumb: Component<{ pageNo: number; getDoc: () => unknown; version: num
   let canvas: HTMLCanvasElement | undefined;
   createEffect(() => {
     props.version; // re-render after a page-op
-    const doc = props.getDoc() as { getPage: (n: number) => Promise<{ getViewport: (o: { scale: number }) => { width: number; height: number }; render: (o: unknown) => { promise: Promise<void> } }> } | null;
+    const doc = props.getDoc() as {
+      getPage: (
+        n: number,
+      ) => Promise<{
+        getViewport: (o: { scale: number }) => { width: number; height: number };
+        render: (o: unknown) => { promise: Promise<void> };
+      }>;
+    } | null;
     if (!doc || !canvas) return;
     void (async () => {
       const page = await doc.getPage(props.pageNo);

@@ -13,7 +13,10 @@ const Extensions: Component = () => {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  const refresh = () => void extList().then(setExts).catch(() => {});
+  const refresh = () =>
+    void extList()
+      .then(setExts)
+      .catch(() => {});
   onMount(refresh);
 
   const install = async () => {
@@ -37,14 +40,16 @@ const Extensions: Component = () => {
 
   return (
     <div>
-      <div class="sidebar-section" style={{ padding: "4px 8px" }}>Extensions</div>
+      <div class="sidebar-section" style={{ padding: "4px 8px" }}>
+        Extensions
+      </div>
 
       <Show
         when={exts().length > 0}
         fallback={
           <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
-            No extensions installed. Point Flux at a folder containing a
-            <code>flux.extension.json</code> below — try
+            No extensions installed. Point Flux at a folder containing a<code>flux.extension.json</code> below
+            — try
             <code>examples/extensions/hello</code>.
           </div>
         }
@@ -60,7 +65,9 @@ const Extensions: Component = () => {
                   <button classList={{ "shields-toggle": true, on: e.enabled }} onClick={() => toggle(e)}>
                     {e.enabled ? "On" : "Off"}
                   </button>
-                  <button class="ext-remove" title="Remove" onClick={() => remove(e)}>✕</button>
+                  <button class="ext-remove" title="Remove" onClick={() => remove(e)}>
+                    ✕
+                  </button>
                 </span>
               </div>
               <Show when={(e.manifest.permissions ?? []).length > 0}>
