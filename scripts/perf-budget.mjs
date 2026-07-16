@@ -30,7 +30,14 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // ── budgets (ADR 0001) ───────────────────────────────────────────────────────
-const CHROME_JS_GZIP_BUDGET = 50 * 1024; // bytes
+// Chrome JS: re-baselined 50 → 65 KB on 2026-07-16 (code audit). The original
+// 50 KB was set before ~30 chrome features landed (workspaces, split view,
+// groups/folders, containers, omnibox suggestions, palette, voice wiring, …).
+// The audit first CUT what was genuinely cold — FindBar, ReaderView, semantic
+// find/history, watch panel, tracker graph, app panes are now lazy+gated
+// (70.1 → 64.4 KB) — and the remainder is load-bearing boot chrome, so the
+// budget moved to just above the real floor to keep pressure on regressions.
+const CHROME_JS_GZIP_BUDGET = 65 * 1024; // bytes
 const BINARY_BUDGET = 25 * 1024 * 1024; // bytes
 
 // ── args ─────────────────────────────────────────────────────────────────────

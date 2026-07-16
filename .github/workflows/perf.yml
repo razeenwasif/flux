@@ -12,7 +12,7 @@ on:
   pull_request:
 
 jobs:
-  # Fast, dependency-light gate: the chrome JS budget (≤ 50 KB gzip). Blocks merge.
+  # Fast, dependency-light gate: the chrome JS budget (≤ 65 KB gzip, ADR 0001). Blocks merge.
   chrome-budget:
     runs-on: ubuntu-latest
     steps:

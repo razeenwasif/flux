@@ -86,8 +86,17 @@ Both were prototyped. **SolidJS** wins for the chrome layer:
 | Terminal input → glyph latency | **< 15 ms** | photon-to-photon harness |
 | Agent first token (Gemma-4-12B Q4, warm) | **< 350 ms** | `flux-agent` bench, reference HW: M3 Pro / RTX 4070 |
 | Tab embedding (title + summary) | **< 5 ms/tab** | `flux-embed` bench |
-| Shipped JS for chrome (gzip) | **< 50 KB** | `vite build` size gate |
+| Shipped JS for chrome (gzip) | **< 65 KB** ¹ | `vite build` size gate |
 | Installer size | **< 25 MB** | CI artifact gate |
+
+¹ Re-baselined 50 → 65 KB (2026-07-16 code audit). The 50 KB was set before
+~30 chrome features landed (workspaces, split view, groups/folders, containers,
+omnibox suggestions, command palette, voice wiring, …). The audit first cut the
+genuinely-cold chrome — find bar, reader view, semantic find/history, watch
+panel, tracker graph, and app panes are now lazy + store-gated (70.1 → 64.4 KB
+measured) — and what remains is load-bearing boot chrome, so the budget moved
+to just above the real floor to keep regression pressure. Revisit if the
+eager set is ever split further (e.g. per-feature store/ipc modules).
 
 ## Consequences
 

@@ -4,7 +4,7 @@
  * focused one sits on top and is the app Gemma assists with. Rendered while open;
  * App hides the tab webview so the (HTML) pane is visible above it.
  */
-import { Show, createSignal, onMount, type Component } from "solid-js";
+import { createSignal, onMount, type Component } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import type { FluxApp } from "./apps";
