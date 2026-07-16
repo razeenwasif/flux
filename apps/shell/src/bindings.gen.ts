@@ -350,6 +350,10 @@ export type SnapshotWire = { id: number; visit_id: number; url: string; title: s
  * One message in a visit's chat thread.
  */
 export type ChatMsg = { role: string; text: string; ms: number }
+/**
+ * A past sighting of the current page's error, for the Connections rail.
+ */
+export type AmbientHint = { signature: string; visit_id: number; url: string; title: string; saved_ms: number; has_chat: boolean }
 export type ChromeProfilePreview = { dir: string; name: string; bookmark_count: number; extension_count: number; has_saved_tab_groups: boolean }
 /**
  * A flattened bookmark: folder hierarchy preserved as a path string so the

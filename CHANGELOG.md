@@ -7,6 +7,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Ambient watcher — "you've seen/solved this before" (ADR 0011, #136, local-only)** — the final
+  payoff-layer piece, scoped to the case that can be made *precise*: when the current page shows a
+  shaped **error signature** (a Rust panic / `error[E…]`, a `SomethingError:`/`…Exception:` trace
+  line, `fatal:`, CUDA-OOM/segfault phrases — deterministic patterns, never prose), Flux checks your
+  dwell snapshots for past pages where the **same normalized error** appeared, and the Connections
+  rail shows a quiet **"⚡ Seen before"** block: the past page, when, and a 💬 flag when a chat
+  thread is attached (you may have solved it there). Matching is whitespace/case-tolerant, requires
+  a different URL, caps at 3 hints, and the snapshot scan only runs at all when the current page has
+  an error — on a normal page the check is a no-op. **No LLM in the loop and no network**: it reads
+  only the local trace stores (the "newer paper version exists" watcher idea stays parked pending a
+  network-policy decision). New `trace::ambient` module + `trace_ambient` command; 3 new tests.
+
 ### Changed
 - **Find-in-page is now permanently visible (#33)** — the find bar lives right under the search
   bar in the sidebar instead of appearing on Ctrl+F. Ctrl+F now just focuses it; **Escape clears**

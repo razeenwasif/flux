@@ -100,6 +100,7 @@ import type {
   ForgetScope as GenForgetScope,
   SnapshotWire as GenSnapshotWire,
   ChatMsg as GenChatMsg,
+  AmbientHint as GenAmbientHint,
   ProcInfo as GenProcInfo,
   PwaApp as GenPwaApp,
   SavedSession as GenSavedSession,
@@ -155,6 +156,7 @@ export type TraceGraph = GenTraceGraph;
 export type ForgetScope = GenForgetScope;
 export type SnapshotWire = GenSnapshotWire;
 export type ChatMsg = GenChatMsg;
+export type AmbientHint = GenAmbientHint;
 export type SavedTab = GenSavedTab;
 export type SavedSession = GenSavedSession;
 export type DaySnapshot = GenDaySnapshot;
@@ -1147,6 +1149,9 @@ export const traceForget = (scope: ForgetScope) => invoke<void>("trace_forget", 
 export const traceSnapshot = (tabId: number) => invoke<number | null>("trace_snapshot", { tabId });
 /** A dwell snapshot's stored content (node detail). */
 export const traceSnapshotGet = (id: number) => invoke<SnapshotWire | null>("trace_snapshot_get", { id });
+/** Ambient watcher (local-only): past pages where the current page's error
+ *  signature was seen before — empty unless the page shows a shaped error. */
+export const traceAmbient = (tabId: number) => invoke<AmbientHint[]>("trace_ambient", { tabId });
 /** A visit's persistent chat thread (ADR 0011 step d) — empty if none yet. */
 export const traceChat = (visitId: number) => invoke<ChatMsg[]>("trace_chat", { visitId });
 /** Event frames streamed back by `trace_chat_send` (same shape family as kb_answer). */

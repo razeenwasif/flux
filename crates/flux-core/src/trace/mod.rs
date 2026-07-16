@@ -12,11 +12,13 @@
 //! history. Local-only, persisted as JSON like `history`/`archive`; the spine is
 //! never a network source.
 
+mod ambient;
 mod chats;
 mod entities;
 mod snapshots;
 mod store;
 
+pub use ambient::AmbientHint;
 pub use chats::{ChatMsg, TraceChats};
 pub use entities::extract_entities;
 pub use snapshots::{Snapshot, SnapshotWire, TraceSnapshots, WebDoc};
@@ -134,6 +136,38 @@ pub async fn trace_snapshot(
     trace.set_entities(visit_id, entities);
     trace.derive_entity_edges(visit_id);
     Ok(Some(id))
+}
+
+/// Ambient watcher (ADR 0011, local-only): if the tab's current page shows an
+/// error signature you've hit before, return the past sightings — flagging any
+/// with a chat thread attached ("you may have solved it there"). Empty for
+/// pages with no shaped error lines, which is the overwhelmingly common case —
+/// the snapshot-store scan only runs when the current page actually has one.
+/// Reads only local stores; never the network.
+#[tauri::command]
+pub fn trace_ambient(
+    snaps: State<'_, TraceSnapshots>,
+    chats: State<'_, TraceChats>,
+    state: State<'_, crate::state::FluxState>,
+    tab_id: TabId,
+) -> Vec<AmbientHint> {
+    let Some((url, sigs)) = ({
+        // Extract from the live DOM cache, dropping the guard before the scan.
+        state
+            .dom_cache
+            .get(&tab_id)
+            .map(|snap| (snap.url.clone(), ambient::error_signatures(&snap.text)))
+    }) else {
+        return Vec::new();
+    };
+    if sigs.is_empty() {
+        return Vec::new();
+    }
+    let mut hints = ambient::find_past_sightings(&snaps, &sigs, &url);
+    for h in &mut hints {
+        h.has_chat = chats.has_thread(h.visit_id);
+    }
+    hints
 }
 
 /// A visit's chat thread (ADR 0011 step d) — empty if none yet.

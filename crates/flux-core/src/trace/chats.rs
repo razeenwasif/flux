@@ -86,6 +86,17 @@ impl TraceChats {
             .unwrap_or_default()
     }
 
+    /// Whether a (non-empty) thread is attached — no clone, for the ambient
+    /// watcher's "you may have worked this problem there" flag.
+    pub fn has_thread(&self, visit: VisitId) -> bool {
+        self.hydrate();
+        self.inner
+            .read()
+            .chats
+            .get(&visit)
+            .is_some_and(|t| !t.is_empty())
+    }
+
     /// Append one message, dropping the oldest beyond the per-visit cap.
     pub fn append(&self, visit: VisitId, role: &str, text: &str) {
         self.hydrate();

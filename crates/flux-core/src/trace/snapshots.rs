@@ -255,6 +255,32 @@ impl TraceSnapshots {
             .collect()
     }
 
+    /// Visit each stored snapshot's metadata + text without cloning the corpus —
+    /// the ambient watcher's scan path (`f(visit_id, url, title, saved_ms, text)`).
+    /// The read lock is held for the whole walk; callers keep `f` cheap.
+    pub fn for_each_snapshot(&self, mut f: impl FnMut(VisitId, &str, &str, u64, &str)) {
+        self.hydrate();
+        for s in self.inner.read().snapshots.iter() {
+            f(s.visit_id, &s.url, &s.title, s.saved_ms, &s.text);
+        }
+    }
+
+    /// Path-less store pinned to the Hash embedder — for tests across the trace
+    /// module (no disk, no Ollama probe).
+    #[cfg(test)]
+    pub(crate) fn empty_for_tests() -> Self {
+        let cell = std::sync::OnceLock::new();
+        let _ = cell.set(crate::embedding::Embedder::Hash);
+        Self {
+            inner: RwLock::new(SnapshotData::default()),
+            embedder: std::sync::Arc::new(cell),
+            path: None,
+            dirty: AtomicBool::new(false),
+            hydrated: AtomicBool::new(true),
+            generation: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
     /// Drop snapshots belonging to any of `visits` (cascade from `trace_forget`).
     pub fn forget_visits(&self, visits: &std::collections::HashSet<VisitId>) {
         if visits.is_empty() {
@@ -287,16 +313,7 @@ mod tests {
     use super::*;
     /// Path-less snapshot store pinned to the Hash embedder (no Ollama probe).
     fn test_snaps() -> TraceSnapshots {
-        let cell = std::sync::OnceLock::new();
-        let _ = cell.set(crate::embedding::Embedder::Hash);
-        TraceSnapshots {
-            inner: RwLock::new(SnapshotData::default()),
-            embedder: std::sync::Arc::new(cell),
-            path: None,
-            dirty: AtomicBool::new(false),
-            hydrated: AtomicBool::new(true),
-            generation: std::sync::atomic::AtomicU64::new(0),
-        }
+        TraceSnapshots::empty_for_tests()
     }
 
     #[test]
