@@ -161,6 +161,25 @@ pub async fn pac_status() -> PacStatus {
     })
 }
 
+/// Structural reading (#41 upgrade): classify the reader-mode document and map
+/// its headings onto canonical sections (paper → Abstract/Methods/Results,
+/// recipe → Ingredients/Steps, …). One small schema-constrained completion,
+/// Rust-validated — hallucinated labels never reach the UI. The reader's
+/// deterministic outline works without this; these are the smart chips on top.
+#[tauri::command]
+pub async fn reader_structure(
+    title: String,
+    headings: Vec<String>,
+) -> Result<flux_agent::ReadingStructure, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner()
+            .structure_reading(&title, &headings)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Streaming chat (BACKLOG #82): same as [`agent_chat`] but relays each token to
 /// the frontend over `on_token` as the model generates it, so the sidebar renders
 /// the reply live. Resolves when the completion ends.

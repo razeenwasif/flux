@@ -127,6 +127,7 @@ import type {
   EditPlan as GenEditPlan,
   NextStep as GenNextStep,
   PacPlan as GenPacPlan,
+  ReadingStructure as GenReadingStructure,
   PacStatus as GenPacStatus,
   Reminder as GenReminder,
   SearchEngine as GenSearchEngine,
@@ -364,8 +365,13 @@ export const agentPlanSteps = (goal: string) => invoke<string[]>("agent_plan_ste
 /** Map a Power Platform request to ONE `pac` CLI command (deterministic ALM path,
  * #135). Risk is Rust-classified; nothing runs until the shell card is approved. */
 export type PacPlan = GenPacPlan;
+export type ReadingStructure = GenReadingStructure;
 export type PacStatus = GenPacStatus;
 export const agentPacPlan = (request: string) => invoke<PacPlan>("agent_pac_plan", { request });
+/** Structural reading (#41 upgrade): classify the reader doc + map headings onto
+ *  canonical sections (paper → Abstract/Methods/…). Rust-validated. */
+export const readerStructure = (title: string, headings: string[]) =>
+  invoke<ReadingStructure>("reader_structure", { title, headings });
 /** Preflight: is `pac` installed and is there an active auth profile? */
 export const pacStatus = () => invoke<PacStatus>("pac_status");
 /** Adaptive loop: next command toward `goal` given the history of results so far. */

@@ -163,6 +163,8 @@ pub fn generate_ts() -> String {
         specta::ts::export::<flux_agent::FileEdit>(&c),
         specta::ts::export::<flux_agent::EditPlan>(&c),
         specta::ts::export::<flux_agent::NextStep>(&c),
+        specta::ts::export::<flux_agent::ReadingStructure>(&c),
+        specta::ts::export::<flux_agent::ReadingSection>(&c),
         specta::ts::export::<flux_agent::pac::PacPlan>(&c),
         specta::ts::export::<crate::agent::PacStatus>(&c),
         specta::ts::export::<crate::trace::EntityKind>(&c),

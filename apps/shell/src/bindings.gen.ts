@@ -294,6 +294,15 @@ export type EditPlan = { summary: string; edits: FileEdit[] }
  */
 export type NextStep = { command?: string; done?: boolean; summary?: string }
 /**
+ * Structural reading (idea: a paper *reads* as Abstract/Methods/Results, a
+ * recipe as Ingredients/Steps): the document's type plus its headings mapped
+ * onto that type's canonical sections. `sections[].i` indexes the caller's
+ * heading list. Labels are validated in Rust against [`reading_labels`] — the
+ * model proposes, the allowlist disposes.
+ */
+export type ReadingStructure = { doc_type?: string; sections?: ReadingSection[] }
+export type ReadingSection = { i: number; label: string }
+/**
  * A planned `pac` invocation for the approval card. `command` may be empty when
  * the request doesn't map to a `pac` operation (`explanation` says why).
  * `danger`/`read_only` are derived in Rust from `command`, not the model.

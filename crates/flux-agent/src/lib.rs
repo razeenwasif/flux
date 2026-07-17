@@ -254,6 +254,84 @@ pub struct NextStep {
     pub summary: String,
 }
 
+/// Structural reading (idea: a paper *reads* as Abstract/Methods/Results, a
+/// recipe as Ingredients/Steps): the document's type plus its headings mapped
+/// onto that type's canonical sections. `sections[].i` indexes the caller's
+/// heading list. Labels are validated in Rust against [`reading_labels`] — the
+/// model proposes, the allowlist disposes.
+#[derive(Serialize, Deserialize, Default, specta::Type)]
+pub struct ReadingStructure {
+    /// "paper" | "recipe" | "docs" | "news" | "article" (fallback).
+    #[serde(default)]
+    pub doc_type: String,
+    #[serde(default)]
+    pub sections: Vec<ReadingSection>,
+}
+
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
+pub struct ReadingSection {
+    /// Index into the heading list the caller supplied.
+    pub i: usize,
+    /// A canonical label for that heading (e.g. "Methods" for "2. Approach").
+    pub label: String,
+}
+
+/// The canonical section labels per document type. Anything the model returns
+/// outside this list is dropped (precision over recall — a wrong chip is worse
+/// than a missing one).
+pub fn reading_labels(doc_type: &str) -> &'static [&'static str] {
+    match doc_type {
+        "paper" => &[
+            "Abstract",
+            "Introduction",
+            "Background",
+            "Related Work",
+            "Methods",
+            "Experiments",
+            "Results",
+            "Discussion",
+            "Limitations",
+            "Conclusion",
+            "References",
+            "Appendix",
+        ],
+        "recipe" => &["Ingredients", "Equipment", "Steps", "Notes", "Nutrition"],
+        "docs" => &[
+            "Overview",
+            "Install",
+            "Quickstart",
+            "Usage",
+            "Configuration",
+            "API",
+            "Examples",
+            "FAQ",
+            "Troubleshooting",
+        ],
+        "news" => &["Summary", "Background", "Analysis"],
+        _ => &[],
+    }
+}
+
+/// Drop hallucinated labels/indices and duplicates; unknown `doc_type` falls
+/// back to "article" with no sections. Pure, so the contract is testable
+/// without a model.
+pub fn validate_reading_structure(mut s: ReadingStructure, n_headings: usize) -> ReadingStructure {
+    const TYPES: &[&str] = &["paper", "recipe", "docs", "news", "article"];
+    if !TYPES.contains(&s.doc_type.as_str()) {
+        s.doc_type = "article".into();
+    }
+    let allowed = reading_labels(&s.doc_type);
+    let mut seen = std::collections::HashSet::new();
+    s.sections.retain(|sec| {
+        sec.i < n_headings
+            && allowed.contains(&sec.label.as_str())
+            && seen.insert(sec.label.clone())
+    });
+    s.sections.truncate(12);
+    s.sections.sort_by_key(|sec| sec.i);
+    s
+}
+
 /// Planner: owns a backend, turns (user prompt, page text) into an action.
 pub struct AgentPlanner {
     backend: Box<dyn Inference>,
@@ -530,6 +608,55 @@ impl AgentPlanner {
              Prefer stable selectors (ids, aria-labels, data attributes).\n\n\
              {playbook}TASK GOAL: {goal}\n\nSTEPS DONE:\n{steps}\n\nPAGE:\n{page}"
         )
+    }
+
+    /// Classify a reader-mode document and map its headings onto canonical
+    /// sections (structural reading). One small schema-constrained completion
+    /// over the *headings only* (not the body — cheap and enough signal); the
+    /// result is validated by [`validate_reading_structure`], so hallucinated
+    /// labels or indices can't reach the UI.
+    pub fn structure_reading(
+        &self,
+        title: &str,
+        headings: &[String],
+    ) -> Result<ReadingStructure, AgentError> {
+        let list = headings
+            .iter()
+            .enumerate()
+            .map(|(i, h)| format!("{i}: {h}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let prompt = format!(
+            "Classify a web article's structure. Given its TITLE and numbered HEADINGS, \
+             reply with EXACTLY ONE JSON object:\n\
+             {{\"doc_type\":\"paper|recipe|docs|news|article\",\"sections\":[{{\"i\":<heading number>,\"label\":\"<canonical label>\"}}]}}\n\
+             Canonical labels — paper: Abstract, Introduction, Background, Related Work, Methods, \
+             Experiments, Results, Discussion, Limitations, Conclusion, References, Appendix. \
+             recipe: Ingredients, Equipment, Steps, Notes, Nutrition. \
+             docs: Overview, Install, Quickstart, Usage, Configuration, API, Examples, FAQ, \
+             Troubleshooting. news: Summary, Background, Analysis. article: none.\n\
+             Map ONLY headings that clearly fit a label (e.g. \"2. Approach\" → Methods); skip the \
+             rest. If nothing fits, return an empty sections list.\n\n\
+             TITLE: {title}\nHEADINGS:\n{list}"
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "doc_type": { "enum": ["paper", "recipe", "docs", "news", "article"] },
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": { "i": { "type": "integer" }, "label": { "type": "string" } },
+                        "required": ["i", "label"]
+                    }
+                }
+            },
+            "required": ["doc_type", "sections"]
+        });
+        let raw = self.backend.complete(&prompt, Some(&schema))?;
+        let parsed: ReadingStructure = serde_json::from_str(raw.trim())?;
+        Ok(validate_reading_structure(parsed, headings.len()))
     }
 
     /// Build the chat prompt (active-page context optional). Shared by the
@@ -832,6 +959,54 @@ mod tests {
         assert!(!generic.contains("DOMAIN PLAYBOOK"));
         // Both still carry the task framing.
         assert!(pa.contains("TASK GOAL:") && generic.contains("TASK GOAL:"));
+    }
+
+    #[test]
+    fn reading_structure_validation_drops_hallucinations() {
+        let s = ReadingStructure {
+            doc_type: "paper".into(),
+            sections: vec![
+                ReadingSection {
+                    i: 5,
+                    label: "Methods".into(),
+                }, // out of order (sorted below)
+                ReadingSection {
+                    i: 0,
+                    label: "Abstract".into(),
+                }, // valid
+                ReadingSection {
+                    i: 1,
+                    label: "Ingredients".into(),
+                }, // wrong type's label → dropped
+                ReadingSection {
+                    i: 99,
+                    label: "Results".into(),
+                }, // index out of range → dropped
+                ReadingSection {
+                    i: 2,
+                    label: "Abstract".into(),
+                }, // duplicate label → dropped
+            ],
+        };
+        let v = validate_reading_structure(s, 10);
+        assert_eq!(v.doc_type, "paper");
+        let got: Vec<(usize, &str)> = v.sections.iter().map(|x| (x.i, x.label.as_str())).collect();
+        assert_eq!(
+            got,
+            vec![(0, "Abstract"), (5, "Methods")],
+            "sorted by position, junk dropped"
+        );
+        // Unknown type → article fallback, which allows no labels at all.
+        let odd = ReadingStructure {
+            doc_type: "poem".into(),
+            sections: vec![ReadingSection {
+                i: 0,
+                label: "Abstract".into(),
+            }],
+        };
+        let v = validate_reading_structure(odd, 3);
+        assert_eq!(v.doc_type, "article");
+        assert!(v.sections.is_empty());
     }
 
     #[test]

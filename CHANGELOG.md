@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Structural reading mode (#41 upgrade)** — reader mode now *understands the document's shape*,
+  two layers deep: an **outline rail** (deterministic, built from the heading blocks — instant,
+  works offline, ≥3 headings) with click-to-jump; and **section chips** — one small
+  schema-constrained call to local Gemma classifies the document (**research paper / recipe /
+  documentation / news**) and maps its headings onto that type's canonical sections, so a paper
+  reads as 📄 Abstract · 🧪 Methods · 📊 Results · 💬 Discussion and a recipe as 🧂 Ingredients ·
+  👨‍🍳 Steps, each chip a jump. The model's mapping is **validated in Rust** against a per-type label
+  allowlist (wrong labels/indices/duplicates dropped — a wrong chip is worse than a missing one),
+  and with Ollama down the chips simply don't appear while the outline still works. A type badge in
+  the reader bar shows what was detected. New `structure_reading` planner method +
+  `reader_structure` command; 1 new test.
 - **Rabbit-hole auto-archive — stale research branches archive as one named unit (#46 upgrade,
   ADR 0011 payoff)** — the original "Semantic Tab Mapping and Auto-Pruning" idea, built on the
   Trail. When the auto-archive sweep (Settings → Tabs, off by default) finds stale tabs, it now

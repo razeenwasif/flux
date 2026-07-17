@@ -809,6 +809,7 @@ pub fn run(intent: cli::LaunchIntent) {
             agent::agent_chat_stream,
             agent::agent_shell_plan,
             agent::agent_pac_plan,
+            agent::reader_structure,
             agent::pac_status,
             agent::agent_plan_steps,
             proxy::proxy_get,

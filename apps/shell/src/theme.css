@@ -10560,6 +10560,79 @@ input[type="radio"].pdf-fw {
 .reader-btn:hover {
   border-color: var(--flux-teal);
 }
+/* Structural reading (#41 upgrade): type badge + section chips + outline rail. */
+.reader-type {
+  font-size: 11px;
+  color: var(--flux-magenta, #ec4be0);
+  border: 1px solid rgba(236, 75, 224, 0.35);
+  border-radius: 999px;
+  padding: 2px 9px;
+  text-transform: capitalize;
+}
+.reader-chips {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--glass-rim-soft);
+}
+.reader-chip {
+  font-size: 11.5px;
+  color: var(--flux-text);
+  cursor: pointer;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: rgba(123, 97, 255, 0.14);
+  border: 1px solid rgba(123, 97, 255, 0.3);
+}
+.reader-chip:hover {
+  background: rgba(123, 97, 255, 0.28);
+}
+.reader-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.reader-outline {
+  flex: 0 0 200px;
+  overflow-y: auto;
+  padding: 18px 6px 18px 12px;
+  border-right: 1px solid var(--glass-rim-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.reader-outline-item {
+  text-align: left;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--flux-text-mute);
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.reader-outline-item:hover {
+  color: var(--flux-text);
+  background: rgba(123, 97, 255, 0.12);
+}
+.reader-outline-item.lv2 {
+  padding-left: 16px;
+}
+.reader-outline-item.lv3 {
+  padding-left: 26px;
+}
+@media (max-width: 860px) {
+  .reader-outline {
+    display: none;
+  }
+}
 .reader-doc {
   flex: 1;
   overflow-y: auto;
