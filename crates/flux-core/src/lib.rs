@@ -882,6 +882,7 @@ pub fn run(intent: cli::LaunchIntent) {
             trace::trace_visit,
             trace::trace_graph,
             trace::trace_histogram,
+            trace::trace_branches,
             trace::trace_forget,
             trace::trace_snapshot,
             trace::trace_snapshot_get,

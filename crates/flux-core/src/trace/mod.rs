@@ -71,6 +71,24 @@ pub fn trace_histogram(store: State<'_, TraceStore>, buckets: Option<usize>) -> 
     store.histogram(buckets.unwrap_or(120))
 }
 
+/// A tab reference for branch grouping: its id + current URL (the URL is the
+/// visit-resolution fallback for hibernated tabs — see `TraceStore::branches`).
+#[derive(serde::Deserialize, specta::Type)]
+pub struct BranchTabRef {
+    pub id: TabId,
+    pub url: String,
+}
+
+/// Group open tabs into Trail-connected "rabbit-hole" branches (#46 upgrade:
+/// archive a whole solved research branch as one unit, not scattered tabs).
+/// Returns the branches largest-first; every input tab appears exactly once
+/// (unconnected tabs come back as singletons).
+#[tauri::command]
+pub fn trace_branches(store: State<'_, TraceStore>, tabs: Vec<BranchTabRef>) -> Vec<Vec<TabId>> {
+    let pairs: Vec<(TabId, String)> = tabs.into_iter().map(|t| (t.id, t.url)).collect();
+    store.branches(&pairs)
+}
+
 /// A dwell snapshot's content (node detail).
 #[tauri::command]
 pub fn trace_snapshot_get(snaps: State<'_, TraceSnapshots>, id: u64) -> Option<SnapshotWire> {

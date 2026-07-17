@@ -204,8 +204,6 @@ import {
   tabs,
   touchTabUrl,
   seedTabAccess,
-  staleTabIds,
-  archiveTabRecord,
   unpinnedTabs,
   updateTabUrl,
 } from "./store";
@@ -454,16 +452,11 @@ const App: Component = () => {
       const now = Date.now();
       const act = activeId();
       if (act != null) lastActive.set(act, now);
-      // Auto-archive (#46): close long-stale tabs into the restorable list. Gentle —
-      // a few per sweep — and run BEFORE the live-bg bail, since stale tabs are
-      // usually already hibernated (so not "live").
-      for (const id of staleTabIds(now).slice(0, 5)) {
-        const t = tabs().find((x) => x.id === id);
-        if (t) {
-          archiveTabRecord(t.url, t.title);
-          void closeTab(id);
-        }
-      }
+      // Auto-archive (#46, branch-aware): stale tabs that form a Trail-connected
+      // "rabbit hole" archive together as ONE named branch; loners go to the flat
+      // list. Runs BEFORE the live-bg bail (stale tabs are usually hibernated).
+      // Lazily imported — sweep logic stays out of the boot bundle.
+      void import("./staleSweep").then((m) => m.runStaleSweep(now));
       // Nothing live in the background → no idle-sleep candidates and no reason
       // to scan system memory. Bail before the sysinfo IPC (the periodic cost).
       const bg = liveBackground(act);

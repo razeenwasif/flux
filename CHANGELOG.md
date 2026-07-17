@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Rabbit-hole auto-archive — stale research branches archive as one named unit (#46 upgrade,
+  ADR 0011 payoff)** — the original "Semantic Tab Mapping and Auto-Pruning" idea, built on the
+  Trail. When the auto-archive sweep (Settings → Tabs, off by default) finds stale tabs, it now
+  asks the Trail to group them into **branches** — connected components over the tabs' visits and
+  their Nav/Semantic/Cites edges (with a newest-visit-by-URL fallback, since hibernated tabs lose
+  their live pointer across restarts). A branch of ≥2 tabs archives **as one unit**: closed
+  together, recorded together, and **named by Gemma** ("CUDA OOM debugging", best-effort async —
+  a placeholder until the model replies). The Archived panel shows branches as 🌿 rows with a page
+  count, the member titles as chips, one-tap **restore-all**, and ✕; loners keep the flat per-tab
+  list. Gentle: one branch + ≤5 singles per sweep. The whole sweep is now a lazily-imported module,
+  so none of it rides in the boot bundle. New `trace_branches` command (union-find in Rust, tested);
+  nothing is lost — every page stays in the Trail regardless.
 - **Trail refinements — the page's thread in the agent sidebar + a real timeline scrubber
   (ADR 0011, #136)** — two follow-ups from the payoff layer:
   **💬 Page thread scope** — the agent sidebar grows a fourth scope next to This page / All tabs /

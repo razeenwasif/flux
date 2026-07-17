@@ -477,6 +477,79 @@ impl TraceStore {
         self.add_derived_edges(&new_edges);
     }
 
+    /// Group open tabs into "rabbit-hole" branches (idea: auto-archive a whole
+    /// research branch, not scattered tabs): connected components over the Trail
+    /// edges (all kinds, undirected) of each tab's visit. A tab's visit is its
+    /// live pointer when the session has one, else the **newest visit with the
+    /// tab's URL** — hibernated tabs never re-publish after a restart, so the
+    /// URL fallback is what keeps long-stale tabs groupable. Tabs that resolve
+    /// to no visit become singletons. Output covers every input tab exactly once.
+    pub fn branches(&self, tabs: &[(TabId, String)]) -> Vec<Vec<TabId>> {
+        self.hydrate();
+        let d = self.inner.read();
+        let by_tab = self.by_tab.read();
+
+        // Resolve tab → visit (live pointer, else newest visit by URL).
+        let mut visit_of: HashMap<TabId, VisitId> = HashMap::new();
+        for (tab, url) in tabs {
+            let vid = by_tab.get(tab).copied().or_else(|| {
+                d.visits
+                    .iter()
+                    .filter(|v| &v.url == url)
+                    .max_by_key(|v| v.last_ms)
+                    .map(|v| v.id)
+            });
+            if let Some(v) = vid {
+                visit_of.insert(*tab, v);
+            }
+        }
+
+        // Union-find over the tabs, keyed through their visits.
+        let ids: Vec<TabId> = tabs.iter().map(|(t, _)| *t).collect();
+        let index: HashMap<TabId, usize> = ids.iter().enumerate().map(|(i, t)| (*t, i)).collect();
+        let mut parent: Vec<usize> = (0..ids.len()).collect();
+        fn find(parent: &mut [usize], i: usize) -> usize {
+            let mut i = i;
+            while parent[i] != i {
+                parent[i] = parent[parent[i]]; // path halving
+                i = parent[i];
+            }
+            i
+        }
+        let union = |parent: &mut [usize], a: usize, b: usize| {
+            let (ra, rb) = (find(parent, a), find(parent, b));
+            if ra != rb {
+                parent[ra] = rb;
+            }
+        };
+
+        // Same visit (duplicate URL tabs) → same branch.
+        let mut tabs_of_visit: HashMap<VisitId, Vec<usize>> = HashMap::new();
+        for (tab, vid) in &visit_of {
+            tabs_of_visit.entry(*vid).or_default().push(index[tab]);
+        }
+        for group in tabs_of_visit.values() {
+            for w in group.windows(2) {
+                union(&mut parent, w[0], w[1]);
+            }
+        }
+        // Any Trail edge between two tabs' visits → same branch.
+        for e in &d.edges {
+            if let (Some(a), Some(b)) = (tabs_of_visit.get(&e.from), tabs_of_visit.get(&e.to)) {
+                union(&mut parent, a[0], b[0]);
+            }
+        }
+
+        let mut out: HashMap<usize, Vec<TabId>> = HashMap::new();
+        for (i, tab) in ids.iter().enumerate() {
+            let root = find(&mut parent, i);
+            out.entry(root).or_default().push(*tab);
+        }
+        let mut branches: Vec<Vec<TabId>> = out.into_values().collect();
+        branches.sort_unstable_by_key(|b| std::cmp::Reverse(b.len()));
+        branches
+    }
+
     /// Visit-density histogram over the whole Trail — the scrubber's backdrop
     /// ("where was I active"). One pass; `buckets` counts of visits by `last_ms`
     /// between the oldest and newest visit. All-zero span when the Trail is empty.
@@ -852,6 +925,50 @@ mod tests {
         // Bucket count is clamped to something sane.
         assert_eq!(s.histogram(1).counts.len(), 10);
         assert_eq!(s.histogram(9999).counts.len(), 400);
+    }
+
+    #[test]
+    fn branches_group_by_trail_connectivity_with_url_fallback() {
+        let s = TraceStore::default();
+        // A rabbit hole on tab 1: a → b → c (nav edges), then unrelated d on tab 2.
+        let _a = s.record(1, "https://a.com/", "A", None).unwrap();
+        let _b = s.record(1, "https://b.com/", "B", None).unwrap();
+        let _c = s.record(1, "https://c.com/", "C", None).unwrap();
+        let _d = s.record(2, "https://d.com/", "D", None).unwrap();
+        // Simulate a restart: live tab→visit pointers are gone (hibernated tabs
+        // never re-publish), so resolution must fall back to URL matching.
+        s.by_tab.write().clear();
+
+        // Three tabs holding the a/b/c pages + one on d + one with no Trail record.
+        let tabs = vec![
+            (10, "https://a.com/".to_string()),
+            (11, "https://b.com/".to_string()),
+            (12, "https://c.com/".to_string()),
+            (13, "https://d.com/".to_string()),
+            (14, "https://never-visited.example/".to_string()),
+        ];
+        let branches = s.branches(&tabs);
+        // Largest first: the a-b-c branch, then two singletons.
+        assert_eq!(branches.len(), 3);
+        let big = &branches[0];
+        assert_eq!(big.len(), 3);
+        for t in [10, 11, 12] {
+            assert!(big.contains(&t));
+        }
+        // Every input tab appears exactly once across all branches.
+        let all: Vec<TabId> = branches.iter().flatten().copied().collect();
+        assert_eq!(all.len(), 5);
+        for (t, _) in &tabs {
+            assert!(all.contains(t));
+        }
+        // Semantic edges connect branches too (derived, not just nav).
+        let x = s.record(3, "https://x.com/", "X", None).unwrap();
+        let y = s.record(4, "https://y.com/", "Y", None).unwrap();
+        s.add_semantic_edges(y, &[x]);
+        s.by_tab.write().clear();
+        let b2 = s.branches(&[(20, "https://x.com/".into()), (21, "https://y.com/".into())]);
+        assert_eq!(b2.len(), 1);
+        assert_eq!(b2[0].len(), 2);
     }
 
     #[test]

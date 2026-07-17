@@ -1161,6 +1161,10 @@ export const traceChat = (visitId: number) => invoke<ChatMsg[]>("trace_chat", { 
 /** The active page's persistent thread (re-attach by visit) — null when the
  *  tab has no current Visit (internal pages, private tabs). */
 export const traceTabThread = (tabId: number) => invoke<TabThread | null>("trace_tab_thread", { tabId });
+/** Group open tabs into Trail-connected "rabbit-hole" branches (largest first;
+ *  every input tab appears exactly once — unconnected tabs come back solo). */
+export const traceBranches = (tabs: { id: number; url: string }[]) =>
+  invoke<number[][]>("trace_branches", { tabs });
 /** Visit-density histogram — the Trail scrubber's activity backdrop. */
 export const traceHistogram = (buckets?: number) =>
   invoke<TraceHistogram>("trace_histogram", { buckets: buckets ?? null });

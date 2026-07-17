@@ -1048,6 +1048,52 @@ export async function restoreArchived(a: ArchivedTab): Promise<void> {
   touchTabUrl(a.url);
   await openTab("browser", a.url);
 }
+// ── Archived branches (#46 upgrade — "rabbit-hole" auto-archive) ────────────
+// When a whole Trail-connected branch of tabs goes stale together, it archives
+// as ONE unit with a Gemma-written one-line summary, instead of scattering into
+// the flat list. Restorable as a set; capped; localStorage like the flat list.
+export type ArchivedBranch = {
+  id: string;
+  /** One-line "what this rabbit hole was about" (placeholder until Gemma replies). */
+  summary: string;
+  ts: number;
+  tabs: { url: string; title: string }[];
+};
+const BRANCHES_KEY = "flux.archivedBranches";
+const [archivedBranches, setArchivedBranches] = createSignal<ArchivedBranch[]>(readJson(BRANCHES_KEY, []));
+export { archivedBranches };
+function persistBranches(list: ArchivedBranch[]): void {
+  setArchivedBranches(list);
+  localStorage.setItem(BRANCHES_KEY, JSON.stringify(list.slice(0, 40)));
+}
+/** Record a branch (newest first). Returns its id so the sweep can attach the
+ *  async summary when it arrives. */
+export function archiveBranchRecord(tabsIn: { url: string; title: string }[]): string {
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const branch: ArchivedBranch = {
+    id,
+    summary: "",
+    ts: Date.now(),
+    tabs: tabsIn.map((t) => ({ url: t.url, title: t.title || t.url })),
+  };
+  persistBranches([branch, ...archivedBranches()]);
+  return id;
+}
+export function updateBranchSummary(id: string, summary: string): void {
+  persistBranches(archivedBranches().map((b) => (b.id === id ? { ...b, summary } : b)));
+}
+export function removeBranch(id: string): void {
+  persistBranches(archivedBranches().filter((b) => b.id !== id));
+}
+/** Reopen every page of a branch as tabs and drop the record. */
+export async function restoreBranch(b: ArchivedBranch): Promise<void> {
+  removeBranch(b.id);
+  for (const t of b.tabs) {
+    touchTabUrl(t.url);
+    await openTab("browser", t.url).catch(() => {});
+  }
+}
+
 /** Open browser tabs stale enough to auto-archive now (excludes the active, pinned,
  *  foldered and start tabs). Empty when the feature is off (days = 0). */
 export function staleTabIds(now: number): number[] {

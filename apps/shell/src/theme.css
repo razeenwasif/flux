@@ -6987,6 +6987,39 @@ body.busy .start-card {
   border: 1px solid var(--flux-border);
   border-radius: 10px;
 }
+/* Archived rabbit-hole branches (#46 upgrade) */
+.arch-branch {
+  border-left: 2px solid rgba(123, 97, 255, 0.4);
+  margin: 2px 4px 6px;
+  padding-left: 2px;
+}
+.arch-branch-n {
+  margin-left: 6px;
+  font-size: 9.5px;
+  color: var(--flux-teal, #2ff3ff);
+  border: 1px solid rgba(47, 243, 255, 0.3);
+  border-radius: 999px;
+  padding: 0 5px;
+}
+.arch-branch-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 0 10px 4px;
+}
+.arch-branch-tab {
+  font-size: 9.5px;
+  color: var(--flux-text-mute);
+  background: rgba(123, 97, 255, 0.08);
+  border: 1px solid rgba(123, 97, 255, 0.16);
+  border-radius: 999px;
+  padding: 1px 7px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .trail-scrub-track {
   position: relative;
   flex: 1 1 auto;

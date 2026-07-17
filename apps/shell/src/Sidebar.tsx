@@ -44,6 +44,9 @@ import {
   activeWorkspace,
   aiAnswersOn,
   archivedTabs,
+  archivedBranches,
+  restoreBranch,
+  removeBranch,
   clearArchived,
   clearSplit,
   closeTab,
@@ -1115,7 +1118,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </Portal>
         </Show>
 
-
         {/* Pinned tiles (Arc Favorites) */}
         <Show when={pinnedTabs().length > 0}>
           <div class="pin-grid">
@@ -1826,10 +1828,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
         >
           ◨
         </button>
-        <Show when={archivedTabs().length > 0}>
+        <Show when={archivedTabs().length > 0 || archivedBranches().length > 0}>
           <button
             classList={{ "icon-btn": true, active: panel() === "archived" }}
-            title="Archived tabs — auto-closed stale tabs you can reopen"
+            title="Archived tabs — auto-closed stale tabs & research branches you can reopen"
             onClick={() => openPanel("archived")}
           >
             🗄
@@ -2260,13 +2262,60 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   </button>
                 </Show>
               </div>
+              {/* Rabbit-hole branches (#46 upgrade): a whole Trail-connected
+                  research thread archived as one named, restorable unit. */}
+              <For each={archivedBranches()}>
+                {(b) => (
+                  <div class="arch-branch">
+                    <div class="panel-row">
+                      <button
+                        class="panel-row-open"
+                        title={`${b.tabs.length} pages · archived ${new Date(b.ts).toLocaleDateString()}\nClick to reopen all`}
+                        onClick={() => {
+                          void restoreBranch(b);
+                          setPanel(null);
+                        }}
+                      >
+                        <span class="panel-row-title">
+                          🌿 {b.summary || `Research branch · ${b.tabs.length} pages`}
+                          <span class="arch-branch-n">{b.tabs.length}</span>
+                        </span>
+                      </button>
+                      <button
+                        class="panel-row-x"
+                        title="Remove branch"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeBranch(b.id);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div class="arch-branch-tabs">
+                      <For each={b.tabs.slice(0, 6)}>
+                        {(t) => (
+                          <span class="arch-branch-tab" title={t.url}>
+                            {t.title}
+                          </span>
+                        )}
+                      </For>
+                      <Show when={b.tabs.length > 6}>
+                        <span class="arch-branch-tab">+{b.tabs.length - 6} more</span>
+                      </Show>
+                    </div>
+                  </div>
+                )}
+              </For>
               <Show
                 when={archivedTabs().length > 0}
                 fallback={
-                  <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
-                    Stale tabs auto-archive here (set the threshold in Settings → Tabs). Reopen any with one
-                    tap.
-                  </div>
+                  <Show when={archivedBranches().length === 0}>
+                    <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
+                      Stale tabs auto-archive here (set the threshold in Settings → Tabs); a whole research
+                      branch archives together, named. Reopen any with one tap.
+                    </div>
+                  </Show>
                 }
               >
                 <For each={archivedTabs()}>
