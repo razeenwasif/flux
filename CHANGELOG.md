@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Trace stores are now encrypted at rest (ADR 0011, draft-capture phase — part 1)** — the Trail
+  records what you read (and, next, fragments of what you type), so its files no longer sit in
+  plaintext: `trace.json`, `snapshots.json`, and `chats.json` are sealed with **AES-256-GCM**
+  (reusing the vault's audited seal/open), keyed from the **OS keychain** (`Flux`/`trace-key-v1`)
+  with a 0600 key-file fallback beside the stores when no keychain exists (headless WSL) — the same
+  ladder the password vault uses. If neither is available, persistence falls back to plaintext with
+  a warning rather than losing the Trail. **Migration is transparent:** legacy plaintext files load
+  normally and are rewritten sealed on the next flush. History/archive encryption remains a
+  separate decision (flagged in ADR 0011).
 - **Structural reading mode (#41 upgrade)** — reader mode now *understands the document's shape*,
   two layers deep: an **outline rail** (deterministic, built from the heading blocks — instant,
   works offline, ≥3 headings) with click-to-jump; and **section chips** — one small

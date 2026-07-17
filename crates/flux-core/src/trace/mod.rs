@@ -15,6 +15,7 @@
 mod ambient;
 mod chats;
 mod entities;
+mod sealed;
 mod snapshots;
 mod store;
 

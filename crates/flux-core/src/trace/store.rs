@@ -180,12 +180,16 @@ impl TraceStore {
             return;
         }
         let Some(path) = &self.path else { return };
-        let Some(loaded) = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<TraceData>(&s).ok())
-        else {
+        let Some((json, was_plaintext)) = super::sealed::load_string(path) else {
             return;
         };
+        let Some(loaded) = serde_json::from_str::<TraceData>(&json).ok() else {
+            return;
+        };
+        if was_plaintext {
+            // Legacy pre-encryption file: rewrite sealed on the next flush.
+            self.dirty.store(true, Ordering::Relaxed);
+        }
         let mut d = self.inner.write();
         if d.visits.is_empty() && d.edges.is_empty() {
             d.next_id = d.next_id.max(loaded.next_id);
@@ -686,7 +690,7 @@ impl TraceStore {
         }
         let Some(path) = &self.path else { return };
         let d = self.inner.read();
-        crate::persist::save_json(path, &*d);
+        super::sealed::save_json_sealed(path, &*d);
     }
 }
 

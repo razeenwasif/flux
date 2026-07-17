@@ -63,12 +63,16 @@ impl TraceChats {
             return;
         }
         let Some(path) = &self.path else { return };
-        let Some(loaded) = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<ChatData>(&s).ok())
-        else {
+        let Some((json, was_plaintext)) = super::sealed::load_string(path) else {
             return;
         };
+        let Some(loaded) = serde_json::from_str::<ChatData>(&json).ok() else {
+            return;
+        };
+        if was_plaintext {
+            // Legacy pre-encryption file: rewrite sealed on the next flush.
+            self.dirty.store(true, Ordering::Relaxed);
+        }
         let mut d = self.inner.write();
         if d.chats.is_empty() {
             d.chats = loaded.chats;
@@ -137,7 +141,7 @@ impl TraceChats {
         }
         let Some(path) = &self.path else { return };
         let d = self.inner.read();
-        crate::persist::save_json(path, &*d);
+        super::sealed::save_json_sealed(path, &*d);
     }
 }
 
