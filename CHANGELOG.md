@@ -8,6 +8,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Calendar from anywhere (#114 follow-up)** — a 📅 icon joins the sidebar footer: one click opens
+  a glanceable **calendar popover** — mini month grid with event dots and ‹ › month nav, plus the
+  upcoming agenda (tap a day to see just that day; ↗ jumps to the full home calendar). Same data as
+  the home calendar (ICS feeds + Flux-local events, recurrence expanded). The icon shows a magenta
+  **dot when an event starts within 30 minutes** (polled every 10 min, visibility-aware). Also in
+  **⌘K**: "Open calendar". Gemma already handles "what's on Friday" / "schedule lunch tomorrow at
+  noon" from anywhere, completing the picture. Budget-funded by splitting the Shields popover body
+  into a lazy chunk (the footer keeps only the icon + badge): eager chrome **65.0 → 64.4 KB** with
+  everything added.
+- **Discord & Teams quick panels** — ⌘K "Open Discord panel" / "Open Teams panel" pins the site as
+  a **web panel** (#48) on first use and toggles it after: a slim native-webview pane beside any
+  tab for checking messages without leaving the page — with the panel rail's unread badges once
+  pinned. (Web panels, not app panes: both sites forbid iframing, so the native webview is the only
+  surface that works — and it keeps your login session.)
 - **Draft capture — the Time Machine remembers what you were typing (ADR 0011 final phase, opt-in,
   OFF by default)** — with "Capture typed drafts" enabled (Settings → Privacy & security), pausing
   mid-type in a comment box / issue form / long textarea saves the draft to the page's Trail visit,

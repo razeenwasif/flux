@@ -253,6 +253,31 @@ async function refreshPanels(): Promise<void> {
   const list = await panelsList().catch(() => []);
   applyPanels(list);
 }
+// Calendar popover (#114 follow-up): glanceable agenda from anywhere, opened
+// by the footer 📅 or the ⌘K palette. Store-backed so both can drive it.
+const [calendarPopOpen, setCalendarPopOpen] = createSignal(false);
+export { calendarPopOpen, setCalendarPopOpen };
+
+/** Open (pinning on first use) a messaging side panel — Discord / Teams. Both
+ *  sites forbid iframing, so the native-webview web panel (#48) is the quick
+ *  message-check surface; once pinned they live in the panel rail permanently
+ *  (with unread badges) and this just toggles them. */
+export async function openMessagingPanel(kind: "discord" | "teams"): Promise<void> {
+  const preset =
+    kind === "discord"
+      ? { url: "https://discord.com/channels/@me", host: "discord.com", title: "Discord" }
+      : { url: "https://teams.microsoft.com/", host: "teams.microsoft.com", title: "Teams" };
+  const existing = panels().find((p) => {
+    try {
+      return new URL(p.url).hostname.endsWith(preset.host);
+    } catch {
+      return false;
+    }
+  });
+  if (existing) togglePanel(existing.id);
+  else await pinPanel(preset.url, preset.title);
+}
+
 /** Pin a site as a panel and open it. */
 export async function pinPanel(url: string, title: string): Promise<void> {
   const p = await panelAdd(url, title).catch(() => null);

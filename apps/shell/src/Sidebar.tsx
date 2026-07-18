@@ -11,6 +11,7 @@ import {
   SESSIONS_URL,
   SETTINGS_URL,
   bookmarkAdd,
+  calEvents,
   historySearch,
   isStartUrl,
   memStatus,
@@ -45,6 +46,8 @@ import {
   aiAnswersOn,
   archivedTabs,
   archivedBranches,
+  calendarPopOpen,
+  setCalendarPopOpen,
   restoreBranch,
   removeBranch,
   clearArchived,
@@ -128,6 +131,7 @@ import {
   workspaces,
   zoomFor,
 } from "./store";
+import { visibleInterval } from "./poll";
 import { Favicon, PanelIcon, clusterColor } from "./tabvisual";
 import {
   For,
@@ -138,6 +142,7 @@ import {
   createSignal,
   lazy,
   onCleanup,
+  onMount,
   type Component,
 } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -148,6 +153,7 @@ const Boosts = lazy(() => import("./Boosts"));
 const Macros = lazy(() => import("./Macros"));
 const Passwords = lazy(() => import("./Passwords"));
 const FindBar = lazy(() => import("./FindBar"));
+const CalendarPop = lazy(() => import("./CalendarPop"));
 // ─── Sidebar ────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -200,6 +206,28 @@ function answerParts(text: string): AnswerPart[] {
 }
 
 const Sidebar: Component<SidebarProps> = (props) => {
+  // Upcoming-event badge (#114): true when something starts within 30 minutes.
+  // Polled every 10 min (cal_events fetches the ICS feeds — keep it rare).
+  const [calSoon, setCalSoon] = createSignal(false);
+  onMount(() =>
+    visibleInterval(() => {
+      void calEvents()
+        .then((evs) => {
+          const now = new Date();
+          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+          const mins = now.getHours() * 60 + now.getMinutes();
+          setCalSoon(
+            evs.some((e) => {
+              if (e.date !== today || !e.time) return false;
+              const [h, m] = e.time.split(":").map(Number);
+              const t = (h ?? 0) * 60 + (m ?? 0);
+              return t >= mins && t - mins <= 30;
+            }),
+          );
+        })
+        .catch(() => {});
+    }, 600_000),
+  );
   const [picker, setPicker] = createSignal(false);
   const [address, setAddress] = createSignal("");
   const [panel, setPanel] = createSignal<FooterPanel>(null);
@@ -1740,6 +1768,21 @@ const Sidebar: Component<SidebarProps> = (props) => {
         >
           ✦
         </button>
+        {/* Calendar (#114 follow-up): glanceable agenda from anywhere. The dot
+            marks an event starting within 30 minutes. Popover body is lazy. */}
+        <button
+          classList={{ "icon-btn": true, active: calendarPopOpen() }}
+          title="Calendar — today & upcoming (also in ⌘K)"
+          onClick={() => setCalendarPopOpen(!calendarPopOpen())}
+        >
+          📅
+          <Show when={calSoon()}>
+            <span class="cal-soon-dot" title="An event starts within 30 minutes" />
+          </Show>
+        </button>
+        <Show when={calendarPopOpen()}>
+          <CalendarPop />
+        </Show>
         <Shields onNavigate={props.onNavigate} />
         <Show
           when={boostsLoaded()}

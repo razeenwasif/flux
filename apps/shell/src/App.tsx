@@ -144,6 +144,8 @@ import {
   kbPanelOpen,
   setKbPanelOpen,
   shellHistOpen,
+  setCalendarPopOpen,
+  openMessagingPanel,
   setShellHistOpen,
   setSplitPickerOpen,
   semFindOpen,
@@ -1073,6 +1075,17 @@ const App: Component = () => {
     { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
     { id: "notebook", label: "Open Notebook (ask your notes)", icon: "✦", run: () => go(NOTEBOOK_URL) },
     { id: "trail", label: "Open the Trail (your browsing graph)", icon: "🧭", run: () => go(TRAIL_URL) },
+    {
+      id: "calendar",
+      label: "Open calendar (today & upcoming)",
+      icon: "📅",
+      run: () => {
+        setSidebarOpen(true);
+        setCalendarPopOpen(true);
+      },
+    },
+    { id: "discord", label: "Open Discord panel", icon: "💬", run: () => void openMessagingPanel("discord") },
+    { id: "teams", label: "Open Teams panel", icon: "💬", run: () => void openMessagingPanel("teams") },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
     {
       id: "semantic-find",

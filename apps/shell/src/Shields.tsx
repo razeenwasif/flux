@@ -1,143 +1,28 @@
 /**
  * Shields — the content-blocker control (BACKLOG #57). A footer icon with a
- * live blocked-count badge; clicking opens a popover to toggle blocking globally
- * or for the current site, and to refresh the filter lists.
+ * live blocked-count badge; clicking opens the popover (lazy — the toggle UI
+ * loads on first open, keeping it out of the boot bundle per ADR 0001).
  */
-import { Show, createEffect, createSignal, type Component } from "solid-js";
+import { Show, createEffect, createSignal, lazy, type Component } from "solid-js";
 
-import { visibleInterval } from "./poll";
-import {
-  cookiesClearAll,
-  cookiesClearSite,
-  cookiesSetClearOnClose,
-  cookiesStatus,
-  httpsAllowSite,
-  httpsSetEnabled,
-  httpsStatus,
-  leanSetSite,
-  leanStatus,
-  PERMISSIONS_URL,
-  permissionsSetBlock,
-  permissionsStatus,
-  shieldsRefresh,
-  shieldsSetEnabled,
-  shieldsSetSite,
-  shieldsStatus,
-  trackingSetLevel,
-  trackingStatus,
-  type CookieStatus,
-  type HttpsStatus,
-  type LeanStatus,
-  type ShieldsStatus,
-} from "./ipc";
+import { shieldsStatus, type ShieldsStatus } from "./ipc";
 import { activeTab } from "./store";
 
-function hostOf(url: string): string | null {
-  try {
-    return new URL(url).hostname || null;
-  } catch {
-    return null;
-  }
-}
+const ShieldsPop = lazy(() => import("./ShieldsPop"));
 
 const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const [status, setStatus] = createSignal<ShieldsStatus | null>(null);
-  const [https, setHttps] = createSignal<HttpsStatus | null>(null);
-  const [tracking, setTracking] = createSignal(2);
-  const [cookies, setCookies] = createSignal<CookieStatus | null>(null);
-  const [blockPerms, setBlockPerms] = createSignal(false);
-  const [lean, setLean] = createSignal<LeanStatus | null>(null);
   const [open, setOpen] = createSignal(false);
-  // Just the blocked-count for the icon badge (cheap, refreshed on navigation).
+  // Just the blocked-count for the icon badge (cheap, refreshed on navigation —
+  // the popover polls the full status set itself while open).
   const pollBadge = () =>
     void shieldsStatus()
       .then(setStatus)
       .catch(() => {});
-  const poll = () => {
-    pollBadge();
-    void httpsStatus()
-      .then(setHttps)
-      .catch(() => {});
-    void trackingStatus()
-      .then(setTracking)
-      .catch(() => {});
-    void cookiesStatus()
-      .then(setCookies)
-      .catch(() => {});
-    void permissionsStatus()
-      .then(setBlockPerms)
-      .catch(() => {});
-    void leanStatus()
-      .then(setLean)
-      .catch(() => {});
-  };
-
-  const togglePerms = () => void permissionsSetBlock(!blockPerms()).then(poll);
-
-  // The active browser tab's host drives the per-site toggle.
-  const host = () => {
-    const t = activeTab();
-    return t && t.kind === "browser" ? hostOf(t.url) : null;
-  };
-
-  // Refresh the badge whenever the active host changes (i.e. on navigation) —
-  // no always-on timer. The full status set polls only while the popover is open.
   createEffect(() => {
-    host();
+    activeTab()?.url;
     pollBadge();
   });
-  createEffect(() => {
-    if (!open()) return;
-    visibleInterval(poll, 2000);
-  });
-  const siteOn = () => {
-    const h = host();
-    const s = status();
-    return h && s ? !s.sites_off.includes(h) : true;
-  };
-
-  const toggleGlobal = () => {
-    const s = status();
-    if (s) void shieldsSetEnabled(!s.enabled).then(poll);
-  };
-  const toggleSite = () => {
-    const h = host();
-    if (h) void shieldsSetSite(h, !siteOn()).then(poll);
-  };
-
-  const httpsOn = () => !!https()?.enabled;
-  // Whether this site is allowlisted to stay on HTTP.
-  const siteAllowsHttp = () => {
-    const h = host();
-    const s = https();
-    return !!(h && s && s.sites_allow_http.includes(h));
-  };
-  const toggleHttps = () => void httpsSetEnabled(!httpsOn()).then(poll);
-  const toggleSiteHttp = () => {
-    const h = host();
-    if (h) void httpsAllowSite(h, !siteAllowsHttp()).then(poll);
-  };
-
-  // Lean mode (#105): block heavy non-essential third-party scripts for this site.
-  const leanOn = () => {
-    const h = host();
-    const l = lean();
-    return !!(h && l && l.sites_on.includes(h));
-  };
-  const toggleLean = () => {
-    const h = host();
-    if (h) void leanSetSite(h, !leanOn()).then(poll);
-  };
-
-  const clearOnClose = () => {
-    const h = host();
-    const c = cookies();
-    return !!(h && c && c.clear_on_close.includes(h));
-  };
-  const toggleClearOnClose = () => {
-    const h = host();
-    if (h) void cookiesSetClearOnClose(h, !clearOnClose()).then(poll);
-  };
 
   return (
     // No positioning context here: the popover anchors to .sidebar-footer so it
@@ -154,116 +39,7 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
         </Show>
       </button>
       <Show when={open()}>
-        <div class="shield-backdrop" onClick={() => setOpen(false)} />
-        <div class="glass popover shields-pop footer-pop">
-          <div class="shields-row">
-            <span class="shields-label">Shields</span>
-            <button classList={{ "shields-toggle": true, on: !!status()?.enabled }} onClick={toggleGlobal}>
-              {status()?.enabled ? "On" : "Off"}
-            </button>
-          </div>
-          <Show when={host()}>
-            <div class="shields-row">
-              <span class="shields-host" title={host()!}>
-                {host()}
-              </span>
-              <button classList={{ "shields-toggle": true, on: siteOn() }} onClick={toggleSite}>
-                {siteOn() ? "On" : "Off"}
-              </button>
-            </div>
-          </Show>
-          <div class="shields-sep" />
-          <div class="shields-row">
-            <span class="shields-label">Trackers</span>
-            <select
-              class="shields-select"
-              value={String(tracking())}
-              onChange={(e) => {
-                const v = Number(e.currentTarget.value);
-                setTracking(v);
-                void trackingSetLevel(v);
-              }}
-            >
-              <option value="0">Off</option>
-              <option value="1">Basic</option>
-              <option value="2">Balanced</option>
-              <option value="3">Strict</option>
-            </select>
-          </div>
-          <div class="shields-row">
-            <span class="shields-label">HTTPS-only</span>
-            <button classList={{ "shields-toggle": true, on: httpsOn() }} onClick={toggleHttps}>
-              {httpsOn() ? "On" : "Off"}
-            </button>
-          </div>
-          <Show when={httpsOn() && host()}>
-            <div class="shields-row">
-              <span class="shields-host">Allow HTTP here</span>
-              <button classList={{ "shields-toggle": true, on: siteAllowsHttp() }} onClick={toggleSiteHttp}>
-                {siteAllowsHttp() ? "Yes" : "No"}
-              </button>
-            </div>
-          </Show>
-          <div class="shields-row">
-            <span class="shields-label">Block camera/mic/geo</span>
-            <button classList={{ "shields-toggle": true, on: blockPerms() }} onClick={togglePerms}>
-              {blockPerms() ? "On" : "Off"}
-            </button>
-          </div>
-          <button
-            class="shields-update"
-            onClick={() => {
-              setOpen(false);
-              props.onNavigate(PERMISSIONS_URL);
-            }}
-          >
-            Manage site permissions…
-          </button>
-          <Show when={host()}>
-            <div class="shields-row">
-              <span
-                class="shields-host"
-                title="Block heavy third-party scripts (analytics, A/B, chat widgets) on this site. May break live chat / logins."
-              >
-                Lean mode here
-              </span>
-              <button classList={{ "shields-toggle": true, on: leanOn() }} onClick={toggleLean}>
-                {leanOn() ? "On" : "Off"}
-              </button>
-            </div>
-          </Show>
-          <div class="shields-stat">
-            {status()?.blocked ?? 0} blocked this session
-            <Show when={status()}>
-              {" · "}
-              {status()!.rules_fired} rules active · {status()!.cache_hit_pct}% cache hits
-            </Show>
-          </div>
-          <button class="shields-update" onClick={() => void shieldsRefresh()}>
-            Update filter lists
-          </button>
-          <div class="shields-sep" />
-          <Show when={host()}>
-            <div class="shields-row">
-              <span class="shields-host">Clear cookies on close</span>
-              <button classList={{ "shields-toggle": true, on: clearOnClose() }} onClick={toggleClearOnClose}>
-                {clearOnClose() ? "Yes" : "No"}
-              </button>
-            </div>
-            <button
-              class="shields-update"
-              onClick={() => {
-                const h = host();
-                if (h) void cookiesClearSite(h);
-              }}
-            >
-              Clear cookies for this site
-            </button>
-          </Show>
-          <button class="shields-update" onClick={() => void cookiesClearAll()}>
-            Clear all cookies
-          </button>
-        </div>
+        <ShieldsPop onNavigate={props.onNavigate} onClose={() => setOpen(false)} />
       </Show>
     </div>
   );
