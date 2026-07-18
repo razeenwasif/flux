@@ -7244,6 +7244,61 @@ body.busy .start-card {
   color: var(--flux-text-mute);
   font-style: italic;
 }
+/* Captured drafts (opt-in typed-draft capture, ADR 0011 final phase) */
+.trail-drafts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--flux-border);
+  padding-top: 10px;
+}
+.trail-drafts-head {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--flux-text-mute);
+  letter-spacing: 0.02em;
+}
+.trail-draft {
+  background: rgba(255, 196, 107, 0.06);
+  border: 1px solid rgba(255, 196, 107, 0.18);
+  border-radius: 10px;
+  padding: 7px 10px;
+}
+.trail-draft-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.trail-draft-field {
+  font-size: 10.5px;
+  color: #ffc46b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trail-draft-copy {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 1px 4px;
+}
+.trail-draft-copy:hover {
+  color: var(--flux-text);
+}
+.trail-draft-text {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--flux-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .trail-chat {
   display: flex;
   flex-direction: column;

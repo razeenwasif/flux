@@ -535,6 +535,13 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
         .map(|d| d.join("trace").join("chats.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-trace-chats.json"));
     app.manage(trace::TraceChats::empty(chats_path));
+    // Typed-draft capture (ADR 0011 final phase, opt-in) — sealed at rest.
+    let drafts_path = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("trace").join("drafts.json"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("flux-trace-drafts.json"));
+    app.manage(trace::TraceDrafts::empty(drafts_path));
     {
         let handle = app.handle().clone();
         std::thread::spawn(move || {
@@ -546,6 +553,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             }
             if let Some(c) = handle.try_state::<trace::TraceChats>() {
                 c.hydrate();
+            }
+            if let Some(dr) = handle.try_state::<trace::TraceDrafts>() {
+                dr.hydrate();
             }
             // Debounced KB auto-reindex of the `web` source (#136 payoff): fold
             // settled browsing into the Notebook without a manual ↻ Reindex.
@@ -568,6 +578,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 }
                 if let Some(c) = handle.try_state::<trace::TraceChats>() {
                     c.persist_if_dirty();
+                }
+                if let Some(dr) = handle.try_state::<trace::TraceDrafts>() {
+                    dr.persist_if_dirty();
                 }
                 if !autoindex {
                     continue;
@@ -750,7 +763,9 @@ pub fn run(intent: cli::LaunchIntent) {
                     vault::vault_save_from_page,
                     vault::vault_page_matches,
                     vault::vault_fill_page_id,
-                    vault::vault_offer_save
+                    vault::vault_offer_save,
+                    trace::trace_drafts_enabled,
+                    trace::draft_publish
                 ])
                 .build(),
         )
@@ -889,6 +904,9 @@ pub fn run(intent: cli::LaunchIntent) {
             trace::trace_snapshot_get,
             trace::trace_ambient,
             trace::trace_tab_thread,
+            trace::trace_drafts,
+            trace::trace_drafts_enabled,
+            trace::trace_drafts_set,
             trace::trace_chat,
             trace::trace_chat_send,
             bookmarks::bookmarks_list,

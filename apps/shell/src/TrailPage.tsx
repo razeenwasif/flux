@@ -28,9 +28,11 @@ import {
   traceForget,
   traceChat,
   traceChatSend,
+  traceDrafts,
   type Visit,
   type Edge,
   type ChatMsg,
+  type Draft,
   type TraceHistogram,
 } from "./ipc";
 import { openTab } from "./store";
@@ -90,6 +92,8 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const [chatStream, setChatStream] = createSignal(""); // in-flight reply
   const [chatBusy, setChatBusy] = createSignal(false);
   let chatFor: number | null = null; // guards stale stream frames after reselect
+  // Typed drafts captured on the selected visit (opt-in; empty when off).
+  const [drafts, setDrafts] = createSignal<Draft[]>([]);
 
   let nodes: GNode[] = [];
   // style: 0 = nav (solid violet), 1 = semantic (dashed teal), 2 = citation
@@ -364,6 +368,13 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     void traceChat(g.visit.id)
       .then((m) => {
         if (chatFor === g.visit.id) setChatMsgs(m);
+      })
+      .catch(() => {});
+    // Captured drafts (opt-in): what you were typing on this page.
+    setDrafts([]);
+    void traceDrafts(g.visit.id)
+      .then((d) => {
+        if (chatFor === g.visit.id) setDrafts(d);
       })
       .catch(() => {});
   };
@@ -800,6 +811,33 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                     </Show>
                   </Show>
                 </div>
+                {/* Captured drafts (opt-in): what you were typing on this page —
+                    a closed tab can't eat a half-written reply. */}
+                <Show when={drafts().length > 0}>
+                  <div class="trail-drafts">
+                    <div class="trail-drafts-head">📝 Drafts you were typing</div>
+                    <For each={drafts()}>
+                      {(d) => (
+                        <div class="trail-draft">
+                          <div class="trail-draft-top">
+                            <span class="trail-draft-field">{d.field}</span>
+                            <button
+                              class="trail-draft-copy"
+                              title="Copy draft"
+                              onClick={() => void navigator.clipboard?.writeText(d.text)}
+                            >
+                              ⧉ Copy
+                            </button>
+                          </div>
+                          <p class="trail-draft-text">
+                            {d.text.slice(0, 600)}
+                            {d.text.length > 600 ? "…" : ""}
+                          </p>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
                 {/* Per-page chat (ADR 0011 step d): a persistent conversation
                     attached to THIS page — still here when you return months later. */}
                 <div class="trail-chat">

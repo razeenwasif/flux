@@ -198,6 +198,30 @@ Then, in order: semantic edges → time-travel scrub → entity/citation extract
 (paper↔code↔dataset) → ambient watchers. Draft capture is a **later, opt-in**
 phase gated on the redaction rules above — not in the slice.
 
+### Status (2026-07-19): fully shipped
+
+Every phase above is implemented — the slice (steps 1–4), the payoff layer
+(semantic edges, KB auto-reindex, time-travel scrub + histogram, entities +
+citation edges, the **local-only** ambient watcher), the follow-ups (page thread
+in the agent sidebar, branch-aware auto-archive), and the final phase:
+
+- **Trace stores sealed at rest** (AES-256-GCM, keychain key with 0600 file
+  fallback, transparent plaintext migration) — `trace/sealed.rs`.
+- **Draft capture** (`trace/drafts.rs` + injected `drafts.js`), **off by
+  default**, with the redaction rules above enforced structurally: the script
+  never reads password/hidden/cc/OTP/`[data-sensitive]` fields or any field in
+  a form containing a password input; Rust re-checks independently (field-name
+  blocklist + a Luhn filter that makes card numbers impossible to store);
+  private tabs are dropped at the command layer; drafts are sealed and
+  forgotten with the visit. One deviation from the sketch above: the vault
+  gate is scoped to **login forms** (the password-input rule), not whole
+  hosts — a host-wide gate would disable drafting on every site you hold
+  credentials for, which is the feature's point.
+
+Still parked: the network-side ambient watcher ("newer arXiv version exists",
+needs a network-policy decision) and encrypting `history`/`archive` at rest
+(kept consistent as a separate decision).
+
 ## Resolved decisions
 
 - **Encryption (was Q1) — RESOLVED: forget/purge in the slice; encrypt the trace

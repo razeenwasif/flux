@@ -32,6 +32,8 @@ fn main() {
                     "vault_page_matches",
                     "vault_fill_page_id",
                     "vault_offer_save",
+                    "trace_drafts_enabled",
+                    "draft_publish",
                 ])
                 .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands),
         ),

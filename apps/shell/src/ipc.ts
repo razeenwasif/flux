@@ -100,6 +100,7 @@ import type {
   ForgetScope as GenForgetScope,
   SnapshotWire as GenSnapshotWire,
   ChatMsg as GenChatMsg,
+  Draft as GenDraft,
   AmbientHint as GenAmbientHint,
   TabThread as GenTabThread,
   TraceHistogram as GenTraceHistogram,
@@ -159,6 +160,7 @@ export type TraceGraph = GenTraceGraph;
 export type ForgetScope = GenForgetScope;
 export type SnapshotWire = GenSnapshotWire;
 export type ChatMsg = GenChatMsg;
+export type Draft = GenDraft;
 export type AmbientHint = GenAmbientHint;
 export type TabThread = GenTabThread;
 export type TraceHistogram = GenTraceHistogram;
@@ -1162,6 +1164,10 @@ export const traceSnapshotGet = (id: number) => invoke<SnapshotWire | null>("tra
 /** Ambient watcher (local-only): past pages where the current page's error
  *  signature was seen before — empty unless the page shows a shaped error. */
 export const traceAmbient = (tabId: number) => invoke<AmbientHint[]>("trace_ambient", { tabId });
+/** Typed-draft capture (ADR 0011, opt-in): a visit's captured drafts. */
+export const traceDrafts = (visitId: number) => invoke<Draft[]>("trace_drafts", { visitId });
+export const traceDraftsEnabled = () => invoke<boolean>("trace_drafts_enabled", {});
+export const traceDraftsSet = (on: boolean) => invoke<void>("trace_drafts_set", { on });
 /** A visit's persistent chat thread (ADR 0011 step d) — empty if none yet. */
 export const traceChat = (visitId: number) => invoke<ChatMsg[]>("trace_chat", { visitId });
 /** The active page's persistent thread (re-attach by visit) — null when the

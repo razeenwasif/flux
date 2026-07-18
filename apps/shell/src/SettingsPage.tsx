@@ -50,6 +50,8 @@ import {
   proxySet,
   type MemInfo,
   type SearchEngine,
+  traceDraftsEnabled,
+  traceDraftsSet,
 } from "./ipc";
 import {
   heyGemmaEnabled,
@@ -392,6 +394,13 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [httpsOn, setHttpsOn] = createSignal(false);
   const [tracking, setTracking] = createSignal(2);
   const [blockPerms, setBlockPerms] = createSignal(false);
+  // Typed-draft capture (ADR 0011, opt-in) — backend-persisted with the store.
+  const [draftsOn, setDraftsOn] = createSignal(false);
+  const toggleDrafts = () => {
+    const next = !draftsOn();
+    setDraftsOn(next);
+    void traceDraftsSet(next).catch(() => setDraftsOn(!next));
+  };
   const [cookieFlash, setCookieFlash] = createSignal("");
   const [mem, setMem] = createSignal<MemInfo | null>(null);
   // Per-site privacy exceptions (#78): hosts the user opted out per feature.
@@ -440,6 +449,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Settings");
+    void traceDraftsEnabled()
+      .then(setDraftsOn)
+      .catch(() => {});
     refreshVoices();
     try {
       window.speechSynthesis?.addEventListener?.("voiceschanged", refreshVoices);
@@ -625,6 +637,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             >
               <For each={TRACKING_LABELS}>{(lbl, i) => <option value={String(i())}>{lbl}</option>}</For>
             </select>
+          </Row>
+          <Row
+            label="Capture typed drafts (Trail)"
+            hint="Off by default. Save what you were typing (comments, issues, long forms) with the page's Trail visit, so a closed tab can't eat a draft. Structurally redacted — password/card/OTP fields and login forms are never read, card numbers can't be stored — and the store is encrypted at rest. Applies to newly-loaded pages."
+          >
+            <Toggle on={draftsOn()} onClick={toggleDrafts} />
           </Row>
           <Row label="Block camera / mic / location" hint="Auto-deny these permission prompts globally.">
             <Toggle on={blockPerms()} onClick={toggleBlockPerms} />

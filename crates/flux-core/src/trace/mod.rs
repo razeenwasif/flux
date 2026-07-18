@@ -14,6 +14,7 @@
 
 mod ambient;
 mod chats;
+mod drafts;
 mod entities;
 mod sealed;
 mod snapshots;
@@ -21,6 +22,7 @@ mod store;
 
 pub use ambient::AmbientHint;
 pub use chats::{ChatMsg, TraceChats};
+pub use drafts::{Draft, TraceDrafts};
 pub use entities::extract_entities;
 pub use snapshots::{Snapshot, SnapshotWire, TraceSnapshots, WebDoc};
 pub use store::{
@@ -195,6 +197,59 @@ pub fn trace_ambient(
     hints
 }
 
+/// Is draft capture on? Asked once by the injected `drafts.js` at page load —
+/// when off (the default) the script attaches no listeners at all. A `fluxtab`
+/// plugin command so remote pages may call it (it leaks one boolean).
+#[tauri::command]
+pub fn trace_drafts_enabled(drafts: State<'_, TraceDrafts>) -> bool {
+    drafts.enabled()
+}
+
+/// Toggle draft capture (Settings → Privacy; applies to newly-loaded pages).
+#[tauri::command]
+pub fn trace_drafts_set(drafts: State<'_, TraceDrafts>, on: bool) {
+    drafts.set_enabled(on);
+}
+
+/// A visit's captured drafts, for the Trail detail panel.
+#[tauri::command]
+pub fn trace_drafts(drafts: State<'_, TraceDrafts>, visit_id: VisitId) -> Vec<Draft> {
+    drafts.get(visit_id)
+}
+
+/// Store a typed draft against the tab's current Visit (ADR 0011 final phase).
+/// Page-callable (`fluxtab`), so every gate re-runs here regardless of what the
+/// page sent: the opt-in toggle, the private-tab exclusion, and the structural
+/// redaction (sensitive field names, Luhn card filter — see `drafts::redact`).
+/// The ADR's login-form rule is enforced upstream in `drafts.js` (any form
+/// containing a password input is skipped wholesale); a host-wide vault gate was
+/// considered and rejected — it would disable drafting on every site you hold
+/// credentials for (e.g. writing a GitHub issue), which is the feature's point.
+#[tauri::command]
+pub fn draft_publish(
+    trace: State<'_, TraceStore>,
+    drafts: State<'_, TraceDrafts>,
+    state: State<'_, crate::state::FluxState>,
+    tab_id: TabId,
+    field: String,
+    text: String,
+) -> Result<(), String> {
+    if !drafts.enabled() {
+        return Ok(()); // toggled off after page load — drop silently
+    }
+    // Private tabs leave no trace, drafts included.
+    if state.tabs.get(&tab_id).map(|t| t.private).unwrap_or(true) {
+        return Ok(());
+    }
+    let Some(visit_id) = trace.current_visit(tab_id) else {
+        return Ok(());
+    };
+    if let Some((field, text)) = drafts::redact(&field, &text) {
+        drafts.put(visit_id, field, text);
+    }
+    Ok(())
+}
+
 /// A visit's chat thread (ADR 0011 step d) — empty if none yet.
 #[tauri::command]
 pub fn trace_chat(chats: State<'_, TraceChats>, visit_id: VisitId) -> Vec<ChatMsg> {
@@ -281,12 +336,14 @@ pub async fn trace_forget(
     store: State<'_, TraceStore>,
     snaps: State<'_, TraceSnapshots>,
     chats: State<'_, TraceChats>,
+    drafts: State<'_, TraceDrafts>,
     kb: State<'_, crate::kb::KbStore>,
     scope: ForgetScope,
 ) -> Result<(), String> {
     let removed: std::collections::HashSet<VisitId> = store.forget(&scope).into_iter().collect();
     snaps.forget_visits(&removed);
     chats.forget_visits(&removed);
+    drafts.forget_visits(&removed);
     if removed.is_empty() {
         return Ok(());
     }

@@ -365,6 +365,10 @@ export type SnapshotWire = { id: number; visit_id: number; url: string; title: s
  */
 export type ChatMsg = { role: string; text: string; ms: number }
 /**
+ * One captured draft: the field's label + what was typed, latest wins per field.
+ */
+export type Draft = { field: string; text: string; ms: number }
+/**
  * A past sighting of the current page's error, for the Connections rail.
  */
 export type AmbientHint = { signature: string; visit_id: number; url: string; title: string; saved_ms: number; has_chat: boolean }

@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Draft capture — the Time Machine remembers what you were typing (ADR 0011 final phase, opt-in,
+  OFF by default)** — with "Capture typed drafts" enabled (Settings → Privacy & security), pausing
+  mid-type in a comment box / issue form / long textarea saves the draft to the page's Trail visit,
+  so a closed tab can't eat your words: the node's detail panel grows a **📝 Drafts** section with
+  one-tap copy. Privacy is structural, three gates deep: the injected `drafts.js` **never reads**
+  password/hidden fields, cc/OTP autocomplete fields, `[data-sensitive]` fields, or *any* field in
+  a form containing a password input (login/sign-up forms wholesale — the ADR's vault-form rule);
+  the Rust side independently re-rejects sensitive field names and any value containing a
+  **Luhn-valid card number** (a card number is impossible to store even if the page lies about
+  input types — tested); and the command layer drops private tabs and everything when the toggle
+  is off (the script attaches no listeners at all in that case). Drafts are sealed at rest like
+  the other trace stores, capped (latest per field, 12 fields/visit, 300 visits), and forgotten
+  with the visit. This completes ADR 0011 — every planned phase of the Research OS is now shipped.
 - **Trace stores are now encrypted at rest (ADR 0011, draft-capture phase — part 1)** — the Trail
   records what you read (and, next, fragments of what you type), so its files no longer sit in
   plaintext: `trace.json`, `snapshots.json`, and `chats.json` are sealed with **AES-256-GCM**
