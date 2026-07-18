@@ -9,8 +9,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ### Added
 - **Calendar from anywhere (#114 follow-up)** — a 📅 icon joins the sidebar footer: one click opens
-  a glanceable **calendar popover** — mini month grid with event dots and ‹ › month nav, plus the
-  upcoming agenda (tap a day to see just that day; ↗ jumps to the full home calendar). Same data as
+  a centered **calendar pane you can edit in** — month grid with event dots and ‹ › / Today nav on
+  the left, the selected day's agenda on the right with **inline add / edit / delete** for local
+  events (title, start–end time, location, repeat presets → RRULE; ICS-feed events shown read-only
+  with a 🔒). Esc closes (or cancels the form first); ↗ jumps to the full home calendar. Rendered
+  over the content card via the overlay registry (webviews hidden while open). Same data as
   the home calendar (ICS feeds + Flux-local events, recurrence expanded). The icon shows a magenta
   **dot when an event starts within 30 minutes** (polled every 10 min, visibility-aware). Also in
   **⌘K**: "Open calendar". Gemma already handles "what's on Friday" / "schedule lunch tomorrow at

@@ -782,6 +782,7 @@ export { savePrompt, setSavePrompt };
 // buried expanded home widgets — don't re-grow per-effect boolean chains.
 export const pageOverlayActive = (): boolean =>
   readerOpen() ||
+  calendarPopOpen() ||
   filesPanelOpen() ||
   mapPanelOpen() ||
   kbPanelOpen() ||
