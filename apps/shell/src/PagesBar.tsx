@@ -29,7 +29,7 @@ const PAGES: { icon: string; label: string; url: string }[] = [
   { icon: "✦", label: "Notebook", url: NOTEBOOK_URL },
   { icon: "🧭", label: "Trail", url: TRAIL_URL },
   { icon: "🗃", label: "Sessions", url: SESSIONS_URL },
-  { icon: "📚", label: "Archive", url: ARCHIVE_URL },
+  { icon: "📚", label: "Saved pages", url: ARCHIVE_URL },
   { icon: "📰", label: "Feeds", url: FEEDS_URL },
   { icon: "🕘", label: "History", url: HISTORY_URL },
   { icon: "🔖", label: "Bookmarks", url: BOOKMARKS_URL },

@@ -93,6 +93,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   network-policy decision). New `trace::ambient` module + `trace_ambient` command; 3 new tests.
 
 ### Changed
+- **Sidebar footer ⇄ PagesBar reconciled** — the two surfaces had drifted into overlap. New rule:
+  the **footer holds only act-in-context panels** (Shields, Downloads, Calendar, per-site Passwords,
+  page Notes, Web panels, Archived tabs, Extensions, Containers); **full-page destinations live on
+  the PagesBar + ⌘K only**. Concretely: the footer 🔖 "Library" popover is gone — its ★ bookmark
+  action already lives in the page-actions row (Ctrl+D), and its All-bookmarks/Sessions/History
+  links duplicated PagesBar chips. And the naming collision between the read-later **Archive** page
+  and the footer's **Archived tabs** panel is resolved: the PagesBar chip is now **"Saved pages"**.
+  (The footer ⚙ popover stays — Containers management is unique to it, with an "Open full
+  Settings ↗" escalation; the per-site Passwords popover and the 🔑 Vault page are complementary,
+  not duplicates.) Eager chrome down again: 64.4 → 64.1 KB.
 - **Find-in-page is now permanently visible (#33)** — the find bar lives right under the search
   bar in the sidebar instead of appearing on Ctrl+F. Ctrl+F now just focuses it; **Escape clears**
   the query + page highlight (the bar never unmounts); the ‹ › navigation and ✕ clear buttons show

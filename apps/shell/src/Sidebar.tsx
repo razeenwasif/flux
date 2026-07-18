@@ -6,11 +6,7 @@
 import Downloads from "./Downloads";
 import Shields from "./Shields";
 import {
-  BOOKMARKS_URL,
-  HISTORY_URL,
-  SESSIONS_URL,
   SETTINGS_URL,
-  bookmarkAdd,
   calEvents,
   historySearch,
   isStartUrl,
@@ -184,7 +180,9 @@ interface SidebarProps {
   onOpenNotebook: () => void;
 }
 
-type FooterPanel = "bookmarks" | "extensions" | "settings" | "webpanels" | "notes" | "archived" | null;
+// NB: full-page destinations (bookmarks/history/sessions/…) live on the
+// PagesBar + ⌘K, not here — the footer holds only act-in-context panels.
+type FooterPanel = "extensions" | "settings" | "webpanels" | "notes" | "archived" | null;
 /** An omnibox suggestion (#32): a local history hit (has `url`) or an engine suggestion. */
 type Suggestion = { kind: "history" | "search"; label: string; sub?: string; url?: string };
 
@@ -290,7 +288,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
     ids.splice(at < 0 ? ids.length : at, 0, from);
     reorderPanels(ids);
   };
-  const [bmFlash, setBmFlash] = createSignal("");
   const [boostsLoaded, setBoostsLoaded] = createSignal(false);
   const [macrosLoaded, setMacrosLoaded] = createSignal(false);
   const [passwordsLoaded, setPasswordsLoaded] = createSignal(false);
@@ -1848,13 +1845,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
         </Show>
         <Downloads />
         <button
-          classList={{ "icon-btn": true, active: panel() === "bookmarks" }}
-          title="Bookmarks"
-          onClick={() => openPanel("bookmarks")}
-        >
-          🔖
-        </button>
-        <button
           classList={{ "icon-btn": true, active: panel() === "notes" }}
           title="Note for this page"
           onClick={() => {
@@ -2139,60 +2129,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   {mem()!.available_pct}%)
                 </div>
               </Show>
-            </Show>
-            <Show when={panel() === "bookmarks"}>
-              <div class="sidebar-section" style={{ padding: "4px 8px" }}>
-                Library
-              </div>
-              <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
-                <button
-                  class="shields-update"
-                  onClick={() => {
-                    const t = activeTab()!;
-                    void bookmarkAdd(t.title || t.url, t.url)
-                      .then(() => {
-                        setBmFlash("✓ saved");
-                        window.setTimeout(() => setBmFlash(""), 2000);
-                      })
-                      .catch(() => {});
-                  }}
-                >
-                  ★ Bookmark this page{" "}
-                  <Show when={bmFlash()}>
-                    <span class="bm-inline-flash">{bmFlash()}</span>
-                  </Show>
-                </button>
-              </Show>
-              <button
-                class="shields-update"
-                onClick={() => {
-                  setPanel(null);
-                  props.onNavigate(BOOKMARKS_URL);
-                }}
-              >
-                🔖 All bookmarks
-              </button>
-              <button
-                class="shields-update"
-                onClick={() => {
-                  setPanel(null);
-                  props.onNavigate(SESSIONS_URL);
-                }}
-              >
-                🗃 Sessions
-              </button>
-              <button
-                class="shields-update"
-                onClick={() => {
-                  setPanel(null);
-                  props.onNavigate(HISTORY_URL);
-                }}
-              >
-                🕘 Browsing history
-              </button>
-              <div class="start-empty" style={{ padding: "4px 10px 8px" }}>
-                Import Chrome bookmarks and open folders as tab groups from the <b>All bookmarks</b> page.
-              </div>
             </Show>
             <Show when={panel() === "webpanels"}>
               <div class="sidebar-section" style={{ padding: "4px 8px" }}>
