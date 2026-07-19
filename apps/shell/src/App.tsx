@@ -211,19 +211,39 @@ import {
 } from "./store";
 
 const App: Component = () => {
-  const [sidebarOpen, setSidebarOpen] = createSignal(true);
+  // Narrow screen (phone / Termux-X11 portrait — ADR 0012 rung B): the desktop
+  // chrome assumes width, so the side surfaces start collapsed and the user
+  // opens what they need. One-shot at boot; rotating mid-session keeps state.
+  const narrow = window.innerWidth < 760;
+  const [sidebarOpen, setSidebarOpen] = createSignal(!narrow);
   // Terminal column open by default (persisted — toggling off sticks).
-  const [terminalOpen, setTerminalOpen] = createSignal(localStorage.getItem("flux.term.open") !== "0");
-  createEffect(() => localStorage.setItem("flux.term.open", terminalOpen() ? "1" : "0"));
+  const [terminalOpen, setTerminalOpen] = createSignal(
+    !narrow && localStorage.getItem("flux.term.open") !== "0",
+  );
+  // Persist only on real toggles — the initial run would otherwise write the
+  // narrow-screen collapse back and poison the desktop default.
+  let termPersist = false;
+  createEffect(() => {
+    const v = terminalOpen();
+    if (termPersist) localStorage.setItem("flux.term.open", v ? "1" : "0");
+    termPersist = true;
+  });
   // Let the agent bring up a terminal before running a command in it (#65).
   setTerminalOpener(() => setTerminalOpen(true));
   // The Trail (ADR 0011 step 1): snapshot + embed a page once it's been engaged
   // past the dwell threshold. Owned by this component's lifetime.
   installDwellCapture();
-  const [agentOpen, setAgentOpen] = createSignal(true);
+  const [agentOpen, setAgentOpen] = createSignal(!narrow);
   // Ambient connections rail (#123) — on by default; toggled via the palette.
-  const [connectOpen, setConnectOpen] = createSignal(localStorage.getItem("flux.connect.open") !== "0");
-  createEffect(() => localStorage.setItem("flux.connect.open", connectOpen() ? "1" : "0"));
+  const [connectOpen, setConnectOpen] = createSignal(
+    !narrow && localStorage.getItem("flux.connect.open") !== "0",
+  );
+  let connPersist = false;
+  createEffect(() => {
+    const v = connectOpen();
+    if (connPersist) localStorage.setItem("flux.connect.open", v ? "1" : "0");
+    connPersist = true;
+  });
   // Floating music bubble (#125) — on by default; toggled via the palette.
   const [musicOpen, setMusicOpen] = createSignal(localStorage.getItem("flux.music.open") !== "0");
   createEffect(() => localStorage.setItem("flux.music.open", musicOpen() ? "1" : "0"));

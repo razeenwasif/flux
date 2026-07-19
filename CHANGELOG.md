@@ -8,6 +8,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Mobile Flux — Termux build + responsive chrome (ADR 0012, rungs A+B)** — Flux now runs on
+  Android as its Linux build inside **Termux + proot-distro + termux-x11**: `scripts/
+  install-termux.sh` provisions both layers end-to-end (X11 display, proot Ubuntu, toolchains,
+  WebKitGTK, the build, and a `flux-mobile` launcher with the WebKitGTK-under-proot env — software
+  GL, compositing off, dbus session). The route matters: Termux's *native* Rust targets
+  `aarch64-linux-android`, where Tauri switches to its Android/JNI mode — inside the proot the
+  target is plain `aarch64-unknown-linux-gnu` and the GTK path just works; every pure-Rust crate
+  now checks clean on that target. **Responsive chrome** on top of the existing pane-shedding
+  (#28): side surfaces start collapsed on narrow screens (without poisoning the persisted desktop
+  defaults), the icon rail slims below 520 px, the calendar pane goes near-fullscreen, and touch
+  targets grow under `pointer: coarse`. Honest scope per the ADR: this is the dev-grade WebKitGTK
+  class (like WSL2) — whether per-tab pages render hinges on X11 webview positioning, verified
+  on-device via the ADR's ladder; the true native APK (Tauri mobile + an Android WebView-stack
+  plugin, llama.cpp agent) is the parked rung C.
 - **Calendar from anywhere (#114 follow-up)** — a 📅 icon joins the sidebar footer: one click opens
   a centered **calendar pane you can edit in** — month grid with event dots and ‹ › / Today nav on
   the left, the selected day's agenda on the right with **inline add / edit / delete** for local

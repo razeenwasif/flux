@@ -11792,3 +11792,48 @@ input[type="radio"].pdf-fw {
     padding-left: 0;
   }
 }
+
+/* ── Narrow screens & touch (phones / Termux-X11 — ADR 0012 rung B). The pane
+   shedding in App (#28) already drops columns and collapses the sidebar to its
+   icon rail on narrow windows; this compacts what remains and grows the touch
+   targets under a coarse pointer. ── */
+@media (max-width: 520px) {
+  :root {
+    --flux-sidebar-w-min: 56px;
+  }
+  .sidebar {
+    padding: 8px 14px 10px 8px;
+    gap: 8px;
+  }
+  .sidebar.with-apps {
+    padding-left: 34px;
+  }
+  .cal-pane {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 40px);
+    padding: 12px;
+  }
+}
+@media (pointer: coarse) {
+  .icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .tab-row {
+    min-height: 42px;
+  }
+  .panel-row {
+    min-height: 40px;
+  }
+  .agent-scope,
+  .reader-chip,
+  .trail-win-btn,
+  .cal-pop-nav,
+  .shields-toggle {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+  .cal-pop-day {
+    min-height: 36px;
+  }
+}
