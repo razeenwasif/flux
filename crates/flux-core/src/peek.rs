@@ -8,7 +8,14 @@
 //! pill (promote → a real tab + close) and Esc-to-dismiss; those go through the
 //! `fluxtab` bridge (capabilities/peek.json), guarded here so only peek windows
 //! can self-close.
+//!
+//! Peeks are standalone always-on-top `WebviewWindow`s — a desktop-only concept
+//! (Android has no floating windows; ADR 0012). On mobile the module compiles to
+//! the `stub` below: the five commands stay (IPC surface unchanged) but report
+//! that peeking isn't available.
 
+#[cfg(desktop)]
+mod real {
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window};
@@ -145,3 +152,37 @@ mod tests {
         );
     }
 }
+} // mod real
+#[cfg(desktop)]
+pub use real::*;
+
+/// Mobile stub (ADR 0012): no floating always-on-top windows on Android.
+#[cfg(mobile)]
+mod stub {
+    use tauri::{AppHandle, Window};
+
+    const NB: &str = "peek windows aren't available on mobile";
+
+    #[tauri::command]
+    pub async fn peek_open(_app: AppHandle, _url: String) -> Result<(), String> {
+        Err(NB.into())
+    }
+
+    #[tauri::command]
+    pub async fn chrome_peek_url(_app: AppHandle, _url: String) -> Result<(), String> {
+        Err(NB.into())
+    }
+
+    #[tauri::command]
+    pub fn peek_promote(_app: AppHandle, _window: Window, _url: String) -> Result<(), String> {
+        Err(NB.into())
+    }
+
+    #[tauri::command]
+    pub fn peek_pin(_window: Window) {}
+
+    #[tauri::command]
+    pub fn peek_close(_window: Window) {}
+}
+#[cfg(mobile)]
+pub use stub::*;

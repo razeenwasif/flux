@@ -136,6 +136,9 @@ fn boot_phase<T>(
 /// position), so it never reopens maximized/fullscreen. Runs before the event
 /// loop pumps, so the geometry is set before the window is shown.
 fn restore_window_geometry(app: &tauri::App) {
+    // Desktop only: mobile has no floating window geometry to persist/restore,
+    // and the window-state plugin isn't linked there (ADR 0012).
+    #[cfg(desktop)]
     {
         use tauri_plugin_window_state::{StateFlags, WindowExt};
         if let Some(win) = app.get_webview_window("main") {
@@ -144,6 +147,8 @@ fn restore_window_geometry(app: &tauri::App) {
             let _ = win.set_fullscreen(false);
         }
     }
+    #[cfg(mobile)]
+    let _ = app;
 }
 
 /// Reminder scheduler + the root state every command reads: FluxState (tabs,
@@ -681,7 +686,11 @@ pub fn run(intent: cli::LaunchIntent) {
 
     enable_http3();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Single-instance + window-state are desktop-only plugins (no argv, no window
+    // geometry on Android — ADR 0012). Gate them so the mobile build links.
+    #[cfg(desktop)]
+    let builder = builder
         // Single-instance (#20): a second `flux <url>` forwards its URLs to the
         // already-running window (open as tabs + focus it) instead of spawning a
         // second process. Registered first so it intercepts before any other setup.
@@ -712,7 +721,8 @@ pub fn run(intent: cli::LaunchIntent) {
             tauri_plugin_window_state::Builder::default()
                 .skip_initial_state("main")
                 .build(),
-        )
+        );
+    builder
         // OS notifications (used by the reminder scheduler).
         .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
@@ -1133,4 +1143,13 @@ pub fn run(intent: cli::LaunchIntent) {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Flux");
+}
+
+/// Android entry point (ADR 0012, rung C). The generated Gradle project's JNI
+/// glue calls this — there's no argv on mobile, so we launch with an empty
+/// intent (no URLs, no terminal). Desktop keeps using `main.rs` → `run(intent)`.
+#[cfg(mobile)]
+#[tauri::mobile_entry_point]
+pub fn mobile_run() {
+    run(cli::LaunchIntent::default());
 }

@@ -1,7 +1,8 @@
 # 0012 — Mobile Flux: Termux/proot first, native Android later
 
-Status: accepted (rungs A+B shipped; rung C parked pending a go decision)
-Date: 2026-07-19
+Status: accepted (rungs A+B shipped; rung C started — native APK builds + boots,
+Milestone 1 done 2026-07-20)
+Date: 2026-07-19 (rung C update 2026-07-20)
 Relates to: [0001](0001-architecture-and-performance-budgets.md) (budgets),
 [0002](0002-ui-architecture-arc-style-shell.md) (multi-webview chrome).
 
@@ -50,15 +51,36 @@ narrow screens the sidebar, terminal column, agent panel and connections rail
 now start collapsed; paddings compact below 760 px; touch targets grow under
 `pointer: coarse`. This serves both the Termux build and any future Android one.
 
-**Rung C — native Android APK (parked, needs a go decision).** The real product
-answer: Tauri v2 mobile + a **custom Android plugin managing a native
-`android.webkit.WebView` stack for tabs** (Kotlin; positioned in the Android
-view hierarchy — the mobile analogue of our desktop multi-webview layer), the
-agent on **llama.cpp via the existing `llama` feature** (Ollama has no Android
-runtime; a 2–4B quantized Gemma is the realistic phone model), and PTY/terminal
-features dropped or delegated to Termux. This is a multi-week subproject that
-requires the Android SDK/NDK on the Windows dev machine and on-device testing —
-not startable from the WSL2 dev box alone.
+**Rung C — native Android APK (started; the user chose this over rung A after the
+on-device Termux build kept failing — npm cache corruption, then OOM compiling on
+the phone). The whole point: build the APK *here* and just download+install it —
+the phone never compiles anything.**
+
+Contrary to the original assumption above, this **is** startable from the WSL2
+dev box: `cargo tauri android build` cross-compiles `aarch64-linux-android` with
+the Android NDK and assembles the APK via Gradle, all on Linux. Toolchain: Android
+SDK + NDK r27 under `~/Android`, the four Rust android targets, cargo-tauri v2, and
+a portable Temurin JDK under `~/jdk` (Gradle needs `javac`; no root required).
+`scripts/build-apk.sh` drives the whole thing (frontend build from the repo root,
+then the Gradle build with `beforeBuildCommand` emptied so cwd doesn't matter).
+
+Approach **simpler than the parked plan**: Milestone 1 uses Tauri's *default*
+single system WebView — no custom Kotlin WebView-stack plugin yet. The desktop
+multi-webview tab engine (`webview.rs`), floating peek windows (`peek.rs`), the
+PTY terminal (`terminal.rs`), the AudioPulse launcher (`spotify.rs`), and the
+Files-tab trash all compile to `#[cfg(mobile)]` **stubs** with identical IPC
+signatures — so `lib.rs`'s `generate_handler!` and state management are unchanged
+and the internal pages (Notebook, Trail, whiteboard, Settings — all shell HTML)
+work. The desktop-only Tauri plugins (`single-instance`, `window-state`) and
+`portable-pty`/`trash` crates are moved to a `not(android/ios)` target section.
+Entry point: `#[cfg(mobile)] mobile_run()` with `#[tauri::mobile_entry_point]`.
+
+**Milestones:** (1 — *done*) APK cross-compiles here, installs, boots the shell,
+internal pages work. (2) real browsing — swap the single WebView's URL for tabs
+(mobile-correct: one page at a time), replacing the `webview.rs` stubs. (3) polish
+— Android back gesture, notifications, and the optional on-device agent on
+**llama.cpp** (Ollama has no Android runtime; a 2–4B quantized Gemma is the
+realistic phone model).
 
 ## Consequences
 
@@ -70,10 +92,12 @@ not startable from the WSL2 dev box alone.
   full-page browsing hinges on the positioning unknown above; battery cost of a
   local model on-phone is real (Ollama's linux-arm64 build does run in proot,
   CPU-only — use a small model, or skip the agent).
-- **Neutral:** rung C's plugin approach is well-trodden in the Tauri ecosystem
-  (native views from plugins are supported); when/if green-lit, the SolidJS
-  chrome and the Rust stores carry over — the fork is confined to webview.rs's
-  role and the agent backend.
+- **Neutral:** rung C confirmed the fork is confined as predicted — the SolidJS
+  chrome, Rust stores, and IPC surface all carry over unchanged; only the
+  native-webview/window/PTY layers needed mobile stubs. The debug APK is large
+  (~150 MB: unstripped debug `.so`); a release build with stripping will be far
+  smaller. Milestone 2 (a custom Kotlin WebView-stack plugin) is only needed if
+  single-WebView URL-swapping proves insufficient for the tab UX.
 
 ## Verification ladder (on-device, rung A)
 

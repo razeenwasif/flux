@@ -57,7 +57,25 @@ proot-distro login "$DISTRO" -- bash -euo pipefail -c '
   cd "$HOME/Flux"
 
   echo "==> npm ci (frontend deps)"
-  npm ci --no-audit --no-fund
+  # proots emulated rename + a slow mobile link corrupt npm cacache mid-download
+  # (ENOENT on rename of _cacache/tmp -> content-v2). Make npm patient, and on
+  # failure nuke the cache + node_modules and retry from clean rather than dying.
+  npm config set fetch-retries 5
+  npm config set fetch-retry-mintimeout 20000
+  npm config set fetch-retry-maxtimeout 120000
+  npm config set fetch-timeout 300000
+  npm_ci() { npm ci --no-audit --no-fund; }
+  if ! npm_ci; then
+    echo "==> npm ci failed (likely a corrupted cache under proot) — resetting cache and retrying"
+    npm cache clean --force || true
+    rm -rf "$HOME/.npm/_cacache" node_modules
+    if ! npm_ci; then
+      echo "==> retrying once more with cache disabled (slower, but rename-proof)"
+      npm cache clean --force || true
+      rm -rf "$HOME/.npm/_cacache" node_modules
+      npm ci --no-audit --no-fund --prefer-online --cache "$HOME/.npm-cache-fresh"
+    fi
+  fi
   echo "==> Building the frontend (vite)"
   npm run shell:build
   echo "==> Building flux (release — this is the long one; a phone takes a while)"

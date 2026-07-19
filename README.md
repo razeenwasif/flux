@@ -59,13 +59,36 @@ npm run build
 > need WebView2 (Windows) or WKWebView (macOS)**. For real browsing, build and
 > run Flux **natively on Windows/macOS** with that OS's Rust + Node toolchain.
 
-## Mobile — Android via Termux (ADR 0012)
+## Mobile — Android (ADR 0012)
 
-Flux runs on a phone as its Linux build inside **Termux + proot-distro +
-termux-x11** (Termux's native Rust targets Android/JNI where Tauri expects an
-app context — the proot Ubuntu gives the ordinary `aarch64-unknown-linux-gnu`
-target where the GTK/WebKitGTK path just works). One script sets up both layers
-and installs a launcher:
+### Native APK (recommended) — build here, install on the phone
+
+Flux builds a real installable `.apk` via **Tauri v2 mobile**. It cross-compiles
+on your desktop/WSL2 box — the phone never compiles anything, it just downloads
+and installs. One command:
+
+```sh
+# on the dev box (Linux/WSL2), after the one-time toolchain setup below
+bash scripts/build-apk.sh          # → flux-arm64.apk (debug, sideloadable)
+adb install -r flux-arm64.apk      # or copy the .apk to the phone and tap it
+```
+
+One-time toolchain (no root needed): Android SDK + NDK r27 under `~/Android`, the
+Rust android targets (`rustup target add aarch64-linux-android …`), cargo-tauri
+v2 (`cargo install tauri-cli --version '^2'`), and a portable Temurin JDK under
+`~/jdk` (Gradle needs `javac` — untar the tarball from adoptium.net). The build
+script resolves all of these and scaffolds the Gradle project on first run.
+
+Milestone 1 (done): the APK boots the full chrome and every internal page
+(Notebook, Trail, whiteboard, Settings). In-tab web browsing (a single system
+WebView) and the on-device llama.cpp agent are the next milestones — the desktop
+multi-webview/terminal/peek layers are `#[cfg(mobile)]` stubs for now.
+
+### Termux/proot (alternative — dev-grade, no cross-build machine needed)
+
+Flux also runs as its *Linux* build inside **Termux + proot-distro + termux-x11**,
+built on the phone itself (slower, WebKitGTK class like WSL2). One script sets up
+both layers and installs a launcher:
 
 ```sh
 # inside Termux (install the Termux + Termux:X11 apps from F-Droid first)
@@ -73,12 +96,8 @@ pkg install git && git clone https://github.com/razeenwasif/flux && bash flux/sc
 flux-mobile         # then open the Termux:X11 app
 ```
 
-This is the dev-grade WebKitGTK class (like WSL2): the chrome, internal pages,
-panels, Trail and agent all work; whether **per-tab pages** render hinges on
-X11 webview positioning — verify on-device (ADR 0012 has the ladder). The
-chrome starts collapsed on narrow screens and grows its touch targets on
-touchscreens. A true native APK (Tauri mobile + an Android WebView-stack
-plugin) is the parked next rung.
+The chrome starts collapsed on narrow screens and grows its touch targets on
+touchscreens either way.
 
 ## Install (`flux` on your PATH)
 

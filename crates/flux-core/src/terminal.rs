@@ -11,7 +11,14 @@
 //!
 //! flux-term (the WGPU grid/renderer) is untouched and remains the future
 //! native-render path; it would consume the same PTY bytes this module reads.
+//!
+//! Desktop only: `portable-pty`'s transitive `termios` doesn't build for Android
+//! and a phone has no shell to spawn (ADR 0012). On mobile the module compiles to
+//! the `stub` below — identical command signatures, each reporting unavailability
+//! — so `lib.rs` state management and the IPC `generate_handler!` are unchanged.
 
+#[cfg(desktop)]
+mod real {
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::OnceLock;
@@ -426,3 +433,70 @@ fn expand_home(path: &str) -> String {
         None => path.to_string(),
     }
 }
+} // mod real
+#[cfg(desktop)]
+pub use real::*;
+
+/// Mobile stub: same public surface (`TerminalManager`, `PANE_SESSION`, and the
+/// four `terminal_*` commands) so nothing upstream changes; the commands report
+/// that the embedded terminal is desktop-only.
+#[cfg(mobile)]
+mod stub {
+    use crate::state::FluxState;
+    use tauri::ipc::Channel;
+    use tauri::{AppHandle, State};
+
+    pub const PANE_SESSION: u64 = 0;
+
+    #[derive(Default)]
+    pub struct TerminalManager;
+    impl TerminalManager {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    const UNAVAILABLE: &str = "the embedded terminal is desktop-only";
+
+    #[tauri::command]
+    pub fn terminal_spawn(
+        _app: AppHandle,
+        _state: State<'_, FluxState>,
+        _manager: State<'_, TerminalManager>,
+        _session: u64,
+        _cols: u16,
+        _rows: u16,
+        _on_data: Channel<Vec<u8>>,
+    ) -> Result<(), String> {
+        Err(UNAVAILABLE.into())
+    }
+
+    #[tauri::command]
+    pub fn terminal_write(
+        _manager: State<'_, TerminalManager>,
+        _session: u64,
+        _data: Vec<u8>,
+    ) -> Result<(), String> {
+        Err(UNAVAILABLE.into())
+    }
+
+    #[tauri::command]
+    pub fn terminal_resize(
+        _manager: State<'_, TerminalManager>,
+        _session: u64,
+        _cols: u16,
+        _rows: u16,
+    ) -> Result<(), String> {
+        Err(UNAVAILABLE.into())
+    }
+
+    #[tauri::command]
+    pub fn terminal_kill(
+        _manager: State<'_, TerminalManager>,
+        _session: u64,
+    ) -> Result<(), String> {
+        Err(UNAVAILABLE.into())
+    }
+}
+#[cfg(mobile)]
+pub use stub::*;

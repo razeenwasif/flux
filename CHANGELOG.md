@@ -8,6 +8,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Native Android APK — cross-compiled, downloadable, no Termux (ADR 0012, rung C · Milestone 1)**
+  — Flux now builds a real installable `.apk` on the dev box via Tauri v2 mobile: `cargo tauri
+  android build` cross-compiles `aarch64-linux-android` with the Android NDK and Gradle assembles
+  the APK — the phone just downloads and installs it (the on-device Termux/proot build kept dying to
+  npm cache corruption, then OOM compiling on the phone, so we stopped compiling there). One command:
+  **`scripts/build-apk.sh`** (builds the frontend from the repo root, scaffolds the Gradle project if
+  missing, then assembles a debug-keystore-signed APK → `flux-arm64.apk`, sideloadable immediately).
+  The port keeps the codebase single: the desktop native-multi-webview tab engine (`webview.rs`),
+  floating peek windows (`peek.rs`), the PTY terminal (`terminal.rs`), the Spotify AudioPulse launcher
+  (`spotify.rs`), and the Files-tab trash all compile to `#[cfg(mobile)]` **stubs with identical IPC
+  signatures**, so `generate_handler!` and every store carry over untouched and the internal pages
+  (Notebook, Trail, whiteboard, Settings — all shell HTML) work. Desktop-only Tauri plugins
+  (`single-instance`, `window-state`) and the `portable-pty`/`trash` crates move to a
+  `cfg(not(android/ios))` target section; entry point is `#[cfg(mobile)] mobile_run()`. Milestone 1 =
+  APK boots the shell; real in-tab browsing (single WebView, URL-swap) and the on-device llama.cpp
+  agent are Milestones 2–3. Desktop build verified unchanged.
 - **Whiteboard (`flux://whiteboard`)** — a built-in whiteboard/paint surface: pen (midpoint-
   smoothed ink) + highlighter, line / arrow / rectangle / ellipse (Shift constrains to 45° / squares
   / circles), a text tool, and a **stroke eraser** (removes whole marks, no pixel smudging — the

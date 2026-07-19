@@ -10,7 +10,15 @@
 //! Inactive tabs keep their webview (hidden) so switching is instant and
 //! pages keep their state. Each tab webview is injected with `capture.js`
 //! (BACKLOG #5) so its DOM streams back to `dom_publish`.
+//!
+//! This is the desktop native multi-webview engine (`Window::add_child`, per-tab
+//! positioning). Android has a single system WebView with no child-webview API
+//! (ADR 0012), so the module compiles to the `stub` below — same command surface,
+//! browsing commands report unavailability, `eval`/`round_window_corners` no-op.
+//! Real mobile browsing (a single swapped WebView) is Milestone 2.
 
+#[cfg(desktop)]
+mod real {
 use tauri::webview::{PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
@@ -818,3 +826,73 @@ pub fn round_window_corners(window: &tauri::WebviewWindow) {
 
 #[cfg(not(windows))]
 pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
+} // mod real
+#[cfg(desktop)]
+pub use real::*;
+
+/// Mobile stub (ADR 0012): Android's single system WebView has no child-webview
+/// API, so the per-tab browsing engine can't exist. The command surface is kept
+/// identical (so `lib.rs`'s `generate_handler!` is unchanged); browsing commands
+/// return an error, and the two internal helpers no-op so their callers compile.
+#[cfg(mobile)]
+mod stub {
+    use crate::state::TabId;
+    use tauri::AppHandle;
+
+    const NB: &str = "in-tab web browsing isn't available on mobile yet";
+
+    /// Internal JS eval (called by dom/agent/find) — no native tab webview to
+    /// target on mobile, so it silently succeeds.
+    pub(crate) fn eval(_app: &AppHandle, _tab_id: TabId, _js: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Window corner rounding is a desktop cosmetic; nothing to do on mobile.
+    pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
+
+    /// Panel/tab badge overlay — no native panel webview on mobile.
+    #[tauri::command]
+    pub fn panel_badge(_app: AppHandle, _webview: tauri::Webview, _count: i64) {}
+
+    macro_rules! stub_cmd {
+        ($name:ident ( $($arg:ident : $ty:ty),* $(,)? )) => {
+            #[tauri::command]
+            pub async fn $name(_app: AppHandle, $($arg: $ty),*) -> Result<(), String> {
+                $( let _ = $arg; )*
+                Err(NB.into())
+            }
+        };
+    }
+
+    stub_cmd!(webview_open(tab_id: TabId, url: String, x: f64, y: f64, width: f64, height: f64));
+    stub_cmd!(webview_set_bounds(tab_id: TabId, x: f64, y: f64, width: f64, height: f64));
+    stub_cmd!(webview_show(tab_id: TabId));
+    stub_cmd!(webview_hide(tab_id: TabId));
+    stub_cmd!(webview_preconnect(tab_id: TabId, hosts: Vec<String>));
+    stub_cmd!(webview_devtools(tab_id: TabId));
+    stub_cmd!(webview_hibernate(tab_id: TabId));
+    stub_cmd!(webview_capture_state(tab_id: TabId));
+    stub_cmd!(webview_navigate(tab_id: TabId, url: String));
+    stub_cmd!(webview_stop(tab_id: TabId));
+    stub_cmd!(webview_find(tab_id: TabId, query: String, forward: bool));
+    stub_cmd!(webview_back(tab_id: TabId));
+    stub_cmd!(webview_forward(tab_id: TabId));
+    stub_cmd!(webview_reload(tab_id: TabId));
+    stub_cmd!(webview_extract_reader(tab_id: TabId));
+    stub_cmd!(webview_zoom(tab_id: TabId, factor: f64));
+    stub_cmd!(webview_close(tab_id: TabId));
+    stub_cmd!(panel_open(panel_id: u32, url: String, x: f64, y: f64, width: f64, height: f64));
+    stub_cmd!(panel_set_bounds(panel_id: u32, x: f64, y: f64, width: f64, height: f64));
+    stub_cmd!(panel_show(panel_id: u32));
+    stub_cmd!(panel_hide(panel_id: u32));
+    stub_cmd!(panel_navigate(panel_id: u32, url: String));
+    stub_cmd!(panel_close(panel_id: u32));
+
+    /// `webview_debug` returns a String, not `()`, so it can't use the macro.
+    #[tauri::command]
+    pub async fn webview_debug(_app: AppHandle, _tab_id: TabId) -> Result<String, String> {
+        Err(NB.into())
+    }
+}
+#[cfg(mobile)]
+pub use stub::*;

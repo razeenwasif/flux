@@ -67,7 +67,15 @@ pub struct FsWatchers(pub Mutex<HashMap<u64, notify::RecommendedWatcher>>);
 // platform-specific trash-restore handle (`TrashItem`) never crosses IPC.
 
 /// Trash-restore is platform-gated: Windows + freedesktop (Linux/BSD) only.
-#[cfg(any(target_os = "windows", all(unix, not(target_os = "macos"))))]
+/// Android is unix-but-not-macos, so it must be excluded explicitly or it would
+/// wrongly pull the `trash` crate (which doesn't build for Android — ADR 0012).
+#[cfg(any(
+    target_os = "windows",
+    all(
+        unix,
+        not(any(target_os = "macos", target_os = "android", target_os = "ios"))
+    )
+))]
 mod restore {
     use std::collections::HashSet;
     use std::path::PathBuf;
@@ -94,7 +102,13 @@ mod restore {
         trash::os_limited::restore_all(items).map_err(|e| e.to_string())
     }
 }
-#[cfg(not(any(target_os = "windows", all(unix, not(target_os = "macos")))))]
+#[cfg(not(any(
+    target_os = "windows",
+    all(
+        unix,
+        not(any(target_os = "macos", target_os = "android", target_os = "ios"))
+    )
+)))]
 mod restore {
     pub type Items = Vec<String>;
     pub fn capture(_paths: &[String]) -> Items {
@@ -871,8 +885,19 @@ pub async fn fs_copy(paths: Vec<String>, dest: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn fs_trash(undo: State<'_, UndoStack>, paths: Vec<String>) -> Result<(), String> {
     let items = tauri::async_runtime::spawn_blocking(move || -> Result<restore::Items, String> {
-        trash::delete_all(&paths).map_err(|e| e.to_string())?;
-        Ok(restore::capture(&paths))
+        #[cfg(desktop)]
+        {
+            trash::delete_all(&paths).map_err(|e| e.to_string())?;
+            Ok(restore::capture(&paths))
+        }
+        // Android has no freedesktop/Windows recycle bin the `trash` crate can
+        // reach (ADR 0012); erring keeps this recoverable-by-design rather than
+        // silently permanent-deleting. `fs_delete` is the explicit hard delete.
+        #[cfg(mobile)]
+        {
+            let _ = paths;
+            Err("Moving to Trash isn't supported on this platform".to_string())
+        }
     })
     .await
     .map_err(|e| e.to_string())??;

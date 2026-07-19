@@ -36,8 +36,15 @@ pub struct ShellSnapshot {
 /// save-on-close and lost the restore-on-next-launch geometry.
 #[tauri::command]
 pub fn close_main_window(app: AppHandle, window: tauri::WebviewWindow) {
-    use tauri_plugin_window_state::{AppHandleExt, StateFlags};
-    let _ = app.save_window_state(StateFlags::all());
+    // Persist window geometry on close — desktop only (no window-state plugin on
+    // mobile, and nothing to persist there — ADR 0012).
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+        let _ = app.save_window_state(StateFlags::all());
+    }
+    #[cfg(mobile)]
+    let _ = &app;
     let _ = window.destroy();
 }
 

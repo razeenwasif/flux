@@ -13,9 +13,16 @@
 //! rewrite AudioPulse's token file.
 
 use std::path::PathBuf;
-use std::sync::{Mutex, RwLock};
+use std::sync::RwLock;
+// The AudioPulse launcher runs a TUI in a headless PTY — desktop-only (ADR 0012:
+// `portable-pty`'s `termios` doesn't build for Android, and there's no local
+// AudioPulse binary on a phone anyway). The Web-API player commands are HTTP and
+// stay on every platform.
+#[cfg(desktop)]
+use std::sync::Mutex;
 use std::time::Duration;
 
+#[cfg(desktop)]
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -230,7 +237,10 @@ fn api(
             Err(ureq::Error::Status(404, _)) => {
                 // No active device — auto-start AudioPulse (idempotent) so the
                 // retry works once its Connect device registers.
+                #[cfg(desktop)]
                 let started = launch_audiopulse().is_ok();
+                #[cfg(mobile)]
+                let started = false; // no AudioPulse to auto-start on mobile
                 return Err(if started {
                     "no active device yet — I'm starting AudioPulse; give it a few seconds and ask again".into()
                 } else {
@@ -483,12 +493,14 @@ pub async fn spotify_play_playlist(name: String) -> Result<String, String> {
 }
 
 /// A live headless-PTY session: the master side + the child process handle.
+#[cfg(desktop)]
 type PtySession = (Box<dyn MasterPty + Send>, Box<dyn Child + Send + Sync>);
 
 /// Launch AudioPulse so its Spotify Connect device comes online. The TUI needs a
 /// real terminal, so we run it inside a headless PTY and keep the handle alive
 /// (dropping it would SIGHUP the TUI). Linux/WSL build only — the native Windows
 /// build would need to cross into WSL, which isn't wired yet.
+#[cfg(desktop)]
 static AUDIOPULSE: Mutex<Option<PtySession>> = Mutex::new(None);
 
 /// Build the command that launches AudioPulse.
@@ -499,6 +511,7 @@ static AUDIOPULSE: Mutex<Option<PtySession>> = Mutex::new(None);
 /// more robust than poking at the `\\wsl.localhost` mount from Windows. Set
 /// `FLUX_AUDIOPULSE_BIN` to a different WSL-side path, and `FLUX_AUDIOPULSE_DISTRO`
 /// if it isn't your default distro. The ConPTY we spawn it in gives the TUI a tty.
+#[cfg(desktop)]
 fn audiopulse_command() -> Result<CommandBuilder, String> {
     #[cfg(not(windows))]
     return native_audiopulse_command();
@@ -506,7 +519,7 @@ fn audiopulse_command() -> Result<CommandBuilder, String> {
     return windows_audiopulse_command();
 }
 
-#[cfg(not(windows))]
+#[cfg(all(desktop, not(windows)))]
 fn native_audiopulse_command() -> Result<CommandBuilder, String> {
     let bin = std::env::var("FLUX_AUDIOPULSE_BIN")
         .ok()
@@ -551,6 +564,7 @@ fn windows_audiopulse_command() -> Result<CommandBuilder, String> {
     Ok(c)
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn spotify_launch() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(launch_audiopulse)
@@ -558,8 +572,17 @@ pub async fn spotify_launch() -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Mobile has no local AudioPulse binary and no PTY — the command stays in the
+/// IPC surface (identical signature) but reports the feature is desktop-only.
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn spotify_launch() -> Result<String, String> {
+    Err("AudioPulse (the Spotify Connect device) is desktop-only".into())
+}
+
 /// Start AudioPulse if it isn't already running (sync; used by the command and by
 /// the no-active-device auto-start). Idempotent — safe to call repeatedly.
+#[cfg(desktop)]
 fn launch_audiopulse() -> Result<String, String> {
     // Already running? (the child is alive if try_wait → Ok(None))
     if let Ok(mut g) = AUDIOPULSE.lock() {

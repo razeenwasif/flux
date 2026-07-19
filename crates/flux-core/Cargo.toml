@@ -13,6 +13,10 @@ workspace = true
 [lib]
 name = "flux_core"
 path = "src/lib.rs"
+# rlib → the `flux` binary + integration tests link the lib as usual (desktop).
+# staticlib/cdylib → the Android build (ADR 0012, rung C) links the lib into the
+# Gradle project's JNI glue; harmless extra artifacts on desktop.
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
 name = "flux"
@@ -35,11 +39,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot.workspace = true
 dashmap.workspace = true
 zeroize = "1"
-# Remember the window size/position across launches (open as you left it).
-tauri-plugin-window-state = "2"
-# Single-instance forwarding (#20): a second `flux <url>` adds tabs to the running
-# window instead of spawning a second process.
-tauri-plugin-single-instance = "2"
+# window-state + single-instance are desktop-only (no window geometry / argv on
+# mobile) — declared under the desktop target section below (ADR 0012).
 # OS notifications for due reminders (Windows toast / Linux libnotify / macOS).
 tauri-plugin-notification = "2"
 # System + process memory readout, for memory-pressure tab eviction (#45).
@@ -72,17 +73,15 @@ flux-vault.workspace = true
 # Falls back to a file-backed key when no store is available (e.g. headless WSL).
 keyring = { version = "3", default-features = false, features = ["windows-native", "apple-native", "sync-secret-service", "crypto-rust"] }
 
-# Embedded terminal: real PTY (the wezterm crate). flux-term (WGPU renderer)
-# remains the future native-render path; the PTY here feeds either renderer.
-portable-pty = "0.8"
+# Embedded terminal PTY (portable-pty) is desktop-only — its transitive `termios`
+# doesn't build for Android (ADR 0012). Declared under the desktop target below.
 
 # Files tab: open a file with the OS default app (handles the Windows/macOS/
 # Linux quirks correctly).
 open = "5"
-# Files tab — delete sends to the OS trash / recycle bin (recoverable), rather
-# than an irreversible unlink. Cross-platform (freedesktop / Shell API). Its
-# `os_limited` API also powers undo-of-trash (restore) on Windows/Linux.
-trash = "5"
+# Files tab — delete sends to the OS trash / recycle bin (recoverable). No
+# Android backend (ADR 0012), so it's declared under the desktop target below;
+# `fs_trash` errors on mobile rather than silently hard-deleting.
 # Files tab — live directory watch (inotify / ReadDirectoryChangesW), so the
 # listing reflects external changes without a manual refresh.
 notify = "6"
@@ -95,6 +94,15 @@ ureq = { version = "2", default-features = false, features = ["tls", "gzip"] }
 # WebKitGTK content-blocker wiring (Linux shields parity). The safe webkit2gtk
 # crate doesn't wrap UserContentFilterStore, so netfilter uses the -sys FFI;
 # versions pinned to what wry already pulls in (feature-unified).
+# Desktop-only (not Android/iOS): the embedded terminal PTY, single-instance
+# forwarding, and window-state persistence — all meaningless or unbuildable on
+# mobile (ADR 0012). Their code paths are `#[cfg(desktop)]`-gated to match.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+portable-pty = "0.8"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+trash = "5"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 webkit2gtk-sys = { version = "=2.0.2", features = ["v2_40"] }
