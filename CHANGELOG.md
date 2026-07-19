@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Whiteboard (`flux://whiteboard`)** — a built-in whiteboard/paint surface: pen (midpoint-
+  smoothed ink) + highlighter, line / arrow / rectangle / ellipse (Shift constrains to 45° / squares
+  / circles), a text tool, and a **stroke eraser** (removes whole marks, no pixel smudging — the
+  board is a vector model). Pan (✋ / middle-drag / Space) + wheel zoom over a dot grid; exact
+  **undo/redo** (Ctrl+Z / Ctrl+Shift+Z); tool hotkeys (P/H/E/L/A/R/O/T); a color row + custom
+  picker + width slider. **Multiple named boards**, autosaved locally (rename ✎ / delete, dbl-click
+  a chip to rename); **export** crops to the drawing's bounds on the velvet background — ⧉ copies
+  a PNG to the clipboard, ⬇ downloads it. Pointer-events throughout, so mouse, touch and stylus all
+  draw (pairs with the Termux/mobile build; toolbar targets grow on touch). Opens from the PagesBar
+  🎨 chip or ⌘K "Open whiteboard"; lazy chunk (4.8 KB gz), eager budget untouched.
 - **Mobile Flux — Termux build + responsive chrome (ADR 0012, rungs A+B)** — Flux now runs on
   Android as its Linux build inside **Termux + proot-distro + termux-x11**: `scripts/
   install-termux.sh` provisions both layers end-to-end (X11 display, proot Ubuntu, toolchains,

@@ -24,6 +24,7 @@ import {
   SYNC_URL,
   TASKS_URL,
   TRAIL_URL,
+  WHITEBOARD_URL,
   VAULT_URL,
   isStartUrl,
   type TabMeta,
@@ -51,6 +52,7 @@ const FilesView = lazy(() => import("./FilesView"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
 const NotebookPage = lazy(() => import("./NotebookPage"));
 const TrailPage = lazy(() => import("./TrailPage"));
+const WhiteboardPage = lazy(() => import("./WhiteboardPage"));
 const VaultPage = lazy(() => import("./VaultPage"));
 const HistoryPage = lazy(() => import("./HistoryPage"));
 const BookmarksPage = lazy(() => import("./BookmarksPage"));
@@ -126,6 +128,9 @@ const ContentArea: Component<{
       </Match>
       <Match when={tab()?.url === TRAIL_URL}>
         <TrailPage onNavigate={props.onNavigate} />
+      </Match>
+      <Match when={tab()?.url === WHITEBOARD_URL}>
+        <WhiteboardPage />
       </Match>
       <Match when={tab()?.url === VAULT_URL}>
         <VaultPage onNavigate={props.onNavigate} />

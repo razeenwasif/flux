@@ -542,6 +542,8 @@ export const OMNI_URL = "flux://omni";
 export const NOTEBOOK_URL = "flux://notebook";
 /** The Trail — browsing provenance graph (ADR 0011). */
 export const TRAIL_URL = "flux://trail";
+/** Built-in whiteboard / paint surface. */
+export const WHITEBOARD_URL = "flux://whiteboard";
 // ─── TUI app launcher (#117) ────────────────────────────────────────────────
 export type TuiApp = GenTuiApp;
 /** The user's curated terminal-app list (seeded on first run). */
