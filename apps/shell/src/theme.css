@@ -12068,20 +12068,20 @@ input[type="radio"].pdf-fw {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  padding: 14px 12px;
+  gap: 7px;
+  padding: 12px 10px;
   border: 1px solid var(--glass-rim-soft);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.045);
   color: var(--text, #e8e6f0);
   text-align: left;
-  min-height: 72px;
+  min-height: 64px;
 }
 .mmenu-card:active {
   background: rgba(255, 255, 255, 0.1);
 }
 .mmenu-ico {
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
 }
 .mmenu-label {
@@ -12128,14 +12128,16 @@ input[type="radio"].pdf-fw {
 /* ─── Chrome-style mobile chrome (ADR 0012) ──────────────────────────────────
    A top bar in its own grid row (never over the native page WebView) + a
    full-screen tab switcher. */
+/* Sized for a 360 CSS-px phone (e.g. Galaxy S21 = 1080px / 3× density): four
+   nav icons + omnibox + tab count + menu must fit without squeezing the omnibox. */
 .mchrome-top {
   grid-area: topbar;
   position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
-  padding-top: max(6px, env(safe-area-inset-top));
+  gap: 3px;
+  padding: 5px 6px;
+  padding-top: max(5px, env(safe-area-inset-top));
   background: var(--glass-fill-soft);
   border-bottom: 1px solid var(--glass-rim-soft);
   backdrop-filter: var(--glass-blur);
@@ -12143,14 +12145,14 @@ input[type="radio"].pdf-fw {
 }
 .mchrome-icon {
   flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: transparent;
   color: var(--text, #e8e6f0);
-  font-size: 22px;
+  font-size: 19px;
   line-height: 1;
-  border-radius: 10px;
+  border-radius: 9px;
   display: grid;
   place-items: center;
 }
@@ -12162,9 +12164,9 @@ input[type="radio"].pdf-fw {
   min-width: 0;
   display: flex;
   align-items: center;
-  height: 38px;
-  padding: 0 4px 0 10px;
-  border-radius: 19px;
+  height: 34px;
+  padding: 0 3px 0 9px;
+  border-radius: 17px;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid var(--glass-rim-soft);
 }
@@ -12173,11 +12175,11 @@ input[type="radio"].pdf-fw {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   border: none;
   background: transparent;
   color: var(--text, #e8e6f0);
-  font-size: 15px;
+  font-size: 13px;
   text-align: left;
   height: 100%;
 }
@@ -12200,28 +12202,28 @@ input[type="radio"].pdf-fw {
   border: none;
   background: transparent;
   color: var(--text, #e8e6f0);
-  font-size: 15px;
+  font-size: 13px;
   outline: none;
   height: 100%;
 }
 .mchrome-omni-reload {
   flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
+  width: 27px;
+  height: 27px;
   border: none;
   background: transparent;
   color: var(--text, #e8e6f0);
-  font-size: 17px;
+  font-size: 15px;
   border-radius: 50%;
   opacity: 0.85;
 }
 .mchrome-tabcount {
   flex: 0 0 auto;
-  min-width: 26px;
-  height: 26px;
-  padding: 0 5px;
+  min-width: 23px;
+  height: 23px;
+  padding: 0 4px;
   border: 2px solid currentColor;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text, #e8e6f0);
   font-size: 13px;
@@ -12302,7 +12304,7 @@ input[type="radio"].pdf-fw {
   background: var(--glass-fill-soft);
   display: flex;
   flex-direction: column;
-  min-height: 150px;
+  min-height: 132px;
 }
 .mchrome-card.active {
   border-color: var(--accent, #a99bec);
@@ -12312,7 +12314,7 @@ input[type="radio"].pdf-fw {
 .mchrome-card-cover {
   position: relative;
   flex: 1 1 auto;
-  min-height: 100px;
+  min-height: 86px;
   background-size: cover;
   background-position: top center;
   background-color: rgba(255, 255, 255, 0.05);
@@ -12373,6 +12375,32 @@ input[type="radio"].pdf-fw {
   white-space: nowrap;
   font-size: 12px;
   color: var(--text, #e8e6f0);
+}
+
+/* Narrower than a stock 360px phone — e.g. Samsung's "Screen zoom" set larger,
+   which shrinks the CSS viewport. Tighten the bar so the omnibox keeps room. */
+@media (max-width: 359px) {
+  .mchrome-top {
+    gap: 2px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .mchrome-icon {
+    width: 29px;
+    height: 29px;
+    font-size: 17px;
+  }
+  .mchrome-omni {
+    height: 32px;
+    padding-left: 8px;
+  }
+  .mchrome-omni-view,
+  .mchrome-omni-input {
+    font-size: 12px;
+  }
+  .mmenu-grid {
+    gap: 8px;
+  }
 }
 
 /* Mobile: the music bubble is smaller and tucked into the bottom-right corner,
