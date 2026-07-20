@@ -672,9 +672,10 @@ export function setLiquidBg(on: boolean): void {
 }
 
 // Pages bar: a quick-access strip of Flux native pages above the content card.
-// Persisted, default OFF (opt-in). Like the bookmark bar, toggling resizes the
-// card so the native webview relayout follows.
-const [pagesBarOpen, setPagesBarRaw] = createSignal(localStorage.getItem("flux.pagesbar") === "1");
+// Persisted, default ON (hidden only when explicitly turned off). Like the
+// bookmark bar, toggling resizes the card so the native webview relayout follows.
+// (Hidden on mobile regardless, via .shell.mobile CSS.)
+const [pagesBarOpen, setPagesBarRaw] = createSignal(localStorage.getItem("flux.pagesbar") !== "0");
 export { pagesBarOpen };
 export function setPagesBarOpen(on: boolean): void {
   setPagesBarRaw(on);

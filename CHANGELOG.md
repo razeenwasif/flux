@@ -15,6 +15,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   Shields' network blocking + HTTPS-only + the download interceptor are no-ops there (Windows/Linux
   only). README gains a macOS install section.
 
+### Changed
+- **Flux pages bar is now on by default** — the quick-access strip of native pages (Notebook, Trail,
+  whiteboard, …) above the content card now shows unless explicitly turned off (`flux.pagesbar`),
+  matching the bookmark bar. Still hidden on the barebone mobile build.
+
 ### Fixed
 - **Rounded window corners on macOS** — `round_window_corners` gains a Cocoa implementation (the
   analogue of the Windows DWM path): it rounds the `NSWindow` content-view layer and makes the window
