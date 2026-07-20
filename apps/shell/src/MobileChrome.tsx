@@ -24,6 +24,7 @@ import {
   isLoading,
   openTab,
   tabs,
+  tabThumb,
 } from "./store";
 
 const hostOf = (url: string): string => {
@@ -161,6 +162,8 @@ const MobileChrome: Component<{
               {(t) => {
                 const host = () => hostOf(t.url);
                 const fav = () => faviconFor(host());
+                const thumb = () => tabThumb(t.id);
+                const initial = () => (host()[0] || "•").toUpperCase();
                 return (
                   <div
                     class="mchrome-card"
@@ -170,16 +173,10 @@ const MobileChrome: Component<{
                       props.setTabsOpen(false);
                     }}
                   >
-                    <div class="mchrome-card-head">
-                      <Show
-                        when={fav()}
-                        fallback={<span class="mchrome-card-glyph">{(host()[0] || "•").toUpperCase()}</span>}
-                      >
-                        <img class="mchrome-card-fav" src={fav()!} alt="" />
-                      </Show>
-                      <span class="mchrome-card-title">
-                        {t.custom_title || t.title || host() || "New tab"}
-                      </span>
+                    <div
+                      class="mchrome-card-cover"
+                      style={thumb() ? { "background-image": `url("${thumb()}")` } : undefined}
+                    >
                       <button
                         class="mchrome-card-x"
                         onClick={(e) => {
@@ -190,8 +187,21 @@ const MobileChrome: Component<{
                       >
                         ×
                       </button>
+                      <Show when={!thumb()}>
+                        <span class="mchrome-card-cover-glyph">{initial()}</span>
+                      </Show>
                     </div>
-                    <div class="mchrome-card-url">{host() || "New tab"}</div>
+                    <div class="mchrome-card-foot">
+                      <Show
+                        when={fav()}
+                        fallback={<span class="mchrome-card-glyph">{initial()}</span>}
+                      >
+                        <img class="mchrome-card-fav" src={fav()!} alt="" />
+                      </Show>
+                      <span class="mchrome-card-title">
+                        {t.custom_title || t.title || host() || "New tab"}
+                      </span>
+                    </div>
                   </div>
                 );
               }}

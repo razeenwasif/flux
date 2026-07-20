@@ -106,6 +106,7 @@ import { keyToAction } from "./shortcuts";
 // Cold chrome (ADR 0001 budget): overlays/panes that render only behind a
 // store-gated <Show>, so their code loads on first open — not at boot.
 const MobileChrome = lazy(() => import("./MobileChrome")); // Android-only chrome (ADR 0012); kept out of the desktop bundle
+const MobileMenu = lazy(() => import("./MobileMenu")); // mobile drawer (replaces the desktop sidebar on the phone)
 const ShellHistory = lazy(() => import("./ShellHistory"));
 const SemanticFind = lazy(() => import("./SemanticFind"));
 const WatchPanel = lazy(() => import("./WatchPanel"));
@@ -215,6 +216,7 @@ import {
   unpinnedTabs,
   updateTabUrl,
   updateTabTitle,
+  setTabThumb,
 } from "./store";
 
 const App: Component = () => {
@@ -611,7 +613,9 @@ const App: Component = () => {
   let lastStartFocus: number | null = null;
   createEffect(() => {
     const t = activeTab();
-    if (t && t.kind === "browser" && isStartUrl(t.url)) {
+    // Mobile's omnibox lives in the top bar, not the sidebar — auto-opening the
+    // drawer on the start page (and pulling focus into it) is desktop-only.
+    if (!isMobile && t && t.kind === "browser" && isStartUrl(t.url)) {
       if (t.id !== lastStartFocus) {
         lastStartFocus = t.id;
         setSidebarOpen(true);
@@ -1016,6 +1020,10 @@ const App: Component = () => {
         if (mobileTabsOpen()) setMobileTabsOpen(false);
         else if (agentOpen()) setAgentOpen(false);
         else if (sidebarOpen()) setSidebarOpen(false);
+      }).catch(() => {});
+      // Tab-switcher cover thumbnails (native WebView snapshots).
+      void addPluginListener<{ id: number; data: string }>("flux-webview", "thumb", (e) => {
+        if (e.data) setTabThumb(e.id, e.data);
       }).catch(() => {});
     });
   }
@@ -1462,6 +1470,16 @@ const App: Component = () => {
           />
         </Suspense>
       </Show>
+      {/* Phone: the sidebar is replaced by a purpose-built menu drawer (the Arc
+          sidebar is empty on mobile — tabs + omnibox live in MobileChrome). */}
+      <Show
+        when={!isMobile}
+        fallback={
+          <Suspense>
+            <MobileMenu onNavigate={go} onClose={() => setSidebarOpen(false)} />
+          </Suspense>
+        }
+      >
       <Sidebar
         collapsed={!responsive().sidebar}
         terminalOpen={terminalOpen()}
@@ -1497,6 +1515,7 @@ const App: Component = () => {
         onOpenPlayground={() => (playgroundOpen() ? closePlayground() : openPlayground())}
         onOpenNotebook={() => (kbPanelOpen() ? closeKbPanel() : openKbPanel())}
       />
+      </Show>
       <ContentArea
         onNavigate={go}
         onNewTerminal={() => void openTab("terminal")}

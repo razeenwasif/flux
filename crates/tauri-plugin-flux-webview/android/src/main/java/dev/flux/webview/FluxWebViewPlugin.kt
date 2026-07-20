@@ -3,6 +3,8 @@ package dev.flux.webview
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.util.Base64
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
@@ -20,6 +22,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.ByteArrayOutputStream
 
 @InvokeArg
 class OpenArgs {
@@ -134,6 +137,35 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         return p
     }
 
+    /** A downscaled JPEG data-URL snapshot of a WebView, for the tab switcher's
+     *  cover thumbnails. Best-effort — returns null if the view isn't drawable. */
+    private fun captureThumb(wv: WebView): String? {
+        return try {
+            val w = wv.width
+            val h = wv.height
+            if (w <= 0 || h <= 0) return null
+            val scale = 0.5f
+            val bmp = Bitmap.createBitmap((w * scale).toInt(), (h * scale).toInt(), Bitmap.Config.RGB_565)
+            val canvas = Canvas(bmp)
+            canvas.scale(scale, scale)
+            wv.draw(canvas)
+            val out = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 55, out)
+            bmp.recycle()
+            "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun emitThumb(id: Int, wv: WebView) {
+        val data = captureThumb(wv) ?: return
+        val o = JSObject()
+        o.put("id", id)
+        o.put("data", data)
+        trigger("thumb", o)
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun makeWebView(id: Int): WebView {
         val wv = WebView(activity)
@@ -165,7 +197,11 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
                 pageUrl = url ?: ""
                 emitNav(view, url)
             }
-            override fun onPageFinished(view: WebView, url: String?) = emitNav(view, url)
+            override fun onPageFinished(view: WebView, url: String?) {
+                emitNav(view, url)
+                // Snapshot once it's had a moment to paint, for the tab switcher.
+                view.postDelayed({ emitThumb(id, view) }, 450)
+            }
 
             // Shields (ADR 0012, M3): ask Rust (ShieldsState::should_block, same as
             // desktop) per request; block by returning an empty response. should_block
@@ -241,7 +277,12 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun hide(invoke: Invoke) {
         val a = invoke.parseArgs(IdArgs::class.java)
-        activity.runOnUiThread { views[a.id]?.visibility = WebView.GONE }
+        activity.runOnUiThread {
+            views[a.id]?.let { wv ->
+                emitThumb(a.id, wv) // snapshot while still drawn, before hiding
+                wv.visibility = WebView.GONE
+            }
+        }
         invoke.resolve(JSObject())
     }
 

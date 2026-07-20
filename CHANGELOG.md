@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Mobile menu drawer + tab thumbnails (ADR 0012)** — the phone's ⋮ drawer is now a purpose-built
+  menu (`MobileMenu`): a grid of Flux destinations (Notebook, Trail, whiteboard, History, Bookmarks,
+  Settings, …) plus a New-tab action, replacing the desktop Arc sidebar that rendered mostly empty
+  there. The **tab switcher** now shows a **cover thumbnail** per tab — the native WebView snapshots
+  itself (downscaled JPEG) on page-load and when hidden, emitted to the shell as a `thumb` event and
+  shown behind the favicon/title, Chrome-style.
 - **Shields on macOS** — the WKWebView build gets ad/tracker blocking too. macOS compiles the *same*
   content-blocker JSON Flux already generates for WebKitGTK into a `WKContentRuleList` (declarative,
   like Linux — not per-request like Windows/Android) and attaches it to each webview's user-content
@@ -34,6 +40,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   matching the bookmark bar. Still hidden on the barebone mobile build.
 
 ### Fixed
+- **Mobile no longer launches with the drawer open** — the start-page effect that focuses the omnibox
+  (and opened the sidebar) is now desktop-only; on mobile the omnibox lives in the top bar, so nothing
+  needs to open the drawer.
 - **Rounded window corners on macOS** — `round_window_corners` gains a Cocoa implementation (the
   analogue of the Windows DWM path): it rounds the `NSWindow` content-view layer and makes the window
   non-opaque so the corners (and a rounded shadow) show instead of a square fill. Best-effort +

@@ -621,6 +621,15 @@ const [favicons, setFavicons] = createStore<Record<string, string | null>>({});
 const faviconInflight = new Set<string>();
 export const faviconFor = (host: string | null): string | null | undefined =>
   host ? favicons[host] : undefined;
+
+// Mobile tab thumbnails (ADR 0012): the native WebView plugin emits a downscaled
+// JPEG data-URL per tab (on page-load + on hide); the tab switcher shows them as
+// cover images. Keyed by tab id, granular so only that card re-renders.
+const [tabThumbs, setTabThumbs] = createStore<Record<number, string>>({});
+export const tabThumb = (id: number): string | undefined => tabThumbs[id];
+export function setTabThumb(id: number, data: string): void {
+  setTabThumbs(id, data);
+}
 // AI search answers (#32-ish / agent): when you search, the local Gemma also
 // drafts a quick answer in the agent panel. On by default (it's local — no
 // privacy cost, just local compute); toggle in Settings.

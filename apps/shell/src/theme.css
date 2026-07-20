@@ -12014,22 +12014,79 @@ input[type="radio"].pdf-fw {
   grid-area: content;
 }
 
-/* Sidebar → off-canvas drawer. */
-.shell.mobile .sidebar {
+/* The mobile menu drawer (replaces the desktop sidebar on the phone). */
+.shell.mobile .mobile-menu {
   position: fixed;
   top: 0;
   left: 0;
   bottom: 0;
   width: 86%;
-  max-width: 340px;
+  max-width: 360px;
   z-index: 60;
   transform: translateX(-100%);
   transition: transform 0.28s var(--ease-soft);
   box-shadow: 0 0 44px rgba(0, 0, 0, 0.5);
-  padding-top: max(14px, env(safe-area-inset-top));
+  background: var(--glass-fill-soft);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--glass-rim-soft);
+  display: flex;
+  flex-direction: column;
+  padding: max(14px, env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom));
+  overflow-y: auto;
 }
-.shell.mobile.drawer-open .sidebar {
+.shell.mobile.drawer-open .mobile-menu {
   transform: translateX(0);
+}
+.mmenu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding: 4px 2px;
+}
+.mmenu-brand {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text, #e8e6f0);
+}
+.mmenu-newtab {
+  border: 1px solid var(--glass-rim-soft);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text, #e8e6f0);
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.mmenu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.mmenu-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 12px;
+  border: 1px solid var(--glass-rim-soft);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text, #e8e6f0);
+  text-align: left;
+  min-height: 72px;
+}
+.mmenu-card:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+.mmenu-ico {
+  font-size: 22px;
+  line-height: 1;
+}
+.mmenu-label {
+  font-size: 13px;
+  font-weight: 500;
 }
 
 /* Agent → full-screen overlay when open (it only mounts while open). */
@@ -12241,21 +12298,54 @@ input[type="radio"].pdf-fw {
 .mchrome-card {
   border: 1px solid var(--glass-rim-soft);
   border-radius: 12px;
+  overflow: hidden;
   background: var(--glass-fill-soft);
-  padding: 10px;
-  min-height: 96px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  min-height: 150px;
 }
 .mchrome-card.active {
   border-color: var(--accent, #a99bec);
   box-shadow: 0 0 0 1px var(--accent, #a99bec);
 }
-.mchrome-card-head {
+/* Cover thumbnail (the WebView snapshot), or a monogram placeholder. */
+.mchrome-card-cover {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 100px;
+  background-size: cover;
+  background-position: top center;
+  background-color: rgba(255, 255, 255, 0.05);
+  display: grid;
+  place-items: center;
+}
+.mchrome-card-cover-glyph {
+  font-size: 30px;
+  font-weight: 700;
+  opacity: 0.3;
+  color: var(--text, #e8e6f0);
+}
+.mchrome-card-x {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+.mchrome-card-foot {
   display: flex;
   align-items: center;
   gap: 7px;
+  padding: 8px 9px;
+  border-top: 1px solid var(--glass-rim-soft);
 }
 .mchrome-card-fav {
   width: 16px;
@@ -12281,26 +12371,7 @@ input[type="radio"].pdf-fw {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  color: var(--text, #e8e6f0);
-}
-.mchrome-card-x {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  color: var(--text, #e8e6f0);
-  font-size: 16px;
-  border-radius: 50%;
-  opacity: 0.7;
-}
-.mchrome-card-url {
-  font-size: 11px;
-  opacity: 0.55;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12px;
   color: var(--text, #e8e6f0);
 }
 
