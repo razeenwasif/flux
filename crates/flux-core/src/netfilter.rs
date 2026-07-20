@@ -26,7 +26,7 @@ use tauri::AppHandle;
 
 /// Install the content-blocker interceptor on a freshly-created tab webview.
 pub fn install(app: &AppHandle, webview: &Webview) {
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         let app = app.clone();
         let r = webview.with_webview(move |platform| wire(&app, platform));
@@ -34,7 +34,7 @@ pub fn install(app: &AppHandle, webview: &Webview) {
             tracing::warn!(target: "flux::netfilter", "with_webview failed: {e}");
         }
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = (app, webview);
     }
@@ -44,7 +44,7 @@ pub fn install(app: &AppHandle, webview: &Webview) {
 /// #50) — peeks are their own window, not a `tab-*` child webview, so they'd
 /// otherwise miss shields/HTTPS-only/lean entirely.
 pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         let app = app.clone();
         let r = window.with_webview(move |platform| wire(&app, platform));
@@ -52,7 +52,7 @@ pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
             tracing::warn!(target: "flux::netfilter", "with_webview (window) failed: {e}");
         }
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = (app, window);
     }
@@ -74,6 +74,78 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
     // The compiled-filter cache lives next to the JSON source.
     let store_dir = json_path.with_file_name("cb-store");
     gtk::attach(&json_path, &store_dir, &platform.inner());
+}
+
+/// Attach the compiled shields content blocker to a fresh WKWebView (macOS).
+/// WebKit compiles the SAME content-blocker JSON that WebKitGTK uses into a
+/// `WKContentRuleList`, so macOS is declarative like Linux (not per-request like
+/// Windows). Runs on the webview's main thread (where `with_webview` puts us).
+#[cfg(target_os = "macos")]
+fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
+    use tauri::Manager;
+    let Some(shields) = app.try_state::<crate::shields::ShieldsState>() else {
+        return;
+    };
+    let Some(json_path) = shields.content_blocker_json() else {
+        tracing::warn!(target: "flux::netfilter", "no content-blocker JSON yet; webview unfiltered");
+        return;
+    };
+    let Ok(json) = std::fs::read_to_string(&json_path) else {
+        return;
+    };
+    mac::attach(platform.inner() as *mut objc::runtime::Object, &json);
+}
+
+/// WKContentRuleList compile + attach via Cocoa. The compile is async (the store
+/// takes a completion block); the block retains the webview so it's still valid
+/// when the compiled rules land, adds them, then releases. All selectors are
+/// standard WebKit API.
+#[cfg(target_os = "macos")]
+mod mac {
+    use block::ConcreteBlock;
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    const NSUTF8_STRING_ENCODING: usize = 4;
+
+    unsafe fn nsstring(s: &str) -> *mut Object {
+        let obj: *mut Object = msg_send![class!(NSString), alloc];
+        msg_send![obj, initWithBytes: s.as_ptr() length: s.len() encoding: NSUTF8_STRING_ENCODING]
+    }
+
+    pub fn attach(webview: *mut Object, json: &str) {
+        if webview.is_null() {
+            return;
+        }
+        unsafe {
+            let store: *mut Object = msg_send![class!(WKContentRuleListStore), defaultStore];
+            if store.is_null() {
+                return;
+            }
+            let ident = nsstring("flux-shields");
+            let json_ns = nsstring(json);
+
+            // Keep the webview alive across the async compile; released in the block.
+            let _: () = msg_send![webview, retain];
+            let block = ConcreteBlock::new(move |list: *mut Object, _err: *mut Object| unsafe {
+                if !list.is_null() {
+                    let config: *mut Object = msg_send![webview, configuration];
+                    if !config.is_null() {
+                        let ucc: *mut Object = msg_send![config, userContentController];
+                        if !ucc.is_null() {
+                            let _: () = msg_send![ucc, addContentRuleList: list];
+                        }
+                    }
+                }
+                let _: () = msg_send![webview, release];
+            });
+            let block = block.copy();
+            let _: () = msg_send![store,
+                compileContentRuleListForIdentifier: ident
+                encodedContentRuleList: json_ns
+                completionHandler: &*block];
+        }
+    }
 }
 
 /// Wire the WebView2 `WebResourceRequested` interceptor with Flux's policy.

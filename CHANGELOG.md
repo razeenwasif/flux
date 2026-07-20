@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Shields on macOS** — the WKWebView build gets ad/tracker blocking too. macOS compiles the *same*
+  content-blocker JSON Flux already generates for WebKitGTK into a `WKContentRuleList` (declarative,
+  like Linux — not per-request like Windows/Android) and attaches it to each webview's user-content
+  controller via Cocoa FFI. Closes the macOS Shields no-op gap. (Untested on-device — no macOS SDK on
+  the build box; the async `WKContentRuleListStore` block FFI wants a real-Mac compile + verification.)
 - **Shields on the mobile WebView (ADR 0012, Milestone 3)** — ad/tracker blocking now works while
   browsing on Android. The native WebView's `shouldInterceptRequest` calls back into the *same*
   `ShieldsState::should_block` the desktop uses, over a JNI bridge (`android_jni.rs` ↔ the Kotlin

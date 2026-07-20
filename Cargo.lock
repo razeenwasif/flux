@@ -1919,6 +1919,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "base64 0.22.1",
+ "block",
  "criterion",
  "dashmap",
  "flux-agent",

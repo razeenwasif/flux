@@ -128,6 +128,9 @@ gobject-sys = "0.18"
 # (webview.rs::round_window_corners) — the Cocoa analogue of the Windows DWM call.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
+# WKContentRuleListStore's async compile takes an Objective-C completion block
+# (netfilter.rs macOS Shields).
+block = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Storage_FileSystem"] }
