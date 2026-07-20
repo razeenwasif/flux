@@ -70,14 +70,33 @@ echo "==> Building APK ($([ -n "$PROFILE_FLAG" ] && echo debug || echo release),
 cargo tauri android build $PROFILE_FLAG --apk --target aarch64 \
   --config '{"build":{"beforeBuildCommand":""}}'
 
-# 4) Surface the artifact.
-APK="$(find "$ROOT" -name "*.apk" -newermt "-15 minutes" 2>/dev/null | head -1)"
-if [ -n "$APK" ]; then
-  DEST="$ROOT/flux-arm64.apk"
-  cp -f "$APK" "$DEST"
-  echo "==> APK: $DEST"
-  echo "    Sideload: adb install -r \"$DEST\"  (or copy it to the phone and tap it)"
+# 4) Surface the artifact. Debug APKs are auto-signed with the Android debug key
+#    (installable as-is). Release APKs come out UNSIGNED — Android refuses to
+#    install those — so zipalign + sign with a local keystore (auto-created; a
+#    personal sideload key, NOT a Play Store key; override via FLUX_APK_KEYSTORE*).
+DEST="$ROOT/flux-arm64.apk"
+BT="$(dirname "$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)")"
+if [ -z "$PROFILE_FLAG" ]; then
+  APK="$(find "$ROOT" -name "*release-unsigned.apk" -newermt "-60 minutes" 2>/dev/null | head -1)"
+  [ -n "$APK" ] || { echo "==> No release APK found — check the log above." >&2; exit 1; }
+  KS="${FLUX_APK_KEYSTORE:-$HOME/Android/flux-release.keystore}"
+  KS_PASS="${FLUX_APK_KEYSTORE_PASS:-fluxflux}"
+  if [ ! -f "$KS" ]; then
+    echo "==> Creating a local signing keystore ($KS)"
+    "$JAVA_HOME/bin/keytool" -genkeypair -v -keystore "$KS" -alias flux \
+      -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KS_PASS" -keypass "$KS_PASS" \
+      -dname "CN=Flux, OU=Dev, O=Flux, C=AU" >/dev/null 2>&1
+  fi
+  echo "==> zipalign + sign release APK"
+  "$BT/zipalign" -f -p 4 "$APK" "$DEST.aligned"
+  "$BT/apksigner" sign --ks "$KS" --ks-key-alias flux \
+    --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" --out "$DEST" "$DEST.aligned"
+  rm -f "$DEST.aligned"
+  "$BT/apksigner" verify "$DEST" >/dev/null && echo "==> signature verified"
 else
-  echo "==> Build finished but no .apk was found — check the log above." >&2
-  exit 1
+  APK="$(find "$ROOT" -name "*.apk" -newermt "-30 minutes" 2>/dev/null | head -1)"
+  [ -n "$APK" ] || { echo "==> Build finished but no .apk was found." >&2; exit 1; }
+  cp -f "$APK" "$DEST"
 fi
+echo "==> APK: $DEST"
+echo "    Sideload: adb install -r \"$DEST\"  (or copy it to the phone and tap it)"
