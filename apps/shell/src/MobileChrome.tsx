@@ -93,6 +93,9 @@ const MobileChrome: Component<{
         <button class="mchrome-icon" onClick={() => navActive(webviewForward)} aria-label="Forward">
           ›
         </button>
+        <button class="mchrome-icon" onClick={() => props.go("flux://start")} aria-label="Home">
+          ⌂
+        </button>
         <form class="mchrome-omni" onSubmit={submit}>
           <Show
             when={editing()}
