@@ -99,6 +99,11 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private val views = HashMap<Int, WebView>()
+    /** Latest cover snapshot (base64 data URL) per tab. Cached here rather than
+     *  pushed over the plugin event channel — small nav events ride that fine, but
+     *  ~20KB images don't arrive. The shell pulls these via the `thumbnail` command
+     *  over the normal IPC, which handles large payloads. */
+    private val thumbs = HashMap<Int, String>()
     private var container: FrameLayout? = null
     // The active (visible) tab's WebView — the one the Android back gesture drives.
     private var current: WebView? = null
@@ -165,66 +170,71 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
      *  fails. PixelCopy scales the source rect into the (smaller) destination bitmap,
      *  so the thumbnail is downscaled for free and the payload stays small.
      */
-    private fun emitThumb(id: Int, wv: WebView) {
+    private fun captureThumb(id: Int, wv: WebView) {
         try {
             val w = wv.width
             val h = wv.height
-            if (w <= 0 || h <= 0 || wv.visibility != View.VISIBLE) return emitOgImage(id, wv)
+            if (w <= 0 || h <= 0 || wv.visibility != View.VISIBLE) return captureOgImage(id, wv)
             val loc = IntArray(2)
             wv.getLocationInWindow(loc)
             val src = Rect(loc[0], loc[1], loc[0] + w, loc[1] + h)
             val scale = (THUMB_WIDTH.toFloat() / w).coerceAtMost(1f)
-            val bmp = Bitmap.createBitmap(
-                (w * scale).toInt().coerceAtLeast(1),
-                (h * scale).toInt().coerceAtLeast(1),
-                Bitmap.Config.ARGB_8888
-            )
+            val tw = (w * scale).toInt().coerceAtLeast(1)
+            val th = (h * scale).toInt().coerceAtLeast(1)
+            val bmp = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
             PixelCopy.request(
                 activity.window,
                 src,
                 bmp,
                 { result ->
                     if (result == PixelCopy.SUCCESS) {
-                        try {
-                            val out = ByteArrayOutputStream()
-                            bmp.compress(Bitmap.CompressFormat.JPEG, 40, out)
-                            val o = JSObject()
-                            o.put("id", id)
-                            o.put(
-                                "data",
-                                "data:image/jpeg;base64," +
-                                    Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-                            )
-                            trigger("thumb", o)
-                        } catch (_: Throwable) {
-                        }
+                        encode(bmp)?.let { thumbs[id] = it }
                     } else {
-                        emitOgImage(id, wv)
+                        drawFallback(id, wv, tw, th) // PixelCopy refused — try a plain draw
                     }
                     bmp.recycle()
                 },
                 Handler(Looper.getMainLooper())
             )
         } catch (_: Throwable) {
-            emitOgImage(id, wv)
+            captureOgImage(id, wv)
         }
     }
 
-    /** Fallback cover: the page's own share image (og:image / twitter:image /
+    private fun encode(bmp: Bitmap): String? =
+        try {
+            val out = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 40, out)
+            "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        } catch (_: Throwable) {
+            null
+        }
+
+    /** Software draw — blank for hardware-accelerated content, but harmless to try
+     *  when PixelCopy declines (some views/devices still render). */
+    private fun drawFallback(id: Int, wv: WebView, tw: Int, th: Int) {
+        try {
+            val bmp = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bmp)
+            canvas.scale(tw.toFloat() / wv.width, th.toFloat() / wv.height)
+            wv.draw(canvas)
+            encode(bmp)?.let { thumbs[id] = it }
+            bmp.recycle()
+        } catch (_: Throwable) {
+            captureOgImage(id, wv)
+        }
+    }
+
+    /** Last resort: the page's own share image (og:image / twitter:image /
      *  apple-touch-icon), resolved absolute. Not every site has one. */
-    private fun emitOgImage(id: Int, wv: WebView) {
+    private fun captureOgImage(id: Int, wv: WebView) {
         try {
             wv.evaluateJavascript(OG_IMAGE_JS) { result ->
-                val img = result
+                result
                     ?.trim('"')
                     ?.replace("\\/", "/")
                     ?.takeIf { it.isNotEmpty() && it != "null" }
-                if (img != null) {
-                    val o = JSObject()
-                    o.put("id", id)
-                    o.put("data", img)
-                    trigger("thumb", o)
-                }
+                    ?.let { thumbs[id] = it }
             }
         } catch (_: Throwable) {
         }
@@ -264,7 +274,7 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
             override fun onPageFinished(view: WebView, url: String?) {
                 emitNav(view, url)
                 // PixelCopy reads the live surface, so wait for the page to paint.
-                view.postDelayed({ emitThumb(id, view) }, 700)
+                view.postDelayed({ captureThumb(id, view) }, 700)
             }
 
             // Shields (ADR 0012, M3): ask Rust (ShieldsState::should_block, same as
@@ -334,7 +344,7 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
                 it.bringToFront()
                 current = it
                 // Refresh this tab's cover once it's composited again.
-                it.postDelayed({ emitThumb(a.id, it) }, 500)
+                it.postDelayed({ captureThumb(a.id, it) }, 500)
             }
         }
         invoke.resolve(JSObject())
@@ -351,6 +361,7 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
     fun close(invoke: Invoke) {
         val a = invoke.parseArgs(IdArgs::class.java)
         activity.runOnUiThread {
+            thumbs.remove(a.id)
             views.remove(a.id)?.let { wv ->
                 if (current === wv) current = null
                 (wv.parent as? ViewGroup)?.removeView(wv)
@@ -386,5 +397,15 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         val a = invoke.parseArgs(IdArgs::class.java)
         activity.runOnUiThread { views[a.id]?.reload() }
         invoke.resolve(JSObject())
+    }
+
+    /** The shell pulls a tab's cached cover snapshot over the normal IPC — images
+     *  are too large for the plugin event channel. "" when nothing captured yet. */
+    @Command
+    fun thumbnail(invoke: Invoke) {
+        val a = invoke.parseArgs(IdArgs::class.java)
+        val o = JSObject()
+        o.put("data", thumbs[a.id] ?: "")
+        invoke.resolve(o)
     }
 }

@@ -871,6 +871,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_devtools,
             webview::webview_hibernate,
             webview::webview_capture_state,
+            webview::webview_thumbnail,
             mem::mem_status,
             mem::system_stats,
             darkmode::darkmode_status,

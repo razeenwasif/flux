@@ -60,6 +60,21 @@ impl<R: Runtime> FluxWebview<R> {
         self.call("reload", IdArgs { id })
     }
 
+    /// A tab's cached cover snapshot (base64 data URL), "" if none yet. Pulled on
+    /// demand because images are too large for the plugin event channel.
+    pub fn thumbnail(&self, id: i32) -> Result<String> {
+        #[cfg(mobile)]
+        {
+            let r: ThumbResponse = self.handle.run_mobile_plugin("thumbnail", IdArgs { id })?;
+            Ok(r.data)
+        }
+        #[cfg(not(mobile))]
+        {
+            let _ = id;
+            Ok(String::new())
+        }
+    }
+
     #[cfg(mobile)]
     fn call(&self, cmd: &str, payload: impl serde::Serialize) -> Result<()> {
         let _: Empty = self.handle.run_mobile_plugin(cmd, payload)?;

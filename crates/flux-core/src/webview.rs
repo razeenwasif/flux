@@ -520,6 +520,13 @@ pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> 
     Ok(())
 }
 
+/// Tab-switcher cover snapshot. Mobile-only (ADR 0012) — desktop shows live
+/// webviews, so there's nothing to snapshot; returns "" and the UI falls back.
+#[tauri::command]
+pub async fn webview_thumbnail(_app: AppHandle, _tab_id: TabId) -> Result<String, String> {
+    Ok(String::new())
+}
+
 pub(crate) fn eval(app: &AppHandle, tab_id: TabId, js: &str) -> Result<(), String> {
     let wv = app
         .get_webview(&label(tab_id))
@@ -997,6 +1004,15 @@ mod stub {
     #[tauri::command]
     pub async fn webview_debug(_app: AppHandle, _tab_id: TabId) -> Result<String, String> {
         Ok("native Android WebView (Milestone 2)".into())
+    }
+
+    /// Pull a tab's cached cover snapshot for the switcher. Images are too large
+    /// for the plugin event channel, so the shell fetches them over normal IPC.
+    #[tauri::command]
+    pub async fn webview_thumbnail(app: AppHandle, tab_id: TabId) -> Result<String, String> {
+        app.flux_webview()
+            .thumbnail(tab_id as i32)
+            .map_err(|e| e.to_string())
     }
 }
 #[cfg(mobile)]

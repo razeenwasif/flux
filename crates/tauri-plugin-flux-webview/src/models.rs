@@ -42,3 +42,10 @@ pub struct NavArgs {
 /// Empty response — the Kotlin commands `invoke.resolve()` with no payload.
 #[derive(Deserialize, Default)]
 pub struct Empty {}
+
+/// A tab's cached cover snapshot (base64 data URL), or "" if none captured yet.
+#[derive(Deserialize, Default)]
+pub struct ThumbResponse {
+    #[serde(default)]
+    pub data: String,
+}

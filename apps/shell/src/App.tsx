@@ -216,7 +216,6 @@ import {
   unpinnedTabs,
   updateTabUrl,
   updateTabTitle,
-  setTabThumb,
 } from "./store";
 
 const App: Component = () => {
@@ -1020,10 +1019,6 @@ const App: Component = () => {
         if (mobileTabsOpen()) setMobileTabsOpen(false);
         else if (agentOpen()) setAgentOpen(false);
         else if (sidebarOpen()) setSidebarOpen(false);
-      }).catch(() => {});
-      // Tab-switcher cover thumbnails (native WebView snapshots).
-      void addPluginListener<{ id: number; data: string }>("flux-webview", "thumb", (e) => {
-        if (e.data) setTabThumb(e.id, e.data);
       }).catch(() => {});
     });
   }

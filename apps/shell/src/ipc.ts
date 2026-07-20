@@ -1099,6 +1099,9 @@ export const webviewStop = (tabId: number) => invoke<void>("webview_stop", { tab
 export const webviewHibernate = (tabId: number) => invoke<void>("webview_hibernate", { tabId });
 /** Snapshot a tab's scroll/form state before it sleeps, to restore on wake. #45 */
 export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capture_state", { tabId });
+/** Mobile: a tab's cached cover snapshot (base64 data URL), "" if none. Pulled over
+ *  normal IPC because images are too large for the plugin event channel (ADR 0012). */
+export const webviewThumbnail = (tabId: number) => invoke<string>("webview_thumbnail", { tabId });
 
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */

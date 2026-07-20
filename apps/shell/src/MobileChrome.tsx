@@ -14,6 +14,7 @@ import {
   webviewBack,
   webviewForward,
   webviewReload,
+  webviewThumbnail,
 } from "./ipc";
 import {
   activeId,
@@ -24,6 +25,7 @@ import {
   focusTab,
   isLoading,
   openTab,
+  setTabThumb,
   tabs,
   tabThumb,
 } from "./store";
@@ -84,6 +86,19 @@ const MobileChrome: Component<{
   };
 
   const browserTabs = () => tabs().filter((t) => t.kind === "browser");
+
+  // Cover snapshots are cached natively and pulled over normal IPC when the
+  // switcher opens — the plugin event channel drops payloads this large.
+  createEffect(() => {
+    if (!props.tabsOpen()) return;
+    for (const t of browserTabs()) {
+      void webviewThumbnail(t.id)
+        .then((d) => {
+          if (d) setTabThumb(t.id, d);
+        })
+        .catch(() => {});
+    }
+  });
 
   return (
     <>
