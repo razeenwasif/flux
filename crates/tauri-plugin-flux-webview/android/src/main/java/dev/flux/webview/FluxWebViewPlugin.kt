@@ -81,9 +81,11 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         @JvmStatic
         external fun nativeShouldBlock(url: String, source: String, type: String): Boolean
 
-        /** Target width (px) of a tab-switcher cover snapshot — the cards are small,
-         *  and this keeps the base64 payload light. */
-        private const val THUMB_WIDTH = 320
+        /** Target width (px) of a tab-switcher cover snapshot. Deliberately small:
+         *  the cards are ~160px wide, and the base64 payload rides the plugin event
+         *  channel alongside tiny nav events — keeping it light avoids any chance of
+         *  the event being dropped for size. */
+        private const val THUMB_WIDTH = 200
 
         /** Returns the page's absolute cover-image URL (og:image / twitter:image /
          *  apple-touch-icon), or "" — used as the fallback cover. */
@@ -185,7 +187,7 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
                     if (result == PixelCopy.SUCCESS) {
                         try {
                             val out = ByteArrayOutputStream()
-                            bmp.compress(Bitmap.CompressFormat.JPEG, 45, out)
+                            bmp.compress(Bitmap.CompressFormat.JPEG, 40, out)
                             val o = JSObject()
                             o.put("id", id)
                             o.put(

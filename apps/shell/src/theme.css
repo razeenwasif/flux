@@ -4250,6 +4250,10 @@ body.resizing .panel-edge-resize::after {
 }
 .start-search input {
   flex: 1;
+  /* Without this a flex item's min-width is `auto`, and an <input>'s intrinsic
+     width (~200px) refuses to shrink — on a phone that overflowed the pill and
+     pushed the engine badge outside it. */
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
@@ -12327,6 +12331,13 @@ input[type="radio"].pdf-fw {
   opacity: 0.3;
   color: var(--text, #e8e6f0);
 }
+/* Site icon standing in as the cover until a page snapshot exists. */
+.mchrome-card-cover-fav {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  opacity: 0.9;
+}
 .mchrome-card-x {
   position: absolute;
   top: 5px;
@@ -12375,6 +12386,20 @@ input[type="radio"].pdf-fw {
   white-space: nowrap;
   font-size: 12px;
   color: var(--text, #e8e6f0);
+}
+
+/* Phone: give the start page's search pill room so the engine badge stays inside. */
+.shell.mobile .start-search {
+  width: 94%;
+  gap: 8px;
+  padding: 12px 14px;
+}
+.shell.mobile .start-search input {
+  font-size: 14px;
+}
+.shell.mobile .start-engine {
+  font-size: 10px;
+  padding: 3px 8px;
 }
 
 /* Narrower than a stock 360px phone — e.g. Samsung's "Screen zoom" set larger,

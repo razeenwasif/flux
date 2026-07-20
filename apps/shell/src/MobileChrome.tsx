@@ -6,7 +6,7 @@
  * WebView layered above all shell HTML, so chrome can't overlap it (the tab
  * switcher is an overlay, so it hides the WebView via App's overlay machinery).
  */
-import { For, Show, createSignal, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, type Component } from "solid-js";
 
 import {
   isStartUrl,
@@ -19,6 +19,7 @@ import {
   activeId,
   activeTab,
   closeTab,
+  ensureFavicon,
   faviconFor,
   focusTab,
   isLoading,
@@ -167,6 +168,9 @@ const MobileChrome: Component<{
                 const fav = () => faviconFor(host());
                 const thumb = () => tabThumb(t.id);
                 const initial = () => (host()[0] || "•").toUpperCase();
+                // Nothing else fetches favicons on mobile (the desktop tab rows
+                // that normally do this aren't rendered here), so kick it off.
+                createEffect(() => ensureFavicon(host()));
                 return (
                   <div
                     class="mchrome-card"
@@ -190,8 +194,15 @@ const MobileChrome: Component<{
                       >
                         ×
                       </button>
+                      {/* No page snapshot yet → show the site's icon as the cover
+                          (a real site image) rather than a bare letter. */}
                       <Show when={!thumb()}>
-                        <span class="mchrome-card-cover-glyph">{initial()}</span>
+                        <Show
+                          when={fav()}
+                          fallback={<span class="mchrome-card-cover-glyph">{initial()}</span>}
+                        >
+                          <img class="mchrome-card-cover-fav" src={fav()!} alt="" />
+                        </Show>
                       </Show>
                     </div>
                     <div class="mchrome-card-foot">
