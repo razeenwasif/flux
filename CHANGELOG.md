@@ -8,11 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
-- **macOS build support** — `scripts/install-macos.sh` builds Flux and installs the `flux` command to
-  `~/.cargo/bin` (mirrors the Linux installer, with macOS prerequisite checks: Xcode CLT, Rust ≥ 1.80,
-  Node). macOS uses the native WKWebView, so per-tab browsing works (unlike the Linux/WebKitGTK build);
+- **macOS build support** — `scripts/install-macos.sh` runs `tauri build` and installs **both**
+  `/Applications/Flux.app` (the icon'd app) and the `flux` CLI to `~/.cargo/bin`, clearing the
+  Gatekeeper quarantine on the local build (macOS prerequisite checks: Xcode CLT, Rust ≥ 1.80, Node).
+  macOS uses the native WKWebView, so per-tab browsing works (unlike the Linux/WebKitGTK build);
   Shields' network blocking + HTTPS-only + the download interceptor are no-ops there (Windows/Linux
   only). README gains a macOS install section.
+
+### Fixed
+- **Desktop pinned apps restored** — the Nexus / Prism / Vector / Oracle app registry was emptied
+  globally during the mobile barebone cleanup, which also removed them on desktop. It's now
+  desktop-only: the full list is back in the app dock on desktop and stays empty on the (barebone)
+  mobile build.
 - **Mobile browsing polish (ADR 0012)** — a batch of Android fixes on top of the Chrome-style chrome:
   - **Android back gesture** now drives the page: the `FluxWebViewPlugin` registers an
     `OnBackPressedCallback` that goes back in the visible WebView when it can, asks the shell to close

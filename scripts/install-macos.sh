@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Build Flux and install the `flux` command to ~/.cargo/bin (on PATH), so it's
-# launchable from any directory. macOS uses the native WKWebView, so per-tab web
-# browsing works here (unlike the Linux/WebKitGTK build). One honest caveat:
-# Shields' network-level blocking + HTTPS-only + the download interceptor are
-# no-ops on macOS (those native hooks exist only for Windows/WebView2 and
-# Linux/WebKitGTK); cosmetic element-hiding still works.
+# Build Flux on macOS and install BOTH:
+#   • /Applications/Flux.app   — the double-clickable app (uses the Flux icon)
+#   • ~/.cargo/bin/flux        — the `flux` command (on PATH), for terminal launches
 #
-# For a double-clickable app bundle instead of the CLI, run `npm run build`
-# (= tauri build) → target/release/bundle/macos/Flux.app (+ a .dmg).
+# macOS uses the native WKWebView, so per-tab web browsing works here (unlike the
+# Linux/WebKitGTK build). One honest caveat: Shields' network-level blocking +
+# HTTPS-only + the download interceptor are no-ops on macOS (those native hooks
+# exist only for Windows/WebView2 and Linux/WebKitGTK); cosmetic element-hiding
+# still works.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,30 +36,41 @@ RUST_VER="$(cargo --version | awk '{print $2}')"
 awk -v v="$RUST_VER" 'BEGIN{split(v,a,".");exit !(a[1]>1||(a[1]==1&&a[2]>=80))}' \
   || die "Rust $RUST_VER is too old — Flux needs ≥ 1.80. Update:  rustup update"
 
-# ── Build ────────────────────────────────────────────────────────────────────
+# ── Build (app bundle + CLI in one shot) ─────────────────────────────────────
 if [ ! -d node_modules ]; then
   say "Installing JS dependencies (npm ci)"
   npm ci
 fi
 
-say "Building frontend (embedded into the binary): apps/shell/dist"
-npm run build --workspace apps/shell
+say "Building Flux.app + the flux binary (release, LTO — takes a few minutes)"
+# `npm run build` == `tauri build`: it runs the frontend build itself (embeds it)
+# and produces BOTH target/release/flux (the CLI, custom-protocol on) and the
+# macOS bundle under target/release/bundle/macos/Flux.app.
+npm run build
 
-say "Building release binary (LTO — takes a few minutes)"
-# custom-protocol → serve the embedded frontend (without it the app loads the
-# dev server URL and shows ERR_CONNECTION_REFUSED).
-cargo build --release -p flux-core --features custom-protocol
-
-# ── Install ──────────────────────────────────────────────────────────────────
+# ── Install the CLI ──────────────────────────────────────────────────────────
 DEST="${CARGO_HOME:-$HOME/.cargo}/bin"
 mkdir -p "$DEST"
 install -m 755 target/release/flux "$DEST/flux"
-say "Installed: $DEST/flux"
+say "Installed CLI: $DEST/flux"
 
+# ── Install the app bundle ───────────────────────────────────────────────────
+APP_SRC="target/release/bundle/macos/Flux.app"
+if [ -d "$APP_SRC" ]; then
+  rm -rf "/Applications/Flux.app"
+  cp -R "$APP_SRC" "/Applications/Flux.app"
+  # Local unsigned build: clear the quarantine flag so Gatekeeper won't block it.
+  xattr -dr com.apple.quarantine "/Applications/Flux.app" 2>/dev/null || true
+  say "Installed app: /Applications/Flux.app"
+else
+  echo "warn: $APP_SRC not found — the .app bundle didn't build; the CLI is still installed." >&2
+fi
+
+echo
 if command -v flux >/dev/null 2>&1; then
   flux --version || true
-  echo "Done — run 'flux' from any directory (flux example.com · flux -t)."
+  echo "Done — launch Flux.app from Applications, or run 'flux' from any directory (flux example.com · flux -t)."
 else
-  echo "Done, but $DEST is not on your PATH. Add it to your shell profile:"
+  echo "Done. Flux.app is in /Applications. To use the 'flux' command, add ~/.cargo/bin to PATH:"
   echo "    echo 'export PATH=\"$DEST:\$PATH\"' >> ~/.zshrc && source ~/.zshrc"
 fi
