@@ -838,11 +838,12 @@ pub use real::*;
 mod stub {
     use crate::state::TabId;
     use tauri::AppHandle;
+    use tauri_plugin_flux_webview::{BoundsArgs, FluxWebviewExt, OpenArgs};
 
-    const NB: &str = "in-tab web browsing isn't available on mobile yet";
+    const NB: &str = "web panels aren't available on mobile";
 
-    /// Internal JS eval (called by dom/agent/find) — no native tab webview to
-    /// target on mobile, so it silently succeeds.
+    /// Internal JS eval (called by dom/agent/find). No `evaluateJavascript` bridge
+    /// to the native tab WebView yet (Milestone 2 first cut), so it no-ops.
     pub(crate) fn eval(_app: &AppHandle, _tab_id: TabId, _js: &str) -> Result<(), String> {
         Ok(())
     }
@@ -854,7 +855,97 @@ mod stub {
     #[tauri::command]
     pub fn panel_badge(_app: AppHandle, _webview: tauri::Webview, _count: i64) {}
 
-    macro_rules! stub_cmd {
+    // ── Browser tabs → the native WebView-stack plugin (ADR 0012, Milestone 2) ──
+    #[tauri::command]
+    pub async fn webview_open(
+        app: AppHandle,
+        tab_id: TabId,
+        url: String,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<(), String> {
+        app.flux_webview()
+            .open(OpenArgs {
+                id: tab_id as i32,
+                url,
+                x,
+                y,
+                width,
+                height,
+            })
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn webview_set_bounds(
+        app: AppHandle,
+        tab_id: TabId,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<(), String> {
+        app.flux_webview()
+            .set_bounds(BoundsArgs {
+                id: tab_id as i32,
+                x,
+                y,
+                width,
+                height,
+            })
+            .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn webview_navigate(app: AppHandle, tab_id: TabId, url: String) -> Result<(), String> {
+        app.flux_webview()
+            .navigate(tab_id as i32, url)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Commands that take just a tab id and forward to a plugin method of the
+    /// same shape (show/hide/close/back/forward/reload).
+    macro_rules! id_cmd {
+        ($name:ident => $method:ident) => {
+            #[tauri::command]
+            pub async fn $name(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+                app.flux_webview()
+                    .$method(tab_id as i32)
+                    .map_err(|e| e.to_string())
+            }
+        };
+    }
+    id_cmd!(webview_show => show);
+    id_cmd!(webview_hide => hide);
+    id_cmd!(webview_close => close);
+    id_cmd!(webview_back => back);
+    id_cmd!(webview_forward => forward);
+    id_cmd!(webview_reload => reload);
+
+    /// Not wired to the native WebView yet — accepted as no-ops so the shell's
+    /// routine calls during browsing don't error (Milestone 2 follow-ons).
+    macro_rules! noop_cmd {
+        ($name:ident ( $($arg:ident : $ty:ty),* $(,)? )) => {
+            #[tauri::command]
+            pub async fn $name(_app: AppHandle, $($arg: $ty),*) -> Result<(), String> {
+                $( let _ = $arg; )*
+                Ok(())
+            }
+        };
+    }
+    noop_cmd!(webview_preconnect(tab_id: TabId, hosts: Vec<String>));
+    noop_cmd!(webview_devtools(tab_id: TabId));
+    noop_cmd!(webview_hibernate(tab_id: TabId));
+    noop_cmd!(webview_capture_state(tab_id: TabId));
+    noop_cmd!(webview_stop(tab_id: TabId));
+    noop_cmd!(webview_find(tab_id: TabId, query: String, forward: bool));
+    noop_cmd!(webview_extract_reader(tab_id: TabId));
+    noop_cmd!(webview_zoom(tab_id: TabId, factor: f64));
+
+    /// Web panels (pinned side apps) have no mobile equivalent yet.
+    macro_rules! panel_stub {
         ($name:ident ( $($arg:ident : $ty:ty),* $(,)? )) => {
             #[tauri::command]
             pub async fn $name(_app: AppHandle, $($arg: $ty),*) -> Result<(), String> {
@@ -863,35 +954,16 @@ mod stub {
             }
         };
     }
+    panel_stub!(panel_open(panel_id: u32, url: String, x: f64, y: f64, width: f64, height: f64));
+    panel_stub!(panel_set_bounds(panel_id: u32, x: f64, y: f64, width: f64, height: f64));
+    panel_stub!(panel_show(panel_id: u32));
+    panel_stub!(panel_hide(panel_id: u32));
+    panel_stub!(panel_navigate(panel_id: u32, url: String));
+    panel_stub!(panel_close(panel_id: u32));
 
-    stub_cmd!(webview_open(tab_id: TabId, url: String, x: f64, y: f64, width: f64, height: f64));
-    stub_cmd!(webview_set_bounds(tab_id: TabId, x: f64, y: f64, width: f64, height: f64));
-    stub_cmd!(webview_show(tab_id: TabId));
-    stub_cmd!(webview_hide(tab_id: TabId));
-    stub_cmd!(webview_preconnect(tab_id: TabId, hosts: Vec<String>));
-    stub_cmd!(webview_devtools(tab_id: TabId));
-    stub_cmd!(webview_hibernate(tab_id: TabId));
-    stub_cmd!(webview_capture_state(tab_id: TabId));
-    stub_cmd!(webview_navigate(tab_id: TabId, url: String));
-    stub_cmd!(webview_stop(tab_id: TabId));
-    stub_cmd!(webview_find(tab_id: TabId, query: String, forward: bool));
-    stub_cmd!(webview_back(tab_id: TabId));
-    stub_cmd!(webview_forward(tab_id: TabId));
-    stub_cmd!(webview_reload(tab_id: TabId));
-    stub_cmd!(webview_extract_reader(tab_id: TabId));
-    stub_cmd!(webview_zoom(tab_id: TabId, factor: f64));
-    stub_cmd!(webview_close(tab_id: TabId));
-    stub_cmd!(panel_open(panel_id: u32, url: String, x: f64, y: f64, width: f64, height: f64));
-    stub_cmd!(panel_set_bounds(panel_id: u32, x: f64, y: f64, width: f64, height: f64));
-    stub_cmd!(panel_show(panel_id: u32));
-    stub_cmd!(panel_hide(panel_id: u32));
-    stub_cmd!(panel_navigate(panel_id: u32, url: String));
-    stub_cmd!(panel_close(panel_id: u32));
-
-    /// `webview_debug` returns a String, not `()`, so it can't use the macro.
     #[tauri::command]
     pub async fn webview_debug(_app: AppHandle, _tab_id: TabId) -> Result<String, String> {
-        Err(NB.into())
+        Ok("native Android WebView (Milestone 2)".into())
     }
 }
 #[cfg(mobile)]

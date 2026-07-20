@@ -76,11 +76,21 @@ work. The desktop-only Tauri plugins (`single-instance`, `window-state`) and
 Entry point: `#[cfg(mobile)] mobile_run()` with `#[tauri::mobile_entry_point]`.
 
 **Milestones:** (1 — *done*) APK cross-compiles here, installs, boots the shell,
-internal pages work. (2) real browsing — swap the single WebView's URL for tabs
-(mobile-correct: one page at a time), replacing the `webview.rs` stubs. (3) polish
-— Android back gesture, notifications, and the optional on-device agent on
-**llama.cpp** (Ollama has no Android runtime; a 2–4B quantized Gemma is the
-realistic phone model).
+internal pages work. (2 — *builds; on-device test pending*) real browsing via a
+**native `android.webkit.WebView` plugin** — after weighing it against an in-DOM
+iframe (rejected: X-Frame-Options/frame-ancestors block Google + many sites), the
+user chose the native path. `crates/tauri-plugin-flux-webview` (a Tauri mobile
+plugin: Rust `run_mobile_plugin` bridge + Kotlin `FluxWebViewPlugin`) manages a
+stack of WebViews in a FrameLayout overlay over the content card, one per tab,
+positioned from the frontend's reported bounds × display density. The `webview.rs`
+mobile stubs (dc9600d) now call it (open/setBounds/show/hide/close/navigate/
+back/forward/reload); the shell's overlay machinery hides the native WebView while
+the mobile drawer / agent is open (it's an OS layer above the shell HTML). Gradle
+auto-discovers the plugin's `android/` from the Rust dep graph — no generator
+step. First cut = render + position + nav; shields (`shouldInterceptRequest`) and
+DOM capture (`evaluateJavascript`) are follow-ons. (3) polish — Android back
+gesture, notifications, and the optional on-device agent on **llama.cpp** (Ollama
+has no Android runtime; a 2–4B quantized Gemma is the realistic phone model).
 
 ## Consequences
 

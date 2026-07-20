@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Mobile browsing — native Android WebView plugin (ADR 0012, Milestone 2 · builds, on-device
+  test pending)** — browser tabs on Android now render in real `android.webkit.WebView`s instead of
+  erroring. New crate **`tauri-plugin-flux-webview`** (a Tauri mobile plugin: a Rust
+  `run_mobile_plugin` bridge + a Kotlin `FluxWebViewPlugin`) manages a stack of WebViews in a
+  FrameLayout overlay over the content card — one per tab, positioned from the frontend's reported
+  bounds scaled by display density, the mobile analogue of the desktop multi-webview layer. The
+  `webview.rs` mobile stubs now drive it (open / setBounds / show / hide / close / navigate / back /
+  forward / reload); unsupported-on-mobile calls (preconnect, hibernate, zoom, find…) are accepted
+  as no-ops so routine browsing doesn't error. The shell's existing overlay machinery hides the
+  native WebView while the mobile drawer or full-screen agent is open (the WebView is an OS layer
+  above the shell HTML). Gradle auto-discovers the plugin's `android/` project from the Rust
+  dependency graph — no generator step, and the desktop build is untouched (the plugin compiles to a
+  no-op there). First cut is render + position + navigation; shields and DOM capture are follow-ons.
 - **Reopen closed tab — `Ctrl/Cmd+Shift+T`** — Flux now keeps a recently-closed stack (last 25
   browser tabs, persisted across restarts) and reopens the most recent one on `Ctrl+Shift+T`, like
   every other browser. The chord previously opened a *terminal* tab, which shadowed the universal

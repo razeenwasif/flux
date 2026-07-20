@@ -12,6 +12,7 @@
 resolver = "2"
 members = [
     "crates/flux-core",
+    "crates/tauri-plugin-flux-webview",
     "crates/flux-term",
     "crates/flux-agent",
     "crates/flux-embed",

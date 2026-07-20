@@ -970,10 +970,21 @@ const App: Component = () => {
       openedWebviews.has(t.id) &&
       !isStartUrl(t.url) &&
       !pageOverlayActive() &&
-      !paletteOpen()
+      !paletteOpen() &&
+      // Mobile: the drawer sidebar and the full-screen agent are HTML overlays
+      // the native page would otherwise cover (ADR 0012, Milestone 2).
+      !(isMobile && (sidebarOpen() || agentOpen()))
     )
       wv(webviewShow(t.id));
   };
+  // Mobile: react to the drawer / agent opening + closing so the native tab
+  // WebView (which sits above the shell) doesn't cover them, and re-shows after.
+  if (isMobile) {
+    createEffect(() => {
+      if (sidebarOpen() || agentOpen()) hideActivePage();
+      else showActivePageIfClear();
+    });
+  }
 
   // Command palette (#6) — centered modal over the (hidden) page.
   const openPalette = () => {

@@ -17,6 +17,7 @@ crates/flux-core/gen
 # Android APK build artifacts (built with scripts/build-apk.sh — never committed;
 # 150 MB+ debug binaries). See docs/adr/0012-mobile-termux.md.
 *.apk
+*.apk.idsig
 
 # Local AI models — never commit weights (multi-GB GGUF files)
 /models

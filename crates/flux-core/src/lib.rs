@@ -722,6 +722,10 @@ pub fn run(intent: cli::LaunchIntent) {
                 .skip_initial_state("main")
                 .build(),
         );
+    // Mobile: the native android.webkit.WebView stack that renders browser tabs
+    // (ADR 0012, Milestone 2); driven by webview.rs's mobile arm.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_flux_webview::init());
     builder
         // OS notifications (used by the reminder scheduler).
         .plugin(tauri_plugin_notification::init())

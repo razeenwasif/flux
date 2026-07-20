@@ -1,0 +1,19 @@
+[package]
+name = "tauri-plugin-flux-webview"
+version = "0.1.0"
+description = "Native android.webkit.WebView stack for Flux tabs on Android (ADR 0012, Milestone 2)"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.80"
+# The `links` key + build.rs let `cargo tauri android build` discover this
+# plugin's android/ Gradle project and merge it into the app build.
+links = "tauri-plugin-flux-webview"
+
+[dependencies]
+tauri = { version = "2", features = ["unstable"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
