@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Chrome-style mobile chrome (ADR 0012)** — the Android build now wears a browser-shaped top bar
+  instead of the Arc drawer-for-everything: back / forward, an omnibox (lock glyph + domain, tap to
+  edit → search-or-navigate, with an inline reload), a **tab-count button** opening a full-screen
+  **tab switcher** (a 2-up grid of tab cards with favicons, close ×, and a ＋ new-tab), and a ⋮ menu
+  that opens the sidebar drawer (all the Flux destinations). A thin indeterminate progress bar shows
+  under the bar while a page loads. The top bar lives in its own grid row *above* the content card so
+  the native page WebView never covers it, and the tab switcher (like the drawer and agent) hides the
+  WebView while open. Mobile-only lazy chunk (1.6 KB gz), kept out of the desktop bundle.
 - **Mobile browsing — native Android WebView plugin (ADR 0012, Milestone 2 · builds, on-device
   test pending)** — browser tabs on Android now render in real `android.webkit.WebView`s instead of
   erroring. New crate **`tauri-plugin-flux-webview`** (a Tauri mobile plugin: a Rust

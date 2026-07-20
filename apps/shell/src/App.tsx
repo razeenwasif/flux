@@ -104,6 +104,7 @@ import { installDwellCapture } from "./trail";
 import { keyToAction } from "./shortcuts";
 // Cold chrome (ADR 0001 budget): overlays/panes that render only behind a
 // store-gated <Show>, so their code loads on first open — not at boot.
+const MobileChrome = lazy(() => import("./MobileChrome")); // Android-only chrome (ADR 0012); kept out of the desktop bundle
 const ShellHistory = lazy(() => import("./ShellHistory"));
 const SemanticFind = lazy(() => import("./SemanticFind"));
 const WatchPanel = lazy(() => import("./WatchPanel"));
@@ -219,6 +220,8 @@ const App: Component = () => {
   // opens what they need. One-shot at boot; rotating mid-session keeps state.
   const narrow = window.innerWidth < 760;
   const [sidebarOpen, setSidebarOpen] = createSignal(!narrow);
+  // Mobile Chrome-style tab switcher (ADR 0012).
+  const [mobileTabsOpen, setMobileTabsOpen] = createSignal(false);
   // Terminal column open by default (persisted — toggling off sticks).
   const [terminalOpen, setTerminalOpen] = createSignal(
     !narrow && localStorage.getItem("flux.term.open") !== "0",
@@ -971,17 +974,17 @@ const App: Component = () => {
       !isStartUrl(t.url) &&
       !pageOverlayActive() &&
       !paletteOpen() &&
-      // Mobile: the drawer sidebar and the full-screen agent are HTML overlays
-      // the native page would otherwise cover (ADR 0012, Milestone 2).
-      !(isMobile && (sidebarOpen() || agentOpen()))
+      // Mobile: the drawer, the full-screen agent, and the tab switcher are HTML
+      // overlays the native page would otherwise cover (ADR 0012, Milestone 2).
+      !(isMobile && (sidebarOpen() || agentOpen() || mobileTabsOpen()))
     )
       wv(webviewShow(t.id));
   };
-  // Mobile: react to the drawer / agent opening + closing so the native tab
-  // WebView (which sits above the shell) doesn't cover them, and re-shows after.
+  // Mobile: react to the drawer / agent / tab-switcher opening + closing so the
+  // native tab WebView (which sits above the shell) doesn't cover them.
   if (isMobile) {
     createEffect(() => {
-      if (sidebarOpen() || agentOpen()) hideActivePage();
+      if (sidebarOpen() || agentOpen() || mobileTabsOpen()) hideActivePage();
       else showActivePageIfClear();
     });
   }
@@ -1398,13 +1401,15 @@ const App: Component = () => {
       classList={{ mobile: isMobile, "drawer-open": isMobile && sidebarOpen() }}
       style={
         isMobile
-          ? // Phone: one full-bleed content cell. The sidebar becomes a fixed
-            // drawer and the agent a fixed overlay (see .shell.mobile in theme.css);
-            // terminal / connections / web-panel columns are hidden (ADR 0012).
+          ? // Phone: a Chrome-style top bar row over one full-bleed content cell.
+            // The top bar sits in its OWN row so the native page WebView (bounds =
+            // the content card) never covers it. Sidebar → drawer, agent → overlay
+            // (see .shell.mobile in theme.css); terminal/connections/web-panel
+            // columns are hidden (ADR 0012).
             {
               "grid-template-columns": "1fr",
-              "grid-template-rows": "1fr",
-              "grid-template-areas": `"content"`,
+              "grid-template-rows": "auto 1fr",
+              "grid-template-areas": `"topbar" "content"`,
             }
           : {
               "grid-template-columns": columns(),
@@ -1415,6 +1420,16 @@ const App: Component = () => {
     >
       <Show when={!isMobile}>
         <TitleBar />
+      </Show>
+      <Show when={isMobile}>
+        <Suspense>
+          <MobileChrome
+            go={go}
+            onMenu={() => setSidebarOpen(true)}
+            tabsOpen={mobileTabsOpen}
+            setTabsOpen={setMobileTabsOpen}
+          />
+        </Suspense>
       </Show>
       <Sidebar
         collapsed={!responsive().sidebar}
@@ -1533,13 +1548,8 @@ const App: Component = () => {
         <ResizeHandles />
       </Show>
 
-      {/* Mobile: the Arc sidebar (omnibox + tabs + nav) is a fixed drawer. A
-          floating ☰ opens it when closed; a backdrop closes it. */}
-      <Show when={isMobile && !sidebarOpen()}>
-        <button class="mobile-drawer-btn" aria-label="Menu" onClick={() => setSidebarOpen(true)}>
-          ☰
-        </button>
-      </Show>
+      {/* Mobile: the ⋮ menu (in MobileChrome's top bar) opens the sidebar as a
+          drawer holding all Flux destinations; a backdrop closes it. */}
       <Show when={isMobile && sidebarOpen()}>
         <div class="mobile-drawer-backdrop" onClick={() => setSidebarOpen(false)} />
       </Show>

@@ -12067,3 +12067,239 @@ input[type="radio"].pdf-fw {
   place-items: center;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
+
+/* ─── Chrome-style mobile chrome (ADR 0012) ──────────────────────────────────
+   A top bar in its own grid row (never over the native page WebView) + a
+   full-screen tab switcher. */
+.mchrome-top {
+  grid-area: topbar;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  padding-top: max(6px, env(safe-area-inset-top));
+  background: var(--glass-fill-soft);
+  border-bottom: 1px solid var(--glass-rim-soft);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+.mchrome-icon {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border: none;
+  background: transparent;
+  color: var(--text, #e8e6f0);
+  font-size: 22px;
+  line-height: 1;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+}
+.mchrome-icon:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+.mchrome-omni {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 4px 0 10px;
+  border-radius: 19px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--glass-rim-soft);
+}
+.mchrome-omni-view {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  color: var(--text, #e8e6f0);
+  font-size: 15px;
+  text-align: left;
+  height: 100%;
+}
+.mchrome-lock {
+  flex: 0 0 auto;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.mchrome-omni-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mchrome-omni-text.hint {
+  opacity: 0.55;
+}
+.mchrome-omni-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text, #e8e6f0);
+  font-size: 15px;
+  outline: none;
+  height: 100%;
+}
+.mchrome-omni-reload {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--text, #e8e6f0);
+  font-size: 17px;
+  border-radius: 50%;
+  opacity: 0.85;
+}
+.mchrome-tabcount {
+  flex: 0 0 auto;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border: 2px solid currentColor;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text, #e8e6f0);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  opacity: 0.9;
+}
+/* Indeterminate page-load bar pinned to the bottom edge of the top bar. */
+.mchrome-progress {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  width: 40%;
+  background: var(--accent, #8b7bd8);
+  border-radius: 2px;
+  animation: mchrome-load 1.1s ease-in-out infinite;
+}
+@keyframes mchrome-load {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* Tab switcher — full-screen; the native WebView is hidden while it's open. */
+.mchrome-switcher {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #12101f);
+  padding-top: env(safe-area-inset-top);
+}
+.mchrome-switcher-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--glass-rim-soft);
+}
+.mchrome-switcher-count {
+  flex: 1 1 auto;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #e8e6f0);
+}
+.mchrome-switcher-new,
+.mchrome-switcher-done {
+  border: none;
+  background: transparent;
+  color: var(--accent, #a99bec);
+  font-size: 16px;
+  padding: 6px 8px;
+}
+.mchrome-switcher-new {
+  font-size: 24px;
+  line-height: 1;
+}
+.mchrome-grid {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 14px;
+  align-content: start;
+}
+.mchrome-card {
+  border: 1px solid var(--glass-rim-soft);
+  border-radius: 12px;
+  background: var(--glass-fill-soft);
+  padding: 10px;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mchrome-card.active {
+  border-color: var(--accent, #a99bec);
+  box-shadow: 0 0 0 1px var(--accent, #a99bec);
+}
+.mchrome-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mchrome-card-fav {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+.mchrome-card-glyph {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--accent, #8b7bd8);
+  color: #fff;
+}
+.mchrome-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text, #e8e6f0);
+}
+.mchrome-card-x {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--text, #e8e6f0);
+  font-size: 16px;
+  border-radius: 50%;
+  opacity: 0.7;
+}
+.mchrome-card-url {
+  font-size: 11px;
+  opacity: 0.55;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text, #e8e6f0);
+}
