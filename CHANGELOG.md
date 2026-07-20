@@ -11,10 +11,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - **Mobile menu drawer + tab thumbnails (ADR 0012)** — the phone's ⋮ drawer is now a purpose-built
   menu (`MobileMenu`): a grid of Flux destinations (Notebook, Trail, whiteboard, History, Bookmarks,
   Settings, …) plus a New-tab action, replacing the desktop Arc sidebar that rendered mostly empty
-  there. The **tab switcher** now shows a **cover image** per tab — the page's `og:image` /
-  `twitter:image` / `apple-touch-icon`, extracted on page-load and shown behind the favicon/title,
-  Chrome-style (bitmap `WebView.draw()` snapshots render blank on Android's hardware-accelerated
-  WebViews, so the site's own share image is the reliable source; tabs without one keep the monogram).
+  there. The **tab switcher** now shows a **cover image** per tab — a real page snapshot taken with
+  `PixelCopy` (after load and when a tab is shown), downscaled and shown behind the favicon/title,
+  Chrome-style. `View.draw()` renders blank for hardware-accelerated WebViews, so PixelCopy's read of
+  the composited surface is the working path; if a copy fails, it falls back to the page's `og:image`,
+  and tabs with neither keep the monogram.
 - **Shields on macOS** — the WKWebView build gets ad/tracker blocking too. macOS compiles the *same*
   content-blocker JSON Flux already generates for WebKitGTK into a `WKContentRuleList` (declarative,
   like Linux — not per-request like Windows/Android) and attaches it to each webview's user-content

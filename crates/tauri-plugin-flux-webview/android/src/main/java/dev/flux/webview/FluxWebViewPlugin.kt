@@ -3,6 +3,11 @@ package dev.flux.webview
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
+import android.util.Base64
+import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
@@ -20,6 +25,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.ByteArrayOutputStream
 
 @InvokeArg
 class OpenArgs {
@@ -75,8 +81,12 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         @JvmStatic
         external fun nativeShouldBlock(url: String, source: String, type: String): Boolean
 
+        /** Target width (px) of a tab-switcher cover snapshot — the cards are small,
+         *  and this keeps the base64 payload light. */
+        private const val THUMB_WIDTH = 320
+
         /** Returns the page's absolute cover-image URL (og:image / twitter:image /
-         *  apple-touch-icon), or "" — used for tab-switcher thumbnails. */
+         *  apple-touch-icon), or "" — used as the fallback cover. */
         private const val OG_IMAGE_JS =
             "(function(){var m=document.querySelector('meta[property=\"og:image\"]')" +
                 "||document.querySelector('meta[name=\"twitter:image\"]')" +
@@ -144,22 +154,77 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         return p
     }
 
-    /** Extract the page's cover image (og:image / twitter:image / apple-touch-icon),
-     *  resolved to an absolute URL, as the tab-switcher thumbnail. Bitmap snapshots
-     *  of a hardware-accelerated WebView render blank, so we use the site's own
-     *  share image instead — reliable and a tiny payload (a URL, not a bitmap). */
+    /** Snapshot a tab for the switcher's cover image.
+     *
+     *  Uses PixelCopy against the window surface: `View.draw()` renders blank for a
+     *  hardware-accelerated WebView, but PixelCopy reads the actual composited
+     *  surface. Only works while the view is on-screen, so we call it after a page
+     *  loads and when a tab is shown. Falls back to the page's og:image if the copy
+     *  fails. PixelCopy scales the source rect into the (smaller) destination bitmap,
+     *  so the thumbnail is downscaled for free and the payload stays small.
+     */
     private fun emitThumb(id: Int, wv: WebView) {
-        wv.evaluateJavascript(OG_IMAGE_JS) { result ->
-            val img = result
-                ?.trim('"')
-                ?.replace("\\/", "/")
-                ?.takeIf { it.isNotEmpty() && it != "null" }
-            if (img != null) {
-                val o = JSObject()
-                o.put("id", id)
-                o.put("data", img)
-                trigger("thumb", o)
+        try {
+            val w = wv.width
+            val h = wv.height
+            if (w <= 0 || h <= 0 || wv.visibility != View.VISIBLE) return emitOgImage(id, wv)
+            val loc = IntArray(2)
+            wv.getLocationInWindow(loc)
+            val src = Rect(loc[0], loc[1], loc[0] + w, loc[1] + h)
+            val scale = (THUMB_WIDTH.toFloat() / w).coerceAtMost(1f)
+            val bmp = Bitmap.createBitmap(
+                (w * scale).toInt().coerceAtLeast(1),
+                (h * scale).toInt().coerceAtLeast(1),
+                Bitmap.Config.ARGB_8888
+            )
+            PixelCopy.request(
+                activity.window,
+                src,
+                bmp,
+                { result ->
+                    if (result == PixelCopy.SUCCESS) {
+                        try {
+                            val out = ByteArrayOutputStream()
+                            bmp.compress(Bitmap.CompressFormat.JPEG, 45, out)
+                            val o = JSObject()
+                            o.put("id", id)
+                            o.put(
+                                "data",
+                                "data:image/jpeg;base64," +
+                                    Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                            )
+                            trigger("thumb", o)
+                        } catch (_: Throwable) {
+                        }
+                    } else {
+                        emitOgImage(id, wv)
+                    }
+                    bmp.recycle()
+                },
+                Handler(Looper.getMainLooper())
+            )
+        } catch (_: Throwable) {
+            emitOgImage(id, wv)
+        }
+    }
+
+    /** Fallback cover: the page's own share image (og:image / twitter:image /
+     *  apple-touch-icon), resolved absolute. Not every site has one. */
+    private fun emitOgImage(id: Int, wv: WebView) {
+        try {
+            wv.evaluateJavascript(OG_IMAGE_JS) { result ->
+                val img = result
+                    ?.trim('"')
+                    ?.replace("\\/", "/")
+                    ?.takeIf { it.isNotEmpty() && it != "null" }
+                if (img != null) {
+                    val o = JSObject()
+                    o.put("id", id)
+                    o.put("data", img)
+                    trigger("thumb", o)
+                }
             }
+        } catch (_: Throwable) {
         }
     }
 
@@ -196,7 +261,8 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
             }
             override fun onPageFinished(view: WebView, url: String?) {
                 emitNav(view, url)
-                emitThumb(id, view) // extract the page's cover image for the switcher
+                // PixelCopy reads the live surface, so wait for the page to paint.
+                view.postDelayed({ emitThumb(id, view) }, 700)
             }
 
             // Shields (ADR 0012, M3): ask Rust (ShieldsState::should_block, same as
@@ -265,6 +331,8 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
                 it.visibility = WebView.VISIBLE
                 it.bringToFront()
                 current = it
+                // Refresh this tab's cover once it's composited again.
+                it.postDelayed({ emitThumb(a.id, it) }, 500)
             }
         }
         invoke.resolve(JSObject())
