@@ -16,6 +16,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   only). README gains a macOS install section.
 
 ### Fixed
+- **Rounded window corners on macOS** — `round_window_corners` gains a Cocoa implementation (the
+  analogue of the Windows DWM path): it rounds the `NSWindow` content-view layer and makes the window
+  non-opaque so the corners (and a rounded shadow) show instead of a square fill. Best-effort +
+  null-checked; the Linux/WebKitGTK build stays a no-op.
 - **Desktop pinned apps restored** — the Nexus / Prism / Vector / Oracle app registry was emptied
   globally during the mobile barebone cleanup, which also removed them on desktop. It's now
   desktop-only: the full list is back in the app dock on desktop and stays empty on the (barebone)

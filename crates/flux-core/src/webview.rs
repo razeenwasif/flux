@@ -824,7 +824,40 @@ pub fn round_window_corners(window: &tauri::WebviewWindow) {
     }
 }
 
-#[cfg(not(windows))]
+/// macOS: the window is borderless (`decorations: false`), so it has square
+/// corners. Round the content view's layer and let the window go non-opaque so
+/// the rounded corners (and a rounded shadow) show instead of a square fill.
+/// Best-effort (null-checked, failures ignored) — cosmetic only.
+#[cfg(target_os = "macos")]
+pub fn round_window_corners(window: &tauri::WebviewWindow) {
+    use objc::runtime::{Object, NO, YES};
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let Ok(ptr) = window.ns_window() else { return };
+    let ns_window = ptr as *mut Object;
+    if ns_window.is_null() {
+        return;
+    }
+    unsafe {
+        let content: *mut Object = msg_send![ns_window, contentView];
+        if content.is_null() {
+            return;
+        }
+        let _: () = msg_send![content, setWantsLayer: YES];
+        let layer: *mut Object = msg_send![content, layer];
+        if !layer.is_null() {
+            let radius: f64 = 10.0;
+            let _: () = msg_send![layer, setCornerRadius: radius];
+            let _: () = msg_send![layer, setMasksToBounds: YES];
+        }
+        // Without this the opaque window fills the corner triangles square.
+        let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+        let _: () = msg_send![ns_window, setOpaque: NO];
+        let _: () = msg_send![ns_window, setBackgroundColor: clear];
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
 } // mod real
 #[cfg(desktop)]

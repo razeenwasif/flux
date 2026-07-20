@@ -1935,6 +1935,7 @@ dependencies = [
  "keyring",
  "libloading 0.8.9",
  "notify",
+ "objc",
  "open",
  "parking_lot",
  "portable-pty",
