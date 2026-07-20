@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **macOS build support** — `scripts/install-macos.sh` builds Flux and installs the `flux` command to
+  `~/.cargo/bin` (mirrors the Linux installer, with macOS prerequisite checks: Xcode CLT, Rust ≥ 1.80,
+  Node). macOS uses the native WKWebView, so per-tab browsing works (unlike the Linux/WebKitGTK build);
+  Shields' network blocking + HTTPS-only + the download interceptor are no-ops there (Windows/Linux
+  only). README gains a macOS install section.
 - **Mobile browsing polish (ADR 0012)** — a batch of Android fixes on top of the Chrome-style chrome:
   - **Android back gesture** now drives the page: the `FluxWebViewPlugin` registers an
     `OnBackPressedCallback` that goes back in the visible WebView when it can, asks the shell to close

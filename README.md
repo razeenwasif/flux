@@ -133,6 +133,23 @@ You also need the **WebView2 Runtime** (preinstalled on current Win10/11; else
 filesystem, building over the `\\wsl.localhost\...` share works but is slow —
 copy it to a local Windows path (e.g. `C:\src\Flux`) for a faster build.
 
+**macOS** (native WKWebView — real browsing works) — installs to
+`~/.cargo/bin/flux`:
+
+```sh
+scripts/install-macos.sh
+```
+
+Prerequisites the script checks for: the **Xcode Command Line Tools**
+(`xcode-select --install`), **Rust ≥ 1.80** (rustup), and **Node.js** (`brew
+install node`). No WebView runtime to install — WKWebView is built into macOS.
+For a double-clickable app instead of the CLI, run `npm run build` (= `tauri
+build`) → `target/release/bundle/macos/Flux.app` (+ a `.dmg`). Caveat: Shields'
+network-level blocking, HTTPS-only, and the download interceptor are no-ops on
+macOS (those hooks are Windows/WebView2 + Linux/WebKitGTK only); cosmetic
+element-hiding still works. An unsigned local build may need a right-click →
+**Open** past Gatekeeper.
+
 Then, on any platform:
 
 ```sh
