@@ -12303,3 +12303,14 @@ input[type="radio"].pdf-fw {
   white-space: nowrap;
   color: var(--text, #e8e6f0);
 }
+
+/* Mobile: the music bubble is smaller and tucked into the bottom-right corner,
+   below the drawer/switcher/agent z-indexes so overlays cover it (ADR 0012). */
+.shell.mobile .music-wrap {
+  right: 8px;
+  top: auto;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  transform: scale(0.72);
+  transform-origin: bottom right;
+  z-index: 52;
+}

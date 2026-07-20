@@ -2,12 +2,16 @@ package dev.flux.webview
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.graphics.Bitmap
+import android.view.View
 import android.view.ViewGroup
-import android.webkit.WebResourceRequest
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -57,6 +61,9 @@ class NavArgs {
 class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
     private val views = HashMap<Int, WebView>()
     private var container: FrameLayout? = null
+    // The active (visible) tab's WebView — the one the Android back gesture drives.
+    private var current: WebView? = null
+    private var backRegistered = false
 
     private fun density(): Float = activity.resources.displayMetrics.density
 
@@ -72,7 +79,34 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
             )
         )
         container = fl
+        registerBack()
         return fl
+    }
+
+    /** Route the Android back gesture: go back in the visible page if it can;
+     *  else if the page is hidden (a shell overlay is up) ask the shell to close
+     *  it; else fall through to the default (leave the app). */
+    private fun registerBack() {
+        if (backRegistered) return
+        val owner = activity as? ComponentActivity ?: return
+        owner.onBackPressedDispatcher.addCallback(
+            owner,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    val wv = current
+                    when {
+                        wv != null && wv.visibility == View.VISIBLE && wv.canGoBack() -> wv.goBack()
+                        wv != null && wv.visibility != View.VISIBLE -> trigger("back", JSObject())
+                        else -> {
+                            isEnabled = false
+                            owner.onBackPressedDispatcher.onBackPressed()
+                            isEnabled = true
+                        }
+                    }
+                }
+            }
+        )
+        backRegistered = true
     }
 
     private fun lp(x: Double, y: Double, w: Double, h: Double): FrameLayout.LayoutParams {
@@ -92,20 +126,26 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         wv.settings.useWideViewPort = true
         wv.settings.loadWithOverviewMode = true
         wv.settings.mediaPlaybackRequiresUserGesture = false
+        fun emitNav(view: WebView, url: String?) {
+            val data = JSObject()
+            data.put("id", id)
+            data.put("url", url ?: view.url ?: "")
+            data.put("title", view.title ?: "")
+            data.put("canGoBack", view.canGoBack())
+            data.put("canGoForward", view.canGoForward())
+            trigger("nav", data)
+        }
         // Keep navigation inside this WebView (don't hand links to an external app).
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean = false
-            override fun onPageFinished(view: WebView, url: String?) {
-                val data = JSObject()
-                data.put("id", id)
-                data.put("url", url ?: "")
-                data.put("title", view.title ?: "")
-                data.put("canGoBack", view.canGoBack())
-                data.put("canGoForward", view.canGoForward())
-                trigger("nav", data)
-            }
+            // Fires when a navigation begins — updates the omnibox URL immediately.
+            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) = emitNav(view, url)
+            override fun onPageFinished(view: WebView, url: String?) = emitNav(view, url)
         }
-        wv.webChromeClient = WebChromeClient()
+        // Title lands after the page starts — push it as soon as it's known.
+        wv.webChromeClient = object : WebChromeClient() {
+            override fun onReceivedTitle(view: WebView, title: String?) = emitNav(view, view.url)
+        }
         return wv
     }
 
@@ -125,6 +165,7 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
             wv.visibility = WebView.VISIBLE
             wv.bringToFront()
             wv.loadUrl(a.url)
+            current = wv
         }
         invoke.resolve(JSObject())
     }
@@ -145,7 +186,11 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
     fun show(invoke: Invoke) {
         val a = invoke.parseArgs(IdArgs::class.java)
         activity.runOnUiThread {
-            views[a.id]?.let { it.visibility = WebView.VISIBLE; it.bringToFront() }
+            views[a.id]?.let {
+                it.visibility = WebView.VISIBLE
+                it.bringToFront()
+                current = it
+            }
         }
         invoke.resolve(JSObject())
     }
@@ -162,6 +207,7 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         val a = invoke.parseArgs(IdArgs::class.java)
         activity.runOnUiThread {
             views.remove(a.id)?.let { wv ->
+                if (current === wv) current = null
                 (wv.parent as? ViewGroup)?.removeView(wv)
                 wv.destroy()
             }

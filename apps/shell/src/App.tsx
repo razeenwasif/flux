@@ -70,6 +70,7 @@ import {
   onOpenUrl,
   onTabLoaded,
   onPanelBadge,
+  searchSetDefault,
   tabSetUrl,
   webviewBack,
   webviewForward,
@@ -173,6 +174,7 @@ import {
 } from "./store";
 import { createWebviewTiling } from "./tiling";
 import { startClockDriver } from "./clocks";
+import { addPluginListener } from "@tauri-apps/api/core";
 import { TitleBar, ResizeHandles } from "./Chrome";
 import { isMobile } from "./platform";
 import WebPanelPane from "./WebPanelPane";
@@ -212,13 +214,16 @@ import {
   seedTabAccess,
   unpinnedTabs,
   updateTabUrl,
+  updateTabTitle,
 } from "./store";
 
 const App: Component = () => {
   // Narrow screen (phone / Termux-X11 portrait — ADR 0012 rung B): the desktop
   // chrome assumes width, so the side surfaces start collapsed and the user
   // opens what they need. One-shot at boot; rotating mid-session keeps state.
-  const narrow = window.innerWidth < 760;
+  // Mobile always boots with side surfaces collapsed (the drawer closed) — the
+  // Android WebView can report a wide innerWidth before layout, so key off isMobile.
+  const narrow = isMobile || window.innerWidth < 760;
   const [sidebarOpen, setSidebarOpen] = createSignal(!narrow);
   // Mobile Chrome-style tab switcher (ADR 0012).
   const [mobileTabsOpen, setMobileTabsOpen] = createSignal(false);
@@ -986,6 +991,32 @@ const App: Component = () => {
     createEffect(() => {
       if (sidebarOpen() || agentOpen() || mobileTabsOpen()) hideActivePage();
       else showActivePageIfClear();
+    });
+    onMount(() => {
+      // Default the search engine to Google on the phone (one-time; respects a
+      // later user change).
+      if (!localStorage.getItem("flux.mobileSearchDefaulted")) {
+        void searchSetDefault("google").catch(() => {});
+        localStorage.setItem("flux.mobileSearchDefaulted", "1");
+      }
+      // Bridge native WebView events (Kotlin `trigger`): page title/url → the tab
+      // (omnibox + switcher), and the Android back gesture → close the topmost
+      // overlay (the native side handles WebView back itself; see FluxWebViewPlugin).
+      type NavEvent = { id: number; url: string; title: string };
+      void addPluginListener<NavEvent>("flux-webview", "nav", (e) => {
+        const tab = tabs().find((t) => t.id === e.id);
+        if (!tab) return;
+        if (e.url && e.url !== tab.url) {
+          updateTabUrl(e.id, e.url);
+          void tabSetUrl(e.id, e.url, e.title || undefined).catch(() => {});
+        }
+        if (e.title && e.title !== tab.title) updateTabTitle(e.id, e.title);
+      }).catch(() => {});
+      void addPluginListener("flux-webview", "back", () => {
+        if (mobileTabsOpen()) setMobileTabsOpen(false);
+        else if (agentOpen()) setAgentOpen(false);
+        else if (sidebarOpen()) setSidebarOpen(false);
+      }).catch(() => {});
     });
   }
 

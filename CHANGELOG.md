@@ -8,6 +8,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Mobile browsing polish (ADR 0012)** — a batch of Android fixes on top of the Chrome-style chrome:
+  - **Android back gesture** now drives the page: the `FluxWebViewPlugin` registers an
+    `OnBackPressedCallback` that goes back in the visible WebView when it can, asks the shell to close
+    the topmost overlay (drawer / agent / tab switcher) when one is open, and otherwise leaves the app.
+  - **Live omnibox + tab titles**: the native WebView emits page url/title on navigation start, finish,
+    and title-received; the shell bridges them (`addPluginListener`) to the tab, so the omnibox and the
+    tab-switcher cards update as you browse and follow links.
+  - **Boots collapsed**: the mobile shell no longer opens with the sidebar drawer expanded (the Android
+    WebView could report a desktop-width viewport before layout; the collapse now keys off the mobile
+    flag).
+  - **Google is the default search engine on mobile** (one-time; a later change sticks). Desktop keeps
+    DuckDuckGo.
+  - **Music bubble** is smaller and tucked into the bottom-right corner on mobile, below the overlay
+    layers.
+  - **Removed the demo pinned apps** (Nexus / Prism / Vector / Oracle) — they were fictional
+    placeholders; the app registry now ships empty (also trims ~3 KB off the chrome bundle).
 - **Chrome-style mobile chrome (ADR 0012)** — the Android build now wears a browser-shaped top bar
   instead of the Arc drawer-for-everything: back / forward, an omnibox (lock glyph + domain, tap to
   edit → search-or-navigate, with an inline reload), a **tab-count button** opening a full-screen
