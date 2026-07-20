@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import android.util.Log
 import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
@@ -81,10 +82,11 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         @JvmStatic
         external fun nativeShouldBlock(url: String, source: String, type: String): Boolean
 
-        /** Target width (px) of a tab-switcher cover snapshot. Deliberately small:
-         *  the cards are ~160px wide, and the base64 payload rides the plugin event
-         *  channel alongside tiny nav events — keeping it light avoids any chance of
-         *  the event being dropped for size. */
+        /** logcat tag — `adb logcat -s FluxWebView` to trace snapshot capture. */
+        private const val TAG = "FluxWebView"
+
+        /** Target width (px) of a tab-switcher cover snapshot. The cards are only
+         *  ~160px wide, so this keeps the cached base64 small. */
         private const val THUMB_WIDTH = 200
 
         /** Returns the page's absolute cover-image URL (og:image / twitter:image /
@@ -102,8 +104,13 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
     /** Latest cover snapshot (base64 data URL) per tab. Cached here rather than
      *  pushed over the plugin event channel — small nav events ride that fine, but
      *  ~20KB images don't arrive. The shell pulls these via the `thumbnail` command
-     *  over the normal IPC, which handles large payloads. */
-    private val thumbs = HashMap<Int, String>()
+     *  over the normal IPC, which handles large payloads.
+     *
+     *  MUST be concurrent: captures are written on the UI thread (postDelayed /
+     *  PixelCopy callback) while the `thumbnail` command reads on a plugin worker
+     *  thread. A plain HashMap gives no visibility guarantee across those threads,
+     *  so the reader saw an empty map. */
+    private val thumbs = java.util.concurrent.ConcurrentHashMap<Int, String>()
     private var container: FrameLayout? = null
     // The active (visible) tab's WebView — the one the Android back gesture drives.
     private var current: WebView? = null
@@ -174,6 +181,7 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         try {
             val w = wv.width
             val h = wv.height
+            Log.d(TAG, "capture id=$id w=$w h=$h vis=${wv.visibility}")
             if (w <= 0 || h <= 0 || wv.visibility != View.VISIBLE) return captureOgImage(id, wv)
             val loc = IntArray(2)
             wv.getLocationInWindow(loc)
@@ -187,8 +195,9 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
                 src,
                 bmp,
                 { result ->
+                    Log.d(TAG, "pixelCopy id=$id result=$result")
                     if (result == PixelCopy.SUCCESS) {
-                        encode(bmp)?.let { thumbs[id] = it }
+                        encode(bmp)?.let { thumbs[id] = it; Log.d(TAG, "stored id=$id len=${it.length}") }
                     } else {
                         drawFallback(id, wv, tw, th) // PixelCopy refused — try a plain draw
                     }
@@ -404,8 +413,10 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun thumbnail(invoke: Invoke) {
         val a = invoke.parseArgs(IdArgs::class.java)
+        val hit = thumbs[a.id]
+        Log.d(TAG, "thumbnail id=${a.id} hit=${hit != null} cached=${thumbs.size}")
         val o = JSObject()
-        o.put("data", thumbs[a.id] ?: "")
+        o.put("data", hit ?: "")
         invoke.resolve(o)
     }
 }
