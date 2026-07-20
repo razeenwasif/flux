@@ -2,7 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Lock the chrome's own zoom (mobile): a stray pinch/double-tap must not
+         enlarge the Flux UI. Web pages are separate WebViews with their own zoom. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>Flux</title>
     <link rel="stylesheet" href="/src/theme.css" />
   </head>

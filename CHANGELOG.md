@@ -11,9 +11,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - **Mobile menu drawer + tab thumbnails (ADR 0012)** — the phone's ⋮ drawer is now a purpose-built
   menu (`MobileMenu`): a grid of Flux destinations (Notebook, Trail, whiteboard, History, Bookmarks,
   Settings, …) plus a New-tab action, replacing the desktop Arc sidebar that rendered mostly empty
-  there. The **tab switcher** now shows a **cover thumbnail** per tab — the native WebView snapshots
-  itself (downscaled JPEG) on page-load and when hidden, emitted to the shell as a `thumb` event and
-  shown behind the favicon/title, Chrome-style.
+  there. The **tab switcher** now shows a **cover image** per tab — the page's `og:image` /
+  `twitter:image` / `apple-touch-icon`, extracted on page-load and shown behind the favicon/title,
+  Chrome-style (bitmap `WebView.draw()` snapshots render blank on Android's hardware-accelerated
+  WebViews, so the site's own share image is the reliable source; tabs without one keep the monogram).
 - **Shields on macOS** — the WKWebView build gets ad/tracker blocking too. macOS compiles the *same*
   content-blocker JSON Flux already generates for WebKitGTK into a `WKContentRuleList` (declarative,
   like Linux — not per-request like Windows/Android) and attaches it to each webview's user-content
@@ -40,6 +41,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   matching the bookmark bar. Still hidden on the barebone mobile build.
 
 ### Fixed
+- **Mobile UI no longer pinch-zooms** — the shell's viewport is locked (`maximum-scale=1,
+  user-scalable=no`) so a stray pinch/double-tap can't enlarge the Flux chrome. Web pages are separate
+  WebViews and keep their own zoom.
 - **Mobile no longer launches with the drawer open** — the start-page effect that focuses the omnibox
   (and opened the sidebar) is now desktop-only; on mobile the omnibox lives in the top bar, so nothing
   needs to open the drawer.

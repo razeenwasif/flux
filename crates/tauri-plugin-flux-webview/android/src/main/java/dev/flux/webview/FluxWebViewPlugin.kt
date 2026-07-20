@@ -3,8 +3,6 @@ package dev.flux.webview
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.util.Base64
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
@@ -22,7 +20,6 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
-import java.io.ByteArrayOutputStream
 
 @InvokeArg
 class OpenArgs {
@@ -77,6 +74,16 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         /** Rust `ShieldsState::should_block` — see crates/flux-core/src/android_jni.rs. */
         @JvmStatic
         external fun nativeShouldBlock(url: String, source: String, type: String): Boolean
+
+        /** Returns the page's absolute cover-image URL (og:image / twitter:image /
+         *  apple-touch-icon), or "" — used for tab-switcher thumbnails. */
+        private const val OG_IMAGE_JS =
+            "(function(){var m=document.querySelector('meta[property=\"og:image\"]')" +
+                "||document.querySelector('meta[name=\"twitter:image\"]')" +
+                "||document.querySelector('meta[name=\"twitter:image:src\"]')" +
+                "||document.querySelector('link[rel=\"apple-touch-icon\"]');" +
+                "var v=m&&(m.content||m.href);if(!v)return '';" +
+                "try{return new URL(v,location.href).href;}catch(e){return '';}})()"
     }
 
     private val views = HashMap<Int, WebView>()
@@ -137,33 +144,23 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         return p
     }
 
-    /** A downscaled JPEG data-URL snapshot of a WebView, for the tab switcher's
-     *  cover thumbnails. Best-effort — returns null if the view isn't drawable. */
-    private fun captureThumb(wv: WebView): String? {
-        return try {
-            val w = wv.width
-            val h = wv.height
-            if (w <= 0 || h <= 0) return null
-            val scale = 0.5f
-            val bmp = Bitmap.createBitmap((w * scale).toInt(), (h * scale).toInt(), Bitmap.Config.RGB_565)
-            val canvas = Canvas(bmp)
-            canvas.scale(scale, scale)
-            wv.draw(canvas)
-            val out = ByteArrayOutputStream()
-            bmp.compress(Bitmap.CompressFormat.JPEG, 55, out)
-            bmp.recycle()
-            "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
+    /** Extract the page's cover image (og:image / twitter:image / apple-touch-icon),
+     *  resolved to an absolute URL, as the tab-switcher thumbnail. Bitmap snapshots
+     *  of a hardware-accelerated WebView render blank, so we use the site's own
+     *  share image instead — reliable and a tiny payload (a URL, not a bitmap). */
     private fun emitThumb(id: Int, wv: WebView) {
-        val data = captureThumb(wv) ?: return
-        val o = JSObject()
-        o.put("id", id)
-        o.put("data", data)
-        trigger("thumb", o)
+        wv.evaluateJavascript(OG_IMAGE_JS) { result ->
+            val img = result
+                ?.trim('"')
+                ?.replace("\\/", "/")
+                ?.takeIf { it.isNotEmpty() && it != "null" }
+            if (img != null) {
+                val o = JSObject()
+                o.put("id", id)
+                o.put("data", img)
+                trigger("thumb", o)
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -199,8 +196,7 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
             }
             override fun onPageFinished(view: WebView, url: String?) {
                 emitNav(view, url)
-                // Snapshot once it's had a moment to paint, for the tab switcher.
-                view.postDelayed({ emitThumb(id, view) }, 450)
+                emitThumb(id, view) // extract the page's cover image for the switcher
             }
 
             // Shields (ADR 0012, M3): ask Rust (ShieldsState::should_block, same as
@@ -277,12 +273,7 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun hide(invoke: Invoke) {
         val a = invoke.parseArgs(IdArgs::class.java)
-        activity.runOnUiThread {
-            views[a.id]?.let { wv ->
-                emitThumb(a.id, wv) // snapshot while still drawn, before hiding
-                wv.visibility = WebView.GONE
-            }
-        }
+        activity.runOnUiThread { views[a.id]?.visibility = WebView.GONE }
         invoke.resolve(JSObject())
     }
 
