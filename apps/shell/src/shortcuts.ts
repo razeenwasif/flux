@@ -11,6 +11,7 @@
 export type ShortcutAction =
   | "new-tab"
   | "new-terminal"
+  | "reopen-tab"
   | "close-tab"
   | "next-tab"
   | "prev-tab"
@@ -69,7 +70,8 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
     if (k >= "1" && k <= "9") return `tab-${Number(k)}`;
   }
   if (mod && e.shiftKey && !e.altKey) {
-    if (k === "t") return "new-terminal";
+    if (k === "t") return "reopen-tab"; // Ctrl/Cmd+Shift+T → reopen last closed tab
+                                        // (terminal: Ctrl+` toggles the column; sidebar has a Terminal-tab button)
     if (k === "a") return "toggle-agent";
     if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
     if (k === "r") return "shell-history"; // Ctrl/Cmd+Shift+R → semantic shell-history search

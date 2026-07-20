@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Reopen closed tab — `Ctrl/Cmd+Shift+T`** — Flux now keeps a recently-closed stack (last 25
+  browser tabs, persisted across restarts) and reopens the most recent one on `Ctrl+Shift+T`, like
+  every other browser. The chord previously opened a *terminal* tab, which shadowed the universal
+  reopen gesture; the terminal is still reachable via `Ctrl+`` (toggles the terminal column) and the
+  sidebar's "Terminal tab" button, so only the keybinding moved. Covers both a real close and the
+  convert-last-tab-to-start case (the URL was otherwise lost).
+- **Barebone mobile layout (Android APK, ADR 0012)** — the phone build now strips desktop-only
+  chrome it can't use: the custom title bar + traffic-light window controls and resize grips are
+  gone (no window management on a phone), and the terminal column, connections rail, web-panel
+  column, PagesBar and bookmark bar are hidden. The layout collapses to a single full-bleed content
+  cell, and the Arc sidebar (which carries the omnibox, tabs and nav) becomes a fixed **drawer**
+  opened by a floating ☰ and dismissed by a backdrop. Detection is UA-based (`platform.ts`), so it's
+  frontend-only — the desktop build is untouched. Builds on the rung-B responsive/touch work.
 - **Native Android APK — cross-compiled, downloadable, no Termux (ADR 0012, rung C · Milestone 1)**
   — Flux now builds a real installable `.apk` on the dev box via Tauri v2 mobile: `cargo tauri
   android build` cross-compiles `aarch64-linux-android` with the Android NDK and Gradle assembles

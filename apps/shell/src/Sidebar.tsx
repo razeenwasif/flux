@@ -1191,9 +1191,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               >
                 🕶 Private tab
               </button>
-              <button onClick={() => create("terminal")}>
-                ⌨ Terminal tab <kbd>Ctrl+Shift+T</kbd>
-              </button>
+              <button onClick={() => create("terminal")}>⌨ Terminal tab</button>
               <button onClick={() => create("files")}>📁 Files tab</button>
               <Show when={containers().length > 0}>
                 <div class="ctx-sep" />

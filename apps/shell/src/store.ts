@@ -974,6 +974,35 @@ export async function togglePin(tab: TabMeta): Promise<void> {
   await refreshTabs();
 }
 
+// ─── Recently-closed tabs (Ctrl+Shift+T) ────────────────────────────────────
+// A small LIFO of closed browser tabs so Ctrl+Shift+T reopens the last one, like
+// every other browser. Persisted so it survives a restart. Start/terminal tabs
+// and a dupe of the newest entry are skipped.
+const CLOSED_KEY = "flux.closedTabs";
+const CLOSED_CAP = 25;
+type ClosedTab = { url: string; title: string };
+let closedTabs: ClosedTab[] = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(CLOSED_KEY) || "[]") as ClosedTab[];
+  } catch {
+    return [];
+  }
+})();
+function pushClosedTab(url: string, title: string): void {
+  if (!url || url === START_URL) return;
+  if (closedTabs[0]?.url === url) return; // don't stack the same URL twice in a row
+  closedTabs.unshift({ url, title: title || url });
+  if (closedTabs.length > CLOSED_CAP) closedTabs.length = CLOSED_CAP;
+  localStorage.setItem(CLOSED_KEY, JSON.stringify(closedTabs));
+}
+/** Reopen the most recently closed browser tab (Ctrl+Shift+T). No-op if none. */
+export async function reopenClosedTab(): Promise<void> {
+  const last = closedTabs.shift();
+  if (!last) return;
+  localStorage.setItem(CLOSED_KEY, JSON.stringify(closedTabs));
+  await openTab("browser", last.url);
+}
+
 export async function closeTab(id: number): Promise<void> {
   // QoL: always keep a start tab around. Closing a browser tab when no *other*
   // flux://start tab is open converts this one into a fresh start tab instead of
@@ -981,6 +1010,9 @@ export async function closeTab(id: number): Promise<void> {
   const all = tabs();
   const closing = all.find((t) => t.id === id);
   const otherStart = all.some((t) => t.id !== id && t.url === START_URL);
+  // Remember a closing browser tab so Ctrl+Shift+T can bring it back — covers both
+  // a real close and the convert-last-tab-to-start branch below (the URL is lost then).
+  if (closing && closing.kind === "browser") pushClosedTab(closing.url, closing.title);
   if (closing && closing.kind === "browser" && closing.url !== START_URL && !otherStart) {
     clearSplit(id); // drop this tab's split pair if any
     setTabLoading(id, false);

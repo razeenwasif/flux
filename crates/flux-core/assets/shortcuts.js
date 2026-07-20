@@ -31,7 +31,7 @@
       if (k >= "1" && k <= "9") return "tab-" + k;
     }
     if (mod && e.shiftKey && !e.altKey) {
-      if (k === "t") return "new-terminal";
+      if (k === "t") return "reopen-tab"; // reopen last closed tab (mirror of shortcuts.ts)
       if (k === "a") return "toggle-agent";
       if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
       if (k === "+") return "zoom-in";

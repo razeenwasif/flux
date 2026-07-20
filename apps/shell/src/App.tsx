@@ -160,6 +160,7 @@ import {
   mapQuery,
   setMapQuery,
   closeTab,
+  reopenClosedTab,
   createWorkspace,
   activePanel,
   activePanelB,
@@ -172,6 +173,7 @@ import {
 import { createWebviewTiling } from "./tiling";
 import { startClockDriver } from "./clocks";
 import { TitleBar, ResizeHandles } from "./Chrome";
+import { isMobile } from "./platform";
 import WebPanelPane from "./WebPanelPane";
 import TerminalColumn from "./TerminalColumn";
 import {
@@ -1205,6 +1207,9 @@ const App: Component = () => {
       case "new-terminal":
         void openTab("terminal").then(() => setTerminalOpen(true));
         return true;
+      case "reopen-tab":
+        void reopenClosedTab();
+        return true;
       case "close-tab": {
         const id = activeId();
         if (id != null) void closeTab(id);
@@ -1379,13 +1384,27 @@ const App: Component = () => {
   return (
     <div
       class="shell"
-      style={{
-        "grid-template-columns": columns(),
-        "grid-template-rows": "var(--flux-titlebar-h) 1fr",
-        "grid-template-areas": `"title title title title title title" "side content webpanel term agent connect"`,
-      }}
+      classList={{ mobile: isMobile, "drawer-open": isMobile && sidebarOpen() }}
+      style={
+        isMobile
+          ? // Phone: one full-bleed content cell. The sidebar becomes a fixed
+            // drawer and the agent a fixed overlay (see .shell.mobile in theme.css);
+            // terminal / connections / web-panel columns are hidden (ADR 0012).
+            {
+              "grid-template-columns": "1fr",
+              "grid-template-rows": "1fr",
+              "grid-template-areas": `"content"`,
+            }
+          : {
+              "grid-template-columns": columns(),
+              "grid-template-rows": "var(--flux-titlebar-h) 1fr",
+              "grid-template-areas": `"title title title title title title" "side content webpanel term agent connect"`,
+            }
+      }
     >
-      <TitleBar />
+      <Show when={!isMobile}>
+        <TitleBar />
+      </Show>
       <Sidebar
         collapsed={!responsive().sidebar}
         terminalOpen={terminalOpen()}
@@ -1499,7 +1518,20 @@ const App: Component = () => {
         )}
       </Show>
 
-      <ResizeHandles />
+      <Show when={!isMobile}>
+        <ResizeHandles />
+      </Show>
+
+      {/* Mobile: the Arc sidebar (omnibox + tabs + nav) is a fixed drawer. A
+          floating ☰ opens it when closed; a backdrop closes it. */}
+      <Show when={isMobile && !sidebarOpen()}>
+        <button class="mobile-drawer-btn" aria-label="Menu" onClick={() => setSidebarOpen(true)}>
+          ☰
+        </button>
+      </Show>
+      <Show when={isMobile && sidebarOpen()}>
+        <div class="mobile-drawer-backdrop" onClick={() => setSidebarOpen(false)} />
+      </Show>
 
       {/* Command palette (#6) — overlay; renders above the (hidden) webview. */}
       <Show when={paletteOpen()}>
