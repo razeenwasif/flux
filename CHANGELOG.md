@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Shields on the mobile WebView (ADR 0012, Milestone 3)** — ad/tracker blocking now works while
+  browsing on Android. The native WebView's `shouldInterceptRequest` calls back into the *same*
+  `ShieldsState::should_block` the desktop uses, over a JNI bridge (`android_jni.rs` ↔ the Kotlin
+  plugin's `nativeShouldBlock`) — the mobile analogue of the Windows `WebResourceRequested` path
+  (Android's system WebView can't use the WebKit content-blocker JSON that Linux/macOS do). The global
+  toggle and per-site allowlist are honored (they live inside `should_block`), and the blocked count
+  ticks up like on desktop. First cut is domain/URL blocking; request-type-specific rules (`$script`
+  etc.) and the per-site tracker graph are follow-ons. Enabled by default.
 - **macOS build support** — `scripts/install-macos.sh` runs `tauri build` and installs **both**
   `/Applications/Flux.app` (the icon'd app) and the `flux` CLI to `~/.cargo/bin`, clearing the
   Gatekeeper quarantine on the local build (macOS prerequisite checks: Xcode CLT, Rust ≥ 1.80, Node).

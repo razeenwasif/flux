@@ -3,6 +3,8 @@
 
 pub mod agent;
 pub mod agent_bridge;
+#[cfg(target_os = "android")]
+mod android_jni;
 pub mod archive;
 pub mod audioviz;
 pub mod bindings;
@@ -198,6 +200,10 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
     app.manage(boot_phase("shields.init", boot_started, || {
         shields::ShieldsState::new(filters_dir)
     }));
+    // Android Shields: let the WebView's JNI shouldInterceptRequest callback reach
+    // the managed ShieldsState (ADR 0012, M3).
+    #[cfg(target_os = "android")]
+    android_jni::set_app_handle(app.handle().clone());
     // Fetch/refresh the big filter lists (EasyList/EasyPrivacy) off the
     // main thread — parsing tens of thousands of rules is heavy.
     {

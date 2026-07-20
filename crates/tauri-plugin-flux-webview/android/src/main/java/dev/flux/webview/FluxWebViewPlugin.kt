@@ -7,9 +7,11 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import java.io.ByteArrayInputStream
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import app.tauri.annotation.Command
@@ -59,6 +61,21 @@ class NavArgs {
  */
 @TauriPlugin
 class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
+    companion object {
+        init {
+            // The JNI symbol lives in the app's main Rust lib (libflux_core.so),
+            // already loaded by the app — this just guards a standalone load.
+            try {
+                System.loadLibrary("flux_core")
+            } catch (_: Throwable) {
+            }
+        }
+
+        /** Rust `ShieldsState::should_block` — see crates/flux-core/src/android_jni.rs. */
+        @JvmStatic
+        external fun nativeShouldBlock(url: String, source: String, type: String): Boolean
+    }
+
     private val views = HashMap<Int, WebView>()
     private var container: FrameLayout? = null
     // The active (visible) tab's WebView — the one the Android back gesture drives.
@@ -137,10 +154,36 @@ class FluxWebViewPlugin(private val activity: Activity) : Plugin(activity) {
         }
         // Keep navigation inside this WebView (don't hand links to an external app).
         wv.webViewClient = object : WebViewClient() {
+            // The page URL as the source for Shields' allowlist + first/third-party
+            // rules. Tracked here because view.url can only be read on the UI thread,
+            // but shouldInterceptRequest runs on a background thread.
+            @Volatile
+            var pageUrl: String = ""
+
             override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean = false
-            // Fires when a navigation begins — updates the omnibox URL immediately.
-            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) = emitNav(view, url)
+            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                pageUrl = url ?: ""
+                emitNav(view, url)
+            }
             override fun onPageFinished(view: WebView, url: String?) = emitNav(view, url)
+
+            // Shields (ADR 0012, M3): ask Rust (ShieldsState::should_block, same as
+            // desktop) per request; block by returning an empty response. should_block
+            // applies the global toggle + per-site allowlist, so we call every time.
+            override fun shouldInterceptRequest(view: WebView, req: WebResourceRequest): WebResourceResponse? {
+                return try {
+                    val u = req.url?.toString() ?: return null
+                    if (!(u.startsWith("http://") || u.startsWith("https://"))) return null
+                    val type = if (req.isForMainFrame) "document" else "other"
+                    if (nativeShouldBlock(u, pageUrl, type)) {
+                        WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+                    } else {
+                        null
+                    }
+                } catch (_: Throwable) {
+                    null // never let a blocker error break page loads
+                }
+            }
         }
         // Title lands after the page starts — push it as soon as it's known.
         wv.webChromeClient = object : WebChromeClient() {

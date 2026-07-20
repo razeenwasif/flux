@@ -110,6 +110,12 @@ trash = "5"
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-flux-webview = { path = "../tauri-plugin-flux-webview" }
 
+# Android Shields (ADR 0012, M3): the Kotlin WebView's shouldInterceptRequest
+# calls back into ShieldsState::should_block over JNI (the mobile analogue of the
+# Windows WebResourceRequested path). Version matches what tauri android pulls in.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 webkit2gtk-sys = { version = "=2.0.2", features = ["v2_40"] }
