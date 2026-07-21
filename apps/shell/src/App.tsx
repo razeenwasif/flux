@@ -81,6 +81,7 @@ import {
   sentinelCheckUrl,
   sentinelVerifyUrl,
   sentinelCheckOauth,
+  sentinelCheckSensitive,
   prefetchSetPressure,
   webviewPreconnect,
   webviewCaptureState,
@@ -221,6 +222,7 @@ import {
   updateTabTitle,
   setPhish,
   setOAuth,
+  setSensitive,
 } from "./store";
 
 const App: Component = () => {
@@ -550,6 +552,7 @@ const App: Component = () => {
       if (phase === "started") {
         setPhish(tabId, null); // clear stale phishing verdict while navigating
         setOAuth(tabId, null); // …and any prior OAuth consent review
+        setSensitive(tabId, null); // …and any containerization offer
       }
       if (phase === "finished") {
         // Sync the live url to the backend so the persisted session (#19)
@@ -590,6 +593,11 @@ const App: Component = () => {
           // app is requesting — surfaced only when something sensitive is asked.
           void sentinelCheckOauth(url)
             .then((c) => setOAuth(tabId, c))
+            .catch(() => {});
+          // Containerization offer (M4): bank/health/gov sessions are worth an
+          // isolated cookie jar. Deterministic, and rare enough not to nag.
+          void sentinelCheckSensitive(url)
+            .then((s) => setSensitive(tabId, s, url))
             .catch(() => {});
           const prev = prevUrlByTab.get(tabId);
           if (prev && prev !== url && prev.startsWith("http")) {

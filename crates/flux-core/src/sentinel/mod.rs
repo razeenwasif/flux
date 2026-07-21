@@ -9,6 +9,7 @@
 mod audit;
 pub mod oauth;
 pub mod phishing;
+pub mod sensitive;
 
 pub use audit::{AuditEntry, SentinelAudit};
 
@@ -140,6 +141,17 @@ pub async fn sentinel_assess_permission(
         }),
         _ => None,
     })
+}
+
+/// Classify a URL as a sensitive session worth isolating in its own container
+/// (ADR 0013, Pillar 2 M4). Deterministic + narrow — `None` for almost every
+/// site, so the offer stays rare enough to be worth reading.
+#[tauri::command]
+pub fn sentinel_check_sensitive(url: String) -> Option<sensitive::SensitiveSite> {
+    if !url.starts_with("http") {
+        return None;
+    }
+    sensitive::classify(&host_of(&url))
 }
 
 /// Credential-entry firewall check (ADR 0013, Pillar 2 M4): does `host` look

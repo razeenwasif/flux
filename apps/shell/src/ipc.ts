@@ -140,7 +140,10 @@ import type {
   Verdict as GenVerdict,
   OAuthConsent as GenOAuthConsent,
   PermissionNote as GenPermissionNote,
+  SensitiveSite as GenSensitiveSite,
 } from "./bindings.gen";
+/** Sentinel sensitive-site classification (ADR 0013, Pillar 2 M4). */
+export type SensitiveSite = GenSensitiveSite;
 /** Sentinel agent note on a permission prompt (ADR 0013, Pillar 2 M4). */
 export type PermissionNote = GenPermissionNote;
 /** Sentinel phishing verdict (ADR 0013, Pillar 1). */
@@ -1134,6 +1137,11 @@ export const sentinelCheckOauth = (url: string) =>
  *  or page content is unavailable, in which case the prompt is unchanged. */
 export const sentinelAssessPermission = (host: string, permission: string) =>
   invoke<PermissionNote | null>("sentinel_assess_permission", { host, permission });
+
+/** Classify a URL as a banking/health/government session worth isolating in its
+ *  own container (ADR 0013, Pillar 2 M4). Deterministic; null for almost every site. */
+export const sentinelCheckSensitive = (url: string) =>
+  invoke<SensitiveSite | null>("sentinel_check_sensitive", { url });
 
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */

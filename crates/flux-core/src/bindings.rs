@@ -87,6 +87,9 @@ pub fn generate_ts() -> String {
         specta::ts::export::<crate::sentinel::oauth::OAuthConsent>(&c),
         // Sentinel (ADR 0013, Pillar 2): agent note on a permission prompt.
         specta::ts::export::<crate::sentinel::PermissionNote>(&c),
+        // Sentinel (ADR 0013, Pillar 2): sensitive-site containerization offer.
+        specta::ts::export::<crate::sentinel::sensitive::SensitiveKind>(&c),
+        specta::ts::export::<crate::sentinel::sensitive::SensitiveSite>(&c),
         // Command return/arg structs (BACKLOG #12, batch 2).
         specta::ts::export::<Bookmark>(&c),
         specta::ts::export::<Feed>(&c),

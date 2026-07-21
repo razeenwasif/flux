@@ -9,6 +9,7 @@ import { setPendingCommand } from "./terminals";
 import {
   type PhishVerdict,
   type OAuthConsent,
+  type SensitiveSite,
   darkmodeSet,
   navSet,
   spotifySetDir,
@@ -641,6 +642,40 @@ export const activePhish = (): PhishVerdict | null | undefined => phishByTab[act
 export function setPhish(id: number, v: PhishVerdict | null): void {
   setPhishByTab(id, v);
 }
+
+// Sentinel sensitive-site containerization offer (ADR 0013, Pillar 2 M4): set on
+// navigation to a bank/health/gov site. Hosts the user waved off are remembered
+// so the offer never becomes a nag.
+const dismissedSens = new Set<string>(
+  JSON.parse(localStorage.getItem("flux.sens.off") || "[]") as string[],
+);
+const [sensByTab, setSensByTab] = createStore<Record<number, SensitiveSite | null>>({});
+const sensHost = (url: string): string => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+};
+export function setSensitive(id: number, v: SensitiveSite | null, url = ""): void {
+  setSensByTab(id, dismissedSens.has(sensHost(url)) ? null : v);
+}
+/** Wave the offer off for this host, for good. */
+export function dismissSensitive(id: number, url: string): void {
+  const host = sensHost(url);
+  if (host) {
+    dismissedSens.add(host);
+    localStorage.setItem("flux.sens.off", JSON.stringify([...dismissedSens]));
+  }
+  setSensByTab(id, null);
+}
+/** The active tab's containerization offer — suppressed once the tab is already
+ *  isolated (its own container, or private, which has no persistent jar). */
+export const activeSensitive = (): SensitiveSite | null | undefined => {
+  const t = activeTab();
+  if (!t || t.container !== 0 || t.private) return null;
+  return sensByTab[t.id];
+};
 
 // Sentinel OAuth consent review per tab (ADR 0013, Pillar 1 M3): set when a
 // navigation lands on a consent screen requesting sensitive scopes.

@@ -12542,6 +12542,18 @@ input[type="radio"].pdf-fw {
   font-size: 12px;
   opacity: 0.85;
 }
+/* Containerization offer (M4): green — an upgrade, not a threat. */
+.sentinel-banner.secure {
+  border-color: rgba(90, 220, 150, 0.45);
+  background: linear-gradient(180deg, rgba(90, 220, 150, 0.14), rgba(90, 220, 150, 0.05));
+}
+.sentinel-banner.secure .sentinel-ico {
+  color: #6fe0a5;
+}
+.sentinel-banner.secure .sentinel-leave {
+  background: rgba(90, 220, 150, 0.92);
+  color: #04210f;
+}
 /* OAuth consent review (M3): a neutral-blue variant — informational, not a
    threat warning. Aligns top so a multi-scope list reads cleanly. */
 .sentinel-banner.oauth {

@@ -77,6 +77,14 @@ export type OAuthConsent = { provider: string; app: string; scopes: ScopeInfo[] 
  * the user still decides; nothing here allows or denies.
  */
 export type PermissionNote = { expected: boolean; note: string }
+/**
+ * What kind of sensitive session this is.
+ */
+export type SensitiveKind = "Banking" | "Health" | "Government"
+/**
+ * A site worth isolating in its own container.
+ */
+export type SensitiveSite = { kind: SensitiveKind; label: string }
 export type Bookmark = { id: number; title: string; url: string; folder: string; added_ms: number }
 /**
  * A subscribed feed. Only the subscription is persisted (id, url, title).

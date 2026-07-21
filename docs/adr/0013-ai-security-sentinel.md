@@ -224,7 +224,11 @@ Read-and-summarize, reusing `reader_structure` + Flux's telemetry:
   consent screens. (A dedicated sensitive-input *focus* intercept — before typing —
   is folded in via the credential-field signal; a keystroke-level trigger needs page
   focus-event plumbing and remains a follow-on.)
-- **M4 — Pillar 2 guardrails.**
+- **M4 — Pillar 2 guardrails** ✅ **shipped**: credential-entry firewall (autofill
+  refused + no fill chip on an impersonating origin; a login typed into one warns
+  instead of offering to save, and a lookalike can't whitewash itself by being
+  saved), agent-annotated permission prompts (advisory line only — never decides),
+  and sensitive-site containerization (bank/health/gov → offer an isolated jar).
 - **M5 — Pillar 3 explainers** (independent + low-risk; can slot earlier).
 
 ## Open questions

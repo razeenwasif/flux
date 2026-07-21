@@ -33,6 +33,8 @@ import {
   activeId,
   activePhish,
   activeOAuth,
+  activeSensitive,
+  dismissSensitive,
   activeTab,
   bookmarkBarOpen,
   pagesBarOpen,
@@ -54,6 +56,7 @@ import { For, Match, Show, Suspense, Switch, createMemo, lazy, type Component } 
 // chunk each, fetched on first visit (ADR 0001 chrome-JS budget).
 const SentinelBanner = lazy(() => import("./SentinelBanner")); // shown only on a phishing verdict
 const OAuthConsentBanner = lazy(() => import("./OAuthConsentBanner")); // shown only on a sensitive OAuth grant
+const SensitiveSiteBanner = lazy(() => import("./SensitiveSiteBanner")); // shown only on a bank/health/gov site
 const StartPage = lazy(() => import("./StartPage"));
 const FilesView = lazy(() => import("./FilesView"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
@@ -217,6 +220,18 @@ const ContentArea: Component<{
               verdict={v()}
               onLeave={() => props.onNavigate("flux://start")}
               onDismiss={() => setPhish(activeId() ?? -1, null)}
+            />
+          </Suspense>
+        )}
+      </Show>
+      {/* Sentinel containerization offer (ADR 0013, M4) — not a warning, an upgrade. */}
+      <Show when={activeSensitive()}>
+        {(s) => (
+          <Suspense>
+            <SensitiveSiteBanner
+              site={s()}
+              url={activeTab()?.url ?? ""}
+              onDismiss={() => dismissSensitive(activeId() ?? -1, activeTab()?.url ?? "")}
             />
           </Suspense>
         )}

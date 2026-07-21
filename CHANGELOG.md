@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Sensitive-site containerization (ADR 0013 — Sentinel, Pillar 2, M4)** — banking, health, and
+  government sessions carry the highest-value cookies on the web, and a tracker in another tab has no
+  business sharing a jar with them. Flux now recognizes those sites on navigation and offers a one-tap
+  **"Open isolated"** — routing them into a reusable *Secure* container (#59 isolated cookie/storage
+  jar). Not a warning: nothing is wrong with the site, it's a privacy upgrade, and waving it off is
+  remembered per host so it never becomes a nag. The offer is also suppressed when the tab is already
+  in a container or private. Deterministic and deliberately narrow — `.gov`/`.mil` domains, known
+  finance brands, and explicit banking/health words in the domain — never "you have a password saved
+  here", which would match GitHub and Reddit and train you to dismiss it.
 - **Context-aware permission prompts (ADR 0013 — Sentinel, Pillar 2, M4)** — when a site asks for your
   camera, microphone, location, notifications, or clipboard, the local model reads what the page
   actually is and adds **one short line** to the existing prompt: a video-call app needing the camera
