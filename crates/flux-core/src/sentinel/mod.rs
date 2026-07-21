@@ -7,5 +7,6 @@
 //! later, hence the module dir.
 
 mod audit;
+pub mod phishing;
 
 pub use audit::{AuditEntry, SentinelAudit};

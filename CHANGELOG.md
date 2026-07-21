@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Phishing detection engine (ADR 0013 — Sentinel, Pillar 1, M2)** — a deterministic, no-LLM
+  detector (`sentinel::phishing`) that flags a domain trying to *look like* a brand the user values:
+  homoglyph folds (`paypa1`, Cyrillic-`а`-`pple` → `paypal`), typosquats (`gooogle`, 1–2 edits), and
+  brand-embedding (`paypal-secure`, `login-apple`). Suppresses the real brand and unrelated domains.
+  Ships with a curated top-brands seed for day-1 coverage; the impersonation-target set will grow from
+  vault origins + Trail-frequent sites next. Not yet wired to navigation/UI — engine + tests only.
 - **Stored-injection defense for the knowledge base (ADR 0013 — Sentinel, Pillar 0, M1)** — retrieved
   KB content (your saved notes/papers) fed back to the agent is now fenced as untrusted at the point of
   use, in both `kb_answer` (the grounded Notebook Q&A) and `kb_check` (the novelty/contradiction check
