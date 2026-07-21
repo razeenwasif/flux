@@ -7,6 +7,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Security
+- **Agent trust boundary (ADR 0013 — Sentinel, Pillar 0, M1)** — page/DOM/tab/KB text fed to the
+  local agent is now treated as untrusted input: every prompt that embeds it (`plan`, `step`, `chat`,
+  multi-tab chat, reader-structure, author-CSS, translate) fences the content in
+  `⟦UNTRUSTED_WEB_CONTENT⟧` markers and carries a standing instruction that nothing inside is a
+  directive — so a page can't inject "ignore your instructions and …" to hijack the agent. Forged
+  fence markers in page content are stripped so the fence can't be closed early. Complements the
+  existing read≠act defense (agent actions come from a fixed Rust vocabulary with a destructive-action
+  deny-list, never free-form from the model).
+
 ### Added
 - **Mobile menu drawer + tab thumbnails (ADR 0012)** — the phone's ⋮ drawer is now a purpose-built
   menu (`MobileMenu`): a grid of Flux destinations (Notebook, Trail, whiteboard, History, Bookmarks,
