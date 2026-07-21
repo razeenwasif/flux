@@ -246,28 +246,46 @@ pub fn agent_set_model(name: String) {
 /// Chat grounded in the captured text of several tabs (chat-with-tabs). Gathers
 /// each tab's cached DOM text (capped per tab), labels it, and asks the local
 /// model. Tabs without a snapshot yet are skipped.
+///
+/// Confidentiality gate (ADR 0013, Pillar 0): reads are limited to `tab_ids` —
+/// the tabs the frontend explicitly passed. The model cannot widen this (it emits
+/// a text answer or a fixed-vocabulary action, never "read another tab"), so a
+/// hostile tab in the set can't make the agent reach a tab outside it. Each tab's
+/// body is fenced as untrusted so one tab can't forge another's header.
+fn combine_tab_context(state: &FluxState, tab_ids: &[TabId]) -> String {
+    const PER_TAB: usize = 4 * 1024;
+    let mut combined = String::new();
+    for id in tab_ids {
+        let Some(snap) = state.dom_cache.get(id) else {
+            continue;
+        };
+        let title = state
+            .tabs
+            .get(id)
+            .map(|t| t.title.clone())
+            .filter(|t| !t.trim().is_empty());
+        let label = title.unwrap_or_else(|| snap.url.to_string());
+        // One-line, sanitized header so a hostile title can't break the structure
+        // or forge a fence; the body is individually fenced as untrusted.
+        let label = label.replace(['\n', '\r'], " ");
+        let url = snap.url.replace(['\n', '\r'], " ");
+        combined.push_str(&format!("--- TAB: {label} ({url}) ---\n"));
+        combined.push_str(&flux_agent::wrap_untrusted(&cap_utf8(
+            snap.text.to_string(),
+            PER_TAB,
+        )));
+        combined.push_str("\n\n");
+    }
+    combined
+}
+
 #[tauri::command]
 pub async fn agent_chat_tabs(
     state: State<'_, FluxState>,
     prompt: String,
     tab_ids: Vec<TabId>,
 ) -> Result<String, String> {
-    const PER_TAB: usize = 4 * 1024;
-    let mut combined = String::new();
-    for id in tab_ids {
-        let Some(snap) = state.dom_cache.get(&id) else {
-            continue;
-        };
-        let title = state
-            .tabs
-            .get(&id)
-            .map(|t| t.title.clone())
-            .filter(|t| !t.trim().is_empty());
-        let label = title.unwrap_or_else(|| snap.url.to_string());
-        combined.push_str(&format!("--- TAB: {label} ({}) ---\n", snap.url));
-        combined.push_str(&cap_utf8(snap.text.to_string(), PER_TAB));
-        combined.push_str("\n\n");
-    }
+    let combined = combine_tab_context(&state, &tab_ids);
     tauri::async_runtime::spawn_blocking(move || {
         crate::agent_bridge::planner().chat_pages(&prompt, &combined)
     })
@@ -285,22 +303,7 @@ pub async fn agent_chat_tabs_stream(
     tab_ids: Vec<TabId>,
     on_token: Channel<String>,
 ) -> Result<(), String> {
-    const PER_TAB: usize = 4 * 1024;
-    let mut combined = String::new();
-    for id in tab_ids {
-        let Some(snap) = state.dom_cache.get(&id) else {
-            continue;
-        };
-        let title = state
-            .tabs
-            .get(&id)
-            .map(|t| t.title.clone())
-            .filter(|t| !t.trim().is_empty());
-        let label = title.unwrap_or_else(|| snap.url.to_string());
-        combined.push_str(&format!("--- TAB: {label} ({}) ---\n", snap.url));
-        combined.push_str(&cap_utf8(snap.text.to_string(), PER_TAB));
-        combined.push_str("\n\n");
-    }
+    let combined = combine_tab_context(&state, &tab_ids);
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let mut sink = |tok: &str| {
             let _ = on_token.send(tok.to_string());

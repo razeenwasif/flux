@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Per-tab confidentiality in multi-tab chat (ADR 0013 — Sentinel, Pillar 0, M1)** — the agent's
+  cross-tab reads are limited to the tabs the frontend explicitly passes (the model can't widen that —
+  it emits a text answer or a fixed-vocabulary action, never "read another tab"), and each tab's body
+  is now **individually fenced as untrusted** with a sanitized one-line header, so a hostile tab in the
+  set can't forge another tab's header to impersonate it or bleed into its section.
 - **Agent action audit log (ADR 0013 — Sentinel, Pillar 0, M1)** — every action the agent runs on
   your behalf (`agent_run_action`) is now appended to a `crate::sentinel` log — what, when, which tab,
   whether it was flagged destructive, and that it was user-confirmed — **sealed at rest with the same
