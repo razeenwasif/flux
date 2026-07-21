@@ -1102,11 +1102,17 @@ pub async fn kb_check(kb: State<'_, KbStore>, text: String) -> Result<KbCheck, S
                 snippet(&h.snippet, 500)
             ));
         }
+        // Both the saved note and the related notes are page/document-derived —
+        // fence them as untrusted (ADR 0013, Pillar 0: stored-injection defense).
         let prompt = format!(
-            "I just saved this note to my knowledge base:\n\n{query}\n\nHere are the most related \
-existing notes:\n\n{ctx}\nReply with EXACTLY one word on the first line — CONTRADICTS, DUPLICATES, \
-ADDS, or UNRELATED — then on the next line a single concise sentence explaining, referencing the \
-related notes as [n]."
+            "I just saved a note to my knowledge base (fenced below), and here are the most \
+related existing notes (also fenced). Reply with EXACTLY one word on the first line — \
+CONTRADICTS, DUPLICATES, ADDS, or UNRELATED — then on the next line a single concise sentence \
+explaining, referencing the related notes as [n]. {preamble}\n\n\
+SAVED NOTE:\n{saved}\n\nRELATED NOTES:\n{sources}",
+            preamble = flux_agent::UNTRUSTED_PREAMBLE,
+            saved = flux_agent::wrap_untrusted(&query),
+            sources = flux_agent::wrap_untrusted(&ctx),
         );
         let raw = crate::agent_bridge::planner()
             .chat(&prompt, None)
@@ -1151,11 +1157,18 @@ fn build_prompt(query: &str, hits: &[KbHit]) -> String {
             snippet(&h.snippet, 600)
         ));
     }
+    // Retrieved KB content is page/document-derived and may carry a prompt
+    // injection stored at ingest time — fence it as untrusted so a note or paper
+    // can't hijack the answer when it's fed back later (ADR 0013, Pillar 0: the
+    // stored-injection defense). The sources stay usable as data (answer FROM
+    // them); only instructions embedded inside them are inert.
     format!(
         "You are the user's research co-scientist. Answer the question using ONLY the numbered \
 sources below, which come from the user's own notes and papers. Cite the sources you use inline \
-as [n]. If the sources don't cover the question, say so plainly — do not invent facts.\n\n\
-Sources:\n{ctx}\nQuestion: {query}\n\nGrounded answer (with [n] citations):"
+as [n]. If the sources don't cover the question, say so plainly — do not invent facts. {preamble}\n\n\
+Sources:\n{sources}\n\nQuestion: {query}\n\nGrounded answer (with [n] citations):",
+        preamble = flux_agent::UNTRUSTED_PREAMBLE,
+        sources = flux_agent::wrap_untrusted(&ctx),
     )
 }
 

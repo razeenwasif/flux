@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Stored-injection defense for the knowledge base (ADR 0013 — Sentinel, Pillar 0, M1)** — retrieved
+  KB content (your saved notes/papers) fed back to the agent is now fenced as untrusted at the point of
+  use, in both `kb_answer` (the grounded Notebook Q&A) and `kb_check` (the novelty/contradiction check
+  on save). A prompt injection embedded in a page you clipped weeks ago can no longer hijack the
+  agent's answer when that note resurfaces — the sources remain usable *as data* (answers still cite
+  them), only embedded *instructions* are inert.
 - **Prompt-injection red-team suite (ADR 0013 — Sentinel, Pillar 0, M1)** — a test battery of hostile
   page content (classic "ignore your instructions", fake requests, forged fence markers) proving the
   structural trust boundary holds: injected text always lands *inside* the fence as data and can never
