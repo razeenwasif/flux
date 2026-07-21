@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Prompt-injection red-team suite (ADR 0013 — Sentinel, Pillar 0, M1)** — a test battery of hostile
+  page content (classic "ignore your instructions", fake requests, forged fence markers) proving the
+  structural trust boundary holds: injected text always lands *inside* the fence as data and can never
+  change the fence count to escape it. Complements the existing action-compiler injection test.
 - **Per-tab confidentiality in multi-tab chat (ADR 0013 — Sentinel, Pillar 0, M1)** — the agent's
   cross-tab reads are limited to the tabs the frontend explicitly passes (the model can't widen that —
   it emits a text answer or a fixed-vocabulary action, never "read another tab"), and each tab's body
