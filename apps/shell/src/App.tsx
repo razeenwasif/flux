@@ -78,6 +78,7 @@ import {
   hibernateRank,
   prefetchRecord,
   prefetchHints,
+  sentinelCheckUrl,
   prefetchSetPressure,
   webviewPreconnect,
   webviewCaptureState,
@@ -216,6 +217,7 @@ import {
   unpinnedTabs,
   updateTabUrl,
   updateTabTitle,
+  setPhish,
 } from "./store";
 
 const App: Component = () => {
@@ -542,6 +544,7 @@ const App: Component = () => {
     const unLoaded = await onTabLoaded((tabId, url, phase) => {
       updateTabUrl(tabId, url);
       setTabLoading(tabId, phase === "started"); // stop/reload swap + progress (#31)
+      if (phase === "started") setPhish(tabId, null); // clear stale phishing verdict while navigating
       if (phase === "finished") {
         // Sync the live url to the backend so the persisted session (#19)
         // reflects where the tab actually is, not its creation url.
@@ -556,6 +559,10 @@ const App: Component = () => {
         // Predictive prefetch (#103): learn this navigation transition, then
         // preconnect to the hosts the model expects you to visit next from here.
         if (url.startsWith("http")) {
+          // Sentinel phishing/impersonation check (ADR 0013, Pillar 1).
+          void sentinelCheckUrl(url)
+            .then((v) => setPhish(tabId, v))
+            .catch(() => {});
           const prev = prevUrlByTab.get(tabId);
           if (prev && prev !== url && prev.startsWith("http")) {
             void prefetchRecord(prev, url).catch(() => {});

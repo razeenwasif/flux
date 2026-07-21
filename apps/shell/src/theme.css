@@ -12438,3 +12438,74 @@ input[type="radio"].pdf-fw {
   transform-origin: bottom right;
   z-index: 52;
 }
+
+/* ─── Sentinel phishing/impersonation banner (ADR 0013, Pillar 1) ─────────────
+   A sibling strip above the content card (shrinks the card, native webview
+   follows) — chrome layer, un-spoofable by the page. Amber = Low, red = High. */
+.sentinel-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  margin: 0 0 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(240, 180, 40, 0.5);
+  background: linear-gradient(180deg, rgba(240, 180, 40, 0.16), rgba(240, 180, 40, 0.07));
+  color: var(--flux-text, #e8e6f0);
+  font-size: 13px;
+}
+.sentinel-banner.high {
+  border-color: rgba(255, 70, 70, 0.6);
+  background: linear-gradient(180deg, rgba(255, 70, 70, 0.2), rgba(255, 70, 70, 0.09));
+}
+.sentinel-ico {
+  flex: 0 0 auto;
+  font-size: 18px;
+  color: #f0b428;
+}
+.sentinel-banner.high .sentinel-ico {
+  color: #ff5a5a;
+}
+.sentinel-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sentinel-title {
+  font-weight: 600;
+}
+.sentinel-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  opacity: 0.75;
+  font-size: 12px;
+  margin-top: 1px;
+}
+.sentinel-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sentinel-leave {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255, 90, 90, 0.9);
+  color: #fff;
+}
+.sentinel-banner:not(.high) .sentinel-leave {
+  background: rgba(240, 180, 40, 0.9);
+  color: #1a1400;
+}
+.sentinel-dismiss {
+  border: 1px solid var(--glass-rim-soft, rgba(255, 255, 255, 0.14));
+  background: transparent;
+  color: inherit;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  opacity: 0.85;
+}

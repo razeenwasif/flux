@@ -30,9 +30,12 @@ import {
   type TabMeta,
 } from "./ipc";
 import {
+  activeId,
+  activePhish,
   activeTab,
   bookmarkBarOpen,
   pagesBarOpen,
+  setPhish,
   readerOpen,
   setSplitDragging,
   setSplitRatio,
@@ -47,6 +50,7 @@ import { For, Match, Show, Suspense, Switch, createMemo, lazy, type Component } 
 
 // Internal flux:// pages — lazy, DOM-rendered in the card (no webview). One
 // chunk each, fetched on first visit (ADR 0001 chrome-JS budget).
+const SentinelBanner = lazy(() => import("./SentinelBanner")); // shown only on a phishing verdict
 const StartPage = lazy(() => import("./StartPage"));
 const FilesView = lazy(() => import("./FilesView"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
@@ -201,6 +205,19 @@ const ContentArea: Component<{
       <PermissionBar />
       <SavePasswordBar />
       <ClockAlarm />
+      {/* Sentinel phishing warning (ADR 0013) — a sibling strip above the card,
+          in the chrome layer the page can't spoof. */}
+      <Show when={activePhish()}>
+        {(v) => (
+          <Suspense>
+            <SentinelBanner
+              verdict={v()}
+              onLeave={() => props.onNavigate("flux://start")}
+              onDismiss={() => setPhish(activeId() ?? -1, null)}
+            />
+          </Suspense>
+        )}
+      </Show>
       <div class="card" id="flux-web-area">
         {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
         <Show when={readerOpen()}>

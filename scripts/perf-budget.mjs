@@ -37,7 +37,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // find/history, watch panel, tracker graph, app panes are now lazy+gated
 // (70.1 → 64.4 KB) — and the remainder is load-bearing boot chrome, so the
 // budget moved to just above the real floor to keep pressure on regressions.
-const CHROME_JS_GZIP_BUDGET = 65 * 1024; // bytes
+// Re-baselined 65 → 66 KB on 2026-07-21: the Sentinel phishing warning (ADR 0013,
+// Pillar 1) wires an always-on nav-check + per-tab verdict store into the boot
+// path (~0.2 KB); the banner itself is lazy. A security control is load-bearing.
+const CHROME_JS_GZIP_BUDGET = 66 * 1024; // bytes
 const BINARY_BUDGET = 25 * 1024 * 1024; // bytes
 
 // ── args ─────────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import { createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { setPendingCommand } from "./terminals";
 import {
+  type PhishVerdict,
   darkmodeSet,
   navSet,
   spotifySetDir,
@@ -629,6 +630,15 @@ const [tabThumbs, setTabThumbs] = createStore<Record<number, string>>({});
 export const tabThumb = (id: number): string | undefined => tabThumbs[id];
 export function setTabThumb(id: number, data: string): void {
   setTabThumbs(id, data);
+}
+
+// Sentinel phishing verdict per tab (ADR 0013, Pillar 1): set on navigation-finish
+// from `sentinel_check_url`, cleared on navigate-away or dismiss. The banner reads
+// the active tab's verdict.
+const [phishByTab, setPhishByTab] = createStore<Record<number, PhishVerdict | null>>({});
+export const activePhish = (): PhishVerdict | null | undefined => phishByTab[activeId() ?? -1];
+export function setPhish(id: number, v: PhishVerdict | null): void {
+  setPhishByTab(id, v);
 }
 // AI search answers (#32-ish / agent): when you search, the local Gemma also
 // drafts a quick answer in the agent panel. On by default (it's local — no

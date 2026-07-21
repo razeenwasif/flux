@@ -12,9 +12,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   detector (`sentinel::phishing`) that flags a domain trying to *look like* a brand the user values:
   homoglyph folds (`paypa1`, Cyrillic-`а`-`pple` → `paypal`), typosquats (`gooogle`, 1–2 edits), and
   brand-embedding (`paypal-secure`, `login-apple`). Suppresses the real brand and unrelated domains.
-  Exposed as the `sentinel_check_url` command, assessing a URL against the user's impersonation-target
-  set — **vault origins (strongest) + Trail-frequent hosts (engagement-weighted) + a curated seed** —
-  all local. The navigation trigger + warning UI are the remaining M2 slice.
+  Assessed against the user's impersonation-target set — **vault origins (strongest) + Trail-frequent
+  hosts (engagement-weighted) + a curated seed** — all local. On every page load Flux now checks the
+  URL and, if it resembles a brand you value, shows a **warning banner** above the content card (a
+  chrome-layer strip the page can't spoof) — amber for a resemblance, red for a likely impersonation,
+  with a "Leave site" exit. Advisory, never a hard block. Chrome-JS budget re-baselined 65 → 66 KB.
 - **Stored-injection defense for the knowledge base (ADR 0013 — Sentinel, Pillar 0, M1)** — retrieved
   KB content (your saved notes/papers) fed back to the agent is now fenced as untrusted at the point of
   use, in both `kb_answer` (the grounded Notebook Q&A) and `kb_check` (the novelty/contradiction check
