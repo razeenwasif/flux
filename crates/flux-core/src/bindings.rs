@@ -85,6 +85,8 @@ pub fn generate_ts() -> String {
         // Sentinel (ADR 0013): OAuth consent-screen review.
         specta::ts::export::<crate::sentinel::oauth::ScopeInfo>(&c),
         specta::ts::export::<crate::sentinel::oauth::OAuthConsent>(&c),
+        // Sentinel (ADR 0013, Pillar 2): agent note on a permission prompt.
+        specta::ts::export::<crate::sentinel::PermissionNote>(&c),
         // Command return/arg structs (BACKLOG #12, batch 2).
         specta::ts::export::<Bookmark>(&c),
         specta::ts::export::<Feed>(&c),

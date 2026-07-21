@@ -304,6 +304,18 @@ pub struct ReadingSection {
     pub label: String,
 }
 
+/// A permission-request assessment from the local model (ADR 0013, Pillar 2 M4).
+/// Advisory **text only** — it annotates the existing prompt and can never
+/// allow or deny anything itself (the user still decides; read ≠ act).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PermissionJudgment {
+    /// Whether this permission is expected for this kind of page.
+    pub expected: bool,
+    /// One short sentence explaining why (or why not).
+    #[serde(default)]
+    pub note: String,
+}
+
 /// A content phishing judgment from the local model (ADR 0013, Pillar 1 M3).
 /// The deterministic pre-filter finds that a domain *resembles* a brand; this
 /// refines it by reading what the user actually sees. Schema-constrained; the
@@ -709,6 +721,52 @@ impl AgentPlanner {
         Ok(validate_reading_structure(parsed, headings.len()))
     }
 
+    /// Assess whether a permission request makes sense for the page asking
+    /// (ADR 0013, Pillar 2 M4) — "a recipe blog has no obvious reason to need
+    /// your location". Returns one short advisory line for the *existing*
+    /// permission prompt; it never decides. Page text is fenced UNTRUSTED, so a
+    /// page can't talk the assessor into vouching for its own request.
+    pub fn assess_permission(
+        &self,
+        host: &str,
+        permission: &str,
+        title: &str,
+        page_text: &str,
+    ) -> Result<PermissionJudgment, AgentError> {
+        const PAGE_BUDGET: usize = 2 * 1024;
+        let prompt = format!(
+            "You are a privacy assistant in a web browser. A site is asking for \
+             permission to {permission}. Judge whether that is EXPECTED given what \
+             the page actually is — a video-call app needing the camera is \
+             expected; a news article or recipe blog needing your location or \
+             camera is not.\n\
+             Reply with EXACTLY ONE JSON object:\n\
+             {{\"expected\":true|false,\"note\":\"<ONE short sentence, max 15 words, \
+             addressed to the user>\"}}\n\
+             {UNTRUSTED_PREAMBLE}\n\n{}",
+            wrap_untrusted(&format!(
+                "SITE: {host}\nTITLE: {title}\nVISIBLE TEXT:\n{}",
+                truncate_utf8(page_text, PAGE_BUDGET)
+            ))
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "expected": { "type": "boolean" },
+                "note": { "type": "string" }
+            },
+            "required": ["expected", "note"]
+        });
+        let raw = self.backend.complete(&prompt, Some(&schema))?;
+        let mut j: PermissionJudgment = serde_json::from_str(raw.trim())?;
+        // Keep it to one line in a 38px bar; a rambling model can't break layout.
+        j.note = j.note.replace(['\n', '\r'], " ").trim().to_string();
+        if j.note.chars().count() > 140 {
+            j.note = j.note.chars().take(139).collect::<String>() + "…";
+        }
+        Ok(j)
+    }
+
     /// Refine a deterministic phishing flag with a content judgment (ADR 0013,
     /// Pillar 1 M3). The pre-filter already found that `domain` visually
     /// resembles `resembles` but isn't its real domain; the model reads what the
@@ -958,6 +1016,10 @@ impl Inference for MockBackend {
                     .to_owned(),
             );
         }
+        // Permission assessor (Sentinel M4): with no model, offer no opinion.
+        if p.contains("privacy assistant") {
+            return Ok(r#"{"expected":true,"note":""}"#.to_owned());
+        }
         // Multi-step task loop (plan_step): do one step, then finish on the next
         // call (once a step appears under "STEPS DONE:"). Keeps the dev/CI loop
         // terminating without a model.
@@ -1025,6 +1087,21 @@ mod tests {
             .assess_phishing("x.com", "paypal", "t", "body", false)
             .unwrap();
         assert_eq!(j.verdict, "suspicious");
+    }
+
+    #[test]
+    fn permission_note_is_clamped_to_one_short_line() {
+        let long = "x".repeat(300);
+        let p = AgentPlanner::new(Box::new(Canned(Box::leak(
+            format!(r#"{{"expected":false,"note":"a\nb {long}"}}"#).into_boxed_str(),
+        ))));
+        let j = p
+            .assess_permission("blog.example", "know your location", "Recipes", "cake")
+            .unwrap();
+        assert!(!j.expected);
+        assert!(!j.note.contains('\n'), "newlines stripped — it lives in a one-line bar");
+        assert!(j.note.chars().count() <= 140, "clamped: {}", j.note.chars().count());
+        assert!(j.note.ends_with('…'));
     }
 
     #[test]

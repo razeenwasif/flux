@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Context-aware permission prompts (ADR 0013 — Sentinel, Pillar 2, M4)** — when a site asks for your
+  camera, microphone, location, notifications, or clipboard, the local model reads what the page
+  actually is and adds **one short line** to the existing prompt: a video-call app needing the camera
+  is expected; a recipe blog wanting your location gets an amber *"a recipe page has no obvious reason
+  to need your location."* Purely advisory — it annotates, it never allows or denies, and the buttons
+  are unchanged. The bar appears instantly and the note fills in when it arrives, so the model is never
+  on the prompt's path and a missing model leaves the prompt exactly as it was. Page text is fenced as
+  untrusted, so a page can't talk the assessor into vouching for its own request.
 - **Credential-entry firewall (ADR 0013 — Sentinel, Pillar 2, M4)** — the vault now refuses to put a
   saved password into a site that impersonates a brand you value. Autofill is **blocked with an
   explanation** naming the brand, and the in-page fill chip and credential picker don't appear at all

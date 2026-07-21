@@ -2303,6 +2303,22 @@ body.resizing .panel-edge-resize::after {
   font-size: 12.5px;
   color: var(--flux-text);
 }
+/* Agent assessment on a permission prompt (ADR 0013, Pillar 2) — advisory. */
+.perm-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.72;
+  font-size: 11.5px;
+  font-style: italic;
+}
+.perm-note.unexpected {
+  color: #ffd27a;
+  opacity: 0.95;
+  font-style: normal;
+}
 /* Credential-entry firewall warning (ADR 0013, Pillar 2) — a password went into
    an impersonating site. Loud red, and taller: the message wraps. */
 .perm-bar.danger {

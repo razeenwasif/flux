@@ -87,6 +87,61 @@ pub async fn sentinel_check_url(
     Ok(phishing::assess(&host, &known_good_brands(&app)))
 }
 
+/// A one-line, agent-written assessment of a live permission request
+/// (ADR 0013, Pillar 2 M4). Advisory annotation for the *existing* prompt —
+/// the user still decides; nothing here allows or denies.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct PermissionNote {
+    /// Whether the model judged the request expected for this kind of page.
+    pub expected: bool,
+    /// One short sentence for the permission bar.
+    pub note: String,
+}
+
+/// Assess whether a permission request fits the page asking for it. Called by
+/// the shell when the permission bar appears; the bar renders immediately and
+/// fills this in when it arrives, so the model is never on the prompt's path.
+/// `None` whenever we can't say anything useful (no page text yet, model down)
+/// — the prompt then behaves exactly as it always has.
+#[tauri::command]
+pub async fn sentinel_assess_permission(
+    state: State<'_, FluxState>,
+    host: String,
+    permission: String,
+) -> Result<Option<PermissionNote>, String> {
+    let Some(snap) = state.active_snapshot() else {
+        return Ok(None);
+    };
+    if host_of(&snap.url) != host_of(&host) && !host.is_empty() {
+        return Ok(None); // snapshot is for a different page — don't guess
+    }
+    let text = snap.text.to_string();
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    let title = state
+        .tabs
+        .iter()
+        .find(|t| host_of(&t.url) == host_of(&host))
+        .map(|t| t.title.clone())
+        .unwrap_or_default();
+
+    let judged = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().assess_permission(&host, &permission, &title, &text)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Advisory only: a model that's down or unhelpful simply adds nothing.
+    Ok(match judged {
+        Ok(j) if !j.note.trim().is_empty() => Some(PermissionNote {
+            expected: j.expected,
+            note: j.note,
+        }),
+        _ => None,
+    })
+}
+
 /// Credential-entry firewall check (ADR 0013, Pillar 2 M4): does `host` look
 /// like an impersonation of a brand the user values, *at the moment credentials
 /// are at stake*?

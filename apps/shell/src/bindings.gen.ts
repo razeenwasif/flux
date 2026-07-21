@@ -71,6 +71,12 @@ export type ScopeInfo = { scope: string; plain: string; sensitive: boolean }
  * account. `None` from [`detect`] unless at least one scope is sensitive.
  */
 export type OAuthConsent = { provider: string; app: string; scopes: ScopeInfo[] }
+/**
+ * A one-line, agent-written assessment of a live permission request
+ * (ADR 0013, Pillar 2 M4). Advisory annotation for the *existing* prompt —
+ * the user still decides; nothing here allows or denies.
+ */
+export type PermissionNote = { expected: boolean; note: string }
 export type Bookmark = { id: number; title: string; url: string; folder: string; added_ms: number }
 /**
  * A subscribed feed. Only the subscription is persisted (id, url, title).

@@ -139,7 +139,10 @@ import type {
   PrefetchHint as GenPrefetchHint,
   Verdict as GenVerdict,
   OAuthConsent as GenOAuthConsent,
+  PermissionNote as GenPermissionNote,
 } from "./bindings.gen";
+/** Sentinel agent note on a permission prompt (ADR 0013, Pillar 2 M4). */
+export type PermissionNote = GenPermissionNote;
 /** Sentinel phishing verdict (ADR 0013, Pillar 1). */
 export type PhishVerdict = GenVerdict;
 /** Sentinel OAuth consent review (ADR 0013, Pillar 1 M3). */
@@ -1125,6 +1128,12 @@ export const sentinelVerifyUrl = (url: string, title: string) =>
  *  "Sign in with …" returns null so the review banner stays quiet. */
 export const sentinelCheckOauth = (url: string) =>
   invoke<OAuthConsent | null>("sentinel_check_oauth", { url });
+
+/** One-line agent assessment of a live permission request (ADR 0013, Pillar 2).
+ *  Advisory annotation only — it never allows or denies. `null` when the model
+ *  or page content is unavailable, in which case the prompt is unchanged. */
+export const sentinelAssessPermission = (host: string, permission: string) =>
+  invoke<PermissionNote | null>("sentinel_assess_permission", { host, permission });
 
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */

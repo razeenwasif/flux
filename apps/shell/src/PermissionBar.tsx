@@ -3,9 +3,15 @@
 // card as a sibling — the card (and its native webview, via the ResizeObserver)
 // shrinks to make room, so nothing has to fight the OS webview layer.
 import { Component, Show } from "solid-js";
-import { permissionAnswer, type PermAsk, type PermKind } from "./ipc";
+import {
+  permissionAnswer,
+  sentinelAssessPermission,
+  type PermAsk,
+  type PermKind,
+  type PermissionNote,
+} from "./ipc";
 import { permAsks, removePermAsk } from "./store";
-import { createSignal } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 
 const KIND_META: Record<PermKind, { icon: string; label: string }> = {
   camera: { icon: "🎥", label: "use your camera" },
@@ -19,6 +25,20 @@ const KIND_META: Record<PermKind, { icon: string; label: string }> = {
 const PermissionBar: Component = () => {
   const current = (): PermAsk | undefined => permAsks()[0];
   const [remember, setRemember] = createSignal(false);
+  // Agent assessment of whether this request fits the page (ADR 0013, Pillar 2).
+  // The bar renders immediately; this fills in when (and if) it arrives, so the
+  // model is never on the prompt's path and a missing model changes nothing.
+  const [note, setNote] = createSignal<PermissionNote | null>(null);
+  createEffect(() => {
+    const a = current();
+    setNote(null);
+    if (!a) return;
+    void sentinelAssessPermission(a.host, KIND_META[a.kind].label)
+      .then((n) => {
+        if (current()?.id === a.id) setNote(n); // ignore if the ask moved on
+      })
+      .catch(() => {});
+  });
   const answer = (allow: boolean) => {
     const a = current();
     if (!a) return;
@@ -34,6 +54,14 @@ const PermissionBar: Component = () => {
           <span class="perm-text">
             <b>{ask().host || "This page"}</b> wants to {KIND_META[ask().kind].label}
           </span>
+          <Show when={note()}>
+            {(n) => (
+              <span class="perm-note" classList={{ unexpected: !n().expected }}>
+                {n().expected ? "" : "⚠ "}
+                {n().note}
+              </span>
+            )}
+          </Show>
           <Show when={permAsks().length > 1}>
             <span class="perm-more">+{permAsks().length - 1} more</span>
           </Show>
