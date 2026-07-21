@@ -721,6 +721,43 @@ impl AgentPlanner {
         Ok(validate_reading_structure(parsed, headings.len()))
     }
 
+    /// One sentence of *interpretation* for a privacy explainer (ADR 0013,
+    /// Pillar 3 M5) — what a set of already-computed facts means for the user.
+    ///
+    /// Deliberately never asked to restate figures: the caller owns the numbers
+    /// (a small model rephrasing statistics will eventually corrupt one), so this
+    /// returns only the "so what", and the caller shows it *beside* its own
+    /// deterministic summary. Dropping it loses nothing but flavour.
+    pub fn explain_privacy(&self, facts: &str) -> Result<String, AgentError> {
+        let prompt = format!(
+            "You are a privacy explainer in a web browser. Given the factual \
+             summary below, write ONE short sentence (max 25 words) saying what it \
+             means for the user in practice. Do NOT repeat the numbers, do not \
+             invent new facts, do not give instructions. Reply with EXACTLY ONE \
+             JSON object:\n{{\"insight\":\"<one sentence>\"}}\n\
+             {UNTRUSTED_PREAMBLE}\n\n{}",
+            wrap_untrusted(facts)
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "insight": { "type": "string" } },
+            "required": ["insight"]
+        });
+        let raw = self.backend.complete(&prompt, Some(&schema))?;
+        let v: serde_json::Value = serde_json::from_str(raw.trim())?;
+        let mut s = v
+            .get("insight")
+            .and_then(|i| i.as_str())
+            .unwrap_or("")
+            .replace(['\n', '\r'], " ")
+            .trim()
+            .to_string();
+        if s.chars().count() > 200 {
+            s = s.chars().take(199).collect::<String>() + "…";
+        }
+        Ok(s)
+    }
+
     /// Assess whether a permission request makes sense for the page asking
     /// (ADR 0013, Pillar 2 M4) — "a recipe blog has no obvious reason to need
     /// your location". Returns one short advisory line for the *existing*
@@ -1015,6 +1052,10 @@ impl Inference for MockBackend {
                 r#"{"verdict":"suspicious","brand":"","reasons":["(no model — deterministic signal only)"]}"#
                     .to_owned(),
             );
+        }
+        // Privacy explainer (Sentinel M5): with no model, add no interpretation.
+        if p.contains("privacy explainer") {
+            return Ok(r#"{"insight":""}"#.to_owned());
         }
         // Permission assessor (Sentinel M4): with no model, offer no opinion.
         if p.contains("privacy assistant") {

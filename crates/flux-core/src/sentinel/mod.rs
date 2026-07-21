@@ -7,6 +7,7 @@
 //! later, hence the module dir.
 
 mod audit;
+pub mod explain;
 pub mod oauth;
 pub mod phishing;
 pub mod sensitive;
@@ -141,6 +142,41 @@ pub async fn sentinel_assess_permission(
         }),
         _ => None,
     })
+}
+
+/// A privacy explainer (ADR 0013, Pillar 3 M5). `summary` is always present and
+/// always numerically honest — Rust computed it. `insight` is the model's
+/// optional "so what", shown beside it; empty when no model is available.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct Explainer {
+    pub summary: String,
+    pub insight: String,
+}
+
+/// Narrate the tracker graph (ADR 0013, Pillar 3 M5) — "the graph → a sentence".
+/// The figures come from a deterministic aggregation and the model is only asked
+/// what they *mean*, so a wandering or absent model can never misstate them.
+#[tauri::command]
+pub async fn sentinel_tracker_narrative(
+    store: State<'_, crate::trackers::TrackerStore>,
+) -> Result<Explainer, String> {
+    let facts = explain::tracker_facts(&store.graph());
+    let summary = explain::tracker_sentence(&facts);
+    // Nothing meaningful recorded → don't wake the model to editorialize on it.
+    if facts.third_parties == 0 {
+        return Ok(Explainer {
+            summary,
+            insight: String::new(),
+        });
+    }
+    let for_model = summary.clone();
+    let insight = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().explain_privacy(&for_model)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .unwrap_or_default();
+    Ok(Explainer { summary, insight })
 }
 
 /// Classify a URL as a sensitive session worth isolating in its own container

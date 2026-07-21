@@ -85,6 +85,12 @@ export type SensitiveKind = "Banking" | "Health" | "Government"
  * A site worth isolating in its own container.
  */
 export type SensitiveSite = { kind: SensitiveKind; label: string }
+/**
+ * A privacy explainer (ADR 0013, Pillar 3 M5). `summary` is always present and
+ * always numerically honest — Rust computed it. `insight` is the model's
+ * optional "so what", shown beside it; empty when no model is available.
+ */
+export type Explainer = { summary: string; insight: string }
 export type Bookmark = { id: number; title: string; url: string; folder: string; added_ms: number }
 /**
  * A subscribed feed. Only the subscription is persisted (id, url, title).

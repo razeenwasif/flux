@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Tracker-graph narrative (ADR 0013 — Sentinel, Pillar 3, M5)** — the tracker graph now explains
+  itself in a sentence: *"Across 12 sites you visited, 47 third parties were contacted. Flux blocked
+  312 of 418 requests (75%). google-analytics.com appeared on 9 of them, so it could link those visits
+  together."* The figures are **computed in Rust**, never by the model — a small local model asked to
+  summarize statistics will eventually corrupt one — and the model is asked only what the facts *mean*
+  in practice, shown beside them. So the summary is always present and always matches the graph, the
+  interpretation is a bonus that simply disappears when no model is running, and the narrative never
+  delays the visualization.
 - **Sensitive-site containerization (ADR 0013 — Sentinel, Pillar 2, M4)** — banking, health, and
   government sessions carry the highest-value cookies on the web, and a tracker in another tab has no
   business sharing a jar with them. Flux now recognizes those sites on navigation and offers a one-tap

@@ -90,6 +90,8 @@ pub fn generate_ts() -> String {
         // Sentinel (ADR 0013, Pillar 2): sensitive-site containerization offer.
         specta::ts::export::<crate::sentinel::sensitive::SensitiveKind>(&c),
         specta::ts::export::<crate::sentinel::sensitive::SensitiveSite>(&c),
+        // Sentinel (ADR 0013, Pillar 3): plain-language privacy explainers.
+        specta::ts::export::<crate::sentinel::Explainer>(&c),
         // Command return/arg structs (BACKLOG #12, batch 2).
         specta::ts::export::<Bookmark>(&c),
         specta::ts::export::<Feed>(&c),

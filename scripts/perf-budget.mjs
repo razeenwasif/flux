@@ -40,7 +40,13 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // Re-baselined 65 → 66 KB on 2026-07-21: the Sentinel phishing warning (ADR 0013,
 // Pillar 1) wires an always-on nav-check + per-tab verdict store into the boot
 // path (~0.2 KB); the banner itself is lazy. A security control is load-bearing.
-const CHROME_JS_GZIP_BUDGET = 66 * 1024; // bytes
+// Re-baselined 66 → 70 KB on 2026-07-21 (owner-approved): Sentinel Pillars 1–3
+// each add a small always-on hook to the boot path (nav checks + per-tab stores)
+// even though every banner is lazy, and M4 landed at 65.7 with ~0.3 KB left —
+// too tight to land M5 honestly. This is deliberate headroom, NOT a licence to
+// stop trimming: the eager floor is still ~66 KB, so a jump toward 70 means
+// something eager crept in and should be justified or made lazy.
+const CHROME_JS_GZIP_BUDGET = 70 * 1024; // bytes
 const BINARY_BUDGET = 25 * 1024 * 1024; // bytes
 
 // ── args ─────────────────────────────────────────────────────────────────────

@@ -12542,6 +12542,22 @@ input[type="radio"].pdf-fw {
   font-size: 12px;
   opacity: 0.85;
 }
+/* Tracker-graph narrative (ADR 0013, Pillar 3) — the graph in a sentence. */
+.trk-story {
+  margin: 0 14px 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-rim-soft, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.trk-insight {
+  display: block;
+  margin-top: 3px;
+  opacity: 0.75;
+  color: #2ff3ff;
+}
 /* Containerization offer (M4): green — an upgrade, not a threat. */
 .sentinel-banner.secure {
   border-color: rgba(90, 220, 150, 0.45);

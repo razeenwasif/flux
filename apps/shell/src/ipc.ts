@@ -141,7 +141,10 @@ import type {
   OAuthConsent as GenOAuthConsent,
   PermissionNote as GenPermissionNote,
   SensitiveSite as GenSensitiveSite,
+  Explainer as GenExplainer,
 } from "./bindings.gen";
+/** Sentinel plain-language privacy explainer (ADR 0013, Pillar 3 M5). */
+export type Explainer = GenExplainer;
 /** Sentinel sensitive-site classification (ADR 0013, Pillar 2 M4). */
 export type SensitiveSite = GenSensitiveSite;
 /** Sentinel agent note on a permission prompt (ADR 0013, Pillar 2 M4). */
@@ -1142,6 +1145,11 @@ export const sentinelAssessPermission = (host: string, permission: string) =>
  *  own container (ADR 0013, Pillar 2 M4). Deterministic; null for almost every site. */
 export const sentinelCheckSensitive = (url: string) =>
   invoke<SensitiveSite | null>("sentinel_check_sensitive", { url });
+
+/** Narrate the tracker graph in plain language (ADR 0013, Pillar 3 M5). The
+ *  summary's figures are computed in Rust; `insight` is the model's optional
+ *  interpretation and is empty when no model is running. */
+export const sentinelTrackerNarrative = () => invoke<Explainer>("sentinel_tracker_narrative");
 
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */

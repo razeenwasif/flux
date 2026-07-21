@@ -9,7 +9,7 @@ import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js
 import { Portal } from "solid-js/web";
 
 import { trackerGraphOpen, setTrackerGraphOpen, openTab } from "./store";
-import { trackerGraph, trackerClear } from "./ipc";
+import { trackerGraph, trackerClear, sentinelTrackerNarrative, type Explainer } from "./ipc";
 
 type GNode = {
   x: number;
@@ -32,6 +32,9 @@ const TrackerGraphView: Component = () => {
   const [empty, setEmpty] = createSignal(false);
   const [stats, setStats] = createSignal({ nodes: 0, edges: 0, trackers: 0 });
   const [hover, setHover] = createSignal<string | null>(null);
+  // Plain-language narrative (ADR 0013, Pillar 3). The summary is computed in
+  // Rust so its figures always match the graph; the model only adds the "so what".
+  const [story, setStory] = createSignal<Explainer | null>(null);
 
   let nodes: GNode[] = [];
   let edges: { s: number; t: number; w: number; blocked: boolean }[] = [];
@@ -267,6 +270,11 @@ const TrackerGraphView: Component = () => {
   };
 
   const load = async () => {
+    // Narrative resolves independently of the graph render — a slow or absent
+    // model must never hold up the visualization.
+    void sentinelTrackerNarrative()
+      .then(setStory)
+      .catch(() => {});
     try {
       const g = await trackerGraph();
       setEmpty(g.nodes.length === 0);
@@ -362,6 +370,16 @@ const TrackerGraphView: Component = () => {
               ✕
             </button>
           </div>
+          <Show when={story()}>
+            {(s) => (
+              <div class="trk-story">
+                <span>{s().summary}</span>
+                <Show when={s().insight}>
+                  <em class="trk-insight">{s().insight}</em>
+                </Show>
+              </div>
+            )}
+          </Show>
           <div class="trk-canvas-wrap" ref={wrap}>
             <canvas
               ref={canvas}
