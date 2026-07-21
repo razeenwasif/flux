@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Credential-entry firewall (ADR 0013 — Sentinel, Pillar 2, M4)** — the vault now refuses to put a
+  saved password into a site that impersonates a brand you value. Autofill is **blocked with an
+  explanation** naming the brand, and the in-page fill chip and credential picker don't appear at all
+  (the safest prompt is the one that never invites the fill). If you *manually* type a login on such a
+  site, the "Save password?" bar is replaced by a **red warning** — "you just entered a password on
+  `paypa1.com`, which looks like PayPal; change your PayPal password now" — and offers no save.
+  **Closes a self-whitewash hole:** saved vault origins feed the known-good brand set, so a credential
+  saved *on* a phishing site would have marked that site "known-good" and permanently suppressed its
+  own warning. At credential time the host's own label is now dropped from the set first, so a
+  lookalike can never vouch for itself. The warning also fires ahead of the "never save here" opt-out
+  and works with the vault locked — neither is a reason to stay quiet about credential theft.
 - **OAuth consent review — see what an app is really asking for (ADR 0013 — Sentinel, Pillar 1, M3)** —
   the subtlest phishing uses a *real* domain: a genuine `accounts.google.com` / `github.com` consent
   screen granting a **malicious app** broad scopes ("read & send all your email", "full control of your

@@ -173,7 +173,7 @@ export type VaultStatus = { available: boolean; locked: boolean; protection: str
  * The chrome's "Save password?" bar payload — host + username only; the
  * captured password stays in Rust ([`PendingSave`]) until the user confirms.
  */
-export type VaultSavePrompt = { host: string; username: string; update: boolean }
+export type VaultSavePrompt = { host: string; username: string; update: boolean; warning: Verdict | null }
 export type ContentScript = { matches: string[]; js?: string[]; css?: string[]; run_at?: string }
 export type ToolbarButton = { title: string; icon?: string | null }
 export type UiContrib = { toolbar_button?: ToolbarButton | null; panel?: boolean | null }

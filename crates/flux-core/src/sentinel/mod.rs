@@ -87,6 +87,28 @@ pub async fn sentinel_check_url(
     Ok(phishing::assess(&host, &known_good_brands(&app)))
 }
 
+/// Credential-entry firewall check (ADR 0013, Pillar 2 M4): does `host` look
+/// like an impersonation of a brand the user values, *at the moment credentials
+/// are at stake*?
+///
+/// Unlike the browsing-time check this removes the host's **own** brand label
+/// from the known-good set first. Vault origins feed that set, so a credential
+/// saved *on* a phishing site would otherwise whitewash it into "known-good"
+/// and permanently suppress its own warning — the exact inverse of what should
+/// happen. A lookalike never gets to vouch for itself here.
+pub fn credential_origin_risk(app: &AppHandle, host: &str) -> Option<phishing::Verdict> {
+    assess_excluding_self(host, known_good_brands(app))
+}
+
+/// The pure half of [`credential_origin_risk`] — drops `host`'s own brand label
+/// from the known-good set before assessing, so a lookalike can't vouch for
+/// itself. Split out so the whitewash defense is unit-testable without an app.
+fn assess_excluding_self(host: &str, brands: Vec<String>) -> Option<phishing::Verdict> {
+    let own = phishing::brand_label(host);
+    let filtered: Vec<String> = brands.into_iter().filter(|b| *b != own).collect();
+    phishing::assess(host, &filtered)
+}
+
 /// Decode an OAuth consent screen (ADR 0013, Pillar 1 M3 — OAuth-consent
 /// trigger). Deterministic + local: `Some` only when an app requests a sensitive
 /// scope, so routine "Sign in with …" stays silent. Drives the consent-review
@@ -272,6 +294,35 @@ mod tests {
         let v = fold_judgment(low(), &judge("suspicious", &["unclear branding"])).unwrap();
         assert_eq!(v.confidence, Confidence::Low, "not downgraded/upgraded");
         assert!(v.reasons.iter().any(|r| r.contains("Flux read the page")));
+    }
+
+    #[test]
+    fn saved_lookalike_cannot_whitewash_itself_at_credential_time() {
+        // The user was phished once and saved a credential on paypa1.com, so its
+        // own label is now in the known-good set (vault origins feed it).
+        // Sorted, as `known_good_brands` returns it (BTreeSet) — and that order
+        // is what makes the hole bite: "paypa1" < "paypal", so the self-match is
+        // reached before the impersonation match that would have flagged it.
+        let brands = vec!["paypa1".to_string(), "paypal".to_string()];
+        // Browsing-time assess is suppressed by that self-match…
+        assert!(
+            phishing::assess("paypa1.com", &brands).is_none(),
+            "self-match suppresses the browsing-time check (the hole)",
+        );
+        // …but the credential-entry firewall drops the host's own label first,
+        // so it still flags — a lookalike never vouches for itself.
+        let v = assess_excluding_self("paypa1.com", brands).expect("firewall still flags");
+        assert_eq!(v.resembles, "paypal");
+        assert_eq!(v.confidence, Confidence::High);
+    }
+
+    #[test]
+    fn firewall_does_not_flag_your_own_real_bank() {
+        // The everyday case: you're on the genuine site you have saved.
+        let brands = vec!["paypal".to_string(), "chase".to_string(), "github".to_string()];
+        assert!(assess_excluding_self("paypal.com", brands.clone()).is_none());
+        assert!(assess_excluding_self("login.chase.com", brands.clone()).is_none());
+        assert!(assess_excluding_self("example.com", brands).is_none());
     }
 
     #[test]

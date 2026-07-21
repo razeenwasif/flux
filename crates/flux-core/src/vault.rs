@@ -597,6 +597,18 @@ pub fn vault_fill(
         .and_then(|s| s.tabs.get(&tab_id).map(|t| host_of(&t.url)))
         .ok_or("no such tab")?;
 
+    // Credential-entry firewall (ADR 0013, Pillar 2): never type a saved password
+    // into a site that impersonates a brand the user values — even if a
+    // credential nominally matches this host (it would, had the user been
+    // phished here before). Refusing is safe: the user can still type manually.
+    if let Some(v) = crate::sentinel::credential_origin_risk(&app, &host) {
+        return Err(format!(
+            "Flux blocked autofill: “{host}” looks like an impersonation of “{}”. \
+             Check the address bar before entering your password.",
+            v.resembles
+        ));
+    }
+
     let found = state.read_open(|v| {
         v.entries
             .iter()
@@ -670,6 +682,11 @@ pub fn vault_page_info(
     let Ok(host) = tab_host(&app, tab) else {
         return locked_out;
     };
+    // Credential-entry firewall: on an impersonating host, show no fill chip at
+    // all — the safest prompt is the one that never invites the fill.
+    if crate::sentinel::credential_origin_risk(&app, &host).is_some() {
+        return locked_out;
+    }
     state
         .read_open(|v| {
             let matches = v.matches(&host);
@@ -772,6 +789,10 @@ pub fn vault_page_matches(
     let Ok(host) = tab_host(&app, tab) else {
         return Vec::new();
     };
+    // Same firewall as the chip: offer no picker on an impersonating host.
+    if crate::sentinel::credential_origin_risk(&app, &host).is_some() {
+        return Vec::new();
+    }
     state
         .read_open(|v| {
             v.matches(&host)
@@ -811,6 +832,11 @@ pub struct VaultSavePrompt {
     /// True when the site already has this username stored with a *different*
     /// password (offer "Update" rather than "Save").
     pub update: bool,
+    /// Set when the credential-entry firewall (ADR 0013, Pillar 2) judged this
+    /// host to be impersonating a brand the user values. The bar then becomes a
+    /// **warning** — "you just typed a password into a fake site" — and offers no
+    /// save at all, because saving would also whitewash the host as known-good.
+    pub warning: Option<crate::sentinel::phishing::Verdict>,
 }
 
 /// The sentinel captured a login submit whose password isn't (yet) in the vault.
@@ -834,7 +860,29 @@ pub fn vault_offer_save(
     let Ok(host) = tab_host(&app, tab) else {
         return Ok(());
     };
-    if host.is_empty() || state.never_save.read().contains(&host) {
+    if host.is_empty() {
+        return Ok(());
+    }
+    // Credential-entry firewall (ADR 0013, Pillar 2): the user just typed a
+    // password into a site impersonating a brand they value. Warn instead of
+    // offering to save — and warn *before* the never-save and vault-locked
+    // early-outs below, because "don't ask to save here" and a locked vault are
+    // no reason to stay silent about credential theft. Nothing is stashed, so
+    // there is nothing to save (saving would also whitewash the host as
+    // known-good, suppressing this very warning next time).
+    if let Some(v) = crate::sentinel::credential_origin_risk(&app, &host) {
+        let _ = app.emit(
+            "flux://vault-save-prompt",
+            VaultSavePrompt {
+                host,
+                username,
+                update: false,
+                warning: Some(v),
+            },
+        );
+        return Ok(());
+    }
+    if state.never_save.read().contains(&host) {
         return Ok(());
     }
     // Decide save vs update vs skip against the (unlocked) vault. Locked →
@@ -863,6 +911,7 @@ pub fn vault_offer_save(
             host,
             username,
             update,
+            warning: None,
         },
     );
     Ok(())

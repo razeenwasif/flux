@@ -130,7 +130,7 @@ fn embeds_brand(label: &str, brand: &str) -> bool {
     if brand.len() < 4 || label == brand {
         return false;
     }
-    label.split(|c: char| c == '-' || c == '_' || c == '.').any(|tok| {
+    label.split(['-', '_', '.']).any(|tok| {
         tok == brand
             || (tok.len() > brand.len() && (tok.starts_with(brand) || tok.ends_with(brand)))
     })
@@ -171,7 +171,7 @@ pub fn assess(host: &str, known_good: &[String]) -> Option<Verdict> {
         } else {
             let d = edit_distance(&norm, &brand_norm);
             // A 1–2 char typo of a brand ≥5 chars (avoid short-word noise).
-            if brand.len() >= 5 && d >= 1 && d <= 2 {
+            if brand.len() >= 5 && (1..=2).contains(&d) {
                 (Confidence::Low, format!("is one or two edits from “{brand}”"))
             } else {
                 continue;

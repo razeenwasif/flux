@@ -2303,6 +2303,23 @@ body.resizing .panel-edge-resize::after {
   font-size: 12.5px;
   color: var(--flux-text);
 }
+/* Credential-entry firewall warning (ADR 0013, Pillar 2) — a password went into
+   an impersonating site. Loud red, and taller: the message wraps. */
+.perm-bar.danger {
+  height: auto;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-color: rgba(255, 70, 70, 0.6);
+  background: linear-gradient(180deg, rgba(255, 70, 70, 0.2), rgba(255, 70, 70, 0.09));
+  box-shadow: none;
+}
+.perm-bar.danger .perm-ico {
+  color: #ff5a5a;
+}
+.perm-bar.danger .perm-text {
+  overflow: visible;
+  white-space: normal;
+}
 .perm-ico {
   flex: none;
   font-size: 15px;
