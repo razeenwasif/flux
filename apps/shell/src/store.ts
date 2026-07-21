@@ -8,6 +8,7 @@ import { createStore } from "solid-js/store";
 import { setPendingCommand } from "./terminals";
 import {
   type PhishVerdict,
+  type OAuthConsent,
   darkmodeSet,
   navSet,
   spotifySetDir,
@@ -639,6 +640,14 @@ const [phishByTab, setPhishByTab] = createStore<Record<number, PhishVerdict | nu
 export const activePhish = (): PhishVerdict | null | undefined => phishByTab[activeId() ?? -1];
 export function setPhish(id: number, v: PhishVerdict | null): void {
   setPhishByTab(id, v);
+}
+
+// Sentinel OAuth consent review per tab (ADR 0013, Pillar 1 M3): set when a
+// navigation lands on a consent screen requesting sensitive scopes.
+const [oauthByTab, setOAuthByTab] = createStore<Record<number, OAuthConsent | null>>({});
+export const activeOAuth = (): OAuthConsent | null | undefined => oauthByTab[activeId() ?? -1];
+export function setOAuth(id: number, v: OAuthConsent | null): void {
+  setOAuthByTab(id, v);
 }
 // AI search answers (#32-ish / agent): when you search, the local Gemma also
 // drafts a quick answer in the agent panel. On by default (it's local — no

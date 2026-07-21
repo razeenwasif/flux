@@ -210,14 +210,20 @@ Read-and-summarize, reusing `reader_structure` + Flux's telemetry:
 
 ## Scope / rollout
 
-- **M1 — Pillar 0** (trust-boundary `wrap_untrusted`, provenance-tag ingested
-  content, per-tab-confidentiality + read≠act capability gate, schema validation,
-  sealed audit log) **+ an injection red-team suite** proving the boundary holds.
-  Prerequisite; mostly Rust + prompt plumbing, no user-facing UX.
-- **M2 — Pillar 1 deterministic pre-filter + provenance signal + interstitial**
-  (no LLM yet). Catches homographs / typosquats / cross-origin credential posts and
-  ad-redirect-to-lookalike immediately.
-- **M3 — Pillar 1 agent verdict + sensitive-input trigger + OAuth-consent trigger.**
+- **M1 — Pillar 0** ✅ **shipped** (trust-boundary `wrap_untrusted`, provenance-tag
+  ingested content, per-tab-confidentiality + read≠act capability gate, schema
+  validation, sealed audit log) **+ an injection red-team suite** proving the
+  boundary holds. Prerequisite; mostly Rust + prompt plumbing, no user-facing UX.
+  (Audit-log viewer UI is a follow-on.)
+- **M2 — Pillar 1 deterministic pre-filter + banner** ✅ **shipped** (no LLM yet).
+  Catches homographs / typosquats / brand-embedding against the impersonation-target
+  set immediately; chrome-layer warning strip.
+- **M3 — Pillar 1 agent verdict + OAuth-consent trigger** ✅ **shipped**. The local
+  model refines a deterministic flag over the rendered page (escalate / clear,
+  memoized, fail-safe); the OAuth decoder surfaces sensitive scope grants on genuine
+  consent screens. (A dedicated sensitive-input *focus* intercept — before typing —
+  is folded in via the credential-field signal; a keystroke-level trigger needs page
+  focus-event plumbing and remains a follow-on.)
 - **M4 — Pillar 2 guardrails.**
 - **M5 — Pillar 3 explainers** (independent + low-risk; can slot earlier).
 

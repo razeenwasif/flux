@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **OAuth consent review — see what an app is really asking for (ADR 0013 — Sentinel, Pillar 1, M3)** —
+  the subtlest phishing uses a *real* domain: a genuine `accounts.google.com` / `github.com` consent
+  screen granting a **malicious app** broad scopes ("read & send all your email", "full control of your
+  repositories"). There's no lookalike to catch — the *request* is the attack. Flux now decodes the
+  requested OAuth scopes into plain English and shows them in an un-spoofable chrome-layer strip
+  **before you click Allow**, sensitive grants flagged and led with, the app named by its redirect host.
+  Deterministic, local, and **precise by design**: routine "Sign in with Google" (`openid email
+  profile`) grants nothing sensitive, so it stays **silent** — the review appears only when an app
+  reaches for real access to your account.
 - **AI phishing verdict — the local model refines the detector (ADR 0013 — Sentinel, Pillar 1, M3)** —
   when the deterministic layer flags a lookalike, Flux now wakes the on-device model to *read the page
   the way you see it* and judge whether it's actually impersonating the brand. It can **escalate**

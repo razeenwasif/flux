@@ -12509,3 +12509,27 @@ input[type="radio"].pdf-fw {
   font-size: 12px;
   opacity: 0.85;
 }
+/* OAuth consent review (M3): a neutral-blue variant — informational, not a
+   threat warning. Aligns top so a multi-scope list reads cleanly. */
+.sentinel-banner.oauth {
+  align-items: flex-start;
+  border-color: rgba(90, 150, 255, 0.5);
+  background: linear-gradient(180deg, rgba(90, 150, 255, 0.15), rgba(90, 150, 255, 0.06));
+}
+.sentinel-banner.oauth .sentinel-ico {
+  color: #7aa8ff;
+  margin-top: 1px;
+}
+.oauth-scopes {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.oauth-scopes li.sensitive {
+  color: #ffd27a;
+  font-weight: 600;
+}

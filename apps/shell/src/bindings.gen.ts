@@ -62,6 +62,15 @@ export type Confidence = "Low" | "High"
  * A phishing pre-filter verdict.
  */
 export type Verdict = { resembles: string; reasons: string[]; confidence: Confidence }
+/**
+ * One requested OAuth scope, decoded for a human.
+ */
+export type ScopeInfo = { scope: string; plain: string; sensitive: boolean }
+/**
+ * A decoded OAuth consent request — what an app is asking to do with your
+ * account. `None` from [`detect`] unless at least one scope is sensitive.
+ */
+export type OAuthConsent = { provider: string; app: string; scopes: ScopeInfo[] }
 export type Bookmark = { id: number; title: string; url: string; folder: string; added_ms: number }
 /**
  * A subscribed feed. Only the subscription is persisted (id, url, title).

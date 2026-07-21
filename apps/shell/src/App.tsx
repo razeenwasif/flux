@@ -80,6 +80,7 @@ import {
   prefetchHints,
   sentinelCheckUrl,
   sentinelVerifyUrl,
+  sentinelCheckOauth,
   prefetchSetPressure,
   webviewPreconnect,
   webviewCaptureState,
@@ -219,6 +220,7 @@ import {
   updateTabUrl,
   updateTabTitle,
   setPhish,
+  setOAuth,
 } from "./store";
 
 const App: Component = () => {
@@ -545,7 +547,10 @@ const App: Component = () => {
     const unLoaded = await onTabLoaded((tabId, url, phase) => {
       updateTabUrl(tabId, url);
       setTabLoading(tabId, phase === "started"); // stop/reload swap + progress (#31)
-      if (phase === "started") setPhish(tabId, null); // clear stale phishing verdict while navigating
+      if (phase === "started") {
+        setPhish(tabId, null); // clear stale phishing verdict while navigating
+        setOAuth(tabId, null); // …and any prior OAuth consent review
+      }
       if (phase === "finished") {
         // Sync the live url to the backend so the persisted session (#19)
         // reflects where the tab actually is, not its creation url.
@@ -580,6 +585,11 @@ const App: Component = () => {
                   .catch(() => {});
               }, 1500);
             })
+            .catch(() => {});
+          // OAuth consent review (M3): genuine provider, but decode the scopes an
+          // app is requesting — surfaced only when something sensitive is asked.
+          void sentinelCheckOauth(url)
+            .then((c) => setOAuth(tabId, c))
             .catch(() => {});
           const prev = prevUrlByTab.get(tabId);
           if (prev && prev !== url && prev.startsWith("http")) {

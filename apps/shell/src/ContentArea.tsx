@@ -32,10 +32,12 @@ import {
 import {
   activeId,
   activePhish,
+  activeOAuth,
   activeTab,
   bookmarkBarOpen,
   pagesBarOpen,
   setPhish,
+  setOAuth,
   readerOpen,
   setSplitDragging,
   setSplitRatio,
@@ -51,6 +53,7 @@ import { For, Match, Show, Suspense, Switch, createMemo, lazy, type Component } 
 // Internal flux:// pages — lazy, DOM-rendered in the card (no webview). One
 // chunk each, fetched on first visit (ADR 0001 chrome-JS budget).
 const SentinelBanner = lazy(() => import("./SentinelBanner")); // shown only on a phishing verdict
+const OAuthConsentBanner = lazy(() => import("./OAuthConsentBanner")); // shown only on a sensitive OAuth grant
 const StartPage = lazy(() => import("./StartPage"));
 const FilesView = lazy(() => import("./FilesView"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
@@ -215,6 +218,14 @@ const ContentArea: Component<{
               onLeave={() => props.onNavigate("flux://start")}
               onDismiss={() => setPhish(activeId() ?? -1, null)}
             />
+          </Suspense>
+        )}
+      </Show>
+      {/* Sentinel OAuth consent review (ADR 0013, M3) — genuine provider, risky grant. */}
+      <Show when={activeOAuth()}>
+        {(c) => (
+          <Suspense>
+            <OAuthConsentBanner consent={c()} onDismiss={() => setOAuth(activeId() ?? -1, null)} />
           </Suspense>
         )}
       </Show>

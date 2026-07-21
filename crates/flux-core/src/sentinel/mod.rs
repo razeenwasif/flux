@@ -7,6 +7,7 @@
 //! later, hence the module dir.
 
 mod audit;
+pub mod oauth;
 pub mod phishing;
 
 pub use audit::{AuditEntry, SentinelAudit};
@@ -84,6 +85,15 @@ pub async fn sentinel_check_url(
         return Ok(None);
     }
     Ok(phishing::assess(&host, &known_good_brands(&app)))
+}
+
+/// Decode an OAuth consent screen (ADR 0013, Pillar 1 M3 — OAuth-consent
+/// trigger). Deterministic + local: `Some` only when an app requests a sensitive
+/// scope, so routine "Sign in with …" stays silent. Drives the consent-review
+/// banner. No known-good lookup — the domain is genuine; the *grant* is the risk.
+#[tauri::command]
+pub fn sentinel_check_oauth(url: String) -> Option<oauth::OAuthConsent> {
+    oauth::detect(&url)
 }
 
 /// Memoized `(url, content-hash) → refined verdict` cache (ADR 0013: "memoized

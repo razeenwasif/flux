@@ -138,9 +138,12 @@ import type {
   EvictionRank as GenEvictionRank,
   PrefetchHint as GenPrefetchHint,
   Verdict as GenVerdict,
+  OAuthConsent as GenOAuthConsent,
 } from "./bindings.gen";
 /** Sentinel phishing verdict (ADR 0013, Pillar 1). */
 export type PhishVerdict = GenVerdict;
+/** Sentinel OAuth consent review (ADR 0013, Pillar 1 M3). */
+export type OAuthConsent = GenOAuthConsent;
 export type ClusterTag = GenClusterTag;
 export type TabKind = GenTabKind;
 export type Workspace = GenWorkspace;
@@ -1116,6 +1119,12 @@ export const sentinelCheckUrl = (url: string) =>
  *  page content is unavailable. Only worth calling after `sentinelCheckUrl` fired. */
 export const sentinelVerifyUrl = (url: string, title: string) =>
   invoke<PhishVerdict | null>("sentinel_verify_url", { url, title });
+
+/** Decode an OAuth consent screen (ADR 0013, Pillar 1 M3). Returns the requested
+ *  scopes in plain English only when an app asks for something sensitive; routine
+ *  "Sign in with …" returns null so the review banner stays quiet. */
+export const sentinelCheckOauth = (url: string) =>
+  invoke<OAuthConsent | null>("sentinel_check_oauth", { url });
 
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */

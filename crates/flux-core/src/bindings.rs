@@ -82,6 +82,9 @@ pub fn generate_ts() -> String {
         // Sentinel security layer (ADR 0013): phishing verdicts.
         specta::ts::export::<crate::sentinel::phishing::Confidence>(&c),
         specta::ts::export::<crate::sentinel::phishing::Verdict>(&c),
+        // Sentinel (ADR 0013): OAuth consent-screen review.
+        specta::ts::export::<crate::sentinel::oauth::ScopeInfo>(&c),
+        specta::ts::export::<crate::sentinel::oauth::OAuthConsent>(&c),
         // Command return/arg structs (BACKLOG #12, batch 2).
         specta::ts::export::<Bookmark>(&c),
         specta::ts::export::<Feed>(&c),
