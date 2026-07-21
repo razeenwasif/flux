@@ -50,13 +50,29 @@ import {
   updateTabUrl,
 } from "./store";
 import { basename } from "./tabvisual";
-import { For, Match, Show, Suspense, Switch, createMemo, lazy, type Component } from "solid-js";
+import {
+  For,
+  Match,
+  Show,
+  Suspense,
+  Switch,
+  createMemo,
+  createSignal,
+  lazy,
+  type Component,
+} from "solid-js";
+
+/** Does this URL look like a privacy policy / terms page? Cheap + frontend-side
+ *  on purpose: it only decides whether to *offer* the explainer, so a miss costs
+ *  nothing and it needs no IPC on every navigation. */
+const POLICY_RE = /\/(privacy|terms|tos|legal|policies|policy|conditions|eula|dpa)(\b|[-_/.])/i;
 
 // Internal flux:// pages — lazy, DOM-rendered in the card (no webview). One
 // chunk each, fetched on first visit (ADR 0001 chrome-JS budget).
 const SentinelBanner = lazy(() => import("./SentinelBanner")); // shown only on a phishing verdict
 const OAuthConsentBanner = lazy(() => import("./OAuthConsentBanner")); // shown only on a sensitive OAuth grant
 const SensitiveSiteBanner = lazy(() => import("./SensitiveSiteBanner")); // shown only on a bank/health/gov site
+const PolicyFlagsBanner = lazy(() => import("./PolicyFlagsBanner")); // shown only on a policy/ToS page
 const StartPage = lazy(() => import("./StartPage"));
 const FilesView = lazy(() => import("./FilesView"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
@@ -93,6 +109,13 @@ const ContentArea: Component<{
   onOpenMap: () => void;
   onSleepBackground: () => void;
 }> = (props) => {
+  // Dismissal is keyed to the URL, so it resets on navigation rather than
+  // silencing the explainer for the rest of the session.
+  const [policyDismissed, setPolicyDismissed] = createSignal("");
+  const policyPage = createMemo(() => {
+    const u = activeTab()?.url ?? "";
+    return u.startsWith("http") && POLICY_RE.test(u) && policyDismissed() !== u;
+  });
   // Keyed by id (primitive) so the list is stable across unrelated tab updates.
   const terminalIds = createMemo(() =>
     tabs()
@@ -223,6 +246,13 @@ const ContentArea: Component<{
             />
           </Suspense>
         )}
+      </Show>
+      {/* Policy / ToS explainer (ADR 0013, M5). The trigger is a cheap URL
+          heuristic — it only decides whether to OFFER; the model runs on click. */}
+      <Show when={policyPage()} keyed>
+        <Suspense>
+          <PolicyFlagsBanner onDismiss={() => setPolicyDismissed(activeTab()?.url ?? "")} />
+        </Suspense>
       </Show>
       {/* Sentinel containerization offer (ADR 0013, M4) — not a warning, an upgrade. */}
       <Show when={activeSensitive()}>

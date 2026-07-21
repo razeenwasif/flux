@@ -304,6 +304,32 @@ pub struct ReadingSection {
     pub label: String,
 }
 
+/// One notable clause found in a privacy policy / ToS (ADR 0013, Pillar 3 M5).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyFlag {
+    /// A short quote or close paraphrase of the clause.
+    pub clause: String,
+    /// One plain sentence on why it matters to the reader.
+    pub why: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PolicyFlagList {
+    #[serde(default)]
+    flags: Vec<PolicyFlag>,
+}
+
+/// Collapse a model string to one clean line, clamped to `max` chars.
+fn clamp_line(s: &str, max: usize) -> String {
+    let one = s.replace(['\n', '\r'], " ");
+    let one = one.trim();
+    if one.chars().count() > max {
+        one.chars().take(max - 1).collect::<String>() + "…"
+    } else {
+        one.to_string()
+    }
+}
+
 /// A permission-request assessment from the local model (ADR 0013, Pillar 2 M4).
 /// Advisory **text only** — it annotates the existing prompt and can never
 /// allow or deny anything itself (the user still decides; read ≠ act).
@@ -721,6 +747,67 @@ impl AgentPlanner {
         Ok(validate_reading_structure(parsed, headings.len()))
     }
 
+    /// The handful of clauses that actually matter in a privacy policy / ToS
+    /// (ADR 0013, Pillar 3 M5). Nobody reads these documents; the model reads it
+    /// once and surfaces what you'd have wanted to know. Descriptive only — it
+    /// reports what the document says, it never advises or acts.
+    pub fn flag_policy(
+        &self,
+        title: &str,
+        page_text: &str,
+    ) -> Result<Vec<PolicyFlag>, AgentError> {
+        const PAGE_BUDGET: usize = 12 * 1024; // policies are long; this is the point
+        let prompt = format!(
+            "You are reading a privacy policy or terms-of-service document for a \
+             user who will not read it themselves. Identify AT MOST 3 clauses that \
+             most affect them — things like: data sold or shared with third \
+             parties, tracking across other sites, indefinite retention, content \
+             licence over what they upload, forced arbitration or class-action \
+             waiver, unilateral changes, or broad data collection.\n\
+             Quote or closely paraphrase each clause, and say plainly why it \
+             matters. If the document genuinely contains nothing notable, return \
+             an empty list — do not invent concerns. Reply with EXACTLY ONE JSON \
+             object:\n\
+             {{\"flags\":[{{\"clause\":\"<short quote or paraphrase>\",\"why\":\"<one plain sentence>\"}}]}}\n\
+             {UNTRUSTED_PREAMBLE}\n\n{}",
+            wrap_untrusted(&format!(
+                "TITLE: {title}\nDOCUMENT:\n{}",
+                truncate_utf8(page_text, PAGE_BUDGET)
+            ))
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "flags": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "clause": { "type": "string" },
+                            "why": { "type": "string" }
+                        },
+                        "required": ["clause", "why"]
+                    }
+                }
+            },
+            "required": ["flags"]
+        });
+        let raw = self.backend.complete(&prompt, Some(&schema))?;
+        let parsed: PolicyFlagList = serde_json::from_str(raw.trim())?;
+        // Rust owns the limits: at most 3, no empties, no layout-breaking lengths.
+        Ok(parsed
+            .flags
+            .into_iter()
+            .map(|mut f| {
+                f.clause = clamp_line(&f.clause, 240);
+                f.why = clamp_line(&f.why, 200);
+                f
+            })
+            .filter(|f| !f.clause.is_empty() && !f.why.is_empty())
+            .take(3)
+            .collect())
+    }
+
     /// One sentence of *interpretation* for a privacy explainer (ADR 0013,
     /// Pillar 3 M5) — what a set of already-computed facts means for the user.
     ///
@@ -1053,6 +1140,10 @@ impl Inference for MockBackend {
                     .to_owned(),
             );
         }
+        // Policy reader (Sentinel M5): with no model, flag nothing.
+        if p.contains("privacy policy or terms-of-service") {
+            return Ok(r#"{"flags":[]}"#.to_owned());
+        }
         // Privacy explainer (Sentinel M5): with no model, add no interpretation.
         if p.contains("privacy explainer") {
             return Ok(r#"{"insight":""}"#.to_owned());
@@ -1128,6 +1219,18 @@ mod tests {
             .assess_phishing("x.com", "paypal", "t", "body", false)
             .unwrap();
         assert_eq!(j.verdict, "suspicious");
+    }
+
+    #[test]
+    fn policy_flags_are_capped_cleaned_and_deduped_of_empties() {
+        let p = AgentPlanner::new(Box::new(Canned(
+            r#"{"flags":[{"clause":"We sell your data\nto partners","why":"Your info reaches brokers"},{"clause":"  ","why":"empty clause is dropped"},{"clause":"Binding arbitration","why":"You give up suing"},{"clause":"We may change terms","why":"Changes without notice"},{"clause":"Fourth","why":"Beyond the cap"}]}"#,
+        )));
+        let flags = p.flag_policy("Terms", "…document…").unwrap();
+        assert_eq!(flags.len(), 3, "capped at 3, empty dropped");
+        assert_eq!(flags[0].clause, "We sell your data to partners", "newline collapsed");
+        assert!(flags.iter().all(|f| !f.why.is_empty()));
+        assert!(!flags.iter().any(|f| f.clause == "Fourth"));
     }
 
     #[test]

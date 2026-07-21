@@ -142,7 +142,10 @@ import type {
   PermissionNote as GenPermissionNote,
   SensitiveSite as GenSensitiveSite,
   Explainer as GenExplainer,
+  PolicyFlag as GenPolicyFlag,
 } from "./bindings.gen";
+/** One notable clause found in a policy / ToS (ADR 0013, Pillar 3 M5). */
+export type PolicyFlag = GenPolicyFlag;
 /** Sentinel plain-language privacy explainer (ADR 0013, Pillar 3 M5). */
 export type Explainer = GenExplainer;
 /** Sentinel sensitive-site classification (ADR 0013, Pillar 2 M4). */
@@ -1150,6 +1153,11 @@ export const sentinelCheckSensitive = (url: string) =>
  *  summary's figures are computed in Rust; `insight` is the model's optional
  *  interpretation and is empty when no model is running. */
 export const sentinelTrackerNarrative = () => invoke<Explainer>("sentinel_tracker_narrative");
+
+/** Read the active page as a policy/ToS and return the clauses that matter
+ *  (ADR 0013, Pillar 3 M5). On demand — this reads a long document. Empty when
+ *  nothing is notable, there's no page text, or no model is running. */
+export const sentinelPolicyFlags = () => invoke<PolicyFlag[]>("sentinel_policy_flags");
 
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */

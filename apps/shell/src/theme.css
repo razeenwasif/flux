@@ -12542,6 +12542,33 @@ input[type="radio"].pdf-fw {
   font-size: 12px;
   opacity: 0.85;
 }
+/* Policy / ToS explainer (ADR 0013, Pillar 3) — informational, violet. */
+.sentinel-banner.policy {
+  align-items: flex-start;
+  border-color: rgba(155, 130, 255, 0.45);
+  background: linear-gradient(180deg, rgba(155, 130, 255, 0.14), rgba(155, 130, 255, 0.05));
+}
+.sentinel-banner.policy .sentinel-ico {
+  color: #b7a4ff;
+  margin-top: 1px;
+}
+.sentinel-banner.policy .sentinel-leave {
+  background: rgba(155, 130, 255, 0.92);
+  color: #120a2b;
+}
+.policy-flags {
+  list-style: none;
+  margin: 5px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.policy-flags li b {
+  color: #ffd27a;
+}
 /* Tracker-graph narrative (ADR 0013, Pillar 3) — the graph in a sentence. */
 .trk-story {
   margin: 0 14px 8px;

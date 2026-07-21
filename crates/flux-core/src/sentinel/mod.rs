@@ -153,6 +153,52 @@ pub struct Explainer {
     pub insight: String,
 }
 
+/// One notable clause from a privacy policy / ToS (ADR 0013, Pillar 3 M5).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct PolicyFlag {
+    pub clause: String,
+    pub why: String,
+}
+
+/// Read the active page as a privacy policy / ToS and surface the few clauses
+/// that actually affect the reader (ADR 0013, Pillar 3 M5). Run **on demand**
+/// (the user asks), not on navigation — it reads a long document, so it's the
+/// one explainer worth an explicit click. Empty when there's nothing notable,
+/// no page text, or no model: an explainer that can't explain says nothing.
+#[tauri::command]
+pub async fn sentinel_policy_flags(
+    state: State<'_, FluxState>,
+) -> Result<Vec<PolicyFlag>, String> {
+    let Some(snap) = state.active_snapshot() else {
+        return Ok(Vec::new());
+    };
+    let text = snap.text.to_string();
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let title = state
+        .tabs
+        .iter()
+        .find(|t| t.url == snap.url)
+        .map(|t| t.title.clone())
+        .unwrap_or_default();
+
+    let flags = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().flag_policy(&title, &text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .unwrap_or_default();
+
+    Ok(flags
+        .into_iter()
+        .map(|f| PolicyFlag {
+            clause: f.clause,
+            why: f.why,
+        })
+        .collect())
+}
+
 /// Narrate the tracker graph (ADR 0013, Pillar 3 M5) — "the graph → a sentence".
 /// The figures come from a deterministic aggregation and the model is only asked
 /// what they *mean*, so a wandering or absent model can never misstate them.

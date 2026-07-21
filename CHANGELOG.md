@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Privacy-policy / ToS red-flags (ADR 0013 — Sentinel, Pillar 3, M5)** — nobody reads these
+  documents, so the local model reads one for you. On a policy or terms page Flux offers *"Read it for
+  me"*, and surfaces **at most three clauses that actually affect you** — data sold or shared, tracking
+  across other sites, indefinite retention, a content licence over what you upload, forced arbitration,
+  unilateral changes — each with one plain sentence on why it matters. Runs **only when you click**
+  (it reads a long document), and says nothing rather than inventing concerns when the document is
+  clean or no model is running. Descriptive only: it reports what the document says, it never advises.
 - **Tracker-graph narrative (ADR 0013 — Sentinel, Pillar 3, M5)** — the tracker graph now explains
   itself in a sentence: *"Across 12 sites you visited, 47 third parties were contacted. Flux blocked
   312 of 418 requests (75%). google-analytics.com appeared on 9 of them, so it could link those visits

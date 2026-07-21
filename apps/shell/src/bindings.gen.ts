@@ -91,6 +91,10 @@ export type SensitiveSite = { kind: SensitiveKind; label: string }
  * optional "so what", shown beside it; empty when no model is available.
  */
 export type Explainer = { summary: string; insight: string }
+/**
+ * One notable clause from a privacy policy / ToS (ADR 0013, Pillar 3 M5).
+ */
+export type PolicyFlag = { clause: string; why: string }
 export type Bookmark = { id: number; title: string; url: string; folder: string; added_ms: number }
 /**
  * A subscribed feed. Only the subscription is persisted (id, url, title).
