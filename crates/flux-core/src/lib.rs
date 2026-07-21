@@ -893,6 +893,8 @@ pub fn run(intent: cli::LaunchIntent) {
             sentinel::sentinel_check_sensitive,
             sentinel::sentinel_tracker_narrative,
             sentinel::sentinel_policy_flags,
+            sentinel::sentinel_consent_check,
+            sentinel::sentinel_reject_consent,
             mem::mem_status,
             mem::system_stats,
             darkmode::darkmode_status,

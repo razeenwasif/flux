@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Dark-pattern / cookie-consent decoder (ADR 0013 — Sentinel, Pillar 3, M5)** — the pattern is
+  familiar: "Accept all" is one tap, refusing is buried behind "Manage preferences" and a dozen
+  toggles. Flux now detects a consent banner, explains **what accepting actually enables**, and gives
+  the refuse button back — **one tap to "Refuse non-essential"**, from chrome the page can't restyle or
+  hide. The click vocabulary ("reject all", "necessary only", "continue without accepting", …) lives
+  **in Rust, not in the model** — the agent may *explain* a banner but never chooses what gets clicked,
+  keeping this on the right side of the read≠act firewall — and it only fires when you press the
+  button. Flux claims no success it can't verify: the page's own banner disappearing is the feedback.
 - **Privacy-policy / ToS red-flags (ADR 0013 — Sentinel, Pillar 3, M5)** — nobody reads these
   documents, so the local model reads one for you. On a policy or terms page Flux offers *"Read it for
   me"*, and surfaces **at most three clauses that actually affect you** — data sold or shared, tracking

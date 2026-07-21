@@ -11,6 +11,57 @@
 
 use crate::trackers::TrackerGraph;
 
+/// Phrases that mark a cookie / consent banner. Deterministic detection so the
+/// model is never woken just to notice a banner exists.
+const CONSENT_PHRASES: &[&str] = &[
+    "we use cookies",
+    "uses cookies",
+    "accept all cookies",
+    "accept cookies",
+    "your privacy choices",
+    "manage preferences",
+    "manage your preferences",
+    "cookie preferences",
+    "cookie policy",
+    "legitimate interest",
+    "our partners",
+    "consent to the use of cookies",
+];
+
+/// The genuine "refuse" controls, in preference order (most explicitly total
+/// first). **Rust owns this list** — it is injected into `consent.js`, so the
+/// model can never choose what gets clicked (read ≠ act, ADR 0013 Pillar 0).
+/// Lowercase; matched against a control's accessible name.
+pub const REJECT_TERMS: &[&str] = &[
+    "reject all",
+    "reject all cookies",
+    "decline all",
+    "refuse all",
+    "deny all",
+    "only necessary",
+    "necessary only",
+    "use necessary cookies only",
+    "essential only",
+    "only essential",
+    "strictly necessary",
+    "continue without accepting",
+    "reject",
+    "decline",
+];
+
+/// Does this page text look like it carries a consent banner? Requires two
+/// distinct phrases so an article *about* cookies doesn't trip it.
+pub fn looks_like_consent(text: &str) -> bool {
+    let t = text.to_lowercase();
+    CONSENT_PHRASES.iter().filter(|p| t.contains(**p)).count() >= 2
+}
+
+/// The injectable reject script, with the Rust-owned vocabulary baked in.
+pub fn reject_js() -> String {
+    let terms = serde_json::to_string(REJECT_TERMS).unwrap_or_else(|_| "[]".into());
+    include_str!("../../assets/consent.js").replace("__FLUX_REJECT_TERMS__", &terms)
+}
+
 /// Deterministic aggregation of a tracker graph — the facts a narrative may use.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackerFacts {
@@ -105,6 +156,27 @@ mod tests {
                 blocked: 20,
             }],
         }
+    }
+
+    #[test]
+    fn consent_detection_needs_two_signals() {
+        assert!(looks_like_consent(
+            "We use cookies and similar technologies. Accept all cookies or manage preferences."
+        ));
+        // An article merely discussing cookies must not trip the banner UI.
+        assert!(!looks_like_consent(
+            "This post explains how a cookie policy is written and why it matters."
+        ));
+        assert!(!looks_like_consent("Nothing to do with consent at all."));
+    }
+
+    #[test]
+    fn reject_js_bakes_in_the_rust_owned_vocabulary() {
+        let js = reject_js();
+        assert!(!js.contains("__FLUX_REJECT_TERMS__"), "placeholder substituted");
+        assert!(js.contains("\"reject all\""), "terms are baked in as JSON");
+        // The click vocabulary must never be model-supplied — it ships in Rust.
+        assert!(REJECT_TERMS.iter().all(|t| js.contains(t)));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # 0013 — Sentinel: a local-agent security layer (phishing guard + hardened agency)
 
-Status: **proposed (spec)**
-Date: 2026-07-21
+Status: **accepted — M1–M5 shipped**
+Date: 2026-07-21 (implemented 2026-07-21)
 Relates to: [0005](0005-agent-backend-ollama.md) (the local agent),
 [0007](0007-request-interception-and-content-filtering.md) (Shields / tracker graph),
 [0008](0008-extension-api-and-security-model.md) (extension trust model),
@@ -229,7 +229,15 @@ Read-and-summarize, reusing `reader_structure` + Flux's telemetry:
   instead of offering to save, and a lookalike can't whitewash itself by being
   saved), agent-annotated permission prompts (advisory line only — never decides),
   and sensitive-site containerization (bank/health/gov → offer an isolated jar).
-- **M5 — Pillar 3 explainers** (independent + low-risk; can slot earlier).
+- **M5 — Pillar 3 explainers** ✅ **shipped**: tracker-graph narrative (figures
+  computed in Rust, model supplies only the "so what"), privacy-policy / ToS
+  red-flags (≤3 clauses, on demand), and the dark-pattern / consent decoder
+  (explains what "Accept" enables + one-tap real reject, whose click vocabulary
+  is Rust-owned so the model never chooses what is clicked).
+
+**Follow-ons deliberately not in M1–M5:** the sealed audit-log viewer UI, a
+keystroke-level sensitive-input focus intercept (needs page focus-event
+plumbing), and a live-model behavioural injection eval (needs Ollama in CI).
 
 ## Open questions
 

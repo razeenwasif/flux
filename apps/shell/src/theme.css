@@ -12542,6 +12542,15 @@ input[type="radio"].pdf-fw {
   font-size: 12px;
   opacity: 0.85;
 }
+/* Cookie-consent decoder (ADR 0013, Pillar 3) — warm amber, actionable. */
+.sentinel-banner.consent {
+  border-color: rgba(240, 180, 40, 0.45);
+  background: linear-gradient(180deg, rgba(240, 180, 40, 0.13), rgba(240, 180, 40, 0.05));
+}
+.sentinel-banner.consent .sentinel-leave {
+  background: rgba(240, 180, 40, 0.92);
+  color: #1a1400;
+}
 /* Policy / ToS explainer (ADR 0013, Pillar 3) — informational, violet. */
 .sentinel-banner.policy {
   align-items: flex-start;

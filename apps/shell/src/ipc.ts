@@ -1159,6 +1159,15 @@ export const sentinelTrackerNarrative = () => invoke<Explainer>("sentinel_tracke
  *  nothing is notable, there's no page text, or no model is running. */
 export const sentinelPolicyFlags = () => invoke<PolicyFlag[]>("sentinel_policy_flags");
 
+/** Decode the active page's cookie-consent banner (ADR 0013, Pillar 3 M5).
+ *  null unless the page actually carries one. */
+export const sentinelConsentCheck = () => invoke<Explainer | null>("sentinel_consent_check");
+
+/** Click the page's genuine reject / necessary-only control. The click
+ *  vocabulary is Rust-owned — the model never chooses what gets clicked. */
+export const sentinelRejectConsent = (tabId: number) =>
+  invoke<void>("sentinel_reject_consent", { tabId });
+
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */
 export const memStatus = () => invoke<MemInfo>("mem_status");

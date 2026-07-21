@@ -35,6 +35,8 @@ import {
   activeOAuth,
   activeSensitive,
   dismissSensitive,
+  activeConsent,
+  setConsent,
   activeTab,
   bookmarkBarOpen,
   pagesBarOpen,
@@ -73,6 +75,7 @@ const SentinelBanner = lazy(() => import("./SentinelBanner")); // shown only on 
 const OAuthConsentBanner = lazy(() => import("./OAuthConsentBanner")); // shown only on a sensitive OAuth grant
 const SensitiveSiteBanner = lazy(() => import("./SensitiveSiteBanner")); // shown only on a bank/health/gov site
 const PolicyFlagsBanner = lazy(() => import("./PolicyFlagsBanner")); // shown only on a policy/ToS page
+const ConsentBanner = lazy(() => import("./ConsentBanner")); // shown only when a consent banner is detected
 const StartPage = lazy(() => import("./StartPage"));
 const FilesView = lazy(() => import("./FilesView"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
@@ -243,6 +246,18 @@ const ContentArea: Component<{
               verdict={v()}
               onLeave={() => props.onNavigate("flux://start")}
               onDismiss={() => setPhish(activeId() ?? -1, null)}
+            />
+          </Suspense>
+        )}
+      </Show>
+      {/* Cookie-consent decoder (ADR 0013, M5) — give the refuse button back. */}
+      <Show when={activeConsent()}>
+        {(c) => (
+          <Suspense>
+            <ConsentBanner
+              consent={c()}
+              tabId={activeId() ?? -1}
+              onDismiss={() => setConsent(activeId() ?? -1, null)}
             />
           </Suspense>
         )}

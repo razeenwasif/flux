@@ -153,6 +153,47 @@ pub struct Explainer {
     pub insight: String,
 }
 
+/// Decode the consent banner on the active page (ADR 0013, Pillar 3 M5). `None`
+/// unless the page actually carries one. The summary is deterministic; the model
+/// only adds what accepting would enable, and its absence costs nothing.
+#[tauri::command]
+pub async fn sentinel_consent_check(state: State<'_, FluxState>) -> Result<Option<Explainer>, String> {
+    let Some(snap) = state.active_snapshot() else {
+        return Ok(None);
+    };
+    let text = snap.text.to_string();
+    if !explain::looks_like_consent(&text) {
+        return Ok(None);
+    }
+    let summary =
+        "This page is asking you to accept cookies and data sharing with its partners.".to_string();
+    // Hand the model the banner's own words; it explains what "Accept" enables.
+    let banner = format!(
+        "A cookie consent banner says: {}",
+        text.chars().take(1500).collect::<String>()
+    );
+    let insight = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().explain_privacy(&banner)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .unwrap_or_default();
+    Ok(Some(Explainer { summary, insight }))
+}
+
+/// Click the page's genuine "reject / necessary only" control (ADR 0013,
+/// Pillar 3 M5) — the one buried behind "Manage preferences".
+///
+/// The click vocabulary lives in Rust ([`explain::REJECT_TERMS`]) and is baked
+/// into the injected script, so the **model never chooses what is clicked** —
+/// this stays on the right side of the read ≠ act firewall, and it only runs
+/// when the user explicitly asks. Fire-and-forget: the page's own banner
+/// disappearing (or not) is the honest feedback, so nothing here claims success.
+#[tauri::command]
+pub fn sentinel_reject_consent(app: AppHandle, tab_id: u64) -> Result<(), String> {
+    crate::webview::eval(&app, tab_id, &explain::reject_js())
+}
+
 /// One notable clause from a privacy policy / ToS (ADR 0013, Pillar 3 M5).
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct PolicyFlag {

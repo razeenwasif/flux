@@ -82,6 +82,7 @@ import {
   sentinelVerifyUrl,
   sentinelCheckOauth,
   sentinelCheckSensitive,
+  sentinelConsentCheck,
   prefetchSetPressure,
   webviewPreconnect,
   webviewCaptureState,
@@ -223,6 +224,7 @@ import {
   setPhish,
   setOAuth,
   setSensitive,
+  setConsent,
 } from "./store";
 
 const App: Component = () => {
@@ -553,6 +555,7 @@ const App: Component = () => {
         setPhish(tabId, null); // clear stale phishing verdict while navigating
         setOAuth(tabId, null); // …and any prior OAuth consent review
         setSensitive(tabId, null); // …and any containerization offer
+        setConsent(tabId, null); // …and any cookie-consent decode
       }
       if (phase === "finished") {
         // Sync the live url to the backend so the persisted session (#19)
@@ -599,6 +602,16 @@ const App: Component = () => {
           void sentinelCheckSensitive(url)
             .then((s) => setSensitive(tabId, s, url))
             .catch(() => {});
+          // Cookie-consent decoder (M5): needs the captured page text, so it
+          // runs on the same deferred pass as the phishing refinement.
+          setTimeout(() => {
+            if (tabs().find((t) => t.id === tabId)?.url !== url) return;
+            void sentinelConsentCheck()
+              .then((c) => {
+                if (tabs().find((t) => t.id === tabId)?.url === url) setConsent(tabId, c);
+              })
+              .catch(() => {});
+          }, 1500);
           const prev = prevUrlByTab.get(tabId);
           if (prev && prev !== url && prev.startsWith("http")) {
             void prefetchRecord(prev, url).catch(() => {});

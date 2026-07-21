@@ -10,6 +10,7 @@ import {
   type PhishVerdict,
   type OAuthConsent,
   type SensitiveSite,
+  type Explainer,
   darkmodeSet,
   navSet,
   spotifySetDir,
@@ -676,6 +677,13 @@ export const activeSensitive = (): SensitiveSite | null | undefined => {
   if (!t || t.container !== 0 || t.private) return null;
   return sensByTab[t.id];
 };
+
+// Sentinel cookie-consent decoder per tab (ADR 0013, Pillar 3 M5).
+const [consentByTab, setConsentByTab] = createStore<Record<number, Explainer | null>>({});
+export const activeConsent = (): Explainer | null | undefined => consentByTab[activeId() ?? -1];
+export function setConsent(id: number, v: Explainer | null): void {
+  setConsentByTab(id, v);
+}
 
 // Sentinel OAuth consent review per tab (ADR 0013, Pillar 1 M3): set when a
 // navigation lands on a consent screen requesting sensitive scopes.
