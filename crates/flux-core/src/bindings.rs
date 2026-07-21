@@ -79,6 +79,9 @@ pub fn generate_ts() -> String {
         specta::ts::export::<Container>(&c),
         specta::ts::export::<WebPanel>(&c),
         specta::ts::export::<AgentStatus>(&c),
+        // Sentinel security layer (ADR 0013): phishing verdicts.
+        specta::ts::export::<crate::sentinel::phishing::Confidence>(&c),
+        specta::ts::export::<crate::sentinel::phishing::Verdict>(&c),
         // Command return/arg structs (BACKLOG #12, batch 2).
         specta::ts::export::<Bookmark>(&c),
         specta::ts::export::<Feed>(&c),

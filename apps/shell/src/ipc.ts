@@ -137,7 +137,10 @@ import type {
   HibernateCandidate as GenHibernateCandidate,
   EvictionRank as GenEvictionRank,
   PrefetchHint as GenPrefetchHint,
+  Verdict as GenVerdict,
 } from "./bindings.gen";
+/** Sentinel phishing verdict (ADR 0013, Pillar 1). */
+export type PhishVerdict = GenVerdict;
 export type ClusterTag = GenClusterTag;
 export type TabKind = GenTabKind;
 export type Workspace = GenWorkspace;
@@ -1102,6 +1105,10 @@ export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capt
 /** Mobile: a tab's cached cover snapshot (base64 data URL), "" if none. Pulled over
  *  normal IPC because images are too large for the plugin event channel (ADR 0012). */
 export const webviewThumbnail = (tabId: number) => invoke<string>("webview_thumbnail", { tabId });
+
+/** Sentinel: assess a URL for phishing/impersonation (ADR 0013). null = clean. */
+export const sentinelCheckUrl = (url: string) =>
+  invoke<PhishVerdict | null>("sentinel_check_url", { url });
 
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */

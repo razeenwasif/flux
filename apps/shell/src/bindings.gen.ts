@@ -54,6 +54,14 @@ export type WebPanel = { id: number; url: string; title: string }
  * magenta/violet "Liquid AI" visual states.
  */
 export type AgentStatus = { state: "idle" } | { state: "thinking"; prompt: string } | { state: "acting"; description: string; selector: string } | { state: "error"; message: string }
+/**
+ * How sure we are it's an impersonation.
+ */
+export type Confidence = "Low" | "High"
+/**
+ * A phishing pre-filter verdict.
+ */
+export type Verdict = { resembles: string; reasons: string[]; confidence: Confidence }
 export type Bookmark = { id: number; title: string; url: string; folder: string; added_ms: number }
 /**
  * A subscribed feed. Only the subscription is persisted (id, url, title).

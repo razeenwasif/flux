@@ -12,8 +12,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   detector (`sentinel::phishing`) that flags a domain trying to *look like* a brand the user values:
   homoglyph folds (`paypa1`, Cyrillic-`а`-`pple` → `paypal`), typosquats (`gooogle`, 1–2 edits), and
   brand-embedding (`paypal-secure`, `login-apple`). Suppresses the real brand and unrelated domains.
-  Ships with a curated top-brands seed for day-1 coverage; the impersonation-target set will grow from
-  vault origins + Trail-frequent sites next. Not yet wired to navigation/UI — engine + tests only.
+  Exposed as the `sentinel_check_url` command, assessing a URL against the user's impersonation-target
+  set — **vault origins (strongest) + Trail-frequent hosts (engagement-weighted) + a curated seed** —
+  all local. The navigation trigger + warning UI are the remaining M2 slice.
 - **Stored-injection defense for the knowledge base (ADR 0013 — Sentinel, Pillar 0, M1)** — retrieved
   KB content (your saved notes/papers) fed back to the agent is now fenced as untrusted at the point of
   use, in both `kb_answer` (the grounded Notebook Q&A) and `kb_check` (the novelty/contradiction check
