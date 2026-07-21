@@ -1110,6 +1110,13 @@ export const webviewThumbnail = (tabId: number) => invoke<string>("webview_thumb
 export const sentinelCheckUrl = (url: string) =>
   invoke<PhishVerdict | null>("sentinel_check_url", { url });
 
+/** Refine a deterministic phishing flag with the local model, reading the page's
+ *  captured text (ADR 0013, Pillar 1 M3). May upgrade to high confidence or clear
+ *  a false positive; falls back to the deterministic verdict when the model or
+ *  page content is unavailable. Only worth calling after `sentinelCheckUrl` fired. */
+export const sentinelVerifyUrl = (url: string, title: string) =>
+  invoke<PhishVerdict | null>("sentinel_verify_url", { url, title });
+
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */
 export const memStatus = () => invoke<MemInfo>("mem_status");

@@ -79,6 +79,7 @@ import {
   prefetchRecord,
   prefetchHints,
   sentinelCheckUrl,
+  sentinelVerifyUrl,
   prefetchSetPressure,
   webviewPreconnect,
   webviewCaptureState,
@@ -559,9 +560,26 @@ const App: Component = () => {
         // Predictive prefetch (#103): learn this navigation transition, then
         // preconnect to the hosts the model expects you to visit next from here.
         if (url.startsWith("http")) {
-          // Sentinel phishing/impersonation check (ADR 0013, Pillar 1).
+          // Sentinel phishing/impersonation check (ADR 0013, Pillar 1). The
+          // deterministic layer answers instantly; if it flags the page, wake the
+          // local model to read the rendered text and confirm/clear the banner
+          // (M3) — only then, so the model never runs on clean pages. Give
+          // capture.js a moment to deliver the page text, and drop the result if
+          // the tab has since navigated away (stale-banner race).
           void sentinelCheckUrl(url)
-            .then((v) => setPhish(tabId, v))
+            .then((v) => {
+              setPhish(tabId, v);
+              if (!v) return;
+              setTimeout(() => {
+                if (tabs().find((t) => t.id === tabId)?.url !== url) return;
+                const title = tabs().find((t) => t.id === tabId)?.title ?? "";
+                void sentinelVerifyUrl(url, title)
+                  .then((refined) => {
+                    if (tabs().find((t) => t.id === tabId)?.url === url) setPhish(tabId, refined);
+                  })
+                  .catch(() => {});
+              }, 1500);
+            })
             .catch(() => {});
           const prev = prevUrlByTab.get(tabId);
           if (prev && prev !== url && prev.startsWith("http")) {

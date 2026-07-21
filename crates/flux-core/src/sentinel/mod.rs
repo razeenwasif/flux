@@ -11,7 +11,13 @@ pub mod phishing;
 
 pub use audit::{AuditEntry, SentinelAudit};
 
-use tauri::{AppHandle, Manager};
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::Mutex;
+
+use tauri::{AppHandle, Manager, State};
+
+use crate::state::FluxState;
 
 /// Host portion of a URL (scheme-agnostic, no port/path).
 fn host_of(url: &str) -> String {
@@ -78,4 +84,189 @@ pub async fn sentinel_check_url(
         return Ok(None);
     }
     Ok(phishing::assess(&host, &known_good_brands(&app)))
+}
+
+/// Memoized `(url, content-hash) → refined verdict` cache (ADR 0013: "memoized
+/// per (url, content-hash) like Shields' decision cache"). Bounded; the model is
+/// never re-run for a page whose URL + visible text we already judged.
+fn verdict_cache() -> &'static Mutex<HashMap<u64, Option<phishing::Verdict>>> {
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<u64, Option<phishing::Verdict>>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_key(url: &str, text: &str) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    url.hash(&mut h);
+    text.len().hash(&mut h); // length + prefix is enough to notice a content change
+    text.as_bytes().iter().take(512).for_each(|b| b.hash(&mut h));
+    h.finish()
+}
+
+/// Does the captured HTML expose a credential field? A cheap, robust signal the
+/// LLM verdict conditions on (a lookalike with a password box is far worse).
+fn has_credential_field(html: &str) -> bool {
+    let h = html.to_ascii_lowercase();
+    h.contains("type=\"password\"") || h.contains("type='password'") || h.contains("type=password")
+}
+
+/// Fold the model's content judgment into the deterministic verdict (ADR 0013,
+/// Pillar 1 M3). The model may **confirm/escalate** (→ High, with its reason) or
+/// **clear a false positive** (→ None); "suspicious" keeps the deterministic
+/// verdict and annotates it. Fail-safe: this is only reached when the model
+/// actually answered — a model that's down never removes protection.
+fn fold_judgment(
+    deterministic: phishing::Verdict,
+    j: &flux_agent::PhishingJudgment,
+) -> Option<phishing::Verdict> {
+    // Keep the model's reasons short and clearly attributed.
+    let agent_reasons: Vec<String> = j
+        .reasons
+        .iter()
+        .filter(|r| !r.trim().is_empty())
+        .take(2)
+        .map(|r| format!("Flux read the page: {}", r.trim()))
+        .collect();
+    match j.verdict.as_str() {
+        "legitimate" => None,
+        "phishing" => {
+            let mut reasons = agent_reasons;
+            reasons.extend(deterministic.reasons);
+            Some(phishing::Verdict {
+                resembles: deterministic.resembles,
+                reasons,
+                confidence: phishing::Confidence::High,
+            })
+        }
+        // "suspicious" (or anything else) → keep the deterministic verdict,
+        // append the model's note without changing its confidence.
+        _ => {
+            let mut v = deterministic;
+            v.reasons.extend(agent_reasons);
+            Some(v)
+        }
+    }
+}
+
+/// Refine the deterministic phishing flag with a local-model content judgment
+/// (ADR 0013, Pillar 1 M3). Called async by the shell *after* `sentinel_check_url`
+/// has shown the instant deterministic banner; this upgrades or clears it once
+/// the page's visible text is available. Fail-safe: any error, missing content,
+/// or absent model leaves the deterministic verdict standing (never fail-open).
+#[tauri::command]
+pub async fn sentinel_verify_url(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    url: String,
+    title: String,
+) -> Result<Option<phishing::Verdict>, String> {
+    let host = host_of(&url);
+    if host.is_empty() || !url.starts_with("http") {
+        return Ok(None);
+    }
+    // No deterministic suspicion → nothing to refine; don't wake the model.
+    let Some(deterministic) = phishing::assess(&host, &known_good_brands(&app)) else {
+        return Ok(None);
+    };
+
+    // Pull the visible text + credential signal from the active snapshot, but
+    // only if it's for THIS page (a stale snapshot from another tab is useless).
+    let snap = state.active_snapshot();
+    let (text, has_form) = match snap {
+        Some(s) if host_of(&s.url) == host && !s.text.trim().is_empty() => {
+            (s.text.to_string(), has_credential_field(&s.html))
+        }
+        // No matching content yet → can't refine; keep the deterministic flag.
+        _ => return Ok(Some(deterministic)),
+    };
+
+    let key = cache_key(&url, &text);
+    if let Some(hit) = verdict_cache().lock().ok().and_then(|c| c.get(&key).cloned()) {
+        return Ok(hit);
+    }
+
+    let resembles = deterministic.resembles.clone();
+    let judgment = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().assess_phishing(&host, &resembles, &title, &text, has_form)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Fail-safe: a model error keeps the deterministic verdict (never clears it).
+    let refined = match judgment {
+        Ok(j) => fold_judgment(deterministic, &j),
+        Err(_) => Some(deterministic),
+    };
+
+    if let Ok(mut cache) = verdict_cache().lock() {
+        if cache.len() >= 512 {
+            cache.clear(); // crude bound; verdicts are cheap to recompute
+        }
+        cache.insert(key, refined.clone());
+    }
+    Ok(refined)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flux_agent::PhishingJudgment;
+    use phishing::{Confidence, Verdict};
+
+    fn low() -> Verdict {
+        Verdict {
+            resembles: "paypal".into(),
+            reasons: vec!["“paypaI.com” is one or two edits from “paypal”".into()],
+            confidence: Confidence::Low,
+        }
+    }
+
+    fn judge(verdict: &str, reasons: &[&str]) -> PhishingJudgment {
+        PhishingJudgment {
+            verdict: verdict.into(),
+            brand: "paypal".into(),
+            reasons: reasons.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn host_parsing_is_scheme_and_userinfo_safe() {
+        assert_eq!(host_of("https://user@Paypal.com:443/login"), "paypal.com");
+        assert_eq!(host_of("http://a.b.c/x"), "a.b.c");
+        assert_eq!(host_of("notaurl"), "notaurl");
+    }
+
+    #[test]
+    fn credential_field_detected_across_quote_styles() {
+        assert!(has_credential_field(r#"<input type="password">"#));
+        assert!(has_credential_field("<input type=password name=pw>"));
+        assert!(has_credential_field("<INPUT TYPE='PASSWORD'>"));
+        assert!(!has_credential_field("<input type=\"text\">"));
+    }
+
+    #[test]
+    fn model_phishing_escalates_to_high_and_keeps_both_reasons() {
+        let v = fold_judgment(low(), &judge("phishing", &["it shows a PayPal login form"])).unwrap();
+        assert_eq!(v.confidence, Confidence::High);
+        assert!(v.reasons.iter().any(|r| r.contains("Flux read the page")));
+        assert!(v.reasons.iter().any(|r| r.contains("edits from")), "deterministic reason kept");
+    }
+
+    #[test]
+    fn model_legitimate_clears_the_false_positive() {
+        assert!(fold_judgment(low(), &judge("legitimate", &[])).is_none());
+    }
+
+    #[test]
+    fn model_suspicious_keeps_confidence_and_annotates() {
+        let v = fold_judgment(low(), &judge("suspicious", &["unclear branding"])).unwrap();
+        assert_eq!(v.confidence, Confidence::Low, "not downgraded/upgraded");
+        assert!(v.reasons.iter().any(|r| r.contains("Flux read the page")));
+    }
+
+    #[test]
+    fn empty_model_reasons_are_dropped() {
+        let v = fold_judgment(low(), &judge("suspicious", &["  ", ""])).unwrap();
+        assert!(v.reasons.iter().all(|r| !r.contains("Flux read the page")));
+    }
 }

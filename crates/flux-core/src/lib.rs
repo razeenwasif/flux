@@ -887,6 +887,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_capture_state,
             webview::webview_thumbnail,
             sentinel::sentinel_check_url,
+            sentinel::sentinel_verify_url,
             mem::mem_status,
             mem::system_stats,
             darkmode::darkmode_status,

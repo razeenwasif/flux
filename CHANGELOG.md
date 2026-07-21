@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **AI phishing verdict — the local model refines the detector (ADR 0013 — Sentinel, Pillar 1, M3)** —
+  when the deterministic layer flags a lookalike, Flux now wakes the on-device model to *read the page
+  the way you see it* and judge whether it's actually impersonating the brand. It can **escalate**
+  (a `paypa1.com` that renders a PayPal login → high-confidence red interstitial, with the model's own
+  one-line reason) or **clear a false positive** (an unrelated site that merely shares a name → banner
+  dismissed), so warnings stay rare and precise. The model never runs on clean pages (only after the
+  cheap layer fires), reads page text as **fenced untrusted data**, returns a schema-constrained
+  `{verdict, brand, reasons}`, and is **memoized per (url, content-hash)**. Strictly **fail-safe**: if
+  Ollama is down, the model is missing, or the page text hasn't been captured yet, the deterministic
+  verdict stands — a missing model can never *remove* a warning, only add nuance. 100% local.
 - **Phishing detection engine (ADR 0013 — Sentinel, Pillar 1, M2)** — a deterministic, no-LLM
   detector (`sentinel::phishing`) that flags a domain trying to *look like* a brand the user values:
   homoglyph folds (`paypa1`, Cyrillic-`а`-`pple` → `paypal`), typosquats (`gooogle`, 1–2 edits), and
