@@ -56,6 +56,7 @@ pub mod rpc;
 pub mod screenshot;
 pub mod search;
 pub mod semfind;
+pub mod sentinel;
 pub mod services;
 pub mod session;
 pub mod sessions;
@@ -553,11 +554,21 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
         .map(|d| d.join("trace").join("drafts.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("flux-trace-drafts.json"));
     app.manage(trace::TraceDrafts::empty(drafts_path));
+    // Sentinel action audit log (ADR 0013, Pillar 0) — sealed like the trace stores.
+    let audit_path = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("sentinel").join("audit.json"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("flux-sentinel-audit.json"));
+    app.manage(sentinel::SentinelAudit::empty(audit_path));
     {
         let handle = app.handle().clone();
         std::thread::spawn(move || {
             if let Some(t) = handle.try_state::<trace::TraceStore>() {
                 t.hydrate();
+            }
+            if let Some(au) = handle.try_state::<sentinel::SentinelAudit>() {
+                au.hydrate();
             }
             if let Some(s) = handle.try_state::<trace::TraceSnapshots>() {
                 s.hydrate();
@@ -592,6 +603,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 }
                 if let Some(dr) = handle.try_state::<trace::TraceDrafts>() {
                     dr.persist_if_dirty();
+                }
+                if let Some(au) = handle.try_state::<sentinel::SentinelAudit>() {
+                    au.persist_if_dirty();
                 }
                 if !autoindex {
                     continue;

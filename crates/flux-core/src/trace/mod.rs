@@ -16,7 +16,7 @@ mod ambient;
 mod chats;
 mod drafts;
 mod entities;
-mod sealed;
+pub(crate) mod sealed;
 mod snapshots;
 mod store;
 

@@ -633,6 +633,18 @@ pub async fn agent_run_action(
         .get_webview(&format!("tab-{tab}"))
         .ok_or_else(|| format!("webview tab-{tab} not found"))?;
     webview.eval(action.to_js()).map_err(|e| e.to_string())?;
+    // Sentinel audit log (ADR 0013, Pillar 0): record every action the agent runs
+    // on the user's behalf. `confirmed: true` — this command is only reached after
+    // the frontend's approval card.
+    if let Some(audit) = app.try_state::<crate::sentinel::SentinelAudit>() {
+        audit.record(crate::sentinel::AuditEntry {
+            ms: 0,
+            tab,
+            action: action.describe(),
+            destructive: action.is_destructive().map(|t| t.to_string()),
+            confirmed: true,
+        });
+    }
     *state.agent.write() = AgentStatus::Idle;
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     Ok(action)

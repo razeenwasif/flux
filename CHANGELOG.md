@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Agent action audit log (ADR 0013 — Sentinel, Pillar 0, M1)** — every action the agent runs on
+  your behalf (`agent_run_action`) is now appended to a `crate::sentinel` log — what, when, which tab,
+  whether it was flagged destructive, and that it was user-confirmed — **sealed at rest with the same
+  AES-256-GCM key ladder the trace stores use**. Append-only (bounded), lazy-hydrated, flushed on the
+  shared 60s tick. A security control (tamper-evident record) and a trust/debug surface (a viewer UI
+  is a follow-on).
 - **Agent trust boundary (ADR 0013 — Sentinel, Pillar 0, M1)** — page/DOM/tab/KB text fed to the
   local agent is now treated as untrusted input: every prompt that embeds it (`plan`, `step`, `chat`,
   multi-tab chat, reader-structure, author-CSS, translate) fences the content in

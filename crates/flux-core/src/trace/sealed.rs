@@ -86,7 +86,7 @@ pub(super) fn data_key(dir: &Path) -> Option<[u8; 32]> {
 }
 
 /// Serialize + seal + atomically write. Falls back to plaintext when no key.
-pub(super) fn save_json_sealed<T: serde::Serialize>(path: &Path, value: &T) {
+pub(crate) fn save_json_sealed<T: serde::Serialize>(path: &Path, value: &T) {
     let Ok(json) = serde_json::to_vec(value) else {
         return;
     };
@@ -109,7 +109,7 @@ pub(super) fn save_json_sealed<T: serde::Serialize>(path: &Path, value: &T) {
 /// Read a store file: sealed blob (magic-prefixed) or legacy plaintext JSON.
 /// Returns `(json_string, was_plaintext)` — a plaintext read means the caller
 /// should mark itself dirty so the next flush upgrades the file to sealed.
-pub(super) fn load_string(path: &Path) -> Option<(String, bool)> {
+pub(crate) fn load_string(path: &Path) -> Option<(String, bool)> {
     let bytes = std::fs::read(path).ok()?;
     if let Some(ct) = bytes.strip_prefix(MAGIC) {
         let dir = path.parent().unwrap_or(Path::new("."));
