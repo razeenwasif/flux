@@ -798,6 +798,7 @@ pub fn run(intent: cli::LaunchIntent) {
                     vault::vault_page_matches,
                     vault::vault_fill_page_id,
                     vault::vault_offer_save,
+                    sentinel::sentinel_input_focus,
                     trace::trace_drafts_enabled,
                     trace::draft_publish
                 ])

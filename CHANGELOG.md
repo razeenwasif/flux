@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Sensitive-input focus intercept (ADR 0013 — Sentinel, Pillar 1)** — the phishing warning now fires
+  **before your first keystroke**. The moment a password (or one-time-code) field takes focus on a site
+  that impersonates a brand you value, the chrome-layer banner names the brand and offers the exit —
+  rather than warning only after the credential has already been typed and submitted. This closes the
+  case the navigation check structurally can't cover: a lookalike whose own label sits in your
+  known-good set *because you were phished there once*. The page is told **nothing** — the command
+  answers nothing and the warning travels out-of-band to the chrome — so a phishing kit can't detect
+  the guard and adapt to it, and the host is derived from the webview's own label, never from the page.
 - **Agent activity log — you can finally read it (ADR 0013 — Sentinel, Pillar 0)** — the sealed
   audit log has been recording every action the agent runs on your behalf since M1, with nowhere to
   see it. New **`flux://sentinel`** page (palette: "Agent activity log", or Settings → Privacy) lists

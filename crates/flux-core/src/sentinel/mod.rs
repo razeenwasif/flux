@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::FluxState;
 
@@ -137,6 +137,39 @@ pub async fn sentinel_on_navigate(app: AppHandle, url: String) -> Result<NavAsse
         oauth: oauth::detect(&url),
         sensitive: sensitive::classify(&host),
     })
+}
+
+/// Page → Rust: the user just focused a password / sensitive field (ADR 0013,
+/// Pillar 1 — the sensitive-input trigger). A `fluxtab` plugin command so the
+/// injected sentinel in a remote page may call it.
+///
+/// This is the earliest possible moment to warn: **before a single keystroke**,
+/// rather than after the credential has already been typed and submitted. The
+/// host is derived from the calling webview's own label, never from the page, so
+/// a page can only ever ask about itself.
+///
+/// Returns nothing to the page — it must not learn whether Flux considers it
+/// suspicious (that would let a phishing kit detect the guard and adapt). The
+/// warning goes out-of-band to the chrome layer instead.
+#[tauri::command]
+pub fn sentinel_input_focus(app: AppHandle, webview: tauri::Webview) {
+    let Some(tab) = webview
+        .label()
+        .strip_prefix("tab-")
+        .and_then(|s| s.parse::<u64>().ok())
+    else {
+        return;
+    };
+    let Some(host) = app
+        .try_state::<FluxState>()
+        .and_then(|s| s.tabs.get(&tab).map(|t| host_of(&t.url)))
+    else {
+        return;
+    };
+    if let Some(verdict) = credential_origin_risk(&app, &host) {
+        // Chrome-layer only: the page can neither see nor draw over this.
+        let _ = app.emit("flux://sentinel-input-warning", (tab, host, verdict));
+    }
 }
 
 /// The sealed agent-action audit log, newest first (ADR 0013, Pillar 0). The

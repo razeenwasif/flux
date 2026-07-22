@@ -822,6 +822,15 @@ export const onVaultSaved = (cb: (host: string) => void): Promise<UnlistenFn> =>
 /** Fires when the page sentinel captures a manually-typed login worth saving. */
 export const onVaultSavePrompt = (cb: (p: VaultSavePrompt) => void): Promise<UnlistenFn> =>
   listen<VaultSavePrompt>("flux://vault-save-prompt", (e) => cb(e.payload));
+/** Fires when a password field takes focus on a site that impersonates a brand
+ *  you value (ADR 0013, Pillar 1) — the earliest possible warning, before the
+ *  first keystroke. Payload: [tabId, host, verdict]. */
+export const onSentinelInputWarning = (
+  cb: (tabId: number, host: string, verdict: PhishVerdict) => void,
+): Promise<UnlistenFn> =>
+  listen<[number, string, PhishVerdict]>("flux://sentinel-input-warning", (e) =>
+    cb(e.payload[0], e.payload[1], e.payload[2]),
+  );
 /** Commit the pending save (the bar's "Save"/"Update"). */
 export const vaultSaveConfirm = () => invoke<void>("vault_save_confirm");
 /** Drop the pending save ("Not now"). */

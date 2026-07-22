@@ -25,6 +25,24 @@
   if (!inv) return;
   var call = function (cmd, args) { return inv("plugin:fluxtab|" + cmd, args || {}); };
 
+  // Sensitive-input trigger (ADR 0013, Pillar 1): tell Rust the moment a
+  // password field takes focus, so a wrong-origin warning can be raised BEFORE
+  // the first keystroke rather than after the credential is already typed.
+  // Fire-and-forget and deliberately answer-less: the page never learns whether
+  // Flux is suspicious of it, so a phishing kit can't detect the guard and adapt.
+  var focusWarned = false;
+  var onSensitiveFocus = function () {
+    if (focusWarned) return;   // once per page — this is a warning, not telemetry
+    focusWarned = true;
+    call("sentinel_input_focus").catch(function () {});
+  };
+  document.addEventListener("focusin", function (e) {
+    var t = e.target;
+    if (t && t.tagName === "INPUT" && (t.type === "password" || t.autocomplete === "one-time-code")) {
+      onSensitiveFocus();
+    }
+  }, true);
+
   var chip = null;        // the single floating chip element
   var chipAnchor = null;  // the password field it's pinned to
   var dismissed = false;  // ✕ hides chips until the next navigation

@@ -65,6 +65,7 @@ import {
   onPermissionAsk,
   onVaultSaved,
   onVaultSavePrompt,
+  onSentinelInputWarning,
   onFindResult,
   onFullscreenChanged,
   onShortcut,
@@ -351,6 +352,14 @@ const App: Component = () => {
     });
     // Sentinel captured a manually-typed login (#61) — raise the save bar.
     const unSavePrompt = await onVaultSavePrompt(setSavePrompt);
+    // A password field took focus on an impersonating site (ADR 0013, Pillar 1).
+    // Raise the existing chrome-layer phishing banner — it already names the
+    // brand and offers a safe exit — but now BEFORE the first keystroke. This
+    // catches the case the navigation check can't: a lookalike whose own label
+    // is in your known-good set because you were phished there once.
+    const unInputWarn = await onSentinelInputWarning((tabId, _host, verdict) =>
+      setPhish(tabId, verdict),
+    );
     // App keyboard shortcuts (#18). Capture phase so we win over child widgets
     // (e.g. xterm's own key handler) when the chrome/terminal is focused; the
     // injected shortcuts.js handles the case where a page webview has focus and
@@ -614,6 +623,7 @@ const App: Component = () => {
       unPermAsk();
       unVaultSaved();
       unSavePrompt();
+      unInputWarn();
       unShortcut();
       unFullscreen();
       unOpenUrl();
