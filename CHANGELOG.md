@@ -7,6 +7,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Fixed
+- **The workspace rail's popover vanished before you could reach it** — it sits 8px from the dot, and
+  that gap was a dead zone where nothing was hovered, so the popover disappeared the moment you moved
+  toward it. Its buttons (rename, delete) were effectively unreachable by mouse. A transparent hover
+  bridge now spans the gap so the path is continuous.
+
 ### Changed
 - **Renaming a workspace is now discoverable** — it was already possible, but only by double-clicking
   the name inside a hover popover on the workspace rail, which left **delete (✕) as the only visible

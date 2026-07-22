@@ -1308,8 +1308,27 @@ body.resizing .panel-edge-resize::after {
   z-index: 20;
 }
 .ws-rail-item:hover .ws-rail-pop,
-.ws-rail-pop:has(input) {
+.ws-rail-pop:has(input),
+/* Keep it up while the pointer is actually in it. The popover is a descendant of
+   .ws-rail-item, so hovering it already satisfies the rule above — this is here
+   so the intent survives someone moving the markup. */
+.ws-rail-pop:hover {
   display: flex;
+}
+/* Hover bridge. The popover is positioned `right: calc(100% + 8px)`, so there's
+   an 8px dead gap between it and the dot where nothing is hovered — the popover
+   vanished the instant you moved toward it, which made its buttons (rename,
+   delete) effectively unreachable by mouse. This transparent strip spans the gap
+   so the hover path is continuous. */
+.ws-rail-pop::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 0;
+  /* Exactly the gap (+1px for sub-pixel rounding). Wider would overlap the dot
+     and, since the popover stacks above it, steal clicks on the dot's edge. */
+  width: 9px;
+  height: 100%;
 }
 .ws-rail-pop .ws-name {
   max-width: 160px;
