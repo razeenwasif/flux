@@ -19,6 +19,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   including page actions and reader structuring. Found by the new live-model eval below.
 
 ### Security
+- **Live-model behavioural eval for the agent (ADR 0013 — closes the "model capability + eval" open
+  question)** — the existing tests prove the trust boundary *structurally* (hostile text always lands
+  inside the untrusted fence; actions come from a fixed Rust-validated vocabulary). They cannot show
+  whether a **real** model, handed a properly fenced hostile page, still misbehaves. New opt-in harness
+  (`FLUX_EVAL=1 cargo test -p flux-agent --test injection_eval`) scores four batteries against local
+  Ollama: chat injection resistance, destructive-action resistance, phishing-verdict accuracy on
+  curated positives *and* lookalike-but-legitimate negatives, and — the case that matters most —
+  whether page text can argue the classifier into **clearing** a phishing flag. Skipped entirely
+  without `FLUX_EVAL=1` or a reachable model, so CI stays green. It reports a score against a floor
+  rather than asserting perfection: the goal is to measure how much the deterministic layer must carry,
+  not to pretend the model is trustworthy alone. Current local result (gemma3 12B): **100% on all
+  four**. Its first run is also what surfaced the structured-output parse bug above.
 - **Sensitive-input focus intercept (ADR 0013 — Sentinel, Pillar 1)** — the phishing warning now fires
   **before your first keystroke**. The moment a password (or one-time-code) field takes focus on a site
   that impersonates a brand you value, the chrome-layer banner names the brand and offers the exit —
