@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **Long AI prompts were being silently truncated, breaking the features that need them most** — the
+  Ollama context window (`num_ctx`) covers prompt *and* output together, but was pinned at 4096 while
+  the policy reader sends a 12 KB document and multi-tab chat sends 12 KB of page text. Ollama drops
+  the **oldest** tokens on overflow — exactly where the "reply with one JSON object" instruction sits —
+  so the model saw a bare document with no task, rambled, and hit the output cap, surfacing as a
+  truncated-JSON parse error that looked like model weakness but was our own configuration. The context
+  now grows to fit the prompt plus room to answer (clamped to 16K so RAM stays bounded), the structured
+  output cap moved 512 → 1536, and a truncated reply now reports **why** it was truncated and how to
+  raise it instead of failing with an opaque parse error. Flux also neutralizes the repetition penalty
+  on schema-constrained calls: JSON is legitimately repetitive, so a prose-tuned `repeat_penalty` (some
+  Modelfiles set 1.2) penalizes the very tokens the grammar requires.
 - **Every AI feature that returns structured data was silently failing against a real model** — models
   append chat-template residue (`<|tool_response>`, role markers) *after* the JSON they were asked for,
   and Flux parsed the whole reply, so `serde_json` rejected it with "trailing characters". Because a

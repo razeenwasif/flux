@@ -203,14 +203,47 @@ fn keep_alive() -> String {
     std::env::var("FLUX_OLLAMA_KEEPALIVE").unwrap_or_else(|_| "30m".into())
 }
 
-/// Cap the context window: a 12B model's quality degrades long before its full
+/// Baseline context window: a 12B model's quality degrades long before its full
 /// window fills, prompt-eval cost is linear in context, and a smaller window
-/// bounds RAM. `FLUX_OLLAMA_NUM_CTX` (default 4096).
-fn num_ctx() -> u32 {
+/// bounds RAM. This is a *floor*, grown per-request by [`ctx_for`].
+const DEFAULT_NUM_CTX: u32 = 4096;
+
+/// Ceiling on auto-grown context. Bounds RAM — the low-memory wedge is the whole
+/// point of Flux — even if a caller hands us an enormous prompt.
+const MAX_AUTO_CTX: u32 = 16384;
+
+/// An explicit user override, which always wins over auto-sizing.
+fn num_ctx_override() -> Option<u32> {
     std::env::var("FLUX_OLLAMA_NUM_CTX")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(4096)
+}
+
+/// Rough token count, for sizing only. ~3 chars/token deliberately *over*-counts
+/// for English prose: under-counting is the failure that hurts, because it
+/// silently truncates the prompt.
+fn estimate_tokens(s: &str) -> u32 {
+    u32::try_from(s.len() / 3).unwrap_or(u32::MAX)
+}
+
+/// The context window for THIS request — big enough to hold the prompt *and*
+/// leave room to answer.
+///
+/// `num_ctx` covers prompt + output together. A fixed 4096 silently truncated
+/// our longest prompts (`flag_policy` sends a 12 KB document, `chat_pages` 12 KB
+/// of tabs), and Ollama drops the *oldest* tokens — which is exactly where the
+/// "reply with one JSON object" instruction lives. The model then sees a bare
+/// document with no task, rambles, and hits the output cap: a truncated-JSON
+/// parse error that looks like model weakness but is our own configuration.
+/// So grow to fit, clamped both ways.
+fn ctx_for(prompt: &str, out_cap: i32) -> u32 {
+    if let Some(v) = num_ctx_override() {
+        return v;
+    }
+    estimate_tokens(prompt)
+        .saturating_add(u32::try_from(out_cap.max(0)).unwrap_or(0))
+        .saturating_add(256) // slack for the template/BOS the server adds
+        .clamp(DEFAULT_NUM_CTX, MAX_AUTO_CTX)
 }
 
 /// Output-token cap for free-text chat. A generous **positive** default (2048, up
@@ -218,7 +251,7 @@ fn num_ctx() -> u32 {
 /// llama.cpp builds treat `num_predict = -1` as a tiny value and stop after a few
 /// words, the opposite of "infinite". Bounded by `num_ctx` regardless.
 /// `FLUX_OLLAMA_NUM_PREDICT` overrides (e.g. `-1` if your build handles it, or a
-/// smaller cap). Structured (JSON-schema) replies keep a tight 512 — always short.
+/// smaller cap). Structured replies use [`STRUCTURED_PREDICT_CAP`] instead.
 fn num_predict() -> i32 {
     std::env::var("FLUX_OLLAMA_NUM_PREDICT")
         .ok()
@@ -254,6 +287,18 @@ fn merge_options(
     base
 }
 
+/// Token ceiling for **structured** (schema-constrained) completions.
+///
+/// This is a safety ceiling, not a length target: with `format` set, generation
+/// is grammar-constrained and stops naturally when the object closes, so raising
+/// the cap costs nothing on a well-behaved reply — it only changes what happens
+/// to a verbose one. Too low and the JSON is cut off mid-string, which surfaces
+/// as an opaque parse error and silently disables the feature (a terse model
+/// fits; a wordier one of the same family does not — see `assess_phishing` on a
+/// 26B council build). The longest legitimate output is `flag_policy`'s three
+/// clauses (~1400 chars before Rust clamps them), so leave real headroom.
+const STRUCTURED_PREDICT_CAP: i32 = 1536;
+
 /// Build a `/api/generate` body. A `format` (a JSON Schema, or the bare string
 /// `"json"`) constrains structured output for DOM actions and gets the cooler
 /// temperature; `None` is free-text chat with a warmer one. `stream` toggles
@@ -266,14 +311,32 @@ fn generate_body(
     stream: bool,
 ) -> serde_json::Value {
     let structured = format.is_some();
-    let options = merge_options(
+    let out_cap = if structured {
+        STRUCTURED_PREDICT_CAP
+    } else {
+        num_predict()
+    };
+    let mut options = merge_options(
         serde_json::json!({
             "temperature": if structured { 0.1 } else { 0.6 },
-            "num_predict": if structured { 512 } else { num_predict() },
-            "num_ctx": num_ctx(),
+            "num_predict": out_cap,
+            "num_ctx": ctx_for(prompt, out_cap),
         }),
         extra_options(),
     );
+    // Neutralize the repetition penalty for schema-constrained output. JSON is
+    // *legitimately* repetitive — `"clause":`, `"why":`, quotes and braces recur
+    // by definition — so a penalty punishes exactly the tokens the grammar
+    // requires: the model steers away from closing a string and rambles. A model
+    // whose Modelfile sets one for prose (e.g. `repeat_penalty 1.2`) is otherwise
+    // fighting the schema on every call. Structured only; an explicit
+    // FLUX_OLLAMA_OPTIONS value still wins.
+    if structured {
+        if let Some(o) = options.as_object_mut() {
+            o.entry("repeat_penalty")
+                .or_insert_with(|| serde_json::json!(1.0));
+        }
+    }
     let mut body = serde_json::json!({
         "model": model,
         "prompt": prompt,
@@ -285,6 +348,32 @@ fn generate_body(
         body["format"] = f;
     }
     body
+}
+
+/// Interpret a non-streaming `/api/generate` reply.
+///
+/// Ollama reports **why** it stopped. `done_reason:"length"` means the token cap
+/// was hit, so the JSON is cut off mid-token — the caller would otherwise see an
+/// inscrutable "EOF while parsing a string", treat it as "model unavailable",
+/// and silently disable the feature. Naming the real cause (and the fix) is the
+/// difference between a five-minute config change and an afternoon of hunting
+/// imagined model weakness. Pure, so both paths are testable without a server.
+fn read_generate_response(
+    value: &serde_json::Value,
+    model: &str,
+) -> Result<String, AgentError> {
+    if value.get("done_reason").and_then(|v| v.as_str()) == Some("length") {
+        return Err(AgentError::Inference(format!(
+            "ollama: output truncated at the token cap (model `{model}` is more verbose \
+             than num_predict={STRUCTURED_PREDICT_CAP} allows) — raise it with \
+             FLUX_OLLAMA_OPTIONS='{{\"num_predict\":3072}}' or use a terser model"
+        )));
+    }
+    value
+        .get("response")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| AgentError::Inference(format!("ollama: no `response` field in {value}")))
 }
 
 impl OllamaBackend {
@@ -304,11 +393,7 @@ impl OllamaBackend {
             .into_json()
             .map_err(|e| AgentError::Inference(format!("ollama response decode: {e}")))?;
 
-        value
-            .get("response")
-            .and_then(|v| v.as_str())
-            .map(str::to_owned)
-            .ok_or_else(|| AgentError::Inference(format!("ollama: no `response` field in {value}")))
+        read_generate_response(&value, &active_model())
     }
 
     /// Stream a free-text completion: `/api/generate` with `stream:true` returns
@@ -426,14 +511,71 @@ mod tests {
         // default -1 lets the model finish, bounded by num_ctx.
         let chat = generate_body("m", "explain in detail", None, true);
         assert_eq!(chat["options"]["num_predict"], 2048);
-        // Structured (JSON-schema) replies stay tightly bounded — they're short.
+        // Structured (JSON-schema) replies are bounded by a *safety ceiling*, not
+        // a length target: grammar-constrained generation stops when the object
+        // closes. The old 512 assumed "structured replies are short", which held
+        // for a terse model and broke on a wordier one of the same family — the
+        // JSON was cut mid-string and the feature silently stopped working.
         let structured = generate_body(
             "m",
             "act",
             Some(serde_json::json!({ "type": "object" })),
             false,
         );
-        assert_eq!(structured["options"]["num_predict"], 512);
+        assert_eq!(structured["options"]["num_predict"], STRUCTURED_PREDICT_CAP);
+        const { assert!(STRUCTURED_PREDICT_CAP >= 1536) }; // headroom for flag_policy's 3 clauses
+    }
+
+    #[test]
+    fn context_grows_to_fit_long_prompts() {
+        // Short prompt → the cheap baseline (prompt-eval cost is linear in ctx).
+        assert_eq!(ctx_for("hi", 512), DEFAULT_NUM_CTX);
+
+        // flag_policy's 12 KB document must NOT be silently truncated: num_ctx
+        // covers prompt AND output, and Ollama drops the OLDEST tokens — exactly
+        // where "reply with one JSON object" lives. The model would then see a
+        // bare document with no task and ramble past the output cap.
+        let doc = "x".repeat(12 * 1024);
+        let ctx = ctx_for(&doc, STRUCTURED_PREDICT_CAP);
+        assert!(ctx > DEFAULT_NUM_CTX, "grew for a long prompt");
+        assert!(
+            ctx >= estimate_tokens(&doc) + STRUCTURED_PREDICT_CAP as u32,
+            "room for the prompt AND the answer"
+        );
+
+        // Bounded — RAM is the whole wedge.
+        assert_eq!(ctx_for(&"y".repeat(10_000_000), 512), MAX_AUTO_CTX);
+    }
+
+    #[test]
+    fn structured_calls_neutralize_a_prose_repeat_penalty() {
+        // JSON is legitimately repetitive; a penalty fights the grammar.
+        let structured = generate_body("m", "act", Some(serde_json::json!({})), false);
+        assert_eq!(structured["options"]["repeat_penalty"], 1.0);
+        // Free-text chat leaves the model's own value alone.
+        let chat = generate_body("m", "explain", None, true);
+        assert!(chat["options"].get("repeat_penalty").is_none());
+    }
+
+    #[test]
+    fn truncated_output_reports_the_cap_not_a_parse_error() {
+        // The failure this replaced: a cut-off reply reached serde as
+        // "EOF while parsing a string", which every caller reads as
+        // "model unavailable" and silently falls back on.
+        let truncated = serde_json::json!({
+            "response": "{\"reasons\": [\"it asks for your PayPal",
+            "done": true,
+            "done_reason": "length"
+        });
+        let err = read_generate_response(&truncated, "gemma4:26b-council").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("truncated"), "{msg}");
+        assert!(msg.contains("gemma4:26b-council"), "names the model: {msg}");
+        assert!(msg.contains("num_predict"), "says how to fix it: {msg}");
+
+        // A normal reply is unaffected.
+        let ok = serde_json::json!({ "response": "{\"a\":1}", "done_reason": "stop" });
+        assert_eq!(read_generate_response(&ok, "m").unwrap(), "{\"a\":1}");
     }
 
     #[test]
