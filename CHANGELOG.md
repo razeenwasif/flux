@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **PDFs larger than 32 MB now open** — the viewer refused them outright. The cap wasn't arbitrary:
+  the bytes crossed the IPC bridge **base64-encoded**, so a 32 MB file became a 43 MB base64 string,
+  which `atob` expanded into a ~64 MB binary JS string before a byte-at-a-time copy into a
+  `Uint8Array` — roughly **5× the file in transient memory**, which is exactly what a low-RAM browser
+  can't afford. The bytes now travel raw over Tauri's binary IPC channel and arrive as an
+  `ArrayBuffer`, costing one copy instead of five, so the limit could rise to **256 MB** — it now
+  tracks what the renderer can hold rather than what the transport survives. Large scanned documents
+  and textbooks open, and every PDF loads faster and lighter, not just the big ones.
+
+### Fixed
 - **The workspace rail's popover vanished before you could reach it** — it sits 8px from the dot, and
   that gap was a dead zone where nothing was hovered, so the popover disappeared the moment you moved
   toward it. Its buttons (rename, delete) were effectively unreachable by mouse. A transparent hover

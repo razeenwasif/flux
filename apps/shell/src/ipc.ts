@@ -1055,7 +1055,9 @@ export const isPdfUrl = (url: string) => (url.split(/[?#]/)[0] ?? "").toLowerCas
 export const pdfViewerUrl = (src: string) =>
   src.startsWith(PDF_URL) ? src : `${PDF_URL}?src=${encodeURIComponent(src)}`;
 /** Fetch a PDF's bytes server-side (CORS-free), base64-encoded. */
-export const pdfFetch = (url: string) => invoke<string>("pdf_fetch", { url });
+/** Fetch a PDF's raw bytes (ADR/BACKLOG #35). Arrives as an ArrayBuffer over the
+ *  IPC binary channel — no base64, so a large file costs one copy rather than ~5. */
+export const pdfFetch = (url: string) => invoke<ArrayBuffer>("pdf_fetch", { url });
 /** Save edited PDF bytes (base64) to Downloads (BACKLOG #112); returns the path. */
 export const pdfSave = (dataB64: string, filename: string) =>
   invoke<string>("pdf_save", { dataB64, filename });

@@ -3,8 +3,10 @@
 //! The viewer is PDF.js running in a Flux internal page (`flux://pdf`). Rather
 //! than let the page fetch the PDF itself — cross-origin PDFs almost never send
 //! CORS headers, so the engine would block it — the Rust core fetches the bytes
-//! (http(s)) or reads them from disk (local files) and hands them back
-//! base64-encoded. Capped so a pathological file can't exhaust memory.
+//! (http(s)) or reads them from disk (local files) and hands them back as **raw
+//! bytes** over the IPC binary channel. Still capped, so a pathological file
+//! can't exhaust memory — but the cap can be generous now that a byte costs a
+//! byte (see MAX_PDF_BYTES).
 
 use std::io::Read;
 use std::time::Duration;
@@ -13,20 +15,33 @@ use base64::Engine as _;
 
 use crate::error::{FluxError, FluxResult};
 
-/// Largest PDF we'll load into the viewer; bigger → the UI offers "download" instead.
-const MAX_PDF_BYTES: usize = 32 * 1024 * 1024;
+/// Largest PDF we'll load into the viewer; bigger → the UI offers "download".
+///
+/// This was 32 MB because the bytes crossed IPC **base64-encoded**: a 32 MB file
+/// meant a 43 MB base64 string, which `atob` then expanded into a ~64 MB binary
+/// JS string before a byte-at-a-time copy into a `Uint8Array` — roughly 5× the
+/// file in transient memory, which is exactly what Flux's low-RAM wedge can't
+/// afford. Now the bytes travel raw over the IPC binary channel and become a
+/// `Uint8Array` with one copy, so the honest limit is what PDF.js can hold, not
+/// what the transport survives.
+const MAX_PDF_BYTES: usize = 256 * 1024 * 1024;
 
-/// Fetch a PDF and return it base64-encoded. Accepts an http(s) URL, a `file://`
+/// Fetch a PDF and return its raw bytes. Accepts an http(s) URL, a `file://`
 /// URL, or a bare filesystem path (e.g. a downloaded file).
+///
+/// Returns [`tauri::ipc::Response`] so the payload rides the IPC **binary**
+/// channel and arrives in JS as an `ArrayBuffer` — no base64 inflation, no
+/// intermediate binary string, one copy into a `Uint8Array`.
 #[tauri::command]
-pub async fn pdf_fetch(url: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || fetch(&url))
+pub async fn pdf_fetch(url: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || fetch(&url))
         .await
         .map_err(|e| e.to_string())?
-        .map_err(String::from)
+        .map_err(String::from)?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
-fn fetch(url: &str) -> FluxResult<String> {
+fn fetch(url: &str) -> FluxResult<Vec<u8>> {
     let buf = if url.starts_with("http://") || url.starts_with("https://") {
         fetch_http(url)?
     } else {
@@ -41,7 +56,7 @@ fn fetch(url: &str) -> FluxResult<String> {
             MAX_PDF_BYTES / 1024 / 1024
         )));
     }
-    Ok(base64::engine::general_purpose::STANDARD.encode(&buf))
+    Ok(buf)
 }
 
 /// Save edited PDF bytes (base64) to the Downloads folder (BACKLOG #112). The
@@ -175,6 +190,36 @@ mod tests {
         let p2 = dedup_path(&dir, "x.pdf");
         assert_eq!(p2.file_name().unwrap().to_str().unwrap(), "x (1).pdf");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fetch_returns_raw_bytes_not_base64() {
+        let dir = std::env::temp_dir().join(format!("flux-pdf-raw-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("a.pdf");
+        // Bytes that are NOT valid base64 output, so an accidental re-introduction
+        // of encoding would fail this rather than quietly passing.
+        let body: Vec<u8> = b"%PDF-1.7\n\xff\xfe\x00binary\x01\x02".to_vec();
+        std::fs::write(&path, &body).unwrap();
+
+        let got = fetch(path.to_str().unwrap()).expect("reads the file");
+        assert_eq!(got, body, "bytes travel verbatim — no base64, no re-encoding");
+
+        // An empty file is an error, not an empty render.
+        let empty = dir.join("empty.pdf");
+        std::fs::write(&empty, b"").unwrap();
+        assert!(fetch(empty.to_str().unwrap()).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn size_cap_is_generous_now_that_bytes_are_raw() {
+        // The old 32 MB cap existed because base64 + atob cost ~5x the file in
+        // transient memory. Raw bytes cost ~1x, so the cap tracks what PDF.js can
+        // hold rather than what the transport survives.
+        // Const-asserted: regressing this silently re-breaks large PDFs.
+        const { assert!(MAX_PDF_BYTES >= 256 * 1024 * 1024) };
     }
 
     #[test]

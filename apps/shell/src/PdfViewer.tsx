@@ -231,13 +231,15 @@ const PdfViewer: Component = () => {
       return;
     }
     try {
-      const b64 = await pdfFetch(s);
-      if (!b64) {
+      const buf = await pdfFetch(s);
+      if (!buf || buf.byteLength === 0) {
         setError("Couldn't load this PDF.");
         setLoading(false);
         return;
       }
-      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      // Raw ArrayBuffer straight from Rust — no atob, no intermediate binary
+      // string, one copy. This is what makes large PDFs affordable.
+      const bytes = new Uint8Array(buf);
       await loadBytes(bytes);
       const id2 = activeId();
       if (id2 != null) updateTabTitle(id2, filename());
