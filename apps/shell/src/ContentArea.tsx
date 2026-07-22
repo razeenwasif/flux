@@ -198,7 +198,12 @@ const ContentArea: Component<{
         <SentinelAuditPage />
       </Match>
       <Match when={tab()?.url?.startsWith(PDF_URL)}>
-        <PdfViewer />
+        {/* Keyed on the tab id (a primitive — never the tab object, which would
+            remount in a loop) so each PDF tab gets its OWN viewer. Sharing one
+            instance made every PDF tab show whichever file was opened last. */}
+        <Show when={tab()?.id} keyed>
+          {(id) => <PdfViewer tabId={id} />}
+        </Show>
       </Match>
       <Match when={tab()?.url === ARCHIVE_URL}>
         <ArchivePage onNavigate={props.onNavigate} />

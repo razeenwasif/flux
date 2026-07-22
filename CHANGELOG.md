@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **Multiple PDFs can now be open in separate tabs** — opening a second PDF overwrote the first: every
+  PDF tab shared a *single* viewer instance that read whichever tab was **active** rather than its own,
+  so all of them showed the last-loaded file. Each PDF tab now gets its own viewer, keyed on the tab id
+  (the same pattern the file browser already used), with its source, document and edits scoped to that
+  tab.
 - **PDFs larger than 32 MB now open** — the viewer refused them outright. The cap wasn't arbitrary:
   the bytes crossed the IPC bridge **base64-encoded**, so a 32 MB file became a 43 MB base64 string,
   which `atob` expanded into a ~64 MB binary JS string before a byte-at-a-time copy into a

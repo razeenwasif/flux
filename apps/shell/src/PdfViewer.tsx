@@ -16,7 +16,7 @@
  */
 import { For, Match, Show, Switch, createEffect, createSignal, onMount, type Component } from "solid-js";
 import { pdfFetch, pdfSave } from "./ipc";
-import { activeId, activeTab, updateTabTitle } from "./store";
+import { tabs, updateTabTitle } from "./store";
 
 // ─── Annotation model (all geometry in PDF points, origin top-left, y-down) ──
 type Tool = "pan" | "highlight" | "pen" | "text" | "rect" | "arrow" | "erase";
@@ -112,7 +112,12 @@ function bytesToB64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
-const PdfViewer: Component = () => {
+/** One viewer instance per PDF tab. `tabId` is what makes that true: the source,
+ *  the loaded document and every edit are scoped to THIS tab, never to whichever
+ *  tab happens to be active. ContentArea keys the instance on the id (see
+ *  FilesView for the same pattern), so switching between two PDF tabs gives each
+ *  its own document instead of one shared viewer showing the last-loaded file. */
+const PdfViewer: Component<{ tabId: number }> = (props) => {
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [ready, setReady] = createSignal(false);
@@ -155,7 +160,9 @@ const PdfViewer: Component = () => {
   let drag: { page: number; rect: DOMRect; w: number; h: number } | null = null;
 
   const parseSrc = () => {
-    const url = activeTab()?.url ?? "";
+    // THIS tab's url — not the active tab's. Reading activeTab() here is what
+    // made every PDF tab render whichever file was opened last.
+    const url = tabs().find((t) => t.id === props.tabId)?.url ?? "";
     const q = url.split("?")[1] ?? "";
     const s = new URLSearchParams(q).get("src");
     try {
@@ -223,8 +230,7 @@ const PdfViewer: Component = () => {
   const load = async () => {
     const s = parseSrc();
     setSrc(s);
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "PDF");
+    updateTabTitle(props.tabId, "PDF");
     if (!s) {
       setError("No PDF source.");
       setLoading(false);
@@ -241,8 +247,7 @@ const PdfViewer: Component = () => {
       // string, one copy. This is what makes large PDFs affordable.
       const bytes = new Uint8Array(buf);
       await loadBytes(bytes);
-      const id2 = activeId();
-      if (id2 != null) updateTabTitle(id2, filename());
+      updateTabTitle(props.tabId, filename());
       setLoading(false);
     } catch (e) {
       setError(`Couldn't render this PDF: ${String(e)}`);
