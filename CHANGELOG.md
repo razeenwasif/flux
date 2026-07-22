@@ -7,6 +7,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Changed
+- **Renaming a workspace is now discoverable** — it was already possible, but only by double-clicking
+  the name inside a hover popover on the workspace rail, which left **delete (✕) as the only visible
+  control**: the destructive action was one click, the safe one was hidden. There's now a **✎ rename
+  button** beside it, and **"Rename workspace"** and **"New workspace"** entries in the command palette
+  (workspaces had no palette entries at all). The palette route un-collapses the sidebar and leaves
+  focus mode first, so it works from wherever you are.
+
 ### Fixed
 - **Long AI prompts were being silently truncated, breaking the features that need them most** — the
   Ollama context window (`num_ctx`) covers prompt *and* output together, but was pinned at 4096 while

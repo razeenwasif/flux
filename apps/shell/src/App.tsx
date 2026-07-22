@@ -169,6 +169,7 @@ import {
   closeTab,
   reopenClosedTab,
   createWorkspace,
+  requestWorkspaceRename,
   activePanel,
   activePanelB,
   panelWidth,
@@ -1238,6 +1239,19 @@ const App: Component = () => {
     { id: "speedtest", label: "Network speed test", icon: "⚡", run: () => go(SPEEDTEST_URL) },
     { id: "permissions", label: "Site permissions", icon: "🔐", run: () => go(PERMISSIONS_URL) },
     { id: "sentinel", label: "Agent activity log", icon: "🛡", run: () => go(SENTINEL_URL) },
+    // Workspaces had no palette entry at all, and rename was a double-click on a
+    // hover popover — effectively undiscoverable.
+    {
+      id: "ws-rename",
+      label: "Rename workspace",
+      icon: "✎",
+      run: () => {
+        setFocusMode(false); // the rail is hidden in focus mode
+        setSidebarOpen(true); // …and when the sidebar is collapsed
+        requestWorkspaceRename(activeWorkspace());
+      },
+    },
+    { id: "ws-new", label: "New workspace", icon: "🗂", run: () => void newWorkspace() },
     {
       id: "archive-save",
       label: "Save page for offline (read later)",

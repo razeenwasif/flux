@@ -92,6 +92,8 @@ import {
   renameGroup,
   renameTab,
   renameWorkspace,
+  wsRenameRequest,
+  clearWorkspaceRename,
   reorderPanels,
   reorderTabs,
   restoreArchived,
@@ -333,6 +335,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Inline rename (window.prompt is a no-op in the webview, so edit in place).
   const [editGroup, setEditGroup] = createSignal<number | null>(null);
   const [editWs, setEditWs] = createSignal<number | null>(null);
+  // The command palette can ask for a rename; the editor lives here, and the
+  // `.ws-rail-pop:has(input)` rule means rendering the input reveals the popover
+  // without needing hover.
+  createEffect(() => {
+    const id = wsRenameRequest();
+    if (id == null) return;
+    setEditWs(id);
+    clearWorkspaceRename();
+  });
   const [editContainer, setEditContainer] = createSignal<number | null>(null);
   const [editFolder, setEditFolder] = createSignal<number | null>(null);
   const [editTab, setEditTab] = createSignal<number | null>(null);
@@ -1626,6 +1637,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
                       }}
                     />
                   </Show>
+                  {/* Rename was double-click-only, which left the destructive
+                      action (✕) as the only visible control. Give the safe one
+                      an affordance too. */}
+                  <button
+                    class="ws-rail-edit"
+                    title="Rename workspace"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditWs(w.id);
+                    }}
+                  >
+                    ✎
+                  </button>
                   <button
                     class="ws-rail-x"
                     title="Delete workspace"

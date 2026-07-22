@@ -1314,6 +1314,20 @@ body.resizing .panel-edge-resize::after {
 .ws-rail-pop .ws-name {
   max-width: 160px;
 }
+.ws-rail-edit {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--flux-text-mute);
+  font-size: 11px;
+  background: transparent;
+  border: none;
+}
+.ws-rail-edit:hover {
+  color: var(--flux-text);
+  background: rgba(255, 255, 255, 0.1);
+}
 .ws-rail-x {
   flex: none;
   width: 20px;

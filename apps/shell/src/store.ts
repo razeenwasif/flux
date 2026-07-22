@@ -89,6 +89,17 @@ export async function createWorkspace(name: string, color: number): Promise<numb
   await refreshWorkspaces();
   return id;
 }
+// Rename requested from outside the sidebar (command palette). The sidebar rail
+// owns the inline editor, so this is how another surface asks it to open one.
+const [wsRenameRequest, setWsRenameRequest] = createSignal<number | null>(null);
+export { wsRenameRequest };
+export function requestWorkspaceRename(id: number): void {
+  setWsRenameRequest(id);
+}
+export function clearWorkspaceRename(): void {
+  setWsRenameRequest(null);
+}
+
 export async function renameWorkspace(id: number, name: string): Promise<void> {
   await workspaceUpdate(id, { name }).catch(() => {});
   await refreshWorkspaces();
