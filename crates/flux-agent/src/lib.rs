@@ -319,6 +319,53 @@ struct PolicyFlagList {
     flags: Vec<PolicyFlag>,
 }
 
+/// The first balanced top-level JSON object in `raw`.
+///
+/// Structured-output backends are *supposed* to emit exactly one object, and
+/// mostly do — but models also append stray chat-template residue after it
+/// (`<|tool_response>`, role markers, a trailing fence). A whole-string
+/// `from_str` then fails with "trailing characters", and because every
+/// schema-constrained feature treats a parse error as "model unavailable", the
+/// feature degrades **silently**: the phishing refinement stops refining, the
+/// policy reader returns nothing, and nothing anywhere says why.
+///
+/// Scanning to the matching brace is strictly more permissive — a clean object
+/// parses identically — so this only ever converts a silent failure into a
+/// success. String- and escape-aware, so a `{`/`}` inside a JSON string can't
+/// unbalance it. Falls back to the trimmed input when there's no object at all,
+/// leaving the original parse error to surface.
+fn first_json_object(raw: &str) -> &str {
+    let s = raw.trim();
+    let Some(start) = s.find('{') else { return s };
+    let bytes = s.as_bytes();
+    let (mut depth, mut in_str, mut escaped) = (0usize, false, false);
+    for (i, &c) in bytes.iter().enumerate().skip(start) {
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if c == b'\\' {
+                escaped = true;
+            } else if c == b'"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            b'"' => in_str = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    // `{` and `}` are ASCII, so these are char boundaries.
+                    return &s[start..=i];
+                }
+            }
+            _ => {}
+        }
+    }
+    s
+}
+
 /// Collapse a model string to one clean line, clamped to `max` chars.
 fn clamp_line(s: &str, max: usize) -> String {
     let one = s.replace(['\n', '\r'], " ");
@@ -464,7 +511,7 @@ impl AgentPlanner {
         let raw = self
             .backend
             .complete(&prompt, Some(&action_schema(false)))?;
-        let action: AgentAction = serde_json::from_str(raw.trim())?;
+        let action: AgentAction = serde_json::from_str(first_json_object(&raw))?;
         policy_check(&action)?;
         tracing::info!(target: "flux::agent", action = %action.describe(), "planned");
         Ok(action)
@@ -499,7 +546,7 @@ impl AgentPlanner {
             "required": ["command"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let v: serde_json::Value = serde_json::from_str(raw.trim())?;
+        let v: serde_json::Value = serde_json::from_str(first_json_object(&raw))?;
         let cmd = v
             .get("command")
             .and_then(|c| c.as_str())
@@ -541,7 +588,7 @@ impl AgentPlanner {
             "required": ["steps"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let v: serde_json::Value = serde_json::from_str(raw.trim())?;
+        let v: serde_json::Value = serde_json::from_str(first_json_object(&raw))?;
         let steps = v
             .get("steps")
             .and_then(|s| s.as_array())
@@ -591,7 +638,7 @@ impl AgentPlanner {
             "required": ["command", "done", "summary"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let step: NextStep = serde_json::from_str(raw.trim())?;
+        let step: NextStep = serde_json::from_str(first_json_object(&raw))?;
         Ok(step)
     }
 
@@ -634,7 +681,7 @@ impl AgentPlanner {
             "required": ["summary", "edits"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        Ok(serde_json::from_str(raw.trim())?)
+        Ok(serde_json::from_str(first_json_object(&raw))?)
     }
 
     /// Plan the **single next step** of a multi-step task (BACKLOG #A). The agent
@@ -653,7 +700,7 @@ impl AgentPlanner {
         let prompt = Self::step_prompt(goal, page_text, history, url);
         // Multi-step: `finish` is allowed so the loop can declare the goal met.
         let raw = self.backend.complete(&prompt, Some(&action_schema(true)))?;
-        let action: AgentAction = serde_json::from_str(raw.trim())?;
+        let action: AgentAction = serde_json::from_str(first_json_object(&raw))?;
         policy_check(&action)?;
         tracing::info!(target: "flux::agent", step = %action.describe(), "task step planned");
         Ok(action)
@@ -743,7 +790,7 @@ impl AgentPlanner {
             "required": ["doc_type", "sections"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let parsed: ReadingStructure = serde_json::from_str(raw.trim())?;
+        let parsed: ReadingStructure = serde_json::from_str(first_json_object(&raw))?;
         Ok(validate_reading_structure(parsed, headings.len()))
     }
 
@@ -793,7 +840,7 @@ impl AgentPlanner {
             "required": ["flags"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let parsed: PolicyFlagList = serde_json::from_str(raw.trim())?;
+        let parsed: PolicyFlagList = serde_json::from_str(first_json_object(&raw))?;
         // Rust owns the limits: at most 3, no empties, no layout-breaking lengths.
         Ok(parsed
             .flags
@@ -831,7 +878,7 @@ impl AgentPlanner {
             "required": ["insight"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let v: serde_json::Value = serde_json::from_str(raw.trim())?;
+        let v: serde_json::Value = serde_json::from_str(first_json_object(&raw))?;
         let mut s = v
             .get("insight")
             .and_then(|i| i.as_str())
@@ -882,7 +929,7 @@ impl AgentPlanner {
             "required": ["expected", "note"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let mut j: PermissionJudgment = serde_json::from_str(raw.trim())?;
+        let mut j: PermissionJudgment = serde_json::from_str(first_json_object(&raw))?;
         // Keep it to one line in a 38px bar; a rambling model can't break layout.
         j.note = j.note.replace(['\n', '\r'], " ").trim().to_string();
         if j.note.chars().count() > 140 {
@@ -941,7 +988,7 @@ impl AgentPlanner {
             "required": ["verdict", "brand", "reasons"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let mut j: PhishingJudgment = serde_json::from_str(raw.trim())?;
+        let mut j: PhishingJudgment = serde_json::from_str(first_json_object(&raw))?;
         // Never silently trust an off-vocabulary verdict — fold it to the safe
         // middle so a confused/poisoned model can't emit "legitimate" by accident.
         j.verdict = match j.verdict.to_ascii_lowercase().as_str() {
@@ -1219,6 +1266,44 @@ mod tests {
             .assess_phishing("x.com", "paypal", "t", "body", false)
             .unwrap();
         assert_eq!(j.verdict, "suspicious");
+    }
+
+    #[test]
+    fn first_json_object_survives_trailing_model_residue() {
+        // The exact shape a live gemma3 emitted, which made every
+        // schema-constrained feature fail silently: valid JSON + a stray token.
+        let raw = "{\"brand\": \"apple\", \"reasons\": [\"x\"], \"verdict\": \"phishing\"}\n    <|tool_response>";
+        let obj = first_json_object(raw);
+        assert!(serde_json::from_str::<serde_json::Value>(obj).is_ok(), "got: {obj}");
+
+        // A clean object is returned unchanged.
+        assert_eq!(first_json_object(" {\"a\":1} "), "{\"a\":1}");
+        // Nested braces don't terminate early.
+        assert_eq!(first_json_object("{\"a\":{\"b\":2}} trailing"), "{\"a\":{\"b\":2}}");
+        // Braces inside strings — including escaped quotes — can't unbalance it.
+        assert_eq!(first_json_object(r#"{"a":"}{"} x"#), r#"{"a":"}{"}"#);
+        assert_eq!(first_json_object(r#"{"a":"\"}"} x"#), r#"{"a":"\"}"}"#);
+        // Preamble before the object is skipped.
+        assert_eq!(first_json_object("Sure! {\"a\":1}"), "{\"a\":1}");
+        // No object → unchanged, so the real parse error still surfaces.
+        assert_eq!(first_json_object("not json"), "not json");
+        // Unterminated → unchanged rather than a panic or bad slice.
+        assert_eq!(first_json_object("{\"a\":1"), "{\"a\":1");
+        // Multibyte content must not break byte-index slicing.
+        assert_eq!(first_json_object("{\"a\":\"é—ü\"} tail"), "{\"a\":\"é—ü\"}");
+    }
+
+    #[test]
+    fn parsers_tolerate_trailing_residue_end_to_end() {
+        // The whole point: a model that appends junk must not silently disable
+        // the feature. Exercised through a real parse path.
+        let p = AgentPlanner::new(Box::new(Canned(
+            "{\"verdict\":\"phishing\",\"brand\":\"paypal\",\"reasons\":[\"login form\"]}\n<|tool_response>",
+        )));
+        let j = p
+            .assess_phishing("paypa1.com", "paypal", "Sign in", "body", true)
+            .expect("trailing residue must not fail the parse");
+        assert_eq!(j.verdict, "phishing");
     }
 
     #[test]

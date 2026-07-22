@@ -7,6 +7,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Fixed
+- **Every AI feature that returns structured data was silently failing against a real model** — models
+  append chat-template residue (`<|tool_response>`, role markers) *after* the JSON they were asked for,
+  and Flux parsed the whole reply, so `serde_json` rejected it with "trailing characters". Because a
+  parse error is treated as "model unavailable", each affected feature degraded **quietly**: the AI
+  phishing verdict never refined anything, the policy reader returned no clauses, the permission note
+  and tracker insight never appeared — with nothing anywhere saying why. Parsing now takes the first
+  balanced JSON object from the reply (string- and escape-aware), which is strictly more permissive, so
+  it only ever turns a silent failure into a success. Affects all 11 schema-constrained agent paths,
+  including page actions and reader structuring. Found by the new live-model eval below.
+
 ### Security
 - **Sensitive-input focus intercept (ADR 0013 — Sentinel, Pillar 1)** — the phishing warning now fires
   **before your first keystroke**. The moment a password (or one-time-code) field takes focus on a site
