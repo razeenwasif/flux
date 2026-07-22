@@ -38,10 +38,40 @@ fn host_of(url: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// How long a computed brand set stays warm. The set moves only when you save a
+/// credential or revisit a host enough to matter, so a short TTL costs nothing
+/// in accuracy — and the seed brands (the high-value impersonation targets) are
+/// always present regardless.
+const BRANDS_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The memoized brand set and when it was computed.
+type BrandCache = Mutex<Option<(std::time::Instant, Vec<String>)>>;
+
+/// Memoized wrapper around [`compute_known_good_brands`]. It reads the vault and
+/// 300 Trail entries and builds a set — cheap once, but it is now on the path of
+/// every navigation (twice: the instant pass and the deferred one) plus every
+/// vault autofill/save, so it is worth not recomputing per call.
+fn known_good_brands(app: &AppHandle) -> Vec<String> {
+    static CACHE: std::sync::OnceLock<BrandCache> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some((at, brands)) = guard.as_ref() {
+            if at.elapsed() < BRANDS_TTL {
+                return brands.clone();
+            }
+        }
+    }
+    let fresh = compute_known_good_brands(app);
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((std::time::Instant::now(), fresh.clone()));
+    }
+    fresh
+}
+
 /// The user's high-value brand labels — the impersonation-TARGET set, tiered by
 /// strength (ADR 0013): vault origins (credentials saved there) > Trail-frequent
 /// hosts (real engagement) > the curated seed. Deduped. NOT an allowlist.
-fn known_good_brands(app: &AppHandle) -> Vec<String> {
+fn compute_known_good_brands(app: &AppHandle) -> Vec<String> {
     use std::collections::BTreeSet;
     let mut set: BTreeSet<String> = phishing::SEED_BRANDS.iter().map(|s| s.to_string()).collect();
 
@@ -74,19 +104,39 @@ fn known_good_brands(app: &AppHandle) -> Vec<String> {
     set.into_iter().collect()
 }
 
-/// Assess a URL for phishing/impersonation against the user's known-good brands
-/// (ADR 0013, Pillar 1). Deterministic + local; `None` when nothing suspicious.
-/// The frontend calls this on navigation to drive the banner/interstitial.
+/// Everything the **deterministic** layer can say the moment a navigation lands
+/// (ADR 0013). One call per navigation instead of one per detector: the checks
+/// share a single `known_good_brands` computation (which reads the vault and the
+/// Trail), and the shell does one round trip instead of three.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct NavAssessment {
+    /// Pillar 1 — this host resembles a brand you value.
+    pub phishing: Option<phishing::Verdict>,
+    /// Pillar 1 — an OAuth consent screen requesting sensitive scopes.
+    pub oauth: Option<oauth::OAuthConsent>,
+    /// Pillar 2 — a bank/health/gov session worth isolating.
+    pub sensitive: Option<sensitive::SensitiveSite>,
+}
+
+/// Run every deterministic navigation check at once (ADR 0013). No model, no
+/// page content — instant and always available. The model-backed refinements
+/// land later via [`sentinel_after_load`], once the page text has been captured.
 #[tauri::command]
-pub async fn sentinel_check_url(
-    app: AppHandle,
-    url: String,
-) -> Result<Option<phishing::Verdict>, String> {
+pub async fn sentinel_on_navigate(app: AppHandle, url: String) -> Result<NavAssessment, String> {
     let host = host_of(&url);
     if host.is_empty() || !url.starts_with("http") {
-        return Ok(None);
+        return Ok(NavAssessment {
+            phishing: None,
+            oauth: None,
+            sensitive: None,
+        });
     }
-    Ok(phishing::assess(&host, &known_good_brands(&app)))
+    Ok(NavAssessment {
+        // Computed once and used only here — the expensive part of the trio.
+        phishing: phishing::assess(&host, &known_good_brands(&app)),
+        oauth: oauth::detect(&url),
+        sensitive: sensitive::classify(&host),
+    })
 }
 
 /// A one-line, agent-written assessment of a live permission request
@@ -153,12 +203,14 @@ pub struct Explainer {
     pub insight: String,
 }
 
-/// Decode the consent banner on the active page (ADR 0013, Pillar 3 M5). `None`
-/// unless the page actually carries one. The summary is deterministic; the model
-/// only adds what accepting would enable, and its absence costs nothing.
-#[tauri::command]
-pub async fn sentinel_consent_check(state: State<'_, FluxState>) -> Result<Option<Explainer>, String> {
-    let Some(snap) = state.active_snapshot() else {
+/// Decode a consent banner from an already-captured page (ADR 0013, Pillar 3).
+/// `None` unless the page actually carries one. The summary is deterministic;
+/// the model only adds what accepting would enable, and its absence costs
+/// nothing. Takes the snapshot so the deferred pass captures the page once.
+async fn consent_check(
+    snap: Option<std::sync::Arc<crate::state::DomSnapshot>>,
+) -> Result<Option<Explainer>, String> {
+    let Some(snap) = snap else {
         return Ok(None);
     };
     let text = snap.text.to_string();
@@ -266,17 +318,6 @@ pub async fn sentinel_tracker_narrative(
     Ok(Explainer { summary, insight })
 }
 
-/// Classify a URL as a sensitive session worth isolating in its own container
-/// (ADR 0013, Pillar 2 M4). Deterministic + narrow — `None` for almost every
-/// site, so the offer stays rare enough to be worth reading.
-#[tauri::command]
-pub fn sentinel_check_sensitive(url: String) -> Option<sensitive::SensitiveSite> {
-    if !url.starts_with("http") {
-        return None;
-    }
-    sensitive::classify(&host_of(&url))
-}
-
 /// Credential-entry firewall check (ADR 0013, Pillar 2 M4): does `host` look
 /// like an impersonation of a brand the user values, *at the moment credentials
 /// are at stake*?
@@ -297,15 +338,6 @@ fn assess_excluding_self(host: &str, brands: Vec<String>) -> Option<phishing::Ve
     let own = phishing::brand_label(host);
     let filtered: Vec<String> = brands.into_iter().filter(|b| *b != own).collect();
     phishing::assess(host, &filtered)
-}
-
-/// Decode an OAuth consent screen (ADR 0013, Pillar 1 M3 — OAuth-consent
-/// trigger). Deterministic + local: `Some` only when an app requests a sensitive
-/// scope, so routine "Sign in with …" stays silent. Drives the consent-review
-/// banner. No known-good lookup — the domain is genuine; the *grant* is the risk.
-#[tauri::command]
-pub fn sentinel_check_oauth(url: String) -> Option<oauth::OAuthConsent> {
-    oauth::detect(&url)
 }
 
 /// Memoized `(url, content-hash) → refined verdict` cache (ADR 0013: "memoized
@@ -371,29 +403,27 @@ fn fold_judgment(
 }
 
 /// Refine the deterministic phishing flag with a local-model content judgment
-/// (ADR 0013, Pillar 1 M3). Called async by the shell *after* `sentinel_check_url`
-/// has shown the instant deterministic banner; this upgrades or clears it once
-/// the page's visible text is available. Fail-safe: any error, missing content,
-/// or absent model leaves the deterministic verdict standing (never fail-open).
-#[tauri::command]
-pub async fn sentinel_verify_url(
-    app: AppHandle,
-    state: State<'_, FluxState>,
-    url: String,
+/// (ADR 0013, Pillar 1 M3), reading an already-captured page. Fail-safe: any
+/// error, missing content, or absent model leaves the deterministic verdict
+/// standing (never fail-open). Takes the snapshot so the deferred pass captures
+/// the page once and both refinements read the same bytes.
+async fn verify_url(
+    app: &AppHandle,
+    snap: Option<std::sync::Arc<crate::state::DomSnapshot>>,
+    url: &str,
     title: String,
 ) -> Result<Option<phishing::Verdict>, String> {
-    let host = host_of(&url);
+    let host = host_of(url);
     if host.is_empty() || !url.starts_with("http") {
         return Ok(None);
     }
     // No deterministic suspicion → nothing to refine; don't wake the model.
-    let Some(deterministic) = phishing::assess(&host, &known_good_brands(&app)) else {
+    let Some(deterministic) = phishing::assess(&host, &known_good_brands(app)) else {
         return Ok(None);
     };
 
-    // Pull the visible text + credential signal from the active snapshot, but
-    // only if it's for THIS page (a stale snapshot from another tab is useless).
-    let snap = state.active_snapshot();
+    // Use the visible text + credential signal only if the snapshot is for THIS
+    // page (a stale snapshot from another tab is useless).
     let (text, has_form) = match snap {
         Some(s) if host_of(&s.url) == host && !s.text.trim().is_empty() => {
             (s.text.to_string(), has_credential_field(&s.html))
@@ -402,7 +432,7 @@ pub async fn sentinel_verify_url(
         _ => return Ok(Some(deterministic)),
     };
 
-    let key = cache_key(&url, &text);
+    let key = cache_key(url, &text);
     if let Some(hit) = verdict_cache().lock().ok().and_then(|c| c.get(&key).cloned()) {
         return Ok(hit);
     }
@@ -427,6 +457,38 @@ pub async fn sentinel_verify_url(
         cache.insert(key, refined.clone());
     }
     Ok(refined)
+}
+
+/// The model-backed pass, run once the page's text has been captured (ADR 0013).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct LoadAssessment {
+    /// The refined phishing verdict. `None` means the model cleared a false
+    /// positive, or nothing was flagged in the first place — either way the
+    /// banner should end up hidden.
+    pub phishing: Option<phishing::Verdict>,
+    /// A decoded cookie-consent banner, if the page carries one.
+    pub consent: Option<Explainer>,
+}
+
+/// Everything that needs the captured page, in one deferred call (ADR 0013):
+/// the phishing refinement (Pillar 1) and the consent decode (Pillar 3).
+///
+/// The snapshot is read **once** and shared, so the two passes agree on exactly
+/// which page they judged — and neither wakes the model without cause
+/// (`verify_url` returns early unless the deterministic layer already fired;
+/// `consent_check` unless a banner is actually present).
+#[tauri::command]
+pub async fn sentinel_after_load(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    url: String,
+    title: String,
+) -> Result<LoadAssessment, String> {
+    let snap = state.active_snapshot();
+    Ok(LoadAssessment {
+        phishing: verify_url(&app, snap.clone(), &url, title).await?,
+        consent: consent_check(snap).await?,
+    })
 }
 
 #[cfg(test)]

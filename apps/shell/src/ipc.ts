@@ -138,6 +138,8 @@ import type {
   EvictionRank as GenEvictionRank,
   PrefetchHint as GenPrefetchHint,
   Verdict as GenVerdict,
+  NavAssessment as GenNavAssessment,
+  LoadAssessment as GenLoadAssessment,
   OAuthConsent as GenOAuthConsent,
   PermissionNote as GenPermissionNote,
   SensitiveSite as GenSensitiveSite,
@@ -154,6 +156,10 @@ export type SensitiveSite = GenSensitiveSite;
 export type PermissionNote = GenPermissionNote;
 /** Sentinel phishing verdict (ADR 0013, Pillar 1). */
 export type PhishVerdict = GenVerdict;
+/** All deterministic checks for one navigation (ADR 0013). */
+export type NavAssessment = GenNavAssessment;
+/** The model-backed pass once the page is captured (ADR 0013). */
+export type LoadAssessment = GenLoadAssessment;
 /** Sentinel OAuth consent review (ADR 0013, Pillar 1 M3). */
 export type OAuthConsent = GenOAuthConsent;
 export type ClusterTag = GenClusterTag;
@@ -1122,32 +1128,23 @@ export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capt
 export const webviewThumbnail = (tabId: number) => invoke<string>("webview_thumbnail", { tabId });
 
 /** Sentinel: assess a URL for phishing/impersonation (ADR 0013). null = clean. */
-export const sentinelCheckUrl = (url: string) =>
-  invoke<PhishVerdict | null>("sentinel_check_url", { url });
+/** Every deterministic Sentinel check for one navigation, in a single round trip
+ *  (ADR 0013): phishing resemblance, OAuth consent scopes, and whether the site
+ *  is worth isolating. No model, no page content — instant. */
+export const sentinelOnNavigate = (url: string) =>
+  invoke<NavAssessment>("sentinel_on_navigate", { url });
 
-/** Refine a deterministic phishing flag with the local model, reading the page's
- *  captured text (ADR 0013, Pillar 1 M3). May upgrade to high confidence or clear
- *  a false positive; falls back to the deterministic verdict when the model or
- *  page content is unavailable. Only worth calling after `sentinelCheckUrl` fired. */
-export const sentinelVerifyUrl = (url: string, title: string) =>
-  invoke<PhishVerdict | null>("sentinel_verify_url", { url, title });
-
-/** Decode an OAuth consent screen (ADR 0013, Pillar 1 M3). Returns the requested
- *  scopes in plain English only when an app asks for something sensitive; routine
- *  "Sign in with …" returns null so the review banner stays quiet. */
-export const sentinelCheckOauth = (url: string) =>
-  invoke<OAuthConsent | null>("sentinel_check_oauth", { url });
+/** The model-backed pass, once the page text has been captured (ADR 0013): the
+ *  refined phishing verdict and any decoded cookie-consent banner. Reads the page
+ *  snapshot once for both. Neither half wakes the model without cause. */
+export const sentinelAfterLoad = (url: string, title: string) =>
+  invoke<LoadAssessment>("sentinel_after_load", { url, title });
 
 /** One-line agent assessment of a live permission request (ADR 0013, Pillar 2).
  *  Advisory annotation only — it never allows or denies. `null` when the model
  *  or page content is unavailable, in which case the prompt is unchanged. */
 export const sentinelAssessPermission = (host: string, permission: string) =>
   invoke<PermissionNote | null>("sentinel_assess_permission", { host, permission });
-
-/** Classify a URL as a banking/health/government session worth isolating in its
- *  own container (ADR 0013, Pillar 2 M4). Deterministic; null for almost every site. */
-export const sentinelCheckSensitive = (url: string) =>
-  invoke<SensitiveSite | null>("sentinel_check_sensitive", { url });
 
 /** Narrate the tracker graph in plain language (ADR 0013, Pillar 3 M5). The
  *  summary's figures are computed in Rust; `insight` is the model's optional
@@ -1158,10 +1155,6 @@ export const sentinelTrackerNarrative = () => invoke<Explainer>("sentinel_tracke
  *  (ADR 0013, Pillar 3 M5). On demand — this reads a long document. Empty when
  *  nothing is notable, there's no page text, or no model is running. */
 export const sentinelPolicyFlags = () => invoke<PolicyFlag[]>("sentinel_policy_flags");
-
-/** Decode the active page's cookie-consent banner (ADR 0013, Pillar 3 M5).
- *  null unless the page actually carries one. */
-export const sentinelConsentCheck = () => invoke<Explainer | null>("sentinel_consent_check");
 
 /** Click the page's genuine reject / necessary-only control. The click
  *  vocabulary is Rust-owned — the model never chooses what gets clicked. */

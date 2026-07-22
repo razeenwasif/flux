@@ -78,11 +78,8 @@ import {
   hibernateRank,
   prefetchRecord,
   prefetchHints,
-  sentinelCheckUrl,
-  sentinelVerifyUrl,
-  sentinelCheckOauth,
-  sentinelCheckSensitive,
-  sentinelConsentCheck,
+  sentinelOnNavigate,
+  sentinelAfterLoad,
   prefetchSetPressure,
   webviewPreconnect,
   webviewCaptureState,
@@ -571,44 +568,26 @@ const App: Component = () => {
         // Predictive prefetch (#103): learn this navigation transition, then
         // preconnect to the hosts the model expects you to visit next from here.
         if (url.startsWith("http")) {
-          // Sentinel phishing/impersonation check (ADR 0013, Pillar 1). The
-          // deterministic layer answers instantly; if it flags the page, wake the
-          // local model to read the rendered text and confirm/clear the banner
-          // (M3) — only then, so the model never runs on clean pages. Give
-          // capture.js a moment to deliver the page text, and drop the result if
-          // the tab has since navigated away (stale-banner race).
-          void sentinelCheckUrl(url)
-            .then((v) => {
-              setPhish(tabId, v);
-              if (!v) return;
-              setTimeout(() => {
-                if (tabs().find((t) => t.id === tabId)?.url !== url) return;
-                const title = tabs().find((t) => t.id === tabId)?.title ?? "";
-                void sentinelVerifyUrl(url, title)
-                  .then((refined) => {
-                    if (tabs().find((t) => t.id === tabId)?.url === url) setPhish(tabId, refined);
-                  })
-                  .catch(() => {});
-              }, 1500);
+          // Sentinel (ADR 0013), in two passes. First: every deterministic
+          // check in one round trip — instant, no model, no page content.
+          void sentinelOnNavigate(url)
+            .then((a) => {
+              setPhish(tabId, a.phishing);
+              setOAuth(tabId, a.oauth);
+              setSensitive(tabId, a.sensitive, url);
             })
             .catch(() => {});
-          // OAuth consent review (M3): genuine provider, but decode the scopes an
-          // app is requesting — surfaced only when something sensitive is asked.
-          void sentinelCheckOauth(url)
-            .then((c) => setOAuth(tabId, c))
-            .catch(() => {});
-          // Containerization offer (M4): bank/health/gov sessions are worth an
-          // isolated cookie jar. Deterministic, and rare enough not to nag.
-          void sentinelCheckSensitive(url)
-            .then((s) => setSensitive(tabId, s, url))
-            .catch(() => {});
-          // Cookie-consent decoder (M5): needs the captured page text, so it
-          // runs on the same deferred pass as the phishing refinement.
+          // Then, once capture.js has delivered the page text, the model-backed
+          // pass: refine/clear the phishing verdict and decode a consent banner.
+          // Dropped if the tab has since navigated away (stale-banner race).
           setTimeout(() => {
-            if (tabs().find((t) => t.id === tabId)?.url !== url) return;
-            void sentinelConsentCheck()
-              .then((c) => {
-                if (tabs().find((t) => t.id === tabId)?.url === url) setConsent(tabId, c);
+            const still = () => tabs().find((t) => t.id === tabId)?.url === url;
+            if (!still()) return;
+            void sentinelAfterLoad(url, tabs().find((t) => t.id === tabId)?.title ?? "")
+              .then((a) => {
+                if (!still()) return;
+                setPhish(tabId, a.phishing);
+                setConsent(tabId, a.consent);
               })
               .catch(() => {});
           }, 1500);

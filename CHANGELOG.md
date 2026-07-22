@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Sentinel navigation path consolidated (ADR 0013)** — the five per-navigation Sentinel IPC calls
+  (phishing, OAuth, sensitive-site, phishing refinement, consent decode) are now **two**:
+  `sentinel_on_navigate` runs every deterministic check in one round trip, and `sentinel_after_load`
+  runs the two model-backed passes once the page text is captured — reading the page snapshot **once**
+  so both agree on exactly which page they judged. The shell drops from two deferred timers to one.
+  The known-good brand set (which reads the vault and 300 Trail entries) is now **memoized for 30s**
+  instead of being rebuilt on every check — it moves only when you save a credential or revisit a
+  host, and the seed brands are always present regardless. Behaviour is unchanged; neither pass wakes
+  the local model without cause.
 - **Dark-pattern / cookie-consent decoder (ADR 0013 — Sentinel, Pillar 3, M5)** — the pattern is
   familiar: "Accept all" is one tap, refusing is buried behind "Manage preferences" and a dozen
   toggles. Flux now detects a consent banner, explains **what accepting actually enables**, and gives

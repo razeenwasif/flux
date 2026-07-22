@@ -636,8 +636,8 @@ export function setTabThumb(id: number, data: string): void {
 }
 
 // Sentinel phishing verdict per tab (ADR 0013, Pillar 1): set on navigation-finish
-// from `sentinel_check_url`, cleared on navigate-away or dismiss. The banner reads
-// the active tab's verdict.
+// from `sentinel_on_navigate`, refined by `sentinel_after_load`, cleared on
+// navigate-away or dismiss. The banner reads the active tab's verdict.
 const [phishByTab, setPhishByTab] = createStore<Record<number, PhishVerdict | null>>({});
 export const activePhish = (): PhishVerdict | null | undefined => phishByTab[activeId() ?? -1];
 export function setPhish(id: number, v: PhishVerdict | null): void {

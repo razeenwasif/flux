@@ -95,6 +95,17 @@ export type Explainer = { summary: string; insight: string }
  * One notable clause from a privacy policy / ToS (ADR 0013, Pillar 3 M5).
  */
 export type PolicyFlag = { clause: string; why: string }
+/**
+ * Everything the **deterministic** layer can say the moment a navigation lands
+ * (ADR 0013). One call per navigation instead of one per detector: the checks
+ * share a single `known_good_brands` computation (which reads the vault and the
+ * Trail), and the shell does one round trip instead of three.
+ */
+export type NavAssessment = { phishing: Verdict | null; oauth: OAuthConsent | null; sensitive: SensitiveSite | null }
+/**
+ * The model-backed pass, run once the page's text has been captured (ADR 0013).
+ */
+export type LoadAssessment = { phishing: Verdict | null; consent: Explainer | null }
 export type Bookmark = { id: number; title: string; url: string; folder: string; added_ms: number }
 /**
  * A subscribed feed. Only the subscription is persisted (id, url, title).
