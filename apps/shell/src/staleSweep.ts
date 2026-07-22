@@ -9,13 +9,22 @@
  */
 import { agentChat, traceBranches } from "./ipc";
 import {
+  activeWorkspace,
   archiveBranchRecord,
   archiveTabRecord,
   closeTab,
   staleTabIds,
   tabs,
   updateBranchSummary,
+  workspaces,
 } from "./store";
+
+/** Name of the workspace being swept, stored alongside the archive entry so a
+ *  workspace deleted later can be recreated on restore instead of the tabs
+ *  scattering into whichever workspace is current. */
+function currentWorkspaceName(): string | undefined {
+  return workspaces().find((w) => w.id === activeWorkspace())?.name;
+}
 
 export async function runStaleSweep(now: number): Promise<void> {
   const stale = staleTabIds(now);
@@ -38,7 +47,11 @@ export async function runStaleSweep(now: number): Promise<void> {
       .filter((t): t is NonNullable<typeof t> => !!t);
     if (members.length >= 2 && !didBranch) {
       didBranch = true; // one branch per sweep keeps it gentle
-      const bid = archiveBranchRecord(members.map((t) => ({ url: t.url, title: t.title })));
+      const bid = archiveBranchRecord(
+        members.map((t) => ({ url: t.url, title: t.title })),
+        members[0]!.workspace,
+        currentWorkspaceName(),
+      );
       for (const t of members) void closeTab(t.id);
       // Name the rabbit hole (best-effort, local Gemma; placeholder until then).
       const titles = members.map((t) => `- ${t.title || t.url}`).join("\n");
@@ -57,7 +70,7 @@ export async function runStaleSweep(now: number): Promise<void> {
     } else if (members.length === 1 && singles < 5) {
       singles++;
       const t = members[0]!;
-      archiveTabRecord(t.url, t.title);
+      archiveTabRecord(t.url, t.title, t.workspace, currentWorkspaceName());
       void closeTab(t.id);
     }
   }

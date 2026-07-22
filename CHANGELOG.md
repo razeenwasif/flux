@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **Auto-archive was silently closing tabs in workspaces you weren't looking at** — the stale sweep
+  filtered on kind, pinned, foldered, the active tab and staleness, but **not on workspace**. It read
+  the global tab list (every other consumer filters by workspace; this one didn't), so tabs in *every*
+  workspace were reaped on the same timer — invisibly, because you weren't there to see it, and with
+  only the single active tab protected. The sweep is now scoped to the **active workspace**: one you
+  haven't opened is parked deliberately, which is the opposite of stale.
+- **Restoring an archived tab now returns it to the workspace it came from** — archive entries didn't
+  record one, so anything you reopened landed in whatever workspace you happened to be in, scattering
+  a project's tabs. Entries (and whole rabbit-hole branches) now remember their workspace **and its
+  name**, so a workspace deleted since is **recreated under its old name** rather than dumping its
+  tabs elsewhere, and the sidebar follows the restore there so it doesn't reopen out of sight. Older
+  entries have no recorded workspace and restore into the current one, exactly as before.
 - **Autofill did nothing on two-step sign-in pages** — Microsoft Entra, Google and most university SSO
   show the **username field first** and the password only on the next screen. The injector bailed
   entirely unless it found a password field, so those pages filled nothing at all — and because the

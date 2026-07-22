@@ -2293,7 +2293,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
                         class="panel-row-open"
                         title={`${b.tabs.length} pages · archived ${new Date(b.ts).toLocaleDateString()}\nClick to reopen all`}
                         onClick={() => {
-                          void restoreBranch(b);
+                          // Restores into the branch's original workspace —
+                          // follow it there so the tabs aren't reopened out of
+                          // sight.
+                          void restoreBranch(b).then((ws) => {
+                            if (ws != null) props.onSwitchWorkspace(ws);
+                          });
                           setPanel(null);
                         }}
                       >
@@ -2346,7 +2351,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                         class="panel-row-open"
                         title={a.url}
                         onClick={() => {
-                          void restoreArchived(a);
+                          void restoreArchived(a).then((ws) => {
+                            if (ws != null) props.onSwitchWorkspace(ws);
+                          });
                           setPanel(null);
                         }}
                       >

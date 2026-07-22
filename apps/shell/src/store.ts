@@ -1124,7 +1124,17 @@ export async function closeTab(id: number): Promise<void> {
 // lived window sheds clutter (hibernation already handles their RAM). Access times
 // are keyed by URL — tab ids reset across restarts — and persisted; the archived
 // list and the "days" setting also live in localStorage. Off by default (days = 0).
-export type ArchivedTab = { url: string; title: string; ts: number };
+export type ArchivedTab = {
+  url: string;
+  title: string;
+  ts: number;
+  /** Workspace the tab was living in when it was archived. Absent on entries
+   *  written before this was recorded — those restore into the current one. */
+  ws?: number;
+  /** Its name at archive time, so a workspace deleted since can be recreated
+   *  rather than silently dumping the tabs wherever you happen to be. */
+  wsName?: string;
+};
 const ACCESS_KEY = "flux.tabAccess";
 const ARCHIVED_KEY = "flux.archivedTabs";
 const ARCH_DAYS_KEY = "flux.autoArchive.days";
@@ -1168,10 +1178,13 @@ function persistArchived(list: ArchivedTab[]): void {
   localStorage.setItem(ARCHIVED_KEY, JSON.stringify(list.slice(0, 200)));
 }
 /** Record a tab in the archived list (newest first; dedup by URL). */
-export function archiveTabRecord(url: string, title: string): void {
+export function archiveTabRecord(url: string, title: string, ws?: number, wsName?: string): void {
   if (!url || url === START_URL) return;
   persistArchived(
-    [{ url, title: title || url, ts: Date.now() }, ...archivedTabs().filter((a) => a.url !== url)].slice(
+    [
+      { url, title: title || url, ts: Date.now(), ws, wsName },
+      ...archivedTabs().filter((a) => a.url !== url),
+    ].slice(
       0,
       200,
     ),
@@ -1183,11 +1196,39 @@ export function removeArchived(url: string): void {
 export function clearArchived(): void {
   persistArchived([]);
 }
-/** Reopen an archived tab and drop it from the list. */
-export async function restoreArchived(a: ArchivedTab): Promise<void> {
+/** Resolve where an archived entry should be restored to.
+ *
+ *  Returns the workspace id to put the tabs in, or `null` to use the current
+ *  one. A workspace deleted since archiving is **recreated under its old name**
+ *  — otherwise restoring a project's tabs would scatter them into whatever
+ *  workspace you happened to be looking at, which is the problem this exists to
+ *  solve. Entries archived before provenance was recorded have no `ws` and land
+ *  in the current workspace, as they always did. */
+async function resolveArchiveWorkspace(ws?: number, wsName?: string): Promise<number | null> {
+  if (ws == null) return null;
+  if (workspaces().some((w) => w.id === ws)) return ws;
+  if (!wsName) return null; // nothing to recreate it from
+  const color = C_PALETTE[workspaces().length % C_PALETTE.length]!;
+  const id = await createWorkspace(wsName, color).catch(() => 0);
+  return id || null;
+}
+
+/** Reopen an archived tab and drop it from the list.
+ *
+ *  Resolves to the workspace the tab landed in when that isn't the active one,
+ *  so the caller can switch there — the store can't switch itself, since the
+ *  real switch also hibernates the outgoing workspace's webviews (App owns it). */
+export async function restoreArchived(a: ArchivedTab): Promise<number | null> {
   removeArchived(a.url);
   touchTabUrl(a.url);
-  await openTab("browser", a.url);
+  const target = await resolveArchiveWorkspace(a.ws, a.wsName);
+  const tab = await openTab("browser", a.url);
+  if (target != null && target !== activeWorkspace()) {
+    await tabSetWorkspace(tab.id, target).catch(() => {});
+    await refreshTabs();
+    return target;
+  }
+  return null;
 }
 // ── Archived branches (#46 upgrade — "rabbit-hole" auto-archive) ────────────
 // When a whole Trail-connected branch of tabs goes stale together, it archives
@@ -1199,6 +1240,9 @@ export type ArchivedBranch = {
   summary: string;
   ts: number;
   tabs: { url: string; title: string }[];
+  /** Workspace the branch belonged to (see ArchivedTab.ws). */
+  ws?: number;
+  wsName?: string;
 };
 const BRANCHES_KEY = "flux.archivedBranches";
 const [archivedBranches, setArchivedBranches] = createSignal<ArchivedBranch[]>(readJson(BRANCHES_KEY, []));
@@ -1209,13 +1253,19 @@ function persistBranches(list: ArchivedBranch[]): void {
 }
 /** Record a branch (newest first). Returns its id so the sweep can attach the
  *  async summary when it arrives. */
-export function archiveBranchRecord(tabsIn: { url: string; title: string }[]): string {
+export function archiveBranchRecord(
+  tabsIn: { url: string; title: string }[],
+  ws?: number,
+  wsName?: string,
+): string {
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const branch: ArchivedBranch = {
     id,
     summary: "",
     ts: Date.now(),
     tabs: tabsIn.map((t) => ({ url: t.url, title: t.title || t.url })),
+    ws,
+    wsName,
   };
   persistBranches([branch, ...archivedBranches()]);
   return id;
@@ -1226,13 +1276,24 @@ export function updateBranchSummary(id: string, summary: string): void {
 export function removeBranch(id: string): void {
   persistBranches(archivedBranches().filter((b) => b.id !== id));
 }
-/** Reopen every page of a branch as tabs and drop the record. */
-export async function restoreBranch(b: ArchivedBranch): Promise<void> {
+/** Reopen every page of a branch as tabs and drop the record. Like
+ *  [`restoreArchived`], resolves to the workspace they landed in when it isn't
+ *  the active one — a whole research branch belongs back where it came from. */
+export async function restoreBranch(b: ArchivedBranch): Promise<number | null> {
   removeBranch(b.id);
+  const target = await resolveArchiveWorkspace(b.ws, b.wsName);
+  const moved: number[] = [];
   for (const t of b.tabs) {
     touchTabUrl(t.url);
-    await openTab("browser", t.url).catch(() => {});
+    const tab = await openTab("browser", t.url).catch(() => null);
+    if (tab) moved.push(tab.id);
   }
+  if (target != null && target !== activeWorkspace()) {
+    for (const id of moved) await tabSetWorkspace(id, target).catch(() => {});
+    await refreshTabs();
+    return target;
+  }
+  return null;
 }
 
 /** Open browser tabs stale enough to auto-archive now (excludes the active, pinned,
@@ -1248,6 +1309,12 @@ export function staleTabIds(now: number): number[] {
         !t.pinned &&
         t.folder == null &&
         t.id !== activeId() &&
+        // Only the workspace you're actually in. `tabs()` is the GLOBAL list —
+        // every other consumer filters by workspace and this one didn't, so the
+        // sweep reaped tabs in workspaces you weren't looking at, on the same
+        // timer, invisibly. A workspace you haven't opened is parked on purpose,
+        // which is the opposite of stale.
+        t.workspace === activeWorkspace() &&
         t.url !== START_URL &&
         now - (accessMap[t.url] ?? now) > cutoff,
     )
