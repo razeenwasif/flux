@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Security
+- **Agent activity log — you can finally read it (ADR 0013 — Sentinel, Pillar 0)** — the sealed
+  audit log has been recording every action the agent runs on your behalf since M1, with nowhere to
+  see it. New **`flux://sentinel`** page (palette: "Agent activity log", or Settings → Privacy) lists
+  each action newest-first: what it was, when, which tab, whether the destructive deny-list matched,
+  and whether it carried explicit confirmation. Actions that ran **unconfirmed** are called out at the
+  top rather than rendered as just another row — the read≠act gate is meant to make that impossible,
+  so if one ever appears it should be loud. Clearable, and clearing is sealed to disk so it survives a
+  restart. Local-only, encrypted at rest with the same key ladder as your browsing history.
 - **Sentinel navigation path consolidated (ADR 0013)** — the five per-navigation Sentinel IPC calls
   (phishing, OAuth, sensitive-site, phishing refinement, consent decode) are now **two**:
   `sentinel_on_navigate` runs every deterministic check in one round trip, and `sentinel_after_load`

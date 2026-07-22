@@ -886,6 +886,8 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_hibernate,
             webview::webview_capture_state,
             webview::webview_thumbnail,
+            sentinel::sentinel_audit_list,
+            sentinel::sentinel_audit_clear,
             sentinel::sentinel_on_navigate,
             sentinel::sentinel_after_load,
             sentinel::sentinel_assess_permission,

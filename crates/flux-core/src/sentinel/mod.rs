@@ -139,6 +139,21 @@ pub async fn sentinel_on_navigate(app: AppHandle, url: String) -> Result<NavAsse
     })
 }
 
+/// The sealed agent-action audit log, newest first (ADR 0013, Pillar 0). The
+/// trust surface for "what has the agent actually done on my behalf?" — the log
+/// has been written since M1; this is what finally lets you read it.
+#[tauri::command]
+pub fn sentinel_audit_list(audit: State<'_, SentinelAudit>) -> Vec<AuditEntry> {
+    audit.list()
+}
+
+/// Forget the audit log. It's the user's record of their own agent, so they get
+/// to clear it — the same reasoning as clearing history.
+#[tauri::command]
+pub fn sentinel_audit_clear(audit: State<'_, SentinelAudit>) {
+    audit.clear();
+}
+
 /// A one-line, agent-written assessment of a live permission request
 /// (ADR 0013, Pillar 2 M4). Advisory annotation for the *existing* prompt —
 /// the user still decides; nothing here allows or denies.

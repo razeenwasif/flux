@@ -42,6 +42,7 @@ import {
   TASKS_URL,
   SPEEDTEST_URL,
   PERMISSIONS_URL,
+  SENTINEL_URL,
   isPdfUrl,
   pdfViewerUrl,
   ARCHIVE_URL,
@@ -1226,6 +1227,7 @@ const App: Component = () => {
     { id: "tasks", label: "Open Task manager", icon: "🗂️", run: () => go(TASKS_URL) },
     { id: "speedtest", label: "Network speed test", icon: "⚡", run: () => go(SPEEDTEST_URL) },
     { id: "permissions", label: "Site permissions", icon: "🔐", run: () => go(PERMISSIONS_URL) },
+    { id: "sentinel", label: "Agent activity log", icon: "🛡", run: () => go(SENTINEL_URL) },
     {
       id: "archive-save",
       label: "Save page for offline (read later)",

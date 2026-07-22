@@ -99,6 +99,14 @@ impl SentinelAudit {
         self.inner.read().entries.iter().rev().cloned().collect()
     }
 
+    /// Drop every entry. Marked dirty so the cleared state is sealed to disk on
+    /// the next flush — clearing must not survive a restart.
+    pub fn clear(&self) {
+        self.hydrate(); // so a later flush can't resurrect un-read entries
+        self.inner.write().entries.clear();
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
     pub fn persist_if_dirty(&self) {
         if !self.dirty.swap(false, Ordering::Relaxed) {
             return;
@@ -130,6 +138,30 @@ mod tests {
         let list = a.list();
         assert_eq!(list.len(), MAX_ENTRIES, "log is capped");
         assert_eq!(list[0].action, format!("click {}", MAX_ENTRIES + 4), "newest first");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clear_empties_the_log_and_marks_it_for_reseal() {
+        let dir = std::env::temp_dir().join(format!("flux-audit-clr-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("audit.json");
+        let a = SentinelAudit::empty(path.clone());
+        a.record(AuditEntry {
+            ms: 1,
+            tab: 1,
+            action: "click x".into(),
+            destructive: None,
+            confirmed: true,
+        });
+        a.persist_if_dirty();
+        a.clear();
+        assert!(a.list().is_empty());
+        // Dirty again, so the cleared state reaches disk — otherwise a restart
+        // would resurrect everything the user just cleared.
+        a.persist_if_dirty();
+        let reloaded = SentinelAudit::empty(path);
+        assert!(reloaded.list().is_empty(), "clearing survives a restart");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

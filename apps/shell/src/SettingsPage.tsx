@@ -30,6 +30,7 @@ import {
   leanStatus,
   memStatus,
   PERMISSIONS_URL,
+  SENTINEL_URL,
   permissionsSetBlock,
   permissionsStatus,
   porcupineHasKey,
@@ -653,6 +654,14 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           >
             <button class="set-link-btn" onClick={() => props.onNavigate(PERMISSIONS_URL)}>
               Manage…
+            </button>
+          </Row>
+          <Row
+            label="Agent activity"
+            hint="What the Flux agent has done on your behalf — sealed on this device."
+          >
+            <button class="set-link-btn" onClick={() => props.onNavigate(SENTINEL_URL)}>
+              View log…
             </button>
           </Row>
           <Row label="Cookies" hint="Clear every cookie in the store.">

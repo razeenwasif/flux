@@ -96,6 +96,10 @@ export type Explainer = { summary: string; insight: string }
  */
 export type PolicyFlag = { clause: string; why: string }
 /**
+ * One logged agent action.
+ */
+export type AuditEntry = { ms: number; tab: number; action: string; destructive: string | null; confirmed: boolean }
+/**
  * Everything the **deterministic** layer can say the moment a navigation lands
  * (ADR 0013). One call per navigation instead of one per detector: the checks
  * share a single `known_good_brands` computation (which reads the vault and the

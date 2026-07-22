@@ -17,6 +17,7 @@ import {
   OMNI_URL,
   PDF_URL,
   PERMISSIONS_URL,
+  SENTINEL_URL,
   RESOURCES_URL,
   SESSIONS_URL,
   SETTINGS_URL,
@@ -90,6 +91,7 @@ const ResourcesPage = lazy(() => import("./ResourcesPage"));
 const TasksPage = lazy(() => import("./TasksPage"));
 const SpeedtestPage = lazy(() => import("./SpeedtestPage"));
 const PermissionsPage = lazy(() => import("./PermissionsPage"));
+const SentinelAuditPage = lazy(() => import("./SentinelAuditPage"));
 const PdfViewer = lazy(() => import("./PdfViewer"));
 const ArchivePage = lazy(() => import("./ArchivePage"));
 const FeedsPage = lazy(() => import("./FeedsPage"));
@@ -191,6 +193,9 @@ const ContentArea: Component<{
       </Match>
       <Match when={tab()?.url === PERMISSIONS_URL}>
         <PermissionsPage />
+      </Match>
+      <Match when={tab()?.url === SENTINEL_URL}>
+        <SentinelAuditPage />
       </Match>
       <Match when={tab()?.url?.startsWith(PDF_URL)}>
         <PdfViewer />

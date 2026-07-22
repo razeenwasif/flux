@@ -93,6 +93,8 @@ pub fn generate_ts() -> String {
         // Sentinel (ADR 0013, Pillar 3): plain-language privacy explainers.
         specta::ts::export::<crate::sentinel::Explainer>(&c),
         specta::ts::export::<crate::sentinel::PolicyFlag>(&c),
+        // Sentinel (ADR 0013, Pillar 0): the sealed agent-action audit log.
+        specta::ts::export::<crate::sentinel::AuditEntry>(&c),
         // Sentinel (ADR 0013): the two consolidated per-navigation results.
         specta::ts::export::<crate::sentinel::NavAssessment>(&c),
         specta::ts::export::<crate::sentinel::LoadAssessment>(&c),

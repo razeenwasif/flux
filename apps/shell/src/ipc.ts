@@ -145,7 +145,10 @@ import type {
   SensitiveSite as GenSensitiveSite,
   Explainer as GenExplainer,
   PolicyFlag as GenPolicyFlag,
+  AuditEntry as GenAuditEntry,
 } from "./bindings.gen";
+/** One logged agent action (ADR 0013, Pillar 0). */
+export type AuditEntry = GenAuditEntry;
 /** One notable clause found in a policy / ToS (ADR 0013, Pillar 3 M5). */
 export type PolicyFlag = GenPolicyFlag;
 /** Sentinel plain-language privacy explainer (ADR 0013, Pillar 3 M5). */
@@ -768,6 +771,7 @@ export const permissionsSetBlock = (on: boolean) => invoke<void>("permissions_se
 
 /** Per-site permission manager (#38). */
 export const PERMISSIONS_URL = "flux://permissions";
+export const SENTINEL_URL = "flux://sentinel";
 // PermKind / PermDecision / SitePerm are generated (bindings.gen) and aliased above.
 export const permissionsList = () => invoke<SitePerm[]>("permissions_list");
 export const permissionsSet = (host: string, kind: PermKind, decision: PermDecision) =>
@@ -1155,6 +1159,12 @@ export const sentinelTrackerNarrative = () => invoke<Explainer>("sentinel_tracke
  *  (ADR 0013, Pillar 3 M5). On demand — this reads a long document. Empty when
  *  nothing is notable, there's no page text, or no model is running. */
 export const sentinelPolicyFlags = () => invoke<PolicyFlag[]>("sentinel_policy_flags");
+
+/** The sealed agent-action audit log, newest first (ADR 0013, Pillar 0). */
+export const sentinelAuditList = () => invoke<AuditEntry[]>("sentinel_audit_list");
+
+/** Forget the audit log — the user's record of their own agent. */
+export const sentinelAuditClear = () => invoke<void>("sentinel_audit_clear");
 
 /** Click the page's genuine reject / necessary-only control. The click
  *  vocabulary is Rust-owned — the model never chooses what gets clicked. */
