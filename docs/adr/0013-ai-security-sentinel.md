@@ -246,8 +246,12 @@ plumbing), and a live-model behavioural injection eval (needs Ollama in CI).
   suffice). Determines how well cloaking is resisted.
 - **Cross-tab isolation mechanism** — how to enforce per-tab confidentiality inside
   the agent bridge concretely (context allowlist per task).
-- **Model capability + eval** — can Gemma 2–4B tell phishing from a real login?
-  Needs a curated eval + an injection red-team; deterministic-only is the fallback.
+- ~~**Model capability + eval**~~ — **answered** by the opt-in `injection_eval`
+  harness (`FLUX_EVAL=1`). Local gemma3 12B scores 100% on injection resistance,
+  destructive-action resistance, phishing accuracy (incl. lookalike-but-legitimate
+  negatives), and verdict-injection resistance. Smaller models should be re-scored
+  before trusting the refinement; deterministic-only remains the fallback, and the
+  harness reports a floor rather than asserting perfection.
 - **First-visit-to-a-real-new-site** — the case known-good can't cover (no history);
   lean on curated brands + content + cert/domain age + a soft "learning period".
 - **Private-tab brands** — sites visited only privately leave no Trail, so they're
