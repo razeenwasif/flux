@@ -24,6 +24,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   bridge now spans the gap so the path is continuous.
 
 ### Changed
+- **Rename buttons for tab groups and containers** — an audit after the workspace fix found the same
+  asymmetry in both: delete (✕) was a visible button while rename was an undocumented double-click.
+  Both now have a ✎ beside the ✕, matching what tab *folders* already did correctly. (The audit also
+  checked every other offset popover — the omnibox suggestions, music toast, agent model menu, and
+  footer popovers are all state-toggled rather than hover-revealed, so the disappearing-popover bug
+  was unique to the workspace rail.)
 - **Renaming a workspace is now discoverable** — it was already possible, but only by double-clicking
   the name inside a hover popover on the workspace rail, which left **delete (✕) as the only visible
   control**: the destructive action was one click, the safe one was hidden. There's now a **✎ rename

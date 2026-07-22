@@ -456,6 +456,22 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-text);
   background: var(--flux-teal-dim);
 }
+/* Rename (✎) beside delete (✕) — the container row's delete is always visible,
+   so its rename should be too. */
+.panel-row-edit {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--flux-text-mute);
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.panel-row-edit:hover {
+  color: var(--flux-text);
+  background: var(--flux-surface-2);
+}
 .panel-row-x {
   flex: none;
   width: 26px;
@@ -2031,6 +2047,29 @@ body.resizing .panel-edge-resize::after {
   flex: none;
   font-size: 10.5px;
   color: var(--flux-text-mute);
+}
+/* Rename (✎) sits beside ungroup (✕) so the safe action is as reachable as the
+   destructive one — same reveal, same geometry. */
+.tab-group-edit {
+  flex: none;
+  opacity: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--flux-text-dim);
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.tab-group-head:hover .tab-group-edit {
+  opacity: 1;
+}
+.tab-group-edit:hover {
+  background: var(--flux-surface-2);
+  color: var(--flux-text);
 }
 .tab-group-x {
   flex: none;

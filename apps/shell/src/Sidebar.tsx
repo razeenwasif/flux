@@ -1320,6 +1320,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
                       </Show>
                       <span class="tab-group-count">{members().length}</span>
                       <button
+                        class="tab-group-edit"
+                        title="Rename group"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditGroup(g.id);
+                        }}
+                      >
+                        ✎
+                      </button>
+                      <button
                         class="tab-group-x"
                         title="Ungroup"
                         onClick={(e) => {
@@ -1962,6 +1972,16 @@ const Sidebar: Component<SidebarProps> = (props) => {
                         }}
                       />
                     </Show>
+                    <button
+                      class="panel-row-edit"
+                      title="Rename container"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditContainer(c.id);
+                      }}
+                    >
+                      ✎
+                    </button>
                     <button
                       class="panel-row-x"
                       title="Delete container"
