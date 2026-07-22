@@ -73,32 +73,62 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
    *  injector can't fill — a custom widget, a cross-origin frame, or a two-step
    *  sign-in whose password screen hasn't appeared yet. */
   const copyPw = async (c: CredentialMeta): Promise<boolean> => {
+    let pw: string | null = null;
     try {
-      const pw = await vaultReveal(c.id);
-      if (!pw) return false;
+      pw = await vaultReveal(c.id);
+    } catch {
+      return false; // vault locked / entry gone
+    }
+    if (!pw) return false;
+    try {
       await navigator.clipboard.writeText(pw);
       return true;
     } catch {
-      return false;
+      // Some embedded webviews refuse the async Clipboard API (no permission,
+      // not treated as a secure context). Fall back to the legacy path, which
+      // is still honoured there.
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = pw;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
     }
   };
 
   const fill = async (c: CredentialMeta) => {
     const id = activeId();
     if (id == null) return;
+    let filled = true;
+    let why = "";
     try {
       await vaultFill(id, c.id);
     } catch (e) {
-      setMsg(String(e));
-      return;
+      filled = false;
+      why = String(e).replace(/^Error:\s*/, "");
     }
-    // The injected script's result can't come back (eval is fire-and-forget), so
-    // rather than claim success we can't verify, always leave the password on
-    // the clipboard. If the fill landed this costs nothing; if it didn't — the
-    // common two-step-SSO case — the user can just paste.
+    // Copy REGARDLESS of whether the injection succeeded. An earlier version
+    // bailed on failure, which skipped the fallback at the exact moment it was
+    // needed — a blocked or impossible fill is precisely when you want the
+    // password on the clipboard. The injected script's own result can't come
+    // back either (eval is fire-and-forget), so this is the only path that
+    // always leaves you something usable.
     const copied = await copyPw(c);
-    setMsg(copied ? "Filled · password copied to clipboard" : "Filled");
-    window.setTimeout(() => setOpen(false), 1100);
+    if (filled) {
+      setMsg(copied ? "Filled · password copied" : "Filled");
+      window.setTimeout(() => setOpen(false), 1100);
+    } else {
+      // Say what went wrong AND that there's still a way forward.
+      setMsg(copied ? `${why} — password copied instead` : why || "Couldn't fill or copy");
+    }
   };
   const unlock = async () => {
     if (!unlockPw()) return;

@@ -31,6 +31,47 @@ pub const SEED_BRANDS: &[&str] = &[
     "twitch",
 ];
 
+/// Registrable domains a brand **actually owns**, which the brand-embedding rule
+/// would otherwise flag as impersonating itself.
+///
+/// A brand is a *cluster* of domains, not one name (ADR 0013: "a brand may span
+/// `chase.com` / `chaseonline.com` / `jpmorgan.com`"). `embeds_brand` matches a
+/// brand as a prefix/suffix compound — which is exactly right for
+/// `paypalsecure.com`, and exactly wrong for `microsoftonline.com`, Microsoft's
+/// real sign-in domain. Structure alone cannot tell those apart; only knowing
+/// who owns what can. Without this, Flux flagged the world's most-used
+/// enterprise login as a high-confidence impersonation — and, worse, the
+/// credential-entry firewall then refused to autofill on it.
+///
+/// Only domains that would actually trip a SEED_BRANDS comparison need to be
+/// here. The user's own vault/Trail entries are already suppressed by the
+/// exact-label match in [`assess`], so this is only the cold-start set.
+const BRAND_OWNED: &[&str] = &[
+    // Microsoft (Entra ID / M365 sign-in and asset domains).
+    "microsoftonline.com", "microsoftonline-p.com", "microsoft.com", "msftauth.net",
+    "msauth.net", "office.com", "office365.com", "live.com", "sharepoint.com",
+    "onedrive.com", "azure.com", "windows.net", "windowsazure.com",
+    // Google.
+    "google.com", "googleapis.com", "googleusercontent.com", "googlemail.com",
+    "googlesource.com", "withgoogle.com", "google-analytics.com",
+    // Apple.
+    "apple.com", "icloud.com", "apple-cloudkit.com", "applemusic.com",
+    // Amazon / AWS.
+    "amazon.com", "amazonaws.com", "amazoncognito.com", "amazontrust.com",
+    // Meta.
+    "facebook.com", "instagram.com", "whatsapp.com", "messenger.com",
+    // Developer / SaaS.
+    "github.com", "githubusercontent.com", "githubassets.com", "gitlab.com",
+    "paypal.com", "paypalobjects.com", "stripe.com", "linkedin.com",
+    "dropbox.com", "dropboxstatic.com", "adobe.com", "adobelogin.com",
+    "netflix.com", "spotify.com", "twitch.tv", "discord.com", "reddit.com",
+];
+
+/// Is this registrable domain one the brand itself owns?
+fn brand_owned(reg: &str) -> bool {
+    BRAND_OWNED.contains(&reg)
+}
+
 /// How sure we are it's an impersonation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
 pub enum Confidence {
@@ -145,6 +186,10 @@ pub fn assess(host: &str, known_good: &[String]) -> Option<Verdict> {
     if label.is_empty() {
         return None;
     }
+    // A brand's own domains are not impersonations of it (see BRAND_OWNED).
+    if brand_owned(&reg) {
+        return None;
+    }
     let norm = homoglyph_normalize(&label);
 
     let mut best: Option<Verdict> = None;
@@ -227,6 +272,51 @@ mod tests {
         let v = assess("paypal-secure.com", &seed()).unwrap();
         assert_eq!(v.resembles, "paypal");
         assert_eq!(v.confidence, Confidence::High);
+    }
+
+    #[test]
+    fn brand_owned_domains_are_not_impersonations_of_themselves() {
+        // Reported from a real ANU sign-in: login.microsoftonline.com — Microsoft's
+        // own Entra ID domain — was flagged HIGH as impersonating "microsoft",
+        // because embeds_brand treats a prefix compound as an attack. That also
+        // made the credential firewall refuse to autofill on it.
+        for host in [
+            "login.microsoftonline.com",
+            "microsoftonline.com",
+            "login.microsoft.com",
+            "accounts.google.com",
+            "storage.googleapis.com",
+            "lh3.googleusercontent.com",
+            "s3.amazonaws.com",
+            "raw.githubusercontent.com",
+            "www.paypalobjects.com",
+            "appleid.apple.com",
+        ] {
+            assert!(
+                assess(host, &seed()).is_none(),
+                "{host} is brand-owned and must not be flagged"
+            );
+        }
+    }
+
+    #[test]
+    fn brand_owned_list_does_not_blunt_real_detection() {
+        // The compound rule still has to catch the attack it exists for.
+        assert_eq!(assess("paypal-secure.com", &seed()).unwrap().confidence, Confidence::High);
+        assert_eq!(assess("microsoft-login.com", &seed()).unwrap().confidence, Confidence::High);
+        // A lookalike built FROM a brand-owned domain is not itself brand-owned.
+        assert!(assess("microsoftonline-secure.com", &seed()).is_some());
+        // Homoglyphs of the brand itself are caught.
+        assert_eq!(assess("rnicrosoft.com", &seed()).unwrap().resembles, "microsoft");
+
+        // KNOWN GAP (pre-existing, not introduced by BRAND_OWNED): a homoglyph of
+        // a brand's *other* owned domain slips through, because only SEED_BRANDS
+        // labels are comparison targets — "rnicrosoftonline" folds to
+        // "microsoftonline", which is nobody's brand label. Closing it means
+        // making the owned domains targets too, which widens the target set and
+        // risks fresh false positives; deliberately not bundled into a
+        // false-positive fix. Asserted so the gap is visible, not forgotten.
+        assert!(assess("rnicrosoftonline.com", &seed()).is_none(), "documents the gap");
     }
 
     #[test]

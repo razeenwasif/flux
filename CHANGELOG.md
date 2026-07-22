@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **Flux wrongly warned that Microsoft's own login page was impersonating Microsoft** — and worse, the
+  credential firewall then refused to autofill there. The brand-embedding rule treats a brand appearing
+  as a prefix/suffix compound as an attack, which is right for `paypalsecure.com` and wrong for
+  `microsoftonline.com` — Microsoft's real Entra ID sign-in domain. A whole class was affected:
+  `googleapis.com`, `googleusercontent.com`, `amazonaws.com`, `githubusercontent.com` and
+  `paypalobjects.com` were all flagged as high-confidence impersonations. Structure alone can't
+  separate those from a real lookalike, so Flux now carries the set of domains each brand **actually
+  owns** and never flags a brand on its own domain. Genuine attacks (`paypal-secure.com`,
+  `microsoft-login.com`, homoglyphs like `rnicrosoft.com`) are unaffected.
+- **"Fill" skipped its own copy-to-clipboard fallback whenever the fill failed** — precisely when you
+  needed it. Fill now copies the password regardless of whether the injection succeeded, and says what
+  went wrong *and* that the password is on the clipboard. Copy also falls back to the legacy clipboard
+  path for embedded webviews that refuse the async Clipboard API.
 - **Auto-archive was silently closing tabs in workspaces you weren't looking at** — the stale sweep
   filtered on kind, pinned, foldered, the active tab and staleness, but **not on workspace**. It read
   the global tab list (every other consumer filters by workspace; this one didn't), so tabs in *every*
