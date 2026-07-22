@@ -13,6 +13,7 @@ import {
   onVaultReady,
   vaultFill,
   vaultForHost,
+  vaultReveal,
   vaultLock,
   vaultStatus,
   vaultUnlock,
@@ -68,12 +69,36 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
     visibleInterval(refresh, 2500);
   });
 
-  const fill = (c: CredentialMeta) => {
+  /** Copy a credential's password to the clipboard. The fallback for pages the
+   *  injector can't fill — a custom widget, a cross-origin frame, or a two-step
+   *  sign-in whose password screen hasn't appeared yet. */
+  const copyPw = async (c: CredentialMeta): Promise<boolean> => {
+    try {
+      const pw = await vaultReveal(c.id);
+      if (!pw) return false;
+      await navigator.clipboard.writeText(pw);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const fill = async (c: CredentialMeta) => {
     const id = activeId();
-    if (id != null)
-      void vaultFill(id, c.id)
-        .then(() => setOpen(false))
-        .catch((e) => setMsg(String(e)));
+    if (id == null) return;
+    try {
+      await vaultFill(id, c.id);
+    } catch (e) {
+      setMsg(String(e));
+      return;
+    }
+    // The injected script's result can't come back (eval is fire-and-forget), so
+    // rather than claim success we can't verify, always leave the password on
+    // the clipboard. If the fill landed this costs nothing; if it didn't — the
+    // common two-step-SSO case — the user can just paste.
+    const copied = await copyPw(c);
+    setMsg(copied ? "Filled · password copied to clipboard" : "Filled");
+    window.setTimeout(() => setOpen(false), 1100);
   };
   const unlock = async () => {
     if (!unlockPw()) return;
@@ -155,8 +180,23 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
                         <span class="ext-name" title={c.urls[0] ?? ""}>
                           {c.name || c.urls[0]} <span class="ext-ver">{c.username}</span>
                         </span>
-                        <button class="vault-fill" title="Fill this page" onClick={() => fill(c)}>
+                        <button
+                          class="vault-fill"
+                          title="Fill this page (also copies the password)"
+                          onClick={() => void fill(c)}
+                        >
                           Fill
+                        </button>
+                        <button
+                          class="vault-copy"
+                          title="Copy password to clipboard"
+                          onClick={() => {
+                            void copyPw(c).then((ok) =>
+                              setMsg(ok ? "Password copied" : "Couldn't copy"),
+                            );
+                          }}
+                        >
+                          Copy
                         </button>
                       </div>
                     </div>

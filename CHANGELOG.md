@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **Autofill did nothing on two-step sign-in pages** — Microsoft Entra, Google and most university SSO
+  show the **username field first** and the password only on the next screen. The injector bailed
+  entirely unless it found a password field, so those pages filled nothing at all — and because the
+  injected script's result can't be read back, the UI reported success. Username and password are now
+  filled **independently**, so a username-first screen gets its username, and the password screen gets
+  its password. Visible/disabled fields are also filtered out, so a hidden or decorative input can't
+  win over the real one.
+- **Fill now also copies the password to the clipboard, and there's an explicit Copy button** — the
+  fallback for anything the injector genuinely can't reach: a custom login widget, a cross-origin
+  frame, or a password screen that hasn't rendered yet. Rather than claim a success it can't verify,
+  Fill leaves the password on the clipboard so you can always paste.
 - **Multiple PDFs can now be open in separate tabs** — opening a second PDF overwrote the first: every
   PDF tab shared a *single* viewer instance that read whichever tab was **active** rather than its own,
   so all of them showed the last-loaded file. Each PDF tab now gets its own viewer, keyed on the tab id

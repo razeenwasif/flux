@@ -7996,6 +7996,23 @@ body.busy .start-card {
 .vault-fill:hover {
   filter: brightness(1.08);
 }
+/* Secondary to Fill: the fallback for pages the injector can't reach. */
+.vault-copy {
+  flex: none;
+  margin-left: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--flux-text-dim);
+  background: transparent;
+  border: 1px solid var(--glass-rim-soft, rgba(255, 255, 255, 0.16));
+  cursor: pointer;
+}
+.vault-copy:hover {
+  color: var(--flux-text);
+  background: var(--flux-surface-2);
+}
 .vault-pw {
   font-family: ui-monospace, monospace;
   font-size: 11.5px;

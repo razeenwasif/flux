@@ -3,7 +3,12 @@
 // the caller appends the invocation with the credential as JSON args. Fills the
 // page's login form (password + best-guess username) and fires a full event
 // sequence so frameworks (React/Vue/Angular/etc.) register the value. Never
-// submits. Returns true if a password field was filled (for diagnostics).
+// submits. Returns "both" | "password" | "username" | "none" (for diagnostics).
+//
+// Two-step sign-in (Microsoft Entra, Google, most university SSO) shows the
+// username field FIRST and the password only on the next screen. Filling only
+// when a password field exists meant those pages silently did nothing, so each
+// field is filled independently of the other.
 function __fluxFill(u, p) {
   try {
     // Set a field's value so a framework's controlled input actually adopts it:
@@ -75,29 +80,40 @@ function __fluxFill(u, p) {
     for (var i = 0; i < inputs.length; i++) {
       if (isPw(inputs[i])) { pw = inputs[i]; break; }
     }
-    if (!pw) return false;
-    setVal(pw, p);
 
-    // Username: nearest preceding text/email/username field, else the first one.
-    var idx = inputs.indexOf(pw);
+    // Username: the nearest field PRECEDING the password when there is one
+    // (disambiguates a login form from a search box above it), otherwise the
+    // first plausible field on the page — which is the two-step SSO case.
+    var visible = function (el) {
+      if (el.disabled || el.readOnly) return false;
+      var r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    var isUser = function (el) {
+      var t = (el.type || "text").toLowerCase();
+      var ac = (el.autocomplete || "").toLowerCase();
+      if (t === "hidden" || t === "password") return false;
+      return t === "text" || t === "email" || t === "tel" ||
+             ac === "username" || ac === "email";
+    };
     var user = null;
-    for (var j = idx - 1; j >= 0; j--) {
-      var t = (inputs[j].type || "text").toLowerCase();
-      var ac = (inputs[j].autocomplete || "").toLowerCase();
-      if (t === "text" || t === "email" || t === "tel" || ac === "username" || ac === "email") {
-        user = inputs[j];
-        break;
+    if (pw) {
+      for (var j = inputs.indexOf(pw) - 1; j >= 0; j--) {
+        if (isUser(inputs[j]) && visible(inputs[j])) { user = inputs[j]; break; }
       }
     }
     if (!user) {
       for (var k = 0; k < inputs.length; k++) {
-        var t2 = (inputs[k].type || "text").toLowerCase();
-        if (t2 === "text" || t2 === "email" || t2 === "tel") { user = inputs[k]; break; }
+        if (isUser(inputs[k]) && visible(inputs[k])) { user = inputs[k]; break; }
       }
     }
-    if (user && u) setVal(user, u);
-    return true;
+
+    // Fill each independently — a page with only one of the two is normal.
+    var didPw = false, didUser = false;
+    if (pw) { setVal(pw, p); didPw = true; }
+    if (user && u) { setVal(user, u); didUser = true; }
+    return didPw ? (didUser ? "both" : "password") : (didUser ? "username" : "none");
   } catch (e) {
-    return false;
+    return "none";
   }
 }
