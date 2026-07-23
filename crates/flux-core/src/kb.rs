@@ -595,7 +595,7 @@ fn collect(source: &str, location: Option<&str>) -> Result<Vec<RawDoc>, String> 
 /// Onyx vault root: `$FLUX_ONYX_VAULT` (so Flux can index a vault that lives
 /// elsewhere — e.g. a Windows build pointing at `\\wsl.localhost\…\OnyxVault`),
 /// else `~/.config/onyx/config.toml` `last_vault`, else `~/OnyxVault`.
-fn onyx_vault(location: Option<&str>) -> Option<PathBuf> {
+pub(crate) fn onyx_vault(location: Option<&str>) -> Option<PathBuf> {
     // In-app setting wins (the user just typed it), then the env var, then autodetect.
     let env_v = std::env::var("FLUX_ONYX_VAULT").ok();
     for cand in [location, env_v.as_deref()] {
@@ -1255,7 +1255,7 @@ fn write_onyx_note(
 }
 
 /// Filesystem-safe note base name from a title (no path separators / illegal chars).
-fn sanitize_note_name(title: &str) -> String {
+pub(crate) fn sanitize_note_name(title: &str) -> String {
     let first = title.lines().next().unwrap_or("").trim();
     let cleaned: String = first
         .chars()

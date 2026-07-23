@@ -264,6 +264,19 @@ export type KbCheck = { verdict: string; note: string; related: KbHit[] }
  */
 export type TuiApp = { id: string; name: string; icon: string; cmd: string; cwd: string }
 /**
+ * One page of a notebook. `strokes` is the ink engine's `Stroke[]` serialized
+ * to JSON — opaque here on purpose (see module docs).
+ */
+export type Page = { id: string; template: string; strokes: string; ts: number }
+/**
+ * A course notebook: an ordered list of fixed-size pages you flip through.
+ */
+export type Notebook = { id: string; name: string; course: string | null; tint: string | null; pages: Page[]; created: number; ts: number }
+/**
+ * Shelf-list view of a notebook — no strokes, so listing stays cheap.
+ */
+export type NotebookMeta = { id: string; name: string; course: string | null; tint: string | null; page_count: number; ts: number }
+/**
  * A discovered specialist available to route to.
  */
 export type Specialist = { domain: string; label: string; model: string }

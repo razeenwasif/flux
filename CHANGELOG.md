@@ -7,6 +7,21 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Scribe — handwritten, per-course notebooks (`flux://scribe`, ADR 0014)** — a GoodNotes-style
+  surface for math-heavy coursework: a shelf of course notebooks, each an ordered list of fixed-size
+  (A4) pages you flip through, with grid/lined/squared/plain paper. The drawing is the whiteboard's
+  vector-ink engine — now extracted into a shared `InkCanvas` both surfaces use, so pen/highlighter/
+  shapes/text, the object-based eraser, undo/redo, pan/zoom and stylus input all come for free (the
+  whiteboard is unchanged). Notebooks persist to disk in Rust (`scribe.rs`, one JSON file each under
+  `<app_data>/scribe/`), with strokes stored opaquely so the ink format can evolve without codegen
+  churn. **Publish a page to Onyx** (⇪): writes a Markdown note — frontmatter + an embedded PNG of the
+  handwriting + an optional text body — into `<vault>/<course>/`, which the KB then indexes. One-way
+  (Scribe keeps the ink; Onyx gets a searchable mirror), and it fails loud if the vault path isn't set.
+  Open it from the pages bar (✍️ Scribe) or the command palette. Stylus pressure/tilt lands on the
+  native Windows build. Gemma handwriting→LaTeX transcription is the next step (the publish body is its
+  target). Also pinned **Google Calendar** in the app dock.
+
 ### Fixed
 - **Flux wrongly warned that Microsoft's own login page was impersonating Microsoft** — and worse, the
   credential firewall then refused to autofill there. The brand-embedding rule treats a brand appearing

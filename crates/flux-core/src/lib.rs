@@ -54,6 +54,7 @@ pub mod pwa;
 pub mod reminders;
 pub mod rpc;
 pub mod screenshot;
+pub mod scribe;
 pub mod search;
 pub mod semfind;
 pub mod sentinel;
@@ -498,6 +499,16 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
     app.manage(boot_phase("notes.restore", boot_started, || {
         notes::NoteStore::restore(notes_path)
     }));
+    // Scribe — handwritten per-course notebooks (ADR 0014). One JSON file per
+    // notebook under <app_data>/scribe/.
+    let scribe_dir = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("scribe"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("flux-scribe"));
+    app.manage(boot_phase("scribe.restore", boot_started, || {
+        scribe::ScribeStore::restore(scribe_dir)
+    }));
     // Browsing history (#39) — recorded from dom_publish, persisted.
     let history_path = app
         .path()
@@ -904,6 +915,12 @@ pub fn run(intent: cli::LaunchIntent) {
             notes::note_get,
             notes::note_set,
             notes::notes_list,
+            scribe::scribe_list,
+            scribe::scribe_load,
+            scribe::scribe_create,
+            scribe::scribe_save,
+            scribe::scribe_delete,
+            scribe::scribe_publish_page,
             feeds::feeds_list,
             feeds::feed_add,
             feeds::feed_remove,

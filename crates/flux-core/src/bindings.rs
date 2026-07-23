@@ -37,6 +37,7 @@ use crate::permissions::{PermAsk, PermDecision, PermKind, SitePerm};
 use crate::prefetch::PrefetchHint;
 use crate::pwa::PwaApp;
 use crate::reminders::Reminder;
+use crate::scribe::{Notebook, NotebookMeta, Page};
 use crate::semfind::FindHit;
 use crate::services::ServiceStatus;
 use crate::sessions::{DaySnapshot, SavedSession, SavedTab};
@@ -160,6 +161,10 @@ pub fn generate_ts() -> String {
         specta::ts::export::<KbRecentItem>(&c),
         specta::ts::export::<KbCheck>(&c),
         specta::ts::export::<TuiApp>(&c),
+        // Scribe — handwritten per-course notebooks (ADR 0014).
+        specta::ts::export::<Page>(&c),
+        specta::ts::export::<Notebook>(&c),
+        specta::ts::export::<NotebookMeta>(&c),
         specta::ts::export::<Specialist>(&c),
         specta::ts::export::<ServiceStatus>(&c),
         specta::ts::export::<SpotifyState>(&c),

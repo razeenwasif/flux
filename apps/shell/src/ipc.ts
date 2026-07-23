@@ -65,6 +65,8 @@ import type {
   KbStatus as GenKbStatus,
   KbRecentItem as GenKbRecentItem,
   KbCheck as GenKbCheck,
+  Notebook as GenNotebook,
+  NotebookMeta as GenNotebookMeta,
   ServiceStatus as GenServiceStatus,
   SpotifyState as GenSpotifyState,
   SpotifyPlaylist as GenSpotifyPlaylist,
@@ -571,6 +573,29 @@ export const NOTEBOOK_URL = "flux://notebook";
 export const TRAIL_URL = "flux://trail";
 /** Built-in whiteboard / paint surface. */
 export const WHITEBOARD_URL = "flux://whiteboard";
+// ─── Scribe — handwritten per-course notebooks (ADR 0014) ───────────────────
+export const SCRIBE_URL = "flux://scribe";
+export type Notebook = GenNotebook;
+export type NotebookMeta = GenNotebookMeta;
+/** Shelf list of notebooks (metadata only, newest first). */
+export const scribeList = () => invoke<NotebookMeta[]>("scribe_list");
+/** Full notebook (all pages + strokes) by id. */
+export const scribeLoad = (id: string) => invoke<Notebook>("scribe_load", { id });
+/** Create an empty notebook (one blank grid page) and return it. */
+export const scribeCreate = (name: string, course?: string) =>
+  invoke<Notebook>("scribe_create", { name, course });
+/** Persist a whole notebook (the debounced autosave). */
+export const scribeSave = (notebook: Notebook) => invoke<void>("scribe_save", { notebook });
+export const scribeDelete = (id: string) => invoke<void>("scribe_delete", { id });
+/** Publish one page to the Onyx vault as Markdown + an embedded PNG; returns
+ * the written .md path. `pngB64` is the rendered page (base64, no data: prefix). */
+export const scribePublishPage = (
+  id: string,
+  pageIndex: number,
+  title: string,
+  body: string,
+  pngB64: string,
+) => invoke<string>("scribe_publish_page", { id, pageIndex, title, body, pngB64 });
 // ─── TUI app launcher (#117) ────────────────────────────────────────────────
 export type TuiApp = GenTuiApp;
 /** The user's curated terminal-app list (seeded on first run). */

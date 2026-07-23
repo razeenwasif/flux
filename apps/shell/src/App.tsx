@@ -33,6 +33,7 @@ import {
   NOTEBOOK_URL,
   TRAIL_URL,
   WHITEBOARD_URL,
+  SCRIBE_URL,
   OMNI_URL,
   VAULT_URL,
   HISTORY_URL,
@@ -1194,6 +1195,7 @@ const App: Component = () => {
     { id: "notebook", label: "Open Notebook (ask your notes)", icon: "✦", run: () => go(NOTEBOOK_URL) },
     { id: "trail", label: "Open the Trail (your browsing graph)", icon: "🧭", run: () => go(TRAIL_URL) },
     { id: "whiteboard", label: "Open whiteboard", icon: "🎨", run: () => go(WHITEBOARD_URL) },
+    { id: "scribe", label: "Open Scribe (handwritten notebooks)", icon: "✍️", run: () => go(SCRIBE_URL) },
     {
       id: "calendar",
       label: "Open calendar (today & upcoming)",
