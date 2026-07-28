@@ -693,6 +693,7 @@ pub fn vault_probe_report(webview: tauri::Webview, reason: String) {
         "field-prefilled",
         "dismissed",
         "already-handled",
+        "registration",
         "probe-failed",
         "offered",
     ];
@@ -753,6 +754,7 @@ If that's wrong, this is a false positive worth reporting.",
                 "alive" => "no-scan".into(),
                 "field-prefilled" => "prefilled".into(),
                 "dismissed" => "dismissed".into(),
+                "registration" => "registration".into(),
                 "offered" => "ok".into(),
                 _ => "page-silent".into(),
             };
@@ -766,6 +768,8 @@ reported back — it isn't running here (not injected, or the page blocked it)."
             const IN_FRAME: &str = "Vault is fine, and the login is inside an iframe. Autofill only \
 runs in the top document on purpose, so an embedded third party can never trigger a fill — open the \
 sign-in page directly and it will offer.";
+            const REGISTRATION: &str = "This looks like a sign-up form, so Flux offered a \
+generated password instead of a fill.";
             const NO_SCAN: &str =
                 "The page script is running but never finished a scan — the form \
 may render after the check. Focus the login field to retrigger it.";
@@ -774,6 +778,7 @@ may render after the check. Focus the login field to retrigger it.";
                 "prefilled" => PREFILLED.into(),
                 "dismissed" => DISMISSED.into(),
                 "in-frame" => IN_FRAME.into(),
+                "registration" => REGISTRATION.into(),
                 "no-scan" => NO_SCAN.into(),
                 "ok" => format!("Autofill offered {n} saved login(s) for {host}."),
                 _ => SILENT.into(),

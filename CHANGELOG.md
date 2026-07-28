@@ -98,6 +98,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Autofill never appeared on Microsoft/Entra-style sign-ins: the scan was starved, not broken** —
+  the page script debounced its form scan by 600 ms on every DOM mutation, with no ceiling, while its
+  MutationObserver watched `class`/`style` across the whole subtree. A React SSO page mutates faster
+  than that continuously (focus rings, spinners, ARIA), so each mutation cancelled the pending scan
+  and **it never ran once** — no chip, and nothing to indicate why. The debounce now has a max-defer
+  ceiling: it still waits for quiet, but never defers longer than 1.8 s. Found by the new diagnostic,
+  which reported "the script is running but never finished a scan" — the exact signature of a starved
+  debounce.
 - **The autofill diagnostic can now tell "not injected" from "didn't scan" from "login is in an
   iframe"** — its first real run returned "the page script never reported back", which was still three
   causes wearing one answer. `passwords.js` now sends a heartbeat the moment its Tauri bridge is

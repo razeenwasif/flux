@@ -317,22 +317,35 @@
       }
       if (handled.has(u)) { reason("already-handled"); return; }
       if (u.value) { reason("field-prefilled"); return; }
-      if (chip && chipAnchor === u) { placeChip(); return; }
+      if (chip && chipAnchor === u) { placeChip(); reason("offered"); return; }
       offerFill(u);
       return;
     }
     var pw = fields[0];
     if (handled.has(pw)) { reason("already-handled"); return; }
     if (pw.value) { reason("field-prefilled"); return; }
-    if (chip && chipAnchor === pw) { placeChip(); return; }
-    if (isRegistration(pw)) offerSuggest(pw);
+    if (chip && chipAnchor === pw) { placeChip(); reason("offered"); return; }
+    if (isRegistration(pw)) { reason("registration"); offerSuggest(pw); }
     else offerFill(pw);
   }
 
+  // Debounce with a CEILING. A plain debounce starves on pages that mutate
+  // faster than the delay — a React SSO form churns class/style constantly, so
+  // every mutation cancelled the pending scan and it never ran at all (the
+  // autofill chip simply never appeared, with nothing to show why). Wait for
+  // quiet, but never defer longer than MAX_DEFER.
   var t = 0;
+  var deferredSince = 0;
+  var MAX_DEFER = 1800;
   function queueScan() {
+    var now = Date.now();
+    if (!deferredSince) deferredSince = now;
     clearTimeout(t);
-    t = setTimeout(scan, 600);
+    t = setTimeout(runScan, now - deferredSince > MAX_DEFER ? 0 : 600);
+  }
+  function runScan() {
+    deferredSince = 0;
+    scan();
   }
 
   new MutationObserver(queueScan).observe(document.documentElement, {
