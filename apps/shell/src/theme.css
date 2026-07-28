@@ -4994,10 +4994,13 @@ body.busy .start-card {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, rgba(124, 92, 255, 0.92), rgba(56, 189, 248, 0.86));
-  color: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-  border-left: 3px solid rgba(255, 255, 255, 0.5);
+  /* Translucent glass rather than an opaque gradient — matches the timetable's
+     blocks (.tt-ev) and lets the grid lines read through. */
+  background: rgba(123, 97, 255, 0.3);
+  border: 1px solid rgba(123, 97, 255, 0.45);
+  color: var(--flux-text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  border-left: 3px solid rgba(123, 97, 255, 0.75);
   z-index: 2;
 }
 .cal-evt:hover {
@@ -5024,10 +5027,12 @@ body.busy .start-card {
 .cal-evt:active {
   cursor: grabbing;
 }
+/* Read-only feed events read cooler (teal), same cue the timetable uses. */
 .cal-evt.ics {
   cursor: pointer;
-  background: linear-gradient(135deg, rgba(100, 116, 139, 0.85), rgba(71, 85, 105, 0.8));
-  border-left-color: rgba(255, 255, 255, 0.35);
+  background: rgba(47, 243, 255, 0.16);
+  border-color: rgba(47, 243, 255, 0.4);
+  border-left-color: rgba(47, 243, 255, 0.7);
 }
 .cal-evt.ghosted {
   opacity: 0.32;
@@ -5515,6 +5520,12 @@ body.busy .start-card {
   align-items: baseline;
   gap: 8px;
   font-size: 12px;
+  /* Same translucent card as the calendar pane's agenda rows (.cal-pop-ev), so
+     the home widget and the pane read as one calendar. */
+  padding: 4px 7px;
+  border-radius: 8px;
+  background: rgba(123, 97, 255, 0.08);
+  border: 1px solid rgba(123, 97, 255, 0.14);
 }
 .start-event-when {
   flex: none;
@@ -11918,53 +11929,53 @@ input[type="radio"].pdf-fw {
   padding: 4px 8px;
   max-width: 190px;
 }
-.cal-week {
+.tt-week {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
 }
 /* Day columns share one track definition so header/all-day/body stay aligned. */
-.cal-week-head,
-.cal-week-allday,
-.cal-week-body {
+.tt-head,
+.tt-allday,
+.tt-body {
   display: grid;
   grid-template-columns: 52px repeat(7, 1fr);
 }
-.cal-week-head {
+.tt-head {
   flex: none;
   border-bottom: 1px solid var(--flux-border);
 }
-.cal-week-dow {
+.tt-dow {
   padding: 6px 4px;
   text-align: center;
   font-size: 11.5px;
   color: var(--flux-text-mute);
 }
-.cal-week-dow.today {
+.tt-dow.today {
   color: var(--flux-teal, #2ff3ff);
   font-weight: 700;
 }
-.cal-week-gutter {
+.tt-gutter {
   font-size: 10.5px;
   color: var(--flux-text-mute);
   padding: 4px 6px;
   text-align: right;
 }
-.cal-week-allday {
+.tt-allday {
   flex: none;
   border-bottom: 1px solid var(--flux-border);
   max-height: 74px;
   overflow-y: auto;
 }
-.cal-week-allday-col {
+.tt-allday-col {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 3px;
   min-width: 0;
 }
-.cal-week-chip {
+.tt-chip {
   font-size: 10.5px;
   color: var(--flux-text);
   background: rgba(123, 97, 255, 0.22);
@@ -11974,16 +11985,16 @@ input[type="radio"].pdf-fw {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cal-week-scroll {
+.tt-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
 }
-.cal-week-hours {
+.tt-hours {
   display: flex;
   flex-direction: column;
 }
-.cal-week-hour {
+.tt-hour {
   height: var(--hour-h);
   font-size: 10.5px;
   color: var(--flux-text-mute);
@@ -11992,18 +12003,18 @@ input[type="radio"].pdf-fw {
   /* Nudge the label so it sits on the gridline, not below it. */
   transform: translateY(-6px);
 }
-.cal-week-col {
+.tt-col {
   position: relative;
   border-left: 1px solid var(--flux-border);
 }
-.cal-week-col.today {
+.tt-col.today {
   background: rgba(47, 243, 255, 0.05);
 }
-.cal-week-slot {
+.tt-slot {
   height: var(--hour-h);
   border-top: 1px solid rgba(150, 160, 220, 0.1);
 }
-.cal-week-now {
+.tt-now {
   position: absolute;
   left: 0;
   right: 0;
@@ -12012,7 +12023,7 @@ input[type="radio"].pdf-fw {
   z-index: 3;
   pointer-events: none;
 }
-.cal-week-ev {
+.tt-ev {
   position: absolute;
   left: 2px;
   right: 2px;
@@ -12029,18 +12040,18 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
   z-index: 2;
 }
-.cal-week-ev:hover {
+.tt-ev:hover {
   background: rgba(123, 97, 255, 0.45);
 }
 /* Read-only (subscribed ICS) events read cooler than editable ones. */
-.cal-week-ev.ro {
+.tt-ev.ro {
   border-color: rgba(47, 243, 255, 0.4);
   background: rgba(47, 243, 255, 0.16);
 }
-.cal-week-ev.ro:hover {
+.tt-ev.ro:hover {
   background: rgba(47, 243, 255, 0.26);
 }
-.cal-week-ev-t {
+.tt-ev-t {
   font-size: 11px;
   font-weight: 600;
   line-height: 1.25;
@@ -12048,7 +12059,7 @@ input[type="radio"].pdf-fw {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cal-week-ev-m {
+.tt-ev-m {
   font-size: 10px;
   color: var(--flux-text-mute);
   overflow: hidden;

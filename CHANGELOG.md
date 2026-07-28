@@ -98,6 +98,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The timetable's styles were overriding the home calendar's expanded week grid** — the new week view
+  reused nine class names (`.cal-week`, `.cal-week-head`, `.cal-week-dow`, …) that the home calendar's
+  expanded grid already owned, and being later in the stylesheet it won. The timetable's classes are
+  namespaced `.tt-*`, so the two grids no longer collide.
 - **The connections rail said "nothing connects" when the real problem was an empty index** — the
   empty state now names the actual cause: indexing in progress, a knowledge base with zero documents
   (pointing you at ↻ Reindex), or a genuine no-match, which reports how many docs it searched. Same
@@ -172,6 +176,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   bridge now spans the gap so the path is continuous.
 
 ### Changed
+- **Home calendar events get the same translucent treatment as the calendar pane** — the event rows
+  under the month grid are now translucent cards like the pane's agenda rows, and the expanded week
+  grid's blocks are glass rather than an opaque gradient, so the grid lines read through and
+  subscribed (read-only) events carry the same cooler teal tint the timetable uses.
 - **The calendar pane is much larger** (up to 1040×760 from 680×600) — the week timetable needs room
   to show a full teaching day without scrolling, and the month view's day agenda gains the space too.
 - **Rename buttons for tab groups and containers** — an audit after the workspace fix found the same

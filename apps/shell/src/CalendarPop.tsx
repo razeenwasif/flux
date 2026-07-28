@@ -316,12 +316,12 @@ const CalendarPop: Component = () => {
           </button>
         </div>
         <Show when={view() === "week"}>
-          <div class="cal-week">
-            <div class="cal-week-head">
-              <span class="cal-week-gutter" />
+          <div class="tt-week">
+            <div class="tt-head">
+              <span class="tt-gutter" />
               <For each={weekDays()}>
                 {(d) => (
-                  <span classList={{ "cal-week-dow": true, today: dateStrOf(d) === todayStr }}>
+                  <span classList={{ "tt-dow": true, today: dateStrOf(d) === todayStr }}>
                     {d.toLocaleDateString([], { weekday: "short" })} {d.getDate()}
                   </span>
                 )}
@@ -329,28 +329,28 @@ const CalendarPop: Component = () => {
             </div>
             {/* All-day / untimed rows sit above the grid, as in any calendar. */}
             <Show when={allDayEvents().length > 0}>
-              <div class="cal-week-allday">
-                <span class="cal-week-gutter">all day</span>
+              <div class="tt-allday">
+                <span class="tt-gutter">all day</span>
                 <For each={weekDays()}>
                   {(d) => (
-                    <span class="cal-week-allday-col">
+                    <span class="tt-allday-col">
                       <For each={allDayEvents().filter((e) => e.date === dateStrOf(d))}>
-                        {(e) => <span class="cal-week-chip">{e.summary}</span>}
+                        {(e) => <span class="tt-chip">{e.summary}</span>}
                       </For>
                     </span>
                   )}
                 </For>
               </div>
             </Show>
-            <div class="cal-week-scroll">
-              <div class="cal-week-body" style={{ "--hour-h": `${HOUR_H}px` }}>
-                <div class="cal-week-hours">
-                  <For each={hours()}>{(h) => <span class="cal-week-hour">{pad2(h)}:00</span>}</For>
+            <div class="tt-scroll">
+              <div class="tt-body" style={{ "--hour-h": `${HOUR_H}px` }}>
+                <div class="tt-hours">
+                  <For each={hours()}>{(h) => <span class="tt-hour">{pad2(h)}:00</span>}</For>
                 </div>
                 <For each={weekDays()}>
                   {(d) => (
-                    <div classList={{ "cal-week-col": true, today: dateStrOf(d) === todayStr }}>
-                      <For each={hours()}>{() => <div class="cal-week-slot" />}</For>
+                    <div classList={{ "tt-col": true, today: dateStrOf(d) === todayStr }}>
+                      <For each={hours()}>{() => <div class="tt-slot" />}</For>
                       {/* Now-line, only on today's column. */}
                       <Show
                         when={
@@ -360,7 +360,7 @@ const CalendarPop: Component = () => {
                         }
                       >
                         <div
-                          class="cal-week-now"
+                          class="tt-now"
                           style={{ top: `${((nowMins() - hourRange()[0] * 60) / 60) * HOUR_H}px` }}
                         />
                       </Show>
@@ -373,7 +373,7 @@ const CalendarPop: Component = () => {
                           };
                           return (
                             <button
-                              class="cal-week-ev"
+                              class="tt-ev"
                               classList={{ ro: !e.editable }}
                               style={{ top: `${top()}px`, height: `${height()}px` }}
                               title={`${e.summary}\n${e.time}${e.end ? `–${e.end}` : ""}${
@@ -386,9 +386,9 @@ const CalendarPop: Component = () => {
                                 setViewPersist("month");
                               }}
                             >
-                              <span class="cal-week-ev-t">{e.summary}</span>
+                              <span class="tt-ev-t">{e.summary}</span>
                               <Show when={height() > 34}>
-                                <span class="cal-week-ev-m">
+                                <span class="tt-ev-m">
                                   {e.time}
                                   {e.location ? ` · ${e.location}` : ""}
                                 </span>
