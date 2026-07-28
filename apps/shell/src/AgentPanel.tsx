@@ -1375,6 +1375,13 @@ const AgentPanel: Component = () => {
     return true;
   };
 
+  // ─── Deterministic intents ────────────────────────────────────────────────
+  // These matchers run BEFORE the model sees the message, so the exact phrasings
+  // below are the real user-facing API. Gemma describes them to users from
+  // `FLUX_CAPABILITIES` in crates/flux-agent/src/lib.rs — **edit both together**.
+  // If the card drifts, the model teaches a phrasing that matches nothing here
+  // and the request silently degrades into ordinary chat.
+
   /** Per-workspace memory of the last Onyx folder used, so a course workspace
    *  keeps filing into its own folder after you name it once. */
   const folderKey = () => `flux.onyx.folder.${activeWorkspaceName() ?? "default"}`;

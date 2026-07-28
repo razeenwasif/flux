@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Gemma knows what Flux can do — and quotes the trigger phrases exactly** — ask her "how do I save
+  this lecture?" or "can Flux do handwritten notes?" and she answers from a capability card instead of
+  guessing. This matters more than it sounds: most of these actions are **deterministic regex intents
+  matched in the shell before the model is ever called**, so an invented phrasing would match nothing
+  and silently degrade into ordinary chat — a friendly reply while nothing happens. The card is
+  Rust-owned (`FLUX_CAPABILITIES`), instructs the model to quote triggers verbatim, and is injected
+  **only** when a message pairs a how-to phrasing with Flux vocabulary, so normal chat spends no
+  context on it (long prompts silently truncating their own instructions is a bug this project has
+  already been bitten by). Guard tests pin the exact trigger strings and assert the card never leaks
+  into ordinary chat.
 - **Capture a lecture transcript straight into Onyx** — `"capture this lecture to onyx/06 - Mathematics
   #duality as Lecture 7"` files the **active page's own visible text** as a Markdown note (with a link
   back to the source URL), so an Echo360 transcript joins the knowledge base and can be cited later.
