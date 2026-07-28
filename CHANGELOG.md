@@ -98,6 +98,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The autofill scan is now guaranteed to run, by a timer the page can't cancel** — the previous
+  max-defer ceiling wasn't enough: the rescue delay lived in the *same* timer that every DOM mutation
+  clears, so on a form mutating each animation frame it was cleared before it ever got a slot, and the
+  scan stayed starved. A separate interval (1.5 s, capped at ~45 s) now runs the scan independently of
+  the mutation churn. A throw inside the scan is also reported now, since from outside it looked
+  identical to being starved.
 - **Autofill never appeared on Microsoft/Entra-style sign-ins: the scan was starved, not broken** —
   the page script debounced its form scan by 600 ms on every DOM mutation, with no ceiling, while its
   MutationObserver watched `class`/`style` across the whole subtree. A React SSO page mutates faster

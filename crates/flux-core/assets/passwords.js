@@ -343,10 +343,34 @@
     clearTimeout(t);
     t = setTimeout(runScan, now - deferredSince > MAX_DEFER ? 0 : 600);
   }
+  // A throw inside scan() would look exactly like a starved scan from outside,
+  // so name it rather than leaving one more way to fail silently.
+  function safeScan() {
+    try {
+      scan();
+    } catch (e) {
+      reason("scan-error");
+    }
+  }
+
   function runScan() {
     deferredSince = 0;
-    scan();
+    safeScan();
   }
+
+  // Safety net: a timer the page's churn CANNOT cancel.
+  //
+  // The debounce above is what makes the common case feel instant, but it is
+  // still cancelled by every mutation — including the 0 ms "rescue" delay. On a
+  // page that mutates each animation frame (a React SSO form), that rescue is
+  // cleared before it ever gets a timer slot, so the scan is starved anyway.
+  // This interval is never cleared by queueScan, so a scan is guaranteed.
+  // Bounded, so a page with no login form doesn't get a permanent heartbeat.
+  var netRuns = 0;
+  var net = setInterval(function () {
+    if (++netRuns > 30) { clearInterval(net); return; } // ~45s of cover, then stop
+    safeScan();
+  }, 1500);
 
   new MutationObserver(queueScan).observe(document.documentElement, {
     childList: true,
