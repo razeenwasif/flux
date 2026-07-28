@@ -1215,10 +1215,67 @@ pub async fn onyx_new_note(
     title: String,
     content: String,
     folder: Option<String>,
+    tags: Option<String>,
 ) -> Result<String, String> {
     let location = kb.source_location("onyx");
     tauri::async_runtime::spawn_blocking(move || {
-        write_onyx_note(location.as_deref(), &title, &content, folder.as_deref())
+        write_onyx_note(
+            location.as_deref(),
+            &title,
+            &content,
+            folder.as_deref(),
+            tags.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Shortest captured page we'll accept as a lecture/article capture. Below this
+/// the page almost certainly hadn't rendered its text yet (or the transcript
+/// panel is closed), and writing the note anyway would file an empty stub.
+const MIN_CAPTURE_CHARS: usize = 400;
+
+/// Capture the **active page's visible text** straight into an Onyx note —
+/// built for lecture transcripts (Echo360 & co.), where the text you want is
+/// already on screen and re-typing it is absurd.
+///
+/// Runs entirely in Rust: the page text is already in the DOM cache, so nothing
+/// is shipped to the frontend and back. Fails loud when there's nothing
+/// substantial captured, rather than filing an empty note that looks like it
+/// worked.
+#[tauri::command]
+pub async fn onyx_capture_page(
+    kb: State<'_, KbStore>,
+    state: State<'_, crate::state::FluxState>,
+    title: String,
+    folder: Option<String>,
+    tags: Option<String>,
+) -> Result<String, String> {
+    let snap = state
+        .active_snapshot()
+        .ok_or("No page captured yet — open the page (and its transcript tab), give it a moment, then try again.")?;
+    let text = snap.text.trim().to_string();
+    if text.chars().count() < MIN_CAPTURE_CHARS {
+        return Err(format!(
+            "Only {} characters captured from this page — if it's a lecture, open its transcript tab \
+and scroll it into view, then try again.",
+            text.chars().count()
+        ));
+    }
+    let url = snap.url.clone();
+    let location = kb.source_location("onyx");
+    tauri::async_runtime::spawn_blocking(move || {
+        // Keep the source URL in the note so the KB citation can lead back to
+        // the lecture itself.
+        let body = format!("[source]({url})\n\n{text}");
+        write_onyx_note(
+            location.as_deref(),
+            &title,
+            &body,
+            folder.as_deref(),
+            tags.as_deref(),
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1229,6 +1286,7 @@ fn write_onyx_note(
     title: &str,
     content: &str,
     folder: Option<&str>,
+    tags: Option<&str>,
 ) -> Result<String, String> {
     let root = onyx_vault(location)
         .ok_or_else(|| "Onyx vault not found — set its path in the Notebook first.".to_string())?;
@@ -1249,6 +1307,26 @@ fn write_onyx_note(
         content.trim_start().to_string()
     } else {
         format!("# {}\n\n{}\n", title.trim(), content.trim())
+    };
+    // Frontmatter so the note is machine-readable the same way Scribe's pages
+    // are: Onyx's TUI reads the tags, and the KB strips the block before
+    // chunking. Only written when there are tags to carry — a plain note stays
+    // a plain note.
+    let tag_list = tags.map(crate::scribe::parse_tags).unwrap_or_default();
+    let body = if tag_list.is_empty() {
+        body
+    } else {
+        let items = tag_list
+            .iter()
+            .map(|t| format!("  - {}\n", crate::scribe::yaml_quote(t)))
+            .collect::<String>();
+        format!(
+            "---\ntitle: {}\ntags:\n{}source: flux-agent\ndate: {}\n---\n\n{}",
+            crate::scribe::yaml_quote(title.trim()),
+            items,
+            crate::scribe::today_ymd(),
+            body,
+        )
     };
     std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path.to_string_lossy().into_owned())
@@ -1339,7 +1417,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let vault = dir.to_string_lossy().into_owned();
 
-        let p1 = write_onyx_note(Some(&vault), "My Idea: a/b?", "first body", None).unwrap();
+        let p1 = write_onyx_note(Some(&vault), "My Idea: a/b?", "first body", None, None).unwrap();
         assert!(
             p1.ends_with("My Idea- a-b.md"),
             "illegal chars sanitized: {p1}"
@@ -1348,12 +1426,20 @@ mod tests {
             .unwrap()
             .starts_with("# My Idea"));
         // Same title again → disambiguated, original kept.
-        let p2 = write_onyx_note(Some(&vault), "My Idea: a/b?", "second body", None).unwrap();
+        let p2 = write_onyx_note(Some(&vault), "My Idea: a/b?", "second body", None, None).unwrap();
         assert_ne!(p1, p2);
         assert!(p2.contains("My Idea- a-b 2.md"));
         // Folder is created.
-        let p3 = write_onyx_note(Some(&vault), "Note", "x", Some("Inbox")).unwrap();
+        let p3 = write_onyx_note(Some(&vault), "Note", "x", Some("Inbox"), Some("#kkt, duality")).unwrap();
         assert!(p3.contains("Inbox"));
+        // Tags become YAML frontmatter the KB strips and Onyx reads; an untagged
+        // note (p1) stays plain Markdown.
+        let m3 = std::fs::read_to_string(&p3).unwrap();
+        assert!(
+            m3.starts_with("---\ntitle: \"Note\"\ntags:\n  - \"kkt\"\n  - \"duality\"\nsource: flux-agent\n"),
+            "got: {m3}"
+        );
+        assert!(!std::fs::read_to_string(&p1).unwrap().starts_with("---"));
         assert_eq!(sanitize_note_name("   ...  "), "Untitled note");
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -66,6 +66,7 @@ import {
   onScreenshot,
   isStartUrl,
   scrollClip,
+  onyxCapturePage,
   onyxNewNote,
   calEvents,
   calLocalEvents,
@@ -80,6 +81,7 @@ import {
 import {
   activeId,
   activeWorkspace,
+  activeWorkspaceName,
   agentModelName,
   filesPanelOpen,
   fluxStateSnapshot,
@@ -1373,9 +1375,61 @@ const AgentPanel: Component = () => {
     return true;
   };
 
-  // "save (this answer | <text>) to onyx [as <title>]" → write a note to the vault (#118).
+  /** Per-workspace memory of the last Onyx folder used, so a course workspace
+   *  keeps filing into its own folder after you name it once. */
+  const folderKey = () => `flux.onyx.folder.${activeWorkspaceName() ?? "default"}`;
+
+  /**
+   * "capture this lecture [to onyx/<folder>] [#tags] [as <title>]" — files the
+   * page's own visible text (a lecture transcript, an article) into Onyx, so
+   * it joins the KB and can be cited later. Nothing is retyped or re-fetched:
+   * Rust reads the already-captured DOM text.
+   */
+  const tryCapturePage = async (text: string): Promise<boolean> => {
+    if (!/\b(capture|transcript|lecture)\b/i.test(text)) return false;
+    if (!/\b(capture|save|file|add)\b/i.test(text)) return false;
+    const folderInText = text.match(/\bonyx\/\s*([^#\n:]+?)(?=\s+as\s|\s*[#:]|\s*$)/i)?.[1]?.trim();
+    const folder = folderInText || localStorage.getItem(folderKey()) || undefined;
+    const tags = (text.match(/#[\w-]+/g) ?? []).join(" ");
+    const asTitle = text
+      .replace(/#[\w-]+/g, " ")
+      .match(/\bas\s+"?([^"\n]+?)"?\s*$/i)?.[1]
+      ?.trim();
+    const title =
+      asTitle ||
+      tabs()
+        .find((t) => t.id === activeId())
+        ?.title?.slice(0, 80) ||
+      "Lecture";
+    setFeed((f) => [...f, { role: "task", text: "🎓 Capturing this page into Onyx…" }]);
+    try {
+      const path = await onyxCapturePage(title, folder, tags || undefined);
+      if (folderInText) localStorage.setItem(folderKey(), folderInText);
+      setFeed((f) => [
+        ...f,
+        {
+          role: "action",
+          text: `✓ Captured${folder ? ` → ${folder}` : ""}: ${title}${tags ? `\n${tags}` : ""}\n${path}\nReindex the Notebook to make it searchable.`,
+        },
+      ]);
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: String(e).replace(/^Error:\s*/, "") }]);
+    }
+    return true;
+  };
+
+  // "save (this answer | <text>) to onyx[/<folder>] [#tags] [as <title>]" → write
+  // a note to the vault (#118). The folder is spelled as a path (`onyx/Optimization`)
+  // rather than "in <x>" — "in" is far too common in prose to parse safely.
   const trySaveToOnyx = async (text: string): Promise<boolean> => {
     if (!/\bonyx\b/i.test(text) || !/\b(save|note|remember|add|write)\b/i.test(text)) return false;
+    // `onyx/<folder>` up to a #tag, an "as <title>", a colon, or end of line.
+    const folderInText = text.match(/\bonyx\/\s*([^#\n:]+?)(?=\s+as\s|\s*[#:]|\s*$)/i)?.[1]?.trim();
+    const folder = folderInText || localStorage.getItem(folderKey()) || undefined;
+    // #tags anywhere in the request; stripped from the body so they don't
+    // pollute the note text.
+    const tags = (text.match(/#[\w-]+/g) ?? []).join(" ");
+    text = text.replace(/#[\w-]+/g, " ").replace(/\bonyx\/\s*[^#\n:]+/i, "onyx");
     const asTitle = text.match(/\bas\s+"?([^"\n]+?)"?\s*$/i)?.[1]?.trim();
     let content = "";
     if (/\b(that|this answer|the answer|your answer|last answer)\b/i.test(text)) {
@@ -1411,8 +1465,12 @@ const AgentPanel: Component = () => {
     const title = asTitle || content.split("\n")[0]!.slice(0, 60).trim() || "Note";
     setFeed((f) => [...f, { role: "task", text: "📝 Saving to Onyx…" }]);
     try {
-      const path = await onyxNewNote(title, content);
-      setFeed((f) => [...f, { role: "action", text: `✓ Saved to Onyx: ${title}\n${path}` }]);
+      const path = await onyxNewNote(title, content, folder, tags || undefined);
+      // Remember an explicitly named folder for this workspace's later saves.
+      if (folderInText) localStorage.setItem(folderKey(), folderInText);
+      const where = folder ? ` → ${folder}` : "";
+      const tagged = tags ? `\n${tags}` : "";
+      setFeed((f) => [...f, { role: "action", text: `✓ Saved to Onyx${where}: ${title}${tagged}\n${path}` }]);
       // Research-integrity check (#124): does this contradict / duplicate / add to
       // what's already in the KB? Best-effort — never blocks the save.
       try {
@@ -1931,6 +1989,9 @@ const AgentPanel: Component = () => {
       }
       // Write access to the user's corpora (#118): clip to Scroll / save to Onyx.
       if (await tryClipToScroll(p)) return;
+      // Before the generic Onyx save: "save this lecture to onyx" is a page
+      // capture, not a note dictated in the prompt.
+      if (await tryCapturePage(p)) return;
       if (await trySaveToOnyx(p)) return;
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;

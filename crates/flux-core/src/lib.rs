@@ -1168,6 +1168,7 @@ pub fn run(intent: cli::LaunchIntent) {
             kb::kb_answer,
             kb::scroll_clip,
             kb::onyx_new_note,
+            kb::onyx_capture_page,
             kb::kb_check,
             specialists::agent_specialists,
             services::services_status,

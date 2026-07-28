@@ -61,6 +61,9 @@ const ScribePage: Component = () => {
   const [pageStrokes, setPageStrokes] = createSignal<Stroke[]>([]);
   const [shelfErr, setShelfErr] = createSignal("");
   const [saveErr, setSaveErr] = createSignal("");
+  // Autosave is silent by design, which leaves you trusting that a page of
+  // handwriting made it to disk. Surface the state, and offer an explicit save.
+  const [saveState, setSaveState] = createSignal<"saved" | "dirty" | "saving">("saved");
 
   // New-notebook inline form.
   const [creating, setCreating] = createSignal(false);
@@ -94,7 +97,22 @@ const ScribePage: Component = () => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Scribe");
     void refreshShelf();
-    onCleanup(() => window.clearTimeout(saveTimer));
+    // Ctrl/⌘+S saves now — the reflex everyone has, and it shouldn't open the
+    // browser's save dialog over a notebook.
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && notebook()) {
+        e.preventDefault();
+        void flush();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => {
+      window.removeEventListener("keydown", onKey);
+      // Don't let a pending debounce die with the component — write it out.
+      window.clearTimeout(saveTimer);
+      const nb = notebook();
+      if (nb && saveState() !== "saved") void scribeSave(nb).catch(() => {});
+    });
   });
 
   // Reload strokes only when the *page identity* changes (open a notebook, flip
@@ -110,14 +128,27 @@ const ScribePage: Component = () => {
     ),
   );
 
+  /** Write the notebook now, cancelling any pending debounce. */
+  const flush = async (nb?: Notebook) => {
+    const target = nb ?? notebook();
+    if (!target) return;
+    window.clearTimeout(saveTimer);
+    setSaveState("saving");
+    try {
+      await scribeSave(target);
+      setSaveErr("");
+      setSaveState("saved");
+    } catch (e) {
+      setSaveErr(String(e).replace(/^Error:\s*/, ""));
+      setSaveState("dirty");
+    }
+  };
+
   const persist = (nb: Notebook) => {
     setNotebook(nb);
+    setSaveState("dirty");
     window.clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => {
-      scribeSave(nb)
-        .then(() => setSaveErr(""))
-        .catch((e) => setSaveErr(String(e).replace(/^Error:\s*/, "")));
-    }, 500);
+    saveTimer = window.setTimeout(() => void flush(nb), 500);
   };
 
   const onStrokes = (next: Stroke[]) => {
@@ -169,7 +200,10 @@ const ScribePage: Component = () => {
     }
   };
 
-  const closeToShelf = () => {
+  const closeToShelf = async () => {
+    // Write before leaving, so the shelf's page counts and the file both match
+    // what you just drew.
+    if (saveState() !== "saved") await flush();
     setNotebook(null);
     void refreshShelf();
     const at = activeId();
@@ -341,7 +375,7 @@ const ScribePage: Component = () => {
       >
         {/* ── Open notebook ── */}
         <div class="scribe-topbar">
-          <button class="wb-btn" title="Back to shelf" onClick={closeToShelf}>
+          <button class="wb-btn" title="Back to shelf" onClick={() => void closeToShelf()}>
             ‹ Shelf
           </button>
           <button class="scribe-title" title="Rename notebook" onClick={renameNotebook}>
@@ -396,6 +430,19 @@ const ScribePage: Component = () => {
           </div>
           <button class="wb-btn danger" title="Delete this page" onClick={deletePage}>
             🗑 Page
+          </button>
+          <button
+            class="wb-btn scribe-save"
+            classList={{ dirty: saveState() === "dirty" }}
+            title={
+              saveState() === "saved"
+                ? "Saved to disk — autosaves as you write (Ctrl+S)"
+                : "Unsaved changes — click or Ctrl+S to save now"
+            }
+            disabled={saveState() === "saving"}
+            onClick={() => void flush()}
+          >
+            {saveState() === "saving" ? "Saving…" : saveState() === "dirty" ? "● Save" : "✓ Saved"}
           </button>
           <button class="wb-btn" title="Publish this page to Onyx" onClick={openPublish}>
             ⇪ Onyx

@@ -610,9 +610,16 @@ export const servicesStart = (name: string) => invoke<boolean>("services_start",
 // ─── Corpus write access (#118) — let the agent add to Scroll / Onyx ────────
 /** Clip a URL into Scroll (POSTs its /clip form; Scroll scrapes + stores). */
 export const scrollClip = (url: string, tags?: string) => invoke<string>("scroll_clip", { url, tags });
-/** Create a Markdown note in the Onyx vault; returns the written path. */
-export const onyxNewNote = (title: string, content: string, folder?: string) =>
-  invoke<string>("onyx_new_note", { title, content, folder });
+/** Create a Markdown note in the Onyx vault; returns the written path. `folder`
+ *  is a vault subfolder (the course); `tags` is free-typed (commas or spaces,
+ *  `#` optional) and becomes YAML frontmatter. */
+export const onyxNewNote = (title: string, content: string, folder?: string, tags?: string) =>
+  invoke<string>("onyx_new_note", { title, content, folder, tags });
+/** Capture the ACTIVE page's visible text into an Onyx note — for lecture
+ *  transcripts (Echo360 &c.). Errors if too little text was captured, rather
+ *  than filing an empty stub. Returns the written path. */
+export const onyxCapturePage = (title: string, folder?: string, tags?: string) =>
+  invoke<string>("onyx_capture_page", { title, folder, tags });
 /** Novelty / contradiction check of `text` against the KB (#124). */
 export type KbCheck = GenKbCheck;
 export const kbCheck = (text: string) => invoke<KbCheck>("kb_check", { text });

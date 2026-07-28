@@ -192,7 +192,7 @@ fn now_ms() -> u64 {
 
 /// Today as `YYYY-MM-DD` (UTC) via Howard Hinnant's civil-from-days — avoids
 /// pulling a date crate for a single frontmatter line.
-fn today_ymd() -> String {
+pub(crate) fn today_ymd() -> String {
     let days = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| (d.as_secs() / 86_400) as i64)
@@ -212,7 +212,7 @@ fn today_ymd() -> String {
 
 /// Escape a value for a double-quoted YAML frontmatter scalar (keep it simple:
 /// backslashes and quotes are the only chars that break the line).
-fn yaml_quote(s: &str) -> String {
+pub(crate) fn yaml_quote(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
@@ -279,8 +279,9 @@ pub async fn scribe_publish_page(
 
 /// Split a free-typed tag string ("kkt, duality  convexity" or "#kkt #duality")
 /// into clean tag tokens. Commas or whitespace separate; a leading `#` is
-/// dropped so both habits work.
-fn parse_tags(raw: &str) -> Vec<String> {
+/// dropped so both habits work. Shared with the agent's "save to Onyx" path so
+/// hand-typed and spoken tags normalize identically.
+pub(crate) fn parse_tags(raw: &str) -> Vec<String> {
     raw.split([',', ' ', '\t', '\n'])
         .map(|t| t.trim().trim_start_matches('#').trim())
         .filter(|t| !t.is_empty())

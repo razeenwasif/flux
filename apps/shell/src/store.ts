@@ -74,6 +74,10 @@ const [activeId, setActiveId] = createSignal<number | null>(null);
 const [workspaces, setWorkspaces] = createSignal<Workspace[]>([]);
 const [activeWorkspace, setActiveWorkspaceSig] = createSignal<number>(1);
 export { workspaces, activeWorkspace };
+/** Name of the workspace in view — used to scope per-course defaults (the
+ *  agent's Onyx folder) and to label archive entries. */
+export const activeWorkspaceName = (): string | undefined =>
+  workspaces().find((w) => w.id === activeWorkspace())?.name;
 export const workspaceColor = (w: Workspace): string =>
   `#${(w.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
 async function refreshWorkspaces(): Promise<void> {

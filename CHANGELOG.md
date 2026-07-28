@@ -8,6 +8,23 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Capture a lecture transcript straight into Onyx** — `"capture this lecture to onyx/06 - Mathematics
+  #duality as Lecture 7"` files the **active page's own visible text** as a Markdown note (with a link
+  back to the source URL), so an Echo360 transcript joins the knowledge base and can be cited later.
+  Runs entirely in Rust off the already-captured DOM text — nothing is re-fetched or shipped to the
+  frontend and back. It **fails loud** if under ~400 characters were captured, telling you to open the
+  transcript tab, rather than filing an empty note that looks like it worked.
+- **The agent files Onyx notes into the right course folder, with tags** — `"save that to
+  onyx/Optimization #kkt #duality"` writes into that vault subfolder and emits the tags as YAML
+  frontmatter (which Onyx's TUI reads and the KB strips before chunking). The folder is spelled as a
+  path rather than "in <folder>" because "in" is far too common in prose to parse safely, and a folder
+  you name once is **remembered per workspace**, so a course workspace keeps filing into its own folder.
+  Untagged notes stay plain Markdown.
+- **Scribe has an explicit Save button and save-state indicator** — autosave is silent by design, which
+  left you trusting that a page of handwriting reached disk. The toolbar now shows ✓ Saved / ● Save /
+  Saving…, **Ctrl/⌘+S** saves immediately (and no longer opens the browser's save dialog), leaving a
+  notebook flushes pending edits before the shelf reloads, and unmounting writes out anything a pending
+  debounce would otherwise have dropped.
 - **Scribe pages carry tags, and a notebook's course is editable** — the publish panel takes a tags
   field (commas or spaces, `#` optional) that lands as a real YAML list in the note's frontmatter, so
   Onyx and the KB both read them; tags persist between publishes since consecutive pages of one lecture
