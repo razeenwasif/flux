@@ -49,6 +49,18 @@ pub struct Notebook {
     pub ts: u64,
 }
 
+/// The written half of a published page — what ends up as Markdown around the
+/// embedded ink. Grouped so `scribe_publish_page` takes one coherent argument
+/// rather than a run of loose strings.
+#[derive(Deserialize, specta::Type)]
+pub struct PageNote {
+    pub title: String,
+    /// Free text; the drop-in target for Gemma's handwriting transcription.
+    pub body: String,
+    /// Raw tag input — commas or spaces, `#` optional (see `parse_tags`).
+    pub tags: Option<String>,
+}
+
 /// Shelf-list view of a notebook — no strokes, so listing stays cheap.
 #[derive(Serialize, Clone, specta::Type)]
 pub struct NotebookMeta {
@@ -246,8 +258,7 @@ pub async fn scribe_publish_page(
     kb: State<'_, crate::kb::KbStore>,
     id: String,
     page_index: u32,
-    title: String,
-    body: String,
+    note: PageNote,
     png_b64: String,
 ) -> Result<String, String> {
     let nb = scribe.load(&id).ok_or_else(|| "notebook not found".to_string())?;
@@ -258,8 +269,7 @@ pub async fn scribe_publish_page(
             location.as_deref(),
             course.as_deref(),
             page_index,
-            &title,
-            &body,
+            &note,
             &png_b64,
         )
     })
@@ -267,14 +277,27 @@ pub async fn scribe_publish_page(
     .map_err(|e| e.to_string())?
 }
 
+/// Split a free-typed tag string ("kkt, duality  convexity" or "#kkt #duality")
+/// into clean tag tokens. Commas or whitespace separate; a leading `#` is
+/// dropped so both habits work.
+fn parse_tags(raw: &str) -> Vec<String> {
+    raw.split([',', ' ', '\t', '\n'])
+        .map(|t| t.trim().trim_start_matches('#').trim())
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 fn publish_page(
     location: Option<&str>,
     course: Option<&str>,
     page_index: u32,
-    title: &str,
-    body: &str,
+    note: &PageNote,
     png_b64: &str,
 ) -> Result<String, String> {
+    let title = note.title.as_str();
+    let body = note.body.as_str();
+    let tags = note.tags.as_deref();
     let root = crate::kb::onyx_vault(location).ok_or_else(|| {
         "Onyx vault not found — set its path in the Notebook panel (KB) first.".to_string()
     })?;
@@ -313,10 +336,23 @@ fn publish_page(
         .filter(|c| !c.is_empty())
         .map(|c| format!("course: {}\n", yaml_quote(c)))
         .unwrap_or_default();
+    // Onyx reads YAML frontmatter, so tags go out as a real list (the form its
+    // TUI and the KB's frontmatter stripper both understand).
+    let tag_list = tags.map(parse_tags).unwrap_or_default();
+    let tags_line = if tag_list.is_empty() {
+        String::new()
+    } else {
+        let items = tag_list
+            .iter()
+            .map(|t| format!("  - {}\n", yaml_quote(t)))
+            .collect::<String>();
+        format!("tags:\n{items}")
+    };
     let md = format!(
-        "---\ntitle: {}\n{}source: flux-scribe\npage: {}\ndate: {}\n---\n\n# {}\n\n![handwritten](assets/{})\n\n{}\n",
+        "---\ntitle: {}\n{}{}source: flux-scribe\npage: {}\ndate: {}\n---\n\n# {}\n\n![handwritten](assets/{})\n\n{}\n",
         yaml_quote(title.trim()),
         course_line,
+        tags_line,
         page_no,
         today_ymd(),
         title.trim(),
@@ -402,20 +438,36 @@ mod tests {
             Some(&vault_str),
             Some("MATH1013"),
             0,
-            "Integration by parts",
-            "u-substitution recap",
+            &PageNote {
+                title: "Integration by parts".into(),
+                body: "u-substitution recap".into(),
+                tags: Some("#calculus, integration  by-parts".into()),
+            },
             png_b64,
         )
         .expect("publish");
         let md = std::fs::read_to_string(&path).unwrap();
         assert!(md.contains("source: flux-scribe"));
         assert!(md.contains("course: \"MATH1013\""));
+        // Tags land as a real YAML list (Onyx + the KB both parse frontmatter).
+        assert!(
+            md.contains("tags:\n  - \"calculus\"\n  - \"integration\"\n  - \"by-parts\"\n"),
+            "got: {md}"
+        );
         assert!(md.contains("![handwritten](assets/Integration by parts-p1.png)"));
         assert!(md.contains("u-substitution recap"));
         assert!(vault
             .join("MATH1013/assets/Integration by parts-p1.png")
             .exists());
         let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn tags_accept_commas_spaces_and_hashes() {
+        assert_eq!(parse_tags("kkt, duality"), vec!["kkt", "duality"]);
+        assert_eq!(parse_tags("#kkt #duality"), vec!["kkt", "duality"]);
+        assert_eq!(parse_tags("  ,, "), Vec::<String>::new());
+        assert_eq!(parse_tags("convex-opt"), vec!["convex-opt"]);
     }
 
     #[test]

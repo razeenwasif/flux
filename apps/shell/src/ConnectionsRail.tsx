@@ -11,7 +11,7 @@
  */
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
-import { fsOpen, kbRelated, onDomUpdated, traceAmbient, type AmbientHint, type KbHit } from "./ipc";
+import { fsOpen, kbRelated, kbStatus, onDomUpdated, traceAmbient, type AmbientHint, type KbHit } from "./ipc";
 import { activeId, openTab } from "./store";
 
 const SOURCE_ICON: Record<string, string> = { onyx: "📝", scroll: "📜", council: "⚖", web: "🧭" };
@@ -20,6 +20,10 @@ const ConnectionsRail: Component = () => {
   const [hits, setHits] = createSignal<KbHit[]>([]);
   const [seen, setSeen] = createSignal<AmbientHint[]>([]);
   const [loading, setLoading] = createSignal(false);
+  // Why the rail is empty. "Nothing connects" reads as *no matches* even when the
+  // real cause is an unindexed corpus — an invisible failure that makes the whole
+  // feature look broken, so the empty state names the actual reason.
+  const [why, setWhy] = createSignal("");
   let gen = 0;
 
   const refresh = async () => {
@@ -36,14 +40,31 @@ const ConnectionsRail: Component = () => {
       if (mine === gen) {
         setHits(r);
         setSeen(s);
+        // Only pay for the diagnosis when there's nothing to show.
+        setWhy(r.length ? "" : await diagnose());
       }
-    } catch {
+    } catch (e) {
       if (mine === gen) {
         setHits([]);
         setSeen([]);
+        setWhy(String(e).replace(/^Error:\s*/, ""));
       }
     } finally {
       if (mine === gen) setLoading(false);
+    }
+  };
+
+  /** Distinguish "your corpus is empty" from "this page matched nothing". */
+  const diagnose = async (): Promise<string> => {
+    try {
+      const st = await kbStatus();
+      const docs = st.sources.reduce((n, s) => n + s.docs, 0);
+      if (st.indexing) return "Indexing your notes… connections appear once that finishes.";
+      if (docs === 0)
+        return "Your knowledge base is empty — open the Notebook and hit ↻ Reindex to pull in your Onyx vault.";
+      return `Nothing in your ${docs} indexed docs connects to this page yet.`;
+    } catch {
+      return "Nothing in your notes connects to this page yet.";
     }
   };
 
@@ -124,7 +145,7 @@ const ConnectionsRail: Component = () => {
           <div class="connect-empty">
             {loading()
               ? "Looking through your knowledge…"
-              : "Nothing in your notes connects to this page yet."}
+              : why() || "Nothing in your notes connects to this page yet."}
           </div>
         }
       >

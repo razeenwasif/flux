@@ -67,6 +67,7 @@ import type {
   KbCheck as GenKbCheck,
   Notebook as GenNotebook,
   NotebookMeta as GenNotebookMeta,
+  PageNote as GenPageNote,
   ServiceStatus as GenServiceStatus,
   SpotifyState as GenSpotifyState,
   SpotifyPlaylist as GenSpotifyPlaylist,
@@ -589,13 +590,9 @@ export const scribeSave = (notebook: Notebook) => invoke<void>("scribe_save", { 
 export const scribeDelete = (id: string) => invoke<void>("scribe_delete", { id });
 /** Publish one page to the Onyx vault as Markdown + an embedded PNG; returns
  * the written .md path. `pngB64` is the rendered page (base64, no data: prefix). */
-export const scribePublishPage = (
-  id: string,
-  pageIndex: number,
-  title: string,
-  body: string,
-  pngB64: string,
-) => invoke<string>("scribe_publish_page", { id, pageIndex, title, body, pngB64 });
+export type PageNote = GenPageNote;
+export const scribePublishPage = (id: string, pageIndex: number, note: PageNote, pngB64: string) =>
+  invoke<string>("scribe_publish_page", { id, pageIndex, note, pngB64 });
 // ─── TUI app launcher (#117) ────────────────────────────────────────────────
 export type TuiApp = GenTuiApp;
 /** The user's curated terminal-app list (seeded on first run). */
@@ -1171,8 +1168,7 @@ export const webviewThumbnail = (tabId: number) => invoke<string>("webview_thumb
 /** Every deterministic Sentinel check for one navigation, in a single round trip
  *  (ADR 0013): phishing resemblance, OAuth consent scopes, and whether the site
  *  is worth isolating. No model, no page content — instant. */
-export const sentinelOnNavigate = (url: string) =>
-  invoke<NavAssessment>("sentinel_on_navigate", { url });
+export const sentinelOnNavigate = (url: string) => invoke<NavAssessment>("sentinel_on_navigate", { url });
 
 /** The model-backed pass, once the page text has been captured (ADR 0013): the
  *  refined phishing verdict and any decoded cookie-consent banner. Reads the page
@@ -1204,8 +1200,7 @@ export const sentinelAuditClear = () => invoke<void>("sentinel_audit_clear");
 
 /** Click the page's genuine reject / necessary-only control. The click
  *  vocabulary is Rust-owned — the model never chooses what gets clicked. */
-export const sentinelRejectConsent = (tabId: number) =>
-  invoke<void>("sentinel_reject_consent", { tabId });
+export const sentinelRejectConsent = (tabId: number) => invoke<void>("sentinel_reject_consent", { tabId });
 
 export type MemInfo = GenMemInfo;
 /** System + Flux memory, for the memory-pressure tab eviction (#45). */

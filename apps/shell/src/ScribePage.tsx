@@ -71,6 +71,7 @@ const ScribePage: Component = () => {
   const [pubOpen, setPubOpen] = createSignal(false);
   const [pubTitle, setPubTitle] = createSignal("");
   const [pubBody, setPubBody] = createSignal("");
+  const [pubTags, setPubTags] = createSignal("");
   const [pubMsg, setPubMsg] = createSignal("");
   const [pubBusy, setPubBusy] = createSignal(false);
 
@@ -214,10 +215,26 @@ const ScribePage: Component = () => {
     }
   };
 
+  /** The course IS the vault folder this notebook publishes into, so it's
+   *  editable after creation (you rarely know the exact folder name up front). */
+  const editCourse = () => {
+    const cur = notebook();
+    if (!cur) return;
+    const course = window.prompt(
+      "Course — the folder inside your Onyx vault that pages publish into.\n" +
+        "Use the folder's exact name (e.g. “06 - Mathematics”). Blank = “Flux Scribe”.",
+      cur.course ?? "",
+    );
+    if (course == null) return; // cancelled
+    persist({ ...cur, course: course.trim() || null });
+  };
+
   const openPublish = () => {
     const cur = notebook();
     setPubTitle(`${cur?.name ?? "Note"} — p${pageIndex() + 1}`);
     setPubBody("");
+    // Tags persist between publishes — consecutive pages of one lecture usually
+    // share them, and clearing every time made tagging tedious enough to skip.
     setPubMsg("");
     setPubOpen(true);
   };
@@ -238,8 +255,7 @@ const ScribePage: Component = () => {
       const path = await scribePublishPage(
         cur.id,
         pageIndex(),
-        pubTitle().trim() || cur.name,
-        pubBody(),
+        { title: pubTitle().trim() || cur.name, body: pubBody(), tags: pubTags() || null },
         b64,
       );
       setPubMsg(`✓ Published to Onyx:\n${path}`);
@@ -330,9 +346,18 @@ const ScribePage: Component = () => {
           </button>
           <button class="scribe-title" title="Rename notebook" onClick={renameNotebook}>
             {notebook()!.name}
-            <Show when={notebook()!.course}>
-              <span class="scribe-title-course"> · {notebook()!.course}</span>
-            </Show>
+          </button>
+          <button
+            class="scribe-course-btn"
+            classList={{ unset: !notebook()!.course }}
+            title={
+              notebook()!.course
+                ? `Publishes into “${notebook()!.course}” in your Onyx vault — click to change`
+                : "No course set — pages publish into “Flux Scribe”. Click to point this notebook at a vault folder."
+            }
+            onClick={editCourse}
+          >
+            {notebook()!.course ?? "set course"}
           </button>
           <span style={{ flex: 1 }} />
           <div class="scribe-pagenav">
@@ -407,6 +432,12 @@ const ScribePage: Component = () => {
                 placeholder="Notes / transcription (optional) — this becomes the searchable text in Onyx"
                 value={pubBody()}
                 onInput={(e) => setPubBody(e.currentTarget.value)}
+              />
+              <input
+                class="scribe-input"
+                placeholder="Tags — e.g. kkt, duality, convexity (commas or spaces; # optional)"
+                value={pubTags()}
+                onInput={(e) => setPubTags(e.currentTarget.value)}
               />
               <div class="scribe-pub-hint">
                 Writes a Markdown note with the handwriting embedded as a PNG into{" "}

@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Scribe pages carry tags, and a notebook's course is editable** — the publish panel takes a tags
+  field (commas or spaces, `#` optional) that lands as a real YAML list in the note's frontmatter, so
+  Onyx and the KB both read them; tags persist between publishes since consecutive pages of one lecture
+  usually share them. The notebook's **course** — which *is* the vault folder pages publish into — is
+  now a chip in the notebook toolbar you can set or change at any time, instead of being fixed at
+  creation. An unset course reads "set course" and falls back to `Flux Scribe`.
 - **TUI apps open in floating panes (#117)** — clicking a chip in the terminal-apps bar (onyx, scroll,
   council…) now floats it in a movable, resizable window that stays put while you browse, instead of
   taking over a tab; **Ctrl/⌘- or Shift-click** still sends it to a full terminal tab. Multiple panes
@@ -40,6 +46,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The connections rail said "nothing connects" when the real problem was an empty index** — the
+  empty state now names the actual cause: indexing in progress, a knowledge base with zero documents
+  (pointing you at ↻ Reindex), or a genuine no-match, which reports how many docs it searched. Same
+  invisible-failure class as the autofill and classifier bugs: one message covering three very
+  different states made a working feature look dead.
 - **Floating panes resize from any edge or corner, not just one small corner grip** — app panes and TUI
   panes are now real windows: eight grips (four edges, four corners), with north/west drags anchoring
   the opposite edge so the pane grows in the direction you pull. The grips sit above the pane body,

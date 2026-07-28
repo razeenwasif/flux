@@ -277,6 +277,12 @@ export type Notebook = { id: string; name: string; course: string | null; tint: 
  */
 export type NotebookMeta = { id: string; name: string; course: string | null; tint: string | null; page_count: number; ts: number }
 /**
+ * The written half of a published page — what ends up as Markdown around the
+ * embedded ink. Grouped so `scribe_publish_page` takes one coherent argument
+ * rather than a run of loose strings.
+ */
+export type PageNote = { title: string; body: string; tags: string | null }
+/**
  * A discovered specialist available to route to.
  */
 export type Specialist = { domain: string; label: string; model: string }
