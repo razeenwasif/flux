@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Pick which calendar the home widget shows** — a calendar picker in the home calendar card (shown
+  once you have more than one) filters the month dots, the event list and the expanded week grid
+  together, so the widget can show just your uni timetable or just personal events. It's a separate
+  choice from the timetable pane's own filter, so the home card can show everything while the
+  timetable stays uni-only. Both persist.
 - **A native timetable view, replacing the pinned Google Calendar** — the calendar pane (footer 📅,
   ⌘K, or the new 🗓 dock button) gains a **Timetable** week view: an hour-grid with a now-line, the
   shape a uni schedule is actually read in, alongside the existing Month view for adding and editing.
@@ -167,6 +172,8 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   bridge now spans the gap so the path is continuous.
 
 ### Changed
+- **The calendar pane is much larger** (up to 1040×760 from 680×600) — the week timetable needs room
+  to show a full teaching day without scrolling, and the month view's day agenda gains the space too.
 - **Rename buttons for tab groups and containers** — an audit after the workspace fix found the same
   asymmetry in both: delete (✕) was a visible button while rename was an undocumented double-click.
   Both now have a ✎ beside the ✕, matching what tab *folders* already did correctly. (The audit also

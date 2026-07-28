@@ -11867,8 +11867,10 @@ input[type="radio"].pdf-fw {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(680px, calc(100vw - 60px));
-  max-height: min(600px, calc(100vh - 60px));
+  /* Roomy enough for a full week of hour-blocks without scrolling the grid to
+     read a normal teaching day; still inset from the window edges. */
+  width: min(1040px, calc(100vw - 48px));
+  height: min(760px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -12054,7 +12056,7 @@ input[type="radio"].pdf-fw {
   white-space: nowrap;
 }
 .cal-pane-grid {
-  flex: 0 0 300px;
+  flex: 0 0 360px;
   align-content: start;
   gap: 2px;
 }

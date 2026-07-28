@@ -13,6 +13,7 @@ import {
   Show,
   Switch,
   createEffect,
+  createMemo,
   createSignal,
   onCleanup,
   onMount,
@@ -178,7 +179,21 @@ const StartPage: Component<{
   };
   const [scratch, setScratch] = createSignal("");
   let scratchTimer: number | undefined;
-  const [events, setEvents] = createSignal<CalEvent[]>([]);
+  // Raw feed+local events; `events()` below is the filtered view every consumer
+  // reads, so the calendar picker applies to the month dots, the day list and
+  // the expanded week grid without each having to remember to filter.
+  const [allEvents, setAllEvents] = createSignal<CalEvent[]>([]);
+  const [homeCal, setHomeCal] = createSignal(localStorage.getItem("flux.start.cal") ?? "");
+  const pickHomeCal = (v: string) => {
+    setHomeCal(v);
+    localStorage.setItem("flux.start.cal", v);
+  };
+  /** Calendars present in the data, for the picker. */
+  const homeCalendars = createMemo(() => [...new Set(allEvents().map((e) => e.calendar))].sort());
+  const events = createMemo<CalEvent[]>(() => {
+    const f = homeCal();
+    return f ? allEvents().filter((e) => e.calendar === f) : allEvents();
+  });
   const [addingCal, setAddingCal] = createSignal(false);
   const [newCalUrl, setNewCalUrl] = createSignal("");
   const [expandedWidget, setExpandedWidget] = createSignal<ExpandedWidget>(null);
@@ -372,7 +387,7 @@ const StartPage: Component<{
 
   const loadEvents = () =>
     void calEvents()
-      .then((e) => setEvents(e ?? []))
+      .then((e) => setAllEvents(e ?? []))
       .catch(() => {});
   const refreshTodos = () =>
     void todosList()
@@ -1378,6 +1393,17 @@ const StartPage: Component<{
             <div class="start-card-title">
               {monthLabel()}
               <span class="start-card-actions">
+                <Show when={homeCalendars().length > 1}>
+                  <select
+                    class="cal-filter"
+                    title="Show one calendar, or all of them"
+                    value={homeCal()}
+                    onChange={(e) => pickHomeCal(e.currentTarget.value)}
+                  >
+                    <option value="">All calendars</option>
+                    <For each={homeCalendars()}>{(c) => <option value={c}>{c}</option>}</For>
+                  </select>
+                </Show>
                 <Show when={events().length > 0}>
                   <button
                     class="start-card-link"
