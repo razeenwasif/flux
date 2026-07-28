@@ -22,6 +22,13 @@ export type FluxApp = {
   tint: string;
   /** Bundled icon (served from /public), preferred over the remote favicon. */
   iconAsset?: string;
+  /**
+   * The site refuses cross-origin framing (`X-Frame-Options` /
+   * `frame-ancestors`), so it can never render in the pane's iframe — Google
+   * properties are the common case. Such apps open in a real tab instead, which
+   * is a native webview and therefore unaffected.
+   */
+  noFrame?: boolean;
   /** Full usage guide (Markdown) — given to Gemma when this app is in use. */
   guide: string;
 };
@@ -135,6 +142,9 @@ const DESKTOP_APPS: FluxApp[] = [
     host: "calendar.google.com",
     tagline: "Calendar, scheduling & events",
     tint: "#4285f4",
+    // Serves `x-frame-options: SAMEORIGIN` — an iframe pane only ever shows an
+    // error, so this one opens as a tab.
+    noFrame: true,
     guide: `# Google Calendar — scheduling & events
 **What it is:** Google's web calendar for events, reminders, and scheduling across day/week/month/year and agenda views, with multiple overlaid calendars, invitations, Google Meet links, and reminders/notifications. Signed in via your Google account.
 **Key features / workflows:**

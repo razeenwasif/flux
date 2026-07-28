@@ -11,9 +11,10 @@
  * The PTY dies with the pane: TerminalView's own onCleanup kills the session on
  * unmount, so closing the window is the whole teardown.
  */
-import { createSignal, onMount, type Component } from "solid-js";
+import { For, createSignal, onMount, type Component } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { RESIZE_HANDLES, startPaneDrag, startPaneResize } from "./paneGeometry";
 import TerminalView from "./TerminalView";
 import {
   closeTuiPane,
@@ -43,47 +44,8 @@ const TuiPane: Component<{ pane: TuiPaneRec; index: number }> = (props) => {
   const isFocused = () => focusedTuiPane() === props.pane.session;
   const z = () => (isFocused() ? 86 : 84);
 
-  // Pointer-drag the title bar to move; drag the corner handle to resize.
-  const startDrag = (e: PointerEvent) => {
-    if ((e.target as HTMLElement).closest(".apppane-btn")) return; // let buttons click
-    focus();
-    e.preventDefault();
-    setDragging(true);
-    const sx = e.clientX,
-      sy = e.clientY,
-      p0 = pos();
-    const move = (me: PointerEvent) => {
-      const x = Math.max(0, Math.min(window.innerWidth - 80, p0.x + me.clientX - sx));
-      const y = Math.max(0, Math.min(window.innerHeight - 40, p0.y + me.clientY - sy));
-      setPos({ x, y });
-    };
-    const up = () => {
-      setDragging(false);
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-  const startResize = (e: PointerEvent) => {
-    focus();
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(true);
-    const sx = e.clientX,
-      sy = e.clientY,
-      s0 = size();
-    const move = (me: PointerEvent) => {
-      setSize({ w: Math.max(360, s0.w + me.clientX - sx), h: Math.max(240, s0.h + me.clientY - sy) });
-    };
-    const up = () => {
-      setDragging(false);
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
+  // Move by the title bar; resize from any edge or corner (shared geometry).
+  const ctl = { pos, setPos, size, setSize, setDragging, onFocus: focus };
 
   return (
     <Portal>
@@ -99,7 +61,7 @@ const TuiPane: Component<{ pane: TuiPaneRec; index: number }> = (props) => {
         }}
         onPointerDown={focus}
       >
-        <div class="apppane-head" onPointerDown={startDrag}>
+        <div class="apppane-head" onPointerDown={(e) => startPaneDrag(ctl, e)}>
           <span class="tuipane-icon">{props.pane.icon}</span>
           <span class="apppane-name">{props.pane.name}</span>
           <span class="apppane-host">{props.pane.cmd}</span>
@@ -131,7 +93,15 @@ const TuiPane: Component<{ pane: TuiPaneRec; index: number }> = (props) => {
               context for the liquid backdrop (the terminal-splits rule). */}
           <TerminalView session={props.pane.session} active={isFocused()} background={false} />
         </div>
-        <div class="apppane-resize" onPointerDown={startResize} title="Resize" />
+        <For each={RESIZE_HANDLES}>
+          {(h) => (
+            <div
+              class={`pane-grip pane-grip-${h.dir}`}
+              style={{ cursor: h.cursor }}
+              onPointerDown={(e) => startPaneResize(ctl, e, h.dir)}
+            />
+          )}
+        </For>
       </div>
     </Portal>
   );

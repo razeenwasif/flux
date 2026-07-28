@@ -723,15 +723,65 @@ body.resizing .panel-edge-resize::after {
 .tuipane-body.noevents {
   pointer-events: none;
 }
-.apppane-resize {
+/* Floating-pane resize grips: every edge + corner, like a real window. Edges are
+   a 7px band just inside the frame; corners are 14px and stack above the edges
+   so a corner drag always wins. z-index keeps them over the iframe/terminal
+   body, which would otherwise swallow the pointer. */
+.pane-grip {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 18px;
-  height: 18px;
-  cursor: nwse-resize;
+  z-index: 3;
+  touch-action: none;
 }
-.apppane-resize::after {
+.pane-grip-n,
+.pane-grip-s {
+  left: 0;
+  right: 0;
+  height: 7px;
+}
+.pane-grip-n {
+  top: 0;
+}
+.pane-grip-s {
+  bottom: 0;
+}
+.pane-grip-e,
+.pane-grip-w {
+  top: 0;
+  bottom: 0;
+  width: 7px;
+}
+.pane-grip-e {
+  right: 0;
+}
+.pane-grip-w {
+  left: 0;
+}
+.pane-grip-ne,
+.pane-grip-nw,
+.pane-grip-se,
+.pane-grip-sw {
+  width: 14px;
+  height: 14px;
+  z-index: 4;
+}
+.pane-grip-ne {
+  top: 0;
+  right: 0;
+}
+.pane-grip-nw {
+  top: 0;
+  left: 0;
+}
+.pane-grip-se {
+  bottom: 0;
+  right: 0;
+}
+.pane-grip-sw {
+  bottom: 0;
+  left: 0;
+}
+/* Keep the familiar corner ridge as the visible affordance. */
+.pane-grip-se::after {
   content: "";
   position: absolute;
   right: 3px;

@@ -4,11 +4,12 @@
  * focused one sits on top and is the app Gemma assists with. Rendered while open;
  * App hides the tab webview so the (HTML) pane is visible above it.
  */
-import { createSignal, onMount, type Component } from "solid-js";
+import { For, createSignal, onMount, type Component } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import type { FluxApp } from "./apps";
 import { AppIcon } from "./AppDock";
+import { RESIZE_HANDLES, startPaneDrag, startPaneResize } from "./paneGeometry";
 import { focusedAppId, setFocusedAppId, setOpenAppIds, openTab } from "./store";
 
 const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
@@ -30,47 +31,8 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
   };
   const z = () => (focusedAppId() === props.app.id ? 86 : 84);
 
-  // Pointer-drag the title bar to move; drag the corner handle to resize.
-  const startDrag = (e: PointerEvent) => {
-    if ((e.target as HTMLElement).closest(".apppane-btn")) return; // let buttons click
-    focus();
-    e.preventDefault();
-    setDragging(true);
-    const sx = e.clientX,
-      sy = e.clientY,
-      p0 = pos();
-    const move = (me: PointerEvent) => {
-      const x = Math.max(0, Math.min(window.innerWidth - 80, p0.x + me.clientX - sx));
-      const y = Math.max(0, Math.min(window.innerHeight - 40, p0.y + me.clientY - sy));
-      setPos({ x, y });
-    };
-    const up = () => {
-      setDragging(false);
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-  const startResize = (e: PointerEvent) => {
-    focus();
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(true);
-    const sx = e.clientX,
-      sy = e.clientY,
-      s0 = size();
-    const move = (me: PointerEvent) => {
-      setSize({ w: Math.max(360, s0.w + me.clientX - sx), h: Math.max(260, s0.h + me.clientY - sy) });
-    };
-    const up = () => {
-      setDragging(false);
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
+  // Move by the title bar; resize from any edge or corner (shared geometry).
+  const ctl = { pos, setPos, size, setSize, setDragging, onFocus: focus };
 
   return (
     <Portal>
@@ -86,7 +48,7 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
         }}
         onPointerDown={focus}
       >
-        <div class="apppane-head" onPointerDown={startDrag}>
+        <div class="apppane-head" onPointerDown={(e) => startPaneDrag(ctl, e)}>
           <AppIcon app={props.app} size={16} />
           <span class="apppane-name">{props.app.name}</span>
           <span class="apppane-host">{props.app.host}</span>
@@ -118,7 +80,15 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
           title={props.app.name}
           allow="clipboard-read; clipboard-write; camera; microphone; geolocation"
         />
-        <div class="apppane-resize" onPointerDown={startResize} title="Resize" />
+        <For each={RESIZE_HANDLES}>
+          {(h) => (
+            <div
+              class={`pane-grip pane-grip-${h.dir}`}
+              style={{ cursor: h.cursor }}
+              onPointerDown={(e) => startPaneResize(ctl, e, h.dir)}
+            />
+          )}
+        </For>
       </div>
     </Portal>
   );

@@ -40,6 +40,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Floating panes resize from any edge or corner, not just one small corner grip** — app panes and TUI
+  panes are now real windows: eight grips (four edges, four corners), with north/west drags anchoring
+  the opposite edge so the pane grows in the direction you pull. The grips sit above the pane body,
+  which previously swallowed the pointer (an iframe or a terminal captures events over the old 18 px
+  corner square). Move + resize geometry now lives in one shared `paneGeometry.ts` instead of being
+  duplicated per pane.
+- **Google Calendar in the app dock showed an error instead of a calendar** — it serves
+  `x-frame-options: SAMEORIGIN`, so it can never render inside the pane's iframe. Apps can now declare
+  `noFrame`, and those open in a **tab** (a native webview, unaffected by framing rules) with the
+  tooltip saying so. Google Calendar is marked accordingly.
 - **Flux wrongly warned that Microsoft's own login page was impersonating Microsoft** — and worse, the
   credential firewall then refused to autofill there. The brand-embedding rule treats a brand appearing
   as a prefix/suffix compound as an attack, which is right for `paypalsecure.com` and wrong for
