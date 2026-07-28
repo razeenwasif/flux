@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Scribe writes like a notebook, not a canvas** — four changes to the ink engine, all scoped to the
+  paged Scribe surface (the whiteboard keeps its freeform behaviour):
+  - **Text is the default tool** on a notebook page, with a **writing caret** that flows down the
+    page: type, press Enter, keep typing — no click per line.
+  - **Drawing pushes the caret below it.** Switch to the pen mid-note, sketch a diagram or an
+    equation, switch back to text, and the input opens *under* the drawing rather than on top of it.
+  - **Lasso tool** (🫧, `S`) — circle any writing, text or shapes to select them; drag the selection
+    to move it, Delete to remove it, Escape to clear. Selected strokes are outlined individually so a
+    scattered selection is still legible.
+  - **Panning stays over your writing.** The camera is clamped to the written content plus ~400px of
+    headroom instead of the whole sheet, so you can always reach fresh space to keep writing but can't
+    lose the page in the corner of a blank A4.
 - **Pick which calendar the home widget shows** — a calendar picker in the home calendar card (shown
   once you have more than one) filters the month dots, the event list and the expanded week grid
   together, so the widget can show just your uni timetable or just personal events. It's a separate

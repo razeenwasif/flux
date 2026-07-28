@@ -13,7 +13,7 @@
  * infinite dot-grid surface (`null`) and a fixed-size paper page (`{w,h}`, with a
  * `template` background) that Scribe publishes to Onyx as a PNG.
  */
-import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, on, onCleanup, onMount, type Component } from "solid-js";
 
 export type Pt = { x: number; y: number };
 export type PathStroke = { t: "pen" | "hi"; color: string; w: number; pts: Pt[] };
@@ -30,6 +30,61 @@ export type Stroke = PathStroke | ShapeStroke | TextStroke;
 // negative narrowing — an explicit guard keeps the checker honest.
 const isPath = (s: Stroke): s is PathStroke => s.t === "pen" || s.t === "hi";
 
+export type Box = { x0: number; y0: number; x1: number; y1: number };
+
+/** Every point that defines a stroke — the basis of bounds, lasso hit-testing
+ *  and the writing caret. Text is approximated from its anchor + glyph width. */
+const pointsOf = (s: Stroke): Pt[] => {
+  if (isPath(s)) return s.pts;
+  if (s.t === "text") {
+    return [
+      { x: s.at.x, y: s.at.y - s.size },
+      { x: s.at.x + s.text.length * s.size * 0.6, y: s.at.y },
+    ];
+  }
+  return [s.a, s.b];
+};
+
+/** Bounding box of some strokes, or null when there are none. */
+const bboxOf = (ss: Stroke[]): Box | null => {
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -Infinity,
+    y1 = -Infinity;
+  let any = false;
+  for (const s of ss) {
+    for (const p of pointsOf(s)) {
+      any = true;
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+  }
+  return any ? { x0, y0, x1, y1 } : null;
+};
+
+/** Even-odd ray cast — is `p` inside the lasso polygon? */
+const inPoly = (p: Pt, poly: Pt[]): boolean => {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i]!;
+    const b = poly[j]!;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
+/** A copy of `s` shifted by (dx, dy) — selections move without mutating history. */
+const translated = (s: Stroke, dx: number, dy: number): Stroke => {
+  const mv = (p: Pt) => ({ x: p.x + dx, y: p.y + dy });
+  if (isPath(s)) return { ...s, pts: s.pts.map(mv) };
+  if (s.t === "text") return { ...s, at: mv(s.at) };
+  return { ...s, a: mv(s.a), b: mv(s.b) };
+};
+
 export type InkBounds = { w: number; h: number } | null;
 export type InkTemplate = "plain" | "grid" | "lined" | "squared";
 /** Imperative handle handed to the parent once on mount (Scribe uses it to
@@ -37,11 +92,12 @@ export type InkTemplate = "plain" | "grid" | "lined" | "squared";
 export type InkApi = { pageToBlob: () => Promise<Blob | null> };
 
 const COLORS = ["#f5f4ff", "#2ff3ff", "#7b61ff", "#ec4be0", "#ffc46b", "#7dff8a", "#ff6b6b", "#0a0a14"];
-type Tool = "pen" | "hi" | "eraser" | "line" | "rect" | "ellipse" | "arrow" | "text" | "pan";
+type Tool = "pen" | "hi" | "eraser" | "lasso" | "line" | "rect" | "ellipse" | "arrow" | "text" | "pan";
 const TOOLS: { id: Tool; icon: string; label: string; key: string }[] = [
   { id: "pen", icon: "✏️", label: "Pen", key: "P" },
   { id: "hi", icon: "🖊", label: "Highlighter", key: "H" },
   { id: "eraser", icon: "🧽", label: "Eraser (removes whole strokes)", key: "E" },
+  { id: "lasso", icon: "🫧", label: "Lasso — circle writing to select, then drag or Delete", key: "S" },
   { id: "line", icon: "╱", label: "Line", key: "L" },
   { id: "arrow", icon: "➔", label: "Arrow", key: "A" },
   { id: "rect", icon: "▭", label: "Rectangle", key: "R" },
@@ -71,7 +127,9 @@ const InkCanvas: Component<Props> = (props) => {
   let wrap!: HTMLDivElement;
   let textInput: HTMLInputElement | undefined;
 
-  const [tool, setTool] = createSignal<Tool>("pen");
+  // A notebook page is for writing, so text is the default there; the infinite
+  // whiteboard is for drawing and keeps the pen.
+  const [tool, setTool] = createSignal<Tool>(props.bounds ? "text" : "pen");
   const [color, setColor] = createSignal(COLORS[1]!);
   const [width, setWidth] = createSignal(3);
   const [textAt, setTextAt] = createSignal<Pt | null>(null); // world coords of a pending text
@@ -102,6 +160,23 @@ const InkCanvas: Component<Props> = (props) => {
   let lastX = 0,
     lastY = 0;
 
+  // ── Writing caret ──
+  // Scribe is a notebook, so typing flows down the page rather than needing a
+  // click per line. The caret is where the next text lands: it advances after
+  // each line, and — the point of it — drops *below* anything you draw, so
+  // switching pen → text resumes under the diagram instead of on top of it.
+  const [caret, setCaret] = createSignal<Pt | null>(null);
+  const lineH = () => (10 + width() * 2) * 1.7;
+  const homeCaret = (): Pt => {
+    const b = bounds();
+    return b ? { x: 48, y: 56 } : { x: cam.x + 40, y: cam.y + 60 };
+  };
+  /** Move the caret below `box`, keeping the left margin it started at. */
+  const caretBelow = (box: Box) => {
+    const x = caret()?.x ?? homeCaret().x;
+    setCaret({ x, y: box.y1 + lineH() });
+  };
+
   const strokes = () => props.strokes;
   // Commit a new stroke array through the parent, recording undo.
   const commit = (next: Stroke[]) => {
@@ -109,6 +184,58 @@ const InkCanvas: Component<Props> = (props) => {
     if (undoStack.length > 100) undoStack.shift();
     redoStack = [];
     props.onChange(next);
+  };
+
+  // Selection (lasso): indices into the stroke array. Kept as indices rather
+  // than references so a commit that rebuilds the array can simply clear it.
+  const [sel, setSel] = createSignal<number[]>([]);
+  let lasso: Pt[] | null = null; // the loop being drawn
+  let movingSel = false; // dragging the current selection
+  let dragStart: Stroke[] | null = null; // pre-drag array, for one undo entry
+  const selBox = (): Box | null => {
+    const ids = sel();
+    if (!ids.length) return null;
+    const ss = strokes();
+    return bboxOf(ids.map((i) => ss[i]).filter((s): s is Stroke => !!s));
+  };
+  const clearSel = () => {
+    if (sel().length) setSel([]);
+  };
+  const deleteSel = () => {
+    const ids = new Set(sel());
+    if (!ids.size) return;
+    setSel([]);
+    commit(strokes().filter((_, i) => !ids.has(i)));
+  };
+
+  /**
+   * Keep the view over your writing. Panning is clamped so the viewport centre
+   * stays within the written content plus headroom — you can always reach fresh
+   * space to keep writing, but can't lose yourself in the far corner of a blank
+   * page.
+   */
+  const clampCam = () => {
+    const pad = 400;
+    const b = bboxOf(strokes());
+    const pg = bounds();
+    let x0: number, y0: number, x1: number, y1: number;
+    if (b) {
+      x0 = b.x0 - pad;
+      y0 = b.y0 - pad;
+      x1 = b.x1 + pad;
+      y1 = b.y1 + pad;
+    } else if (pg) {
+      x0 = 0;
+      y0 = 0;
+      x1 = pg.w;
+      y1 = pg.h;
+    } else {
+      return; // empty infinite canvas — nothing to anchor to
+    }
+    const vw = W / cam.z / 2;
+    const vh = H / cam.z / 2;
+    cam.x = Math.max(x0 - vw, Math.min(x1 - vw, cam.x));
+    cam.y = Math.max(y0 - vh, Math.min(y1 - vh, cam.y));
   };
 
   // ── rendering ──
@@ -256,8 +383,49 @@ const InkCanvas: Component<Props> = (props) => {
     ctx.scale(cam.z, cam.z);
     ctx.translate(-cam.x, -cam.y);
     if (b) drawPage(ctx, b);
-    for (const s of strokes()) drawStroke(ctx, s);
+    const selected = new Set(sel());
+    strokes().forEach((s, i) => {
+      drawStroke(ctx, s);
+      if (selected.has(i)) {
+        // Tint each selected stroke's own box, so it's obvious what's picked
+        // even when the selection is scattered.
+        const b = bboxOf([s]);
+        if (b) {
+          ctx.save();
+          ctx.strokeStyle = "rgba(47,243,255,0.5)";
+          ctx.lineWidth = 1 / cam.z;
+          ctx.setLineDash([4 / cam.z, 3 / cam.z]);
+          ctx.strokeRect(b.x0 - 3, b.y0 - 3, b.x1 - b.x0 + 6, b.y1 - b.y0 + 6);
+          ctx.restore();
+        }
+      }
+    });
     if (live) drawStroke(ctx, live);
+    // The lasso loop being drawn.
+    if (lasso && lasso.length > 1) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(47,243,255,0.9)";
+      ctx.fillStyle = "rgba(47,243,255,0.08)";
+      ctx.lineWidth = 1.5 / cam.z;
+      ctx.setLineDash([6 / cam.z, 4 / cam.z]);
+      ctx.beginPath();
+      ctx.moveTo(lasso[0]!.x, lasso[0]!.y);
+      for (const p of lasso.slice(1)) ctx.lineTo(p.x, p.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+    // The selection's overall box — the handle you drag to move it.
+    const sb = selBox();
+    if (sb && !lasso) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(47,243,255,0.75)";
+      ctx.lineWidth = 1.5 / cam.z;
+      ctx.setLineDash([8 / cam.z, 5 / cam.z]);
+      ctx.strokeRect(sb.x0 - 8, sb.y0 - 8, sb.x1 - sb.x0 + 16, sb.y1 - sb.y0 + 16);
+      ctx.restore();
+    }
     ctx.restore();
   };
 
@@ -266,6 +434,7 @@ const InkCanvas: Component<Props> = (props) => {
   createEffect(() => {
     void props.strokes;
     void props.template;
+    void sel();
     draw();
   });
 
@@ -320,7 +489,22 @@ const InkCanvas: Component<Props> = (props) => {
       return;
     }
     const p = toWorld(px, py);
+    if (t === "lasso") {
+      // Pressing inside an existing selection drags it; otherwise start a loop.
+      const box = selBox();
+      if (box && p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1) {
+        movingSel = true;
+        dragStart = props.strokes;
+        return;
+      }
+      clearSel();
+      lasso = [p];
+      draw();
+      return;
+    }
+    clearSel();
     if (t === "text") {
+      setCaret(p);
       setTextAt(p);
       requestAnimationFrame(() => textInput?.focus());
       return;
@@ -343,9 +527,27 @@ const InkCanvas: Component<Props> = (props) => {
     if (panning) {
       cam.x -= (px - lastX) / cam.z;
       cam.y -= (py - lastY) / cam.z;
+      clampCam();
       lastX = px;
       lastY = py;
       draw();
+      return;
+    }
+    if (lasso) {
+      lasso.push(toWorld(px, py));
+      lastX = px;
+      lastY = py;
+      draw();
+      return;
+    }
+    if (movingSel) {
+      const dx = (px - lastX) / cam.z;
+      const dy = (py - lastY) / cam.z;
+      lastX = px;
+      lastY = py;
+      const ids = new Set(sel());
+      // Live-move without touching undo; the commit lands on pointer-up.
+      props.onChange(strokes().map((s, i) => (ids.has(i) ? translated(s, dx, dy) : s)));
       return;
     }
     lastX = px;
@@ -393,6 +595,43 @@ const InkCanvas: Component<Props> = (props) => {
   };
   const onUp = (e: PointerEvent) => {
     panning = false;
+    if (lasso) {
+      // Select whatever sits inside the loop. A stroke counts as selected when
+      // any of its defining points is enclosed, which is what feels right for
+      // circling a word or a diagram.
+      const loop = lasso;
+      lasso = null;
+      try {
+        canvas.releasePointerCapture(e.pointerId);
+      } catch {
+        /* not captured */
+      }
+      if (loop.length > 2) {
+        const picked: number[] = [];
+        strokes().forEach((st, i) => {
+          if (pointsOf(st).some((pt) => inPoly(pt, loop))) picked.push(i);
+        });
+        setSel(picked);
+      }
+      draw();
+      return;
+    }
+    if (movingSel) {
+      movingSel = false;
+      try {
+        canvas.releasePointerCapture(e.pointerId);
+      } catch {
+        /* not captured */
+      }
+      // One undo entry for the whole drag: props already hold the moved state,
+      // so record the pre-drag array that `commit` would otherwise miss.
+      undoStack.push(dragStart ?? props.strokes);
+      if (undoStack.length > 100) undoStack.shift();
+      redoStack = [];
+      dragStart = null;
+      draw();
+      return;
+    }
     try {
       canvas.releasePointerCapture(e.pointerId);
     } catch {
@@ -405,8 +644,13 @@ const InkCanvas: Component<Props> = (props) => {
     if (isPath(done)) trivial = done.pts.length < 2;
     else if (done.t === "text") trivial = false;
     else trivial = Math.hypot(done.b.x - done.a.x, done.b.y - done.a.y) < 2 / cam.z;
-    if (!trivial) commit([...strokes(), done]);
-    else draw();
+    if (!trivial) {
+      commit([...strokes(), done]);
+      // The pen→text hand-off: whatever you just drew pushes the writing caret
+      // below it, so switching back to text resumes under the drawing.
+      const box = bboxOf([done]);
+      if (box && done.t !== "text") caretBelow(box);
+    } else draw();
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
@@ -418,6 +662,7 @@ const InkCanvas: Component<Props> = (props) => {
     const after = toWorld(px, py);
     cam.x += before.x - after.x;
     cam.y += before.y - after.y;
+    clampCam();
     draw();
   };
 
@@ -425,8 +670,32 @@ const InkCanvas: Component<Props> = (props) => {
     const at = textAt();
     const v = textInput?.value.trim();
     setTextAt(null);
-    if (at && v) commit([...strokes(), { t: "text", color: color(), size: 10 + width() * 2, at, text: v }]);
+    if (!at || !v) return;
+    const size = 10 + width() * 2;
+    commit([...strokes(), { t: "text", color: color(), size, at, text: v }]);
+    // Flow down the page: the next line lands under this one.
+    setCaret({ x: at.x, y: at.y + lineH() });
   };
+
+  /** Open the text input at the caret (creating one at the page's top-left the
+   *  first time), so text mode is type-and-go rather than click-then-type. */
+  const openCaret = () => {
+    if (textAt()) return;
+    const at = caret() ?? homeCaret();
+    setCaret(at);
+    setTextAt(at);
+    requestAnimationFrame(() => textInput?.focus());
+  };
+
+  // Selecting the text tool resumes writing where the caret is — including
+  // below a drawing you just made. Scoped to `tool` with on(): tracking the
+  // caret/textAt reads inside openCaret would make blurring the input (clicking
+  // the toolbar) commit → reopen → refocus in a loop.
+  createEffect(
+    on(tool, (t) => {
+      if (t === "text") openCaret();
+    }),
+  );
 
   const undo = () => {
     const prev = undoStack.pop();
@@ -535,6 +804,11 @@ const InkCanvas: Component<Props> = (props) => {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
         e.preventDefault();
         redo();
+      } else if ((e.key === "Delete" || e.key === "Backspace") && sel().length) {
+        e.preventDefault();
+        deleteSel();
+      } else if (e.key === "Escape" && sel().length) {
+        clearSel();
       } else if (e.key === " ") {
         spaceHeld = true;
       } else if (!e.ctrlKey && !e.metaKey) {
@@ -548,6 +822,7 @@ const InkCanvas: Component<Props> = (props) => {
           r: "rect",
           o: "ellipse",
           t: "text",
+          s: "lasso",
         };
         if (map[k]) setTool(map[k]!);
       }
@@ -647,7 +922,7 @@ const InkCanvas: Component<Props> = (props) => {
         <canvas
           ref={canvas}
           class="wb-canvas"
-          classList={{ panning: tool() === "pan" }}
+          classList={{ panning: tool() === "pan", lasso: tool() === "lasso" }}
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
@@ -660,8 +935,12 @@ const InkCanvas: Component<Props> = (props) => {
             style={textScreen()}
             placeholder="Type, Enter to place"
             onKeyDown={(e) => {
-              if (e.key === "Enter") commitText();
-              else if (e.key === "Escape") setTextAt(null);
+              if (e.key === "Enter") {
+                // Commit and immediately reopen on the next line — writing a
+                // paragraph shouldn't need a click per line.
+                commitText();
+                if (tool() === "text") requestAnimationFrame(openCaret);
+              } else if (e.key === "Escape") setTextAt(null);
             }}
             onBlur={commitText}
           />

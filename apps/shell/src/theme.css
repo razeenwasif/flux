@@ -13498,3 +13498,8 @@ input[type="radio"].pdf-fw {
   font-size: 17px;
   line-height: 1;
 }
+
+/* Lasso: a crosshair reads as "draw a loop", not "write here". */
+.wb-canvas.lasso {
+  cursor: crosshair;
+}
