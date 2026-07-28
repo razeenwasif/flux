@@ -98,6 +98,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **"＋ Calendar" vanished from the home calendar widget** — the new calendar picker widened the card's
+  action row, which didn't wrap, so the last button was pushed off the edge. The action row now wraps
+  and the picker is compact (and truncates) in that cramped header, so a control added there can't
+  silently displace another one again.
 - **The timetable's styles were overriding the home calendar's expanded week grid** — the new week view
   reused nine class names (`.cal-week`, `.cal-week-head`, `.cal-week-dow`, …) that the home calendar's
   expanded grid already owned, and being later in the stylesheet it won. The timetable's classes are

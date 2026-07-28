@@ -4530,6 +4530,9 @@ body.busy .start-card {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* The label can give up space before the actions do. */
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .start-card-link {
   font-size: 10.5px;
@@ -4644,6 +4647,18 @@ body.busy .start-card {
   display: inline-flex;
   gap: 10px;
   align-items: center;
+  /* Wrap rather than pushing later actions out of the card: a widened control
+     here (the calendar picker) silently shoved "＋ Calendar" off the edge. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+/* The calendar picker shares a cramped widget header — keep it compact and let
+   it truncate, unlike the roomy one in the calendar pane. */
+.start-card-actions .cal-filter {
+  max-width: 116px;
+  padding: 3px 6px;
+  font-size: 11px;
 }
 .start-events {
   display: flex;
