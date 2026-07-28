@@ -12067,13 +12067,56 @@ input[type="radio"].pdf-fw {
   white-space: nowrap;
 }
 .cal-pane-grid {
-  flex: 0 0 360px;
-  align-content: start;
+  /* Share the pane's width instead of a fixed column, and let the week rows
+     stretch to fill its height — with square (aspect-ratio) cells the grid
+     stopped a third of the way down the enlarged pane. `grid-template-rows:
+     auto` keeps the weekday header its natural height; every implicit row
+     after it splits what's left. */
+  flex: 0 0 clamp(320px, 40%, 470px);
+  height: 100%;
+  grid-template-rows: auto;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 3px;
+  align-content: stretch;
+  align-items: stretch;
   gap: 2px;
 }
 .cal-pane-grid .cal-pop-day {
   font-size: 12.5px;
 }
+/* Cells fill their (now taller) row rather than staying square, and the type
+   steps up to suit the larger pane. Scoped to the pane so the base .cal-pop-*
+   popover styles are untouched. */
+.cal-pane-grid .cal-pop-day {
+  aspect-ratio: auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.cal-pane-grid .cal-pop-dow {
+  font-size: 11px;
+  padding-bottom: 4px;
+}
+/* The has-events dot sat flush to the bottom edge of the taller cells. */
+.cal-pane-grid .cal-pop-day.has::after {
+  bottom: 7px;
+}
+/* The agenda beside it gets a matching step up. */
+.cal-pane-day-title {
+  font-size: 14px;
+}
+.cal-pane-ev .cal-pop-ev-sum {
+  font-size: 13px;
+}
+.cal-pane-ev .cal-pop-ev-when {
+  font-size: 11px;
+}
+.cal-pane-ev-loc {
+  font-size: 11.5px;
+}
+
 .cal-pane-day {
   flex: 1 1 auto;
   min-width: 0;
