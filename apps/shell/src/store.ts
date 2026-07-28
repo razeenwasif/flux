@@ -658,9 +658,7 @@ export function setPhish(id: number, v: PhishVerdict | null): void {
 // Sentinel sensitive-site containerization offer (ADR 0013, Pillar 2 M4): set on
 // navigation to a bank/health/gov site. Hosts the user waved off are remembered
 // so the offer never becomes a nag.
-const dismissedSens = new Set<string>(
-  JSON.parse(localStorage.getItem("flux.sens.off") || "[]") as string[],
-);
+const dismissedSens = new Set<string>(JSON.parse(localStorage.getItem("flux.sens.off") || "[]") as string[]);
 const [sensByTab, setSensByTab] = createStore<Record<number, SensitiveSite | null>>({});
 const sensHost = (url: string): string => {
   try {
@@ -829,6 +827,35 @@ const [openAppIds, setOpenAppIds] = createSignal<string[]>([]);
 const [focusedAppId, setFocusedAppId] = createSignal<string | null>(null);
 export { openAppIds, setOpenAppIds, focusedAppId, setFocusedAppId };
 
+// ─── Floating TUI panes (#117 follow-up) ────────────────────────────────────
+// A TUI app (onyx/scroll/council…) in a movable window instead of a tab. The
+// terminal is xterm.js — pure DOM — so it renders in a floating pane exactly
+// like AppPane's iframe; only the PTY session id is extra state.
+/** One open TUI pane: its PTY session plus the chip's identity for the titlebar. */
+export type TuiPane = { session: number; name: string; icon: string; cmd: string; cwd: string };
+/** Reserved PTY-session range for TUI panes. Tab ids start at 1 and climb
+ *  slowly; TerminalColumn's split panes own 0xf0000000+ — a distinct base keeps
+ *  the three allocators from ever colliding. */
+const TUI_PANE_BASE = 0xe000_0000;
+let tuiPaneSeq = TUI_PANE_BASE;
+const [tuiPanes, setTuiPanes] = createSignal<TuiPane[]>([]);
+const [focusedTuiPane, setFocusedTuiPane] = createSignal<number | null>(null);
+export { tuiPanes, setTuiPanes, focusedTuiPane, setFocusedTuiPane };
+
+/** Open a TUI app in a floating pane; its command auto-runs once the PTY spawns
+ *  (TerminalView consumes the pending command, same as a terminal tab). */
+export function openTuiPane(app: { name: string; icon: string; cmd: string; cwd: string }): void {
+  const session = ++tuiPaneSeq;
+  if (app.cmd.trim()) setPendingCommand(session, app.cmd.trim());
+  setTuiPanes((p) => [...p, { session, ...app }]);
+  setFocusedTuiPane(session);
+}
+/** Close a pane — unmounting TerminalView kills its PTY (its own onCleanup). */
+export function closeTuiPane(session: number): void {
+  setTuiPanes((p) => p.filter((t) => t.session !== session));
+  setFocusedTuiPane((f) => (f === session ? null : f));
+}
+
 // An agent-panel dropdown (model picker / past chats) is open. Native page
 // webviews are an OS layer above the chrome, so a dropdown rendered over the page
 // would be behind it (translucent + unclickable). App hides the active webview
@@ -877,7 +904,8 @@ export const pageOverlayActive = (): boolean =>
   watchPanelOpen() ||
   trackerGraphOpen() ||
   playgroundOpen() ||
-  openAppIds().length > 0;
+  openAppIds().length > 0 ||
+  tuiPanes().length > 0;
 export function setMapQuery(q: string): void {
   setMapQueryRaw(q);
   localStorage.setItem("flux.map.query", q);
@@ -1184,10 +1212,7 @@ export function archiveTabRecord(url: string, title: string, ws?: number, wsName
     [
       { url, title: title || url, ts: Date.now(), ws, wsName },
       ...archivedTabs().filter((a) => a.url !== url),
-    ].slice(
-      0,
-      200,
-    ),
+    ].slice(0, 200),
   );
 }
 export function removeArchived(url: string): void {

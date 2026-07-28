@@ -117,6 +117,7 @@ const SemanticFind = lazy(() => import("./SemanticFind"));
 const WatchPanel = lazy(() => import("./WatchPanel"));
 const TrackerGraph = lazy(() => import("./TrackerGraph"));
 const AppPane = lazy(() => import("./AppPane"));
+const TuiPane = lazy(() => import("./TuiPane"));
 import AppDock from "./AppDock";
 import { FLUX_APPS } from "./apps";
 import type { PaletteAction } from "./CommandPalette";
@@ -164,6 +165,7 @@ import {
   trackerGraphOpen,
   setTrackerGraphOpen,
   openAppIds,
+  tuiPanes,
   setMapPanelOpen,
   mapQuery,
   setMapQuery,
@@ -359,9 +361,7 @@ const App: Component = () => {
     // brand and offers a safe exit — but now BEFORE the first keystroke. This
     // catches the case the navigation check can't: a lookalike whose own label
     // is in your known-good set because you were phished there once.
-    const unInputWarn = await onSentinelInputWarning((tabId, _host, verdict) =>
-      setPhish(tabId, verdict),
-    );
+    const unInputWarn = await onSentinelInputWarning((tabId, _host, verdict) => setPhish(tabId, verdict));
     // App keyboard shortcuts (#18). Capture phase so we win over child widgets
     // (e.g. xterm's own key handler) when the chrome/terminal is focused; the
     // injected shortcuts.js handles the case where a page webview has focus and
@@ -1538,41 +1538,41 @@ const App: Component = () => {
           </Suspense>
         }
       >
-      <Sidebar
-        collapsed={!responsive().sidebar}
-        terminalOpen={terminalOpen()}
-        agentOpen={agentOpen()}
-        onNavigate={go}
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
-        onToggleTerminal={() => setTerminalOpen((v) => !v)}
-        onToggleAgent={() => setAgentOpen((v) => !v)}
-        onSaveToOmni={saveToOmni}
-        onToast={(m) => {
-          setOmniToast(m);
-          window.setTimeout(() => setOmniToast(null), 2800);
-        }}
-        onAiSearch={(q) => {
-          if (aiAnswersOn()) {
-            setAgentOpen(true);
-            setPendingAsk(q);
-          }
-        }}
-        onSwitchWorkspace={switchWorkspace}
-        onNewWorkspace={newWorkspace}
-        onDeleteWorkspace={removeWorkspace}
-        onSendTabToWorkspace={sendTabToWs}
-        onSendGroupToWorkspace={sendGroupToWs}
-        onZoomReset={() => zoom("reset")}
-        onToggleReader={toggleReader}
-        onCapture={capturePage}
-        onArchive={saveToArchive}
-        onTranslate={() => void translatePage(myLang)}
-        onToggleBookmark={toggleBookmark}
-        isBookmarked={() => bookmarkedId() != null}
-        onToggleFilesPanel={() => (filesPanelOpen() ? closeFilesPanel() : openFilesPanel())}
-        onOpenPlayground={() => (playgroundOpen() ? closePlayground() : openPlayground())}
-        onOpenNotebook={() => (kbPanelOpen() ? closeKbPanel() : openKbPanel())}
-      />
+        <Sidebar
+          collapsed={!responsive().sidebar}
+          terminalOpen={terminalOpen()}
+          agentOpen={agentOpen()}
+          onNavigate={go}
+          onToggleSidebar={() => setSidebarOpen((v) => !v)}
+          onToggleTerminal={() => setTerminalOpen((v) => !v)}
+          onToggleAgent={() => setAgentOpen((v) => !v)}
+          onSaveToOmni={saveToOmni}
+          onToast={(m) => {
+            setOmniToast(m);
+            window.setTimeout(() => setOmniToast(null), 2800);
+          }}
+          onAiSearch={(q) => {
+            if (aiAnswersOn()) {
+              setAgentOpen(true);
+              setPendingAsk(q);
+            }
+          }}
+          onSwitchWorkspace={switchWorkspace}
+          onNewWorkspace={newWorkspace}
+          onDeleteWorkspace={removeWorkspace}
+          onSendTabToWorkspace={sendTabToWs}
+          onSendGroupToWorkspace={sendGroupToWs}
+          onZoomReset={() => zoom("reset")}
+          onToggleReader={toggleReader}
+          onCapture={capturePage}
+          onArchive={saveToArchive}
+          onTranslate={() => void translatePage(myLang)}
+          onToggleBookmark={toggleBookmark}
+          isBookmarked={() => bookmarkedId() != null}
+          onToggleFilesPanel={() => (filesPanelOpen() ? closeFilesPanel() : openFilesPanel())}
+          onOpenPlayground={() => (playgroundOpen() ? closePlayground() : openPlayground())}
+          onOpenNotebook={() => (kbPanelOpen() ? closeKbPanel() : openKbPanel())}
+        />
       </Show>
       <ContentArea
         onNavigate={go}
@@ -1694,6 +1694,10 @@ const App: Component = () => {
           return app ? <AppPane app={app} index={i()} /> : null;
         }}
       </For>
+      {/* TUI apps (#117) floated the same way. Pane records are never mutated in
+          place (open/close rebuild the array), so For's reference keying reuses
+          each live node — a remount here would kill that pane's shell. */}
+      <For each={tuiPanes()}>{(p, i) => <TuiPane pane={p} index={i()} />}</For>
 
       {/* Right-click "open in new tab" menu for links in internal DOM pages. */}
       <LinkMenu

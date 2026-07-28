@@ -707,6 +707,22 @@ body.resizing .panel-edge-resize::after {
 .apppane-frame.noevents {
   pointer-events: none;
 }
+/* TUI pane (#117): same window chrome as .apppane, but the body is a live
+   terminal (xterm.js) rather than an iframe. */
+.tuipane-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.tuipane-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--flux-term-bg, #0b0a12);
+}
+.tuipane-body.noevents {
+  pointer-events: none;
+}
 .apppane-resize {
   position: absolute;
   right: 0;

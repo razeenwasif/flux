@@ -8,7 +8,7 @@ import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { tuiAppsDetect, tuiAppsList, tuiAppsSet, type TuiApp } from "./ipc";
-import { openTerminalApp } from "./store";
+import { openTerminalApp, openTuiPane } from "./store";
 
 const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -27,7 +27,15 @@ const TuiAppsBar: Component = () => {
         .catch(() => {}),
   );
 
-  const launch = (a: TuiApp) => void openTerminalApp(a.cmd, a.cwd).catch(() => {});
+  // Click floats the app in a pane (it stays put while you browse); Ctrl/⌘- or
+  // shift-click sends it to a full terminal tab instead.
+  const launch = (a: TuiApp, e?: MouseEvent) => {
+    if (e && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+      void openTerminalApp(a.cmd, a.cwd).catch(() => {});
+      return;
+    }
+    openTuiPane({ name: a.name, icon: a.icon, cmd: a.cmd, cwd: a.cwd });
+  };
 
   const openEditor = () => {
     setDraft(apps().map((a) => ({ ...a })));
@@ -85,8 +93,8 @@ const TuiAppsBar: Component = () => {
           {(a) => (
             <button
               class="tui-chip"
-              title={`Run “${a.cmd}”${a.cwd ? ` in ${a.cwd}` : ""} in a new terminal`}
-              onClick={() => launch(a)}
+              title={`Run “${a.cmd}”${a.cwd ? ` in ${a.cwd}` : ""} in a floating pane — Ctrl/⌘ or Shift-click for a terminal tab`}
+              onClick={(e) => launch(a, e)}
             >
               <span class="tui-chip-ico">{a.icon}</span>
               <span class="tui-chip-label">{a.name}</span>

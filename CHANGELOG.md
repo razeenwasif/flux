@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **TUI apps open in floating panes (#117)** — clicking a chip in the terminal-apps bar (onyx, scroll,
+  council…) now floats it in a movable, resizable window that stays put while you browse, instead of
+  taking over a tab; **Ctrl/⌘- or Shift-click** still sends it to a full terminal tab. Multiple panes
+  can be open at once (they cascade), each with its own PTY, icon and title. This works because Flux's
+  terminal is xterm.js — plain DOM — so it renders in a floating window exactly like the web-app panes
+  (#131); the pane reuses `AppPane`'s window chrome with `TerminalView` as its body. Sessions come from
+  a reserved id range that can't collide with tabs or the terminal column's splits, and panes register
+  in the shared overlay aggregate, so the native page lifts out of the way and returns through the one
+  existing code path. Closing a pane ends that shell; ↗ moves the app to a terminal tab.
 - **Scribe is touch- and Apple-Pencil-ready (iPad-tuned)** — the ink engine now distinguishes input:
   a **pencil/mouse draws while a finger pans** (toggle ✍️/👆 in the toolbar, on by default on touch
   devices, a no-op with a mouse), so a resting palm or a scrolling finger no longer scribbles. Pen
