@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **A native timetable view, replacing the pinned Google Calendar** — the calendar pane (footer 📅,
+  ⌘K, or the new 🗓 dock button) gains a **Timetable** week view: an hour-grid with a now-line, the
+  shape a uni schedule is actually read in, alongside the existing Month view for adding and editing.
+  A dropdown narrows it to **one calendar**, so it shows your timetable and nothing else, and the
+  hour range auto-fits the events present rather than always drawing a pointless 00:00–06:00. Read-only
+  subscribed events are tinted differently from editable ones, and clicking any block jumps to that
+  day's agenda where editing lives. Subscribe to your uni's `.ics` from the home calendar's ＋ Calendar
+  and it renders natively — no Google page, no iframe, no account. The Google Calendar dock entry is
+  removed (it could only ever open as a side panel, since Google blocks embedding).
 - **Convert a subscribed calendar into editable Flux events** — a subscribed ICS (Google Calendar &c.)
   is read-only by nature: it's re-fetched from the source every time, so nothing you change would
   survive. **＋ Calendar → Make editable** now copies a feed's events into Flux's own event store,

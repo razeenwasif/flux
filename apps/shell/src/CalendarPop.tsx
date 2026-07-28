@@ -21,10 +21,24 @@ import {
   type CalEvent,
   type CalEventFields,
 } from "./ipc";
-import { openTab, setCalendarPopOpen } from "./store";
+import { calendarPopView, openTab, setCalendarPopOpen, setCalendarPopView } from "./store";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const dateStrOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+/** `HH:MM` → minutes since midnight. */
+const minsOf = (t: string) => {
+  const [h, m] = t.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+/** Monday of the week containing `d` (weeks start Monday, like the month grid). */
+const mondayOf = (d: Date) => {
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  out.setDate(out.getDate() - ((out.getDay() + 6) % 7));
+  return out;
+};
+/** Row height for one hour of the week grid, in px. */
+const HOUR_H = 42;
 
 const REPEATS: { v: string; label: string }[] = [
   { v: "", label: "One-off" },
@@ -49,6 +63,83 @@ const CalendarPop: Component = () => {
   const [fLocation, setFLocation] = createSignal("");
   const [fRepeat, setFRepeat] = createSignal("");
   const [err, setErr] = createSignal("");
+
+  // ── Week / timetable view ───────────────────────────────────────────────
+  // A uni timetable is a week of hour-blocks, so this is the same data in the
+  // shape you actually read it in. `calFilter` narrows to one calendar, which
+  // is what makes the pane act purely as the timetable rather than everything.
+  const [view, setView] = createSignal<"month" | "week">(calendarPopView());
+  const setViewPersist = (v: "month" | "week") => {
+    setView(v);
+    setCalendarPopView(v);
+  };
+  const [calFilter, setCalFilter] = createSignal(localStorage.getItem("flux.cal.filter") ?? "");
+  const pickFilter = (v: string) => {
+    setCalFilter(v);
+    localStorage.setItem("flux.cal.filter", v);
+  };
+  /** Monday of the displayed week. */
+  const [weekStart, setWeekStart] = createSignal(mondayOf(new Date()));
+  const shiftWeek = (n: number) => {
+    const d = new Date(weekStart());
+    d.setDate(d.getDate() + n * 7);
+    setWeekStart(d);
+  };
+  const weekDays = createMemo(() =>
+    Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart());
+      d.setDate(d.getDate() + i);
+      return d;
+    }),
+  );
+  const weekLabel = () => {
+    const a = weekDays()[0]!;
+    const b = weekDays()[6]!;
+    const f = (d: Date) => d.toLocaleDateString([], { day: "numeric", month: "short" });
+    return `${f(a)} – ${f(b)}`;
+  };
+  /** Calendars present in the data, for the filter control. */
+  const calendars = createMemo(() => [...new Set(events().map((e) => e.calendar))].sort());
+  const shown = createMemo(() => {
+    const f = calFilter();
+    return f ? events().filter((e) => e.calendar === f) : events();
+  });
+  /** Timed events of the displayed week, keyed by date. */
+  const weekEvents = createMemo(() => {
+    const days = new Set(weekDays().map(dateStrOf));
+    return shown().filter((e) => days.has(e.date) && e.time);
+  });
+  const allDayEvents = createMemo(() => {
+    const days = new Set(weekDays().map(dateStrOf));
+    return shown().filter((e) => days.has(e.date) && !e.time);
+  });
+  /** Hour range worth drawing — a timetable never runs at 3am, so the grid is
+   *  clamped to the events actually present (with a sane default). */
+  const hourRange = createMemo<[number, number]>(() => {
+    const evs = weekEvents();
+    if (!evs.length) return [8, 18];
+    let lo = 23;
+    let hi = 1;
+    for (const e of evs) {
+      const s = Math.floor(minsOf(e.time) / 60);
+      const en = Math.ceil((e.end ? minsOf(e.end) : minsOf(e.time) + 60) / 60);
+      lo = Math.min(lo, s);
+      hi = Math.max(hi, en);
+    }
+    return [Math.max(0, Math.min(lo, 22)), Math.min(24, Math.max(hi, lo + 2))];
+  });
+  const hours = createMemo(() => {
+    const [lo, hi] = hourRange();
+    return Array.from({ length: hi - lo }, (_, i) => lo + i);
+  });
+  const [nowMins, setNowMins] = createSignal(new Date().getHours() * 60 + new Date().getMinutes());
+  onMount(() => {
+    const t = window.setInterval(
+      () => setNowMins(new Date().getHours() * 60 + new Date().getMinutes()),
+      60_000,
+    );
+    onCleanup(() => window.clearInterval(t));
+  });
 
   const refresh = () =>
     calEvents()
@@ -171,16 +262,51 @@ const CalendarPop: Component = () => {
       <div class="cal-pane-backdrop" onClick={() => setCalendarPopOpen(false)} />
       <div class="glass cal-pane">
         <div class="cal-pop-head">
-          <button class="cal-pop-nav" onClick={() => shiftMonth(-1)}>
+          <button class="cal-pop-nav" onClick={() => (view() === "week" ? shiftWeek(-1) : shiftMonth(-1))}>
             ‹
           </button>
-          <span class="cal-pop-month">{monthLabel()}</span>
-          <button class="cal-pop-nav" onClick={() => shiftMonth(1)}>
+          <span class="cal-pop-month">{view() === "week" ? weekLabel() : monthLabel()}</span>
+          <button class="cal-pop-nav" onClick={() => (view() === "week" ? shiftWeek(1) : shiftMonth(1))}>
             ›
           </button>
-          <button class="cal-pop-nav" title="Jump to today" onClick={goToday}>
+          <button
+            class="cal-pop-nav"
+            title="Jump to today"
+            onClick={() => {
+              setWeekStart(mondayOf(new Date()));
+              goToday();
+            }}
+          >
             Today
           </button>
+          {/* Month = plan/edit; Week = read your timetable. */}
+          <div class="cal-viewtoggle">
+            <button
+              classList={{ on: view() === "month" }}
+              title="Month + day agenda (add & edit events)"
+              onClick={() => setViewPersist("month")}
+            >
+              Month
+            </button>
+            <button
+              classList={{ on: view() === "week" }}
+              title="Week grid — your timetable"
+              onClick={() => setViewPersist("week")}
+            >
+              Timetable
+            </button>
+          </div>
+          <Show when={view() === "week" && calendars().length > 1}>
+            <select
+              class="cal-filter"
+              title="Show only one calendar — pick your uni timetable"
+              value={calFilter()}
+              onChange={(e) => pickFilter(e.currentTarget.value)}
+            >
+              <option value="">All calendars</option>
+              <For each={calendars()}>{(c) => <option value={c}>{c}</option>}</For>
+            </select>
+          </Show>
           <span style={{ flex: 1 }} />
           <button class="cal-pop-full" title="Open the full calendar (home)" onClick={openFull}>
             ↗ Full calendar
@@ -189,7 +315,102 @@ const CalendarPop: Component = () => {
             ✕
           </button>
         </div>
-        <div class="cal-pane-body">
+        <Show when={view() === "week"}>
+          <div class="cal-week">
+            <div class="cal-week-head">
+              <span class="cal-week-gutter" />
+              <For each={weekDays()}>
+                {(d) => (
+                  <span classList={{ "cal-week-dow": true, today: dateStrOf(d) === todayStr }}>
+                    {d.toLocaleDateString([], { weekday: "short" })} {d.getDate()}
+                  </span>
+                )}
+              </For>
+            </div>
+            {/* All-day / untimed rows sit above the grid, as in any calendar. */}
+            <Show when={allDayEvents().length > 0}>
+              <div class="cal-week-allday">
+                <span class="cal-week-gutter">all day</span>
+                <For each={weekDays()}>
+                  {(d) => (
+                    <span class="cal-week-allday-col">
+                      <For each={allDayEvents().filter((e) => e.date === dateStrOf(d))}>
+                        {(e) => <span class="cal-week-chip">{e.summary}</span>}
+                      </For>
+                    </span>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <div class="cal-week-scroll">
+              <div class="cal-week-body" style={{ "--hour-h": `${HOUR_H}px` }}>
+                <div class="cal-week-hours">
+                  <For each={hours()}>{(h) => <span class="cal-week-hour">{pad2(h)}:00</span>}</For>
+                </div>
+                <For each={weekDays()}>
+                  {(d) => (
+                    <div classList={{ "cal-week-col": true, today: dateStrOf(d) === todayStr }}>
+                      <For each={hours()}>{() => <div class="cal-week-slot" />}</For>
+                      {/* Now-line, only on today's column. */}
+                      <Show
+                        when={
+                          dateStrOf(d) === todayStr &&
+                          nowMins() >= hourRange()[0] * 60 &&
+                          nowMins() <= hourRange()[1] * 60
+                        }
+                      >
+                        <div
+                          class="cal-week-now"
+                          style={{ top: `${((nowMins() - hourRange()[0] * 60) / 60) * HOUR_H}px` }}
+                        />
+                      </Show>
+                      <For each={weekEvents().filter((e) => e.date === dateStrOf(d))}>
+                        {(e) => {
+                          const top = () => ((minsOf(e.time) - hourRange()[0] * 60) / 60) * HOUR_H;
+                          const height = () => {
+                            const mins = e.end ? minsOf(e.end) - minsOf(e.time) : 60;
+                            return Math.max((mins / 60) * HOUR_H - 2, 18);
+                          };
+                          return (
+                            <button
+                              class="cal-week-ev"
+                              classList={{ ro: !e.editable }}
+                              style={{ top: `${top()}px`, height: `${height()}px` }}
+                              title={`${e.summary}\n${e.time}${e.end ? `–${e.end}` : ""}${
+                                e.location ? `\n📍 ${e.location}` : ""
+                              }\n${e.calendar}`}
+                              onClick={() => {
+                                // Jump to the month view's agenda for this day,
+                                // which is where editing lives.
+                                setSelected(e.date);
+                                setViewPersist("month");
+                              }}
+                            >
+                              <span class="cal-week-ev-t">{e.summary}</span>
+                              <Show when={height() > 34}>
+                                <span class="cal-week-ev-m">
+                                  {e.time}
+                                  {e.location ? ` · ${e.location}` : ""}
+                                </span>
+                              </Show>
+                            </button>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+            <Show when={!loading() && weekEvents().length === 0 && allDayEvents().length === 0}>
+              <div class="cal-pop-empty">
+                Nothing this week{calFilter() ? ` in “${calFilter()}”` : ""}. Subscribe to your uni's .ics
+                timetable from the home calendar's ＋ Calendar.
+              </div>
+            </Show>
+          </div>
+        </Show>
+        <div class="cal-pane-body" classList={{ hidden: view() === "week" }}>
           <div class="cal-pop-grid cal-pane-grid">
             <For each={["M", "T", "W", "T", "F", "S", "S"]}>
               {(d) => <span class="cal-pop-dow">{d}</span>}

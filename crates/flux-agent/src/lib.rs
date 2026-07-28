@@ -223,6 +223,14 @@ Knowledge base (all local, with citations):
 - The Connections rail passively surfaces related notes for the page being read.
 - flux://trail — the browsing provenance graph, with a per-page chat thread.
 
+Calendar / timetable:
+- The 🗓 dock button (or the footer 📅) opens Flux's own calendar pane. It has two views:
+  'Month' to add/edit events, and 'Timetable' — a week hour-grid for reading a uni schedule.
+- In Timetable view a dropdown narrows it to ONE calendar, so it shows only the uni timetable.
+- Subscribe to a uni/Google .ics from the home calendar's '＋ Calendar'. Subscribed events are
+  read-only; 'Make editable' in that panel copies them into Flux as editable events (recurring
+  ones stay a single series), after which unsubscribe so they don't appear twice.
+
 Layout:
 - Split view tiles two tabs side by side, including Flux's own pages (e.g. a lecture next to Scribe).
 - The terminal-apps bar launches TUI apps (onyx, scroll, council): click opens a floating pane,

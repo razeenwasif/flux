@@ -276,6 +276,22 @@ async function refreshPanels(): Promise<void> {
 // by the footer 📅 or the ⌘K palette. Store-backed so both can drive it.
 const [calendarPopOpen, setCalendarPopOpen] = createSignal(false);
 export { calendarPopOpen, setCalendarPopOpen };
+/** Which view the calendar pane opens in: the month+agenda editor, or the
+ *  week hour-grid used as a timetable. Persisted, so the pane reopens in
+ *  whichever you last used. */
+const [calendarPopView, setCalendarPopViewSig] = createSignal<"month" | "week">(
+  localStorage.getItem("flux.cal.view") === "week" ? "week" : "month",
+);
+export { calendarPopView };
+export function setCalendarPopView(v: "month" | "week"): void {
+  setCalendarPopViewSig(v);
+  localStorage.setItem("flux.cal.view", v);
+}
+/** Open the calendar pane straight into the week/timetable view. */
+export function openTimetable(): void {
+  setCalendarPopView("week");
+  setCalendarPopOpen(true);
+}
 
 /**
  * Open a known site as a native-webview side panel (#48), pinning it on first

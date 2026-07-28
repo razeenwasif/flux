@@ -135,31 +135,6 @@ const DESKTOP_APPS: FluxApp[] = [
 - Help developers authenticate + call \`/identify\`.
 **Glossary:** Identify (upload→inference→results) · Journal/Library (saved IDs) · Heatmap (Grad-CAM attention) · AC-3 (constraint-pruning by habitat/geography/phenology) · Pro tier · API key.`,
   },
-  {
-    id: "gcal",
-    name: "Google Calendar",
-    url: "https://calendar.google.com",
-    host: "calendar.google.com",
-    tagline: "Calendar, scheduling & events",
-    tint: "#4285f4",
-    // Serves `x-frame-options: SAMEORIGIN` — an iframe pane only ever shows an
-    // error, so this one opens in the side panel.
-    noFrame: true,
-    guide: `# Google Calendar — scheduling & events
-**What it is:** Google's web calendar for events, reminders, and scheduling across day/week/month/year and agenda views, with multiple overlaid calendars, invitations, Google Meet links, and reminders/notifications. Signed in via your Google account.
-**Key features / workflows:**
-- Create events: click a time slot or press \`c\`; set title, time, guests, location, video call, recurrence, and reminders.
-- Views: \`d\` day, \`w\` week, \`m\` month, \`x\` 4-day, \`a\` agenda; \`t\` jumps to today, \`j\`/\`k\` move between periods.
-- Multiple calendars: overlay personal/work/shared calendars, toggle each on/off, color-code them.
-- Invitations & RSVP: add guests, propose new times, attach Google Meet; track responses.
-- Search (\`/\`) across events; reminders and tasks integrate with the sidebar.
-**How Gemma can help:**
-- Explain the keyboard shortcuts (\`c\` create, \`d\`/\`w\`/\`m\` views, \`t\` today, \`/\` search).
-- Walk through creating a recurring event, adding guests, or attaching a Meet link.
-- Help set up a second/shared calendar and color-code overlays.
-- Clarify RSVP options, proposing new times, and notification settings.
-**Glossary:** Event · Calendar (a toggleable overlay) · Guest/RSVP · Recurrence · Meet link · Agenda view · Reminder.`,
-  },
 ];
 
 /** Pinned apps for this platform: desktop shows them, mobile is barebone. */

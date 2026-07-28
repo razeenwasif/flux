@@ -11881,6 +11881,178 @@ input[type="radio"].pdf-fw {
   min-height: 0;
   flex: 1 1 auto;
 }
+.cal-pane-body.hidden {
+  display: none;
+}
+
+/* ─── Week / timetable view in the calendar pane ─────────────────────────── */
+.cal-viewtoggle {
+  display: flex;
+  gap: 2px;
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 9px;
+  padding: 2px;
+}
+.cal-viewtoggle button {
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.cal-viewtoggle button.on {
+  background: rgba(123, 97, 255, 0.3);
+  color: var(--flux-text);
+}
+.cal-filter {
+  font-size: 11.5px;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.6);
+  border: 1px solid var(--flux-border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  max-width: 190px;
+}
+.cal-week {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* Day columns share one track definition so header/all-day/body stay aligned. */
+.cal-week-head,
+.cal-week-allday,
+.cal-week-body {
+  display: grid;
+  grid-template-columns: 52px repeat(7, 1fr);
+}
+.cal-week-head {
+  flex: none;
+  border-bottom: 1px solid var(--flux-border);
+}
+.cal-week-dow {
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+.cal-week-dow.today {
+  color: var(--flux-teal, #2ff3ff);
+  font-weight: 700;
+}
+.cal-week-gutter {
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  padding: 4px 6px;
+  text-align: right;
+}
+.cal-week-allday {
+  flex: none;
+  border-bottom: 1px solid var(--flux-border);
+  max-height: 74px;
+  overflow-y: auto;
+}
+.cal-week-allday-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  min-width: 0;
+}
+.cal-week-chip {
+  font-size: 10.5px;
+  color: var(--flux-text);
+  background: rgba(123, 97, 255, 0.22);
+  border-radius: 5px;
+  padding: 2px 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-week-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.cal-week-hours {
+  display: flex;
+  flex-direction: column;
+}
+.cal-week-hour {
+  height: var(--hour-h);
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  text-align: right;
+  padding-right: 6px;
+  /* Nudge the label so it sits on the gridline, not below it. */
+  transform: translateY(-6px);
+}
+.cal-week-col {
+  position: relative;
+  border-left: 1px solid var(--flux-border);
+}
+.cal-week-col.today {
+  background: rgba(47, 243, 255, 0.05);
+}
+.cal-week-slot {
+  height: var(--hour-h);
+  border-top: 1px solid rgba(150, 160, 220, 0.1);
+}
+.cal-week-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #ff6b6b;
+  z-index: 3;
+  pointer-events: none;
+}
+.cal-week-ev {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  text-align: left;
+  padding: 3px 5px;
+  border-radius: 6px;
+  border: 1px solid rgba(123, 97, 255, 0.45);
+  background: rgba(123, 97, 255, 0.3);
+  color: var(--flux-text);
+  cursor: pointer;
+  z-index: 2;
+}
+.cal-week-ev:hover {
+  background: rgba(123, 97, 255, 0.45);
+}
+/* Read-only (subscribed ICS) events read cooler than editable ones. */
+.cal-week-ev.ro {
+  border-color: rgba(47, 243, 255, 0.4);
+  background: rgba(47, 243, 255, 0.16);
+}
+.cal-week-ev.ro:hover {
+  background: rgba(47, 243, 255, 0.26);
+}
+.cal-week-ev-t {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-week-ev-m {
+  font-size: 10px;
+  color: var(--flux-text-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cal-pane-grid {
   flex: 0 0 300px;
   align-content: start;
@@ -13249,4 +13421,10 @@ input[type="radio"].pdf-fw {
 .oauth-scopes li.sensitive {
   color: #ffd27a;
   font-weight: 600;
+}
+
+/* Dock glyph button (the Timetable entry has no favicon to show). */
+.appdock-glyph {
+  font-size: 17px;
+  line-height: 1;
 }

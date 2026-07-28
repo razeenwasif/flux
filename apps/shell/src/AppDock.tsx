@@ -8,7 +8,7 @@
 import { For, Show, createSignal, type Component } from "solid-js";
 
 import { FLUX_APPS, type FluxApp } from "./apps";
-import { openAppIds, openSitePanel, setOpenAppIds, setFocusedAppId } from "./store";
+import { openAppIds, openSitePanel, openTimetable, setOpenAppIds, setFocusedAppId } from "./store";
 
 /** Favicon with a tinted-monogram fallback (shared with the pane title bar). */
 export const AppIcon: Component<{ app: FluxApp; size?: number }> = (props) => {
@@ -50,6 +50,12 @@ const AppDock: Component = () => {
   };
   return (
     <div class="appdock">
+      {/* Timetable — Flux's own week view, pinned where Google Calendar used to
+          be. A subscribed uni .ics renders here natively instead of loading
+          Google in a panel. */}
+      <button class="appdock-btn" title="Timetable — your week at a glance" onClick={() => openTimetable()}>
+        <span class="appdock-glyph">🗓</span>
+      </button>
       <For each={FLUX_APPS}>
         {(app) => (
           <button
