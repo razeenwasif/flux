@@ -13503,3 +13503,126 @@ input[type="radio"].pdf-fw {
 .wb-canvas.lasso {
   cursor: crosshair;
 }
+
+/* ─── Calendar pane: tasks column ────────────────────────────────────────── */
+/* The pane's main row: the month/timetable view, then the tasks column. */
+.cal-pane-cols {
+  display: flex;
+  gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cal-pane-cols > .cal-pane-body,
+.cal-pane-cols > .tt-week {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cal-tasks {
+  flex: 0 0 248px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  border-left: 1px solid var(--flux-border);
+  padding-left: 14px;
+}
+.cal-tasks-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: none;
+}
+.cal-tasks-tab {
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cal-tasks-tab:hover {
+  color: var(--flux-text);
+}
+.cal-tasks-tab.on {
+  background: rgba(123, 97, 255, 0.28);
+  border-color: rgba(123, 97, 255, 0.45);
+  color: var(--flux-text);
+}
+.cal-tasks-tab.add {
+  padding: 3px 8px;
+}
+.cal-tasks-add {
+  flex: none;
+}
+.cal-tasks-add input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.6);
+  border: 1px solid var(--flux-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  outline: none;
+}
+.cal-tasks-add input:focus {
+  border-color: rgba(123, 97, 255, 0.55);
+}
+.cal-tasks-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  scrollbar-width: thin;
+}
+.cal-task {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 7px;
+  background: rgba(123, 97, 255, 0.08);
+  border: 1px solid rgba(123, 97, 255, 0.14);
+}
+.cal-task.done {
+  opacity: 0.55;
+}
+.cal-task.done .cal-task-title {
+  text-decoration: line-through;
+}
+.cal-task-box,
+.cal-task-del {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--flux-text-mute);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.cal-task-box:hover,
+.cal-task-del:hover {
+  color: var(--flux-text);
+}
+.cal-task-del {
+  opacity: 0;
+}
+.cal-task:hover .cal-task-del {
+  opacity: 1;
+}
+.cal-task-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--flux-text);
+  overflow-wrap: anywhere;
+}
+.cal-task-due {
+  flex: none;
+  font-size: 10px;
+  color: var(--flux-teal, #2ff3ff);
+}

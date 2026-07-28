@@ -1080,8 +1080,11 @@ export const semanticFind = (query: string, tabIds: number[], limit?: number) =>
 
 // ─── Local tasks / to-dos (BACKLOG #114) ─────────────────────────────────────
 export const todosList = () => invoke<Todo[]>("todos_list");
-export const todoAdd = (title: string, due?: string) =>
-  invoke<Todo | null>("todo_add", { title, due: due ?? null });
+export const todoAdd = (title: string, due?: string, profile?: string) =>
+  invoke<Todo | null>("todo_add", { title, due: due ?? null, profile: profile ?? null });
+/** Move a task to another list ("Uni", "Personal", …). */
+export const todoSetProfile = (id: number, profile: string) =>
+  invoke<void>("todo_set_profile", { id, profile });
 export const todoToggle = (id: number) => invoke<void>("todo_toggle", { id });
 export const todoRemove = (id: number) => invoke<void>("todo_remove", { id });
 export const todosClearDone = () => invoke<number>("todos_clear_done");

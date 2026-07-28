@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **A tasks column in the calendar pane, switchable between profiles** — the pane (footer 📅 / ⌘K /
+  🗓) gains a right-hand task list with named profiles, so "Uni" and "Personal" are one keystroke
+  apart and a course to-do list sits beside your timetable. Profiles are **free-form** (＋ adds one,
+  named whatever you like — a course code works), and it's **one task store viewed through them**
+  rather than separate lists, so nothing has to be kept in sync and the home Tasks widget still shows
+  everything. Tasks carry a `profile` tag; ones saved before this existed appear in the first profile
+  rather than vanishing. Add with Enter, click to complete, ✕ to delete; removing a profile moves its
+  tasks rather than orphaning them. The column shows in both the month and timetable views.
 - **Scribe writes like a notebook, not a canvas** — four changes to the ink engine, all scoped to the
   paged Scribe surface (the whiteboard keeps its freeform behaviour):
   - **Text is the default tool** on a notebook page, with a **writing caret** that flows down the

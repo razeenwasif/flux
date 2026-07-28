@@ -19,6 +19,11 @@ pub struct Todo {
     /// Optional `YYYY-MM-DD` due date (display-only), or "" for none.
     #[serde(default)]
     pub due: String,
+    /// Which list this task belongs to ("Uni", "Personal", …). Free-form so the
+    /// user names their own; `#[serde(default)]` means tasks saved before
+    /// profiles existed load as "", which the UI shows in the default list.
+    #[serde(default)]
+    pub profile: String,
 }
 
 #[derive(Default)]
@@ -53,7 +58,7 @@ impl TodoStore {
         self.items.read().clone()
     }
 
-    pub fn add(&self, title: String, due: String) -> Option<Todo> {
+    pub fn add(&self, title: String, due: String, profile: String) -> Option<Todo> {
         let title = title.trim().to_string();
         if title.is_empty() {
             return None;
@@ -64,6 +69,7 @@ impl TodoStore {
             done: false,
             created_ms: now_ms(),
             due: due.trim().to_string(),
+            profile: profile.trim().to_string(),
         };
         self.items.write().push(todo.clone());
         self.save();
@@ -73,6 +79,14 @@ impl TodoStore {
     pub fn toggle(&self, id: u64) {
         if let Some(t) = self.items.write().iter_mut().find(|t| t.id == id) {
             t.done = !t.done;
+        }
+        self.save();
+    }
+
+    /// Move a task to another list.
+    pub fn set_profile(&self, id: u64, profile: String) {
+        if let Some(t) = self.items.write().iter_mut().find(|t| t.id == id) {
+            t.profile = profile.trim().to_string();
         }
         self.save();
     }
@@ -107,8 +121,19 @@ pub fn todos_list(store: State<'_, TodoStore>) -> Vec<Todo> {
 }
 
 #[tauri::command]
-pub fn todo_add(store: State<'_, TodoStore>, title: String, due: Option<String>) -> Option<Todo> {
-    store.add(title, due.unwrap_or_default())
+pub fn todo_add(
+    store: State<'_, TodoStore>,
+    title: String,
+    due: Option<String>,
+    profile: Option<String>,
+) -> Option<Todo> {
+    store.add(title, due.unwrap_or_default(), profile.unwrap_or_default())
+}
+
+/// Move a task to another list (drag/right-click in the tasks column).
+#[tauri::command]
+pub fn todo_set_profile(store: State<'_, TodoStore>, id: u64, profile: String) {
+    store.set_profile(id, profile);
 }
 
 #[tauri::command]
@@ -133,13 +158,20 @@ mod tests {
     #[test]
     fn add_toggle_clear() {
         let s = TodoStore::default();
-        let a = s.add("buy milk".into(), "".into()).unwrap();
-        s.add("  ".into(), "".into()); // blank ignored
+        let a = s.add("buy milk".into(), "".into(), "Uni".into()).unwrap();
+        s.add("  ".into(), "".into(), "".into()); // blank ignored
         assert_eq!(s.list().len(), 1);
         s.toggle(a.id);
         assert!(s.list()[0].done);
-        let b = s.add("call alice".into(), "2026-06-20".into()).unwrap();
+        let b = s
+            .add("call alice".into(), "2026-06-20".into(), "".into())
+            .unwrap();
         assert_eq!(b.due, "2026-06-20");
+        // Tasks carry the list they were filed under, and can be moved between.
+        assert_eq!(s.list()[0].profile, "Uni");
+        s.set_profile(b.id, "Personal".into());
+        let moved = s.list().into_iter().find(|t| t.id == b.id).unwrap();
+        assert_eq!(moved.profile, "Personal");
         assert_eq!(s.clear_done(), 1); // the completed "buy milk"
         assert_eq!(s.list().len(), 1);
         s.remove(b.id);

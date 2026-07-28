@@ -171,7 +171,7 @@ export type WatchItem = { id: number; url: string; title: string; interval_secs:
 export type TrackerNode = { id: string; kind: string; requests: number; blocked: number; degree: number }
 export type TrackerEdge = { source: number; target: number; requests: number; blocked: number }
 export type TrackerGraph = { nodes: TrackerNode[]; edges: TrackerEdge[] }
-export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string }
+export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string; profile?: string }
 /**
  * One unified search result (BACKLOG #66): an open tab, a bookmark, or a
  * history entry, ranked together by embedding similarity to the query.

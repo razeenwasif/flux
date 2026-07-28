@@ -949,6 +949,7 @@ pub fn run(intent: cli::LaunchIntent) {
             trackers::tracker_clear,
             todos::todos_list,
             todos::todo_add,
+            todos::todo_set_profile,
             todos::todo_toggle,
             todos::todo_remove,
             todos::todos_clear_done,
