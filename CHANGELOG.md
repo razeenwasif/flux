@@ -98,6 +98,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The timetable grid stopped partway down the enlarged calendar pane** — hour rows were a hard-coded
+  42px, so a typical 10-hour day filled 420px of a 661px area and left a third of the pane empty. The
+  row height is now measured from the available space (min 34px, below which the grid scrolls instead
+  of squashing). It has to be a measured number rather than a CSS `1fr`: event blocks are absolutely
+  positioned from the same value, so letting CSS stretch the rows alone would have slid every block
+  off its gridline. Verified in a real browser — the grid now fills exactly, and a 09:00 block lands
+  on the 09:00 line to the pixel.
 - **"＋ Calendar" vanished from the home calendar widget** — the new calendar picker widened the card's
   action row, which didn't wrap, so the last button was pushed off the edge. The action row now wraps
   and the picker is compact (and truncates) in that cramped header, so a control added there can't

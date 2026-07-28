@@ -37,8 +37,8 @@ const mondayOf = (d: Date) => {
   out.setDate(out.getDate() - ((out.getDay() + 6) % 7));
   return out;
 };
-/** Row height for one hour of the week grid, in px. */
-const HOUR_H = 42;
+/** Smallest hour row we'll shrink to before the week grid starts scrolling. */
+const MIN_HOUR_H = 34;
 
 const REPEATS: { v: string; label: string }[] = [
   { v: "", label: "One-off" },
@@ -132,6 +132,29 @@ const CalendarPop: Component = () => {
     const [lo, hi] = hourRange();
     return Array.from({ length: hi - lo }, (_, i) => lo + i);
   });
+  // Hour rows stretch to fill the pane instead of stopping partway down it. This
+  // has to be a measured number rather than CSS `1fr`, because event blocks are
+  // absolutely positioned from the same value — letting CSS stretch the rows on
+  // its own would slide every block off its gridline. Below MIN_HOUR_H the grid
+  // scrolls instead of squashing.
+  const [availH, setAvailH] = createSignal(0);
+  const hourH = createMemo(() => {
+    const n = hours().length;
+    if (!n || !availH()) return MIN_HOUR_H + 8;
+    return Math.max(MIN_HOUR_H, availH() / n);
+  });
+  // A callback ref, not `onMount` + a variable: the week grid lives inside a
+  // <Show>, so when the pane opens in Month view the element doesn't exist yet
+  // and a mount-time observer would never attach.
+  let ro: ResizeObserver | undefined;
+  const measureScroll = (el: HTMLDivElement) => {
+    ro?.disconnect();
+    ro = new ResizeObserver(() => setAvailH(el.clientHeight));
+    ro.observe(el);
+    setAvailH(el.clientHeight);
+  };
+  onCleanup(() => ro?.disconnect());
+
   const [nowMins, setNowMins] = createSignal(new Date().getHours() * 60 + new Date().getMinutes());
   onMount(() => {
     const t = window.setInterval(
@@ -342,8 +365,8 @@ const CalendarPop: Component = () => {
                 </For>
               </div>
             </Show>
-            <div class="tt-scroll">
-              <div class="tt-body" style={{ "--hour-h": `${HOUR_H}px` }}>
+            <div class="tt-scroll" ref={measureScroll}>
+              <div class="tt-body" style={{ "--hour-h": `${hourH()}px` }}>
                 <div class="tt-hours">
                   <For each={hours()}>{(h) => <span class="tt-hour">{pad2(h)}:00</span>}</For>
                 </div>
@@ -361,15 +384,15 @@ const CalendarPop: Component = () => {
                       >
                         <div
                           class="tt-now"
-                          style={{ top: `${((nowMins() - hourRange()[0] * 60) / 60) * HOUR_H}px` }}
+                          style={{ top: `${((nowMins() - hourRange()[0] * 60) / 60) * hourH()}px` }}
                         />
                       </Show>
                       <For each={weekEvents().filter((e) => e.date === dateStrOf(d))}>
                         {(e) => {
-                          const top = () => ((minsOf(e.time) - hourRange()[0] * 60) / 60) * HOUR_H;
+                          const top = () => ((minsOf(e.time) - hourRange()[0] * 60) / 60) * hourH();
                           const height = () => {
                             const mins = e.end ? minsOf(e.end) - minsOf(e.time) : 60;
-                            return Math.max((mins / 60) * HOUR_H - 2, 18);
+                            return Math.max((mins / 60) * hourH() - 2, 18);
                           };
                           return (
                             <button
