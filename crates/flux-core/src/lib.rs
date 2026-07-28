@@ -928,6 +928,7 @@ pub fn run(intent: cli::LaunchIntent) {
             calendar::cal_list,
             calendar::cal_add,
             calendar::cal_remove,
+            calendar::cal_import_feed,
             calendar::cal_events,
             calendar::cal_local_events,
             calendar::cal_event_add,

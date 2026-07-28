@@ -27,6 +27,10 @@ import {
   HISTORY_URL,
   OMNI_URL,
   calAdd,
+  type CalFeed,
+  calImportFeed,
+  calList,
+  calRemove,
   calEvents,
   calEventAdd,
   calEventUpdate,
@@ -477,7 +481,48 @@ const StartPage: Component<{
     void calAdd(url)
       .then(() => {
         setNewCalUrl("");
-        setAddingCal(false);
+        loadFeeds();
+        loadEvents();
+      })
+      .catch(() => {});
+  };
+
+  // Subscribed calendars, listed in the ＋ Calendar panel so they can be made
+  // editable or removed (a subscribed ICS is read-only by nature).
+  const [calFeeds, setCalFeeds] = createSignal<CalFeed[]>([]);
+  const [calMsg, setCalMsg] = createSignal("");
+  const [calBusy, setCalBusy] = createSignal(0);
+  const loadFeeds = () =>
+    void calList()
+      .then(setCalFeeds)
+      .catch(() => {});
+  createEffect(() => {
+    if (addingCal()) loadFeeds();
+  });
+  /** Copy a read-only subscription into Flux's own editable events. */
+  const makeEditable = async (f: CalFeed) => {
+    setCalBusy(f.id);
+    setCalMsg("");
+    try {
+      const [imported, skipped] = await calImportFeed(f.id);
+      setCalMsg(
+        imported === 0
+          ? `“${f.name}” is already imported (${skipped} events already here).`
+          : `Imported ${imported} editable event${imported === 1 ? "" : "s"} from “${f.name}”${
+              skipped ? `, skipped ${skipped} already here` : ""
+            }. Remove the subscription below to avoid seeing each event twice.`,
+      );
+      loadEvents();
+    } catch (e) {
+      setCalMsg(String(e).replace(/^Error:\s*/, ""));
+    }
+    setCalBusy(0);
+  };
+  const dropFeed = (f: CalFeed) => {
+    if (!window.confirm(`Unsubscribe from “${f.name}”? Events you've imported stay.`)) return;
+    void calRemove(f.id)
+      .then(() => {
+        loadFeeds();
         loadEvents();
       })
       .catch(() => {});
@@ -1362,6 +1407,33 @@ const StartPage: Component<{
                 />
                 <button type="submit">Add</button>
               </form>
+              <Show when={calFeeds().length > 0}>
+                <div class="start-callist">
+                  <For each={calFeeds()}>
+                    {(f) => (
+                      <div class="start-calrow">
+                        <span class="start-calname" title={f.url}>
+                          {f.name}
+                        </span>
+                        <button
+                          class="start-card-link"
+                          title="Copy this calendar's events into Flux as editable events. Recurring events stay one series; safe to run twice."
+                          disabled={calBusy() === f.id}
+                          onClick={() => void makeEditable(f)}
+                        >
+                          {calBusy() === f.id ? "Importing…" : "Make editable"}
+                        </button>
+                        <button class="start-card-link" title="Unsubscribe" onClick={() => dropFeed(f)}>
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <Show when={calMsg()}>
+                <div class="start-calmsg">{calMsg()}</div>
+              </Show>
             </Show>
             <CalendarGrid />
             <Show when={visibleCardEvents().length > 0}>

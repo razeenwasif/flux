@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Convert a subscribed calendar into editable Flux events** — a subscribed ICS (Google Calendar &c.)
+  is read-only by nature: it's re-fetched from the source every time, so nothing you change would
+  survive. **＋ Calendar → Make editable** now copies a feed's events into Flux's own event store,
+  where they can be moved, retitled, and deleted. Recurring events import as **one series carrying its
+  RRULE** — a weekly lecture stays a single editable event, not dozens of unlinked copies — because
+  the importer reads the raw VEVENTs rather than the expanded occurrences the grid displays. Re-running
+  is safe: events matching an existing one on title + date + time are skipped, and the result says how
+  many were imported vs skipped. The same panel now lists your subscriptions with an unsubscribe
+  button, since removing the feed is what stops each event appearing twice. **Caveats, stated up
+  front:** this is a copy, not a live link (later changes in Google won't follow), and per-occurrence
+  cancellations (EXDATE) are dropped, so a cancelled instance of a recurring series reappears.
 - **Gemma knows what Flux can do — and quotes the trigger phrases exactly** — ask her "how do I save
   this lecture?" or "can Flux do handwritten notes?" and she answers from a capability card instead of
   guessing. This matters more than it sounds: most of these actions are **deterministic regex intents

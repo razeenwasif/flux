@@ -305,10 +305,42 @@ fn parse_events(ics: &str, cal_name: &str) -> Vec<CalEvent> {
 }
 
 fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
-    let unfolded = unfold(ics);
     let lo = today - WINDOW_BACK_DAYS;
     let hi = today + WINDOW_FWD_DAYS;
     let mut out = Vec::new();
+    for_each_vevent(ics, |v| {
+        let Vevent {
+            title,
+            location,
+            end_time,
+            start,
+            rrule,
+            exdates,
+        } = v;
+        emit_occurrences(
+            &title, &location, &end_time, &start, &rrule, &exdates, cal_name, lo, hi, &mut out,
+        );
+    });
+    out
+}
+
+/// One VEVENT as written in the file — *not* expanded into occurrences. This is
+/// the form a recurring event has to be read in to be copied faithfully: one
+/// series carrying its RRULE, rather than N separate dated copies.
+struct Vevent {
+    title: String,
+    location: String,
+    end_time: String,
+    start: DtParts,
+    rrule: String,
+    exdates: Vec<i64>,
+}
+
+/// Scan an ICS document and hand each complete VEVENT to `f`. Shared by the
+/// occurrence expander (the calendar grid) and the importer (feed → editable
+/// local events), so both read exactly the same fields the same way.
+fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
+    let unfolded = unfold(ics);
 
     let mut in_event = false;
     let mut summary = String::new();
@@ -332,14 +364,18 @@ fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
         }
         if line == "END:VEVENT" {
             if let Some(s) = start.take() {
-                let title = if summary.is_empty() {
-                    "(untitled)".into()
-                } else {
-                    summary.clone()
-                };
-                emit_occurrences(
-                    &title, &location, &end_time, &s, &rrule, &exdates, cal_name, lo, hi, &mut out,
-                );
+                f(Vevent {
+                    title: if summary.is_empty() {
+                        "(untitled)".into()
+                    } else {
+                        summary.clone()
+                    },
+                    location: location.clone(),
+                    end_time: end_time.clone(),
+                    start: s,
+                    rrule: rrule.clone(),
+                    exdates: exdates.clone(),
+                });
             }
             in_event = false;
             continue;
@@ -368,6 +404,31 @@ fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
             _ => {}
         }
     }
+}
+
+/// Turn a subscribed feed's ICS into **editable local events** — one per VEVENT,
+/// keeping its RRULE so a weekly lecture stays a single recurring series rather
+/// than dozens of unlinked copies.
+///
+/// This is a **copy, not a link**: the source calendar's later edits won't follow.
+/// EXDATEs are dropped (LocalEvent has no exception list), so a cancelled
+/// occurrence of a recurring series reappears — worth knowing before importing a
+/// calendar full of exceptions.
+fn ics_to_local_events(ics: &str) -> Vec<LocalEvent> {
+    let mut out = Vec::new();
+    for_each_vevent(ics, |v| {
+        let (y, m, d) = civil_from_days(v.start.days);
+        out.push(LocalEvent {
+            id: 0, // assigned by the store on insert
+            title: v.title,
+            date: format!("{y:04}-{m:02}-{d:02}"),
+            start: v.start.time,
+            end: v.end_time,
+            location: v.location,
+            notes: String::new(),
+            rrule: v.rrule,
+        });
+    });
     out
 }
 
@@ -808,6 +869,65 @@ pub fn cal_remove(store: State<'_, CalStore>, id: u64) {
     store.remove(id);
 }
 
+/// Copy a subscribed feed's events into Flux's own **editable** events, so they
+/// can be moved, retitled and deleted (a subscribed ICS is read-only by nature —
+/// it's re-fetched from the source every time).
+///
+/// Recurring events import as **one series with its RRULE**, not as dozens of
+/// dated copies. Re-running is safe: an event matching an existing local one on
+/// title + date + start time is skipped, so a second import adds only what's new.
+/// Returns `(imported, skipped_as_duplicates)`.
+///
+/// This is a copy, not a live link — later changes in the source calendar do not
+/// follow. Removing the subscription afterwards (`cal_remove`) is what stops the
+/// same events appearing twice.
+#[tauri::command]
+pub async fn cal_import_feed(
+    store: State<'_, CalStore>,
+    local: State<'_, LocalEventStore>,
+    id: u64,
+) -> Result<(u32, u32), String> {
+    let feed = store
+        .list()
+        .into_iter()
+        .find(|f| f.id == id)
+        .ok_or("no such calendar")?;
+    let url = feed.url.clone();
+    let ics = tauri::async_runtime::spawn_blocking(move || fetch_ics(&url))
+        .await
+        .map_err(|e| e.to_string())??;
+    let candidates = ics_to_local_events(&ics);
+    if candidates.is_empty() {
+        return Err("no events found in that calendar".into());
+    }
+    // Dedupe against what's already local, so importing twice doesn't double up.
+    let existing: std::collections::HashSet<(String, String, String)> = local
+        .list()
+        .into_iter()
+        .map(|e| (e.title, e.date, e.start))
+        .collect();
+    let (mut imported, mut skipped) = (0u32, 0u32);
+    for ev in candidates {
+        if existing.contains(&(ev.title.clone(), ev.date.clone(), ev.start.clone())) {
+            skipped += 1;
+            continue;
+        }
+        let LocalEvent {
+            title,
+            date,
+            start,
+            end,
+            location,
+            notes,
+            rrule,
+            ..
+        } = ev;
+        local.add(title, date, start, end, location, notes, rrule);
+        imported += 1;
+    }
+    Ok((imported, skipped))
+}
+
 /// Fetch + parse every subscribed calendar; returns events sorted by date. A
 /// failing feed is skipped (one dead URL doesn't blank the widget).
 #[tauri::command]
@@ -932,6 +1052,49 @@ mod tests {
 
     fn day(y: i64, m: u32, d: u32) -> i64 {
         days_from_civil(y, m, d)
+    }
+
+    #[test]
+    fn import_keeps_recurrence_as_one_series_not_many_copies() {
+        // A weekly lecture + a one-off. The grid expands the weekly one into
+        // dozens of occurrences; the importer must NOT — it should stay a single
+        // editable series carrying its RRULE.
+        let ics = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\nSUMMARY:Optimization lecture\r\nDTSTART:20260302T090000Z\r\nDTEND:20260302T110000Z\r\n\
+LOCATION:Hall A\r\nRRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=12\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nSUMMARY:Careers fair\r\nDTSTART;VALUE=DATE:20260310\r\nEND:VEVENT\r\n\
+END:VCALENDAR";
+        let evs = ics_to_local_events(ics);
+        assert_eq!(evs.len(), 2, "one event per VEVENT");
+
+        let lecture = evs.iter().find(|e| e.title.starts_with("Optim")).unwrap();
+        assert_eq!(lecture.date, "2026-03-02");
+        assert_eq!(lecture.start, "09:00");
+        assert_eq!(lecture.end, "11:00");
+        assert_eq!(lecture.location, "Hall A");
+        assert_eq!(lecture.rrule, "FREQ=WEEKLY;BYDAY=MO;COUNT=12");
+
+        // All-day events keep an empty time, the shape LocalEvent uses for them.
+        let fair = evs.iter().find(|e| e.title == "Careers fair").unwrap();
+        assert_eq!(fair.date, "2026-03-10");
+        assert!(fair.start.is_empty() && fair.rrule.is_empty());
+
+        // And the imported series still expands the same way the feed did, so the
+        // grid shows the same 12 Mondays after conversion.
+        let store = LocalEventStore::default();
+        let saved = store.add(
+            lecture.title.clone(),
+            lecture.date.clone(),
+            lecture.start.clone(),
+            lecture.end.clone(),
+            lecture.location.clone(),
+            String::new(),
+            lecture.rrule.clone(),
+        );
+        let mut out = Vec::new();
+        expand_local(&saved, day(2026, 3, 1), day(2026, 6, 1), &mut out);
+        assert_eq!(out.len(), 12, "recurrence survives the round-trip");
+        assert!(out.iter().all(|e| e.editable), "must be editable");
     }
 
     #[test]

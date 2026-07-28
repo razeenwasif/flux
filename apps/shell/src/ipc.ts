@@ -991,6 +991,10 @@ export const calList = () => invoke<CalFeed[]>("cal_list");
 /** Subscribe to a calendar's secret ICS URL (validated on add). */
 export const calAdd = (url: string, name?: string) => invoke<CalFeed>("cal_add", { url, name: name ?? null });
 export const calRemove = (id: number) => invoke<void>("cal_remove", { id });
+/** Copy a subscribed calendar's events into Flux's own editable events (a
+ *  subscribed ICS is read-only). Recurring events import as one series with
+ *  their RRULE. Safe to re-run — returns `[imported, skippedAsDuplicates]`. */
+export const calImportFeed = (id: number) => invoke<[number, number]>("cal_import_feed", { id });
 /** Fetch + parse all subscribed calendars (+ local events), sorted by date. */
 export const calEvents = () => invoke<CalEvent[]>("cal_events");
 
