@@ -13580,13 +13580,30 @@ input[type="radio"].pdf-fw {
   scrollbar-width: thin;
 }
 .cal-task {
+  /* A column: the task line, plus the "move to…" row when expanded. */
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  flex-direction: column;
+  gap: 5px;
   padding: 4px 6px;
   border-radius: 7px;
   background: rgba(123, 97, 255, 0.08);
   border: 1px solid rgba(123, 97, 255, 0.14);
+}
+.cal-task-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.cal-task-move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0 1px 20px;
+}
+.cal-task-move-lbl {
+  font-size: 10px;
+  color: var(--flux-text-mute);
 }
 .cal-task.done {
   opacity: 0.55;
@@ -13611,7 +13628,8 @@ input[type="radio"].pdf-fw {
 .cal-task-del {
   opacity: 0;
 }
-.cal-task:hover .cal-task-del {
+.cal-task:hover .cal-task-del,
+.cal-task:focus-within .cal-task-del {
   opacity: 1;
 }
 .cal-task-title {

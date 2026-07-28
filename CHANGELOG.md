@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Move a task between profiles** — each task gains a ⇄ button that expands an inline "Move to" row
+  of the other lists; pick one and the task moves. Expanded inline rather than as a floating menu
+  because the task list scrolls (which clips an absolutely-positioned popover) and a `position: fixed`
+  one would be clipped by the glass card's backdrop-filter.
 - **A tasks column in the calendar pane, switchable between profiles** — the pane (footer 📅 / ⌘K /
   🗓) gains a right-hand task list with named profiles, so "Uni" and "Personal" are one keystroke
   apart and a course to-do list sits beside your timetable. Profiles are **free-form** (＋ adds one,

@@ -199,6 +199,14 @@ const CalendarPop: Component = () => {
     localStorage.setItem("flux.task.profiles", JSON.stringify(list));
   };
   const [newTask, setNewTask] = createSignal("");
+  /** Task id whose "move to…" row is expanded, or null. */
+  const [movingTask, setMovingTask] = createSignal<number | null>(null);
+  const moveTask = (id: number, to: string) => {
+    setMovingTask(null);
+    void todoSetProfile(id, to)
+      .then(refreshTodos)
+      .catch(() => {});
+  };
   const refreshTodos = () =>
     void todosList()
       .then(setTodos)
@@ -638,24 +646,51 @@ const CalendarPop: Component = () => {
               >
                 {(t) => (
                   <div classList={{ "cal-task": true, done: t.done }}>
-                    <button
-                      class="cal-task-box"
-                      title={t.done ? "Mark as not done" : "Mark as done"}
-                      onClick={() => void todoToggle(t.id).then(refreshTodos)}
-                    >
-                      {t.done ? "☑" : "☐"}
-                    </button>
-                    <span class="cal-task-title">{t.title}</span>
-                    <Show when={t.due}>
-                      <span class="cal-task-due">{t.due}</span>
+                    <div class="cal-task-row">
+                      <button
+                        class="cal-task-box"
+                        title={t.done ? "Mark as not done" : "Mark as done"}
+                        onClick={() => void todoToggle(t.id).then(refreshTodos)}
+                      >
+                        {t.done ? "☑" : "☐"}
+                      </button>
+                      <span class="cal-task-title">{t.title}</span>
+                      <Show when={t.due}>
+                        <span class="cal-task-due">{t.due}</span>
+                      </Show>
+                      <Show when={profiles().length > 1}>
+                        <button
+                          class="cal-task-del"
+                          title="Move to another list"
+                          onClick={() => setMovingTask(movingTask() === t.id ? null : t.id)}
+                        >
+                          ⇄
+                        </button>
+                      </Show>
+                      <button
+                        class="cal-task-del"
+                        title="Delete task"
+                        onClick={() => void todoRemove(t.id).then(refreshTodos)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {/* Expanded inline rather than a floating menu: the list
+                        scrolls (clipping an absolutely-positioned popover) and a
+                        fixed one would be clipped by the glass card's
+                        backdrop-filter. */}
+                    <Show when={movingTask() === t.id}>
+                      <div class="cal-task-move">
+                        <span class="cal-task-move-lbl">Move to</span>
+                        <For each={profiles().filter((p) => p !== (t.profile || profiles()[0]))}>
+                          {(p) => (
+                            <button class="cal-tasks-tab" onClick={() => moveTask(t.id, p)}>
+                              {p}
+                            </button>
+                          )}
+                        </For>
+                      </div>
                     </Show>
-                    <button
-                      class="cal-task-del"
-                      title="Delete task"
-                      onClick={() => void todoRemove(t.id).then(refreshTodos)}
-                    >
-                      ✕
-                    </button>
                   </div>
                 )}
               </For>
