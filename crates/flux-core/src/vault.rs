@@ -686,6 +686,8 @@ pub fn vault_probe_report(webview: tauri::Webview, reason: String) {
     // Fixed vocabulary only: anything else is recorded as "unknown" rather than
     // stored verbatim.
     let known = [
+        "alive",
+        "login-in-frame",
         "no-password-field",
         "no-login-field",
         "field-prefilled",
@@ -745,6 +747,10 @@ If that's wrong, this is a false positive worth reporting.",
             // Rust is happy — so if nothing appeared, the page side is why.
             diag.stage = match page_reason.as_str() {
                 "no-password-field" | "no-login-field" => "no-form".into(),
+                "login-in-frame" => "in-frame".into(),
+                // Only the heartbeat arrived: the script is running, but no scan
+                // ever reached a verdict.
+                "alive" => "no-scan".into(),
                 "field-prefilled" => "prefilled".into(),
                 "dismissed" => "dismissed".into(),
                 "offered" => "ok".into(),
@@ -756,11 +762,19 @@ If that's wrong, this is a false positive worth reporting.",
 offer was skipped.";
             const DISMISSED: &str = "You dismissed the chip on this page; reload to get it back.";
             const SILENT: &str = "Vault is unlocked and matching, but the page script never \
-reported back — it may not have been injected here.";
+reported back — it isn't running here (not injected, or the page blocked it).";
+            const IN_FRAME: &str = "Vault is fine, and the login is inside an iframe. Autofill only \
+runs in the top document on purpose, so an embedded third party can never trigger a fill — open the \
+sign-in page directly and it will offer.";
+            const NO_SCAN: &str =
+                "The page script is running but never finished a scan — the form \
+may render after the check. Focus the login field to retrigger it.";
             diag.detail = match diag.stage.as_str() {
                 "no-form" => NO_FORM.into(),
                 "prefilled" => PREFILLED.into(),
                 "dismissed" => DISMISSED.into(),
+                "in-frame" => IN_FRAME.into(),
+                "no-scan" => NO_SCAN.into(),
                 "ok" => format!("Autofill offered {n} saved login(s) for {host}."),
                 _ => SILENT.into(),
             };

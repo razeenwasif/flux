@@ -98,6 +98,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The autofill diagnostic can now tell "not injected" from "didn't scan" from "login is in an
+  iframe"** — its first real run returned "the page script never reported back", which was still three
+  causes wearing one answer. `passwords.js` now sends a heartbeat the moment its Tauri bridge is
+  confirmed, so silence specifically means *the script isn't running here*; a scan that finds no login
+  field reports whether the page contains frames, since autofill deliberately runs only in the top
+  document (an embedded third party must never be able to trigger a fill).
 - **Autofill never offered on two-step sign-ins (ANU / Microsoft / Google SSO)** — the offer scan
   required a visible `input[type="password"]`, and step 1 of those logins has only a username field,
   so no chip ever appeared. The *fill* path was taught about username-only screens earlier; the

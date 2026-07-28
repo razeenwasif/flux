@@ -25,6 +25,12 @@
   if (!inv) return;
   var call = function (cmd, args) { return inv("plugin:fluxtab|" + cmd, args || {}); };
 
+  // Heartbeat: prove the script is running with a working bridge. Without it,
+  // "never reported back" covers three very different things — not injected,
+  // returned at the iframe gate, or no Tauri internals on this page — and the
+  // diagnostic can't tell you which.
+  call("vault_probe_report", { reason: "alive" }).catch(function () {});
+
   // Sensitive-input trigger (ADR 0013, Pillar 1): tell Rust the moment a
   // password field takes focus, so a wrong-origin warning can be raised BEFORE
   // the first keystroke rather than after the credential is already typed.
@@ -303,7 +309,12 @@
       // No password box — but a two-step sign-in still wants the offer on its
       // username field, so try that before giving up.
       var u = loneUserField();
-      if (!u) { reason("no-login-field"); return; }
+      if (!u) {
+        // A login inside a cross-origin iframe is invisible to this script by
+        // design (it only runs in the top document), and that's worth naming.
+        reason(document.querySelector("iframe") ? "login-in-frame" : "no-login-field");
+        return;
+      }
       if (handled.has(u)) { reason("already-handled"); return; }
       if (u.value) { reason("field-prefilled"); return; }
       if (chip && chipAnchor === u) { placeChip(); return; }
