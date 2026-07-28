@@ -809,6 +809,7 @@ pub fn run(intent: cli::LaunchIntent) {
                     vault::vault_page_matches,
                     vault::vault_fill_page_id,
                     vault::vault_offer_save,
+                    vault::vault_probe_report,
                     sentinel::sentinel_input_focus,
                     trace::trace_drafts_enabled,
                     trace::draft_publish
@@ -1141,6 +1142,7 @@ pub fn run(intent: cli::LaunchIntent) {
             extensions::ext_list,
             extensions::ext_set_enabled,
             extensions::ext_remove,
+            vault::vault_why,
             vault::vault_status,
             vault::vault_list,
             vault::vault_for_host,

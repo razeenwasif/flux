@@ -12,6 +12,7 @@ import {
   onVaultLocked,
   onVaultReady,
   vaultFill,
+  vaultWhy,
   vaultForHost,
   vaultReveal,
   vaultLock,
@@ -130,6 +131,20 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
       setMsg(copied ? `${why} — password copied instead` : why || "Couldn't fill or copy");
     }
   };
+  /** "Why didn't the key icon appear on this page?" — resolves the one cause,
+   *  instead of leaving a silent no-op to guess at. */
+  const diagnose = async () => {
+    const id = activeId();
+    if (id == null) return;
+    setMsg("Checking…");
+    try {
+      const d = await vaultWhy(id);
+      setMsg(d.detail);
+    } catch (e) {
+      setMsg(String(e).replace(/^Error:\s*/, ""));
+    }
+  };
+
   const unlock = async () => {
     if (!unlockPw()) return;
     try {
@@ -221,9 +236,7 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
                           class="vault-copy"
                           title="Copy password to clipboard"
                           onClick={() => {
-                            void copyPw(c).then((ok) =>
-                              setMsg(ok ? "Password copied" : "Couldn't copy"),
-                            );
+                            void copyPw(c).then((ok) => setMsg(ok ? "Password copied" : "Couldn't copy"));
                           }}
                         >
                           Copy
@@ -236,6 +249,13 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
             </Show>
 
             <div class="shields-sep" />
+            <button
+              class="shields-update"
+              title="Find out which stage stopped the fill offer on this page"
+              onClick={() => void diagnose()}
+            >
+              🩺 Why no autofill here?
+            </button>
             <button class="shields-update" onClick={openManager}>
               ⤢ Open Passwords manager
             </button>

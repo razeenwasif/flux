@@ -213,6 +213,17 @@ export type VaultStatus = { available: boolean; locked: boolean; protection: str
  * captured password stays in Rust ([`PendingSave`]) until the user confirms.
  */
 export type VaultSavePrompt = { host: string; username: string; update: boolean; warning: Verdict | null }
+/**
+ * Why autofill did (or didn't) offer on a page — the answer to "the key icon
+ * never appeared and I don't know why".
+ * 
+ * `vault_page_info` deliberately collapses every failure into "locked" so a
+ * hostile page learns nothing from probing it. That's right for the page and
+ * useless for the user: a locked vault, a phishing verdict, and simply having
+ * no saved login all look identical. This type is the honest version, and it's
+ * **chrome-only** — never in the fluxtab ACL, so a page can't ask it.
+ */
+export type VaultDiag = { stage: string; detail: string; host: string; matches: number; page_reason: string }
 export type ContentScript = { matches: string[]; js?: string[]; css?: string[]; run_at?: string }
 export type ToolbarButton = { title: string; icon?: string | null }
 export type UiContrib = { toolbar_button?: ToolbarButton | null; panel?: boolean | null }

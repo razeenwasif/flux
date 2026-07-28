@@ -121,6 +121,7 @@ import type {
   TabKind as GenTabKind,
   TabMeta as GenTabMeta,
   VaultStatus as GenVaultStatus,
+  VaultDiag as GenVaultDiag,
   VaultSavePrompt as GenVaultSavePrompt,
   WebPanel as GenWebPanel,
   Workspace as GenWorkspace,
@@ -879,6 +880,11 @@ export const vaultImportProton = (path: string, passphrase?: string) =>
   invoke<number>("vault_import_proton", { path, passphrase: passphrase ?? null });
 /** Autofill credential `id` into the active tab's login form (same-origin enforced). */
 export const vaultFill = (tabId: number, id: string) => invoke<void>("vault_fill", { tabId, id });
+/** Why autofill didn't offer on this tab. Chrome-only (never page-callable):
+ *  unlike `vault_page_info`, which hides the reason from a possibly-hostile
+ *  page, this names the actual stage that stopped it. */
+export type VaultDiag = GenVaultDiag;
+export const vaultWhy = (tab: number) => invoke<VaultDiag>("vault_why", { tab });
 
 // ─── Extensions (BACKLOG #92, ADR 0008) ──────────────────────────────────────
 // ExtContentScript / ExtManifest / InstalledExt are generated (bindings.gen,

@@ -14,7 +14,7 @@
 //! Secrets boundary: only metadata reaches the chrome; passwords leave Rust only
 //! via explicit `vault_reveal` or injected straight into the page by `vault_fill`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
@@ -644,6 +644,129 @@ pub struct PageVaultInfo {
     pub count: u32,
     /// Username of the first match, for the chip label ("Fill · user@…").
     pub username: String,
+}
+
+/// Why autofill did (or didn't) offer on a page — the answer to "the key icon
+/// never appeared and I don't know why".
+///
+/// `vault_page_info` deliberately collapses every failure into "locked" so a
+/// hostile page learns nothing from probing it. That's right for the page and
+/// useless for the user: a locked vault, a phishing verdict, and simply having
+/// no saved login all look identical. This type is the honest version, and it's
+/// **chrome-only** — never in the fluxtab ACL, so a page can't ask it.
+#[derive(serde::Serialize, Clone, specta::Type)]
+pub struct VaultDiag {
+    /// Machine-readable stage that stopped the offer.
+    pub stage: String,
+    /// One sentence the user can act on.
+    pub detail: String,
+    pub host: String,
+    /// Saved credentials matching this host (0 unless the vault is unlocked).
+    pub matches: u32,
+    /// The page script's own last reason for not showing a chip, if it reported
+    /// one — covers the causes Rust can't see (no form on the page, the field
+    /// already had a value, the chip was dismissed).
+    pub page_reason: String,
+}
+
+/// Last reason `passwords.js` gave for not offering, per tab. Bounded by tab
+/// count; cleared when a tab reports a new state.
+static PAGE_REASONS: std::sync::LazyLock<parking_lot::RwLock<HashMap<u64, String>>> =
+    std::sync::LazyLock::new(|| parking_lot::RwLock::new(HashMap::new()));
+
+/// Page → chrome breadcrumb: why `passwords.js` didn't show a fill chip. Reported
+/// fire-and-forget by the injected script so the chrome-side diagnostic can name
+/// causes that only exist in the DOM. Carries no page content — a fixed
+/// vocabulary of reason codes, capped, so it can't become an exfiltration path.
+#[tauri::command]
+pub fn vault_probe_report(webview: tauri::Webview, reason: String) {
+    let Ok(tab) = caller_tab(&webview) else {
+        return;
+    };
+    // Fixed vocabulary only: anything else is recorded as "unknown" rather than
+    // stored verbatim.
+    let known = [
+        "no-password-field",
+        "no-login-field",
+        "field-prefilled",
+        "dismissed",
+        "already-handled",
+        "probe-failed",
+        "offered",
+    ];
+    let code = if known.contains(&reason.as_str()) {
+        reason
+    } else {
+        "unknown".to_string()
+    };
+    PAGE_REASONS.write().insert(tab, code);
+}
+
+/// Diagnose why autofill didn't offer on `tab` — walks the same gates the page
+/// probe walks, but reports which one actually stopped it.
+#[tauri::command]
+pub fn vault_why(app: AppHandle, state: State<'_, VaultState>, tab: u64) -> VaultDiag {
+    let page_reason = PAGE_REASONS.read().get(&tab).cloned().unwrap_or_default();
+    let mut diag = VaultDiag {
+        stage: "unknown".into(),
+        detail: "Couldn't determine why.".into(),
+        host: String::new(),
+        matches: 0,
+        page_reason: page_reason.clone(),
+    };
+    let Ok(host) = tab_host(&app, tab) else {
+        diag.stage = "no-host".into();
+        diag.detail = "This tab has no page host (an internal page or a closed tab).".into();
+        return diag;
+    };
+    diag.host = host.clone();
+    // Same firewall the chip honours — but say so, instead of looking "locked".
+    if let Some(v) = crate::sentinel::credential_origin_risk(&app, &host) {
+        diag.stage = "blocked".into();
+        diag.detail = format!(
+            "Sentinel judged {host} to be impersonating {} — autofill is withheld on purpose. \
+If that's wrong, this is a false positive worth reporting.",
+            v.resembles
+        );
+        return diag;
+    }
+    match state.read_open(|v| v.matches(&host).len() as u32) {
+        Err(_) => {
+            diag.stage = "locked".into();
+            diag.detail = "The vault is locked — unlock it and reload the page.".into();
+        }
+        Ok(0) => {
+            diag.stage = "no-match".into();
+            diag.detail =
+                format!("No saved login matches {host}. Add one, or check the stored host.");
+        }
+        Ok(n) => {
+            diag.matches = n;
+            // Rust is happy — so if nothing appeared, the page side is why.
+            diag.stage = match page_reason.as_str() {
+                "no-password-field" | "no-login-field" => "no-form".into(),
+                "field-prefilled" => "prefilled".into(),
+                "dismissed" => "dismissed".into(),
+                "offered" => "ok".into(),
+                _ => "page-silent".into(),
+            };
+            const NO_FORM: &str = "Vault is fine, but no login field was found on the page \
+(a form inside a cross-origin iframe can't be reached).";
+            const PREFILLED: &str = "Vault is fine, but the field already had a value, so the \
+offer was skipped.";
+            const DISMISSED: &str = "You dismissed the chip on this page; reload to get it back.";
+            const SILENT: &str = "Vault is unlocked and matching, but the page script never \
+reported back — it may not have been injected here.";
+            diag.detail = match diag.stage.as_str() {
+                "no-form" => NO_FORM.into(),
+                "prefilled" => PREFILLED.into(),
+                "dismissed" => DISMISSED.into(),
+                "ok" => format!("Autofill offered {n} saved login(s) for {host}."),
+                _ => SILENT.into(),
+            };
+        }
+    }
+    diag
 }
 
 /// The calling webview's tab id (`tab-{id}` label), or an error for any other

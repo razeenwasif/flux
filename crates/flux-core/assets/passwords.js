@@ -226,8 +226,13 @@
 
   function offerFill(pw) {
     call("vault_page_info").then(function (info) {
-      if (!info || !info.unlocked || !info.count) return;
-      if (dismissed || pw.value) return; // re-check: the probe was async
+      // `vault_page_info` collapses locked / blocked / no-match into one shape on
+      // purpose (a hostile page must learn nothing). The chrome-side diagnostic
+      // resolves which it was; here we only note that Rust said no.
+      if (!info || !info.unlocked || !info.count) { reason("probe-failed"); return; }
+      if (dismissed) { reason("dismissed"); return; }
+      if (pw.value) { reason("field-prefilled"); return; } // re-check: probe was async
+      reason("offered");
       var who = info.username || "saved login";
       var extra = info.count > 1 ? " (+" + (info.count - 1) + ")" : "";
       showChip(pw, "🔑", "Fill · " + who + extra, function () {
@@ -264,12 +269,50 @@
   }, true);
 
   // ── Scan loop ──────────────────────────────────────────────────────────────
+  // Breadcrumb for the chrome's "why didn't autofill offer here?" diagnostic.
+  // Fire-and-forget, fixed vocabulary, no page content — Rust records the last
+  // one per tab. Without it every bail below is invisible from outside the page.
+  var lastReason = "";
+  function reason(code) {
+    if (code === lastReason) return; // don't spam on every mutation
+    lastReason = code;
+    call("vault_probe_report", { reason: code }).catch(function () {});
+  }
+
+  // The username field of a two-step sign-in (Microsoft/Google/university SSO),
+  // where step 1 shows NO password input at all. Without this the offer never
+  // fires on those pages — the fill path already handles them.
+  function loneUserField() {
+    var inputs = Array.prototype.filter.call(document.querySelectorAll("input"), visible);
+    for (var i = 0; i < inputs.length; i++) {
+      var el = inputs[i];
+      var t = (el.type || "text").toLowerCase();
+      if (t !== "text" && t !== "email" && t !== "tel") continue;
+      var ac = (el.autocomplete || "").toLowerCase();
+      var probe = ((el.name || "") + " " + (el.id || "") + " " + ac).toLowerCase();
+      if (ac === "username" || ac === "email" || /user|email|login|account|upn/.test(probe)) return el;
+    }
+    return null;
+  }
+
   function scan() {
-    if (dismissed) return;
+    if (dismissed) { reason("dismissed"); return; }
     var fields = pwFields();
-    if (!fields.length) { removeChip(); return; }
+    if (!fields.length) {
+      removeChip();
+      // No password box — but a two-step sign-in still wants the offer on its
+      // username field, so try that before giving up.
+      var u = loneUserField();
+      if (!u) { reason("no-login-field"); return; }
+      if (handled.has(u)) { reason("already-handled"); return; }
+      if (u.value) { reason("field-prefilled"); return; }
+      if (chip && chipAnchor === u) { placeChip(); return; }
+      offerFill(u);
+      return;
+    }
     var pw = fields[0];
-    if (handled.has(pw) || pw.value) return;
+    if (handled.has(pw)) { reason("already-handled"); return; }
+    if (pw.value) { reason("field-prefilled"); return; }
     if (chip && chipAnchor === pw) { placeChip(); return; }
     if (isRegistration(pw)) offerSuggest(pw);
     else offerFill(pw);

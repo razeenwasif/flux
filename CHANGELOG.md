@@ -98,6 +98,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Autofill never offered on two-step sign-ins (ANU / Microsoft / Google SSO)** — the offer scan
+  required a visible `input[type="password"]`, and step 1 of those logins has only a username field,
+  so no chip ever appeared. The *fill* path was taught about username-only screens earlier; the
+  **offer** path wasn't, which is why it kept failing after that fix. The scan now falls back to the
+  page's login/username field when there's no password box.
+- **"Why didn't autofill offer here?" is now answerable** — `vault_page_info` deliberately collapses
+  locked / phishing-blocked / no-saved-login into one identical "locked" reply, so a hostile page
+  learns nothing from probing it. Correct for the page, useless for you: every failure looked the
+  same. A new chrome-only `vault_why` (never in the page ACL) names the actual stage — no host, the
+  Sentinel firewall withholding on a suspected impersonation, a locked vault, no match for the host —
+  and the page script now reports its own bail reason from a fixed vocabulary (no form, field
+  prefilled, dismissed), so DOM-side causes are visible too. Surfaced as **🩺 Why no autofill here?**
+  in the Passwords popover.
 - **The timetable grid stopped partway down the enlarged calendar pane** — hour rows were a hard-coded
   42px, so a typical 10-hour day filled 420px of a 661px area and left a third of the pane empty. The
   row height is now measured from the available space (min 34px, below which the grid scrolls instead

@@ -53,7 +53,7 @@ use crate::taskmgr::{GpuInfo, ProcInfo, SysStats};
 use crate::todos::Todo;
 use crate::trackers::{TrackerEdge, TrackerGraph, TrackerNode};
 use crate::tui_apps::TuiApp;
-use crate::vault::{CredentialMeta, VaultSavePrompt, VaultStatus};
+use crate::vault::{CredentialMeta, VaultDiag, VaultSavePrompt, VaultStatus};
 use crate::watch::WatchItem;
 
 /// Path to the generated bindings, relative to the crate root (= CWD under
@@ -142,6 +142,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<CredentialMeta>(&c),
         specta::ts::export::<VaultStatus>(&c),
         specta::ts::export::<VaultSavePrompt>(&c),
+        specta::ts::export::<VaultDiag>(&c),
         specta::ts::export::<ContentScript>(&c),
         specta::ts::export::<ToolbarButton>(&c),
         specta::ts::export::<UiContrib>(&c),
