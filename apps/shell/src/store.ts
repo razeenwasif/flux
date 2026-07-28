@@ -273,15 +273,17 @@ async function refreshPanels(): Promise<void> {
 const [calendarPopOpen, setCalendarPopOpen] = createSignal(false);
 export { calendarPopOpen, setCalendarPopOpen };
 
-/** Open (pinning on first use) a messaging side panel — Discord / Teams. Both
- *  sites forbid iframing, so the native-webview web panel (#48) is the quick
- *  message-check surface; once pinned they live in the panel rail permanently
- *  (with unread badges) and this just toggles them. */
-export async function openMessagingPanel(kind: "discord" | "teams"): Promise<void> {
-  const preset =
-    kind === "discord"
-      ? { url: "https://discord.com/channels/@me", host: "discord.com", title: "Discord" }
-      : { url: "https://teams.microsoft.com/", host: "teams.microsoft.com", title: "Teams" };
+/**
+ * Open a known site as a native-webview side panel (#48), pinning it on first
+ * use and just toggling it thereafter (matched by host, so a pinned panel is
+ * reused even if its saved URL has drifted).
+ *
+ * This is the surface for sites that **forbid iframing** — Discord, Teams and
+ * Google properties all send `X-Frame-Options`, so the DOM panes (which embed an
+ * iframe) can only ever show an error. A web panel is a real OS webview, so the
+ * page loads normally.
+ */
+export async function openSitePanel(preset: { url: string; host: string; title: string }): Promise<void> {
   const existing = panels().find((p) => {
     try {
       return new URL(p.url).hostname.endsWith(preset.host);
@@ -291,6 +293,16 @@ export async function openMessagingPanel(kind: "discord" | "teams"): Promise<voi
   });
   if (existing) togglePanel(existing.id);
   else await pinPanel(preset.url, preset.title);
+}
+
+/** Open (pinning on first use) a messaging side panel — Discord / Teams. Once
+ *  pinned they live in the panel rail permanently (with unread badges). */
+export async function openMessagingPanel(kind: "discord" | "teams"): Promise<void> {
+  await openSitePanel(
+    kind === "discord"
+      ? { url: "https://discord.com/channels/@me", host: "discord.com", title: "Discord" }
+      : { url: "https://teams.microsoft.com/", host: "teams.microsoft.com", title: "Teams" },
+  );
 }
 
 /** Pin a site as a panel and open it. */

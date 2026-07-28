@@ -48,8 +48,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   duplicated per pane.
 - **Google Calendar in the app dock showed an error instead of a calendar** — it serves
   `x-frame-options: SAMEORIGIN`, so it can never render inside the pane's iframe. Apps can now declare
-  `noFrame`, and those open in a **tab** (a native webview, unaffected by framing rules) with the
-  tooltip saying so. Google Calendar is marked accordingly.
+  `noFrame`, and those open in the **native-webview side panel** (#48) instead — a real OS webview,
+  which framing rules don't apply to — pinned on first use and toggled thereafter, so the calendar
+  stays glanceable beside whatever tab you're on. This is the same surface Discord/Teams already use
+  for the same reason; that helper was generalized to `openSitePanel` rather than duplicated.
 - **Flux wrongly warned that Microsoft's own login page was impersonating Microsoft** — and worse, the
   credential firewall then refused to autofill there. The brand-embedding rule treats a brand appearing
   as a prefix/suffix compound as an attack, which is right for `paypalsecure.com` and wrong for
