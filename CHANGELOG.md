@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Scribe is touch- and Apple-Pencil-ready (iPad-tuned)** — the ink engine now distinguishes input:
+  a **pencil/mouse draws while a finger pans** (toggle ✍️/👆 in the toolbar, on by default on touch
+  devices, a no-op with a mouse), so a resting palm or a scrolling finger no longer scribbles. Pen
+  strokes replay **coalesced pointer samples** (120–240 Hz) so fast handwriting stays smooth instead of
+  polygonal. Touch targets grow on coarse-pointer devices, the drawing surface suppresses iOS
+  long-press callout / selection / tap-flash, and the layout respects the iPad's safe areas
+  (`viewport-fit=cover` + `env(safe-area-inset-*)`). Groundwork for running Scribe on an iPad Mini; the
+  native iOS build itself still needs a Mac + Xcode (a from-scratch platform target for Flux).
 - **Scribe — handwritten, per-course notebooks (`flux://scribe`, ADR 0014)** — a GoodNotes-style
   surface for math-heavy coursework: a shelf of course notebooks, each an ordered list of fixed-size
   (A4) pages you flip through, with grid/lined/squared/plain paper. The drawing is the whiteboard's

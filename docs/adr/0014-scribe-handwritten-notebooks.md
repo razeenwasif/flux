@@ -60,8 +60,14 @@ frontend.
   remounts still reset camera + undo.
 - Publishing is deliberately manual and per-page (a button), so nothing leaves
   the machine implicitly. The PNG is rendered in the shell and passed as base64.
-- Stylus **pressure/tilt/palm-rejection** only materialize on the native Windows
-  build; the WSL2/WebKitGTK build draws but without nib fidelity (ADR 0012).
+- Stylus **pressure/tilt** only materialize on the native Windows build; the
+  WSL2/WebKitGTK build draws but without nib fidelity (ADR 0012).
+- **Touch/Pencil handling is engine-level and portable** (added after v1): the
+  ink engine treats a pencil/mouse as the pen and a finger as a pan gesture
+  (toggleable), and replays coalesced pointer samples for smooth high-rate
+  strokes. This works in any webview — Safari/WKWebView included — which matters
+  for an eventual iPad target (though the iOS build itself needs a Mac + Xcode;
+  Flux has no `gen/apple/` yet).
 
 ## Deferred (fast-follows)
 

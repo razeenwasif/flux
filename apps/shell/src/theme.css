@@ -12057,6 +12057,11 @@ input[type="radio"].pdf-fw {
 .wb-btn:hover {
   background: rgba(123, 97, 255, 0.28);
 }
+.wb-btn.on {
+  background: rgba(123, 97, 255, 0.34);
+  border-color: rgba(123, 97, 255, 0.55);
+  color: var(--flux-text);
+}
 .wb-btn.danger:hover {
   background: rgba(236, 75, 110, 0.2);
   border-color: rgba(236, 75, 110, 0.4);
@@ -12076,6 +12081,12 @@ input[type="radio"].pdf-fw {
   height: 100%;
   cursor: crosshair;
   touch-action: none;
+  /* Stop iOS/iPadOS from hijacking pen/finger gestures on the drawing surface:
+     no long-press callout, no text selection, no grey tap flash. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .wb-canvas.panning {
   cursor: grab;
@@ -12127,6 +12138,23 @@ input[type="radio"].pdf-fw {
     width: 24px;
     height: 24px;
   }
+  /* Finger-friendly hit areas on touch devices (iPad, Android tablet). */
+  .wb-btn,
+  .scribe-addbtn {
+    padding: 9px 13px;
+    font-size: 13px;
+  }
+  .wb-width {
+    height: 26px;
+  }
+  .scribe-pageno {
+    font-size: 14px;
+  }
+  .scribe-card-del {
+    opacity: 1;
+    width: 30px;
+    height: 30px;
+  }
 }
 
 /* ─── Scribe — handwritten per-course notebooks (ADR 0014) ────────────────────
@@ -12137,9 +12165,14 @@ input[type="radio"].pdf-fw {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 12px 14px;
+  /* Respect the iPad's safe areas (status bar / home indicator) in a fullscreen
+     PWA or native shell; env() resolves to 0 on desktop, so this is a no-op
+     there. */
+  padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
   box-sizing: border-box;
   gap: 10px;
+  -webkit-tap-highlight-color: transparent;
 }
 /* Shelf */
 .scribe-shelf-wrap {

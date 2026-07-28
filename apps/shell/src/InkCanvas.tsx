@@ -75,6 +75,13 @@ const InkCanvas: Component<Props> = (props) => {
   const [color, setColor] = createSignal(COLORS[1]!);
   const [width, setWidth] = createSignal(3);
   const [textAt, setTextAt] = createSignal<Pt | null>(null); // world coords of a pending text
+  // Touch devices (iPad + Apple Pencil, Android tablets): default to "pen/mouse
+  // draws, finger pans" so a resting palm or a scrolling finger doesn't
+  // scribble. A pencil reports pointerType "pen", a finger reports "touch"; a
+  // mouse reports "mouse" and is never treated as a finger, so this is a no-op
+  // on desktop (the toggle only gates `pointerType === "touch"`).
+  const coarsePrimary = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
+  const [fingerPan, setFingerPan] = createSignal(coarsePrimary);
 
   const bounds = () => props.bounds ?? null;
   const template = () => props.template ?? (bounds() ? "grid" : "plain");
@@ -306,7 +313,9 @@ const InkCanvas: Component<Props> = (props) => {
     lastY = py;
     canvas.setPointerCapture(e.pointerId);
     const t = tool();
-    if (t === "pan" || e.button === 1 || spaceHeld) {
+    // A finger pans (not draws) when finger-pan mode is on — Pencil still draws.
+    const fingerScroll = fingerPan() && e.pointerType === "touch";
+    if (t === "pan" || e.button === 1 || spaceHeld || fingerScroll) {
       panning = true;
       return;
     }
@@ -350,8 +359,17 @@ const InkCanvas: Component<Props> = (props) => {
     }
     const p = toWorld(px, py);
     if (isPath(live)) {
-      const lastPt = live.pts[live.pts.length - 1]!;
-      if (Math.hypot(p.x - lastPt.x, p.y - lastPt.y) > 1.2 / cam.z) live.pts.push(p);
+      const path = live;
+      // Pencils sample at 120–240 Hz; the browser batches those into one move
+      // event. Replay the coalesced samples so fast strokes stay smooth instead
+      // of polygonal. Falls back to the single event where unsupported.
+      const coalesced = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
+      const samples = coalesced.length ? coalesced : [e];
+      for (const ce of samples) {
+        const cp = toWorld(ce.clientX - r.left, ce.clientY - r.top);
+        const lastPt = path.pts[path.pts.length - 1]!;
+        if (Math.hypot(cp.x - lastPt.x, cp.y - lastPt.y) > 1.2 / cam.z) path.pts.push(cp);
+      }
     } else if (live.t !== "text") {
       const shp = live; // narrowed const alias (TS loses closure-let narrowing)
       // Shift constrains lines to 45° steps and shapes to squares/circles.
@@ -597,6 +615,18 @@ const InkCanvas: Component<Props> = (props) => {
           onInput={(e) => setWidth(Number(e.currentTarget.value))}
         />
         <span style={{ flex: 1 }} />
+        <button
+          class="wb-btn"
+          classList={{ on: fingerPan() }}
+          title={
+            fingerPan()
+              ? "Finger pans · pen/mouse draws (tap to let a finger draw too)"
+              : "Everything draws (tap so a finger pans and only the pen/mouse draws)"
+          }
+          onClick={() => setFingerPan((v) => !v)}
+        >
+          {fingerPan() ? "✍️" : "👆"}
+        </button>
         <button class="wb-btn" title="Undo (Ctrl+Z)" onClick={undo}>
           ↩
         </button>
