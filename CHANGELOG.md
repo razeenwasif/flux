@@ -329,6 +329,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   bridge now spans the gap so the path is continuous.
 
 ### Changed
+- **The agent and terminal now share one right-hand column, stacked** — agent on top, terminal below,
+  with a draggable seam between them. They were two side-by-side columns, so opening both cost two
+  widths (~860px); now the column's width is charged **once**, which is most of the screen this gives
+  back on a laptop display. Either pane alone fills the column, both together split it at a remembered
+  ratio, and the responsive allocator now sheds one column instead of two. The shared width is seeded
+  from the old agent column, so an existing install doesn't jump on first launch.
 - **Home calendar events get the same translucent treatment as the calendar pane** — the event rows
   under the month grid are now translucent cards like the pane's agenda rows, and the expanded week
   grid's blocks are glass rather than an opaque gradient, so the grid lines read through and

@@ -178,6 +178,7 @@ import {
   activePanelB,
   panelWidth,
   panelDragging,
+  setPanelDragging,
   pageOverlayActive,
   pushPermAsk,
   setSavePrompt,
@@ -285,8 +286,23 @@ const App: Component = () => {
   // Resizable pane widths (px), persisted across sessions (BACKLOG #27).
   const loadW = (k: string, d: number) => Number(localStorage.getItem(k)) || d;
   const [sidebarW, setSidebarW] = createSignal(loadW("flux.w.sidebar", 252));
-  const [terminalW, setTerminalW] = createSignal(loadW("flux.w.terminal", 440));
-  const [agentW, setAgentW] = createSignal(loadW("flux.w.agent", 372));
+  // The agent and the terminal share ONE right-hand column, stacked vertically
+  // (agent above, terminal below). That's the point: the column's width is
+  // charged once instead of twice, which is most of the screen this reclaims on
+  // a small display.
+  const [stackW, setStackW] = createSignal(
+    // Seed from the old agent column so an existing install doesn't jump on the
+    // first launch after the panes merged.
+    loadW("flux.w.stack", loadW("flux.w.agent", 420)),
+  );
+  const [stackRatio, setStackRatioSig] = createSignal(
+    Math.min(0.8, Math.max(0.2, Number(localStorage.getItem("flux.stack.split")) || 0.5)),
+  );
+  const setStackRatio = (r: number) => {
+    const v = Math.min(0.8, Math.max(0.2, r));
+    setStackRatioSig(v);
+    localStorage.setItem("flux.stack.split", String(v));
+  };
   const [connectW] = createSignal(loadW("flux.w.connect", 212));
 
   // Window width drives the responsive pane-shedding (#28). Tracked from the window
@@ -1429,16 +1445,26 @@ const App: Component = () => {
     // Content card + the always-present sidebar rail are reserved first.
     let used = MIN_CONTENT + SIDEBAR_RAIL;
     const w = winW();
-    // Allocate width in PRIORITY order (kept longest first): the sidebar's expansion,
-    // then agent, then web panel, then terminal, then the connections rail (shed first).
-    const order: [keyof typeof want, number][] = [
+    // The agent and terminal SHARE one column, so their width is charged once —
+    // wanting both now costs no more than wanting either. Allocate in PRIORITY
+    // order (kept longest first): the sidebar's expansion, then that shared
+    // column, then the web panel, then the connections rail (shed first).
+    const wantStack = want.agent || want.terminal;
+    const order: [keyof typeof want | "stack", number][] = [
       ["sidebar", sidebarW() - SIDEBAR_RAIL], // extra beyond the rail it already has
-      ["agent", agentW()],
+      ["stack", wantStack ? stackW() : 0],
       ["panel", panelWidth()],
-      ["terminal", terminalW()],
       ["connect", connectW()],
     ];
     for (const [k, extra] of order) {
+      if (k === "stack") {
+        if (wantStack && used + extra <= w) {
+          out.agent = want.agent;
+          out.terminal = want.terminal;
+          used += extra;
+        }
+        continue;
+      }
       if (want[k] && used + extra <= w) {
         out[k] = true;
         used += extra;
@@ -1453,18 +1479,38 @@ const App: Component = () => {
   const panelColVisible = () => responsive().panel;
   const agentColVisible = () => responsive().agent;
   const connectColVisible = () => responsive().connect;
+  /** The shared right-hand column is up whenever either pane in it is. */
+  const stackVisible = () => agentColVisible() || termColVisible();
 
   const columns = () =>
     focusMode()
-      ? "0px 1fr 0px 0px 0px 0px" // focus/compact mode (#55): content only
+      ? "0px 1fr 0px 0px 0px" // focus/compact mode (#55): content only
       : [
           responsive().sidebar ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
           "1fr",
           panelColVisible() ? `${panelWidth()}px` : "0px",
-          termColVisible() ? `${terminalW()}px` : "0px",
-          agentColVisible() ? `${agentW()}px` : "0px",
+          stackVisible() ? `${stackW()}px` : "0px",
           connectColVisible() ? `${connectW()}px` : "0px",
         ].join(" ");
+
+  /** Drag the horizontal seam between the agent (top) and terminal (bottom). */
+  const startStackDrag = (e: PointerEvent) => {
+    e.preventDefault();
+    const col = (e.currentTarget as HTMLElement).parentElement;
+    if (!col) return;
+    setPanelDragging(true);
+    const move = (ev: PointerEvent) => {
+      const r = col.getBoundingClientRect();
+      if (r.height > 0) setStackRatio((ev.clientY - r.top) / r.height);
+    };
+    const up = () => {
+      setPanelDragging(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   // Drag a pane's splitter. `sign` is +1 when dragging right grows the pane
   // (sidebar), −1 when dragging left grows it (terminal / agent).
@@ -1514,7 +1560,7 @@ const App: Component = () => {
           : {
               "grid-template-columns": columns(),
               "grid-template-rows": "var(--flux-titlebar-h) 1fr",
-              "grid-template-areas": `"title title title title title title" "side content webpanel term agent connect"`,
+              "grid-template-areas": `"title title title title title" "side content webpanel stack connect"`,
             }
       }
     >
@@ -1587,13 +1633,30 @@ const App: Component = () => {
       <Show when={panelColVisible()}>
         <WebPanelPane />
       </Show>
-      <Show when={termColVisible()}>
-        <TerminalColumn />
-      </Show>
-      <Show when={agentColVisible()}>
-        <Suspense>
-          <AgentPanel />
-        </Suspense>
+      {/* One right-hand column holding both panes: agent above, terminal below,
+          with a draggable seam. Sharing a column is what reclaims the screen —
+          two columns cost two widths. */}
+      <Show when={stackVisible()}>
+        <div class="rightstack">
+          <Show when={agentColVisible()}>
+            <div class="rightstack-slot" style={{ "flex-grow": String(termColVisible() ? stackRatio() : 1) }}>
+              <Suspense>
+                <AgentPanel />
+              </Suspense>
+            </div>
+          </Show>
+          <Show when={agentColVisible() && termColVisible()}>
+            <div class="rightstack-seam" title="Drag to resize" onPointerDown={startStackDrag} />
+          </Show>
+          <Show when={termColVisible()}>
+            <div
+              class="rightstack-slot"
+              style={{ "flex-grow": String(agentColVisible() ? 1 - stackRatio() : 1) }}
+            >
+              <TerminalColumn />
+            </div>
+          </Show>
+        </div>
       </Show>
       <Show when={connectColVisible()}>
         <Suspense>
@@ -1615,18 +1678,11 @@ const App: Component = () => {
           onPointerDown={(e) => startPaneResize(e, sidebarW, setSidebarW, 1, "flux.w.sidebar", 180, 460)}
         />
       </Show>
-      <Show when={termColVisible()}>
+      <Show when={stackVisible()}>
         <div
           class="pane-splitter"
-          style={{ right: `${(agentColVisible() ? agentW() : 0) + terminalW()}px` }}
-          onPointerDown={(e) => startPaneResize(e, terminalW, setTerminalW, -1, "flux.w.terminal", 280, 820)}
-        />
-      </Show>
-      <Show when={agentColVisible()}>
-        <div
-          class="pane-splitter"
-          style={{ right: `${agentW()}px` }}
-          onPointerDown={(e) => startPaneResize(e, agentW, setAgentW, -1, "flux.w.agent", 300, 640)}
+          style={{ right: `${(connectColVisible() ? connectW() : 0) + stackW()}px` }}
+          onPointerDown={(e) => startPaneResize(e, stackW, setStackW, -1, "flux.w.stack", 300, 820)}
         />
       </Show>
 

@@ -2879,8 +2879,9 @@ body.resizing .panel-edge-resize::after {
 }
 
 .terminal-col {
-  grid-area: term;
+  /* No grid-area any more: it's the lower half of the shared right column. */
   min-width: 0;
+  height: 100%;
   padding: var(--flux-frame-pad);
   padding-left: 0;
   position: relative;
@@ -3385,7 +3386,8 @@ body.resizing .panel-edge-resize::after {
 
 /* ── Agent panel (liquid glass) ── */
 .agent {
-  grid-area: agent;
+  /* No grid-area any more: it's the upper half of the shared right column. */
+  height: 100%;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -14070,4 +14072,44 @@ input[type="radio"].pdf-fw {
 .scribe-zoom button:hover {
   background: rgba(123, 97, 255, 0.2);
   color: var(--flux-text);
+}
+
+/* ─── Shared right-hand column: agent above, terminal below ───────────────── */
+/* One column instead of two, so its width is charged once — the point of the
+   stack, and most of the screen it reclaims on a small display. */
+.rightstack {
+  grid-area: stack;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.rightstack-slot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-basis: 0;
+  overflow: hidden;
+}
+/* The seam between them. Full-width hit area, thin visible line. */
+.rightstack-seam {
+  flex: none;
+  height: 9px;
+  margin: 0 var(--flux-frame-pad) 0 0;
+  cursor: ns-resize;
+  position: relative;
+}
+.rightstack-seam::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--glass-rim-soft);
+}
+.rightstack-seam:hover::after {
+  height: 2px;
+  background: rgba(123, 97, 255, 0.55);
 }
