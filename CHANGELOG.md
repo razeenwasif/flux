@@ -131,6 +131,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The docked timetable view still wouldn't scroll** (the month view did) — the week grid carries its
+  own scroller, which is right in the wide overlay but makes it a **nested** scroller when docked: the
+  wheel over the grid was swallowed by it, so the tasks below never came into view. Docked, the grid
+  now grows to its full height and the pane's single body scroller moves past it.
 - **The docked calendar's body wouldn't scroll** — its sections are flex children that *can* shrink
   (`flex: 1 1 auto` + `min-height: 0`, which is how they share the wide overlay's row). In the docked
   column that layout is vertical, so instead of overflowing the scroller they collapsed to fit it:

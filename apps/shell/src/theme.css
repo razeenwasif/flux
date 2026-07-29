@@ -13724,12 +13724,20 @@ input[type="radio"].pdf-fw {
    rather than reachable. */
 .cal-pane.docked .cal-pane-body,
 .cal-pane.docked .tt-week,
+.cal-pane.docked .tt-scroll,
 .cal-pane.docked .cal-pane-day,
 .cal-pane.docked .cal-tasks,
 .cal-pane.docked .cal-pane-list,
 .cal-pane.docked .cal-tasks-list {
   flex: none;
   min-height: auto;
+}
+/* The timetable carries its own scroller for the wide overlay. Docked, that
+   makes it a NESTED scroller: the wheel over the grid is swallowed by it and
+   the tasks below never come into view. One scroller per column — the grid
+   grows to its full height and the pane's body scrolls past it. */
+.cal-pane.docked .tt-scroll {
+  overflow: visible;
 }
 .cal-pane.docked .cal-tasks-list,
 .cal-pane.docked .cal-pane-list {
