@@ -24,7 +24,20 @@ export type ShapeStroke = {
   a: Pt;
   b: Pt;
 };
-export type TextStroke = { t: "text"; color: string; size: number; at: Pt; text: string };
+export type TextStyle = "body" | "h2" | "h1";
+/** A text block. `at` is the baseline of its FIRST line (unchanged from the
+ *  single-line original, so notes written before wrapping existed render
+ *  identically). `w` is the wrap width in world units; absent = no wrapping. */
+export type TextStroke = {
+  t: "text";
+  color: string;
+  size: number;
+  at: Pt;
+  text: string;
+  /** Wrap width. `#[serde(default)]`-style optional so old strokes still load. */
+  w?: number;
+  style?: TextStyle;
+};
 export type Stroke = PathStroke | ShapeStroke | TextStroke;
 // TS can't collapse a variant whose discriminant is a union ("pen" | "hi") on
 // negative narrowing — an explicit guard keeps the checker honest.
@@ -32,14 +45,81 @@ const isPath = (s: Stroke): s is PathStroke => s.t === "pen" || s.t === "hi";
 
 export type Box = { x0: number; y0: number; x1: number; y1: number };
 
+/** Type scale. A notebook wants a document's hierarchy, not arbitrary sizes. */
+const TEXT_STYLES: Record<TextStyle, { mult: number; weight: string }> = {
+  body: { mult: 1, weight: "400" },
+  h2: { mult: 1.5, weight: "600" },
+  h1: { mult: 2.05, weight: "700" },
+};
+export const fontSizeOf = (s: TextStroke): number => Math.round(s.size * TEXT_STYLES[s.style ?? "body"].mult);
+const fontOf = (s: TextStroke): string =>
+  `${TEXT_STYLES[s.style ?? "body"].weight} ${fontSizeOf(s)}px system-ui, sans-serif`;
+/** Leading. Generous enough that handwriting fits between typed lines. */
+export const lineHeightOf = (s: TextStroke): number => fontSizeOf(s) * 1.38;
+
+// One offscreen context for text measurement, shared by wrapping, bounds and
+// hit-testing so all three agree on where a glyph actually is.
+let measureCtx: CanvasRenderingContext2D | null = null;
+const measurer = (): CanvasRenderingContext2D => {
+  if (!measureCtx) measureCtx = document.createElement("canvas").getContext("2d");
+  return measureCtx!;
+};
+
+/** Lay a text block out into rendered lines: explicit newlines always break,
+ *  and each paragraph wraps at `w`. A single word longer than the line is left
+ *  to overflow rather than being chopped mid-word. */
+export const wrapText = (s: TextStroke): string[] => {
+  const ctx = measurer();
+  ctx.font = fontOf(s);
+  const width = s.w ?? 0;
+  const out: string[] = [];
+  for (const para of s.text.split("\n")) {
+    if (!width) {
+      out.push(para);
+      continue;
+    }
+    let line = "";
+    for (const word of para.split(" ")) {
+      const cand = line ? `${line} ${word}` : word;
+      if (!line || ctx.measureText(cand).width <= width) line = cand;
+      else {
+        out.push(line);
+        line = word;
+      }
+    }
+    out.push(line);
+  }
+  return out;
+};
+/** Rendered width of the widest line (for bounds when there's no wrap width). */
+const textWidth = (s: TextStroke, lines: string[]): number => {
+  if (s.w) return s.w;
+  const ctx = measurer();
+  ctx.font = fontOf(s);
+  return lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
+};
+/** The block's box in world units. */
+export const textBox = (s: TextStroke): Box => {
+  const lines = wrapText(s);
+  const fs = fontSizeOf(s);
+  const lh = lineHeightOf(s);
+  return {
+    x0: s.at.x,
+    y0: s.at.y - fs,
+    x1: s.at.x + textWidth(s, lines),
+    y1: s.at.y + (lines.length - 1) * lh + fs * 0.25,
+  };
+};
+
 /** Every point that defines a stroke — the basis of bounds, lasso hit-testing
  *  and the writing caret. Text is approximated from its anchor + glyph width. */
 const pointsOf = (s: Stroke): Pt[] => {
   if (isPath(s)) return s.pts;
   if (s.t === "text") {
+    const b = textBox(s);
     return [
-      { x: s.at.x, y: s.at.y - s.size },
-      { x: s.at.x + s.text.length * s.size * 0.6, y: s.at.y },
+      { x: b.x0, y: b.y0 },
+      { x: b.x1, y: b.y1 },
     ];
   }
   return [s.a, s.b];
@@ -106,6 +186,9 @@ const TOOLS: { id: Tool; icon: string; label: string; key: string }[] = [
   { id: "pan", icon: "✋", label: "Pan (or middle/space-drag; wheel zooms)", key: "Space" },
 ];
 
+/** Right-hand margin a text block wraps against on a bounded page. */
+const PAGE_MARGIN = 48;
+
 /** Velvet paper colour for a bounded (Scribe) page. */
 const PAGE_BG = "#12101f";
 const GRID_INK = "rgba(150,160,220,0.13)";
@@ -125,7 +208,7 @@ type Props = {
 const InkCanvas: Component<Props> = (props) => {
   let canvas!: HTMLCanvasElement;
   let wrap!: HTMLDivElement;
-  let textInput: HTMLInputElement | undefined;
+  let textInput: HTMLTextAreaElement | undefined;
 
   // A notebook page is for writing, so text is the default there; the infinite
   // whiteboard is for drawing and keeps the pen.
@@ -133,6 +216,11 @@ const InkCanvas: Component<Props> = (props) => {
   const [color, setColor] = createSignal(COLORS[1]!);
   const [width, setWidth] = createSignal(3);
   const [textAt, setTextAt] = createSignal<Pt | null>(null); // world coords of a pending text
+  // Index of the text block being edited, or -1 when composing a new one. A
+  // notebook needs its typing to be revisable, so clicking existing text reopens
+  // it here rather than forcing an erase-and-retype.
+  const [editIdx, setEditIdx] = createSignal(-1);
+  const [textStyle, setTextStyle] = createSignal<TextStyle>("body");
   // Touch devices (iPad + Apple Pencil, Android tablets): default to "pen/mouse
   // draws, finger pans" so a resting palm or a scrolling finger doesn't
   // scribble. A pencil reports pointerType "pen", a finger reports "touch"; a
@@ -315,8 +403,10 @@ const InkCanvas: Component<Props> = (props) => {
       );
       ctx.stroke();
     } else if (s.t === "text") {
-      ctx.font = `${s.size}px system-ui, sans-serif`;
-      ctx.fillText(s.text, s.at.x, s.at.y);
+      ctx.font = fontOf(s);
+      const lh = lineHeightOf(s);
+      // Line 0 sits on `at`, so a pre-wrapping single-line note is unmoved.
+      wrapText(s).forEach((ln, i) => ctx.fillText(ln, s.at.x, s.at.y + i * lh));
     }
     ctx.globalAlpha = 1;
   };
@@ -504,6 +594,27 @@ const InkCanvas: Component<Props> = (props) => {
     }
     clearSel();
     if (t === "text") {
+      // Land on existing text → edit that block. This is what makes typed notes
+      // revisable rather than write-once.
+      const hit = strokes().findIndex((st) => {
+        if (st.t !== "text") return false;
+        const b = textBox(st);
+        return p.x >= b.x0 - 6 && p.x <= b.x1 + 6 && p.y >= b.y0 - 4 && p.y <= b.y1 + 4;
+      });
+      if (hit >= 0) {
+        const st = strokes()[hit] as TextStroke;
+        setEditIdx(hit);
+        setTextStyle(st.style ?? "body");
+        setTextAt(st.at);
+        requestAnimationFrame(() => {
+          if (!textInput) return;
+          textInput.value = st.text;
+          textInput.focus();
+          textInput.select();
+        });
+        return;
+      }
+      setEditIdx(-1);
       setCaret(p);
       setTextAt(p);
       requestAnimationFrame(() => textInput?.focus());
@@ -666,15 +777,48 @@ const InkCanvas: Component<Props> = (props) => {
     draw();
   };
 
+  /** Wrap width for a block starting at `x`: to the page's right margin, so
+   *  typing behaves like a document instead of running off the sheet. */
+  const wrapWidthAt = (x: number): number | undefined => {
+    const b = bounds();
+    if (!b) return undefined; // infinite canvas: no margin to wrap against
+    return Math.max(120, b.w - PAGE_MARGIN - x);
+  };
+
   const commitText = () => {
     const at = textAt();
-    const v = textInput?.value.trim();
+    const raw = textInput?.value ?? "";
+    const v = raw.replace(/\s+$/, "");
+    const idx = editIdx();
     setTextAt(null);
-    if (!at || !v) return;
+    setEditIdx(-1);
+    if (!at) return;
     const size = 10 + width() * 2;
-    commit([...strokes(), { t: "text", color: color(), size, at, text: v }]);
-    // Flow down the page: the next line lands under this one.
-    setCaret({ x: at.x, y: at.y + lineH() });
+    if (!v) {
+      // Emptying an existing block deletes it — the expected editor behaviour.
+      if (idx >= 0) commit(strokes().filter((_, i) => i !== idx));
+      return;
+    }
+    const block: TextStroke = {
+      t: "text",
+      color: color(),
+      size,
+      at,
+      text: v,
+      w: wrapWidthAt(at.x),
+      style: textStyle(),
+    };
+    if (idx >= 0) {
+      // Keep the original colour/size unless the style changed under it.
+      const prev = strokes()[idx] as TextStroke;
+      commit(strokes().map((st, i) => (i === idx ? { ...prev, ...block, at: prev.at } : st)));
+      const b = textBox({ ...prev, ...block, at: prev.at });
+      setCaret({ x: prev.at.x, y: b.y1 + lineHeightOf(block) });
+      return;
+    }
+    commit([...strokes(), block]);
+    // Flow down the page: the next block lands under this one.
+    setCaret({ x: at.x, y: textBox(block).y1 + lineHeightOf(block) });
   };
 
   /** Open the text input at the caret (creating one at the page's top-left the
@@ -839,10 +983,30 @@ const InkCanvas: Component<Props> = (props) => {
   });
   onCleanup(() => ro?.disconnect());
 
+  /** Place and size the editor exactly where its text will render, at the
+   *  current zoom, so typing is WYSIWYG rather than a floating box. */
   const textScreen = () => {
     const at = textAt();
     if (!at) return { left: "0px", top: "0px" };
-    return { left: `${(at.x - cam.x) * cam.z}px`, top: `${(at.y - cam.y) * cam.z}px` };
+    const probe: TextStroke = {
+      t: "text",
+      color: color(),
+      size: 10 + width() * 2,
+      at,
+      text: "",
+      w: wrapWidthAt(at.x),
+      style: textStyle(),
+    };
+    const fs = fontSizeOf(probe);
+    return {
+      left: `${(at.x - cam.x) * cam.z}px`,
+      top: `${(at.y - fs - cam.y) * cam.z}px`,
+      width: `${(probe.w ?? 260) * cam.z}px`,
+      "font-size": `${fs * cam.z}px`,
+      "line-height": `${lineHeightOf(probe) * cam.z}px`,
+      "font-weight": textStyle() === "body" ? "400" : textStyle() === "h2" ? "600" : "700",
+      color: color(),
+    };
   };
 
   return (
@@ -880,6 +1044,27 @@ const InkCanvas: Component<Props> = (props) => {
             onInput={(e) => setColor(e.currentTarget.value)}
           />
         </div>
+        <Show when={tool() === "text"}>
+          <div class="wb-styles">
+            <For
+              each={[
+                { id: "body" as TextStyle, label: "Body" },
+                { id: "h2" as TextStyle, label: "H2" },
+                { id: "h1" as TextStyle, label: "H1" },
+              ]}
+            >
+              {(st) => (
+                <button
+                  classList={{ "wb-style": true, on: textStyle() === st.id }}
+                  title={`${st.label} text`}
+                  onClick={() => setTextStyle(st.id)}
+                >
+                  {st.label}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
         <input
           class="wb-width"
           type="range"
@@ -929,18 +1114,26 @@ const InkCanvas: Component<Props> = (props) => {
           onWheel={onWheel}
         />
         <Show when={textAt()}>
-          <input
+          {/* A textarea, not an input: a document's text wraps and holds
+              paragraphs. It's sized and styled to match the rendered block, so
+              what you type is what lands on the page. */}
+          <textarea
             ref={textInput}
             class="wb-text-input"
             style={textScreen()}
-            placeholder="Type, Enter to place"
+            placeholder="Type — Shift+Enter for a new line, Esc to finish"
+            rows={1}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                // Commit and immediately reopen on the next line — writing a
-                // paragraph shouldn't need a click per line.
+              if (e.key === "Enter" && !e.shiftKey) {
+                // Enter finishes the block and starts the next one below;
+                // Shift+Enter breaks the line inside it.
+                e.preventDefault();
                 commitText();
                 if (tool() === "text") requestAnimationFrame(openCaret);
-              } else if (e.key === "Escape") setTextAt(null);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                commitText();
+              }
             }}
             onBlur={commitText}
           />

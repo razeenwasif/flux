@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Scribe's typing works like a document** — the first half of the Docs × GoodNotes polish:
+  - **Text is editable.** Click any block with the text tool and it reopens for editing, instead of
+    being write-once ink you had to erase and retype. Emptying a block deletes it, as an editor should.
+  - **Paragraphs wrap** to the page's right margin rather than running off the sheet, and hold real
+    line breaks (Shift+Enter inside a block, Enter to finish it and start the next one below).
+  - **Heading styles** — Body / H2 / H1 from a picker beside the tools, so a page gets a document's
+    hierarchy instead of arbitrary sizes.
+  - The editor is now placed, sized, wrapped and weighted exactly like the text it becomes, at the
+    current zoom, so typing is WYSIWYG rather than a floating box that reflows on commit.
+  - Notes written before this render **unchanged**: a block's anchor is still the baseline of its first
+    line, and text without a wrap width still lays out as a single line.
 - **This workspace's Trail, in the sidebar** — a compact panel above the folder rail showing only the
   browsing done *in the current workspace*, so a research context has its own recall. It has three
   states because one widget can't do three jobs at 230px: a **frozen dot-map** (density at a glance —

@@ -12435,17 +12435,50 @@ input[type="radio"].pdf-fw {
 .wb-canvas.panning {
   cursor: grab;
 }
+/* The text editor sits exactly where its block will render (size, leading and
+   weight are set inline from the current zoom), so typing is WYSIWYG. The tint
+   is just enough to show what's being edited. */
 .wb-text-input {
   position: absolute;
-  transform: translateY(-100%);
-  min-width: 160px;
-  font-size: 13px;
-  color: var(--flux-text);
-  background: rgba(10, 8, 24, 0.85);
-  border: 1px solid rgba(123, 97, 255, 0.5);
-  border-radius: 8px;
-  padding: 5px 9px;
+  font-family: system-ui, sans-serif;
+  background: rgba(123, 97, 255, 0.1);
+  border: 1px solid rgba(123, 97, 255, 0.45);
+  border-radius: 4px;
+  padding: 0 2px;
+  margin: 0;
   outline: none;
+  resize: none;
+  overflow: hidden;
+  min-height: 1.2em;
+  field-sizing: content; /* grows with the text where supported */
+}
+.wb-text-input::placeholder {
+  color: rgba(190, 190, 220, 0.45);
+}
+/* Type-scale picker, shown only while the text tool is active. */
+.wb-styles {
+  display: flex;
+  gap: 2px;
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 9px;
+  padding: 2px;
+}
+.wb-style {
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.wb-style:hover {
+  color: var(--flux-text);
+}
+.wb-style.on {
+  background: rgba(123, 97, 255, 0.3);
+  color: var(--flux-text);
 }
 .wb-boards {
   flex: none;
