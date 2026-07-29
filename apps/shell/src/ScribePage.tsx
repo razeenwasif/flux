@@ -10,7 +10,8 @@
  */
 import { For, Show, createSignal, on, onCleanup, onMount, createEffect, type Component } from "solid-js";
 
-import InkCanvas, { renderStrokesScaled, type InkApi, type InkTemplate, type Stroke } from "./InkCanvas";
+import { renderStrokesScaled, type InkTemplate, type Stroke } from "./InkCanvas";
+import ScribeDoc, { DOC_H, DOC_W, parseDoc } from "./ScribeDoc";
 import {
   scribeCreate,
   scribeDelete,
@@ -38,15 +39,6 @@ const TEMPLATES: { id: InkTemplate; label: string }[] = [
   { id: "plain", label: "Plain" },
 ];
 
-const parseStrokes = (json: string): Stroke[] => {
-  try {
-    const v = JSON.parse(json);
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
-  }
-};
-
 const blobToB64 = (b: Blob): Promise<string> =>
   new Promise((res, rej) => {
     const r = new FileReader();
@@ -58,8 +50,9 @@ const blobToB64 = (b: Blob): Promise<string> =>
     r.readAsDataURL(b);
   });
 
-/** A page's ink, drawn small. Redraws only when that page's strokes change. */
-const PageThumb: Component<{ strokes: Stroke[]; w: number; h: number }> = (props) => {
+/** A page, drawn small: its inserted drawings in place, plus grey rules standing
+ *  in for text — legible as a page shape at 58px without rendering real type. */
+const PageThumb: Component<{ content: string }> = (props) => {
   let el!: HTMLCanvasElement;
   const paint = () => {
     const ctx = el.getContext("2d");
@@ -69,11 +62,28 @@ const PageThumb: Component<{ strokes: Stroke[]; w: number; h: number }> = (props
     el.height = Math.round(THUMB_H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, THUMB_W, THUMB_H);
-    renderStrokesScaled(ctx, props.strokes, { w: props.w, h: props.h }, THUMB_W, THUMB_H);
+    const doc = parseDoc(props.content);
+    const sx = THUMB_W / DOC_W;
+    const sy = THUMB_H / DOC_H;
+    // Text as rules: one per paragraph, so a written page reads as written.
+    const paras = doc.html
+      .split(/<\/(?:p|h1|h2|li|div)>/i)
+      .map((x) => x.replace(/<[^>]*>/g, "").trim())
+      .filter(Boolean);
+    ctx.fillStyle = "rgba(190,190,225,0.5)";
+    paras.slice(0, 22).forEach((t, i) => {
+      const w = Math.min(THUMB_W - 12, 6 + t.length * 0.9);
+      ctx.fillRect(6, 8 + i * 4.2, w, 1.6);
+    });
+    for (const o of doc.objects) {
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, o.x * sx, o.y * sy, o.w * sx, o.h * sy);
+      img.src = o.src;
+    }
   };
   onMount(paint);
   createEffect(() => {
-    void props.strokes;
+    void props.content;
     paint();
   });
   return <canvas ref={el} class="scribe-thumb-c" style={{ width: `${THUMB_W}px`, height: `${THUMB_H}px` }} />;
@@ -83,7 +93,6 @@ const ScribePage: Component = () => {
   const [shelf, setShelf] = createSignal<NotebookMeta[]>([]);
   const [notebook, setNotebook] = createSignal<Notebook | null>(null);
   const [pageIndex, setPageIndex] = createSignal(0);
-  const [pageStrokes, setPageStrokes] = createSignal<Stroke[]>([]);
   const [shelfErr, setShelfErr] = createSignal("");
   const [saveErr, setSaveErr] = createSignal("");
   // Autosave is silent by design, which leaves you trusting that a page of
@@ -103,7 +112,7 @@ const ScribePage: Component = () => {
   const [pubMsg, setPubMsg] = createSignal("");
   const [pubBusy, setPubBusy] = createSignal(false);
 
-  let inkApi: InkApi | null = null;
+  let docApi: { pageToBlob: () => Promise<Blob | null>; text: () => string } | null = null;
   let saveTimer = 0;
   const [zoom, setZoom] = createSignal(1);
   const [railOpen, setRailOpen] = createSignal(true);
@@ -145,15 +154,6 @@ const ScribePage: Component = () => {
   // Reload strokes only when the *page identity* changes (open a notebook, flip
   // a page) — not on every autosave, which mutates notebook() too and would
   // needlessly re-parse the page JSON on each stroke.
-  createEffect(
-    on(
-      () => `${notebook()?.id ?? ""}:${pageIndex()}`,
-      () => {
-        const p = curPage();
-        setPageStrokes(p ? parseStrokes(p.strokes) : []);
-      },
-    ),
-  );
 
   /** Write the notebook now, cancelling any pending debounce. */
   const flush = async (nb?: Notebook) => {
@@ -178,14 +178,13 @@ const ScribePage: Component = () => {
     saveTimer = window.setTimeout(() => void flush(nb), 500);
   };
 
-  const onStrokes = (next: Stroke[]) => {
-    setPageStrokes(next);
+  /** The page's content is now a document blob (html + ink objects), still
+   *  stored in the same opaque field. */
+  const onContent = (json: string) => {
     const cur = notebook();
     if (!cur) return;
     const idx = pageIndex();
-    const pages2 = cur.pages.map((p, i) =>
-      i === idx ? { ...p, strokes: JSON.stringify(next), ts: Date.now() } : p,
-    );
+    const pages2 = cur.pages.map((p, i) => (i === idx ? { ...p, strokes: json, ts: Date.now() } : p));
     persist({ ...cur, pages: pages2 });
   };
 
@@ -281,7 +280,7 @@ const ScribePage: Component = () => {
     const cur = notebook();
     if (!cur) return;
     if (cur.pages.length <= 1) {
-      onStrokes([]); // last page: clear rather than leave an empty notebook
+      onContent(""); // last page: clear rather than leave an empty notebook
       return;
     }
     if (!window.confirm("Delete this page?")) return;
@@ -319,7 +318,9 @@ const ScribePage: Component = () => {
   const openPublish = () => {
     const cur = notebook();
     setPubTitle(`${cur?.name ?? "Note"} — p${pageIndex() + 1}`);
-    setPubBody("");
+    // The page is a document now, so Onyx can have its real prose rather than
+    // just a picture — prefill the body and let it be edited before publishing.
+    setPubBody(docApi?.text().trim() ?? "");
     // Tags persist between publishes — consecutive pages of one lecture usually
     // share them, and clearing every time made tagging tedious enough to skip.
     setPubMsg("");
@@ -328,11 +329,11 @@ const ScribePage: Component = () => {
 
   const doPublish = async () => {
     const cur = notebook();
-    if (!cur || !inkApi) return;
+    if (!cur || !docApi) return;
     setPubBusy(true);
     setPubMsg("");
     try {
-      const blob = await inkApi.pageToBlob();
+      const blob = await docApi.pageToBlob();
       if (!blob) {
         setPubMsg("Nothing to publish on this page yet.");
         setPubBusy(false);
@@ -517,7 +518,7 @@ const ScribePage: Component = () => {
                       title={`Page ${i() + 1}`}
                       onClick={() => setPageIndex(i())}
                     >
-                      <PageThumb strokes={parseStrokes(pg.strokes)} w={PAGE_W} h={PAGE_H} />
+                      <PageThumb content={pg.strokes} />
                       <span class="scribe-thumb-n">{i() + 1}</span>
                     </button>
                     <div class="scribe-thumb-ops">
@@ -545,14 +546,12 @@ const ScribePage: Component = () => {
             {/* Keyed on notebook+page so flipping remounts the engine (fresh camera
                 + undo history) and loads that page's strokes. */}
             <Show when={`${notebook()!.id}:${pageIndex()}`} keyed>
-              <InkCanvas
-                strokes={pageStrokes()}
-                onChange={onStrokes}
-                bounds={{ w: PAGE_W, h: PAGE_H }}
-                template={(curPage()?.template as InkTemplate) ?? "grid"}
-                exportName={() => `${notebook()!.name}-p${pageIndex() + 1}`}
-                api={(a) => (inkApi = a)}
-                onZoom={setZoom}
+              <ScribeDoc
+                content={curPage()?.strokes ?? ""}
+                onChange={onContent}
+                template={curPage()?.template ?? "plain"}
+                zoom={zoom()}
+                api={(a) => (docApi = a)}
               />
             </Show>
             <div class="scribe-zoom">
@@ -560,13 +559,13 @@ const ScribePage: Component = () => {
                 {railOpen() ? "◧" : "▢"}
               </button>
               <span style={{ flex: 1 }} />
-              <button title="Zoom out" onClick={() => inkApi?.zoomBy(1 / 1.2)}>
+              <button title="Zoom out" onClick={() => setZoom((z) => Math.max(0.3, z / 1.15))}>
                 −
               </button>
-              <button title="Fit the page" onClick={() => inkApi?.fit()}>
+              <button title="Fit the page width" onClick={() => setZoom(1)}>
                 {Math.round(zoom() * 100)}%
               </button>
-              <button title="Zoom in" onClick={() => inkApi?.zoomBy(1.2)}>
+              <button title="Zoom in" onClick={() => setZoom((z) => Math.min(2.5, z * 1.15))}>
                 +
               </button>
             </div>

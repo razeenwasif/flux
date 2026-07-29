@@ -14195,3 +14195,180 @@ input[type="radio"].pdf-fw {
   height: 2px;
   background: rgba(123, 97, 255, 0.55);
 }
+
+/* ─── Scribe document page (ADR 0014, second pass) ───────────────────────── */
+.sdoc {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+}
+.sdoc-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+.sdoc-bar button {
+  font-size: 12px;
+  min-width: 30px;
+  color: var(--flux-text-mute);
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 7px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+.sdoc-bar button:hover {
+  background: rgba(123, 97, 255, 0.22);
+  color: var(--flux-text);
+}
+.sdoc-draw {
+  color: var(--flux-teal, #2ff3ff) !important;
+  border-color: rgba(47, 243, 255, 0.35) !important;
+}
+.sdoc-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--flux-border);
+  margin: 0 4px;
+}
+/* The scrolling viewport the page sits in. */
+.sdoc-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border-radius: var(--flux-radius-card, 14px);
+  border: 1px solid var(--flux-border);
+  background: linear-gradient(160deg, #14121f, #0d0b16);
+  padding: 16px;
+  scrollbar-width: thin;
+}
+/* The sheet. Scaled by the host's zoom from its top-left so scrolling stays
+   predictable. */
+.sdoc-page {
+  position: relative;
+  transform-origin: top left;
+  margin: 0 auto;
+  background: #12101f;
+  border: 1px solid var(--flux-border);
+  border-radius: 4px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+}
+.sdoc-page.tpl-grid {
+  background-image: radial-gradient(rgba(150, 160, 220, 0.13) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.sdoc-page.tpl-lined {
+  background-image: linear-gradient(rgba(150, 160, 220, 0.13) 1px, transparent 1px);
+  background-size: 100% 48px;
+}
+.sdoc-page.tpl-squared {
+  background-image:
+    linear-gradient(rgba(150, 160, 220, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(150, 160, 220, 0.1) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+/* The editable document. Generous margins so it reads as a page. */
+.sdoc-body {
+  position: relative;
+  z-index: 1;
+  min-height: 100%;
+  padding: 64px 72px;
+  outline: none;
+  color: var(--flux-text);
+  font-size: 25px; /* ~12pt at the page's 150dpi */
+  line-height: 1.55;
+  caret-color: var(--flux-teal, #2ff3ff);
+}
+.sdoc-body h1 {
+  font-size: 50px;
+  margin: 0.4em 0 0.3em;
+}
+.sdoc-body h2 {
+  font-size: 36px;
+  margin: 0.5em 0 0.3em;
+}
+.sdoc-body p {
+  margin: 0 0 0.5em;
+}
+.sdoc-body ul,
+.sdoc-body ol {
+  margin: 0 0 0.5em;
+  padding-left: 1.4em;
+}
+/* Inserted drawings: free-floating objects above the text. */
+.sdoc-obj {
+  position: absolute;
+  z-index: 2;
+  cursor: move;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+.sdoc-obj img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+.sdoc-obj.on {
+  border-color: rgba(47, 243, 255, 0.7);
+  box-shadow: 0 0 0 1px rgba(47, 243, 255, 0.35);
+}
+.sdoc-obj-del {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--flux-border);
+  background: rgba(10, 8, 24, 0.9);
+  color: var(--flux-text);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.sdoc-obj-resize {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: rgba(47, 243, 255, 0.8);
+  cursor: nwse-resize;
+}
+/* The drawing pane. */
+.sdoc-pad-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(6, 5, 14, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.sdoc-pad {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(980px, 100%);
+  height: min(680px, 100%);
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--glass-fill, rgba(20, 17, 32, 0.97));
+  border: 1px solid rgba(123, 97, 255, 0.32);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+.sdoc-pad-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--flux-text-mute);
+}

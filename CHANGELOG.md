@@ -347,6 +347,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   bridge now spans the gap so the path is continuous.
 
 ### Changed
+- **Scribe's page is now a document, not a canvas** — typing was the main activity but the old model
+  made it the awkward one: every line was placed by clicking, and fixing a typo meant reopening a
+  block. The page is now an ordinary **rich-text editor** — real caret, selection, backspace across
+  lines, bold/italic/underline, H1/H2, bulleted and numbered lists — and **drawing is something you
+  insert**: the ✏️ Draw button opens a drawing pane (the same ink engine), and what you draw lands on
+  the page as an image you can **drag and resize**. Existing pages are upgraded on open: typed blocks
+  become paragraphs and the ink is flattened into one full-page image, so nothing is lost (though old
+  ink is no longer editable stroke-by-stroke, which is inherent to ink-as-object). Two things improve
+  as a result: the knowledge base indexes the page's **real prose**, and publishing to Onyx prefills
+  the note with the page's text instead of only embedding a picture of it.
 - **The agent and terminal now share one right-hand column, stacked** — agent on top, terminal below,
   with a draggable seam between them. They were two side-by-side columns, so opening both cost two
   widths (~860px); now the column's width is charged **once**, which is most of the screen this gives

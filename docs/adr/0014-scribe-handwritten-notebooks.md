@@ -53,6 +53,36 @@ Markdown.
 sanitization/disambiguation, and frontmatter escaping live in Rust, not the
 frontend.
 
+## Revision — the page is a document, not a canvas
+
+The first implementation made the page a drawing surface that also held text
+blocks. In use that inverted the priority: writing is the main activity, and
+placing every line by clicking (then reopening a block to edit it) fought it.
+Free drawing, meanwhile, is *occasional* — an equation, a diagram.
+
+So the page is now an ordinary **rich-text editor** (`ScribeDoc`): a real caret,
+selection, backspace across lines, headings and lists, via `contenteditable`.
+**Ink became an object**: the pen opens a drawing pane — the same `InkCanvas`
+engine, unchanged — and what you draw is inserted as a **PNG you can drag and
+resize** on the page.
+
+The stored shape moved with it, still inside the page's opaque content field so
+Rust needed no schema change:
+
+```json
+{ "v": 2, "html": "<p>…</p>", "objects": [{ "id", "src", "x", "y", "w", "h" }] }
+```
+
+Pages written under the first model are a bare `Stroke[]` and are upgraded on
+open: typed blocks become paragraphs in reading order, and the ink is flattened
+into one full-page image object. Nothing is lost, but old ink stops being
+editable *as strokes* — which is inherent to the new model, where ink is an
+image everywhere.
+
+Two things got better as a consequence: the KB now indexes real prose from the
+page (`page_text` reads the HTML), and publishing to Onyx prefills the note body
+with the page's actual text instead of only embedding a picture of it.
+
 ## Consequences
 
 - The whiteboard was refactored onto the shared engine — the one real regression

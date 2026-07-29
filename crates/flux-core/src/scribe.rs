@@ -187,10 +187,15 @@ impl ScribeStore {
 /// place that looks inside it, so the KB can index notebooks without the ink
 /// format leaking further. Handwriting contributes nothing until transcription
 /// exists; typed blocks do.
-pub fn page_text(strokes_json: &str) -> String {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(strokes_json) else {
+pub fn page_text(content_json: &str) -> String {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(content_json) else {
         return String::new();
     };
+    // Document pages (v2): the prose lives in `html`.
+    if let Some(html) = v.get("html").and_then(|h| h.as_str()) {
+        return strip_html(html);
+    }
+    // Pre-document pages: an array of ink strokes, some of them typed text.
     let Some(arr) = v.as_array() else {
         return String::new();
     };
@@ -207,6 +212,46 @@ pub fn page_text(strokes_json: &str) -> String {
         }
     }
     out
+}
+
+/// Tags out, block boundaries kept as newlines, the handful of entities an
+/// editor actually emits decoded. Enough to feed retrieval — not a parser.
+fn strip_html(html: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0u32;
+    let mut tag = String::new();
+    for c in html.chars() {
+        match c {
+            '<' => {
+                depth += 1;
+                tag.clear();
+            }
+            '>' => {
+                depth = depth.saturating_sub(1);
+                // A closing block tag ends a line.
+                let t = tag.trim_start_matches('/').to_ascii_lowercase();
+                if matches!(t.as_str(), "p" | "h1" | "h2" | "h3" | "li" | "div" | "br") {
+                    out.push('\n');
+                }
+            }
+            _ if depth > 0 => tag.push(c),
+            _ => out.push(c),
+        }
+    }
+    let decoded = out
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&");
+    // Collapse the blank lines the block boundaries leave behind.
+    decoded
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn now_ms() -> u64 {
@@ -495,6 +540,22 @@ mod tests {
         assert_eq!(parse_tags("#kkt #duality"), vec!["kkt", "duality"]);
         assert_eq!(parse_tags("  ,, "), Vec::<String>::new());
         assert_eq!(parse_tags("convex-opt"), vec!["convex-opt"]);
+    }
+
+    #[test]
+    fn page_text_reads_documents_and_legacy_strokes() {
+        // v2 document: prose out of the HTML, tags and entities gone.
+        let doc = r#"{"v":2,"html":"<h1>KKT</h1><p>Stationarity &amp; slackness</p><ul><li>primal</li></ul>","objects":[]}"#;
+        assert_eq!(
+            page_text(doc),
+            "KKT\nStationarity & slackness\nprimal"
+        );
+        // Pre-document page: typed strokes still index.
+        let legacy = r#"[{"t":"pen","pts":[]},{"t":"text","text":"duality gap"}]"#;
+        assert_eq!(page_text(legacy), "duality gap\n");
+        // A page of pure ink has no text to index, and mustn't invent any.
+        assert_eq!(page_text(r#"{"v":2,"html":"","objects":[{"id":"a"}]}"#), "");
+        assert_eq!(page_text("not json"), "");
     }
 
     #[test]
