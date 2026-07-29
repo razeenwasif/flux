@@ -430,6 +430,17 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
           </select>
         </Show>
         <span style={{ flex: 1 }} />
+        <button
+          class="cal-pop-nav"
+          title={
+            props.docked
+              ? "Float over the page (hides the page while open)"
+              : "Dock in the side panel — stays open beside the page"
+          }
+          onClick={() => setCalendarDock(props.docked ? "overlay" : "panel")}
+        >
+          {props.docked ? "⤢" : "⇥"}
+        </button>
         <button class="cal-pop-full" title="Open the full calendar (home)" onClick={openFull}>
           ↗ Full calendar
         </button>
