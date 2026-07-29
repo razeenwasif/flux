@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The sidebar Trail is a live graph you can handle** — the frozen dot-map is now a small
+  force-directed layout: nav and semantic edges pull related pages together, so **clusters are
+  topics** rather than a chronological scatter. **Drag a node** to move it, **drag the background** to
+  pan, **wheel** to zoom, and **click a node** to open that page. It still has no labels (illegible at
+  sidebar width), and the simulation **stops once it settles** (~2s), so an idle sidebar holds no
+  animation frame. On settling it auto-fits the layout to the box, which keeps the clusters apart
+  instead of squashing them together to fit — measured, raising gravity to compress the spread cut
+  cluster separation from 1.8× to 1.4×.
 - **Scribe notebooks are a knowledge-base source** — your typed Scribe pages are now indexed
   alongside Onyx notes, Scroll papers, Council briefs and browsing, so they surface in the Connections
   rail, the Notebook's grounded answers, and "✦ My notes" — **without** having to publish them to Onyx
