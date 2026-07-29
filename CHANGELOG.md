@@ -131,6 +131,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The docked calendar's body wouldn't scroll** — its sections are flex children that *can* shrink
+  (`flex: 1 1 auto` + `min-height: 0`, which is how they share the wide overlay's row). In the docked
+  column that layout is vertical, so instead of overflowing the scroller they collapsed to fit it:
+  nothing to scroll, and the content clipped rather than reachable. Inside the docked pane everything
+  is now content-sized (`flex: none`), so the body overflows and scrolls properly.
 - **The docked calendar took the whole web panel, so it couldn't share with a mail/chat panel** — it
   sized to its content (`flex-basis: auto`), which pushed pinned panels out of the column entirely
   rather than sharing it. The column now splits between the calendar and the panels below it, with a

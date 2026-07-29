@@ -13717,6 +13717,20 @@ input[type="radio"].pdf-fw {
   padding-left: 0;
   padding-top: 10px;
 }
+/* Everything inside the docked scroller must size to its CONTENT. A flex child
+   that is allowed to shrink (flex: 1 1 auto + min-height: 0, which is how these
+   size in the wide overlay) collapses to fit the scroller instead of
+   overflowing it — so there is nothing to scroll and the content is clipped
+   rather than reachable. */
+.cal-pane.docked .cal-pane-body,
+.cal-pane.docked .tt-week,
+.cal-pane.docked .cal-pane-day,
+.cal-pane.docked .cal-tasks,
+.cal-pane.docked .cal-pane-list,
+.cal-pane.docked .cal-tasks-list {
+  flex: none;
+  min-height: auto;
+}
 .cal-pane.docked .cal-tasks-list,
 .cal-pane.docked .cal-pane-list {
   overflow: visible;
