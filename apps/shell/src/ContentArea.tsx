@@ -55,7 +55,18 @@ import {
 } from "./store";
 import { basename } from "./tabvisual";
 import { tileRects, tileSeams } from "./tiles";
-import { For, Match, Show, Suspense, Switch, createMemo, createSignal, lazy, type Component } from "solid-js";
+import {
+  For,
+  Index,
+  Match,
+  Show,
+  Suspense,
+  Switch,
+  createMemo,
+  createSignal,
+  lazy,
+  type Component,
+} from "solid-js";
 
 /** Does this URL look like a privacy policy / terms page? Cheap + frontend-side
  *  on purpose: it only decides whether to *offer* the explainer, so a miss costs
@@ -118,29 +129,32 @@ const ContentArea: Component<{
   /** Pane and seam geometry in PERCENT of the card — the same `tileRects` the
    *  native webviews are positioned with, just in a different unit, so the DOM
    *  slots can never drift from the webviews sitting over them. */
-  const tileOpts = () => {
+  // Memoized: this feeds the rects, the seams and every pane's page lookup, so
+  // an un-memoized call meant a linear scan of all tabs several times per render.
+  const panes = createMemo(() => tilePanes());
+  const tileOpts = createMemo(() => {
     const g = tileGroup();
-    const panes = tilePanes();
-    if (!g || !panes) return null;
+    const p = panes();
+    if (!g || !p) return null;
     // A 100-unit box makes the outputs percentages directly; the gutter is
     // ~0.8% of the card, which matches SPLIT_GAP closely enough for a seam.
     return {
       layout: g.layout,
-      n: panes.length,
+      n: p.length,
       main: g.main,
       sec: g.sec,
       rect: { x: 0, y: 0, width: 100, height: 100 },
       gap: 0.8,
     };
-  };
-  const domRects = () => {
+  });
+  const domRects = createMemo(() => {
     const o = tileOpts();
     return o ? tileRects(o) : [];
-  };
-  const domSeams = () => {
+  });
+  const domSeams = createMemo(() => {
     const o = tileOpts();
     return o ? tileSeams(o) : [];
-  };
+  });
 
   const terminalIds = createMemo(() =>
     tabs()
@@ -332,17 +346,17 @@ const ContentArea: Component<{
           visible and grabbable. Dragging hides the panes (setSplitDragging) so
           the chrome can see the pointer, then re-tiles on release. Positions
           come from tiles.ts, the same geometry the webviews are placed with. */}
-        <For each={domSeams()}>
+        <Index each={domSeams()}>
           {(sm) => (
             <div
-              classList={{ "pane-splitter": true, horiz: sm.axis === "y" }}
+              classList={{ "pane-splitter": true, horiz: sm().axis === "y" }}
               style={
-                sm.axis === "x"
-                  ? { left: `${sm.x}%`, top: `${sm.y}%`, height: `${sm.length}%` }
-                  : { top: `${sm.y}%`, left: `${sm.x}%`, width: `${sm.length}%` }
+                sm().axis === "x"
+                  ? { left: `${sm().x}%`, top: `${sm().y}%`, height: `${sm().length}%` }
+                  : { top: `${sm().y}%`, left: `${sm().x}%`, width: `${sm().length}%` }
               }
               title="Drag to resize · double-click to even out"
-              onDblClick={() => setTileRatio(sm.key, 0.5)}
+              onDblClick={() => setTileRatio(sm().key, 0.5)}
               onPointerDown={(e) => {
                 e.preventDefault();
                 const card = document.getElementById("flux-web-area");
@@ -351,8 +365,8 @@ const ContentArea: Component<{
                 setSplitDragging(true);
                 const move = (ev: PointerEvent) =>
                   setTileRatio(
-                    sm.key,
-                    sm.axis === "x"
+                    sm().key,
+                    sm().axis === "x"
                       ? (ev.clientX - rect.left) / rect.width
                       : (ev.clientY - rect.top) / rect.height,
                   );
@@ -366,7 +380,7 @@ const ContentArea: Component<{
               }}
             />
           )}
-        </For>
+        </Index>
         {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
           its PTY + scrollback survive tab switches; only the active one shows.
           (TerminalView only unmounts — and kills its PTY — when the tab closes,
@@ -389,22 +403,27 @@ const ContentArea: Component<{
             {/* Split view (#43): two DOM halves, each rendering its tab's internal page
             (a real web page falls through to the placeholder its tiled webview
             overlays). Accessors keep navigation reactive without remounting. */}
-            <Show when={tilePanes()} fallback={pageFor(activeTab)}>
-              <For each={domRects()}>
+            <Show when={panes()} fallback={pageFor(activeTab)}>
+              {/* <Index>, not <For>: tileRects() returns fresh objects on every
+                  seam move, and For keys by reference — it would tear down and
+                  remount each pane's whole page on every pointer move. Index
+                  keys by position, so the elements persist and only their
+                  geometry updates. */}
+              <Index each={domRects()}>
                 {(r, i) => (
                   <div
                     class="split-dom-pane"
                     style={{
-                      left: `${r.x}%`,
-                      top: `${r.y}%`,
-                      width: `${r.width}%`,
-                      height: `${r.height}%`,
+                      left: `${r().x}%`,
+                      top: `${r().y}%`,
+                      width: `${r().width}%`,
+                      height: `${r().height}%`,
                     }}
                   >
-                    {pageFor(() => tilePanes()?.[i()])}
+                    {pageFor(() => panes()?.[i])}
                   </div>
                 )}
-              </For>
+              </Index>
             </Show>
           </Suspense>
         </Show>

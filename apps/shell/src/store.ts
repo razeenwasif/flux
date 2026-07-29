@@ -150,14 +150,25 @@ const loadTile = (): TileGroup | null => {
 };
 const [tileGroup, setTileRaw] = createSignal<TileGroup | null>(null);
 export { tileGroup };
+/** Persist the group. Debounced, because a seam drag calls this on every pointer
+ *  move: `localStorage.setItem` is synchronous and JSON-encodes the group, which
+ *  at 60Hz is enough to make dragging visibly stutter. The signal still updates
+ *  immediately — only the write to disk waits for the gesture to settle. */
+let tilePersistTimer = 0;
+function persistTile(g: TileGroup | null): void {
+  clearTimeout(tilePersistTimer);
+  tilePersistTimer = window.setTimeout(() => {
+    try {
+      if (g) localStorage.setItem(TILE_KEY, JSON.stringify(g));
+      else localStorage.removeItem(TILE_KEY);
+    } catch {
+      /* private mode */
+    }
+  }, 250);
+}
 function writeTile(g: TileGroup | null): void {
   setTileRaw(g);
-  try {
-    if (g) localStorage.setItem(TILE_KEY, JSON.stringify(g));
-    else localStorage.removeItem(TILE_KEY);
-  } catch {
-    /* private mode */
-  }
+  persistTile(g);
 }
 /** Tile these tabs (max MAX_PANES) in `layout`, focusing the first. */
 export function setTile(tabIds: number[], layout: TileLayout): void {

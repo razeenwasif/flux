@@ -198,6 +198,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Tiling was laggy, especially while dragging a seam** — three costs, all on the per-pointer-move
+  path:
+  - Panes were rendered with `<For>`, which keys by **reference** — and the geometry function returns
+    fresh rect objects on every ratio change, so each pointer move tore down and **remounted every
+    pane's entire page**. They use `<Index>` now (keyed by position), so the elements persist and only
+    their geometry updates. This was the dominant cost.
+  - Every ratio change wrote the group to `localStorage` **synchronously**, JSON-encoding it dozens of
+    times a second mid-drag. The signal still updates instantly; the disk write is debounced to when
+    the gesture settles.
+  - The pane list was recomputed several times per render (for the rects, the seams, and once per
+    pane's page lookup), each time scanning every tab. It's memoized.
 - **Scribe didn't rescale to its pane, so split view was unusable** — a regression from the document
   rewrite: the old canvas fitted the page to its viewport on every resize, while the document rendered
   at a fixed 1240px and only rescaled when you pressed a zoom button. The page now **fits its pane by
