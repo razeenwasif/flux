@@ -19,6 +19,7 @@ import {
   calEvents,
   START_URL,
   todoAdd,
+  todoEdit,
   todoRemove,
   todoSetProfile,
   todoToggle,
@@ -223,6 +224,27 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     localStorage.setItem("flux.task.profiles", JSON.stringify(list));
   };
   const [newTask, setNewTask] = createSignal("");
+  /** Task being renamed inline, or null. */
+  const [editTask, setEditTask] = createSignal<number | null>(null);
+  const [editText, setEditText] = createSignal("");
+  const [editDue, setEditDue] = createSignal("");
+  const beginEdit = (t: Todo) => {
+    setEditTask(t.id);
+    setEditText(t.title);
+    setEditDue(t.due ?? "");
+    setMovingTask(null);
+  };
+  const commitEdit = () => {
+    const id = editTask();
+    if (id == null) return;
+    const title = editText();
+    const due = editDue();
+    setEditTask(null);
+    void todoEdit(id, title, due)
+      .then(refreshTodos)
+      .catch(() => {});
+  };
+
   /** Task id whose "move to…" row is expanded, or null. */
   const [movingTask, setMovingTask] = createSignal<number | null>(null);
   const moveTask = (id: number, to: string) => {
@@ -707,7 +729,36 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                     >
                       {t.done ? "☑" : "☐"}
                     </button>
-                    <span class="cal-task-title">{t.title}</span>
+                    <Show
+                      when={editTask() === t.id}
+                      fallback={
+                        <span class="cal-task-title" title="Click to rename" onClick={() => beginEdit(t)}>
+                          {t.title}
+                        </span>
+                      }
+                    >
+                      {/* Inline rename + due date; Enter or blur saves, Esc abandons. */}
+                      <span class="cal-task-edit">
+                        <input
+                          value={editText()}
+                          autofocus
+                          onInput={(e) => setEditText(e.currentTarget.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitEdit();
+                            else if (e.key === "Escape") setEditTask(null);
+                          }}
+                          onBlur={commitEdit}
+                        />
+                        <input
+                          type="date"
+                          title="Due date"
+                          value={editDue()}
+                          onInput={(e) => setEditDue(e.currentTarget.value)}
+                          onKeyDown={(e) => e.key === "Enter" && commitEdit()}
+                          onBlur={commitEdit}
+                        />
+                      </span>
+                    </Show>
                     <Show when={t.due}>
                       <span class="cal-task-due">{t.due}</span>
                     </Show>

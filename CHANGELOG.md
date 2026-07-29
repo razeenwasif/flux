@@ -8,6 +8,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Edit tasks in the calendar's task column** — click a task's text to rename it inline, with a date
+  field beside it for its due date. Enter or clicking away saves, Escape abandons the change. The two
+  fields are independent, so renaming never clears a due date; a blank title is refused rather than
+  leaving a nameless row you can't click.
 - **Teaching-week counter in the calendar pane** — a **Wk N** chip beside the date, showing which week
   of semester you're looking at (the displayed week in Timetable view, the selected day's week in
   Month view). Week 1 defaults to the week of **27 Jul – 2 Aug 2026** and is editable: click the chip

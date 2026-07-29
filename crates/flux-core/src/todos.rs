@@ -83,6 +83,28 @@ impl TodoStore {
         self.save();
     }
 
+    /// Change a task's text and/or due date. `None` leaves a field alone, so a
+    /// caller can rename without touching the date (and vice versa).
+    pub fn edit(&self, id: u64, title: Option<String>, due: Option<String>) -> bool {
+        let mut items = self.items.write();
+        let Some(t) = items.iter_mut().find(|t| t.id == id) else {
+            return false;
+        };
+        if let Some(v) = title {
+            let v = v.trim();
+            // An empty title would leave an unclickable ghost row; keep the old.
+            if !v.is_empty() {
+                t.title = v.to_string();
+            }
+        }
+        if let Some(v) = due {
+            t.due = v.trim().to_string();
+        }
+        drop(items);
+        self.save();
+        true
+    }
+
     /// Move a task to another list.
     pub fn set_profile(&self, id: u64, profile: String) {
         if let Some(t) = self.items.write().iter_mut().find(|t| t.id == id) {
@@ -130,6 +152,17 @@ pub fn todo_add(
     store.add(title, due.unwrap_or_default(), profile.unwrap_or_default())
 }
 
+/// Rename a task or change its due date (inline edit in the tasks column).
+#[tauri::command]
+pub fn todo_edit(
+    store: State<'_, TodoStore>,
+    id: u64,
+    title: Option<String>,
+    due: Option<String>,
+) -> bool {
+    store.edit(id, title, due)
+}
+
 /// Move a task to another list (drag/right-click in the tasks column).
 #[tauri::command]
 pub fn todo_set_profile(store: State<'_, TodoStore>, id: u64, profile: String) {
@@ -172,6 +205,24 @@ mod tests {
         s.set_profile(b.id, "Personal".into());
         let moved = s.list().into_iter().find(|t| t.id == b.id).unwrap();
         assert_eq!(moved.profile, "Personal");
+        // Editing: fields are independent, and a blank title is refused rather
+        // than leaving a nameless row.
+        assert!(s.edit(b.id, Some("call alice back".into()), None));
+        let e = s.list().into_iter().find(|t| t.id == b.id).unwrap();
+        assert_eq!(e.title, "call alice back");
+        assert_eq!(
+            e.due, "2026-06-20",
+            "due untouched when only the title changes"
+        );
+        s.edit(b.id, None, Some("2026-07-01".into()));
+        s.edit(b.id, Some("   ".into()), None);
+        let e2 = s.list().into_iter().find(|t| t.id == b.id).unwrap();
+        assert_eq!(e2.title, "call alice back", "blank title ignored");
+        assert_eq!(e2.due, "2026-07-01");
+        assert!(
+            !s.edit(9999, Some("ghost".into()), None),
+            "unknown id is a no-op"
+        );
         assert_eq!(s.clear_done(), 1); // the completed "buy milk"
         assert_eq!(s.list().len(), 1);
         s.remove(b.id);

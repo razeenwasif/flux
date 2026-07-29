@@ -1082,6 +1082,9 @@ export const semanticFind = (query: string, tabIds: number[], limit?: number) =>
 export const todosList = () => invoke<Todo[]>("todos_list");
 export const todoAdd = (title: string, due?: string, profile?: string) =>
   invoke<Todo | null>("todo_add", { title, due: due ?? null, profile: profile ?? null });
+/** Rename a task and/or set its due date. Omitted fields are left alone. */
+export const todoEdit = (id: number, title?: string, due?: string) =>
+  invoke<boolean>("todo_edit", { id, title: title ?? null, due: due ?? null });
 /** Move a task to another list ("Uni", "Personal", …). */
 export const todoSetProfile = (id: number, profile: string) =>
   invoke<void>("todo_set_profile", { id, profile });

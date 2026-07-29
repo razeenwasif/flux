@@ -13764,6 +13764,36 @@ input[type="radio"].pdf-fw {
   font-size: 12px;
   color: var(--flux-text);
   overflow-wrap: anywhere;
+  cursor: text;
+}
+.cal-task-title:hover {
+  text-decoration: underline dotted rgba(150, 160, 220, 0.5);
+}
+/* Inline rename: the text field takes the row, the date sits beside it. */
+.cal-task-edit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+}
+.cal-task-edit input {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.7);
+  border: 1px solid rgba(123, 97, 255, 0.5);
+  border-radius: 5px;
+  padding: 2px 5px;
+  outline: none;
+}
+.cal-task-edit input[type="text"],
+.cal-task-edit input:not([type]) {
+  flex: 1;
+}
+.cal-task-edit input[type="date"] {
+  flex: none;
+  width: 108px;
+  color-scheme: dark;
 }
 .cal-task-due {
   flex: none;
