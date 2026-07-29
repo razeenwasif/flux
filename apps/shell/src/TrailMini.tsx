@@ -17,9 +17,16 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Comp
 import { TRAIL_URL, traceGraph, type Visit } from "./ipc";
 import { activeWorkspace, activeWorkspaceName, openTab } from "./store";
 
-/** Layout the visits as a frozen dot-map: newest at the bottom-right, oldest at
- *  the top-left, jittered by a hash of the URL so it reads as a scatter rather
- *  than a line. Deterministic, so it doesn't reshuffle on every render. */
+/** The preview's coordinate space, matching the rendered box so circles stay
+ *  circular rather than being stretched into ovals. */
+const VB_W = 218;
+const VB_H = 388;
+const PAD = 16;
+
+/** Layout the visits as a frozen dot-map. The box is tall and narrow, so time
+ *  runs vertically — newest at the bottom, oldest at the top — with horizontal
+ *  scatter from a hash of the URL. Deterministic, so it doesn't reshuffle on
+ *  every render. */
 const hash = (s: string): number => {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -64,16 +71,17 @@ const TrailMini: Component = () => {
       .slice(0, 40);
   });
 
-  /** Dots for the frozen preview — capped, because past ~60 it's just noise. */
+  /** Dots for the frozen preview — capped, because past this it's just noise. */
   const dots = createMemo(() =>
     visits()
-      .slice(0, 60)
+      .slice(0, 140)
       .map((v, i, arr) => {
         const t = arr.length > 1 ? i / (arr.length - 1) : 0; // 0 = newest
+        const jitter = (hash(v.url) - 0.5) * (VB_W - PAD * 2 - 12);
         return {
-          // Newest bottom-right → oldest top-left, plus deterministic jitter.
-          x: 12 + (1 - t) * 70 + (hash(v.url) - 0.5) * 22,
-          y: 12 + (1 - t) * 58 + (hash(v.title || v.url) - 0.5) * 20,
+          x: VB_W / 2 + jitter,
+          // Time runs down the box: newest at the bottom.
+          y: PAD + (1 - t) * (VB_H - PAD * 2),
           hot: v.snapshot_id != null,
         };
       }),
@@ -119,9 +127,11 @@ const TrailMini: Component = () => {
           title="Click to search this workspace's browsing"
           onClick={() => setOpen(true)}
         >
-          <svg viewBox="0 0 104 82" preserveAspectRatio="none">
+          {/* `slice` (not `none`): the box's real aspect shifts when the sidebar
+              is resized, and stretching would turn the dots into ovals. */}
+          <svg viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="xMidYMid slice">
             <For each={dots()}>
-              {(d) => <circle cx={d.x} cy={d.y} r={d.hot ? 2.6 : 1.8} classList={{ hot: d.hot }} />}
+              {(d) => <circle cx={d.x} cy={d.y} r={d.hot ? 4 : 2.8} classList={{ hot: d.hot }} />}
             </For>
           </svg>
           <Show when={loaded() && visits().length === 0}>

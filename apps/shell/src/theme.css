@@ -13830,7 +13830,7 @@ input[type="radio"].pdf-fw {
   position: relative;
   display: block;
   width: 100%;
-  height: 64px;
+  height: 388px;
   padding: 0;
   border: none;
   border-radius: 8px;
@@ -13879,7 +13879,7 @@ input[type="radio"].pdf-fw {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: 208px;
+  max-height: 348px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
