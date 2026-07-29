@@ -276,6 +276,24 @@ async function refreshPanels(): Promise<void> {
 // by the footer 📅 or the ⌘K palette. Store-backed so both can drive it.
 const [calendarPopOpen, setCalendarPopOpen] = createSignal(false);
 export { calendarPopOpen, setCalendarPopOpen };
+/**
+ * Where the calendar pane appears: a centred **overlay** (which necessarily
+ * hides the page — DOM can only cover a native webview by removing it), or
+ * **docked** in the web-panel column, which is an ordinary layout column and so
+ * sits *beside* the page instead of over it. Persisted.
+ */
+const [calendarDock, setCalendarDockSig] = createSignal<"overlay" | "panel">(
+  localStorage.getItem("flux.cal.dock") === "panel" ? "panel" : "overlay",
+);
+export { calendarDock };
+export function setCalendarDock(v: "overlay" | "panel"): void {
+  setCalendarDockSig(v);
+  localStorage.setItem("flux.cal.dock", v);
+}
+/** True only while the calendar is showing as a page-covering overlay. */
+export const calendarOverlayOpen = (): boolean => calendarPopOpen() && calendarDock() === "overlay";
+/** True only while it's docked in the panel column. */
+export const calendarDocked = (): boolean => calendarPopOpen() && calendarDock() === "panel";
 /** Which view the calendar pane opens in: the month+agenda editor, or the
  *  week hour-grid used as a timetable. Persisted, so the pane reopens in
  *  whichever you last used. */
@@ -924,7 +942,7 @@ export { savePrompt, setSavePrompt };
 // buried expanded home widgets — don't re-grow per-effect boolean chains.
 export const pageOverlayActive = (): boolean =>
   readerOpen() ||
-  calendarPopOpen() ||
+  calendarOverlayOpen() ||
   filesPanelOpen() ||
   mapPanelOpen() ||
   kbPanelOpen() ||

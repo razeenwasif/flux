@@ -1,10 +1,11 @@
 // Web-panel column (#48), extracted from App.tsx. A slim right-side pane holding
 // one or two pinned-site native webviews; this DOM is just the toolbars +
 // placeholders the OS webviews are positioned over, plus the drag handles.
-import { type Component, Show } from "solid-js";
+import { type Component, Show, lazy } from "solid-js";
 import { panelNavigate, type WebPanel } from "./ipc";
 import {
   activePanel,
+  calendarDocked,
   activePanelB,
   closePanel,
   closePanelB,
@@ -14,6 +15,8 @@ import {
   setPanelSplitRatio,
   setPanelWidth,
 } from "./store";
+
+const CalendarPop = lazy(() => import("./CalendarPop"));
 
 const WebPanelPane: Component = () => {
   const both = () => activePanel() != null && activePanelB() != null;
@@ -80,6 +83,12 @@ const WebPanelPane: Component = () => {
           boundary regardless of which other columns are open, and it sits in the
           reserved gutter the native webview is inset from, so it's grabbable. */}
       <div class="panel-edge-resize" title="Drag to resize the panel" onPointerDown={startWidthDrag} />
+      {/* Docked calendar: plain DOM in this column. The native panel webviews
+          are positioned from their placeholders' rects each layout pass, so
+          they simply shrink and reposition around it rather than conflicting. */}
+      <Show when={calendarDocked()}>
+        <CalendarPop docked />
+      </Show>
       <Show when={activePanel()}>
         {(p) =>
           slot(

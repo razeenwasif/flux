@@ -154,6 +154,7 @@ import {
   kbPanelOpen,
   setKbPanelOpen,
   shellHistOpen,
+  calendarDocked,
   setCalendarPopOpen,
   openMessagingPanel,
   setShellHistOpen,
@@ -1416,7 +1417,9 @@ const App: Component = () => {
     const want = {
       sidebar: sidebarOpen(),
       agent: agentOpen(),
-      panel: activePanel() != null || activePanelB() != null,
+      // A docked calendar lives in this column too, so it must keep the
+      // column allocated even with no native panel open.
+      panel: activePanel() != null || activePanelB() != null || calendarDocked(),
       // Keep the dev terminal column up even on a terminal *tab* — the column is
       // the persistent shell; a launched TUI app tab lives alongside it.
       terminal: terminalOpen(),

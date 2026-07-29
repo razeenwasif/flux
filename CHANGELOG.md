@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Dock the calendar in the side panel instead of floating it** — a ⇥ button in the calendar pane's
+  header moves it into the web-panel column, and ⤢ floats it again (persisted). This isn't cosmetic:
+  the floating pane is an overlay, and DOM can only cover a native webview by *hiding the page*, so
+  the calendar has always blanked whatever you were reading. The panel column is an ordinary layout
+  column, so a docked calendar sits **beside** the page — you can watch a lecture and keep your
+  timetable and tasks open next to it. It coexists with pinned panels (Discord/Teams) rather than
+  evicting them: those webviews are positioned from their placeholders' rects each layout pass, so
+  they simply shrink and reposition around it. At panel width the three columns stack and the pane
+  scrolls.
 - **Move a task between profiles** — each task gains a ⇄ button that expands an inline "Move to" row
   of the other lists; pick one and the task moves. Expanded inline rather than as a floating menu
   because the task list scrolls (which clips an absolutely-positioned popover) and a `position: fixed`

@@ -13644,3 +13644,59 @@ input[type="radio"].pdf-fw {
   font-size: 10px;
   color: var(--flux-teal, #2ff3ff);
 }
+
+/* ─── Calendar pane, docked in the web-panel column ──────────────────────── */
+/* The column is 280–640px, so the three columns stack and the whole pane
+   scrolls. Not a Portal and not fixed: it's ordinary DOM in a layout column,
+   which is exactly why the page stays visible behind it. */
+.cal-pane.docked {
+  position: static;
+  transform: none;
+  width: auto;
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 4px 10px 12px;
+  border-radius: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.cal-pane.docked .cal-pane-cols {
+  flex-direction: column;
+  gap: 10px;
+}
+.cal-pane.docked .cal-pane-body {
+  flex-direction: column;
+  gap: 10px;
+}
+/* Stacked: each section sizes to content instead of splitting a row. */
+.cal-pane.docked .cal-pane-grid {
+  flex: none;
+  height: auto;
+  grid-auto-rows: minmax(0, 34px);
+}
+.cal-pane.docked .cal-pane-day {
+  border-left: none;
+  border-top: 1px solid var(--flux-border);
+  padding-left: 0;
+  padding-top: 10px;
+}
+.cal-pane.docked .cal-tasks {
+  flex: none;
+  border-left: none;
+  border-top: 1px solid var(--flux-border);
+  padding-left: 0;
+  padding-top: 10px;
+}
+.cal-pane.docked .cal-tasks-list,
+.cal-pane.docked .cal-pane-list {
+  overflow: visible;
+}
+/* The timetable is cramped at panel width; keep it scrollable rather than
+   squeezing seven days into nothing. */
+.cal-pane.docked .tt-week {
+  min-height: 320px;
+}
+.cal-pane.docked .cal-pop-head {
+  flex-wrap: wrap;
+}

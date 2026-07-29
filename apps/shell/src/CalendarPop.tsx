@@ -9,7 +9,7 @@
  * `pageOverlayActive`, which hides the native webviews while open (they're an
  * OS layer above all chrome HTML — the only way an overlay can cover a page).
  */
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import {
@@ -27,7 +27,7 @@ import {
   type CalEvent,
   type CalEventFields,
 } from "./ipc";
-import { calendarPopView, openTab, setCalendarPopOpen, setCalendarPopView } from "./store";
+import { calendarPopView, openTab, setCalendarDock, setCalendarPopOpen, setCalendarPopView } from "./store";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const dateStrOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -55,7 +55,7 @@ const REPEATS: { v: string; label: string }[] = [
   { v: "FREQ=YEARLY", label: "Yearly" },
 ];
 
-const CalendarPop: Component = () => {
+const CalendarPop: Component<{ docked?: boolean }> = (props) => {
   const [events, setEvents] = createSignal<CalEvent[]>([]);
   const [loading, setLoading] = createSignal(true);
   const todayStr = dateStrOf(new Date());
@@ -368,337 +368,347 @@ const CalendarPop: Component = () => {
     void openTab("browser", START_URL);
   };
 
+  /** Overlay vs docked differ only in the wrapper: docked renders as ordinary
+   *  DOM inside the web-panel column (a layout column, so the page underneath
+   *  stays visible), while the overlay portals over the card with a backdrop. */
+  const Frame: Component<{ children?: JSX.Element }> = (f) =>
+    props.docked ? (
+      <div class="cal-pane docked">{f.children}</div>
+    ) : (
+      <Portal>
+        <div class="cal-pane-backdrop" onClick={() => setCalendarPopOpen(false)} />
+        <div class="glass cal-pane">{f.children}</div>
+      </Portal>
+    );
+
   return (
-    <Portal>
-      <div class="cal-pane-backdrop" onClick={() => setCalendarPopOpen(false)} />
-      <div class="glass cal-pane">
-        <div class="cal-pop-head">
-          <button class="cal-pop-nav" onClick={() => (view() === "week" ? shiftWeek(-1) : shiftMonth(-1))}>
-            ‹
-          </button>
-          <span class="cal-pop-month">{view() === "week" ? weekLabel() : monthLabel()}</span>
-          <button class="cal-pop-nav" onClick={() => (view() === "week" ? shiftWeek(1) : shiftMonth(1))}>
-            ›
+    <Frame>
+      <div class="cal-pop-head">
+        <button class="cal-pop-nav" onClick={() => (view() === "week" ? shiftWeek(-1) : shiftMonth(-1))}>
+          ‹
+        </button>
+        <span class="cal-pop-month">{view() === "week" ? weekLabel() : monthLabel()}</span>
+        <button class="cal-pop-nav" onClick={() => (view() === "week" ? shiftWeek(1) : shiftMonth(1))}>
+          ›
+        </button>
+        <button
+          class="cal-pop-nav"
+          title="Jump to today"
+          onClick={() => {
+            setWeekStart(mondayOf(new Date()));
+            goToday();
+          }}
+        >
+          Today
+        </button>
+        {/* Month = plan/edit; Week = read your timetable. */}
+        <div class="cal-viewtoggle">
+          <button
+            classList={{ on: view() === "month" }}
+            title="Month + day agenda (add & edit events)"
+            onClick={() => setViewPersist("month")}
+          >
+            Month
           </button>
           <button
-            class="cal-pop-nav"
-            title="Jump to today"
-            onClick={() => {
-              setWeekStart(mondayOf(new Date()));
-              goToday();
-            }}
+            classList={{ on: view() === "week" }}
+            title="Week grid — your timetable"
+            onClick={() => setViewPersist("week")}
           >
-            Today
-          </button>
-          {/* Month = plan/edit; Week = read your timetable. */}
-          <div class="cal-viewtoggle">
-            <button
-              classList={{ on: view() === "month" }}
-              title="Month + day agenda (add & edit events)"
-              onClick={() => setViewPersist("month")}
-            >
-              Month
-            </button>
-            <button
-              classList={{ on: view() === "week" }}
-              title="Week grid — your timetable"
-              onClick={() => setViewPersist("week")}
-            >
-              Timetable
-            </button>
-          </div>
-          <Show when={view() === "week" && calendars().length > 1}>
-            <select
-              class="cal-filter"
-              title="Show only one calendar — pick your uni timetable"
-              value={calFilter()}
-              onChange={(e) => pickFilter(e.currentTarget.value)}
-            >
-              <option value="">All calendars</option>
-              <For each={calendars()}>{(c) => <option value={c}>{c}</option>}</For>
-            </select>
-          </Show>
-          <span style={{ flex: 1 }} />
-          <button class="cal-pop-full" title="Open the full calendar (home)" onClick={openFull}>
-            ↗ Full calendar
-          </button>
-          <button class="cal-pop-nav" title="Close (Esc)" onClick={() => setCalendarPopOpen(false)}>
-            ✕
+            Timetable
           </button>
         </div>
-        <div class="cal-pane-cols">
-          <Show when={view() === "week"}>
-            <div class="tt-week">
-              <div class="tt-head">
-                <span class="tt-gutter" />
+        <Show when={view() === "week" && calendars().length > 1}>
+          <select
+            class="cal-filter"
+            title="Show only one calendar — pick your uni timetable"
+            value={calFilter()}
+            onChange={(e) => pickFilter(e.currentTarget.value)}
+          >
+            <option value="">All calendars</option>
+            <For each={calendars()}>{(c) => <option value={c}>{c}</option>}</For>
+          </select>
+        </Show>
+        <span style={{ flex: 1 }} />
+        <button class="cal-pop-full" title="Open the full calendar (home)" onClick={openFull}>
+          ↗ Full calendar
+        </button>
+        <button class="cal-pop-nav" title="Close (Esc)" onClick={() => setCalendarPopOpen(false)}>
+          ✕
+        </button>
+      </div>
+      <div class="cal-pane-cols">
+        <Show when={view() === "week"}>
+          <div class="tt-week">
+            <div class="tt-head">
+              <span class="tt-gutter" />
+              <For each={weekDays()}>
+                {(d) => (
+                  <span classList={{ "tt-dow": true, today: dateStrOf(d) === todayStr }}>
+                    {d.toLocaleDateString([], { weekday: "short" })} {d.getDate()}
+                  </span>
+                )}
+              </For>
+            </div>
+            {/* All-day / untimed rows sit above the grid, as in any calendar. */}
+            <Show when={allDayEvents().length > 0}>
+              <div class="tt-allday">
+                <span class="tt-gutter">all day</span>
                 <For each={weekDays()}>
                   {(d) => (
-                    <span classList={{ "tt-dow": true, today: dateStrOf(d) === todayStr }}>
-                      {d.toLocaleDateString([], { weekday: "short" })} {d.getDate()}
+                    <span class="tt-allday-col">
+                      <For each={allDayEvents().filter((e) => e.date === dateStrOf(d))}>
+                        {(e) => <span class="tt-chip">{e.summary}</span>}
+                      </For>
                     </span>
                   )}
                 </For>
               </div>
-              {/* All-day / untimed rows sit above the grid, as in any calendar. */}
-              <Show when={allDayEvents().length > 0}>
-                <div class="tt-allday">
-                  <span class="tt-gutter">all day</span>
-                  <For each={weekDays()}>
-                    {(d) => (
-                      <span class="tt-allday-col">
-                        <For each={allDayEvents().filter((e) => e.date === dateStrOf(d))}>
-                          {(e) => <span class="tt-chip">{e.summary}</span>}
-                        </For>
-                      </span>
-                    )}
-                  </For>
+            </Show>
+            <div class="tt-scroll" ref={measureScroll}>
+              <div class="tt-body" style={{ "--hour-h": `${hourH()}px` }}>
+                <div class="tt-hours">
+                  <For each={hours()}>{(h) => <span class="tt-hour">{pad2(h)}:00</span>}</For>
                 </div>
-              </Show>
-              <div class="tt-scroll" ref={measureScroll}>
-                <div class="tt-body" style={{ "--hour-h": `${hourH()}px` }}>
-                  <div class="tt-hours">
-                    <For each={hours()}>{(h) => <span class="tt-hour">{pad2(h)}:00</span>}</For>
-                  </div>
-                  <For each={weekDays()}>
-                    {(d) => (
-                      <div classList={{ "tt-col": true, today: dateStrOf(d) === todayStr }}>
-                        <For each={hours()}>{() => <div class="tt-slot" />}</For>
-                        {/* Now-line, only on today's column. */}
-                        <Show
-                          when={
-                            dateStrOf(d) === todayStr &&
-                            nowMins() >= hourRange()[0] * 60 &&
-                            nowMins() <= hourRange()[1] * 60
-                          }
-                        >
-                          <div
-                            class="tt-now"
-                            style={{ top: `${((nowMins() - hourRange()[0] * 60) / 60) * hourH()}px` }}
-                          />
-                        </Show>
-                        <For each={weekEvents().filter((e) => e.date === dateStrOf(d))}>
-                          {(e) => {
-                            const top = () => ((minsOf(e.time) - hourRange()[0] * 60) / 60) * hourH();
-                            const height = () => {
-                              const mins = e.end ? minsOf(e.end) - minsOf(e.time) : 60;
-                              return Math.max((mins / 60) * hourH() - 2, 18);
-                            };
-                            return (
-                              <button
-                                class="tt-ev"
-                                classList={{ ro: !e.editable }}
-                                style={{ top: `${top()}px`, height: `${height()}px` }}
-                                title={`${e.summary}\n${e.time}${e.end ? `–${e.end}` : ""}${
-                                  e.location ? `\n📍 ${e.location}` : ""
-                                }\n${e.calendar}`}
-                                onClick={() => {
-                                  // Jump to the month view's agenda for this day,
-                                  // which is where editing lives.
-                                  setSelected(e.date);
-                                  setViewPersist("month");
-                                }}
-                              >
-                                <span class="tt-ev-t">{e.summary}</span>
-                                <Show when={height() > 34}>
-                                  <span class="tt-ev-m">
-                                    {e.time}
-                                    {e.location ? ` · ${e.location}` : ""}
-                                  </span>
-                                </Show>
-                              </button>
-                            );
-                          }}
-                        </For>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </div>
-              <Show when={!loading() && weekEvents().length === 0 && allDayEvents().length === 0}>
-                <div class="cal-pop-empty">
-                  Nothing this week{calFilter() ? ` in “${calFilter()}”` : ""}. Subscribe to your uni's .ics
-                  timetable from the home calendar's ＋ Calendar.
-                </div>
-              </Show>
-            </div>
-          </Show>
-          <div class="cal-pane-body" classList={{ hidden: view() === "week" }}>
-            <div class="cal-pop-grid cal-pane-grid">
-              <For each={["M", "T", "W", "T", "F", "S", "S"]}>
-                {(d) => <span class="cal-pop-dow">{d}</span>}
-              </For>
-              <For each={cells()}>
-                {(day) => (
-                  <Show when={day !== null} fallback={<span />}>
-                    <button
-                      classList={{
-                        "cal-pop-day": true,
-                        today: dateOf(day!) === todayStr,
-                        sel: selected() === dateOf(day!),
-                        has: eventDays().has(day!),
-                      }}
-                      onClick={() => {
-                        setSelected(dateOf(day!));
-                        setEditing(null);
-                      }}
-                    >
-                      {day}
-                    </button>
-                  </Show>
-                )}
-              </For>
-            </div>
-            <div class="cal-pane-day">
-              <div class="cal-pane-day-head">
-                <span class="cal-pane-day-title">{dayTitle()}</span>
-                <button class="cal-pop-nav" title="Add an event on this day" onClick={startAdd}>
-                  ＋ Add
-                </button>
-              </div>
-              <div class="cal-pop-list cal-pane-list">
-                <Show
-                  when={dayEvents().length > 0 || editing() === 0}
-                  fallback={
-                    <div class="cal-pop-empty">
-                      {loading() ? "Loading events…" : "Nothing on this day — ＋ Add one, or ask Gemma."}
-                    </div>
-                  }
-                >
-                  <For each={dayEvents()}>
-                    {(e) => (
-                      <Show when={editing() !== e.id} fallback={<EventForm />}>
-                        <div class="cal-pop-ev cal-pane-ev" title={e.notes || undefined}>
-                          <span class="cal-pop-ev-when">
-                            {e.time ? `${e.time}${e.end ? ` – ${e.end}` : ""}` : "all day"}
-                            {e.rrule ? " · 🔁" : ""}
-                            {!e.editable ? ` · 🔒 ${e.calendar}` : ""}
-                          </span>
-                          <span class="cal-pop-ev-sum">{e.summary}</span>
-                          <Show when={e.location}>
-                            <span class="cal-pane-ev-loc">📍 {e.location}</span>
-                          </Show>
-                          <Show when={e.editable}>
-                            <div class="cal-pane-ev-actions">
-                              <button class="cal-pane-ev-btn" onClick={() => startEdit(e)}>
-                                ✎ Edit
-                              </button>
-                              <button class="cal-pane-ev-btn danger" onClick={() => void remove(e)}>
-                                ✕ Delete
-                              </button>
-                            </div>
-                          </Show>
-                        </div>
+                <For each={weekDays()}>
+                  {(d) => (
+                    <div classList={{ "tt-col": true, today: dateStrOf(d) === todayStr }}>
+                      <For each={hours()}>{() => <div class="tt-slot" />}</For>
+                      {/* Now-line, only on today's column. */}
+                      <Show
+                        when={
+                          dateStrOf(d) === todayStr &&
+                          nowMins() >= hourRange()[0] * 60 &&
+                          nowMins() <= hourRange()[1] * 60
+                        }
+                      >
+                        <div
+                          class="tt-now"
+                          style={{ top: `${((nowMins() - hourRange()[0] * 60) / 60) * hourH()}px` }}
+                        />
                       </Show>
-                    )}
-                  </For>
-                  <Show when={editing() === 0}>
-                    <EventForm />
-                  </Show>
-                </Show>
+                      <For each={weekEvents().filter((e) => e.date === dateStrOf(d))}>
+                        {(e) => {
+                          const top = () => ((minsOf(e.time) - hourRange()[0] * 60) / 60) * hourH();
+                          const height = () => {
+                            const mins = e.end ? minsOf(e.end) - minsOf(e.time) : 60;
+                            return Math.max((mins / 60) * hourH() - 2, 18);
+                          };
+                          return (
+                            <button
+                              class="tt-ev"
+                              classList={{ ro: !e.editable }}
+                              style={{ top: `${top()}px`, height: `${height()}px` }}
+                              title={`${e.summary}\n${e.time}${e.end ? `–${e.end}` : ""}${
+                                e.location ? `\n📍 ${e.location}` : ""
+                              }\n${e.calendar}`}
+                              onClick={() => {
+                                // Jump to the month view's agenda for this day,
+                                // which is where editing lives.
+                                setSelected(e.date);
+                                setViewPersist("month");
+                              }}
+                            >
+                              <span class="tt-ev-t">{e.summary}</span>
+                              <Show when={height() > 34}>
+                                <span class="tt-ev-m">
+                                  {e.time}
+                                  {e.location ? ` · ${e.location}` : ""}
+                                </span>
+                              </Show>
+                            </button>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  )}
+                </For>
               </div>
+            </div>
+            <Show when={!loading() && weekEvents().length === 0 && allDayEvents().length === 0}>
+              <div class="cal-pop-empty">
+                Nothing this week{calFilter() ? ` in “${calFilter()}”` : ""}. Subscribe to your uni's .ics
+                timetable from the home calendar's ＋ Calendar.
+              </div>
+            </Show>
+          </div>
+        </Show>
+        <div class="cal-pane-body" classList={{ hidden: view() === "week" }}>
+          <div class="cal-pop-grid cal-pane-grid">
+            <For each={["M", "T", "W", "T", "F", "S", "S"]}>
+              {(d) => <span class="cal-pop-dow">{d}</span>}
+            </For>
+            <For each={cells()}>
+              {(day) => (
+                <Show when={day !== null} fallback={<span />}>
+                  <button
+                    classList={{
+                      "cal-pop-day": true,
+                      today: dateOf(day!) === todayStr,
+                      sel: selected() === dateOf(day!),
+                      has: eventDays().has(day!),
+                    }}
+                    onClick={() => {
+                      setSelected(dateOf(day!));
+                      setEditing(null);
+                    }}
+                  >
+                    {day}
+                  </button>
+                </Show>
+              )}
+            </For>
+          </div>
+          <div class="cal-pane-day">
+            <div class="cal-pane-day-head">
+              <span class="cal-pane-day-title">{dayTitle()}</span>
+              <button class="cal-pop-nav" title="Add an event on this day" onClick={startAdd}>
+                ＋ Add
+              </button>
+            </div>
+            <div class="cal-pop-list cal-pane-list">
+              <Show
+                when={dayEvents().length > 0 || editing() === 0}
+                fallback={
+                  <div class="cal-pop-empty">
+                    {loading() ? "Loading events…" : "Nothing on this day — ＋ Add one, or ask Gemma."}
+                  </div>
+                }
+              >
+                <For each={dayEvents()}>
+                  {(e) => (
+                    <Show when={editing() !== e.id} fallback={<EventForm />}>
+                      <div class="cal-pop-ev cal-pane-ev" title={e.notes || undefined}>
+                        <span class="cal-pop-ev-when">
+                          {e.time ? `${e.time}${e.end ? ` – ${e.end}` : ""}` : "all day"}
+                          {e.rrule ? " · 🔁" : ""}
+                          {!e.editable ? ` · 🔒 ${e.calendar}` : ""}
+                        </span>
+                        <span class="cal-pop-ev-sum">{e.summary}</span>
+                        <Show when={e.location}>
+                          <span class="cal-pane-ev-loc">📍 {e.location}</span>
+                        </Show>
+                        <Show when={e.editable}>
+                          <div class="cal-pane-ev-actions">
+                            <button class="cal-pane-ev-btn" onClick={() => startEdit(e)}>
+                              ✎ Edit
+                            </button>
+                            <button class="cal-pane-ev-btn danger" onClick={() => void remove(e)}>
+                              ✕ Delete
+                            </button>
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
+                  )}
+                </For>
+                <Show when={editing() === 0}>
+                  <EventForm />
+                </Show>
+              </Show>
             </div>
           </div>
-          {/* Tasks: one store, viewed per profile. Sits beside both the month and
+        </div>
+        {/* Tasks: one store, viewed per profile. Sits beside both the month and
             timetable views, so a course to-do list is always a glance away. */}
-          <aside class="cal-tasks">
-            <div class="cal-tasks-head">
-              <For each={profiles()}>
-                {(p) => (
-                  <button
-                    classList={{ "cal-tasks-tab": true, on: profile() === p }}
-                    title={`Show the “${p}” list`}
-                    onClick={() => setProfile(p)}
-                  >
-                    {p}
-                  </button>
-                )}
-              </For>
-              <button class="cal-tasks-tab add" title="New task list" onClick={addProfile}>
-                ＋
-              </button>
-              <Show when={profiles().length > 1}>
+        <aside class="cal-tasks">
+          <div class="cal-tasks-head">
+            <For each={profiles()}>
+              {(p) => (
                 <button
-                  class="cal-tasks-tab add"
-                  title={`Remove the “${profile()}” list`}
-                  onClick={removeProfile}
+                  classList={{ "cal-tasks-tab": true, on: profile() === p }}
+                  title={`Show the “${p}” list`}
+                  onClick={() => setProfile(p)}
                 >
-                  ✕
+                  {p}
                 </button>
-              </Show>
-            </div>
-            <form
-              class="cal-tasks-add"
-              onSubmit={(e) => {
-                e.preventDefault();
-                addTask();
-              }}
-            >
-              <input
-                value={newTask()}
-                onInput={(e) => setNewTask(e.currentTarget.value)}
-                placeholder={`Add to ${profile()}…`}
-              />
-            </form>
-            <div class="cal-tasks-list">
-              <For
-                each={profileTodos()}
-                fallback={<div class="cal-pop-empty">Nothing in {profile()} yet.</div>}
+              )}
+            </For>
+            <button class="cal-tasks-tab add" title="New task list" onClick={addProfile}>
+              ＋
+            </button>
+            <Show when={profiles().length > 1}>
+              <button
+                class="cal-tasks-tab add"
+                title={`Remove the “${profile()}” list`}
+                onClick={removeProfile}
               >
-                {(t) => (
-                  <div classList={{ "cal-task": true, done: t.done }}>
-                    <div class="cal-task-row">
-                      <button
-                        class="cal-task-box"
-                        title={t.done ? "Mark as not done" : "Mark as done"}
-                        onClick={() => void todoToggle(t.id).then(refreshTodos)}
-                      >
-                        {t.done ? "☑" : "☐"}
-                      </button>
-                      <span class="cal-task-title">{t.title}</span>
-                      <Show when={t.due}>
-                        <span class="cal-task-due">{t.due}</span>
-                      </Show>
-                      <Show when={profiles().length > 1}>
-                        <button
-                          class="cal-task-del"
-                          title="Move to another list"
-                          onClick={() => setMovingTask(movingTask() === t.id ? null : t.id)}
-                        >
-                          ⇄
-                        </button>
-                      </Show>
+                ✕
+              </button>
+            </Show>
+          </div>
+          <form
+            class="cal-tasks-add"
+            onSubmit={(e) => {
+              e.preventDefault();
+              addTask();
+            }}
+          >
+            <input
+              value={newTask()}
+              onInput={(e) => setNewTask(e.currentTarget.value)}
+              placeholder={`Add to ${profile()}…`}
+            />
+          </form>
+          <div class="cal-tasks-list">
+            <For
+              each={profileTodos()}
+              fallback={<div class="cal-pop-empty">Nothing in {profile()} yet.</div>}
+            >
+              {(t) => (
+                <div classList={{ "cal-task": true, done: t.done }}>
+                  <div class="cal-task-row">
+                    <button
+                      class="cal-task-box"
+                      title={t.done ? "Mark as not done" : "Mark as done"}
+                      onClick={() => void todoToggle(t.id).then(refreshTodos)}
+                    >
+                      {t.done ? "☑" : "☐"}
+                    </button>
+                    <span class="cal-task-title">{t.title}</span>
+                    <Show when={t.due}>
+                      <span class="cal-task-due">{t.due}</span>
+                    </Show>
+                    <Show when={profiles().length > 1}>
                       <button
                         class="cal-task-del"
-                        title="Delete task"
-                        onClick={() => void todoRemove(t.id).then(refreshTodos)}
+                        title="Move to another list"
+                        onClick={() => setMovingTask(movingTask() === t.id ? null : t.id)}
                       >
-                        ✕
+                        ⇄
                       </button>
-                    </div>
-                    {/* Expanded inline rather than a floating menu: the list
+                    </Show>
+                    <button
+                      class="cal-task-del"
+                      title="Delete task"
+                      onClick={() => void todoRemove(t.id).then(refreshTodos)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {/* Expanded inline rather than a floating menu: the list
                         scrolls (clipping an absolutely-positioned popover) and a
                         fixed one would be clipped by the glass card's
                         backdrop-filter. */}
-                    <Show when={movingTask() === t.id}>
-                      <div class="cal-task-move">
-                        <span class="cal-task-move-lbl">Move to</span>
-                        <For each={profiles().filter((p) => p !== (t.profile || profiles()[0]))}>
-                          {(p) => (
-                            <button class="cal-tasks-tab" onClick={() => moveTask(t.id, p)}>
-                              {p}
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </div>
-                )}
-              </For>
-            </div>
-          </aside>
-        </div>
+                  <Show when={movingTask() === t.id}>
+                    <div class="cal-task-move">
+                      <span class="cal-task-move-lbl">Move to</span>
+                      <For each={profiles().filter((p) => p !== (t.profile || profiles()[0]))}>
+                        {(p) => (
+                          <button class="cal-tasks-tab" onClick={() => moveTask(t.id, p)}>
+                            {p}
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        </aside>
       </div>
-    </Portal>
+    </Frame>
   );
 
   /** The inline add/edit form (shared; reads/writes the f* signals). */

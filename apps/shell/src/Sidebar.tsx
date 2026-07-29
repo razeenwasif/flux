@@ -43,6 +43,7 @@ import {
   archivedTabs,
   archivedBranches,
   calendarPopOpen,
+  calendarOverlayOpen,
   setCalendarPopOpen,
   restoreBranch,
   removeBranch,
@@ -1809,7 +1810,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <span class="cal-soon-dot" title="An event starts within 30 minutes" />
           </Show>
         </button>
-        <Show when={calendarPopOpen()}>
+        {/* Overlay mode only — the docked pane renders inside the web-panel
+            column (WebPanelPane) so it sits beside the page, not over it. */}
+        <Show when={calendarOverlayOpen()}>
           <CalendarPop />
         </Show>
         <Shields onNavigate={props.onNavigate} />
