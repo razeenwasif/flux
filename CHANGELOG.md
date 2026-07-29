@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Teaching-week counter in the calendar pane** — a **Wk N** chip beside the date, showing which week
+  of semester you're looking at (the displayed week in Timetable view, the selected day's week in
+  Month view). Week 1 defaults to the week of **27 Jul – 2 Aug 2026** and is editable: click the chip
+  and give any date in your Week 1. It counts whole weeks between Mondays, so it can't drift across a
+  daylight-saving boundary, and weeks before the anchor read 0, −1, … rather than breaking.
 - **Bulleted lists and a maths symbol palette in Scribe** —
   - **• List** toggles a text block to a bulleted list: a marker on each paragraph's first line, with
     wrapped continuations hanging under the *text* rather than under the bullet, the way a document

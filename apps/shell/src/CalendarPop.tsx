@@ -43,6 +43,11 @@ const mondayOf = (d: Date) => {
   out.setDate(out.getDate() - ((out.getDay() + 6) % 7));
   return out;
 };
+/** Monday of the week the user calls "Week 1" — the teaching-week counter's
+ *  origin. Editable; defaults to the semester start it was built for. */
+const DEFAULT_WEEK1 = "2026-07-27";
+const DAY_MS = 86_400_000;
+
 /** Smallest hour row we'll shrink to before the week grid starts scrolling. */
 const MIN_HOUR_H = 34;
 
@@ -84,6 +89,25 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     setCalFilter(v);
     localStorage.setItem("flux.cal.filter", v);
   };
+  // ── Teaching-week counter ──
+  const [week1, setWeek1] = createSignal(localStorage.getItem("flux.cal.week1") || DEFAULT_WEEK1);
+  /** Which teaching week `d` falls in. Counts whole weeks between Mondays, so it
+   *  can't drift on a DST change the way an hours-based difference would. */
+  const weekNo = (d: Date): number => {
+    const a = mondayOf(new Date(`${week1()}T00:00`));
+    const b = mondayOf(d);
+    return Math.round((b.getTime() - a.getTime()) / (7 * DAY_MS)) + 1;
+  };
+  const setWeek1From = () => {
+    const v = window.prompt("Which date is in Week 1? (YYYY-MM-DD — its Monday starts the count)", week1());
+    if (!v) return;
+    const d = new Date(`${v.trim()}T00:00`);
+    if (Number.isNaN(d.getTime())) return;
+    const iso = dateStrOf(mondayOf(d));
+    setWeek1(iso);
+    localStorage.setItem("flux.cal.week1", iso);
+  };
+
   /** Monday of the displayed week. */
   const [weekStart, setWeekStart] = createSignal(mondayOf(new Date()));
   const shiftWeek = (n: number) => {
