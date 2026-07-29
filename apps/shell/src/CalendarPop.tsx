@@ -412,6 +412,13 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
           ‹
         </button>
         <span class="cal-pop-month">{view() === "week" ? weekLabel() : monthLabel()}</span>
+        <button
+          class="cal-weekno"
+          title={`Teaching week — Week 1 starts ${week1()}. Click to change.`}
+          onClick={setWeek1From}
+        >
+          Wk {view() === "week" ? weekNo(weekStart()) : weekNo(new Date(`${selected()}T00:00`))}
+        </button>
         <button class="cal-pop-nav" onClick={() => (view() === "week" ? shiftWeek(1) : shiftMonth(1))}>
           ›
         </button>
