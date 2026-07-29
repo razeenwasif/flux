@@ -142,6 +142,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **A docked calendar didn't survive a restart** — the dock *mode* persisted but the open/closed state
+  didn't, so Flux always started with it closed and you had to reopen it every session. A **docked**
+  calendar now reopens on launch, like the pinned web panels it shares the column with. The **overlay**
+  deliberately doesn't: it hides the page, and a modal covering your first tab at startup is hostile
+  rather than helpful.
 - **Expanded home widgets centred on the window, not the home page** — the ⤢ overlay was
   `position: fixed` and sized in `vw`/`vh`, so with the sidebar, agent or panel columns open it sat
   visibly off-centre and its dim spilled across the whole window. It's now page-relative: the dim
