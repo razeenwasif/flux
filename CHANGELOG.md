@@ -198,6 +198,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Scribe didn't rescale to its pane, so split view was unusable** — a regression from the document
+  rewrite: the old canvas fitted the page to its viewport on every resize, while the document rendered
+  at a fixed 1240px and only rescaled when you pressed a zoom button. The page now **fits its pane by
+  default** and re-fits whenever the pane changes — a split seam, the sidebar, the agent/terminal
+  column, or the window. −/+ still set an explicit zoom, and the percentage button returns to fitting
+  (and highlights while it's doing so). The scaled page also gets a real layout footprint now:
+  `transform` doesn't affect layout, so the scroll box previously reserved the full 1240px and forced
+  a horizontal scrollbar even when the page had been scaled down to fit.
 - **The Connections rail almost never surfaced Onyx notes** — its relevance floor was a search-shaped
   number (45/100) applied to a very different kind of query: ~2400 characters of a *whole page*,
   navigation and boilerplate included, which dilutes cosine against a focused note far more than a

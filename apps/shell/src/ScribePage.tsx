@@ -114,7 +114,10 @@ const ScribePage: Component = () => {
 
   let docApi: { pageToBlob: () => Promise<Blob | null>; text: () => string } | null = null;
   let saveTimer = 0;
-  const [zoom, setZoom] = createSignal(1);
+  // null = fit the page to the pane (the default, and what keeps Scribe usable
+  // in split view); a number is an explicit zoom the user chose.
+  const [zoom, setZoom] = createSignal<number | null>(null);
+  const [scale, setScale] = createSignal(1);
   const [railOpen, setRailOpen] = createSignal(true);
 
   const pages = () => notebook()?.pages ?? [];
@@ -551,6 +554,7 @@ const ScribePage: Component = () => {
                 onChange={onContent}
                 template={curPage()?.template ?? "plain"}
                 zoom={zoom()}
+                onScale={setScale}
                 api={(a) => (docApi = a)}
               />
             </Show>
@@ -559,13 +563,17 @@ const ScribePage: Component = () => {
                 {railOpen() ? "◧" : "▢"}
               </button>
               <span style={{ flex: 1 }} />
-              <button title="Zoom out" onClick={() => setZoom((z) => Math.max(0.3, z / 1.15))}>
+              <button title="Zoom out" onClick={() => setZoom(Math.max(0.2, scale() / 1.15))}>
                 −
               </button>
-              <button title="Fit the page width" onClick={() => setZoom(1)}>
-                {Math.round(zoom() * 100)}%
+              <button
+                classList={{ on: zoom() == null }}
+                title={zoom() == null ? "Fitting the pane" : "Back to fitting the pane"}
+                onClick={() => setZoom(null)}
+              >
+                {Math.round(scale() * 100)}%
               </button>
-              <button title="Zoom in" onClick={() => setZoom((z) => Math.min(2.5, z * 1.15))}>
+              <button title="Zoom in" onClick={() => setZoom(Math.min(2.5, scale() * 1.15))}>
                 +
               </button>
             </div>

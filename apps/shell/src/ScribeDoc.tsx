@@ -17,7 +17,7 @@
  * it on open — typed blocks become paragraphs, and all the ink is flattened into
  * one positioned image, so nothing is lost.
  */
-import { For, Show, createSignal, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
 import InkCanvas, { renderStrokesScaled, type InkApi, type Stroke } from "./InkCanvas";
 
@@ -83,8 +83,11 @@ type Props = {
   content: string;
   onChange: (json: string) => void;
   template?: string;
-  /** Page scale, driven by the host's zoom control. */
-  zoom: number;
+  /** Explicit page scale, or **null to fit the page to its viewport** — which is
+   *  what keeps it readable in a split pane or a narrow window. */
+  zoom: number | null;
+  /** The scale actually in use, so the host can show a percentage. */
+  onScale?: (n: number) => void;
   api?: (a: { pageToBlob: () => Promise<Blob | null>; text: () => string }) => void;
 };
 
@@ -94,6 +97,28 @@ const ScribeDoc: Component<Props> = (props) => {
   const [drawing, setDrawing] = createSignal(false);
   const [selected, setSelected] = createSignal<string | null>(null);
   let body!: HTMLDivElement;
+  // Width available to the page. Measured, because the pane it lives in resizes
+  // for reasons this component can't see: a split-view seam, the sidebar, the
+  // agent/terminal column, the window itself.
+  const [avail, setAvail] = createSignal(0);
+  const PAGE_PAD = 32; // the scroll box's padding, both sides
+  const scale = () => {
+    const explicit = props.zoom;
+    if (explicit != null) return explicit;
+    const w = avail() - PAGE_PAD;
+    if (w <= 0) return 1;
+    return Math.max(0.2, Math.min(1, w / DOC_W));
+  };
+  let ro: ResizeObserver | undefined;
+  const measure = (el: HTMLDivElement) => {
+    ro?.disconnect();
+    ro = new ResizeObserver(() => setAvail(el.clientWidth));
+    ro.observe(el);
+    setAvail(el.clientWidth);
+  };
+  onCleanup(() => ro?.disconnect());
+  createEffect(() => props.onScale?.(scale()));
+
   let inkApi: InkApi | null = null;
   let padStrokes: Stroke[] = [];
 
@@ -161,7 +186,7 @@ const ScribeDoc: Component<Props> = (props) => {
     if (!start) return;
     const sx = e.clientX;
     const sy = e.clientY;
-    const z = props.zoom || 1;
+    const z = scale() || 1;
     const move = (me: PointerEvent) => {
       const dx = (me.clientX - sx) / z;
       const dy = (me.clientY - sy) / z;
@@ -229,43 +254,52 @@ const ScribeDoc: Component<Props> = (props) => {
         </button>
       </div>
 
-      <div class="sdoc-scroll">
-        <div
-          class="sdoc-page"
-          classList={{ [`tpl-${props.template ?? "plain"}`]: true }}
-          style={{
-            width: `${DOC_W}px`,
-            "min-height": `${DOC_H}px`,
-            transform: `scale(${props.zoom})`,
-          }}
-          onPointerDown={() => setSelected(null)}
-        >
-          {/* The document itself: an ordinary editor, so typing behaves the way
+      <div class="sdoc-scroll" ref={measure}>
+        <div class="sdoc-sizer" style={{ width: `${DOC_W * scale()}px`, height: `${DOC_H * scale()}px` }}>
+          <div
+            class="sdoc-page"
+            classList={{ [`tpl-${props.template ?? "plain"}`]: true }}
+            style={{
+              width: `${DOC_W}px`,
+              "min-height": `${DOC_H}px`,
+              transform: `scale(${scale()})`,
+            }}
+            onPointerDown={() => setSelected(null)}
+          >
+            {/* The document itself: an ordinary editor, so typing behaves the way
               typing is expected to. */}
-          <div ref={body} class="sdoc-body" contentEditable spellcheck={true} onInput={emit} onBlur={emit} />
-          {/* Ink sits above the text as free-floating objects. */}
-          <For each={objects()}>
-            {(o) => (
-              <div
-                class="sdoc-obj"
-                classList={{ on: selected() === o.id }}
-                style={{ left: `${o.x}px`, top: `${o.y}px`, width: `${o.w}px`, height: `${o.h}px` }}
-                onPointerDown={(e) => startObjDrag(e, o.id, "move")}
-              >
-                <img src={o.src} alt="" draggable={false} />
-                <Show when={selected() === o.id}>
-                  <button class="sdoc-obj-del" title="Delete drawing" onClick={() => removeObj(o.id)}>
-                    ✕
-                  </button>
-                  <div
-                    class="sdoc-obj-resize"
-                    title="Resize"
-                    onPointerDown={(e) => startObjDrag(e, o.id, "resize")}
-                  />
-                </Show>
-              </div>
-            )}
-          </For>
+            <div
+              ref={body}
+              class="sdoc-body"
+              contentEditable
+              spellcheck={true}
+              onInput={emit}
+              onBlur={emit}
+            />
+            {/* Ink sits above the text as free-floating objects. */}
+            <For each={objects()}>
+              {(o) => (
+                <div
+                  class="sdoc-obj"
+                  classList={{ on: selected() === o.id }}
+                  style={{ left: `${o.x}px`, top: `${o.y}px`, width: `${o.w}px`, height: `${o.h}px` }}
+                  onPointerDown={(e) => startObjDrag(e, o.id, "move")}
+                >
+                  <img src={o.src} alt="" draggable={false} />
+                  <Show when={selected() === o.id}>
+                    <button class="sdoc-obj-del" title="Delete drawing" onClick={() => removeObj(o.id)}>
+                      ✕
+                    </button>
+                    <div
+                      class="sdoc-obj-resize"
+                      title="Resize"
+                      onPointerDown={(e) => startObjDrag(e, o.id, "resize")}
+                    />
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
         </div>
       </div>
 

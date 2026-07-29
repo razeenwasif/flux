@@ -14181,6 +14181,11 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
   min-width: 28px;
 }
+.scribe-zoom button.on {
+  background: rgba(123, 97, 255, 0.28);
+  border-color: rgba(123, 97, 255, 0.45);
+  color: var(--flux-text);
+}
 .scribe-zoom button:hover {
   background: rgba(123, 97, 255, 0.2);
   color: var(--flux-text);
@@ -14278,10 +14283,17 @@ input[type="radio"].pdf-fw {
 }
 /* The sheet. Scaled by the host's zoom from its top-left so scrolling stays
    predictable. */
-.sdoc-page {
-  position: relative;
-  transform-origin: top left;
+/* Gives the scaled page a real layout footprint: `transform` doesn't affect
+   layout, so without this the scroll box always reserves the full 1240px and
+   the page can never fit a narrow pane. */
+.sdoc-sizer {
   margin: 0 auto;
+  position: relative;
+}
+.sdoc-page {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: top left;
   background: #12101f;
   border: 1px solid var(--flux-border);
   border-radius: 4px;
