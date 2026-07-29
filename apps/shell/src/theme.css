@@ -12482,6 +12482,19 @@ input[type="radio"].pdf-fw {
   background: rgba(123, 97, 255, 0.3);
   color: var(--flux-text);
 }
+.wb-ptsize {
+  font-size: 11px;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.6);
+  border: 1px solid var(--flux-border);
+  border-radius: 8px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.wb-ptsize:focus {
+  outline: none;
+  border-color: rgba(123, 97, 255, 0.55);
+}
 .wb-boards {
   flex: none;
   display: flex;

@@ -192,6 +192,10 @@ const TOOLS: { id: Tool; icon: string; label: string; key: string }[] = [
   { id: "pan", icon: "✋", label: "Pan (or middle/space-drag; wheel zooms)", key: "Space" },
 ];
 
+/** The paged surface is A4 at this density (1240px ≈ 210mm), so type sizes can
+ *  be specified in real points. */
+const PAGE_DPI = 150;
+
 /** Right-hand margin a text block wraps against on a bounded page. */
 const PAGE_MARGIN = 48;
 
@@ -309,6 +313,17 @@ const InkCanvas: Component<Props> = (props) => {
   // it here rather than forcing an erase-and-retype.
   const [editIdx, setEditIdx] = createSignal(-1);
   const [textStyle, setTextStyle] = createSignal<TextStyle>("body");
+  // Text size is its own control, in POINTS. It used to ride the pen-width
+  // slider, which coupled two unrelated things and — on a 1240px A4 page —
+  // defaulted to about 7.7pt, far smaller than it looked on screen.
+  const [textPt, setTextPt] = createSignal(Number(localStorage.getItem("flux.ink.pt")) || 12);
+  const pickPt = (pt: number) => {
+    setTextPt(pt);
+    localStorage.setItem("flux.ink.pt", String(pt));
+  };
+  /** Points → world units. A bounded page is A4 at ~150dpi, so a point is a real
+   *  point there; the infinite canvas has no paper, so it just scales sanely. */
+  const ptUnits = () => Math.round(textPt() * (bounds() ? PAGE_DPI / 72 : 1.5));
   // Touch devices (iPad + Apple Pencil, Android tablets): default to "pen/mouse
   // draws, finger pans" so a resting palm or a scrolling finger doesn't
   // scribble. A pencil reports pointerType "pen", a finger reports "touch"; a
@@ -342,7 +357,7 @@ const InkCanvas: Component<Props> = (props) => {
   // each line, and — the point of it — drops *below* anything you draw, so
   // switching pen → text resumes under the diagram instead of on top of it.
   const [caret, setCaret] = createSignal<Pt | null>(null);
-  const lineH = () => (10 + width() * 2) * 1.7;
+  const lineH = () => ptUnits() * 1.7;
   const homeCaret = (): Pt => {
     const b = bounds();
     return b ? { x: 48, y: 56 } : { x: cam.x + 40, y: cam.y + 60 };
@@ -821,7 +836,7 @@ const InkCanvas: Component<Props> = (props) => {
     setTextAt(null);
     setEditIdx(-1);
     if (!at) return;
-    const size = 10 + width() * 2;
+    const size = ptUnits();
     if (!v) {
       // Emptying an existing block deletes it — the expected editor behaviour.
       if (idx >= 0) commit(strokes().filter((_, i) => i !== idx));
@@ -1040,7 +1055,7 @@ const InkCanvas: Component<Props> = (props) => {
     const probe: TextStroke = {
       t: "text",
       color: color(),
-      size: 10 + width() * 2,
+      size: ptUnits(),
       at,
       text: "",
       w: wrapWidthAt(at.x),
@@ -1113,6 +1128,16 @@ const InkCanvas: Component<Props> = (props) => {
               )}
             </For>
           </div>
+          <select
+            class="wb-ptsize"
+            title="Text size"
+            value={String(textPt())}
+            onChange={(e) => pickPt(Number(e.currentTarget.value))}
+          >
+            <For each={[9, 10, 11, 12, 14, 18, 24, 36, 48]}>
+              {(pt) => <option value={String(pt)}>{pt} pt</option>}
+            </For>
+          </select>
         </Show>
         <input
           class="wb-width"

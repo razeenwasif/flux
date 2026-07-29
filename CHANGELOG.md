@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Text size in Scribe, in points** — a size picker (9–48 pt) beside the Body/H2/H1 styles, remembered
+  between sessions. Text size previously rode the **pen-width slider**, which coupled two unrelated
+  controls, and on a 1240px A4 page its default worked out to roughly **7.7 pt** — much smaller than
+  it looked while zoomed in. Sizes are now real points (the page is A4 at 150 dpi), so 12 pt on screen
+  is 12 pt when the page is published to Onyx. Heading styles still multiply on top of the chosen size.
 - **The sidebar Trail is a live graph you can handle** — the frozen dot-map is now a small
   force-directed layout: nav and semantic edges pull related pages together, so **clusters are
   topics** rather than a chronological scatter. **Drag a node** to move it, **drag the background** to
