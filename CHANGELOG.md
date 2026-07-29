@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Bulleted lists and a maths symbol palette in Scribe** —
+  - **• List** toggles a text block to a bulleted list: a marker on each paragraph's first line, with
+    wrapped continuations hanging under the *text* rather than under the bullet, the way a document
+    sets a list. Reopening a block adopts its existing setting.
+  - **Ω** opens a symbol palette grouped into Logic & sets, Relations, Operators, Greek, and
+    Sets & misc (∀ ∃ ∈ ⊆ ≤ ≥ ≠ ≈ ∑ ∏ ∫ ∂ ∇ ‖ ⟨ ⟩ α β θ λ σ Σ Δ Ω ℝ ℕ ℤ ᵀ ⁻¹ …), inserting at the
+    editor's caret. Clicking a symbol **keeps the editor focused**, so a run of them can be typed
+    without re-clicking the field — a blur would otherwise commit the block before the symbol landed.
 - **Text size in Scribe, in points** — a size picker (9–48 pt) beside the Body/H2/H1 styles, remembered
   between sessions. Text size previously rode the **pen-width slider**, which coupled two unrelated
   controls, and on a 1240px A4 page its default worked out to roughly **7.7 pt** — much smaller than

@@ -37,6 +37,9 @@ export type TextStroke = {
   /** Wrap width. `#[serde(default)]`-style optional so old strokes still load. */
   w?: number;
   style?: TextStyle;
+  /** Render as a bulleted list: a bullet on each paragraph's first line, with
+   *  wrapped continuations hanging under the text rather than the bullet. */
+  list?: boolean;
 };
 export type Stroke = PathStroke | ShapeStroke | TextStroke;
 // TS can't collapse a variant whose discriminant is a union ("pen" | "hi") on
@@ -68,35 +71,52 @@ const measurer = (): CanvasRenderingContext2D => {
 /** Lay a text block out into rendered lines: explicit newlines always break,
  *  and each paragraph wraps at `w`. A single word longer than the line is left
  *  to overflow rather than being chopped mid-word. */
-export const wrapText = (s: TextStroke): string[] => {
+/** One laid-out line. `bullet` marks a paragraph's first line in a list, which
+ *  is where the marker is drawn; every line in a list is indented, so wrapped
+ *  text hangs under the text rather than under the bullet. */
+export type Line = { text: string; bullet: boolean };
+const BULLET = "•  ";
+
+/** Indent applied to every line of a list (the bullet's own width). */
+export const listIndent = (s: TextStroke): number => {
+  if (!s.list) return 0;
   const ctx = measurer();
   ctx.font = fontOf(s);
-  const width = s.w ?? 0;
-  const out: string[] = [];
+  return ctx.measureText(BULLET).width;
+};
+
+export const wrapText = (s: TextStroke): Line[] => {
+  const ctx = measurer();
+  ctx.font = fontOf(s);
+  const indent = listIndent(s);
+  const width = s.w ? Math.max(40, s.w - indent) : 0;
+  const out: Line[] = [];
   for (const para of s.text.split("\n")) {
-    if (!width) {
-      out.push(para);
-      continue;
-    }
-    let line = "";
-    for (const word of para.split(" ")) {
-      const cand = line ? `${line} ${word}` : word;
-      if (!line || ctx.measureText(cand).width <= width) line = cand;
-      else {
-        out.push(line);
-        line = word;
+    const wrapped: string[] = [];
+    if (!width) wrapped.push(para);
+    else {
+      let line = "";
+      for (const word of para.split(" ")) {
+        const cand = line ? `${line} ${word}` : word;
+        if (!line || ctx.measureText(cand).width <= width) line = cand;
+        else {
+          wrapped.push(line);
+          line = word;
+        }
       }
+      wrapped.push(line);
     }
-    out.push(line);
+    wrapped.forEach((text, i) => out.push({ text, bullet: !!s.list && i === 0 }));
   }
   return out;
 };
 /** Rendered width of the widest line (for bounds when there's no wrap width). */
-const textWidth = (s: TextStroke, lines: string[]): number => {
+const textWidth = (s: TextStroke, lines: Line[]): number => {
   if (s.w) return s.w;
   const ctx = measurer();
   ctx.font = fontOf(s);
-  return lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
+  const indent = listIndent(s);
+  return lines.reduce((m, l) => Math.max(m, indent + ctx.measureText(l.text).width), 0);
 };
 /** The block's box in world units. */
 export const textBox = (s: TextStroke): Box => {
@@ -192,6 +212,72 @@ const TOOLS: { id: Tool; icon: string; label: string; key: string }[] = [
   { id: "pan", icon: "✋", label: "Pan (or middle/space-drag; wheel zooms)", key: "Space" },
 ];
 
+/** Symbols worth one click while taking maths notes. Grouped so the palette
+ *  reads as sections rather than a wall of glyphs. */
+const SYMBOL_GROUPS: { label: string; syms: string[] }[] = [
+  {
+    label: "Logic & sets",
+    syms: ["∀", "∃", "∄", "∈", "∉", "⊂", "⊆", "∪", "∩", "∅", "¬", "∧", "∨", "⊤", "⊥"],
+  },
+  { label: "Relations", syms: ["≤", "≥", "≠", "≈", "≡", "∝", "≪", "≫", "→", "←", "⇒", "⇐", "⇔", "↦", "∴"] },
+  {
+    label: "Operators",
+    syms: [
+      "±",
+      "×",
+      "÷",
+      "·",
+      "∘",
+      "√",
+      "∑",
+      "∏",
+      "∫",
+      "∂",
+      "∇",
+      "∞",
+      "⊗",
+      "⊕",
+      "⌈",
+      "⌉",
+      "⌊",
+      "⌋",
+      "‖",
+      "⟨",
+      "⟩",
+    ],
+  },
+  {
+    label: "Greek",
+    syms: [
+      "α",
+      "β",
+      "γ",
+      "δ",
+      "ε",
+      "θ",
+      "λ",
+      "μ",
+      "π",
+      "ρ",
+      "σ",
+      "τ",
+      "φ",
+      "ω",
+      "Γ",
+      "Δ",
+      "Θ",
+      "Λ",
+      "Σ",
+      "Φ",
+      "Ω",
+    ],
+  },
+  {
+    label: "Sets & misc",
+    syms: ["ℝ", "ℕ", "ℤ", "ℚ", "ℂ", "′", "″", "…", "⋯", "†", "ᵀ", "⁻¹", "²", "³", "ₙ", "ᵢ", "ⱼ"],
+  },
+];
+
 /** The paged surface is A4 at this density (1240px ≈ 210mm), so type sizes can
  *  be specified in real points. */
 const PAGE_DPI = 150;
@@ -276,8 +362,13 @@ const drawStroke = (ctx: CanvasRenderingContext2D, s: Stroke) => {
   } else if (s.t === "text") {
     ctx.font = fontOf(s);
     const lh = lineHeightOf(s);
+    const indent = listIndent(s);
     // Line 0 sits on `at`, so a pre-wrapping single-line note is unmoved.
-    wrapText(s).forEach((ln, i) => ctx.fillText(ln, s.at.x, s.at.y + i * lh));
+    wrapText(s).forEach((ln, i) => {
+      const y = s.at.y + i * lh;
+      if (ln.bullet) ctx.fillText(BULLET, s.at.x, y);
+      ctx.fillText(ln.text, s.at.x + indent, y);
+    });
   }
   ctx.globalAlpha = 1;
 };
@@ -323,6 +414,8 @@ const InkCanvas: Component<Props> = (props) => {
   };
   /** Points → world units. A bounded page is A4 at ~150dpi, so a point is a real
    *  point there; the infinite canvas has no paper, so it just scales sanely. */
+  const [listOn, setListOn] = createSignal(false);
+  const [symOpen, setSymOpen] = createSignal(false);
   const ptUnits = () => Math.round(textPt() * (bounds() ? PAGE_DPI / 72 : 1.5));
   // Touch devices (iPad + Apple Pencil, Android tablets): default to "pen/mouse
   // draws, finger pans" so a resting palm or a scrolling finger doesn't
@@ -647,6 +740,7 @@ const InkCanvas: Component<Props> = (props) => {
         const st = strokes()[hit] as TextStroke;
         setEditIdx(hit);
         setTextStyle(st.style ?? "body");
+        setListOn(!!st.list);
         setTextAt(st.at);
         requestAnimationFrame(() => {
           if (!textInput) return;
@@ -850,6 +944,7 @@ const InkCanvas: Component<Props> = (props) => {
       text: v,
       w: wrapWidthAt(at.x),
       style: textStyle(),
+      list: listOn(),
     };
     if (idx >= 0) {
       // Keep the original colour/size unless the style changed under it.
@@ -862,6 +957,19 @@ const InkCanvas: Component<Props> = (props) => {
     commit([...strokes(), block]);
     // Flow down the page: the next block lands under this one.
     setCaret({ x: at.x, y: textBox(block).y1 + lineHeightOf(block) });
+  };
+
+  /** Insert `sym` at the editor's caret (or at the end), keeping focus so a run
+   *  of symbols can be typed without re-clicking the field. */
+  const insertSymbol = (sym: string) => {
+    const el = textInput;
+    if (!el) return;
+    const a = el.selectionStart ?? el.value.length;
+    const b = el.selectionEnd ?? a;
+    el.value = el.value.slice(0, a) + sym + el.value.slice(b);
+    const caretAt = a + sym.length;
+    el.focus();
+    el.setSelectionRange(caretAt, caretAt);
   };
 
   /** Open the text input at the caret (creating one at the page's top-left the
@@ -1060,6 +1168,7 @@ const InkCanvas: Component<Props> = (props) => {
       text: "",
       w: wrapWidthAt(at.x),
       style: textStyle(),
+      list: listOn(),
     };
     const fs = fontSizeOf(probe);
     return {
@@ -1127,6 +1236,51 @@ const InkCanvas: Component<Props> = (props) => {
                 </button>
               )}
             </For>
+          </div>
+          <button
+            classList={{ "wb-style": true, on: listOn() }}
+            title="Bulleted list"
+            onClick={() => setListOn((v) => !v)}
+          >
+            • List
+          </button>
+          <div class="wb-symwrap">
+            <button
+              classList={{ "wb-style": true, on: symOpen() }}
+              title="Insert a symbol"
+              onClick={() => setSymOpen((v) => !v)}
+            >
+              Ω
+            </button>
+            <Show when={symOpen()}>
+              {/* Absolutely positioned, not fixed: a fixed popover inside the
+                  glass chrome gets clipped by its backdrop-filter. */}
+              <div class="wb-symbols">
+                <For each={SYMBOL_GROUPS}>
+                  {(g) => (
+                    <div class="wb-symgroup">
+                      <div class="wb-symlabel">{g.label}</div>
+                      <div class="wb-symgrid">
+                        <For each={g.syms}>
+                          {(sym) => (
+                            <button
+                              class="wb-sym"
+                              title={sym}
+                              // Keep the editor's focus/selection: a blur would
+                              // commit the block before the symbol lands.
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => insertSymbol(sym)}
+                            >
+                              {sym}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
           </div>
           <select
             class="wb-ptsize"

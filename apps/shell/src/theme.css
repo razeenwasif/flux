@@ -12482,6 +12482,59 @@ input[type="radio"].pdf-fw {
   background: rgba(123, 97, 255, 0.3);
   color: var(--flux-text);
 }
+/* Symbol palette. Anchored to its button and absolutely positioned — a fixed
+   popover inside the glass chrome is clipped by the backdrop-filter. */
+.wb-symwrap {
+  position: relative;
+  display: inline-flex;
+}
+.wb-symbols {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: 296px;
+  max-height: 300px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--glass-fill, rgba(20, 17, 32, 0.97));
+  border: 1px solid rgba(123, 97, 255, 0.32);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+}
+.wb-symgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wb-symlabel {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--flux-text-mute);
+}
+.wb-symgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+  gap: 3px;
+}
+.wb-sym {
+  font-size: 15px;
+  line-height: 1;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 7px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.wb-sym:hover {
+  background: rgba(123, 97, 255, 0.28);
+}
 .wb-ptsize {
   font-size: 11px;
   color: var(--flux-text);
