@@ -131,6 +131,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Expanded home widgets centred on the window, not the home page** — the ⤢ overlay was
+  `position: fixed` and sized in `vw`/`vh`, so with the sidebar, agent or panel columns open it sat
+  visibly off-centre and its dim spilled across the whole window. It's now page-relative: the dim
+  covers exactly the home page's box and the panel centres inside it. (`.start` is
+  `position: relative` and never scrolls — its inner widgets box does — so this stays pinned to the
+  visible page.)
 - **The docked timetable view still wouldn't scroll** (the month view did) — the week grid carries its
   own scroller, which is right in the wide overlay but makes it a **nested** scroller when docked: the
   wheel over the grid was swallowed by it, so the tasks below never came into view. Docked, the grid
