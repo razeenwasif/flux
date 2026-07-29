@@ -1981,7 +1981,9 @@ body.resizing .panel-edge-resize::after {
   gap: 3px;
   flex: 1;
   overflow-y: auto;
-  min-height: 0;
+  /* Never collapse behind the fixed-height blocks below (the Trail preview,
+     folders): the strip scrolls internally, but it has to stay usable. */
+  min-height: 140px;
 }
 .tab-list::-webkit-scrollbar {
   width: 8px;
@@ -13762,7 +13764,12 @@ input[type="radio"].pdf-fw {
 
 /* ─── Trail mini: this workspace's browsing, in the sidebar ──────────────── */
 .trailmini {
-  flex: none;
+  /* Shrinkable, not fixed: when the window is short this is what gives way, so
+     the tab strip keeps its floor and the footer never gets clipped out of a
+     sidebar that hides its overflow. */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -13830,7 +13837,11 @@ input[type="radio"].pdf-fw {
   position: relative;
   display: block;
   width: 100%;
-  height: 388px;
+  /* Target height, but shrinkable: the parent gives way first on a short
+     window, and this compresses with it rather than clipping the rail. */
+  flex: 1 1 auto;
+  height: min(388px, 34vh);
+  min-height: 60px;
   padding: 0;
   border: none;
   border-radius: 8px;
@@ -13879,7 +13890,7 @@ input[type="radio"].pdf-fw {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: 348px;
+  max-height: min(348px, 30vh);
   overflow-y: auto;
   scrollbar-width: thin;
 }
