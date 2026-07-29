@@ -8,6 +8,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Scribe notebooks are a knowledge-base source** — your typed Scribe pages are now indexed
+  alongside Onyx notes, Scroll papers, Council briefs and browsing, so they surface in the Connections
+  rail, the Notebook's grounded answers, and "✦ My notes" — **without** having to publish them to Onyx
+  first. One document per page, titled `Notebook — pN`. Handwriting still contributes nothing (that
+  needs the deferred transcription follow-up), and a page with only ink is skipped rather than indexed
+  as an empty stub.
 - **Scribe gets a page rail, page ops and zoom controls** — the GoodNotes half of the polish:
   - **Thumbnail rail** down the left with a real render of each page's ink (the same renderer the
     canvas uses, so a preview can't drift from the page), current page highlighted, click to jump.
@@ -162,6 +168,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The Connections rail almost never surfaced Onyx notes** — its relevance floor was a search-shaped
+  number (45/100) applied to a very different kind of query: ~2400 characters of a *whole page*,
+  navigation and boilerplate included, which dilutes cosine against a focused note far more than a
+  typed query does. Lowered to a documented 30, so genuinely related notes actually clear it.
 - **A docked calendar didn't survive a restart** — the dock *mode* persisted but the open/closed state
   didn't, so Flux always started with it closed and you had to reopen it every session. A **docked**
   calendar now reopens on launch, like the pinned web panels it shares the column with. The **overlay**

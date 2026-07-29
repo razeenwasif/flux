@@ -183,6 +183,32 @@ impl ScribeStore {
     }
 }
 
+/// The typed text of a page, pulled out of the opaque stroke JSON — the one
+/// place that looks inside it, so the KB can index notebooks without the ink
+/// format leaking further. Handwriting contributes nothing until transcription
+/// exists; typed blocks do.
+pub fn page_text(strokes_json: &str) -> String {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(strokes_json) else {
+        return String::new();
+    };
+    let Some(arr) = v.as_array() else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for s in arr {
+        if s.get("t").and_then(|t| t.as_str()) != Some("text") {
+            continue;
+        }
+        if let Some(t) = s.get("text").and_then(|t| t.as_str()) {
+            if !t.trim().is_empty() {
+                out.push_str(t.trim());
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

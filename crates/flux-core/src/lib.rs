@@ -639,7 +639,13 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                     } else {
                         Some("web".to_string())
                     };
-                    match kb.reindex(source, s.web_docs()) {
+                    // A None source rebuilds every corpus, so the in-process
+                    // ones must both be supplied or the rebuild would wipe them.
+                    let scribe_docs = handle
+                        .try_state::<scribe::ScribeStore>()
+                        .map(|st| kb::scribe_docs(&st))
+                        .unwrap_or_default();
+                    match kb.reindex(source, s.web_docs(), scribe_docs) {
                         Ok(_) => {
                             last_indexed = generation;
                             tracing::info!(target: "flux::kb", generation, "auto-indexed browsing into the web source");

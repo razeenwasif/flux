@@ -134,16 +134,53 @@ pub struct KbRecentItem {
     pub snippet: String,
 }
 
+/// Relevance floor for the ambient Connections rail.
+///
+/// Deliberately lower than a search cutoff: the query here is ~2400 characters
+/// of a *whole page* (navigation, boilerplate and all), which dilutes cosine
+/// against a focused note far more than a typed query does. The original 45
+/// was a search-shaped number and meant the rail almost never fired.
+const RELATED_MIN_SCORE: u32 = 30;
+
 /// Sources Flux knows how to pull (Onyx vault notes, Scroll papers, Council briefs).
-pub const SOURCES: &[&str] = &["onyx", "scroll", "council", "web"];
+pub const SOURCES: &[&str] = &["onyx", "scroll", "council", "web", "scribe"];
 
 /// A document yielded by a connector, before chunking/embedding.
-struct RawDoc {
+#[derive(Clone)]
+pub struct RawDoc {
     doc_id: String,
     title: String,
     path: String,
     mtime: u64,
     body: String,
+}
+
+/// Turn Scribe notebooks into KB documents — one per page, built from the page's
+/// **typed** text blocks. Handwriting isn't readable without OCR (that's the
+/// deferred transcription follow-up), so a page contributes what it actually has
+/// as text; a page with only ink yields nothing rather than an empty stub.
+pub fn scribe_docs(store: &crate::scribe::ScribeStore) -> Vec<RawDoc> {
+    let mut out = Vec::new();
+    for meta in store.list() {
+        let Some(nb) = store.load(&meta.id) else {
+            continue;
+        };
+        for (i, page) in nb.pages.iter().enumerate() {
+            let body = crate::scribe::page_text(&page.strokes);
+            if body.trim().is_empty() {
+                continue;
+            }
+            out.push(RawDoc {
+                doc_id: format!("{}#{}", nb.id, page.id),
+                title: format!("{} — p{}", nb.name, i + 1),
+                // Openable target: the Scribe page itself.
+                path: format!("flux://scribe#{}/{}", nb.id, i + 1),
+                mtime: page.ts,
+                body,
+            });
+        }
+    }
+    out
 }
 
 /// Cheap-to-clone handle (Arcs inside) so a command can move it into a blocking task.
@@ -339,12 +376,13 @@ impl KbStore {
         &self,
         source: Option<String>,
         web: Vec<crate::trace::WebDoc>,
+        scribe: Vec<RawDoc>,
     ) -> Result<KbStatus, String> {
         self.hydrate();
         if self.indexing.swap(true, Ordering::AcqRel) {
             return Err("an index build is already running".into());
         }
-        let result = self.reindex_inner(source, web);
+        let result = self.reindex_inner(source, web, scribe);
         self.indexing.store(false, Ordering::Release);
         result.map(|_| self.status())
     }
@@ -353,6 +391,7 @@ impl KbStore {
         &self,
         source: Option<String>,
         web: Vec<crate::trace::WebDoc>,
+        scribe: Vec<RawDoc>,
     ) -> Result<(), String> {
         let targets: Vec<&str> = match &source {
             Some(s) => {
@@ -378,7 +417,12 @@ impl KbStore {
         for src in targets {
             // "web" is an in-process corpus (the Trail's dwell snapshots), supplied
             // by the caller; every other source is a file/HTTP connector.
-            let raw = if src == "web" {
+            // Both "web" (Trail snapshots) and "scribe" (handwritten notebooks)
+            // are in-process corpora supplied by the caller, which owns their
+            // stores; the rest are file/HTTP connectors.
+            let raw = if src == "scribe" {
+                Ok(scribe.clone())
+            } else if src == "web" {
                 Ok(web
                     .iter()
                     .map(|w| RawDoc {
@@ -938,14 +982,16 @@ pub async fn kb_recent(
 pub async fn kb_reindex(
     kb: State<'_, KbStore>,
     snaps: State<'_, crate::trace::TraceSnapshots>,
+    scribe: State<'_, crate::scribe::ScribeStore>,
     source: Option<String>,
 ) -> Result<KbStatus, String> {
     let kb = (*kb).clone();
-    // The Trail's dwell snapshots are the `web` corpus — pull them here (in-process
-    // state) and hand them to the KB, which chunks + embeds + cites them like any
-    // other source (ADR 0011 step b).
+    // The Trail's dwell snapshots are the `web` corpus and Scribe's notebooks are
+    // the `scribe` one — both live in-process, so they're pulled here and handed
+    // over, then chunked/embedded/cited like any file-backed source.
     let web = snaps.web_docs();
-    tauri::async_runtime::spawn_blocking(move || kb.reindex(source, web))
+    let scribe_docs = scribe_docs(&scribe);
+    tauri::async_runtime::spawn_blocking(move || kb.reindex(source, web, scribe_docs))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -1009,7 +1055,10 @@ pub async fn kb_related(
     let limit = limit.unwrap_or(6).clamp(1, 20);
     tauri::async_runtime::spawn_blocking(move || {
         let hits = kb.query(&query, limit, None)?;
-        Ok(hits.into_iter().filter(|h| h.score >= 45).collect())
+        Ok(hits
+            .into_iter()
+            .filter(|h| h.score >= RELATED_MIN_SCORE)
+            .collect())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1430,13 +1479,22 @@ mod tests {
         assert_ne!(p1, p2);
         assert!(p2.contains("My Idea- a-b 2.md"));
         // Folder is created.
-        let p3 = write_onyx_note(Some(&vault), "Note", "x", Some("Inbox"), Some("#kkt, duality")).unwrap();
+        let p3 = write_onyx_note(
+            Some(&vault),
+            "Note",
+            "x",
+            Some("Inbox"),
+            Some("#kkt, duality"),
+        )
+        .unwrap();
         assert!(p3.contains("Inbox"));
         // Tags become YAML frontmatter the KB strips and Onyx reads; an untagged
         // note (p1) stays plain Markdown.
         let m3 = std::fs::read_to_string(&p3).unwrap();
         assert!(
-            m3.starts_with("---\ntitle: \"Note\"\ntags:\n  - \"kkt\"\n  - \"duality\"\nsource: flux-agent\n"),
+            m3.starts_with(
+                "---\ntitle: \"Note\"\ntags:\n  - \"kkt\"\n  - \"duality\"\nsource: flux-agent\n"
+            ),
             "got: {m3}"
         );
         assert!(!std::fs::read_to_string(&p1).unwrap().starts_with("---"));
@@ -1555,7 +1613,7 @@ mod tests {
             mtime: 100,
             body: "resolving a CUDA out of memory error by reducing the batch size and clearing the cache".into(),
         }];
-        store.reindex(Some("web".into()), web).unwrap();
+        store.reindex(Some("web".into()), web, vec![]).unwrap();
 
         let hits = store
             .query("cuda memory error", 5, Some(vec!["web".into()]))
@@ -1566,7 +1624,7 @@ mod tests {
         assert_eq!(hits[0].path, "https://forum.example/cuda-oom");
 
         // Absent from a later (empty) web batch → evicted, mirroring snapshot eviction.
-        store.reindex(Some("web".into()), vec![]).unwrap();
+        store.reindex(Some("web".into()), vec![], vec![]).unwrap();
         assert!(!store.data.read().chunks.iter().any(|c| c.source == "web"));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1598,7 +1656,7 @@ mod tests {
                 body: "a private page that must vanish from the index".into(),
             },
         ];
-        store.reindex(Some("web".into()), web).unwrap();
+        store.reindex(Some("web".into()), web, vec![]).unwrap();
         assert_eq!(
             store
                 .data
