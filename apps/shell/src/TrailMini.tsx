@@ -20,7 +20,7 @@ import { activeWorkspace, activeWorkspaceName, openTab } from "./store";
 /** The preview's coordinate space, matching the rendered box so circles stay
  *  circular rather than being stretched into ovals. */
 const VB_W = 218;
-const VB_H = 388;
+const VB_H = 300;
 const PAD = 16;
 
 /** Layout the visits as a frozen dot-map. The box is tall and narrow, so time

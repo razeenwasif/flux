@@ -13840,7 +13840,7 @@ input[type="radio"].pdf-fw {
   /* Target height, but shrinkable: the parent gives way first on a short
      window, and this compresses with it rather than clipping the rail. */
   flex: 1 1 auto;
-  height: min(388px, 34vh);
+  height: min(300px, 34vh);
   min-height: 60px;
   padding: 0;
   border: none;
@@ -13890,7 +13890,7 @@ input[type="radio"].pdf-fw {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: min(348px, 30vh);
+  max-height: min(268px, 30vh);
   overflow-y: auto;
   scrollbar-width: thin;
 }
