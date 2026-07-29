@@ -14414,3 +14414,143 @@ input[type="radio"].pdf-fw {
   font-size: 12px;
   color: var(--flux-text-mute);
 }
+
+/* ─── Split view: seams + picker for up to four panes ────────────────────── */
+/* Horizontal seams (a row boundary) — the vertical case keeps the original
+   .pane-splitter rule. */
+.pane-splitter.horiz {
+  cursor: ns-resize;
+}
+/* Layout chooser in the split picker. */
+.split-picker-layouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 5px;
+  padding: 0 10px 8px;
+}
+.split-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 9px;
+  padding: 7px 4px;
+  cursor: pointer;
+}
+.split-layout:hover {
+  color: var(--flux-text);
+}
+.split-layout.on {
+  background: rgba(123, 97, 255, 0.26);
+  border-color: rgba(123, 97, 255, 0.5);
+  color: var(--flux-text);
+}
+/* Tiny diagrams of each arrangement, drawn with gradients so they need no
+   assets and stay crisp at any zoom. */
+.split-layout-ico {
+  width: 30px;
+  height: 22px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.85;
+  background-repeat: no-repeat;
+  background-color: transparent;
+}
+.split-layout-ico.ico-cols {
+  background-image: linear-gradient(
+    90deg,
+    transparent 48%,
+    currentColor 48%,
+    currentColor 52%,
+    transparent 52%
+  );
+}
+.split-layout-ico.ico-rows {
+  background-image: linear-gradient(
+    180deg,
+    transparent 48%,
+    currentColor 48%,
+    currentColor 52%,
+    transparent 52%
+  );
+}
+.split-layout-ico.ico-quad {
+  background-image:
+    linear-gradient(90deg, transparent 48%, currentColor 48%, currentColor 52%, transparent 52%),
+    linear-gradient(180deg, transparent 48%, currentColor 48%, currentColor 52%, transparent 52%);
+}
+.split-layout-ico.ico-mainLeft {
+  background-image:
+    linear-gradient(90deg, transparent 58%, currentColor 58%, currentColor 62%, transparent 62%),
+    linear-gradient(180deg, transparent 48%, currentColor 48%, currentColor 52%, transparent 52%);
+  background-size:
+    100% 100%,
+    38% 100%;
+  background-position:
+    0 0,
+    100% 0;
+}
+.split-layout-ico.ico-mainRight {
+  background-image:
+    linear-gradient(90deg, transparent 38%, currentColor 38%, currentColor 42%, transparent 42%),
+    linear-gradient(180deg, transparent 48%, currentColor 48%, currentColor 52%, transparent 52%);
+  background-size:
+    100% 100%,
+    38% 100%;
+  background-position:
+    0 0,
+    0 0;
+}
+.split-layout-ico.ico-mainTop {
+  background-image:
+    linear-gradient(180deg, transparent 58%, currentColor 58%, currentColor 62%, transparent 62%),
+    linear-gradient(90deg, transparent 48%, currentColor 48%, currentColor 52%, transparent 52%);
+  background-size:
+    100% 100%,
+    100% 38%;
+  background-position:
+    0 0,
+    0 100%;
+}
+.split-layout-ico.ico-mainBottom {
+  background-image:
+    linear-gradient(180deg, transparent 38%, currentColor 38%, currentColor 42%, transparent 42%),
+    linear-gradient(90deg, transparent 48%, currentColor 48%, currentColor 52%, transparent 52%);
+  background-size:
+    100% 100%,
+    100% 38%;
+  background-position:
+    0 0,
+    0 0;
+}
+.split-picker-item.on {
+  background: rgba(123, 97, 255, 0.2);
+}
+.split-picker-tick {
+  margin-left: auto;
+  color: var(--flux-teal, #2ff3ff);
+  font-size: 12px;
+}
+.split-picker-clear {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  background: none;
+  border: 1px solid var(--flux-border);
+  border-radius: 7px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.split-picker-clear:hover {
+  color: var(--flux-text);
+  background: rgba(236, 75, 110, 0.18);
+}
+.split-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

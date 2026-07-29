@@ -6,6 +6,7 @@
 import { createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { setPendingCommand } from "./terminals";
+import { MAX_PANES, clampFrac, type TileLayout } from "./tiles";
 import {
   type PhishVerdict,
   type OAuthConsent,
@@ -119,102 +120,94 @@ export async function recolorWorkspace(id: number, color: number): Promise<void>
   await refreshWorkspaces();
 }
 
-// Split view (BACKLOG #43): browser tabs tiled two-up in the content card.
-// `splits` holds any number of independent pairs, but only the pair containing
-// the *active* tab tiles at a time (switching to a third tab pauses that pair,
-// switching to a member of another pair tiles that one instead). A tab belongs
-// to at most one pair. `splitRatio` is the showing pair's left-pane fraction;
-// `splitDragging` hides the native webviews while the seam is dragged — a native
-// webview is a separate OS layer that captures the mouse, so the DOM splitter
+const TILE_KEY = "flux.tile";
+
+// Split view (#43): the tiling group below replaces the original hard-coded
+// pair. `splitDragging` hides the native webviews while a seam is dragged — a
+// native webview is a separate OS layer that captures the mouse, so the DOM seam
 // can't track the pointer over it; hiding the panes lets the chrome see it.
-const SPLITS_KEY = "flux.splits";
-function loadSplitsRaw(): [number, number][] {
+const [splitDragging, setSplitDragging] = createSignal(false);
+export { splitDragging, setSplitDragging };
+
+// ── Tiling (#43, generalized) ────────────────────────────────────────────────
+// Split view holds up to MAX_PANES tabs in a chosen preset layout, rather than
+// the original hard-coded pair. One group at a time: tiling several independent
+// groups was never used and doubles the state to reason about.
+export type TileGroup = { tabs: number[]; layout: TileLayout; main: number; sec: number };
+const loadTile = (): TileGroup | null => {
   try {
-    const v = JSON.parse(localStorage.getItem(SPLITS_KEY) || "[]");
-    return Array.isArray(v)
-      ? v.filter(
-          (p) => Array.isArray(p) && p.length === 2 && typeof p[0] === "number" && typeof p[1] === "number",
-        )
-      : [];
+    const v = JSON.parse(localStorage.getItem(TILE_KEY) || "null");
+    if (!v || !Array.isArray(v.tabs)) return null;
+    return {
+      tabs: v.tabs.filter((n: unknown) => typeof n === "number").slice(0, MAX_PANES),
+      layout: (v.layout as TileLayout) ?? "cols",
+      main: typeof v.main === "number" ? v.main : 0.5,
+      sec: typeof v.sec === "number" ? v.sec : 0.5,
+    };
   } catch {
-    return [];
+    return null;
+  }
+};
+const [tileGroup, setTileRaw] = createSignal<TileGroup | null>(null);
+export { tileGroup };
+function writeTile(g: TileGroup | null): void {
+  setTileRaw(g);
+  try {
+    if (g) localStorage.setItem(TILE_KEY, JSON.stringify(g));
+    else localStorage.removeItem(TILE_KEY);
+  } catch {
+    /* private mode */
   }
 }
-const [splits, setSplitsRaw] = createSignal<[number, number][]>([]);
-// Persist every mutation to localStorage (tab ids survive restart — the session
-// restores tabs with their original ids — so pairs stay valid). `restoreSplits`
-// re-hydrates them once the tabs are loaded.
-function setSplits(update: [number, number][] | ((prev: [number, number][]) => [number, number][])): void {
-  setSplitsRaw((prev) => {
-    const next = typeof update === "function" ? update(prev) : update;
-    try {
-      localStorage.setItem(SPLITS_KEY, JSON.stringify(next));
-    } catch {
-      /* private mode */
-    }
-    return next;
-  });
+/** Tile these tabs (max MAX_PANES) in `layout`, focusing the first. */
+export function setTile(tabIds: number[], layout: TileLayout): void {
+  const ids = [...new Set(tabIds)].slice(0, MAX_PANES);
+  if (ids.length < 2) {
+    writeTile(null);
+    return;
+  }
+  writeTile({ tabs: ids, layout, main: 0.5, sec: 0.5 });
+  void focusTab(ids[0]!);
 }
-const [splitRatio, setSplitRatio] = createSignal(0.5);
-const [splitDragging, setSplitDragging] = createSignal(false);
-export { splits, splitRatio, setSplitRatio, splitDragging, setSplitDragging };
-
-/** Re-hydrate saved split pairs after the session's tabs are loaded — dropping
- *  any pair whose members no longer exist, and any tab claimed by two pairs. */
-export function restoreSplits(): void {
-  const existing = new Set(tabs().map((t) => t.id));
-  const seen = new Set<number>();
-  const clean = loadSplitsRaw().filter((p) => {
-    if (!existing.has(p[0]) || !existing.has(p[1]) || p[0] === p[1]) return false;
-    if (seen.has(p[0]) || seen.has(p[1])) return false;
-    seen.add(p[0]);
-    seen.add(p[1]);
-    return true;
-  });
-  setSplits(clean);
+export function setTileLayout(layout: TileLayout): void {
+  const g = tileGroup();
+  if (g) writeTile({ ...g, layout });
 }
-
-/** The pair containing tab `id`, or null. */
-export function splitPairFor(id: number | null): [number, number] | null {
-  if (id == null) return null;
-  return splits().find((p) => p[0] === id || p[1] === id) ?? null;
+export function setTileRatio(key: "main" | "sec", v: number): void {
+  const g = tileGroup();
+  if (g) writeTile({ ...g, [key]: clampFrac(v) });
 }
-/** The pair the active tab belongs to (the one that tiles), or null. */
-export function activeSplit(): [number, number] | null {
-  return splitPairFor(activeId());
-}
-/** Tile two browser tabs side by side (left | right) and focus the left one so
- *  the split shows immediately. Removes either tab from any pair it was already
- *  in (a tab lives in one pair). No-op if asked to split a tab with itself. */
-export function startSplit(leftId: number, rightId: number): void {
-  if (leftId === rightId) return;
-  setSplits((list) => [
-    ...list.filter((p) => !p.includes(leftId) && !p.includes(rightId)),
-    [leftId, rightId],
-  ]);
-  setSplitRatio(0.5);
-  void focusTab(leftId);
-}
-/** Merge (un-split) the pair containing `id`; defaults to the active tab's pair. */
-export function clearSplit(id?: number): void {
+/** Drop a tab from the tiling (or clear it entirely below two panes). */
+export function untile(id?: number): void {
+  const g = tileGroup();
+  if (!g) return;
   const target = id ?? activeId();
-  if (target == null) return;
-  setSplits((list) => list.filter((p) => !p.includes(target)));
+  const rest = g.tabs.filter((t) => t !== target);
+  writeTile(rest.length >= 2 ? { ...g, tabs: rest } : null);
 }
-/** The two tabs to tile, or null when no pair is currently showable: the active
- *  tab is in no pair, or a member was closed / left the workspace / isn't a real
- *  page. */
-export const splitPanes = (): [TabMeta, TabMeta] | null => {
-  const p = activeSplit();
-  if (!p) return null;
-  const l = tabs().find((t) => t.id === p[0]);
-  const r = tabs().find((t) => t.id === p[1]);
-  // Any "page" tab in this workspace is splittable — real web pages (tiled native
-  // webview) AND Flux's internal DOM pages (home, tasks, …, rendered into the
-  // half by ContentArea). Terminals/files stay excluded.
+export function clearTile(): void {
+  writeTile(null);
+}
+/** The tabs to tile, or null when the group isn't showable — fewer than two
+ *  members survive, or the active tab isn't one of them (switching to an
+ *  unrelated tab pauses the tiling, as the pair model did). */
+export const tilePanes = (): TabMeta[] | null => {
+  const g = tileGroup();
+  if (!g) return null;
   const ok = (t?: TabMeta) => !!t && t.kind === "browser" && t.workspace === activeWorkspace();
-  return ok(l) && ok(r) ? [l as TabMeta, r as TabMeta] : null;
+  const members = g.tabs.map((id) => tabs().find((t) => t.id === id)).filter((t): t is TabMeta => ok(t));
+  if (members.length < 2) return null;
+  if (!members.some((t) => t.id === activeId())) return null;
+  return members;
 };
+/** Re-hydrate the saved group once tabs exist, dropping members that don't. */
+export function restoreTile(): void {
+  const g = loadTile();
+  if (!g) return;
+  const existing = new Set(tabs().map((t) => t.id));
+  const kept = g.tabs.filter((id) => existing.has(id));
+  writeTile(kept.length >= 2 ? { ...g, tabs: kept } : null);
+}
 
 // Web panels (BACKLOG #48): pinned sites shown in a slim pane beside any tab.
 // Only the *open* panel holds a live webview (RAM-conscious). `panelWidth` (px)
@@ -1202,7 +1195,7 @@ export async function closeTab(id: number): Promise<void> {
   // a real close and the convert-last-tab-to-start branch below (the URL is lost then).
   if (closing && closing.kind === "browser") pushClosedTab(closing.url, closing.title);
   if (closing && closing.kind === "browser" && closing.url !== START_URL && !otherStart) {
-    clearSplit(id); // drop this tab's split pair if any
+    untile(id); // drop this tab from the tiling if it's in it
     setTabLoading(id, false);
     setHibernated(id, false);
     await webviewClose(id); // drop the page webview; start tabs have none
@@ -1211,7 +1204,7 @@ export async function closeTab(id: number): Promise<void> {
     await refreshTabs();
     return;
   }
-  clearSplit(id); // a tiled tab is gone → drop its split pair
+  untile(id); // a tiled tab is gone → drop it from the tiling
   setTabLoading(id, false);
   setHibernated(id, false);
   await webviewClose(id); // tear down the native webview (no-op for terminal tabs)
@@ -1459,7 +1452,7 @@ export function fluxStateSnapshot(): string {
     at ? `Active tab: #${at.id} ${at.kind} — ${(at.title || at.url || "").slice(0, 80)}` : "Active tab: none",
     `Web panels: ${panels().length} pinned, active=${activePanelId() ?? "none"}`,
     `Overlays: reader=${readerOpen()}, files-popout=${filesPanelOpen()}, map=${mapPanelOpen()}, agent-menu=${agentMenuOpen()}`,
-    `Split pairs: ${splits().length}`,
+    `Split: ${tileGroup() ? `${tileGroup()!.tabs.length} panes, ${tileGroup()!.layout}` : "off"}`,
     `Appearance: dark=${darkMode()}, liquidBg=${liquidBg()}, bookmarkBar=${bookmarkBarOpen()}, pagesBar=${pagesBarOpen()}`,
     `Agent model: ${agentModelName() || "(default)"}`,
   ];

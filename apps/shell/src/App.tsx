@@ -207,9 +207,9 @@ import {
   readerTab,
   openReader,
   closeReader,
-  clearSplit,
-  activeSplit,
-  restoreSplits,
+  clearTile,
+  tileGroup,
+  restoreTile,
   splitDragging,
   workspaces,
   setFindMatches,
@@ -344,7 +344,7 @@ const App: Component = () => {
   onMount(async () => {
     startClockDriver(); // #134: timers/alarms fire regardless of the active tab
     await refreshTabs();
-    restoreSplits(); // #43: re-tile any split pairs saved from the last session
+    restoreTile(); // #43: re-tile the split group saved from the last session
     const intent = await launchIntent().catch(() => null);
     if (intent) {
       for (const url of intent.urls) await openTab("browser", url);
@@ -1246,9 +1246,9 @@ const App: Component = () => {
     },
     {
       id: "split",
-      label: activeSplit() != null ? "Exit split view" : "Split view (tile with another tab)",
+      label: tileGroup() != null ? "Exit split view" : "Split view (tile up to four tabs)",
       icon: "◫",
-      run: () => (activeSplit() != null ? clearSplit() : setSplitPickerOpen(true)),
+      run: () => (tileGroup() != null ? clearTile() : setSplitPickerOpen(true)),
     },
     { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
     { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },

@@ -17,9 +17,10 @@ import {
   panelWidth,
   readerOpen,
   setHibernated,
-  splitPanes,
-  splitRatio,
+  tileGroup,
+  tilePanes,
 } from "./store";
+import { tileRects } from "./tiles";
 import {
   isStartUrl,
   panelClose,
@@ -143,23 +144,24 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
     if (readerOpen()) return []; // reader view covers the card; hide the page
     const rect = readRect();
     if (!rect) return [];
-    const pair = splitPanes();
-    if (pair) {
-      const ratio = Math.min(0.8, Math.max(0.2, splitRatio()));
-      const lw = Math.round(rect.width * ratio - SPLIT_GAP / 2);
-      const rw = Math.round(rect.width - lw - SPLIT_GAP);
-      const out: Pane[] = [];
+    const panes = tilePanes();
+    const g = tileGroup();
+    if (panes && g) {
+      // Same geometry the DOM panes use — see tiles.ts on why it's one function.
+      const rects = tileRects({
+        layout: g.layout,
+        n: panes.length,
+        main: g.main,
+        sec: g.sec,
+        rect,
+        gap: SPLIT_GAP,
+      });
       // Only real web pages get a tiled webview; Flux's internal pages (any
-      // flux:// url) render as DOM into their half — feeding them here would
+      // flux:// url) render as DOM into their slot — feeding them here would
       // open a black native webview over the page.
-      if (!isStartUrl(pair[0].url))
-        out.push({ tab: pair[0], rect: { x: rect.x, y: rect.y, width: lw, height: rect.height } });
-      if (!isStartUrl(pair[1].url))
-        out.push({
-          tab: pair[1],
-          rect: { x: rect.x + lw + SPLIT_GAP, y: rect.y, width: rw, height: rect.height },
-        });
-      return out;
+      return panes
+        .map((tab, i) => ({ tab, rect: rects[i]! }))
+        .filter((p) => p.rect && !isStartUrl(p.tab.url));
     }
     const act = activeTab();
     if (act?.kind === "browser" && !isStartUrl(act.url)) return [{ tab: act, rect }];
@@ -220,7 +222,7 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
   createEffect(() => {
     contentRect(); // subscribe: re-run on any layout change
     relayoutTick(); // subscribe: forced re-tile (e.g. after fullscreen-video exit)
-    splitRatio(); // subscribe: re-tile when the seam moves
+    tileGroup(); // subscribe: re-tile when a seam moves or the layout changes
     panelWidth(); // subscribe: re-tile when the panel divider moves
     const dragging = uiDragging();
     const overlay = overlayActive();

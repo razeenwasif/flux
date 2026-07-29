@@ -359,6 +359,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   bridge now spans the gap so the path is continuous.
 
 ### Changed
+- **Split view is now a tiling manager for up to four tabs** — it was a hard-coded pair (one seam, two
+  panes). You can now tile **2, 3 or 4 tabs** in preset arrangements: side-by-side, stacked, **quad**,
+  and *one large pane plus the rest* in any of the four orientations — with draggable seams
+  (double-click a seam to even it out). The split picker became a multi-select: tick up to four tabs,
+  then pick a layout; the layout list adapts to how many panes you've chosen, and keeps your choice
+  when it still fits. Closing or leaving a tiled tab drops just that pane, and the group survives a
+  restart. The sidebar shows the whole group as one row.
+  - Under the hood, **one pure function owns the geometry** (`tiles.ts`). Native webviews are placed
+    by the tiler in viewport pixels while Flux's own pages are DOM laid out in percentages — with a
+    single hard-coded "left | right" those two agreed by accident, but across seven layouts and
+    multiple seams two implementations would have drifted on the first edit. Both now call
+    `tileRects()`, and a check confirms they describe the same panes to within 4px on every layout.
 - **Scribe's page is now a document, not a canvas** — typing was the main activity but the old model
   made it the awkward one: every line was placed by clicking, and fixing a typo meant reopening a
   block. The page is now an ordinary **rich-text editor** — real caret, selection, backspace across

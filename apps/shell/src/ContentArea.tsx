@@ -46,25 +46,16 @@ import {
   setOAuth,
   readerOpen,
   setSplitDragging,
-  setSplitRatio,
-  splitPanes,
-  splitRatio,
+  setTileRatio,
   tabs,
+  tileGroup,
+  tilePanes,
   updateTabTitle,
   updateTabUrl,
 } from "./store";
 import { basename } from "./tabvisual";
-import {
-  For,
-  Match,
-  Show,
-  Suspense,
-  Switch,
-  createMemo,
-  createSignal,
-  lazy,
-  type Component,
-} from "solid-js";
+import { tileRects, tileSeams } from "./tiles";
+import { For, Match, Show, Suspense, Switch, createMemo, createSignal, lazy, type Component } from "solid-js";
 
 /** Does this URL look like a privacy policy / terms page? Cheap + frontend-side
  *  on purpose: it only decides whether to *offer* the explainer, so a miss costs
@@ -124,6 +115,33 @@ const ContentArea: Component<{
     return u.startsWith("http") && POLICY_RE.test(u) && policyDismissed() !== u;
   });
   // Keyed by id (primitive) so the list is stable across unrelated tab updates.
+  /** Pane and seam geometry in PERCENT of the card — the same `tileRects` the
+   *  native webviews are positioned with, just in a different unit, so the DOM
+   *  slots can never drift from the webviews sitting over them. */
+  const tileOpts = () => {
+    const g = tileGroup();
+    const panes = tilePanes();
+    if (!g || !panes) return null;
+    // A 100-unit box makes the outputs percentages directly; the gutter is
+    // ~0.8% of the card, which matches SPLIT_GAP closely enough for a seam.
+    return {
+      layout: g.layout,
+      n: panes.length,
+      main: g.main,
+      sec: g.sec,
+      rect: { x: 0, y: 0, width: 100, height: 100 },
+      gap: 0.8,
+    };
+  };
+  const domRects = () => {
+    const o = tileOpts();
+    return o ? tileRects(o) : [];
+  };
+  const domSeams = () => {
+    const o = tileOpts();
+    return o ? tileSeams(o) : [];
+  };
+
   const terminalIds = createMemo(() =>
     tabs()
       .filter((t) => t.kind === "terminal")
@@ -309,34 +327,46 @@ const ContentArea: Component<{
         <Show when={readerOpen()}>
           <ReaderView />
         </Show>
-        {/* Split-view seam (#43): sits in the gap between the two tiled webviews
-          (the one strip of card the OS webview layers don't cover), so it's
-          visible + draggable. Dragging hides the panes (setSplitDragging) so the
-          chrome can track the pointer, then re-tiles at the new ratio on release. */}
-        <Show when={splitPanes()}>
-          <div
-            class="pane-splitter"
-            style={{ left: `${Math.min(80, Math.max(20, splitRatio() * 100))}%` }}
-            title="Drag to resize · double-click to even out"
-            onDblClick={() => setSplitRatio(0.5)}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              const card = document.getElementById("flux-web-area");
-              if (!card) return;
-              const rect = card.getBoundingClientRect();
-              setSplitDragging(true);
-              const move = (ev: PointerEvent) =>
-                setSplitRatio(Math.min(0.8, Math.max(0.2, (ev.clientX - rect.left) / rect.width)));
-              const up = () => {
-                setSplitDragging(false);
-                window.removeEventListener("pointermove", move);
-                window.removeEventListener("pointerup", up);
-              };
-              window.addEventListener("pointermove", move);
-              window.addEventListener("pointerup", up);
-            }}
-          />
-        </Show>
+        {/* Split-view seams (#43): each sits in a gutter between tiled panes —
+          the one strip of card the OS webview layers don't cover, so it's
+          visible and grabbable. Dragging hides the panes (setSplitDragging) so
+          the chrome can see the pointer, then re-tiles on release. Positions
+          come from tiles.ts, the same geometry the webviews are placed with. */}
+        <For each={domSeams()}>
+          {(sm) => (
+            <div
+              classList={{ "pane-splitter": true, horiz: sm.axis === "y" }}
+              style={
+                sm.axis === "x"
+                  ? { left: `${sm.x}%`, top: `${sm.y}%`, height: `${sm.length}%` }
+                  : { top: `${sm.y}%`, left: `${sm.x}%`, width: `${sm.length}%` }
+              }
+              title="Drag to resize · double-click to even out"
+              onDblClick={() => setTileRatio(sm.key, 0.5)}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                const card = document.getElementById("flux-web-area");
+                if (!card) return;
+                const rect = card.getBoundingClientRect();
+                setSplitDragging(true);
+                const move = (ev: PointerEvent) =>
+                  setTileRatio(
+                    sm.key,
+                    sm.axis === "x"
+                      ? (ev.clientX - rect.left) / rect.width
+                      : (ev.clientY - rect.top) / rect.height,
+                  );
+                const up = () => {
+                  setSplitDragging(false);
+                  window.removeEventListener("pointermove", move);
+                  window.removeEventListener("pointerup", up);
+                };
+                window.addEventListener("pointermove", move);
+                window.addEventListener("pointerup", up);
+              }}
+            />
+          )}
+        </For>
         {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
           its PTY + scrollback survive tab switches; only the active one shows.
           (TerminalView only unmounts — and kills its PTY — when the tab closes,
@@ -359,19 +389,22 @@ const ContentArea: Component<{
             {/* Split view (#43): two DOM halves, each rendering its tab's internal page
             (a real web page falls through to the placeholder its tiled webview
             overlays). Accessors keep navigation reactive without remounting. */}
-            <Show when={splitPanes()} fallback={pageFor(activeTab)}>
-              <div
-                class="split-dom-pane"
-                style={{ left: "0", width: `calc(${Math.min(80, Math.max(20, splitRatio() * 100))}% - 4px)` }}
-              >
-                {pageFor(() => splitPanes()?.[0])}
-              </div>
-              <div
-                class="split-dom-pane"
-                style={{ left: `calc(${Math.min(80, Math.max(20, splitRatio() * 100))}% + 4px)`, right: "0" }}
-              >
-                {pageFor(() => splitPanes()?.[1])}
-              </div>
+            <Show when={tilePanes()} fallback={pageFor(activeTab)}>
+              <For each={domRects()}>
+                {(r, i) => (
+                  <div
+                    class="split-dom-pane"
+                    style={{
+                      left: `${r.x}%`,
+                      top: `${r.y}%`,
+                      width: `${r.width}%`,
+                      height: `${r.height}%`,
+                    }}
+                  >
+                    {pageFor(() => tilePanes()?.[i()])}
+                  </div>
+                )}
+              </For>
             </Show>
           </Suspense>
         </Show>

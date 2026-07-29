@@ -36,7 +36,6 @@ import {
   activeId,
   activePanelId,
   activePanelIdB,
-  activeSplit,
   activeTab,
   activeWorkspace,
   aiAnswersOn,
@@ -48,7 +47,7 @@ import {
   restoreBranch,
   removeBranch,
   clearArchived,
-  clearSplit,
+  clearTile,
   closeTab,
   containerById,
   containerColor,
@@ -112,10 +111,11 @@ import {
   setTabGroup,
   setVimHints,
   setWatchPanelOpen,
-  splitPairFor,
+  setTile,
+  setTileLayout,
+  tileGroup,
+  untile,
   splitPickerOpen,
-  splits,
-  startSplit,
   tabLabel,
   tabs,
   toggleFolderCollapsed,
@@ -132,6 +132,7 @@ import {
 } from "./store";
 import { visibleInterval } from "./poll";
 import { Favicon, PanelIcon, clusterColor } from "./tabvisual";
+import { LAYOUT_LABEL, MAX_PANES, layoutsFor } from "./tiles";
 import {
   For,
   Show,
@@ -260,10 +261,27 @@ const Sidebar: Component<SidebarProps> = (props) => {
   };
   const splitCandidates = () =>
     tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && t.id !== activeId());
-  const doSplit = (rightId: number) => {
-    const left = activeId();
-    setSplitPicker(false);
-    if (left != null) startSplit(left, rightId);
+  /** Tabs currently in the tiling, active tab first — the picker's selection. */
+  const tileSel = () => {
+    const g = tileGroup();
+    const a = activeId();
+    if (g?.tabs.length) return g.tabs;
+    return a != null ? [a] : [];
+  };
+  /** Toggle a tab in or out of the tiling, capped at MAX_PANES. The picker stays
+   *  open: choosing several panes and a layout is one continuous act. */
+  const toggleTiled = (id: number) => {
+    const cur = tileSel();
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id].slice(0, MAX_PANES);
+    if (next.length < 2) {
+      clearTile();
+      return;
+    }
+    const g = tileGroup();
+    const layouts = layoutsFor(next.length);
+    // Keep the chosen layout when it still fits the new pane count.
+    const layout = g && layouts.includes(g.layout) ? g.layout : layouts[0]!;
+    setTile(next, layout);
   };
   const doSplitNew = async () => {
     const left = activeId();
@@ -272,7 +290,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
     // Open a real (navigable) blank webview in the background, then tile it on the right.
     try {
       const t = await openTab("browser", "about:blank", false, true);
-      startSplit(left, t.id);
+      const next = [...tileSel(), t.id].slice(0, MAX_PANES);
+      setTile(next, layoutsFor(next.length)[0]!);
     } catch (err) {
       console.error("split: new tab", err);
     }
@@ -447,7 +466,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           const dragged = tabs().find((t) => t.id === d);
           const bothPages = dragged?.kind === "browser" && p.tab.kind === "browser";
           if (fx > 0.6 && bothPages)
-            startSplit(p.tab.id, d); // right side → split (#43)
+            setTile([p.tab.id, d], "cols"); // right side → split (#43)
           else if (fy > 0.25 && fy < 0.75)
             void groupWithTab(d, p.tab.id); // center → group
           else void reorderTabs(d, p.tab.id, fy >= 0.75); // top/bottom → reorder
@@ -513,49 +532,41 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
   // Split view (#43): the two tiled tabs render together as one bracketed unit in
   // the strip (like Chrome's paired split tabs), with a "merge" (un-split) button.
-  const SplitPair: Component<{ a: TabMeta; b: TabMeta }> = (p) => (
-    <div class="split-pair" title="Split view — the two tiled tabs">
-      <TabRow tab={p.a} />
+  const SplitPair: Component<{ members: TabMeta[] }> = (p) => (
+    <div class="split-pair" title={`Split view — ${p.members.length} tiled tabs`}>
       <button
         class="split-pair-merge"
-        title="Merge — back to a single tab"
+        title="Exit split view"
         onClick={(e) => {
           e.stopPropagation();
-          clearSplit(p.a.id);
+          clearTile();
         }}
       >
         ⤢
       </button>
-      <TabRow tab={p.b} />
+      <For each={p.members}>{(t) => <TabRow tab={t} />}</For>
     </div>
   );
 
-  // The ungrouped strip, with each split pair (whose BOTH members are ungrouped
-  // & present in this space) folded into a single combined item at whichever
-  // member appears first. Any number of pairs can coexist.
+  /** Tabs in the strip, with the tiled ones collected into one row so a split
+   *  reads as a unit rather than as scattered siblings. */
   const ungroupedItems = createMemo(
-    (): ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] => {
+    (): ({ kind: "tab"; tab: TabMeta } | { kind: "split"; members: TabMeta[] })[] => {
       const list = ungroupedTabs();
       const ids = new Set(list.map((t) => t.id));
-      const memberOf = new Map<number, [number, number]>();
-      for (const p of splits()) {
-        if (ids.has(p[0]) && ids.has(p[1])) {
-          memberOf.set(p[0], p);
-          memberOf.set(p[1], p);
-        }
-      }
-      const placed = new Set<number>();
-      const out: ({ kind: "tab"; tab: TabMeta } | { kind: "split"; a: TabMeta; b: TabMeta })[] = [];
+      const tiled = (tileGroup()?.tabs ?? []).filter((id) => ids.has(id));
+      const inTile = new Set(tiled);
+      let emitted = false;
+      const out: ({ kind: "tab"; tab: TabMeta } | { kind: "split"; members: TabMeta[] })[] = [];
       for (const t of list) {
-        const pair = memberOf.get(t.id);
-        if (pair) {
-          if (placed.has(pair[0])) continue; // pair already emitted at its first member
+        if (inTile.has(t.id)) {
+          // Emit the whole group once, at its first member's position.
+          if (emitted) continue;
+          emitted = true;
           out.push({
             kind: "split",
-            a: list.find((x) => x.id === pair[0])!,
-            b: list.find((x) => x.id === pair[1])!,
+            members: tiled.map((id) => list.find((x) => x.id === id)!).filter(Boolean),
           });
-          placed.add(pair[0]);
           continue;
         }
         out.push({ kind: "tab", tab: t });
@@ -1062,11 +1073,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
             </button>
             <button
               type="button"
-              classList={{ "icon-btn": true, active: activeSplit() != null }}
-              title={
-                activeSplit() != null ? "Exit split view" : "Split view — tile this page with another tab"
-              }
-              onClick={() => (activeSplit() != null ? clearSplit() : setSplitPicker(true))}
+              classList={{ "icon-btn": true, active: tileGroup() != null }}
+              title={tileGroup() ? "Exit split view" : "Split view — tile this page with up to three others"}
+              onClick={() => setSplitPicker(true)}
             >
               ◫
             </button>
@@ -1133,16 +1142,46 @@ const Sidebar: Component<SidebarProps> = (props) => {
               }}
             >
               <div class="split-picker glass" onClick={(e) => e.stopPropagation()}>
-                <div class="split-picker-head">◫ Split with…</div>
+                <div class="split-picker-head">
+                  ◫ Tile up to {MAX_PANES} pages
+                  <Show when={tileGroup()}>
+                    <button class="split-picker-clear" onClick={() => clearTile()}>
+                      Exit split
+                    </button>
+                  </Show>
+                </div>
+                {/* Layout row — only meaningful once two panes are chosen. */}
+                <Show when={(tileGroup()?.tabs.length ?? 0) >= 2}>
+                  <div class="split-picker-layouts">
+                    <For each={layoutsFor(tileGroup()!.tabs.length)}>
+                      {(l) => (
+                        <button
+                          classList={{ "split-layout": true, on: tileGroup()?.layout === l }}
+                          title={LAYOUT_LABEL[l]}
+                          onClick={() => setTileLayout(l)}
+                        >
+                          <span class={`split-layout-ico ico-${l}`} />
+                          <span>{LAYOUT_LABEL[l]}</span>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
                 <div class="split-picker-list">
                   <For
                     each={splitCandidates()}
                     fallback={<div class="split-picker-empty">No other pages open to split with.</div>}
                   >
                     {(t) => (
-                      <button class="split-picker-item" onClick={() => doSplit(t.id)}>
+                      <button
+                        classList={{ "split-picker-item": true, on: tileSel().includes(t.id) }}
+                        onClick={() => toggleTiled(t.id)}
+                      >
                         <Favicon tab={t} />
                         <span class="split-picker-label">{t.title || t.url}</span>
+                        <Show when={tileSel().includes(t.id)}>
+                          <span class="split-picker-tick">✓</span>
+                        </Show>
                       </button>
                     )}
                   </For>
@@ -1354,7 +1393,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             }}
           </For>
           <For each={ungroupedItems()}>
-            {(it) => (it.kind === "split" ? <SplitPair a={it.a} b={it.b} /> : <TabRow tab={it.tab} />)}
+            {(it) => (it.kind === "split" ? <SplitPair members={it.members} /> : <TabRow tab={it.tab} />)}
           </For>
         </div>
       </Show>
@@ -1441,17 +1480,17 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 <div class="ctx-sep" />
                 <button
                   onClick={() => {
-                    startSplit(activeId()!, t().id);
+                    toggleTiled(t().id);
                     closeCtx();
                   }}
                 >
                   ⊟ Split with current tab
                 </button>
               </Show>
-              <Show when={splitPairFor(t().id)}>
+              <Show when={tileGroup()?.tabs.includes(t().id)}>
                 <button
                   onClick={() => {
-                    clearSplit(t().id);
+                    untile(t().id);
                     closeCtx();
                   }}
                 >
