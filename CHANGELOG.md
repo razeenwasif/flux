@@ -131,6 +131,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The docked calendar took the whole web panel, so it couldn't share with a mail/chat panel** — it
+  sized to its content (`flex-basis: auto`), which pushed pinned panels out of the column entirely
+  rather than sharing it. The column now splits between the calendar and the panels below it, with a
+  **draggable seam** (persisted, 20–80%), and the calendar's body **scrolls internally** instead of
+  growing the column: its header stays put while the month grid, agenda and tasks scroll together.
+  Verified in a browser — a 454px calendar over a 372px mail panel in an 860px column, nothing pushed
+  out, and the body scrolling inside its share.
 - **The autofill scan is now guaranteed to run, by a timer the page can't cancel** — the previous
   max-defer ceiling wasn't enough: the rescue delay lived in the *same* timer that every DOM mutation
   clears, so on a form mutating each animation frame it was cleared before it ever got a slot, and the

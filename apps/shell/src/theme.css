@@ -13649,17 +13649,46 @@ input[type="radio"].pdf-fw {
 /* The column is 280–640px, so the three columns stack and the whole pane
    scrolls. Not a Portal and not fixed: it's ordinary DOM in a layout column,
    which is exactly why the page stays visible behind it. */
+/* Wrapper that owns the calendar's share of the column height. */
+.webpanel-cal {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-basis: 0;
+  overflow: hidden;
+}
+/* The pinned panels below it get the remaining share. */
+.webpanel-natives {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-basis: 0;
+}
 .cal-pane.docked {
   position: static;
   transform: none;
   width: auto;
+  /* flex-basis 0 (not auto): with `auto` the pane sizes to its content and
+     pushes a pinned panel out of the column instead of scrolling. */
   height: auto;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   padding: 10px 4px 10px 12px;
   border-radius: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* The head stays put; everything below it scrolls. */
+.cal-pane.docked > .cal-pop-head {
+  flex: none;
+}
+.cal-pane.docked > .cal-pane-cols {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
+  padding-right: 4px;
 }
 .cal-pane.docked .cal-pane-cols {
   flex-direction: column;
@@ -13691,6 +13720,7 @@ input[type="radio"].pdf-fw {
 .cal-pane.docked .cal-tasks-list,
 .cal-pane.docked .cal-pane-list {
   overflow: visible;
+  max-height: none;
 }
 /* The timetable is cramped at panel width; keep it scrollable rather than
    squeezing seven days into nothing. */

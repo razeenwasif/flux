@@ -5,7 +5,9 @@ import { type Component, Show, lazy } from "solid-js";
 import { panelNavigate, type WebPanel } from "./ipc";
 import {
   activePanel,
+  calDockRatio,
   calendarDocked,
+  setCalDockRatio,
   activePanelB,
   closePanel,
   closePanelB,
@@ -61,6 +63,28 @@ const WebPanelPane: Component = () => {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+  const hasPanels = () => activePanel() != null || activePanelB() != null;
+  /** Drag the seam between the docked calendar and the panels below it. The
+   *  webviews hide during the drag (panelDragging) so the DOM handle can track
+   *  the pointer freely, exactly like the existing split seam. */
+  const startCalDrag = (e: PointerEvent) => {
+    e.preventDefault();
+    const pane = (e.currentTarget as HTMLElement).parentElement;
+    if (!pane) return;
+    setPanelDragging(true);
+    const move = (ev: PointerEvent) => {
+      const r = pane.getBoundingClientRect();
+      if (r.height > 0) setCalDockRatio((ev.clientY - r.top) / r.height);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setPanelDragging(false);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const slot = (id: string, p: WebPanel, onClose: () => void, grow: () => number) => (
     <div class="webpanel-surface" id={id} style={{ "flex-grow": String(grow()) }}>
       <div class="panel-toolbar">
@@ -87,31 +111,43 @@ const WebPanelPane: Component = () => {
           are positioned from their placeholders' rects each layout pass, so
           they simply shrink and reposition around it rather than conflicting. */}
       <Show when={calendarDocked()}>
-        <CalendarPop docked />
+        <div class="webpanel-cal" style={{ "flex-grow": String(hasPanels() ? calDockRatio() : 1) }}>
+          <CalendarPop docked />
+        </div>
       </Show>
-      <Show when={activePanel()}>
-        {(p) =>
-          slot(
-            "flux-panel-area",
-            p(),
-            () => closePanel(),
-            () => (both() ? panelSplitRatio() : 1),
-          )
-        }
+      {/* Split the column between the calendar and the pinned panels below, so
+          a mail/chat panel keeps its space instead of being squeezed out. */}
+      <Show when={calendarDocked() && hasPanels()}>
+        <div class="webpanel-vdiv" onPointerDown={startCalDrag} title="Drag to resize" />
       </Show>
-      <Show when={both()}>
-        <div class="webpanel-vdiv" onPointerDown={startSplitDrag} title="Drag to resize split" />
-      </Show>
-      <Show when={activePanelB()}>
-        {(p) =>
-          slot(
-            "flux-panel-area-b",
-            p(),
-            () => closePanelB(),
-            () => (both() ? 1 - panelSplitRatio() : 1),
-          )
-        }
-      </Show>
+      <div
+        class="webpanel-natives"
+        style={{ "flex-grow": String(calendarDocked() && hasPanels() ? 1 - calDockRatio() : 1) }}
+      >
+        <Show when={activePanel()}>
+          {(p) =>
+            slot(
+              "flux-panel-area",
+              p(),
+              () => closePanel(),
+              () => (both() ? panelSplitRatio() : 1),
+            )
+          }
+        </Show>
+        <Show when={both()}>
+          <div class="webpanel-vdiv" onPointerDown={startSplitDrag} title="Drag to resize split" />
+        </Show>
+        <Show when={activePanelB()}>
+          {(p) =>
+            slot(
+              "flux-panel-area-b",
+              p(),
+              () => closePanelB(),
+              () => (both() ? 1 - panelSplitRatio() : 1),
+            )
+          }
+        </Show>
+      </div>
     </aside>
   );
 };

@@ -294,6 +294,17 @@ export function setCalendarDock(v: "overlay" | "panel"): void {
 export const calendarOverlayOpen = (): boolean => calendarPopOpen() && calendarDock() === "overlay";
 /** True only while it's docked in the panel column. */
 export const calendarDocked = (): boolean => calendarPopOpen() && calendarDock() === "panel";
+/** The docked calendar's share of the panel column's height, so it can sit
+ *  above a pinned panel (mail, chat) instead of taking the whole column. */
+const [calDockRatio, setCalDockRatioSig] = createSignal(
+  Math.min(0.8, Math.max(0.2, Number(localStorage.getItem("flux.cal.dockratio")) || 0.55)),
+);
+export { calDockRatio };
+export function setCalDockRatio(r: number): void {
+  const v = Math.min(0.8, Math.max(0.2, r));
+  setCalDockRatioSig(v);
+  localStorage.setItem("flux.cal.dockratio", String(v));
+}
 /** Which view the calendar pane opens in: the month+agenda editor, or the
  *  week hour-grid used as a timetable. Persisted, so the pane reopens in
  *  whichever you last used. */
