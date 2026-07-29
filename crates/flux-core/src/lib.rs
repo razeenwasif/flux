@@ -961,6 +961,7 @@ pub fn run(intent: cli::LaunchIntent) {
             trace::trace_recent,
             trace::trace_visit,
             trace::trace_graph,
+            trace::trace_rename_task,
             trace::trace_histogram,
             trace::trace_branches,
             trace::trace_forget,

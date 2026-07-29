@@ -46,6 +46,7 @@ import {
   workspaceActive,
   workspaceCreate,
   workspaceSwitch,
+  traceRenameTask,
   workspaceUpdate,
   workspacesList,
   panelsList,
@@ -105,7 +106,12 @@ export function clearWorkspaceRename(): void {
 }
 
 export async function renameWorkspace(id: number, name: string): Promise<void> {
+  // Visits are tagged with the workspace NAME as their research task, so a
+  // rename would silently drop earlier browsing out of the workspace-scoped
+  // Trail. Retag it first, while the old name is still known.
+  const was = workspaces().find((w) => w.id === id)?.name;
   await workspaceUpdate(id, { name }).catch(() => {});
+  if (was && was !== name) await traceRenameTask(id, was, name).catch(() => {});
   await refreshWorkspaces();
 }
 export async function recolorWorkspace(id: number, color: number): Promise<void> {

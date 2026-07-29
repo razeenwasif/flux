@@ -415,7 +415,7 @@ export type Entity = { kind: EntityKind; value: string; primary: boolean }
  * (from the tab's prior visit) and `task` (the active workspace). `query` is
  * wired in a later phase.
  */
-export type Provenance = { from_visit: number | null; referrer: string | null; query: string | null; task: string | null }
+export type Provenance = { from_visit: number | null; referrer: string | null; query: string | null; task: string | null; task_id?: number | null }
 /**
  * One page visit. Kept minimal in the slice; snapshot/chat/marks/entities join
  * in later phases (ADR 0011) as additive fields.

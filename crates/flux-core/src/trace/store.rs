@@ -38,6 +38,11 @@ pub struct Provenance {
     pub query: Option<String>,
     /// The active workspace name when this was visited (the research "task").
     pub task: Option<String>,
+    /// The workspace's **id**. The name above can be renamed out from under old
+    /// visits, so scoped views match on this first and fall back to the name for
+    /// visits recorded before ids were stamped. `#[serde(default)]` → None then.
+    #[serde(default)]
+    pub task_id: Option<u32>,
 }
 
 /// One page visit. Kept minimal in the slice; snapshot/chat/marks/entities join
@@ -211,6 +216,7 @@ impl TraceStore {
         url: &str,
         title: &str,
         task: Option<String>,
+        task_id: Option<u32>,
     ) -> Option<VisitId> {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return None;
@@ -278,6 +284,7 @@ impl TraceStore {
                 referrer,
                 query: None,
                 task,
+                task_id,
             },
             snapshot_id: None,
             // URL-primary entities at nav time (a bare string scan — no text
@@ -609,13 +616,38 @@ impl TraceStore {
 
     /// Visits (optionally time-windowed by `last_ms`) plus the edges among them.
     pub fn graph(&self, after_ms: Option<u64>, before_ms: Option<u64>) -> TraceGraph {
+        self.graph_scoped(after_ms, before_ms, None, None)
+    }
+
+    /// `graph`, optionally narrowed to one workspace ("task"). Matches on the
+    /// workspace **id** when the visit carries one, falling back to the name for
+    /// visits recorded before ids were stamped — so a scoped view keeps showing
+    /// research from before this existed.
+    pub fn graph_scoped(
+        &self,
+        after_ms: Option<u64>,
+        before_ms: Option<u64>,
+        task_id: Option<u32>,
+        task: Option<&str>,
+    ) -> TraceGraph {
         self.hydrate();
         let d = self.inner.read();
+        let scoped = task_id.is_some() || task.is_some();
         let visits: Vec<Visit> = d
             .visits
             .iter()
             .filter(|v| {
                 after_ms.is_none_or(|a| v.last_ms >= a) && before_ms.is_none_or(|b| v.last_ms <= b)
+            })
+            .filter(|v| {
+                if !scoped {
+                    return true;
+                }
+                match (v.why.task_id, task_id) {
+                    (Some(vid), Some(want)) => vid == want,
+                    // No id on the visit (pre-dates stamping) → fall back to name.
+                    _ => task.is_some_and(|t| v.why.task.as_deref() == Some(t)),
+                }
             })
             .cloned()
             .collect();
@@ -627,6 +659,30 @@ impl TraceStore {
             .cloned()
             .collect();
         TraceGraph { visits, edges }
+    }
+
+    /// Follow a workspace rename: retag visits that carry the old name (or the
+    /// workspace's id) so a scoped view doesn't silently lose earlier research.
+    /// Returns how many visits were retagged.
+    pub fn rename_task(&self, id: Option<u32>, from: &str, to: &str) -> usize {
+        self.hydrate();
+        let mut d = self.inner.write();
+        let mut n = 0;
+        for v in d.visits.iter_mut() {
+            let hit = match (v.why.task_id, id) {
+                (Some(vid), Some(want)) => vid == want,
+                _ => v.why.task.as_deref() == Some(from),
+            };
+            if hit && v.why.task.as_deref() != Some(to) {
+                v.why.task = Some(to.to_string());
+                n += 1;
+            }
+        }
+        drop(d);
+        if n > 0 {
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+        n
     }
 
     /// Drop visits (and their edges + tab pointers) matching `scope`. Returns the
@@ -712,16 +768,55 @@ fn host_matches(url: &str, host: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graph_scopes_to_a_workspace_and_survives_a_rename() {
+        let s = TraceStore::default();
+        s.record(1, "https://a.com/", "A", Some("Research".into()), Some(1));
+        s.record(1, "https://b.com/", "B", Some("Research".into()), Some(1));
+        let other = s
+            .record(2, "https://c.com/", "C", Some("Personal".into()), Some(2))
+            .unwrap();
+
+        // Scoped by workspace id.
+        assert_eq!(s.graph_scoped(None, None, Some(1), None).visits.len(), 2);
+        let personal = s.graph_scoped(None, None, Some(2), None);
+        assert_eq!(personal.visits.len(), 1);
+        assert_eq!(personal.visits[0].id, other);
+
+        // Renaming the workspace must not orphan its earlier research: the name
+        // is what old visits carry, so it follows the rename.
+        assert_eq!(s.rename_task(Some(1), "Research", "COMP2400"), 2);
+        let after = s.graph_scoped(None, None, Some(1), None);
+        assert_eq!(after.visits.len(), 2);
+        assert!(after
+            .visits
+            .iter()
+            .all(|v| v.why.task.as_deref() == Some("COMP2400")));
+
+        // A visit recorded before ids were stamped still matches by name.
+        let legacy = s
+            .record(3, "https://d.com/", "D", Some("Legacy".into()), None)
+            .unwrap();
+        let by_name = s.graph_scoped(None, None, Some(9), Some("Legacy"));
+        assert_eq!(by_name.visits.len(), 1);
+        assert_eq!(by_name.visits[0].id, legacy);
+
+        // Unscoped still returns everything.
+        assert_eq!(s.graph(None, None).visits.len(), 4);
+    }
+
     #[test]
     fn records_nodes_and_free_nav_edges() {
         let s = TraceStore::default();
         let a = s
-            .record(1, "https://a.com/", "A", Some("Research".into()))
+            .record(1, "https://a.com/", "A", Some("Research".into()), Some(1))
             .unwrap();
         let b = s
-            .record(1, "https://b.com/", "B", Some("Research".into()))
+            .record(1, "https://b.com/", "B", Some("Research".into()), Some(1))
             .unwrap();
         assert_ne!(a, b);
+
         let g = s.graph(None, None);
         assert_eq!(g.visits.len(), 2);
         // One free Nav edge A→B, with provenance pointing back.
@@ -739,8 +834,10 @@ mod tests {
     #[test]
     fn same_url_republish_refreshes_not_forks() {
         let s = TraceStore::default();
-        let a1 = s.record(1, "https://a.com/", "A", None).unwrap();
-        let a2 = s.record(1, "https://a.com/", "A (updated)", None).unwrap();
+        let a1 = s.record(1, "https://a.com/", "A", None, None).unwrap();
+        let a2 = s
+            .record(1, "https://a.com/", "A (updated)", None, None)
+            .unwrap();
         assert_eq!(a1, a2, "same tab + same url = same node");
         assert_eq!(s.graph(None, None).visits.len(), 1);
         assert_eq!(s.visit(a1).unwrap().title, "A (updated)");
@@ -750,9 +847,9 @@ mod tests {
     fn revisit_via_another_page_is_a_new_node() {
         // A → B → A: the return to A is a distinct visit reached via B.
         let s = TraceStore::default();
-        let a = s.record(1, "https://a.com/", "A", None).unwrap();
-        let _b = s.record(1, "https://b.com/", "B", None).unwrap();
-        let a2 = s.record(1, "https://a.com/", "A", None).unwrap();
+        let a = s.record(1, "https://a.com/", "A", None, None).unwrap();
+        let _b = s.record(1, "https://b.com/", "B", None, None).unwrap();
+        let a2 = s.record(1, "https://a.com/", "A", None, None).unwrap();
         assert_ne!(a, a2);
         assert_eq!(s.graph(None, None).visits.len(), 3);
     }
@@ -760,17 +857,17 @@ mod tests {
     #[test]
     fn non_http_and_private_paths_are_skipped() {
         let s = TraceStore::default();
-        assert!(s.record(1, "flux://start", "Start", None).is_none());
-        assert!(s.record(1, "file:///x", "X", None).is_none());
+        assert!(s.record(1, "flux://start", "Start", None, None).is_none());
+        assert!(s.record(1, "file:///x", "X", None, None).is_none());
         assert!(s.graph(None, None).visits.is_empty());
     }
 
     #[test]
     fn forget_host_drops_visits_and_their_edges() {
         let s = TraceStore::default();
-        s.record(1, "https://a.com/", "A", None);
-        s.record(1, "https://sub.a.com/x", "A2", None);
-        s.record(1, "https://b.com/", "B", None);
+        s.record(1, "https://a.com/", "A", None, None);
+        s.record(1, "https://sub.a.com/x", "A2", None, None);
+        s.record(1, "https://b.com/", "B", None, None);
         s.forget(&ForgetScope::Host {
             host: "a.com".into(),
         });
@@ -790,8 +887,8 @@ mod tests {
     #[test]
     fn semantic_edges_dedup_both_directions_and_skip_missing() {
         let s = TraceStore::default();
-        let a = s.record(1, "https://a.com/", "A", None).unwrap();
-        let b = s.record(2, "https://b.com/", "B", None).unwrap();
+        let a = s.record(1, "https://a.com/", "A", None, None).unwrap();
+        let b = s.record(2, "https://b.com/", "B", None, None).unwrap();
         s.add_semantic_edges(b, &[a]);
         s.add_semantic_edges(b, &[a]); // same direction dup
         s.add_semantic_edges(a, &[b]); // reversed dup
@@ -824,8 +921,8 @@ mod tests {
     #[test]
     fn forget_returns_removed_ids_for_cascade() {
         let s = TraceStore::default();
-        let a = s.record(1, "https://a.com/", "A", None).unwrap();
-        s.record(1, "https://b.com/", "B", None).unwrap();
+        let a = s.record(1, "https://a.com/", "A", None, None).unwrap();
+        s.record(1, "https://b.com/", "B", None, None).unwrap();
         let removed = s.forget(&ForgetScope::Url {
             url: "https://a.com/".into(),
         });
@@ -838,17 +935,17 @@ mod tests {
         // must not re-mark the store dirty (or trace.json rewrites every flush
         // while you sit on a mutating page — the bug history.rs documents).
         let s = TraceStore::default();
-        s.record(1, "https://a.com/", "A", None).unwrap();
+        s.record(1, "https://a.com/", "A", None, None).unwrap();
         s.dirty.store(false, Ordering::Relaxed); // simulate a flush
         let before = s.visit(s.current_visit(1).unwrap()).unwrap().last_ms;
-        s.record(1, "https://a.com/", "A", None).unwrap(); // SPA republish
+        s.record(1, "https://a.com/", "A", None, None).unwrap(); // SPA republish
         assert!(!s.dirty.load(Ordering::Relaxed), "fast path must not dirty");
         assert_eq!(
             s.visit(s.current_visit(1).unwrap()).unwrap().last_ms,
             before
         );
         // A real change (title) still goes through the write path.
-        s.record(1, "https://a.com/", "A v2", None).unwrap();
+        s.record(1, "https://a.com/", "A v2", None, None).unwrap();
         assert!(s.dirty.load(Ordering::Relaxed));
         assert_eq!(s.visit(s.current_visit(1).unwrap()).unwrap().title, "A v2");
     }
@@ -863,12 +960,12 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("trace.json");
         let s1 = TraceStore::empty(path.clone());
-        let a = s1.record(1, "https://a.com/", "A", None).unwrap();
+        let a = s1.record(1, "https://a.com/", "A", None, None).unwrap();
         s1.persist_if_dirty();
 
         // Fresh store; record fires BEFORE anyone called hydrate() explicitly.
         let s2 = TraceStore::empty(path);
-        let c = s2.record(7, "https://c.com/", "C", None).unwrap();
+        let c = s2.record(7, "https://c.com/", "C", None, None).unwrap();
         assert_ne!(c, a, "ids must continue from the persisted next_id");
         let g = s2.graph(None, None);
         assert_eq!(g.visits.len(), 2, "the persisted visit survives");
@@ -881,14 +978,14 @@ mod tests {
         // Dangling-pointer fix: navigating away from a page that was just
         // forgotten must not leave an edge/from_visit to the removed node.
         let s = TraceStore::default();
-        let a = s.record(1, "https://a.com/", "A", None).unwrap();
+        let a = s.record(1, "https://a.com/", "A", None, None).unwrap();
         s.forget(&ForgetScope::Url {
             url: "https://a.com/".into(),
         });
         // by_tab was scrubbed by forget, but simulate a stale pointer surviving
         // (e.g. eviction, which does not touch by_tab).
         s.by_tab.write().insert(1, a);
-        let b = s.record(1, "https://b.com/", "B", None).unwrap();
+        let b = s.record(1, "https://b.com/", "B", None, None).unwrap();
         let vb = s.visit(b).unwrap();
         assert_eq!(vb.why.from_visit, None);
         assert_eq!(vb.why.referrer, None);
@@ -904,9 +1001,9 @@ mod tests {
         assert!(h.counts.iter().all(|&c| c == 0));
 
         // Three visits; rewrite last_ms to a known spread (record uses now()).
-        s.record(1, "https://a/", "A", None).unwrap();
-        s.record(1, "https://b/", "B", None).unwrap();
-        s.record(1, "https://c/", "C", None).unwrap();
+        s.record(1, "https://a/", "A", None, None).unwrap();
+        s.record(1, "https://b/", "B", None, None).unwrap();
+        s.record(1, "https://c/", "C", None, None).unwrap();
         {
             let mut d = s.inner.write();
             d.visits[0].last_ms = 1_000;
@@ -935,10 +1032,10 @@ mod tests {
     fn branches_group_by_trail_connectivity_with_url_fallback() {
         let s = TraceStore::default();
         // A rabbit hole on tab 1: a → b → c (nav edges), then unrelated d on tab 2.
-        let _a = s.record(1, "https://a.com/", "A", None).unwrap();
-        let _b = s.record(1, "https://b.com/", "B", None).unwrap();
-        let _c = s.record(1, "https://c.com/", "C", None).unwrap();
-        let _d = s.record(2, "https://d.com/", "D", None).unwrap();
+        let _a = s.record(1, "https://a.com/", "A", None, None).unwrap();
+        let _b = s.record(1, "https://b.com/", "B", None, None).unwrap();
+        let _c = s.record(1, "https://c.com/", "C", None, None).unwrap();
+        let _d = s.record(2, "https://d.com/", "D", None, None).unwrap();
         // Simulate a restart: live tab→visit pointers are gone (hibernated tabs
         // never re-publish), so resolution must fall back to URL matching.
         s.by_tab.write().clear();
@@ -966,8 +1063,8 @@ mod tests {
             assert!(all.contains(t));
         }
         // Semantic edges connect branches too (derived, not just nav).
-        let x = s.record(3, "https://x.com/", "X", None).unwrap();
-        let y = s.record(4, "https://y.com/", "Y", None).unwrap();
+        let x = s.record(3, "https://x.com/", "X", None, None).unwrap();
+        let y = s.record(4, "https://y.com/", "Y", None, None).unwrap();
         s.add_semantic_edges(y, &[x]);
         s.by_tab.write().clear();
         let b2 = s.branches(&[(20, "https://x.com/".into()), (21, "https://y.com/".into())]);
@@ -981,8 +1078,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("trace.json");
         let s = TraceStore::empty(path.clone());
-        s.record(1, "https://a.com/", "A", None);
-        s.record(1, "https://b.com/", "B", None);
+        s.record(1, "https://a.com/", "A", None, None);
+        s.record(1, "https://b.com/", "B", None, None);
         s.persist_if_dirty();
         let s2 = TraceStore::empty(path);
         s2.hydrate();

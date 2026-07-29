@@ -64,8 +64,22 @@ pub fn trace_graph(
     store: State<'_, TraceStore>,
     after_ms: Option<u64>,
     before_ms: Option<u64>,
+    task_id: Option<u32>,
+    task: Option<String>,
 ) -> TraceGraph {
-    store.graph(after_ms, before_ms)
+    store.graph_scoped(after_ms, before_ms, task_id, task.as_deref())
+}
+
+/// Follow a workspace rename so its earlier visits stay in the scoped view.
+/// Returns how many visits were retagged.
+#[tauri::command]
+pub fn trace_rename_task(
+    store: State<'_, TraceStore>,
+    id: Option<u32>,
+    from: String,
+    to: String,
+) -> usize {
+    store.rename_task(id, &from, &to)
 }
 
 /// Visit-density histogram for the Trail scrubber's activity backdrop.

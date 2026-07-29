@@ -96,14 +96,17 @@ pub fn dom_publish(
         // Same non-private guard as history; the task label is the tab's active
         // workspace name, and the nav edge is drawn from the tab's prior visit.
         if let Some(tr) = app.try_state::<crate::trace::TraceStore>() {
-            let task = state.tabs.get(&tab_id).map(|t| t.workspace).and_then(|ws| {
+            let ws_id = state.tabs.get(&tab_id).map(|t| t.workspace);
+            let task = ws_id.and_then(|ws| {
                 state
                     .workspaces_list()
                     .into_iter()
                     .find(|w| w.id == ws)
                     .map(|w| w.name)
             });
-            tr.record(tab_id, &url, &title, task);
+            // Stamp the id too: the name is what the user sees, but it can be
+            // renamed, and a scoped view must not lose old research when it is.
+            tr.record(tab_id, &url, &title, task, ws_id);
         }
         // Live ingest into Omni (no-op unless the user enabled auto-ingest). Done
         // before the snapshot is built so the page text is still owned here.

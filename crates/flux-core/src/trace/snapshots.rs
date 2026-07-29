@@ -386,7 +386,7 @@ mod tests {
 
         // A visit accepts one snapshot; attach is idempotent.
         let s = TraceStore::default();
-        let v = s.record(1, "https://a.com/", "A", None).unwrap();
+        let v = s.record(1, "https://a.com/", "A", None, None).unwrap();
         s.attach_snapshot(v, id0);
         assert_eq!(s.visit(v).unwrap().snapshot_id, Some(id0));
         s.attach_snapshot(v, 999); // ignored — already set

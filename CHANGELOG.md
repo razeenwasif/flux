@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **This workspace's Trail, in the sidebar** — a compact panel above the folder rail showing only the
+  browsing done *in the current workspace*, so a research context has its own recall. It has three
+  states because one widget can't do three jobs at 230px: a **frozen dot-map** (density at a glance —
+  no labels, since they'd be illegible, and no live simulation), which expands into a **searchable
+  list** of visits (finding a page is a search problem, not a graph problem), with **⤢** opening the
+  full `flux://trail` graph. Snapshot-captured visits — the ones the knowledge base can actually
+  answer from — are tinted differently in the map.
+- **Visits now carry their workspace id, and renaming a workspace no longer orphans its research** —
+  the Trail tagged each visit with the workspace *name*, so renaming one would have silently dropped
+  every earlier visit out of the scoped view. New visits are stamped with the id, a rename retags the
+  existing ones, and scoping falls back to the name for visits recorded before this existed.
 - **Dock the calendar in the side panel instead of floating it** — a ⇥ button in the calendar pane's
   header moves it into the web-panel column, and ⤢ floats it again (persisted). This isn't cosmetic:
   the floating pane is an overlay, and DOM can only cover a native webview by *hiding the page*, so

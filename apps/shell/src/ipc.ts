@@ -1276,8 +1276,23 @@ export const traceRecent = (limit?: number) => invoke<Visit[]>("trace_recent", {
 /** A single Visit by id (node detail). */
 export const traceVisit = (id: number) => invoke<Visit | null>("trace_visit", { id });
 /** The provenance graph (optionally time-windowed by `last_ms`) for the Trail view. */
-export const traceGraph = (afterMs?: number, beforeMs?: number) =>
-  invoke<TraceGraph>("trace_graph", { afterMs: afterMs ?? null, beforeMs: beforeMs ?? null });
+export const traceGraph = (
+  afterMs?: number,
+  beforeMs?: number,
+  /** Narrow to one workspace. Matches the visit's workspace id, falling back to
+   *  `task` (the name) for visits recorded before ids were stamped. */
+  taskId?: number,
+  task?: string,
+) =>
+  invoke<TraceGraph>("trace_graph", {
+    afterMs: afterMs ?? null,
+    beforeMs: beforeMs ?? null,
+    taskId: taskId ?? null,
+    task: task ?? null,
+  });
+/** Follow a workspace rename so its earlier visits stay in the scoped view. */
+export const traceRenameTask = (id: number | null, from: string, to: string) =>
+  invoke<number>("trace_rename_task", { id, from, to });
 /** Forget part (or all) of the Trail — the day-one privacy control. */
 export const traceForget = (scope: ForgetScope) => invoke<void>("trace_forget", { scope });
 /** Dwell-capture the active tab's current Visit — snapshot + embed (ADR 0011 step 1).

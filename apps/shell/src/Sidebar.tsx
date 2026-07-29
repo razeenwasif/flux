@@ -153,6 +153,7 @@ const Macros = lazy(() => import("./Macros"));
 const Passwords = lazy(() => import("./Passwords"));
 const FindBar = lazy(() => import("./FindBar"));
 const CalendarPop = lazy(() => import("./CalendarPop"));
+const TrailMini = lazy(() => import("./TrailMini"));
 // ─── Sidebar ────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -1679,6 +1680,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
             +
           </button>
         </div>
+      </Show>
+
+      {/* This workspace's browsing, above the folder rail: a frozen dot-map that
+          expands into a searchable list of where you've been in this research
+          context. Collapsed rail has no room for it. */}
+      <Show when={!props.collapsed}>
+        <TrailMini />
       </Show>
 
       {/* Tab folders — collapsible parking buckets above the footer. Members are

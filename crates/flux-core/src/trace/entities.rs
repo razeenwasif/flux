@@ -316,11 +316,11 @@ mod tests {
         let s = TraceStore::default();
         // The paper page (primary arXiv via URL, at nav time).
         let paper = s
-            .record(1, "https://arxiv.org/abs/2511.19477", "Paper", None)
+            .record(1, "https://arxiv.org/abs/2511.19477", "Paper", None, None)
             .unwrap();
         // A repo whose README mentions the paper → Implements repo→paper.
         let repo = s
-            .record(2, "https://github.com/foo/bar", "Repo", None)
+            .record(2, "https://github.com/foo/bar", "Repo", None, None)
             .unwrap();
         s.set_entities(
             repo,
@@ -329,7 +329,7 @@ mod tests {
         s.derive_entity_edges(repo);
         // A blog post mentioning the paper → Cites blog→paper.
         let blog = s
-            .record(3, "https://blog.example/post", "Blog", None)
+            .record(3, "https://blog.example/post", "Blog", None, None)
             .unwrap();
         s.set_entities(
             blog,
