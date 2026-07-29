@@ -169,7 +169,13 @@ export type InkBounds = { w: number; h: number } | null;
 export type InkTemplate = "plain" | "grid" | "lined" | "squared";
 /** Imperative handle handed to the parent once on mount (Scribe uses it to
  * render the current page to a PNG for publishing). */
-export type InkApi = { pageToBlob: () => Promise<Blob | null> };
+export type InkApi = {
+  pageToBlob: () => Promise<Blob | null>;
+  /** Multiply the zoom about the viewport centre (1.2 = in, 1/1.2 = out). */
+  zoomBy: (f: number) => void;
+  /** Re-fit the page to the viewport (the paged surface's "100%"). */
+  fit: () => void;
+};
 
 const COLORS = ["#f5f4ff", "#2ff3ff", "#7b61ff", "#ec4be0", "#ffc46b", "#7dff8a", "#ff6b6b", "#0a0a14"];
 type Tool = "pen" | "hi" | "eraser" | "lasso" | "line" | "rect" | "ellipse" | "arrow" | "text" | "pan";
@@ -201,8 +207,90 @@ type Props = {
   template?: InkTemplate;
   /** Base filename (no extension) for the toolbar's PNG export. */
   exportName?: () => string;
-  /** Called once on mount with an imperative handle (page → PNG blob). */
+  /** Called once on mount with an imperative handle (PNG, zoom). */
   api?: (a: InkApi) => void;
+  /** Current zoom, whenever it changes — so the host can show a percentage. */
+  onZoom?: (z: number) => void;
+};
+
+/** Draw one stroke in world coordinates. Pure (ctx + stroke only), so the
+ *  page thumbnails can reuse the exact renderer the canvas uses — a second
+ *  implementation would drift from it. */
+const drawStroke = (ctx: CanvasRenderingContext2D, s: Stroke) => {
+  ctx.strokeStyle = s.t === "text" ? "transparent" : s.color;
+  ctx.fillStyle = s.color;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.globalAlpha = s.t === "hi" ? 0.35 : 1;
+  if (s.t === "pen" || s.t === "hi") {
+    if (s.pts.length < 2) return;
+    ctx.lineWidth = s.w;
+    ctx.beginPath();
+    ctx.moveTo(s.pts[0]!.x, s.pts[0]!.y);
+    // Midpoint smoothing: quadratic through midpoints reads far better than
+    // raw polylines for freehand ink.
+    for (let i = 1; i < s.pts.length - 1; i++) {
+      const p = s.pts[i]!;
+      const n = s.pts[i + 1]!;
+      ctx.quadraticCurveTo(p.x, p.y, (p.x + n.x) / 2, (p.y + n.y) / 2);
+    }
+    const last = s.pts[s.pts.length - 1]!;
+    ctx.lineTo(last.x, last.y);
+    ctx.stroke();
+  } else if (s.t === "line" || s.t === "arrow") {
+    ctx.lineWidth = s.w;
+    ctx.beginPath();
+    ctx.moveTo(s.a.x, s.a.y);
+    ctx.lineTo(s.b.x, s.b.y);
+    ctx.stroke();
+    if (s.t === "arrow") {
+      const ang = Math.atan2(s.b.y - s.a.y, s.b.x - s.a.x);
+      const len = Math.max(9, s.w * 3.2);
+      ctx.beginPath();
+      ctx.moveTo(s.b.x, s.b.y);
+      ctx.lineTo(s.b.x - len * Math.cos(ang - 0.45), s.b.y - len * Math.sin(ang - 0.45));
+      ctx.moveTo(s.b.x, s.b.y);
+      ctx.lineTo(s.b.x - len * Math.cos(ang + 0.45), s.b.y - len * Math.sin(ang + 0.45));
+      ctx.stroke();
+    }
+  } else if (s.t === "rect") {
+    ctx.lineWidth = s.w;
+    ctx.strokeRect(s.a.x, s.a.y, s.b.x - s.a.x, s.b.y - s.a.y);
+  } else if (s.t === "ellipse") {
+    ctx.lineWidth = s.w;
+    ctx.beginPath();
+    ctx.ellipse(
+      (s.a.x + s.b.x) / 2,
+      (s.a.y + s.b.y) / 2,
+      Math.abs(s.b.x - s.a.x) / 2,
+      Math.abs(s.b.y - s.a.y) / 2,
+      0,
+      0,
+      Math.PI * 2,
+    );
+    ctx.stroke();
+  } else if (s.t === "text") {
+    ctx.font = fontOf(s);
+    const lh = lineHeightOf(s);
+    // Line 0 sits on `at`, so a pre-wrapping single-line note is unmoved.
+    wrapText(s).forEach((ln, i) => ctx.fillText(ln, s.at.x, s.at.y + i * lh));
+  }
+  ctx.globalAlpha = 1;
+};
+
+/** Render strokes into an arbitrary context, scaled to fit `w`×`h` — the page
+ *  thumbnails. Same renderer as the live canvas, so a preview can't lie. */
+export const renderStrokesScaled = (
+  ctx: CanvasRenderingContext2D,
+  ss: Stroke[],
+  page: { w: number; h: number },
+  w: number,
+  h: number,
+): void => {
+  ctx.save();
+  ctx.scale(w / page.w, h / page.h);
+  for (const s of ss) drawStroke(ctx, s);
+  ctx.restore();
 };
 
 const InkCanvas: Component<Props> = (props) => {
@@ -348,67 +436,6 @@ const InkCanvas: Component<Props> = (props) => {
       fitDone = true;
     }
     draw();
-  };
-  const drawStroke = (ctx: CanvasRenderingContext2D, s: Stroke) => {
-    ctx.strokeStyle = s.t === "text" ? "transparent" : s.color;
-    ctx.fillStyle = s.color;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.globalAlpha = s.t === "hi" ? 0.35 : 1;
-    if (s.t === "pen" || s.t === "hi") {
-      if (s.pts.length < 2) return;
-      ctx.lineWidth = s.w;
-      ctx.beginPath();
-      ctx.moveTo(s.pts[0]!.x, s.pts[0]!.y);
-      // Midpoint smoothing: quadratic through midpoints reads far better than
-      // raw polylines for freehand ink.
-      for (let i = 1; i < s.pts.length - 1; i++) {
-        const p = s.pts[i]!;
-        const n = s.pts[i + 1]!;
-        ctx.quadraticCurveTo(p.x, p.y, (p.x + n.x) / 2, (p.y + n.y) / 2);
-      }
-      const last = s.pts[s.pts.length - 1]!;
-      ctx.lineTo(last.x, last.y);
-      ctx.stroke();
-    } else if (s.t === "line" || s.t === "arrow") {
-      ctx.lineWidth = s.w;
-      ctx.beginPath();
-      ctx.moveTo(s.a.x, s.a.y);
-      ctx.lineTo(s.b.x, s.b.y);
-      ctx.stroke();
-      if (s.t === "arrow") {
-        const ang = Math.atan2(s.b.y - s.a.y, s.b.x - s.a.x);
-        const len = Math.max(9, s.w * 3.2);
-        ctx.beginPath();
-        ctx.moveTo(s.b.x, s.b.y);
-        ctx.lineTo(s.b.x - len * Math.cos(ang - 0.45), s.b.y - len * Math.sin(ang - 0.45));
-        ctx.moveTo(s.b.x, s.b.y);
-        ctx.lineTo(s.b.x - len * Math.cos(ang + 0.45), s.b.y - len * Math.sin(ang + 0.45));
-        ctx.stroke();
-      }
-    } else if (s.t === "rect") {
-      ctx.lineWidth = s.w;
-      ctx.strokeRect(s.a.x, s.a.y, s.b.x - s.a.x, s.b.y - s.a.y);
-    } else if (s.t === "ellipse") {
-      ctx.lineWidth = s.w;
-      ctx.beginPath();
-      ctx.ellipse(
-        (s.a.x + s.b.x) / 2,
-        (s.a.y + s.b.y) / 2,
-        Math.abs(s.b.x - s.a.x) / 2,
-        Math.abs(s.b.y - s.a.y) / 2,
-        0,
-        0,
-        Math.PI * 2,
-      );
-      ctx.stroke();
-    } else if (s.t === "text") {
-      ctx.font = fontOf(s);
-      const lh = lineHeightOf(s);
-      // Line 0 sits on `at`, so a pre-wrapping single-line note is unmoved.
-      wrapText(s).forEach((ln, i) => ctx.fillText(ln, s.at.x, s.at.y + i * lh));
-    }
-    ctx.globalAlpha = 1;
   };
   /** Paper + template for a bounded page, drawn in world space (scrolls/zooms). */
   const drawPage = (ctx: CanvasRenderingContext2D, b: { w: number; h: number }) => {
@@ -774,6 +801,7 @@ const InkCanvas: Component<Props> = (props) => {
     cam.x += before.x - after.x;
     cam.y += before.y - after.y;
     clampCam();
+    props.onZoom?.(cam.z);
     draw();
   };
 
@@ -937,7 +965,28 @@ const InkCanvas: Component<Props> = (props) => {
     resize();
     ro = new ResizeObserver(resize);
     ro.observe(wrap);
-    props.api?.({ pageToBlob: renderBlob });
+    props.api?.({
+      pageToBlob: renderBlob,
+      zoomBy: (f) => {
+        // Zoom about the viewport centre, matching what the wheel does about
+        // the cursor.
+        const before = toWorld(W / 2, H / 2);
+        cam.z = Math.max(0.25, Math.min(4, cam.z * f));
+        const after = toWorld(W / 2, H / 2);
+        cam.x += before.x - after.x;
+        cam.y += before.y - after.y;
+        clampCam();
+        props.onZoom?.(cam.z);
+        draw();
+      },
+      fit: () => {
+        fitPage();
+        clampCam();
+        props.onZoom?.(cam.z);
+        draw();
+      },
+    });
+    props.onZoom?.(cam.z);
     const onKey = (e: KeyboardEvent) => {
       if (textAt()) return; // typing in the text input
       const tag = (e.target as HTMLElement)?.tagName;

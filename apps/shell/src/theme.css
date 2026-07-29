@@ -13961,3 +13961,114 @@ input[type="radio"].pdf-fw {
   color: var(--flux-text-mute);
   padding: 6px;
 }
+
+/* ─── Scribe: page rail + zoom bar ───────────────────────────────────────── */
+.scribe-work {
+  display: flex;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.scribe-canvas-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  gap: 6px;
+}
+/* Thumbnails of every page, so a long notebook is navigable at a glance. */
+.scribe-rail {
+  flex: none;
+  width: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding: 2px 4px 2px 0;
+  scrollbar-width: thin;
+}
+.scribe-thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+}
+.scribe-thumb-btn {
+  position: relative;
+  display: block;
+  padding: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid var(--flux-border);
+  background: #12101f;
+  line-height: 0;
+}
+.scribe-thumb.on .scribe-thumb-btn {
+  border-color: rgba(123, 97, 255, 0.8);
+  box-shadow: 0 0 0 1px rgba(123, 97, 255, 0.45);
+}
+.scribe-thumb-c {
+  display: block;
+}
+.scribe-thumb-n {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-size: 9.5px;
+  line-height: 1;
+  color: var(--flux-text-mute);
+  background: rgba(10, 8, 24, 0.75);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.scribe-thumb-ops {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.scribe-thumb:hover .scribe-thumb-ops,
+.scribe-thumb.on .scribe-thumb-ops {
+  opacity: 1;
+}
+.scribe-thumb-ops button {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--flux-text-mute);
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 5px;
+  padding: 2px 5px;
+  cursor: pointer;
+}
+.scribe-thumb-ops button:hover:not(:disabled) {
+  background: rgba(123, 97, 255, 0.24);
+  color: var(--flux-text);
+}
+.scribe-thumb-ops button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+/* Zoom bar under the page. */
+.scribe-zoom {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.scribe-zoom button {
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 7px;
+  padding: 3px 9px;
+  cursor: pointer;
+  min-width: 28px;
+}
+.scribe-zoom button:hover {
+  background: rgba(123, 97, 255, 0.2);
+  color: var(--flux-text);
+}

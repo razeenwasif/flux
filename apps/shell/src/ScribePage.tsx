@@ -10,7 +10,7 @@
  */
 import { For, Show, createSignal, on, onCleanup, onMount, createEffect, type Component } from "solid-js";
 
-import InkCanvas, { type InkApi, type InkTemplate, type Stroke } from "./InkCanvas";
+import InkCanvas, { renderStrokesScaled, type InkApi, type InkTemplate, type Stroke } from "./InkCanvas";
 import {
   scribeCreate,
   scribeDelete,
@@ -26,6 +26,10 @@ import { activeId, updateTabTitle } from "./store";
 // A4 portrait at ~150dpi — a familiar page shape with room for long derivations.
 const PAGE_W = 1240;
 const PAGE_H = 1754;
+
+/** Page-rail thumbnail size (A4 ratio, matching PAGE_W/PAGE_H). */
+const THUMB_W = 58;
+const THUMB_H = Math.round((58 * 1754) / 1240);
 
 const TEMPLATES: { id: InkTemplate; label: string }[] = [
   { id: "grid", label: "Grid" },
@@ -54,6 +58,27 @@ const blobToB64 = (b: Blob): Promise<string> =>
     r.readAsDataURL(b);
   });
 
+/** A page's ink, drawn small. Redraws only when that page's strokes change. */
+const PageThumb: Component<{ strokes: Stroke[]; w: number; h: number }> = (props) => {
+  let el!: HTMLCanvasElement;
+  const paint = () => {
+    const ctx = el.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    el.width = Math.round(THUMB_W * dpr);
+    el.height = Math.round(THUMB_H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, THUMB_W, THUMB_H);
+    renderStrokesScaled(ctx, props.strokes, { w: props.w, h: props.h }, THUMB_W, THUMB_H);
+  };
+  onMount(paint);
+  createEffect(() => {
+    void props.strokes;
+    paint();
+  });
+  return <canvas ref={el} class="scribe-thumb-c" style={{ width: `${THUMB_W}px`, height: `${THUMB_H}px` }} />;
+};
+
 const ScribePage: Component = () => {
   const [shelf, setShelf] = createSignal<NotebookMeta[]>([]);
   const [notebook, setNotebook] = createSignal<Notebook | null>(null);
@@ -80,6 +105,8 @@ const ScribePage: Component = () => {
 
   let inkApi: InkApi | null = null;
   let saveTimer = 0;
+  const [zoom, setZoom] = createSignal(1);
+  const [railOpen, setRailOpen] = createSignal(true);
 
   const pages = () => notebook()?.pages ?? [];
   const curPage = () => pages()[pageIndex()];
@@ -222,6 +249,32 @@ const ScribePage: Component = () => {
     const pages2 = [...cur.pages, p];
     persist({ ...cur, pages: pages2 });
     setPageIndex(pages2.length - 1);
+  };
+
+  /** Move a page within the notebook — ↑/↓ rather than drag: dragging a rail of
+   *  live canvases is fragile, and this is precise. */
+  const movePage = (from: number, to: number) => {
+    const cur = notebook();
+    if (!cur || to < 0 || to >= cur.pages.length) return;
+    const pages2 = [...cur.pages];
+    const [moved] = pages2.splice(from, 1);
+    pages2.splice(to, 0, moved!);
+    persist({ ...cur, pages: pages2 });
+    setPageIndex(to);
+  };
+
+  /** Copy a page (its ink included) directly after it — worked examples and
+   *  templates are usually a variation on the page before. */
+  const duplicatePage = (i: number) => {
+    const cur = notebook();
+    if (!cur) return;
+    const src = cur.pages[i];
+    if (!src) return;
+    const copy = { ...src, id: `pg-${Date.now().toString(36)}`, ts: Date.now() };
+    const pages2 = [...cur.pages];
+    pages2.splice(i + 1, 0, copy);
+    persist({ ...cur, pages: pages2 });
+    setPageIndex(i + 1);
   };
 
   const deletePage = () => {
@@ -451,18 +504,74 @@ const ScribePage: Component = () => {
         <Show when={saveErr()}>
           <div class="scribe-err">Autosave failed: {saveErr()}</div>
         </Show>
-        {/* Keyed on notebook+page so flipping remounts the engine (fresh camera
-            + undo history) and loads that page's strokes. */}
-        <Show when={`${notebook()!.id}:${pageIndex()}`} keyed>
-          <InkCanvas
-            strokes={pageStrokes()}
-            onChange={onStrokes}
-            bounds={{ w: PAGE_W, h: PAGE_H }}
-            template={(curPage()?.template as InkTemplate) ?? "grid"}
-            exportName={() => `${notebook()!.name}-p${pageIndex() + 1}`}
-            api={(a) => (inkApi = a)}
-          />
-        </Show>
+        <div class="scribe-work">
+          {/* Page rail: real thumbnails of each page's ink, so a long notebook is
+              navigable instead of a blind ‹ ›. */}
+          <Show when={railOpen()}>
+            <aside class="scribe-rail">
+              <For each={pages()}>
+                {(pg, i) => (
+                  <div classList={{ "scribe-thumb": true, on: i() === pageIndex() }}>
+                    <button
+                      class="scribe-thumb-btn"
+                      title={`Page ${i() + 1}`}
+                      onClick={() => setPageIndex(i())}
+                    >
+                      <PageThumb strokes={parseStrokes(pg.strokes)} w={PAGE_W} h={PAGE_H} />
+                      <span class="scribe-thumb-n">{i() + 1}</span>
+                    </button>
+                    <div class="scribe-thumb-ops">
+                      <button title="Move up" disabled={i() === 0} onClick={() => movePage(i(), i() - 1)}>
+                        ↑
+                      </button>
+                      <button
+                        title="Move down"
+                        disabled={i() === pages().length - 1}
+                        onClick={() => movePage(i(), i() + 1)}
+                      >
+                        ↓
+                      </button>
+                      <button title="Duplicate page" onClick={() => duplicatePage(i())}>
+                        ⧉
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </aside>
+          </Show>
+
+          <div class="scribe-canvas-col">
+            {/* Keyed on notebook+page so flipping remounts the engine (fresh camera
+                + undo history) and loads that page's strokes. */}
+            <Show when={`${notebook()!.id}:${pageIndex()}`} keyed>
+              <InkCanvas
+                strokes={pageStrokes()}
+                onChange={onStrokes}
+                bounds={{ w: PAGE_W, h: PAGE_H }}
+                template={(curPage()?.template as InkTemplate) ?? "grid"}
+                exportName={() => `${notebook()!.name}-p${pageIndex() + 1}`}
+                api={(a) => (inkApi = a)}
+                onZoom={setZoom}
+              />
+            </Show>
+            <div class="scribe-zoom">
+              <button title="Show/hide the page rail" onClick={() => setRailOpen((v) => !v)}>
+                {railOpen() ? "◧" : "▢"}
+              </button>
+              <span style={{ flex: 1 }} />
+              <button title="Zoom out" onClick={() => inkApi?.zoomBy(1 / 1.2)}>
+                −
+              </button>
+              <button title="Fit the page" onClick={() => inkApi?.fit()}>
+                {Math.round(zoom() * 100)}%
+              </button>
+              <button title="Zoom in" onClick={() => inkApi?.zoomBy(1.2)}>
+                +
+              </button>
+            </div>
+          </div>
+        </div>
 
         <Show when={pubOpen()}>
           <div class="scribe-pub-scrim" onClick={() => !pubBusy() && setPubOpen(false)}>

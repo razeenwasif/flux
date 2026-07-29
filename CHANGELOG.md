@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Scribe gets a page rail, page ops and zoom controls** — the GoodNotes half of the polish:
+  - **Thumbnail rail** down the left with a real render of each page's ink (the same renderer the
+    canvas uses, so a preview can't drift from the page), current page highlighted, click to jump.
+    A long notebook is navigable instead of a blind `‹ ›`.
+  - **Reorder and duplicate** from the rail — ↑/↓ rather than drag-and-drop, which is fragile over a
+    strip of live canvases, and ⧉ to copy a page with its ink (a worked example is usually a variation
+    on the page before).
+  - **Zoom controls** under the page: −/+ about the viewport centre, and a percentage button that
+    re-fits the page. The rail itself can be hidden when you want the full width.
 - **Scribe's typing works like a document** — the first half of the Docs × GoodNotes polish:
   - **Text is editable.** Click any block with the text tool and it reopens for editing, instead of
     being write-once ink you had to erase and retype. Emptying a block deletes it, as an editor should.
