@@ -332,6 +332,26 @@ with `FLUX_TERM_ENGINE=dtach|tmux`.
 prints — keys echoed by a careless script, tokens in a log line. That's why it's
 off by default and why an explicit tab close deletes that session's file.
 
+## Troubleshooting
+
+**A page dies with `STATUS_ACCESS_VIOLATION` (Windows).** That's the WebView2
+renderer crashing, not Flux — but Flux can contribute to it, so bisect in this
+order, restarting Flux between each:
+
+1. `FLUX_NO_QUIC=1` — drops `--enable-quic`, the one non-default browser argument
+   Flux forces onto WebView2. HTTP/3 is already the WebView2 default, so this
+   costs nothing; a crash that stops here was a QUIC/network-stack fault.
+2. `FLUX_WEBVIEW2_ARGS=--disable-gpu` — the standard WebView2 access-violation
+   workaround, and it points at the graphics driver rather than at Flux.
+3. Turn **Shields** off for that site (Settings → Privacy & security) to rule out
+   request blocking.
+4. Update the WebView2 Runtime
+   (`winget install Microsoft.EdgeWebView2Runtime`) — these crashes are often a
+   runtime bug fixed upstream.
+
+Flux logs the arguments it set at startup under `flux::net`, so you can confirm
+which of these actually applied.
+
 ## Files
 
 A native filesystem explorer, opened as a 📁 **Files tab** from the new-tab

@@ -103,21 +103,53 @@ fn enable_http3() {
         return;
     }
     const KEY: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
-    let mut args = std::env::var(KEY).unwrap_or_default();
-    for flag in [
-        "--enable-quic",
+    // `FLUX_NO_QUIC=1` drops the flag. A forced network flag with no off switch
+    // can't be ruled out when a page dies with STATUS_ACCESS_VIOLATION — and
+    // since H3 is already the WebView2 default, dropping it is close to a no-op.
+    let quic = !env_is_true("FLUX_NO_QUIC");
+    let args = compose_browser_args(
+        &std::env::var(KEY).unwrap_or_default(),
         &std::env::var("FLUX_WEBVIEW2_ARGS").unwrap_or_default(),
-    ] {
-        if !flag.is_empty() && !args.contains(flag) {
-            if !args.is_empty() {
-                args.push(' ');
-            }
-            args.push_str(flag);
-        }
-    }
+        quic,
+    );
     std::env::set_var(KEY, &args);
-    tracing::info!(target: "flux::net", args = %args, "HTTP/3: WebView2 browser args set");
+    tracing::info!(target: "flux::net", args = %args, quic, "WebView2 browser args set");
 }
+
+/// Is an env var set to something that means yes?
+fn env_is_true(key: &str) -> bool {
+    std::env::var(key)
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
+        })
+        .unwrap_or(false)
+}
+
+/// Build the WebView2 argument string: whatever was already set, plus our own
+/// flags, without duplicating anything. Pure so the precedence is testable —
+/// this decides how every page on Windows is fetched and rendered.
+fn compose_browser_args(existing: &str, extra: &str, quic: bool) -> String {
+    let mut args = existing.to_string();
+    let mut push = |flag: &str| {
+        if flag.is_empty() || args.split_whitespace().any(|a| a == flag) {
+            return;
+        }
+        if !args.is_empty() {
+            args.push(' ');
+        }
+        args.push_str(flag);
+    };
+    if quic {
+        push("--enable-quic");
+    }
+    // The user's own flags last, so they can add things like --disable-gpu.
+    for flag in extra.split_whitespace() {
+        push(flag);
+    }
+    args
+}
+
 
 fn boot_phase<T>(
     phase: &'static str,
@@ -1218,4 +1250,38 @@ pub fn run(intent: cli::LaunchIntent) {
 #[tauri::mobile_entry_point]
 pub fn mobile_run() {
     run(cli::LaunchIntent::default());
+}
+
+#[cfg(test)]
+mod browser_arg_tests {
+    use super::compose_browser_args;
+
+    #[test]
+    fn quic_is_opt_out_and_user_flags_are_kept() {
+        assert_eq!(compose_browser_args("", "", true), "--enable-quic");
+        // The whole point of FLUX_NO_QUIC: the flag must actually disappear.
+        assert_eq!(compose_browser_args("", "", false), "");
+        assert!(!compose_browser_args("", "--disable-gpu", false).contains("quic"));
+        // Pre-existing args survive, and nothing is added twice.
+        assert_eq!(
+            compose_browser_args("--foo", "--disable-gpu", true),
+            "--foo --enable-quic --disable-gpu"
+        );
+        assert_eq!(
+            compose_browser_args("--enable-quic", "", true),
+            "--enable-quic",
+            "already present, not repeated"
+        );
+        // Substring matches must not count as present — `--enable-quic` inside
+        // some longer flag isn't the same flag.
+        assert_eq!(
+            compose_browser_args("--enable-quic-foo", "", true),
+            "--enable-quic-foo --enable-quic"
+        );
+        // Multiple user flags, whitespace-separated.
+        assert_eq!(
+            compose_browser_args("", "--disable-gpu --disable-features=X", false),
+            "--disable-gpu --disable-features=X"
+        );
+    }
 }

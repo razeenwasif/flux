@@ -8,6 +8,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **`FLUX_NO_QUIC=1`** drops the `--enable-quic` flag Flux forces onto WebView2, plus a
+  Troubleshooting section in the README for `STATUS_ACCESS_VIOLATION` renderer crashes. That
+  flag was the only non-default browser argument Flux set and there was no way to turn it off,
+  so it couldn't be ruled out when a page crashed — and since HTTP/3 is already the WebView2
+  default, dropping it is close to a no-op. Argument composition is now a pure, tested function;
+  it also no longer treats a substring match (`--enable-quic-foo`) as the flag already being
+  present.
 - **Terminal persistence without tmux** (BACKLOG #98) — Settings → Terminal, off by default,
   with two independent halves:
   - **Running processes** hands the shell to **`dtach`** (preferred) or tmux, whose master
