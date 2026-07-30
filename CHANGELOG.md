@@ -240,6 +240,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Launching Flux from inside a tmux session broke terminal persistence.** Flux's whole process
+  tree inherited `$TMUX`, so wrapping the shell in `tmux new-session` looked like nesting and
+  tmux refused with *"sessions should be nested with care, unset $TMUX to force"* — leaving the
+  terminal with no persistence and a cryptic message. `TMUX`, `TMUX_PANE` and screen's `STY` are
+  now cleared from the spawned shell's environment: a Flux terminal is a new terminal, not a
+  pane of whatever launched Flux. (Note this is *not* the same as typing `tmux attach` inside a
+  Flux terminal that is already a tmux session — that message is tmux correctly refusing to
+  nest, and Flux re-attaches on its own with no manual attach needed.)
 - **Several split views coexist again.** The tiling rework collapsed the model to one group at
   a time, on an assumption written into the code as "tiling several independent groups was
   never used" — which was wrong. Tab A tiled with B and C tiled with D are both remembered

@@ -238,6 +238,16 @@ pub fn terminal_spawn(
 
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    // Drop any multiplexer context Flux itself inherited. Launch Flux from a shell
+    // inside tmux and its whole process tree carries $TMUX — so wrapping the shell
+    // in `tmux new-session` makes tmux think it's being nested and refuse with
+    // "sessions should be nested with care, unset $TMUX to force", leaving the
+    // terminal with no persistence and a confusing message. A Flux terminal is a
+    // new terminal, not a pane of whatever launched Flux, so this is also right
+    // when persistence is off: `tmux` typed inside it should attach, not nest.
+    cmd.env_remove("TMUX");
+    cmd.env_remove("TMUX_PANE");
+    cmd.env_remove("STY"); // the same trap for GNU screen
     cmd.env("FLUX_SESSION", session.to_string());
     // DOM-aware terminal bridge (#65/#4): the dir holding active.json, which the
     // `flux` CLI reads for the active page. WSLENV `/p` (below) translates the
