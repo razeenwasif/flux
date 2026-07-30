@@ -156,12 +156,17 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
         rect,
         gap: SPLIT_GAP,
       });
-      // Only real web pages get a tiled webview; Flux's internal pages (any
-      // flux:// url) render as DOM into their slot — feeding them here would
-      // open a black native webview over the page.
+      // Only real web pages get a tiled webview; everything else renders as DOM
+      // into its slot, and feeding it here would try to position a webview that
+      // doesn't exist (or open a black one over the page).
+      //
+      // The `kind` test is not redundant with the url test: a terminal or files
+      // tab stores a filesystem path in `url`, so `isStartUrl` is false for it.
+      // This must stay the same rule the single-pane branch below uses — it
+      // didn't, and tiling a terminal would have hit that gap.
       return panes
         .map((tab, i) => ({ tab, rect: rects[i]! }))
-        .filter((p) => p.rect && !isStartUrl(p.tab.url));
+        .filter((p) => p.rect && p.tab.kind === "browser" && !isStartUrl(p.tab.url));
     }
     const act = activeTab();
     if (act?.kind === "browser" && !isStartUrl(act.url)) return [{ tab: act, rect }];

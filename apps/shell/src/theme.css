@@ -14654,6 +14654,13 @@ input[type="radio"].pdf-fw {
   color: var(--flux-teal, #2ff3ff);
   font-size: 12px;
 }
+/* A candidate that's already tiled in another group — picking it moves it here. */
+.split-picker-elsewhere {
+  flex: none;
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  opacity: 0.8;
+}
 .split-picker-clear {
   margin-left: auto;
   font-size: 10.5px;

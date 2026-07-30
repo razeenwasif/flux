@@ -240,6 +240,34 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Several split views coexist again.** The tiling rework collapsed the model to one group at
+  a time, on an assumption written into the code as "tiling several independent groups was
+  never used" — which was wrong. Tab A tiled with B and C tiled with D are both remembered
+  again: switching to C shows C|D, switching to an untiled tab shows it whole and leaves every
+  group intact. A tab still belongs to at most one tiling (otherwise switching to it couldn't
+  say which split to show), so picking one that's already tiled elsewhere moves it — and the
+  picker now marks those candidates with a ◫ so that isn't a surprise. Saved splits from the
+  previous build are migrated rather than dropped.
+- **A Files tab in a tiling rendered nothing.** `tilePanes` required `kind === "browser"`, so a
+  Files pane was filtered out and the group silently fell below two panes. It now excludes only
+  terminals, matching the rule the picker uses.
+- **Flux's own pages can be tiled from their own toolbar.** The ◫ split-view button lived in
+  a page-actions row gated on "is a real web page", so the Trail, Omni, the task manager,
+  Scribe, Settings, the start page and Files tabs had no ◫ at all — tiling them was only
+  possible via ⌘K → *Split view*, and they couldn't be picked as a pane either. The row now
+  shows for every tileable page with only the web-specific actions (bookmark, reader, capture,
+  translate, archive, watch, save-to-Omni) gated, and the picker offers any tileable tab.
+- **Tiling a non-web pane could have positioned a webview that doesn't exist.** The tiled
+  branch of `paneLayout` filtered panes by url alone, while the single-pane branch also
+  checked `kind` — and a terminal or files tab keeps a filesystem path in `url`, so the url
+  test passes for it. Both branches now apply the same rule.
+
+### Known limitation
+- **Terminal tabs still can't be tiled**, and are deliberately excluded from the picker rather
+  than offered and broken: they render in a separate keep-alive layer (#73) that shows only the
+  active terminal full-card, and ContentArea skips the tiled panes entirely while a terminal is
+  active. Tiling one means teaching that layer about tile rects — and deciding what to do about
+  the WebGL-context limit that currently lets only the visible terminal draw its backdrop (#75).
 - **The connections rail is no longer hidden behind the music bubble.** The rail was never
   truncated — the bubble was pinned to the right edge and vertically centred, directly on top
   of the rail's middle, covering a 386px band of the list when expanded and swallowing clicks

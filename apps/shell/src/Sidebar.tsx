@@ -114,6 +114,7 @@ import {
   setTile,
   setTileLayout,
   tileGroup,
+  tileGroups,
   untile,
   splitPickerOpen,
   tabLabel,
@@ -259,8 +260,34 @@ const Sidebar: Component<SidebarProps> = (props) => {
       .then(() => setWatched(true))
       .catch(() => {});
   };
+  /** Tabs that can join the tiling: web pages, Files tabs, and Flux's own pages —
+   *  all of which render through `pageFor` in ContentArea and so can be drawn into
+   *  a tile slot.
+   *
+   *  Terminal tabs can't, and are excluded rather than offered and broken: they
+   *  live in a separate keep-alive layer (#73) that shows only the *active*
+   *  terminal full-card, and ContentArea skips the tiled panes entirely while a
+   *  terminal is active. Tiling one needs that layer taught about tile rects. */
+  const canTilePage = (t: TabMeta) => t.kind !== "terminal";
   const splitCandidates = () =>
-    tabs().filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && t.id !== activeId());
+    tabs().filter((t) => t.workspace === activeWorkspace() && t.id !== activeId() && canTilePage(t));
+  /** Tabs already tiled in a *different* group. Picking one moves it here, since a
+   *  tab belongs to at most one tiling — flagged so that isn't a surprise. */
+  const tiledElsewhere = (id: number) => {
+    const cur = tileGroup();
+    return tileGroups().some((g) => g !== cur && g.tabs.includes(id));
+  };
+  /** Whether the current page can be tiled at all — see `canTilePage`. */
+  const canTile = () => {
+    const t = activeTab();
+    return t != null && canTilePage(t);
+  };
+  /** A real web page, i.e. one with a native webview behind the card. Flux's own
+   *  pages (any flux:// url) and files tabs are DOM. */
+  const isWebPage = () => {
+    const t = activeTab();
+    return t?.kind === "browser" && !isStartUrl(t.url);
+  };
   /** Tabs currently in the tiling, active tab first — the picker's selection. */
   const tileSel = () => {
     const g = tileGroup();
@@ -1057,76 +1084,89 @@ const Sidebar: Component<SidebarProps> = (props) => {
             (fetched right after boot, off the eager bundle). */}
         <FindBar />
 
-        {/* Page actions row — bookmark / reader / capture / save-to-Omni, below
-            the address bar (only for real web pages). */}
-        <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
+        {/* Page actions row, below the address bar. Split view applies to *any*
+            page — Flux's own pages, a terminal, a file browser — so the row shows
+            for every tab and only the web-page actions (bookmark, reader, capture,
+            translate…) are gated. It used to be gated as a whole, which left an
+            internal page with no ◫ at all and tileable only from the palette. */}
+        <Show when={canTile()}>
           <div class="page-actions">
-            <button
-              type="button"
-              classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
-              title={
-                props.isBookmarked() ? "Bookmarked — click to remove (Ctrl+D)" : "Bookmark this page (Ctrl+D)"
-              }
-              onClick={() => props.onToggleBookmark()}
-            >
-              {props.isBookmarked() ? "★" : "☆"}
-            </button>
+            <Show when={isWebPage()}>
+              <button
+                type="button"
+                classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
+                title={
+                  props.isBookmarked()
+                    ? "Bookmarked — click to remove (Ctrl+D)"
+                    : "Bookmark this page (Ctrl+D)"
+                }
+                onClick={() => props.onToggleBookmark()}
+              >
+                {props.isBookmarked() ? "★" : "☆"}
+              </button>
+            </Show>
             <button
               type="button"
               classList={{ "icon-btn": true, active: tileGroup() != null }}
-              title={tileGroup() ? "Exit split view" : "Split view — tile this page with up to three others"}
+              title={
+                tileGroup()
+                  ? "Split view — change the layout, add a pane, or exit"
+                  : "Split view — tile this page with up to three others"
+              }
               onClick={() => setSplitPicker(true)}
             >
               ◫
             </button>
-            <button
-              type="button"
-              classList={{ "icon-btn": true, active: readerOpen() }}
-              title="Reader mode"
-              onClick={() => props.onToggleReader()}
-            >
-              📖
-            </button>
-            <button
-              type="button"
-              class="icon-btn"
-              title="Capture page (screenshot)"
-              onClick={() => props.onCapture()}
-            >
-              📸
-            </button>
-            <button
-              type="button"
-              class="icon-btn"
-              title="Translate this page"
-              onClick={() => props.onTranslate()}
-            >
-              🌐
-            </button>
-            <button
-              type="button"
-              class="icon-btn"
-              title="Save for offline (read later)"
-              onClick={() => props.onArchive()}
-            >
-              📚
-            </button>
-            <button
-              type="button"
-              classList={{ "icon-btn": true, active: watched() }}
-              title={watched() ? "Watching for changes — click to manage" : "Watch this page for changes"}
-              onClick={toggleWatch}
-            >
-              👁
-            </button>
-            <button
-              type="button"
-              class="icon-btn"
-              title="Save this page to Omni (Ctrl+Shift+O)"
-              onClick={() => props.onSaveToOmni()}
-            >
-              ✦
-            </button>
+            <Show when={isWebPage()}>
+              <button
+                type="button"
+                classList={{ "icon-btn": true, active: readerOpen() }}
+                title="Reader mode"
+                onClick={() => props.onToggleReader()}
+              >
+                📖
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                title="Capture page (screenshot)"
+                onClick={() => props.onCapture()}
+              >
+                📸
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                title="Translate this page"
+                onClick={() => props.onTranslate()}
+              >
+                🌐
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                title="Save for offline (read later)"
+                onClick={() => props.onArchive()}
+              >
+                📚
+              </button>
+              <button
+                type="button"
+                classList={{ "icon-btn": true, active: watched() }}
+                title={watched() ? "Watching for changes — click to manage" : "Watch this page for changes"}
+                onClick={toggleWatch}
+              >
+                👁
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                title="Save this page to Omni (Ctrl+Shift+O)"
+                onClick={() => props.onSaveToOmni()}
+              >
+                ✦
+              </button>
+            </Show>
           </div>
         </Show>
 
@@ -1179,6 +1219,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
                       >
                         <Favicon tab={t} />
                         <span class="split-picker-label">{t.title || t.url}</span>
+                        <Show when={tiledElsewhere(t.id) && !tileSel().includes(t.id)}>
+                          <span
+                            class="split-picker-elsewhere"
+                            title="Already in another split — adding it here moves it"
+                          >
+                            ◫
+                          </span>
+                        </Show>
                         <Show when={tileSel().includes(t.id)}>
                           <span class="split-picker-tick">✓</span>
                         </Show>

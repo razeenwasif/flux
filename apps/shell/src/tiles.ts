@@ -212,3 +212,41 @@ export function tileSeams(o: Opts): Seam[] {
   }
   return out;
 }
+
+// ─── group algebra ──────────────────────────────────────────────────────────
+// Several tilings coexist (A|B and C|D both remembered). The rules below are
+// pure so they can be reasoned about and checked apart from the store's signals.
+
+/** Anything with a pane list — keeps these helpers independent of `TileGroup`'s
+ *  other fields, which only the store cares about. */
+export type Tiled = { tabs: number[] };
+
+/** Drop groups that no longer describe a split. Two panes is the minimum; one
+ *  pane is just a tab. */
+export const prunedGroups = <T extends Tiled>(groups: T[]): T[] => groups.filter((g) => g.tabs.length >= 2);
+
+/**
+ * Remove `tabId` from every group, dissolving any that falls below two panes.
+ * Groups that don't contain it are returned unchanged **by identity**, which is
+ * what lets the store patch a group by reference.
+ */
+export const dropTabFromGroups = <T extends Tiled>(groups: T[], tabId: number): T[] =>
+  prunedGroups(
+    groups.map((g) => (g.tabs.includes(tabId) ? { ...g, tabs: g.tabs.filter((t) => t !== tabId) } : g)),
+  );
+
+/**
+ * Free `ids` from whatever groups currently hold them, so they can form a new
+ * one. `replacing` (the group being rebuilt) is removed outright.
+ *
+ * A tab must belong to at most one tiling: if it were in two, switching to it
+ * would leave no way to say which split to show.
+ */
+export const claimTabs = <T extends Tiled>(groups: T[], ids: number[], replacing: T | null): T[] =>
+  prunedGroups(
+    groups
+      .filter((g) => g !== replacing)
+      .map((g) =>
+        g.tabs.some((t) => ids.includes(t)) ? { ...g, tabs: g.tabs.filter((t) => !ids.includes(t)) } : g,
+      ),
+  );

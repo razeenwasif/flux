@@ -6,7 +6,7 @@
 import { createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { setPendingCommand } from "./terminals";
-import { MAX_PANES, clampFrac, type TileLayout } from "./tiles";
+import { MAX_PANES, claimTabs, clampFrac, dropTabFromGroups, prunedGroups, type TileLayout } from "./tiles";
 import {
   type PhishVerdict,
   type OAuthConsent,
@@ -131,93 +131,127 @@ export { splitDragging, setSplitDragging };
 
 // ── Tiling (#43, generalized) ────────────────────────────────────────────────
 // Split view holds up to MAX_PANES tabs in a chosen preset layout, rather than
-// the original hard-coded pair. One group at a time: tiling several independent
-// groups was never used and doubles the state to reason about.
+// the original hard-coded pair.
+//
+// **Several independent groups coexist**, as the original pair model allowed: tab
+// A tiled with B, and C tiled with D, both remembered — switching to C shows C|D.
+// The first pass at this held one group at a time on the assumption that multiple
+// groups went unused; they didn't. A tab belongs to at most one group, and
+// `tileGroup()` means "the group the active tab is in", which is what every
+// consumer already wanted, so they need no notion of the list at all.
 export type TileGroup = { tabs: number[]; layout: TileLayout; main: number; sec: number };
-const loadTile = (): TileGroup | null => {
+const readGroup = (v: unknown): TileGroup | null => {
+  const o = v as Partial<TileGroup> | null;
+  if (!o || !Array.isArray(o.tabs)) return null;
+  const tabIds = o.tabs.filter((n: unknown) => typeof n === "number").slice(0, MAX_PANES);
+  if (tabIds.length < 2) return null;
+  return {
+    tabs: tabIds,
+    layout: (o.layout as TileLayout) ?? "cols",
+    main: typeof o.main === "number" ? o.main : 0.5,
+    sec: typeof o.sec === "number" ? o.sec : 0.5,
+  };
+};
+/** Saved groups. Accepts the single-object shape written by the previous build so
+ *  an existing split isn't silently dropped on upgrade. */
+const loadTiles = (): TileGroup[] => {
   try {
     const v = JSON.parse(localStorage.getItem(TILE_KEY) || "null");
-    if (!v || !Array.isArray(v.tabs)) return null;
-    return {
-      tabs: v.tabs.filter((n: unknown) => typeof n === "number").slice(0, MAX_PANES),
-      layout: (v.layout as TileLayout) ?? "cols",
-      main: typeof v.main === "number" ? v.main : 0.5,
-      sec: typeof v.sec === "number" ? v.sec : 0.5,
-    };
+    const list = Array.isArray(v) ? v : [v];
+    return list.map(readGroup).filter((g): g is TileGroup => g != null);
   } catch {
-    return null;
+    return [];
   }
 };
-const [tileGroup, setTileRaw] = createSignal<TileGroup | null>(null);
-export { tileGroup };
+const [tileGroups, setTileGroupsRaw] = createSignal<TileGroup[]>([]);
+export { tileGroups };
+/** The tiling the active tab belongs to, or null when it isn't in one. Switching
+ *  to an untiled tab shows it whole and leaves every group intact. */
+export const tileGroup = (): TileGroup | null => {
+  const id = activeId();
+  if (id == null) return null;
+  return tileGroups().find((g) => g.tabs.includes(id)) ?? null;
+};
 /** Persist the group. Debounced, because a seam drag calls this on every pointer
  *  move: `localStorage.setItem` is synchronous and JSON-encodes the group, which
  *  at 60Hz is enough to make dragging visibly stutter. The signal still updates
  *  immediately — only the write to disk waits for the gesture to settle. */
 let tilePersistTimer = 0;
-function persistTile(g: TileGroup | null): void {
+function persistTiles(gs: TileGroup[]): void {
   clearTimeout(tilePersistTimer);
   tilePersistTimer = window.setTimeout(() => {
     try {
-      if (g) localStorage.setItem(TILE_KEY, JSON.stringify(g));
+      if (gs.length) localStorage.setItem(TILE_KEY, JSON.stringify(gs));
       else localStorage.removeItem(TILE_KEY);
     } catch {
       /* private mode */
     }
   }, 250);
 }
-function writeTile(g: TileGroup | null): void {
-  setTileRaw(g);
-  persistTile(g);
+function writeTiles(gs: TileGroup[]): void {
+  setTileGroupsRaw(gs);
+  persistTiles(gs);
 }
-/** Tile these tabs (max MAX_PANES) in `layout`, focusing the first. */
+/** Replace the active tab's group. Patches by identity — `tileGroup()` returns an
+ *  element of the list, so no id is needed to find it again. */
+function patchActiveGroup(patch: (g: TileGroup) => TileGroup): void {
+  const cur = tileGroup();
+  if (!cur) return;
+  writeTiles(tileGroups().map((g) => (g === cur ? patch(g) : g)));
+}
+/** Tile these tabs (max MAX_PANES) in `layout`, focusing the first.
+ *
+ *  The chosen tabs are pulled out of any group they were already in, so a tab is
+ *  never in two tilings at once — otherwise switching to it would be ambiguous. */
 export function setTile(tabIds: number[], layout: TileLayout): void {
   const ids = [...new Set(tabIds)].slice(0, MAX_PANES);
+  const rest = claimTabs(tileGroups(), ids, tileGroup());
   if (ids.length < 2) {
-    writeTile(null);
+    writeTiles(rest);
     return;
   }
-  writeTile({ tabs: ids, layout, main: 0.5, sec: 0.5 });
+  writeTiles([...rest, { tabs: ids, layout, main: 0.5, sec: 0.5 }]);
   void focusTab(ids[0]!);
 }
 export function setTileLayout(layout: TileLayout): void {
-  const g = tileGroup();
-  if (g) writeTile({ ...g, layout });
+  patchActiveGroup((g) => ({ ...g, layout }));
 }
 export function setTileRatio(key: "main" | "sec", v: number): void {
-  const g = tileGroup();
-  if (g) writeTile({ ...g, [key]: clampFrac(v) });
+  patchActiveGroup((g) => ({ ...g, [key]: clampFrac(v) }));
 }
-/** Drop a tab from the tiling (or clear it entirely below two panes). */
+/** Drop a tab from whichever group holds it, dissolving that group if it falls
+ *  below two panes. Other groups are untouched. */
 export function untile(id?: number): void {
-  const g = tileGroup();
-  if (!g) return;
   const target = id ?? activeId();
-  const rest = g.tabs.filter((t) => t !== target);
-  writeTile(rest.length >= 2 ? { ...g, tabs: rest } : null);
+  if (target == null) return;
+  writeTiles(dropTabFromGroups(tileGroups(), target));
 }
+/** Exit the split the active tab is in. Other groups survive — "exit split" means
+ *  this one, not every one. */
 export function clearTile(): void {
-  writeTile(null);
+  const cur = tileGroup();
+  if (!cur) return;
+  writeTiles(tileGroups().filter((g) => g !== cur));
 }
-/** The tabs to tile, or null when the group isn't showable — fewer than two
- *  members survive, or the active tab isn't one of them (switching to an
- *  unrelated tab pauses the tiling, as the pair model did). */
+/** The tabs to tile, or null when the active tab's group isn't showable — fewer
+ *  than two members survive in this workspace. Switching to an unrelated tab
+ *  pauses its tiling rather than dissolving it, as the pair model did.
+ *
+ *  `kind !== "terminal"` and not `kind === "browser"`: Files tabs and Flux's own
+ *  pages render into a tile slot through `pageFor`, and requiring "browser" here
+ *  silently dropped a Files pane. Terminals can't tile — see `canTilePage` in
+ *  Sidebar for why. */
 export const tilePanes = (): TabMeta[] | null => {
   const g = tileGroup();
   if (!g) return null;
-  const ok = (t?: TabMeta) => !!t && t.kind === "browser" && t.workspace === activeWorkspace();
+  const ok = (t?: TabMeta) => !!t && t.kind !== "terminal" && t.workspace === activeWorkspace();
   const members = g.tabs.map((id) => tabs().find((t) => t.id === id)).filter((t): t is TabMeta => ok(t));
-  if (members.length < 2) return null;
-  if (!members.some((t) => t.id === activeId())) return null;
-  return members;
+  return members.length >= 2 ? members : null;
 };
-/** Re-hydrate the saved group once tabs exist, dropping members that don't. */
+/** Re-hydrate the saved groups once tabs exist, dropping members that don't. */
 export function restoreTile(): void {
-  const g = loadTile();
-  if (!g) return;
   const existing = new Set(tabs().map((t) => t.id));
-  const kept = g.tabs.filter((id) => existing.has(id));
-  writeTile(kept.length >= 2 ? { ...g, tabs: kept } : null);
+  writeTiles(prunedGroups(loadTiles().map((g) => ({ ...g, tabs: g.tabs.filter((id) => existing.has(id)) }))));
 }
 
 // Web panels (BACKLOG #48): pinned sites shown in a slim pane beside any tab.
