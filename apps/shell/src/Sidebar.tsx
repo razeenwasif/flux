@@ -133,7 +133,7 @@ import {
 } from "./store";
 import { visibleInterval } from "./poll";
 import { Favicon, PanelIcon, clusterColor } from "./tabvisual";
-import { LAYOUT_LABEL, MAX_PANES, layoutsFor } from "./tiles";
+import { LAYOUT_LABEL, MAX_PANES, layoutsFor, stripRows, type StripRow } from "./tiles";
 import {
   For,
   Show,
@@ -271,11 +271,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const canTilePage = (t: TabMeta) => t.kind !== "terminal";
   const splitCandidates = () =>
     tabs().filter((t) => t.workspace === activeWorkspace() && t.id !== activeId() && canTilePage(t));
+  /** The group holding `id`, if any. Distinct from `tileGroup()`, which is only
+   *  the group the *active* tab is in: the tab strip and the context menu have to
+   *  reflect every split, not just the one currently on screen. */
+  const groupOf = (id: number) => tileGroups().find((g) => g.tabs.includes(id)) ?? null;
   /** Tabs already tiled in a *different* group. Picking one moves it here, since a
    *  tab belongs to at most one tiling — flagged so that isn't a surprise. */
   const tiledElsewhere = (id: number) => {
-    const cur = tileGroup();
-    return tileGroups().some((g) => g !== cur && g.tabs.includes(id));
+    const g = groupOf(id);
+    return g != null && g !== tileGroup();
   };
   /** Whether the current page can be tiled at all — see `canTilePage`. */
   const canTile = () => {
@@ -575,32 +579,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
     </div>
   );
 
-  /** Tabs in the strip, with the tiled ones collected into one row so a split
-   *  reads as a unit rather than as scattered siblings. */
-  const ungroupedItems = createMemo(
-    (): ({ kind: "tab"; tab: TabMeta } | { kind: "split"; members: TabMeta[] })[] => {
-      const list = ungroupedTabs();
-      const ids = new Set(list.map((t) => t.id));
-      const tiled = (tileGroup()?.tabs ?? []).filter((id) => ids.has(id));
-      const inTile = new Set(tiled);
-      let emitted = false;
-      const out: ({ kind: "tab"; tab: TabMeta } | { kind: "split"; members: TabMeta[] })[] = [];
-      for (const t of list) {
-        if (inTile.has(t.id)) {
-          // Emit the whole group once, at its first member's position.
-          if (emitted) continue;
-          emitted = true;
-          out.push({
-            kind: "split",
-            members: tiled.map((id) => list.find((x) => x.id === id)!).filter(Boolean),
-          });
-          continue;
-        }
-        out.push({ kind: "tab", tab: t });
-      }
-      return out;
-    },
-  );
+  /** Tabs in the strip, with each split collected into one row so it reads as a
+   *  unit rather than as scattered siblings.
+   *
+   *  **Every** group gets a row, keyed off `tileGroups()` rather than the active
+   *  one. Using `tileGroup()` here meant a split visually dissolved the moment you
+   *  clicked away to an unrelated tab and re-formed when you clicked back, and a
+   *  second split could never be seen at all — only one row was ever emitted. */
+  const ungroupedItems = createMemo((): StripRow<TabMeta>[] => stripRows(ungroupedTabs(), tileGroups()));
 
   const openPanel = async (p: FooterPanel) => {
     setPanel((cur) => (cur === p ? null : p));
@@ -1516,15 +1502,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   Remove from group
                 </button>
               </Show>
-              <Show
-                when={
-                  t().kind === "browser" &&
-                  !isStartUrl(t().url) &&
-                  activeTab()?.kind === "browser" &&
-                  !isStartUrl(activeTab()!.url) &&
-                  activeId() !== t().id
-                }
-              >
+              {/* Both pages must be tileable — the same rule the ◫ and the picker
+                  use. This was gated on "is a real web page" too, so a Flux page
+                  never offered it either. */}
+              <Show when={canTilePage(t()) && canTile() && activeId() !== t().id}>
                 <div class="ctx-sep" />
                 <button
                   onClick={() => {
@@ -1535,7 +1516,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   ⊟ Split with current tab
                 </button>
               </Show>
-              <Show when={tileGroup()?.tabs.includes(t().id)}>
+              <Show when={groupOf(t().id) != null}>
                 <button
                   onClick={() => {
                     untile(t().id);

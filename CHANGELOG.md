@@ -240,6 +240,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Splits vanished from the tab strip when you clicked away, and a second split was never
+  visible.** Both symptoms were one bug: the strip collapsed tiled tabs into a row using
+  `tileGroup()` — the group the *active* tab is in — and emitted at most one such row. So a
+  split dissolved into loose tabs the moment you focused an unrelated tab and re-formed when you
+  clicked back, and with two splits open only the active one could ever be drawn. The strip is
+  now built from every group. The tiling itself was working: both splits were live in the
+  content area the whole time, which is why "multiple tiling doesn't work" and "the tabs
+  ungroup" turned out to be the same report.
+- **A Flux page never offered "⊟ Split with current tab"** in the tab context menu — the fourth
+  place gated on "is a real web page", after the ◫ row, the picker's candidates and `tilePanes`.
+  It now uses the same tileable-page rule as the rest. "Exit split view" likewise appears for a
+  tab in any group, not only the active one.
 - **Launching Flux from inside a tmux session broke terminal persistence.** Flux's whole process
   tree inherited `$TMUX`, so wrapping the shell in `tmux new-session` looked like nesting and
   tmux refused with *"sessions should be nested with care, unset $TMUX to force"* — leaving the

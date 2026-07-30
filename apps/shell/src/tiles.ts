@@ -250,3 +250,38 @@ export const claimTabs = <T extends Tiled>(groups: T[], ids: number[], replacing
         g.tabs.some((t) => ids.includes(t)) ? { ...g, tabs: g.tabs.filter((t) => !ids.includes(t)) } : g,
       ),
   );
+
+/** One row of the tab strip: a lone tab, or a whole tiling shown as a unit. */
+export type StripRow<T> = { kind: "tab"; tab: T } | { kind: "split"; members: T[] };
+
+/**
+ * Collapse a tab strip so each tiling occupies a single row, at the position of
+ * its first member.
+ *
+ * Driven by **every** group rather than the active one: a split must stay a
+ * visual unit while you work in an unrelated tab, and two splits must both be
+ * visible. A group is only drawn as a row if at least two of its members are in
+ * this strip — otherwise its members appear as ordinary tabs, since one pane
+ * isn't a split.
+ */
+export function stripRows<T extends { id: number }>(list: T[], groups: Tiled[]): StripRow<T>[] {
+  const byId = new Map(list.map((t) => [t.id, t]));
+  const present = groups
+    .map((g) => g.tabs.filter((id) => byId.has(id)))
+    .filter((members) => members.length >= 2);
+  const rowOf = new Map<number, number>();
+  present.forEach((members, gi) => members.forEach((id) => rowOf.set(id, gi)));
+  const emitted = new Set<number>();
+  const out: StripRow<T>[] = [];
+  for (const t of list) {
+    const gi = rowOf.get(t.id);
+    if (gi === undefined) {
+      out.push({ kind: "tab", tab: t });
+      continue;
+    }
+    if (emitted.has(gi)) continue;
+    emitted.add(gi);
+    out.push({ kind: "split", members: present[gi]!.map((id) => byId.get(id)!) });
+  }
+  return out;
+}
