@@ -566,3 +566,41 @@ mod tests {
         assert_eq!(d.as_bytes()[7], b'-');
     }
 }
+
+/// A suggested spelling/grammar fix in a page (mirrors the agent's `TextFix` so
+/// the frontend gets a bindings type without depending on `flux-agent`).
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct TextFix {
+    pub before: String,
+    pub after: String,
+    pub why: String,
+}
+
+/// Proofread a Scribe page with the local model — spelling, grammar and
+/// punctuation only.
+///
+/// Nothing is applied here: this returns *suggestions*, each one already checked
+/// to be a verbatim span of the text that was sent (see `validate_fixes`), and
+/// the user accepts or dismisses each in the editor. An empty list is the honest
+/// answer both when the writing is clean and when there's no model to ask, so a
+/// missing Ollama never looks like a page full of mistakes.
+#[tauri::command]
+pub async fn scribe_proofread(text: String) -> Result<Vec<TextFix>, String> {
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let fixes = tauri::async_runtime::spawn_blocking(move || {
+        crate::agent_bridge::planner().proofread(&text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(fixes
+        .into_iter()
+        .map(|f| TextFix {
+            before: f.before,
+            after: f.after,
+            why: f.why,
+        })
+        .collect())
+}

@@ -99,6 +99,26 @@ with the page's actual text instead of only embedding a picture of it.
   for an eventual iPad target (though the iOS build itself needs a Mac + Xcode;
   Flux has no `gen/apple/` yet).
 
+### Proofreading (added after the document rewrite)
+
+Once a page was real prose rather than ink, the obvious use of a local model was
+not transcription but **correction**. `scribe_proofread` sends the page text to
+Gemma and gets back `{before, after, why}` suggestions, shown in a panel with per
+-item Apply; nothing is changed until the user accepts it.
+
+The design decision worth recording is that **the model's output is validated
+against the text that was sent** (`validate_fixes`): a suggestion whose `before`
+is not a verbatim substring of the page is discarded, along with no-ops,
+duplicates, and any span over 120 characters. Without that check a model that
+paraphrases the passage yields an Apply button with nothing to apply itself to —
+a silent failure of exactly the kind this codebase keeps paying for. The 120-char
+ceiling is also what keeps the feature *proofreading* rather than rewriting: a
+long span means the model decided to redraft a sentence, which was not asked for.
+
+The page text is fenced as untrusted even though the user wrote it — notes get
+pasted into, and a proofread has no business obeying instructions that turn up in
+the prose it is correcting.
+
 ## Deferred (fast-follows)
 
 - **Gemma page → LaTeX/Markdown transcription** — the headline follow-up. The
@@ -107,4 +127,7 @@ with the page's actual text instead of only embedding a picture of it.
   after the foundation.
 - Native stylus fidelity; more templates (Cornell, staff paper); lasso
   select/move; page reorder.
+- **Font size and a symbol palette in the document toolbar.** Both exist in the
+  ink engine, which the document rewrite demoted to the Draw pane — so they are
+  currently unreachable while typing.
 - Two-way Onyx — not planned (infeasible for ink).

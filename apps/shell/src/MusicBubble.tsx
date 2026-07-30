@@ -1,6 +1,10 @@
 /**
- * Music bubble (#125) — a floating Siri-style orb pinned to Flux's right edge that
- * expands on hover into a TALL VERTICAL mini-player for AudioPulse/Spotify. Drives
+ * Music bubble (#125) — a floating Siri-style orb that expands on hover into a
+ * TALL VERTICAL mini-player for AudioPulse/Spotify. **Drag the orb to park it
+ * anywhere**; the position persists. It used to be pinned to the right edge,
+ * vertically centred, where it sat on top of the connections rail and hid the
+ * middle of the list — an overlay always covers something, so the answer is being
+ * able to move it. Drives
  * the same Spotify Connect playback AudioPulse uses (Flux's spotify backend).
  * Every action surfaces its result/error as a toast (no more silent failures).
  * The orb breathes while playing (real beat-synced visualiser is #126).
@@ -26,6 +30,8 @@ import {
   type SpotifyState,
 } from "./ipc";
 
+type Pos = { x: number; y: number };
+
 const fmt = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -40,6 +46,81 @@ const MusicBubble: Component = () => {
   const [toast, setToast] = createSignal<string | null>(null);
   const [vizLive, setVizLive] = createSignal(false);
   const expanded = () => hovering() || menuOpen();
+
+  // ── where the bubble sits ──────────────────────────────────────────────────
+  // Stored as the top-left corner in viewport pixels, defaulting to the bottom
+  // right — over the tail of the connections rail rather than its middle.
+  const POS_KEY = "flux.music.pos";
+  const PAD = 12;
+  const COLLAPSED = 56;
+  const size = () => (expanded() ? { w: 86, h: 386 } : { w: COLLAPSED, h: COLLAPSED });
+  const clampTo = (p: Pos, w: number, h: number): Pos => ({
+    x: Math.max(PAD, Math.min(window.innerWidth - w - PAD, p.x)),
+    y: Math.max(PAD, Math.min(window.innerHeight - h - PAD, p.y)),
+  });
+  const [pos, setPos] = createSignal<Pos>(
+    (() => {
+      try {
+        const raw = localStorage.getItem(POS_KEY);
+        if (raw) {
+          const p = JSON.parse(raw) as Pos;
+          if (Number.isFinite(p.x) && Number.isFinite(p.y)) return clampTo(p, COLLAPSED, COLLAPSED);
+        }
+      } catch {
+        /* unreadable — fall through to the default corner */
+      }
+      return {
+        x: window.innerWidth - COLLAPSED - PAD,
+        y: window.innerHeight - COLLAPSED - PAD,
+      };
+    })(),
+  );
+  const [dragging, setDragging] = createSignal(false);
+  /** Where it actually renders: the stored corner, pulled back on screen for the
+   *  size it currently is. Expanding near an edge slides the card into view
+   *  instead of moving where the bubble is parked. */
+  const shown = () => {
+    const { w, h } = size();
+    return clampTo(pos(), w, h);
+  };
+
+  const startDrag = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const from = pos();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let moved = false;
+    const move = (me: PointerEvent) => {
+      // A few pixels of slop, so a click on the orb isn't read as a drag.
+      if (!moved && Math.hypot(me.clientX - sx, me.clientY - sy) < 3) return;
+      moved = true;
+      setDragging(true);
+      const { w, h } = size();
+      setPos(clampTo({ x: from.x + (me.clientX - sx), y: from.y + (me.clientY - sy) }, w, h));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setDragging(false);
+      if (!moved) return;
+      try {
+        localStorage.setItem(POS_KEY, JSON.stringify(pos()));
+      } catch {
+        /* private mode / quota — it just won't survive a restart */
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  // A window resize can strand the bubble outside the viewport; clamp it back to
+  // the collapsed footprint so it's always grabbable again.
+  onMount(() => {
+    const onResize = () => setPos((p) => clampTo(p, COLLAPSED, COLLAPSED));
+    window.addEventListener("resize", onResize);
+    onCleanup(() => window.removeEventListener("resize", onResize));
+  });
 
   // Real beat-synced visualiser (#126): the audioviz helper streams audio levels;
   // we write them straight to CSS vars on the orb (bypassing Solid for the 40fps
@@ -125,6 +206,7 @@ const MusicBubble: Component = () => {
     }
   };
   const leave = () => {
+    if (dragging()) return; // don't collapse out from under a drag
     clearTimeout(leaveT);
     leaveT = window.setTimeout(() => setHovering(false), 280);
   };
@@ -164,7 +246,13 @@ const MusicBubble: Component = () => {
   const artBg = () => (st()?.art ? `url("${st()!.art}")` : undefined);
 
   return (
-    <div class="music-wrap" onMouseEnter={enter} onMouseLeave={leave}>
+    <div
+      class="music-wrap"
+      classList={{ dragging: dragging() }}
+      style={{ left: `${shown().x}px`, top: `${shown().y}px` }}
+      onMouseEnter={enter}
+      onMouseLeave={leave}
+    >
       <Show when={toast()}>
         <div class="music-toast">{toast()}</div>
       </Show>
@@ -179,7 +267,14 @@ const MusicBubble: Component = () => {
           viz: vizLive(),
         }}
       >
-        <div class="music-orb" style={{ "background-image": artBg() }}>
+        {/* The orb is the drag handle — it has no click action of its own, and
+            it's the one part present in both the collapsed and expanded card. */}
+        <div
+          class="music-orb"
+          title="Drag to move the player"
+          style={{ "background-image": artBg() }}
+          onPointerDown={startDrag}
+        >
           <div class="music-orb-glow" />
           <Show when={!expanded() && playing()}>
             <span class="music-orb-eq">

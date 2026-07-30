@@ -22,6 +22,7 @@ import {
   todoEdit,
   todoRemove,
   todoSetProfile,
+  todosReorder,
   todoToggle,
   todosList,
   type Todo,
@@ -257,15 +258,46 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     void todosList()
       .then(setTodos)
       .catch(() => {});
-  /** Tasks in the selected profile. Tasks saved before profiles existed carry
-   *  "" and show in the first profile, so nothing becomes invisible. */
+  /** Tasks in the selected profile, in the order the store holds them — which is
+   *  the order the user dragged them into. Completed tasks deliberately stay
+   *  where they are rather than sinking, so a drag never silently snaps back. */
   const profileTodos = createMemo(() => {
     const p = profile();
     const first = profiles()[0];
-    return todos()
-      .filter((t) => t.profile === p || (!t.profile && p === first))
-      .sort((a, b) => Number(a.done) - Number(b.done) || a.created_ms - b.created_ms);
+    return todos().filter((t) => t.profile === p || (!t.profile && p === first));
   });
+
+  // ── Drag to reorder ────────────────────────────────────────────────────────
+  const [dragId, setDragId] = createSignal<number | null>(null);
+  const [dropAt, setDropAt] = createSignal<{ id: number; below: boolean } | null>(null);
+  /** The same in-slot permutation the Rust store does, so the optimistic view
+   *  matches what comes back from disk instead of flickering into place. */
+  const reorderIn = (all: Todo[], ids: number[]): Todo[] => {
+    const slots = all.map((t, i) => ({ t, i })).filter(({ t }) => ids.includes(t.id));
+    const seq = ids.map((id) => all.find((t) => t.id === id)).filter((t): t is Todo => !!t);
+    const out = [...all];
+    slots.forEach(({ i }, k) => {
+      const t = seq[k];
+      if (t) out[i] = t;
+    });
+    return out;
+  };
+  /** Drop the dragged task just before or after `to`. */
+  const dropTask = (to: number, below: boolean) => {
+    const from = dragId();
+    setDragId(null);
+    setDropAt(null);
+    if (from === null || from === to) return;
+    const rest = profileTodos()
+      .map((t) => t.id)
+      .filter((i) => i !== from);
+    const at = rest.indexOf(to);
+    if (at < 0) return;
+    const cut = at + (below ? 1 : 0);
+    const next = [...rest.slice(0, cut), from, ...rest.slice(cut)];
+    setTodos(reorderIn(todos(), next));
+    void todosReorder(next).then(refreshTodos).catch(refreshTodos);
+  };
   const addTask = () => {
     const title = newTask().trim();
     if (!title) return;
@@ -720,7 +752,42 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
               fallback={<div class="cal-pop-empty">Nothing in {profile()} yet.</div>}
             >
               {(t) => (
-                <div classList={{ "cal-task": true, done: t.done }}>
+                <div
+                  classList={{
+                    "cal-task": true,
+                    done: t.done,
+                    dragging: dragId() === t.id,
+                    "drop-above": dropAt()?.id === t.id && !dropAt()!.below,
+                    "drop-below": dropAt()?.id === t.id && dropAt()!.below,
+                  }}
+                  /* Not while renaming — the inline input needs its own text
+                     selection, which a draggable ancestor would steal. */
+                  draggable={editTask() !== t.id}
+                  onDragStart={(e) => {
+                    setDragId(t.id);
+                    if (e.dataTransfer) {
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", String(t.id));
+                    }
+                  }}
+                  onDragEnd={() => {
+                    setDragId(null);
+                    setDropAt(null);
+                  }}
+                  onDragOver={(e) => {
+                    if (dragId() === null) return; // a drag from outside the list
+                    e.preventDefault();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setDropAt({ id: t.id, below: e.clientY > r.top + r.height / 2 });
+                  }}
+                  onDragLeave={() => {
+                    if (dropAt()?.id === t.id) setDropAt(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    dropTask(t.id, dropAt()?.below ?? false);
+                  }}
+                >
                   <div class="cal-task-row">
                     <button
                       class="cal-task-box"

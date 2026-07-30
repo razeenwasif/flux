@@ -145,6 +145,12 @@ const RELATED_MIN_SCORE: u32 = 30;
 /// Sources Flux knows how to pull (Onyx vault notes, Scroll papers, Council briefs).
 pub const SOURCES: &[&str] = &["onyx", "scroll", "council", "web", "scribe"];
 
+/// The corpora the user **authored**, as opposed to `web` — pages they merely
+/// visited, captured by the Trail. The connections rail draws from these only:
+/// the Trail has its own graph in the sidebar, so surfacing visited pages here
+/// too was showing the same browsing history twice.
+pub const OWN_SOURCES: &[&str] = &["onyx", "scroll", "council", "scribe"];
+
 /// A document yielded by a connector, before chunking/embedding.
 #[derive(Clone)]
 pub struct RawDoc {
@@ -1034,6 +1040,9 @@ pub async fn kb_query(
 /// currently-open page, queried with the page's captured text. Returns only
 /// genuinely-related hits (score-thresholded) so the rail stays quiet on a page
 /// nothing in your corpus touches.
+///
+/// Restricted to [`OWN_SOURCES`] — your notes, papers, debates and Scribe pages.
+/// Visited pages live in the Trail, which has its own graph.
 #[tauri::command]
 pub async fn kb_related(
     kb: State<'_, KbStore>,
@@ -1054,7 +1063,8 @@ pub async fn kb_related(
     let kb = (*kb).clone();
     let limit = limit.unwrap_or(6).clamp(1, 20);
     tauri::async_runtime::spawn_blocking(move || {
-        let hits = kb.query(&query, limit, None)?;
+        let own = OWN_SOURCES.iter().map(|s| s.to_string()).collect();
+        let hits = kb.query(&query, limit, Some(own))?;
         Ok(hits
             .into_iter()
             .filter(|h| h.score >= RELATED_MIN_SCORE)

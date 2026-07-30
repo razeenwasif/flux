@@ -20,6 +20,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
 import InkCanvas, { renderStrokesScaled, type InkApi, type Stroke } from "./InkCanvas";
+import { scribeProofread, type TextFix } from "./ipc";
 
 export type InkObject = { id: string; src: string; x: number; y: number; w: number; h: number };
 export type DocModel = { v: 2; html: string; objects: InkObject[] };
@@ -122,6 +123,13 @@ const ScribeDoc: Component<Props> = (props) => {
   let inkApi: InkApi | null = null;
   let padStrokes: Stroke[] = [];
 
+  // Gemma's proofreading suggestions. `null` means "not asked yet", which is a
+  // different thing from an empty list ("asked, nothing wrong") — and the panel
+  // says which, so a clean page never looks like a failed check.
+  const [fixes, setFixes] = createSignal<TextFix[] | null>(null);
+  const [checking, setChecking] = createSignal(false);
+  const [fixErr, setFixErr] = createSignal("");
+
   /** Serialize the current page. The editor owns its own DOM, so the HTML is
    *  read out of it rather than mirrored in a signal — mirroring would fight the
    *  caret on every keystroke. */
@@ -152,6 +160,102 @@ const ScribeDoc: Component<Props> = (props) => {
     body.focus();
     document.execCommand(name, false, arg);
     emit();
+  };
+
+  // ── Tab to indent ──
+  // A contenteditable does nothing useful with Tab: the browser moves focus out
+  // of the document entirely, which is why pressing it appeared to do nothing.
+  const INDENT_STEP = 40; // one Docs-sized stop
+  const MAX_INDENT = 360;
+  const BLOCK_SEL = "p,h1,h2,h3,h4,li,blockquote,pre,div";
+
+  /** The blocks the selection touches, innermost only — so a paragraph inside a
+   *  list item isn't indented twice for one keypress. */
+  const selectedBlocks = (): HTMLElement[] => {
+    const sel = window.getSelection();
+    if (!sel?.rangeCount || !sel.focusNode || !body.contains(sel.focusNode)) return [];
+    const range = sel.getRangeAt(0);
+    const hit = Array.from(body.querySelectorAll<HTMLElement>(BLOCK_SEL)).filter((el) =>
+      range.intersectsNode(el),
+    );
+    return hit.filter((el) => !hit.some((other) => other !== el && el.contains(other)));
+  };
+
+  const indent = (outward: boolean) => {
+    let blocks = selectedBlocks();
+    // A page that's only ever been typed into holds its text directly in the
+    // editor, with no block to move — so give it one first.
+    if (!blocks.length) {
+      document.execCommand("formatBlock", false, "p");
+      blocks = selectedBlocks();
+      if (!blocks.length) return;
+    }
+    if (blocks.some((el) => el.tagName === "LI")) {
+      // Lists nest through the native command, which produces the right markup.
+      document.execCommand(outward ? "outdent" : "indent");
+    } else {
+      for (const el of blocks) {
+        const cur = parseFloat(el.style.marginLeft) || 0;
+        const next = Math.min(MAX_INDENT, Math.max(0, cur + (outward ? -INDENT_STEP : INDENT_STEP)));
+        el.style.marginLeft = next ? `${next}px` : "";
+      }
+    }
+    emit();
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    indent(e.shiftKey);
+  };
+
+  // ── proofreading ──
+  const proofread = async () => {
+    const text = body.innerText.trim();
+    setFixErr("");
+    if (!text) {
+      setFixes([]);
+      return;
+    }
+    setChecking(true);
+    try {
+      setFixes(await scribeProofread(text));
+    } catch (e) {
+      // Say what went wrong. An empty panel here would read as "no mistakes".
+      setFixes(null);
+      setFixErr(String(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  /** Apply one suggestion by editing the text node that holds it, so the
+   *  formatting around it survives — correcting a bold word leaves it bold.
+   *  (Writing a text node does collapse the caret to the start of that node, but
+   *  focus is on this button when it happens, so nothing visible moves.)
+   *
+   *  It can miss: the page may have been edited since the check, or the span may
+   *  straddle two nodes (half of it bold). That's reported rather than swallowed
+   *  — a button that silently does nothing is worse than no button. */
+  const applyFix = (f: TextFix): boolean => {
+    const walk = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const v = n.nodeValue ?? "";
+      const i = v.indexOf(f.before);
+      if (i < 0) continue;
+      n.nodeValue = v.slice(0, i) + f.after + v.slice(i + f.before.length);
+      setFixes((all) => all?.filter((x) => x !== f) ?? null);
+      emit();
+      return true;
+    }
+    setFixErr(`Couldn't find “${f.before}” — the text changed, or it spans formatting.`);
+    return false;
+  };
+
+  const applyAll = () => {
+    setFixErr("");
+    const missed = (fixes() ?? []).filter((f) => !applyFix(f)).length;
+    if (missed) setFixErr(`${missed} suggestion${missed > 1 ? "s" : ""} no longer match the text.`);
   };
 
   // ── ink objects ──
@@ -246,6 +350,14 @@ const ScribeDoc: Component<Props> = (props) => {
         </button>
         <span style={{ flex: 1 }} />
         <button
+          class="sdoc-check"
+          title="Check spelling and grammar with Gemma (local)"
+          disabled={checking()}
+          onClick={() => void proofread()}
+        >
+          {checking() ? "Checking…" : "✓ Proofread"}
+        </button>
+        <button
           class="sdoc-draw"
           title="Draw an equation or diagram to insert"
           onClick={() => setDrawing(true)}
@@ -253,6 +365,50 @@ const ScribeDoc: Component<Props> = (props) => {
           ✏️ Draw
         </button>
       </div>
+
+      {/* Suggestions live beside the page, never inside it: nothing is changed
+          until you accept it. */}
+      <Show when={checking() || fixErr() || fixes()}>
+        <div class="sdoc-fixes">
+          <div class="sdoc-fixes-head">
+            <span>Gemma — spelling &amp; grammar</span>
+            <span style={{ flex: 1 }} />
+            <Show when={(fixes()?.length ?? 0) > 1}>
+              <button onClick={applyAll}>Apply all</button>
+            </Show>
+            <button
+              title="Dismiss"
+              onClick={() => {
+                setFixes(null);
+                setFixErr("");
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <Show when={fixErr()}>
+            <p class="sdoc-fixes-err">{fixErr()}</p>
+          </Show>
+          <Show when={!checking() && fixes()?.length === 0}>
+            <p class="sdoc-fixes-note">Nothing to fix — spelling and grammar look right.</p>
+          </Show>
+          <For each={fixes() ?? []}>
+            {(f) => (
+              <div class="sdoc-fix">
+                <span class="sdoc-fix-before">{f.before}</span>
+                <span class="sdoc-fix-arrow">→</span>
+                <span class="sdoc-fix-after">{f.after}</span>
+                <span class="sdoc-fix-why">{f.why}</span>
+                <span style={{ flex: 1 }} />
+                <button onClick={() => applyFix(f)}>Apply</button>
+                <button title="Ignore" onClick={() => setFixes((all) => all?.filter((x) => x !== f) ?? null)}>
+                  ✕
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
 
       <div class="sdoc-scroll" ref={measure}>
         <div class="sdoc-sizer" style={{ width: `${DOC_W * scale()}px`, height: `${DOC_H * scale()}px` }}>
@@ -275,6 +431,7 @@ const ScribeDoc: Component<Props> = (props) => {
               spellcheck={true}
               onInput={emit}
               onBlur={emit}
+              onKeyDown={onKeyDown}
             />
             {/* Ink sits above the text as free-floating objects. */}
             <For each={objects()}>

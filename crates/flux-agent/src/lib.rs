@@ -393,6 +393,27 @@ pub struct ReadingSection {
     pub label: String,
 }
 
+/// One suggested spelling/grammar fix in a Scribe page.
+///
+/// `before` is an **exact substring of the text that was sent** — the validator
+/// drops anything else, which is what stops a wandering model from proposing a
+/// passage the page doesn't contain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextFix {
+    /// The text as written.
+    pub before: String,
+    /// What it should say.
+    pub after: String,
+    /// One short phrase naming the mistake ("subject-verb agreement").
+    pub why: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TextFixList {
+    #[serde(default)]
+    fixes: Vec<TextFix>,
+}
+
 /// One notable clause found in a privacy policy / ToS (ADR 0013, Pillar 3 M5).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyFlag {
@@ -551,6 +572,45 @@ pub fn validate_reading_structure(mut s: ReadingStructure, n_headings: usize) ->
     s.sections.truncate(12);
     s.sections.sort_by_key(|sec| sec.i);
     s
+}
+
+/// Keep only fixes that are safe to offer. This is the whole trust model for
+/// proofreading: the model proposes, and every proposal is checked against the
+/// text the user actually wrote before it reaches them.
+///
+/// - `before` must appear **verbatim** in `source`. A fix the page doesn't
+///   contain can't be applied, so offering it would only be a broken button.
+/// - `before` must be short. A long span means the model decided to rewrite a
+///   sentence, which is not what "autocorrect my spelling" asked for.
+/// - No-ops and duplicate spans are dropped, and the list is capped, so the
+///   panel stays reviewable rather than becoming a wall of edits.
+pub fn validate_fixes(fixes: Vec<TextFix>, source: &str) -> Vec<TextFix> {
+    /// Long enough for a clause, short enough that it can't be a rewrite.
+    const MAX_BEFORE: usize = 120;
+    const MAX_FIXES: usize = 12;
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<TextFix> = Vec::new();
+    for mut f in fixes {
+        f.before = f.before.trim().to_string();
+        f.after = f.after.trim().to_string();
+        f.why = f.why.trim().to_string();
+        if f.before.is_empty()
+            || f.before == f.after
+            || f.before.chars().count() > MAX_BEFORE
+            || !source.contains(&f.before)
+            || !seen.insert(f.before.clone())
+        {
+            continue;
+        }
+        if f.why.chars().count() > 60 {
+            f.why = f.why.chars().take(60).collect();
+        }
+        out.push(f);
+        if out.len() == MAX_FIXES {
+            break;
+        }
+    }
+    out
 }
 
 /// Planner: owns a backend, turns (user prompt, page text) into an action.
@@ -1139,6 +1199,57 @@ impl AgentPlanner {
     /// Free-form chat. If `page_text` is given, it's included as context so the
     /// user can ask *about* the current page (summaries, questions) without the
     /// agent trying to act on it.
+    /// Proofread a page of the user's own writing (Scribe). Spelling, grammar and
+    /// punctuation only — never style, never rewriting, never adding content, so
+    /// the notes stay in the author's voice.
+    ///
+    /// The text is fenced as untrusted even though the user wrote it: notes get
+    /// pasted into, and a proofread has no business obeying instructions that
+    /// turn up inside the prose it is correcting.
+    pub fn proofread(&self, text: &str) -> Result<Vec<TextFix>, AgentError> {
+        const BUDGET: usize = 8 * 1024; // roughly a dense page
+        let body = truncate_utf8(text, BUDGET).to_string();
+        let prompt = format!(
+            "Proofread the following text. Report ONLY objective mistakes: misspellings, \
+             grammar errors, wrong verb tense or agreement, doubled words, and missing or \
+             wrong punctuation. Do NOT suggest style, tone, word-choice or clarity changes, \
+             do NOT rewrite sentences, and do NOT add or remove content.\n\
+             Leave alone: mathematics and equations, code, file paths, URLs, proper nouns, \
+             abbreviations, and deliberate shorthand in notes.\n\
+             Reply with EXACTLY ONE JSON object:\n\
+             {{\"fixes\":[{{\"before\":\"<exact text as written>\",\"after\":\"<corrected text>\",\
+             \"why\":\"<short phrase naming the mistake>\"}}]}}\n\
+             `before` MUST be copied character-for-character from the text and be as short as \
+             possible — just the wrong word or phrase, not the whole sentence. Report at most \
+             12 mistakes. If the text is correct, reply {{\"fixes\":[]}}. {UNTRUSTED_PREAMBLE}\n\n\
+             {}",
+            wrap_untrusted(&body)
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "fixes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "before": { "type": "string" },
+                            "after": { "type": "string" },
+                            "why": { "type": "string" }
+                        },
+                        "required": ["before", "after", "why"]
+                    }
+                }
+            },
+            "required": ["fixes"]
+        });
+        let raw = self.backend.complete(&prompt, Some(&schema))?;
+        let parsed: TextFixList = serde_json::from_str(first_json_object(&raw))?;
+        // Validated against `body`, not `text`: if the page was truncated to the
+        // budget, a fix in the part the model never saw is not ours to offer.
+        Ok(validate_fixes(parsed.fixes, &body))
+    }
+
     pub fn chat(&self, user_prompt: &str, page_text: Option<&str>) -> Result<String, AgentError> {
         self.backend
             .chat(&Self::chat_prompt(user_prompt, page_text))
@@ -1733,5 +1844,57 @@ mod tests {
             format: ExtractFormat::Csv,
         };
         assert_eq!(read.is_destructive(), None);
+    }
+
+    #[test]
+    fn proofread_fixes_are_checked_against_the_page() {
+        let src = "I recieve the letter yesterday. The equation is x^2 + y^2 = r^2.";
+        let fix = |b: &str, a: &str| TextFix {
+            before: b.into(),
+            after: a.into(),
+            why: "spelling".into(),
+        };
+
+        // A real correction survives; whitespace around it is trimmed.
+        let out = validate_fixes(vec![fix("  recieve ", "received")], src);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].before, "recieve");
+        assert_eq!(out[0].after, "received");
+
+        // A passage the page doesn't contain is dropped — the button would have
+        // had nothing to apply itself to.
+        assert!(validate_fixes(vec![fix("teh letter", "the letter")], src).is_empty());
+        // So are no-ops and empty spans.
+        assert!(validate_fixes(vec![fix("letter", "letter"), fix("", "x")], src).is_empty());
+        // And a whole-sentence rewrite, which is not what proofreading was asked for.
+        let long: String = "x".repeat(200);
+        assert!(validate_fixes(vec![fix(&long, "y")], &format!("{src}{long}")).is_empty());
+
+        // The same span twice counts once, and the list is capped.
+        assert_eq!(
+            validate_fixes(
+                vec![fix("recieve", "received"), fix("recieve", "receive")],
+                src
+            )
+            .len(),
+            1
+        );
+        let many: Vec<TextFix> = (0..30)
+            .map(|i| TextFix {
+                before: format!("w{i}"),
+                after: format!("W{i}"),
+                why: "spelling".into(),
+            })
+            .collect();
+        let all: String = (0..30).map(|i| format!("w{i} ")).collect();
+        assert_eq!(validate_fixes(many, &all).len(), 12);
+
+        // An over-long rationale is trimmed rather than pushed into the panel.
+        let wordy = TextFix {
+            before: "recieve".into(),
+            after: "received".into(),
+            why: "e".repeat(200),
+        };
+        assert_eq!(validate_fixes(vec![wordy], src)[0].why.chars().count(), 60);
     }
 }

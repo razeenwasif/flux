@@ -3053,11 +3053,21 @@ body.resizing .panel-edge-resize::after {
 
 /* ── Music bubble (#125) — floating right-edge VERTICAL mini-player ── */
 .music-wrap {
+  /* Positioned from JS (draggable, persisted) — see MusicBubble.tsx. */
   position: fixed;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
+  left: 0;
+  top: 0;
   z-index: 60;
+}
+.music-orb {
+  cursor: grab;
+}
+.music-wrap.dragging .music-orb {
+  cursor: grabbing;
+}
+/* No size animation mid-drag: the card would chase the cursor. */
+.music-wrap.dragging .music {
+  transition: none;
 }
 .music {
   width: 56px;
@@ -13715,6 +13725,23 @@ input[type="radio"].pdf-fw {
   background: rgba(123, 97, 255, 0.08);
   border: 1px solid rgba(123, 97, 255, 0.14);
 }
+/* Drag to reorder. The card is the drag handle; the title keeps its own cursor
+   so "click to rename" still reads as clickable. */
+.cal-task[draggable="true"] {
+  cursor: grab;
+}
+.cal-task.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+/* Where it will land — an inset line rather than a border, so the row doesn't
+   shift by a pixel and nudge everything below it while you hover. */
+.cal-task.drop-above {
+  box-shadow: inset 0 2px 0 0 var(--flux-teal);
+}
+.cal-task.drop-below {
+  box-shadow: inset 0 -2px 0 0 var(--flux-teal);
+}
 .cal-task-row {
   display: flex;
   align-items: baseline;
@@ -14264,11 +14291,103 @@ input[type="radio"].pdf-fw {
   color: var(--flux-teal, #2ff3ff) !important;
   border-color: rgba(47, 243, 255, 0.35) !important;
 }
+.sdoc-check {
+  color: var(--flux-violet, #9d8df1) !important;
+  border-color: rgba(157, 141, 241, 0.35) !important;
+}
+.sdoc-bar button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .sdoc-sep {
   width: 1px;
   height: 18px;
   background: var(--flux-border);
   margin: 0 4px;
+}
+/* Proofreading suggestions. Capped and scrollable: it sits above the page, and a
+   long list must never push the page it refers to out of view. */
+.sdoc-fixes {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 32vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(157, 141, 241, 0.24);
+  background: rgba(157, 141, 241, 0.08);
+}
+.sdoc-fixes-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--flux-text-dim);
+}
+.sdoc-fixes-head button {
+  font-size: 11px;
+  color: var(--flux-text-dim);
+  background: none;
+  border: 1px solid var(--flux-border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.sdoc-fixes-head button:hover {
+  color: var(--flux-text);
+  background: rgba(123, 97, 255, 0.22);
+}
+.sdoc-fixes-note,
+.sdoc-fixes-err {
+  margin: 0;
+  font-size: 12px;
+  color: var(--flux-text-dim);
+}
+.sdoc-fixes-err {
+  color: var(--flux-magenta, #ec4be0);
+}
+.sdoc-fix {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12.5px;
+  padding: 3px 4px;
+  border-radius: 6px;
+}
+.sdoc-fix:hover {
+  background: rgba(123, 97, 255, 0.12);
+}
+.sdoc-fix-before {
+  color: var(--flux-text-dim);
+  text-decoration: line-through;
+}
+.sdoc-fix-arrow {
+  color: var(--flux-text-mute);
+}
+.sdoc-fix-after {
+  color: var(--flux-text);
+  font-weight: 600;
+}
+.sdoc-fix-why {
+  color: var(--flux-text-mute);
+  font-size: 11px;
+}
+.sdoc-fix button {
+  font-size: 11px;
+  color: var(--flux-teal, #2ff3ff);
+  background: none;
+  border: 1px solid rgba(47, 243, 255, 0.3);
+  border-radius: 6px;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.sdoc-fix button:hover {
+  background: rgba(47, 243, 255, 0.16);
 }
 /* The scrolling viewport the page sits in. */
 .sdoc-scroll {

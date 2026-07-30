@@ -1,8 +1,12 @@
 /**
  * Connections rail (#123) — the second brain compounding *passively*. As you read
  * a page, Flux embeds its text and surfaces your own related Onyx notes / Scroll
- * papers / Council debates here, updating on each navigation. Click one to open
- * it. Fully local (kb_related → kb_query over the on-device index).
+ * papers / Council debates / Scribe pages here, updating on each navigation. Click
+ * one to open it. Fully local (kb_related → kb_query over the on-device index).
+ *
+ * **Your own writing only.** Visited pages (the `web` corpus) are excluded — the
+ * Trail has its own graph in the sidebar, so listing them here as well showed the
+ * same browsing history twice. The source list lives in `kb.rs`'s `OWN_SOURCES`.
  *
  * Also home to the **ambient watcher** (ADR 0011, local-only): when the current
  * page shows an error you've hit before, a "⚡ Seen before" section surfaces the
@@ -14,7 +18,10 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount, type Compone
 import { fsOpen, kbRelated, kbStatus, onDomUpdated, traceAmbient, type AmbientHint, type KbHit } from "./ipc";
 import { activeId, openTab } from "./store";
 
-const SOURCE_ICON: Record<string, string> = { onyx: "📝", scroll: "📜", council: "⚖", web: "🧭" };
+const SOURCE_ICON: Record<string, string> = { onyx: "📝", scroll: "📜", council: "⚖", scribe: "✍" };
+/** Mirrors `kb::OWN_SOURCES` — used only to count the docs the rail can draw on,
+ *  so the empty state doesn't cite a total that includes the excluded corpus. */
+const OWN_SOURCES = ["onyx", "scroll", "council", "scribe"];
 
 const ConnectionsRail: Component = () => {
   const [hits, setHits] = createSignal<KbHit[]>([]);
@@ -58,11 +65,11 @@ const ConnectionsRail: Component = () => {
   const diagnose = async (): Promise<string> => {
     try {
       const st = await kbStatus();
-      const docs = st.sources.reduce((n, s) => n + s.docs, 0);
+      const docs = st.sources.filter((s) => OWN_SOURCES.includes(s.source)).reduce((n, s) => n + s.docs, 0);
       if (st.indexing) return "Indexing your notes… connections appear once that finishes.";
       if (docs === 0)
-        return "Your knowledge base is empty — open the Notebook and hit ↻ Reindex to pull in your Onyx vault.";
-      return `Nothing in your ${docs} indexed docs connects to this page yet.`;
+        return "You have no indexed notes yet — open the Notebook and hit ↻ Reindex to pull in your Onyx vault.";
+      return `Nothing in your ${docs} indexed notes connects to this page yet.`;
     } catch {
       return "Nothing in your notes connects to this page yet.";
     }

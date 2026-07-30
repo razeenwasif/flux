@@ -105,6 +105,40 @@ impl TodoStore {
         true
     }
 
+    /// Reorder the tasks named in `ids` to that sequence, in place.
+    ///
+    /// Only the given ids move: they're lifted out of the vector and written back
+    /// into the same slots in the new order, so tasks from other lists keep their
+    /// positions and nothing is lost if `ids` covers only part of the store.
+    pub fn reorder(&self, ids: &[u64]) -> bool {
+        let mut items = self.items.write();
+        let slots: Vec<usize> = items
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| ids.contains(&t.id))
+            .map(|(i, _)| i)
+            .collect();
+        if slots.len() < 2 {
+            return false;
+        }
+        // Take them out, then place them back in the requested sequence. Ids that
+        // no longer exist are skipped rather than shifting everything along.
+        let mut taken: Vec<Todo> = slots.iter().map(|&i| items[i].clone()).collect();
+        let mut ordered: Vec<Todo> = Vec::with_capacity(taken.len());
+        for id in ids {
+            if let Some(pos) = taken.iter().position(|t| t.id == *id) {
+                ordered.push(taken.remove(pos));
+            }
+        }
+        ordered.extend(taken); // anything `ids` didn't mention keeps relative order
+        for (slot, todo) in slots.iter().zip(ordered) {
+            items[*slot] = todo;
+        }
+        drop(items);
+        self.save();
+        true
+    }
+
     /// Move a task to another list.
     pub fn set_profile(&self, id: u64, profile: String) {
         if let Some(t) = self.items.write().iter_mut().find(|t| t.id == id) {
@@ -150,6 +184,12 @@ pub fn todo_add(
     profile: Option<String>,
 ) -> Option<Todo> {
     store.add(title, due.unwrap_or_default(), profile.unwrap_or_default())
+}
+
+/// Reorder tasks (drag in the tasks column). `ids` is the new sequence.
+#[tauri::command]
+pub fn todos_reorder(store: State<'_, TodoStore>, ids: Vec<u64>) -> bool {
+    store.reorder(&ids)
 }
 
 /// Rename a task or change its due date (inline edit in the tasks column).
@@ -227,5 +267,35 @@ mod tests {
         assert_eq!(s.list().len(), 1);
         s.remove(b.id);
         assert!(s.list().is_empty());
+    }
+
+    #[test]
+    fn reorder_permutes_named_tasks_only() {
+        let s = TodoStore::default();
+        let a = s.add("a".into(), "".into(), "Uni".into()).unwrap();
+        let p = s.add("p".into(), "".into(), "Personal".into()).unwrap();
+        let b = s.add("b".into(), "".into(), "Uni".into()).unwrap();
+        let ids = |s: &TodoStore| -> Vec<u64> { s.list().iter().map(|t| t.id).collect() };
+        let pos = |v: &[u64], id: u64| v.iter().position(|x| *x == id).unwrap();
+
+        // Dragging within the Uni list swaps those two and leaves Personal's task
+        // in the slot it already occupied.
+        let personal_slot = pos(&ids(&s), p.id);
+        assert!(s.reorder(&[b.id, a.id]));
+        let after = ids(&s);
+        assert_eq!(after.len(), 3, "nothing lost or duplicated");
+        assert!(
+            pos(&after, b.id) < pos(&after, a.id),
+            "requested order applied"
+        );
+        assert_eq!(pos(&after, p.id), personal_slot, "other lists undisturbed");
+
+        // Stale ids are skipped rather than shifting the rest along, and a
+        // single-task list is nothing to reorder.
+        assert!(s.reorder(&[a.id, 4242, b.id]));
+        let after = ids(&s);
+        assert_eq!(after.len(), 3);
+        assert!(pos(&after, a.id) < pos(&after, b.id));
+        assert!(!s.reorder(&[p.id]), "one task is a no-op");
     }
 }

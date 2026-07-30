@@ -96,6 +96,11 @@ export type Explainer = { summary: string; insight: string }
  */
 export type PolicyFlag = { clause: string; why: string }
 /**
+ * A suggested spelling/grammar fix in a page (mirrors the agent's `TextFix` so
+ * the frontend gets a bindings type without depending on `flux-agent`).
+ */
+export type TextFix = { before: string; after: string; why: string }
+/**
  * One logged agent action.
  */
 export type AuditEntry = { ms: number; tab: number; action: string; destructive: string | null; confirmed: boolean }

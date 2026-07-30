@@ -150,6 +150,7 @@ import type {
   Explainer as GenExplainer,
   PolicyFlag as GenPolicyFlag,
   AuditEntry as GenAuditEntry,
+  TextFix as GenTextFix,
 } from "./bindings.gen";
 /** One logged agent action (ADR 0013, Pillar 0). */
 export type AuditEntry = GenAuditEntry;
@@ -594,6 +595,12 @@ export const scribeDelete = (id: string) => invoke<void>("scribe_delete", { id }
 export type PageNote = GenPageNote;
 export const scribePublishPage = (id: string, pageIndex: number, note: PageNote, pngB64: string) =>
   invoke<string>("scribe_publish_page", { id, pageIndex, note, pngB64 });
+/** One suggested spelling/grammar fix in a Scribe page. */
+export type TextFix = GenTextFix;
+/** Proofread a page with the local model. Returns suggestions only — each one a
+ *  verbatim span of the text sent, so the editor can always locate it. An empty
+ *  list means "nothing to fix", including when no model is available. */
+export const scribeProofread = (text: string) => invoke<TextFix[]>("scribe_proofread", { text });
 // ─── TUI app launcher (#117) ────────────────────────────────────────────────
 export type TuiApp = GenTuiApp;
 /** The user's curated terminal-app list (seeded on first run). */
@@ -1085,6 +1092,9 @@ export const todoAdd = (title: string, due?: string, profile?: string) =>
 /** Rename a task and/or set its due date. Omitted fields are left alone. */
 export const todoEdit = (id: number, title?: string, due?: string) =>
   invoke<boolean>("todo_edit", { id, title: title ?? null, due: due ?? null });
+/** Set the order of the given tasks (drag to reorder). Tasks not listed keep
+ *  their slots, so reordering one list leaves the others alone. */
+export const todosReorder = (ids: number[]) => invoke<boolean>("todos_reorder", { ids });
 /** Move a task to another list ("Uni", "Personal", …). */
 export const todoSetProfile = (id: number, profile: string) =>
   invoke<void>("todo_set_profile", { id, profile });

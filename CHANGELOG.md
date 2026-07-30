@@ -8,6 +8,30 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Drag the music bubble anywhere.** Grab the orb and park it; the position persists across
+  restarts, is clamped to the viewport (so a drag off an edge, or a window resize that used to
+  strand it, always leaves it grabbable), and expanding near an edge slides the card into view
+  rather than moving where the bubble is parked. Its default moved from the middle of the right
+  edge to the bottom-right corner.
+- **Scribe: Tab indents, Shift+Tab outdents.** A contenteditable ignores Tab — the browser
+  moves focus out of the document — which is why pressing it appeared to do nothing. Inside a
+  list it nests the item; anywhere else it indents the paragraph in 40px stops (max 360px),
+  and it wraps a never-formatted page in a paragraph first so the very first Tab works too.
+  A multi-block selection indents each block once.
+- **Scribe: “✓ Proofread” — Gemma checks spelling and grammar**, locally. Objective mistakes
+  only: no style, tone or rewriting, and equations, code, paths and proper nouns are left
+  alone. Suggestions appear in a panel as `before → after` with the mistake named, each with
+  Apply / ignore, plus Apply all; **nothing is changed until you accept it**. Every suggestion
+  is validated in Rust against the text that was sent — a span the page doesn't literally
+  contain, a no-op, or a whole-sentence rewrite is dropped before it reaches you, so the
+  panel can't offer a button with nothing to apply itself to. Applying edits the text node in
+  place, so a corrected bold word stays bold; if a span straddles formatting the panel says
+  so rather than failing quietly.
+- **Drag tasks to reorder them** in the calendar's tasks column. A teal line shows where the
+  row will land; drops persist to disk, and a drag inside one list leaves the other lists'
+  tasks in the slots they already held. Consequence worth knowing: the column now shows
+  tasks in *your* order, so **completing a task no longer sinks it to the bottom** — a drag
+  that fought an automatic sort would have silently snapped back.
 - **Edit tasks in the calendar's task column** — click a task's text to rename it inline, with a date
   field beside it for its due date. Enter or clicking away saves, Escape abandons the change. The two
   fields are independent, so renaming never clears a due date; a blank title is refused rather than
@@ -198,6 +222,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **The connections rail is no longer hidden behind the music bubble.** The rail was never
+  truncated — the bubble was pinned to the right edge and vertically centred, directly on top
+  of the rail's middle, covering a 386px band of the list when expanded and swallowing clicks
+  when collapsed. It's draggable now, and its default corner leaves the top of the list (the
+  highest-scoring matches) clear.
 - **Tiling was laggy, especially while dragging a seam** — three costs, all on the per-pointer-move
   path:
   - Panes were rendered with `<For>`, which keys by **reference** — and the geometry function returns
@@ -370,6 +399,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   bridge now spans the gap so the path is continuous.
 
 ### Changed
+- **The connections rail shows your own writing only** — Onyx notes, Scroll papers, Council
+  debates and Scribe pages. Visited pages (the `web` corpus) are excluded now that the Trail
+  has its own graph in the sidebar; listing them in both places showed the same browsing
+  history twice. Scribe pages also get their own icon, and the empty state counts only the
+  corpora the rail can actually draw on.
 - **Split view is now a tiling manager for up to four tabs** — it was a hard-coded pair (one seam, two
   panes). You can now tile **2, 3 or 4 tabs** in preset arrangements: side-by-side, stacked, **quad**,
   and *one large pane plus the rest* in any of the four orientations — with draggable seams
