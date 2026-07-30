@@ -53,6 +53,9 @@ import {
   type SearchEngine,
   traceDraftsEnabled,
   traceDraftsSet,
+  termPersist,
+  TERM_PERSIST_KEY,
+  type TermPersist,
 } from "./ipc";
 import {
   heyGemmaEnabled,
@@ -209,6 +212,16 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     localStorage.setItem("flux.shellplan.always", v ? "1" : "0");
     setShellAlways(v);
   };
+  // Terminal persistence (BACKLOG #98). Applies to terminals opened from now on:
+  // the mode is resolved when the PTY is spawned, so a change can't reach into a
+  // shell that's already running.
+  const [persist, setPersist] = createSignal<TermPersist>(termPersist());
+  const pickPersist = (v: string) => {
+    const mode = v as TermPersist;
+    setPersist(mode);
+    localStorage.setItem(TERM_PERSIST_KEY, mode);
+  };
+
   // Gemma's long-term memory (Markdown file).
   const [memPath, setMemPath] = createSignal("");
   const [memCount, setMemCount] = createSignal(0);
@@ -593,6 +606,24 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             hint="Stream a grounded answer card from your Omni index each search. Runs the local LLM."
           >
             <Toggle on={omniAutoAnswer()} onClick={() => setOmniAutoAnswer(!omniAutoAnswer())} />
+          </Row>
+        </Section>
+
+        <Section title="Terminal">
+          <Row
+            label="Keep sessions across restarts"
+            hint="Off by default. “Running processes” hands the shell to dtach (or tmux) so it survives closing Flux — but on reattach a shell redraws only its prompt, not its earlier output. “Scrollback” records output to disk and replays it, which needs nothing installed and survives a crash or reboot, but the processes are gone. “Both” is the pair. Note that scrollback writes terminal output — including anything printed by a command — to a capped file under Flux's data directory. Applies to terminals opened from now on."
+          >
+            <select
+              class="shields-select"
+              value={persist()}
+              onChange={(e) => pickPersist(e.currentTarget.value)}
+            >
+              <option value="off">Off</option>
+              <option value="both">Both (recommended)</option>
+              <option value="live">Running processes only</option>
+              <option value="transcript">Scrollback only</option>
+            </select>
           </Row>
         </Section>
 

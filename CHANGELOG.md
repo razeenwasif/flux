@@ -8,6 +8,24 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Terminal persistence without tmux** (BACKLOG #98) — Settings → Terminal, off by default,
+  with two independent halves:
+  - **Running processes** hands the shell to **`dtach`** (preferred) or tmux, whose master
+    outlives Flux. dtach is chosen first because it does only this one thing — ~50 KB, no
+    config, no prefix key — and because xterm.js is already the emulator, so tmux would be
+    running the screen through a second one.
+  - **Scrollback** records output to a 256 KB-capped per-session file and replays it on
+    reopen. Needs nothing installed, works on native Windows, and unlike the live half
+    survives a crash or a reboot — which is what #98 originally asked for.
+
+  They're paired because neither covers the other: dtach restores no earlier output (it asks
+  the program to redraw, so a shell comes back to a bare prompt), and no broker survives
+  `wsl --shutdown`. Together you get the running work *and* the history. `FLUX_TERM_PERSIST`
+  still overrides, now accepting `off`/`live`/`transcript`/`both`; `FLUX_TERM_ENGINE` forces
+  an engine.
+
+  The transcript writes terminal output to disk, including whatever a command prints, so it
+  is opt-in and an explicit tab close deletes that session's file.
 - **Drag the music bubble anywhere.** Grab the orb and park it; the position persists across
   restarts, is clamped to the viewport (so a drag off an edge, or a window resize that used to
   strand it, always leaves it grabbable), and expanding near an edge slides the card into view

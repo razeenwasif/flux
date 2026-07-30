@@ -301,12 +301,36 @@ tab** (the new-tab picker). xterm is lazy-loaded so it never weighs down the
 browser chrome. Terminal tabs are kept alive across tab switches (the shell
 keeps running when you switch away).
 
-**Persist sessions across closing Flux** — set `FLUX_TERM_PERSIST=1` and each
-terminal runs inside a per-tab `tmux` session (`flux-<tab-id>`, attach-or-create).
-tmux's server lives outside Flux, so closing Flux detaches and reopening
-re-attaches the *live* session (running processes + scrollback intact). Requires
-`tmux` in your WSL distro / on Unix (falls back to a plain shell otherwise);
-survives Flux restarts but not a `wsl --shutdown` or reboot.
+**Persist sessions across closing Flux** — Settings → Terminal → *Keep sessions
+across restarts*. Off by default. Two independent halves, because they fix
+different things and neither covers the other:
+
+| Mode | What survives | How |
+| --- | --- | --- |
+| **Running processes** | the shell and its children | the shell is handed to `dtach` (preferred) or `tmux`, whose master outlives Flux, so closing detaches and reopening re-attaches |
+| **Scrollback** | what was on screen | output is recorded to a capped file (256 KB/session, under Flux's data dir) and replayed on reopen |
+| **Both** | both | the recommended pairing |
+
+Why the pair: a broker keeps your `npm run dev` alive but **dtach restores no
+earlier output** — it asks the program to redraw, so a shell comes back with a
+bare prompt. And a broker dies with the machine, so neither tmux nor dtach
+survives `wsl --shutdown` or a reboot. Scrollback needs nothing installed, works
+on native Windows, and survives a crash *and* a reboot — but the processes are
+gone. Together you get the running work and the history.
+
+`dtach` is preferred over `tmux` because it does only this one thing (~50 KB, no
+config, no prefix key) and, since xterm.js is already the terminal emulator,
+avoids running the screen through tmux's emulation a second time. Install either
+in your WSL distro / on Unix (`apt install dtach`); with neither present the live
+half falls back to a plain shell and the scrollback half still works. Force one
+with `FLUX_TERM_ENGINE=dtach|tmux`.
+
+`FLUX_TERM_PERSIST` still works as an override for scripted runs and accepts
+`off` / `live` / `transcript` / `both` (`1` remains a synonym for `live`).
+
+⚠ **Scrollback writes terminal output to disk**, including anything a command
+prints — keys echoed by a careless script, tokens in a log line. That's why it's
+off by default and why an explicit tab close deletes that session's file.
 
 ## Files
 

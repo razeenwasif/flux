@@ -9,6 +9,23 @@
 //!   · a Terminal *tab*'s `TabId`  → that tab's shell
 //!   · `PANE_SESSION` (0)          → the vertical terminal column's shell
 //!
+//! **Persistence** has two independent halves (BACKLOG #98), because they solve
+//! different problems and neither subsumes the other:
+//!
+//!   · `live`       — the shell and its children keep running across a Flux
+//!                    restart. This *requires* an out-of-process PTY owner: our
+//!                    master fd dies with us, SIGHUP-ing the process group. So we
+//!                    delegate to `dtach` (preferred: ~50 KB, no config, and no
+//!                    second terminal emulator in the path) or `tmux`.
+//!   · `transcript` — the output stream is recorded to a capped file and replayed
+//!                    when the terminal reopens. No external binary, works on
+//!                    native Windows, and unlike the live half it survives a
+//!                    crash or a reboot — but the processes are gone.
+//!
+//! Paired, they give back both the running work and the scrollback. Off by
+//! default: `transcript` writes terminal output to disk, which is the user's
+//! call to make, not ours.
+//!
 //! flux-term (the WGPU grid/renderer) is untouched and remains the future
 //! native-render path; it would consume the same PTY bytes this module reads.
 //!
@@ -20,7 +37,8 @@
 #[cfg(desktop)]
 mod real {
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use parking_lot::Mutex;
@@ -44,6 +62,9 @@ struct Session {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send>>,
+    /// Resolved when the session was spawned, so a close tears down exactly what
+    /// that session created — re-reading the setting could disagree with it.
+    mode: PersistMode,
 }
 
 /// Process-wide table of live terminals. Managed into Tauri state alongside
@@ -87,6 +108,9 @@ fn default_shell() -> String {
 /// then flows asynchronously over the channel. A re-spawn for an existing
 /// session id replaces the old one (the previous child is dropped/killed).
 #[tauri::command]
+// Three of the eight are Tauri's own injections (app/state/manager) and one is
+// the output Channel, so the callable surface is only four.
+#[allow(clippy::too_many_arguments)]
 pub fn terminal_spawn(
     app: AppHandle,
     state: State<'_, FluxState>,
@@ -95,6 +119,9 @@ pub fn terminal_spawn(
     cols: u16,
     rows: u16,
     on_data: Channel<Vec<u8>>,
+    // What this terminal should survive: "off" | "live" | "transcript" | "both".
+    // `None` falls back to `FLUX_TERM_PERSIST`.
+    persist: Option<String>,
 ) -> Result<(), String> {
     let pty = native_pty_system();
     let pair = pty
@@ -110,13 +137,20 @@ pub fn terminal_spawn(
     // makes `cd $FLUX_TAB_DIR` / `flux extract-json` work the moment the shell
     // opens (the env bridge from `commands::terminal_env`, reused here).
     let shell = default_shell();
-    // With FLUX_TERM_PERSIST set (and tmux installed), wrap each terminal in a
-    // per-session tmux (attach-or-create) so the *live* session survives a Flux
-    // restart: closing Flux detaches, reopening re-attaches `flux-<id>` (tab ids
-    // persist via session restore #19). Best-effort: falls back to a plain shell
-    // if tmux is missing. WSL/Unix only — native Windows shells have no tmux.
-    let use_tmux = persist_enabled() && tmux_available();
+    // With the live half enabled, wrap the shell in a per-session detach/attach
+    // broker so it survives a Flux restart: closing Flux detaches, reopening
+    // re-attaches (tab ids persist via session restore #19). Best-effort — with
+    // neither broker installed this falls back to a plain shell, and the
+    // transcript half (which needs nothing external) still applies.
+    let mode = resolve_mode(persist.as_deref());
+    let engine = if mode.live { live_engine() } else { None };
     let tmux_name = format!("flux-{session}");
+    let sock = dtach_socket(session);
+    // `-z` so dtach doesn't act on ^Z and `-E` so it claims no detach key: with
+    // xterm.js as the emulator, the broker should be invisible to keystrokes.
+    // `-r winch` asks the program to redraw by resizing it rather than injecting
+    // a ^L, which is gentler on a full-screen TUI.
+    let dtach_args = ["-A", sock.as_str(), "-z", "-E", "-r", "winch"];
 
     #[cfg(windows)]
     let mut cmd = {
@@ -126,9 +160,25 @@ pub fn terminal_spawn(
         if shell.to_ascii_lowercase().contains("wsl") {
             c.arg("--cd");
             c.arg("~");
-            if use_tmux {
-                for a in ["--", "tmux", "new-session", "-A", "-s", &tmux_name] {
-                    c.arg(a);
+            if let Some(eng) = engine {
+                c.arg("--");
+                match eng {
+                    LiveEngine::Tmux => {
+                        for a in ["tmux", "new-session", "-A", "-s", &tmux_name] {
+                            c.arg(a);
+                        }
+                    }
+                    LiveEngine::Dtach => {
+                        c.arg("dtach");
+                        for a in dtach_args {
+                            c.arg(a);
+                        }
+                        // dtach needs a program to run; give it a login shell so
+                        // the user's rc files are sourced as usual.
+                        for a in ["bash", "-l"] {
+                            c.arg(a);
+                        }
+                    }
                 }
             } else if integration_enabled() {
                 // Run bash inside WSL with Flux's OSC 133 integration (#16). The
@@ -144,12 +194,32 @@ pub fn terminal_spawn(
         c
     };
     #[cfg(not(windows))]
-    let mut cmd = if use_tmux {
-        let mut c = CommandBuilder::new("tmux");
-        for a in ["new-session", "-A", "-s", &tmux_name] {
-            c.arg(a);
+    let mut cmd = if let Some(eng) = engine {
+        match eng {
+            LiveEngine::Tmux => {
+                let mut c = CommandBuilder::new("tmux");
+                for a in ["new-session", "-A", "-s", &tmux_name] {
+                    c.arg(a);
+                }
+                c
+            }
+            LiveEngine::Dtach => {
+                let mut c = CommandBuilder::new("dtach");
+                for a in dtach_args {
+                    c.arg(a);
+                }
+                // The user's shell, with the OSC 133 integration when we can —
+                // the broker shouldn't cost the status gutter (#16).
+                c.arg(&shell);
+                if integration_enabled() && shell_is_bash(&shell) {
+                    if let Some(rc) = integration_rcfile() {
+                        c.arg("--rcfile");
+                        c.arg(rc.to_string_lossy().as_ref());
+                    }
+                }
+                c
+            }
         }
-        c
     } else if integration_enabled() && shell_is_bash(&shell) {
         // Wrap bash so it sources Flux's OSC 133 integration (#16) on top of the
         // user's own ~/.bashrc (which --rcfile would otherwise skip).
@@ -231,8 +301,23 @@ pub fn terminal_spawn(
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
             child: Mutex::new(child),
+            mode,
         },
     );
+
+    // Replay what was on screen last time, before any live output arrives, so the
+    // ordering the user sees matches the order it happened in.
+    let mut recorder = None;
+    if mode.transcript {
+        if let Some(prev) = read_transcript(&app, session) {
+            let _ = on_data.send(prev);
+            let _ = on_data.send(
+                b"\r\n\x1b[90m\xe2\x94\x80\xe2\x94\x80 restored transcript \xe2\x80\x94 processes above are not running \xe2\x94\x80\xe2\x94\x80\x1b[0m\r\n"
+                    .to_vec(),
+            );
+        }
+        recorder = transcript_dir(&app).and_then(|d| Transcript::open(&d, session));
+    }
 
     // Reader thread: blocking reads off the PTY, batched into the channel.
     // Ends on EOF (shell exit) or error, then signals the frontend.
@@ -242,6 +327,11 @@ pub fn terminal_spawn(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    // Record before sending: if the frontend has gone away, the
+                    // output still belongs in the transcript.
+                    if let Some(t) = recorder.as_mut() {
+                        t.append(&buf[..n]);
+                    }
                     if on_data.send(buf[..n].to_vec()).is_err() {
                         break; // frontend dropped the channel (tab closed)
                     }
@@ -301,24 +391,132 @@ pub fn terminal_resize(
 /// leak. (App close doesn't run this: the webview dies without JS cleanup, so
 /// those sessions correctly survive to be re-attached next launch.)
 #[tauri::command]
-pub fn terminal_kill(manager: State<'_, TerminalManager>, session: u64) -> Result<(), String> {
-    if let Some(s) = manager.sessions.lock().remove(&session) {
+pub fn terminal_kill(
+    app: AppHandle,
+    manager: State<'_, TerminalManager>,
+    session: u64,
+) -> Result<(), String> {
+    let mode = manager.sessions.lock().remove(&session).map(|s| {
         let _ = s.child.lock().kill();
+        s.mode
+    });
+    // Nothing left to persist for a terminal the user deliberately closed.
+    let mode = mode.unwrap_or_default();
+    if mode.live {
+        if let Some(eng) = live_engine() {
+            kill_live_session(session, eng);
+        }
     }
-    if persist_enabled() && tmux_available() {
-        kill_tmux_session(session);
+    if mode.transcript {
+        remove_transcript(&app, session);
     }
     Ok(())
 }
 
-/// Whether to wrap terminals in a persistent tmux session (`FLUX_TERM_PERSIST`).
-fn persist_enabled() -> bool {
+/// What a terminal keeps across a Flux restart. The two halves are independent:
+/// `live` keeps the processes, `transcript` keeps what was on screen.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct PersistMode {
+    pub live: bool,
+    pub transcript: bool,
+}
+
+impl PersistMode {
+    fn any(&self) -> bool {
+        self.live || self.transcript
+    }
+}
+
+/// Parse a mode string. `1`/`true`/`yes` mean **live** for backwards
+/// compatibility — that's what `FLUX_TERM_PERSIST=1` has always done.
+fn parse_mode(v: &str) -> PersistMode {
+    let v = v.trim().to_ascii_lowercase();
+    match v.as_str() {
+        "" | "0" | "off" | "false" | "no" | "none" => PersistMode::default(),
+        "1" | "true" | "yes" | "live" => PersistMode {
+            live: true,
+            transcript: false,
+        },
+        "transcript" | "scrollback" => PersistMode {
+            live: false,
+            transcript: true,
+        },
+        "both" | "all" => PersistMode {
+            live: true,
+            transcript: true,
+        },
+        // Tolerate a combined form ("live+transcript") rather than silently
+        // treating an almost-right value as off.
+        other => PersistMode {
+            live: other.contains("live"),
+            transcript: other.contains("transcript") || other.contains("scrollback"),
+        },
+    }
+}
+
+/// The mode for a spawn: what the frontend asked for, else `FLUX_TERM_PERSIST`,
+/// else off. The env var stays as an override for a headless/scripted run.
+fn resolve_mode(requested: Option<&str>) -> PersistMode {
+    if let Some(r) = requested {
+        let m = parse_mode(r);
+        if m.any() || !r.trim().is_empty() {
+            return m;
+        }
+    }
     std::env::var("FLUX_TERM_PERSIST")
-        .map(|v| {
-            let v = v.trim();
-            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
-        })
-        .unwrap_or(false)
+        .map(|v| parse_mode(&v))
+        .unwrap_or_default()
+}
+
+/// Which detach/attach broker to use for the `live` half.
+///
+/// `dtach` is preferred: it does only this one thing, holds no opinions about
+/// keybindings, and — since xterm.js is already the emulator — avoids running the
+/// screen through tmux's emulation a second time. The cost is that dtach keeps no
+/// screen copy: it asks the app to redraw on attach, so a shell's earlier output
+/// isn't restored. That's precisely the gap the transcript half fills.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LiveEngine {
+    Dtach,
+    Tmux,
+}
+
+fn live_engine() -> Option<LiveEngine> {
+    static CHOICE: OnceLock<Option<LiveEngine>> = OnceLock::new();
+    *CHOICE.get_or_init(|| {
+        match std::env::var("FLUX_TERM_ENGINE")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "dtach" => return command_available("dtach").then_some(LiveEngine::Dtach),
+            "tmux" => return command_available("tmux").then_some(LiveEngine::Tmux),
+            _ => {}
+        }
+        if command_available("dtach") {
+            Some(LiveEngine::Dtach)
+        } else if command_available("tmux") {
+            Some(LiveEngine::Tmux)
+        } else {
+            None
+        }
+    })
+}
+
+/// The dtach socket for a session. `/tmp` rather than `$XDG_RUNTIME_DIR` because
+/// on Windows the path is resolved *inside WSL*, where we can't read that var.
+fn dtach_socket(session: u64) -> String {
+    format!("/tmp/flux-term-{session}.sock")
+}
+
+/// Pattern identifying a session's dtach master for `pkill -f`.
+///
+/// Requiring `dtach` before the socket path matters: `-f` matches the entire
+/// command line, so the bare path alone would also match any unrelated process
+/// that merely mentions it (`rm -f /tmp/flux-term-3.sock`, an editor, a grep).
+fn dtach_kill_pattern(session: u64) -> String {
+    format!("dtach.*flux-term-{session}\\.sock")
 }
 
 /// Whether to auto-inject the OSC 133 shell integration (#16). Opt-out via
@@ -373,45 +571,186 @@ fn to_wsl_path(p: &std::path::Path) -> Option<String> {
     }
 }
 
-/// Is `tmux` available (in WSL on Windows, locally on Unix)? Cached — the check
-/// is a subprocess, and only persist-mode users ever reach it.
-fn tmux_available() -> bool {
-    static CACHE: OnceLock<bool> = OnceLock::new();
-    *CACHE.get_or_init(|| {
-        #[cfg(windows)]
-        let mut c = {
-            use std::os::windows::process::CommandExt;
-            let mut c = std::process::Command::new("wsl.exe");
-            c.args(["--", "sh", "-c", "command -v tmux"]);
-            c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-            c
-        };
-        #[cfg(not(windows))]
-        let mut c = {
-            let mut c = std::process::Command::new("sh");
-            c.args(["-c", "command -v tmux"]);
-            c
-        };
-        c.output().map(|o| o.status.success()).unwrap_or(false)
-    })
+/// Is `cmd` available (in WSL on Windows, locally on Unix)? Cached per name — the
+/// check is a subprocess, and only persist-mode users ever reach it.
+fn command_available(cmd: &str) -> bool {
+    static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(&hit) = cache.lock().get(cmd) {
+        return hit;
+    }
+    let probe = format!("command -v {cmd}");
+    #[cfg(windows)]
+    let mut c = {
+        use std::os::windows::process::CommandExt;
+        let mut c = std::process::Command::new("wsl.exe");
+        c.args(["--", "sh", "-c", &probe]);
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        c
+    };
+    #[cfg(not(windows))]
+    let mut c = {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", &probe]);
+        c
+    };
+    let found = c.output().map(|o| o.status.success()).unwrap_or(false);
+    cache.lock().insert(cmd.to_string(), found);
+    found
 }
 
-/// Remove a leaked tmux session on explicit tab close (best-effort).
-fn kill_tmux_session(session: u64) {
-    let name = format!("flux-{session}");
+/// Run a command inside the shell's world — the WSL distro on Windows, locally on
+/// Unix — without a `sh -c` wrapper. Best-effort and fire-and-forget.
+///
+/// **The missing wrapper is the point.** These commands carry a socket path as an
+/// argument and one of them is `pkill -f`, which matches on the whole command
+/// line: a wrapping `sh -c "pkill -f <sock>; rm -f <sock>"` has that very path in
+/// its own argv, so pkill kills the shell running it and everything after the
+/// first command is silently skipped. (Observed, not theorised.) Spawned directly,
+/// pkill skips only itself and there is no wrapper to match.
+fn run_in_shell_world(args: &[&str]) {
+    let Some((program, rest)) = args.split_first() else {
+        return;
+    };
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         let _ = std::process::Command::new("wsl.exe")
-            .args(["--", "tmux", "kill-session", "-t", &name])
-            .creation_flags(0x0800_0000)
+            .arg("--")
+            .arg(program)
+            .args(rest)
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
             .spawn();
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("tmux")
-            .args(["kill-session", "-t", &name])
-            .spawn();
+        let _ = std::process::Command::new(program).args(rest).spawn();
+    }
+}
+
+/// Tear down a persistent session on explicit tab close (best-effort).
+///
+/// dtach has no "kill" verb — its master exits when the program it runs does — so
+/// the master is found by the socket path, which is unique per session. Killing it
+/// closes its PTY master, which SIGHUPs the shell: the same mechanism that ends a
+/// non-persistent session when Flux exits.
+fn kill_live_session(session: u64, engine: LiveEngine) {
+    match engine {
+        LiveEngine::Tmux => {
+            let name = format!("flux-{session}");
+            run_in_shell_world(&["tmux", "kill-session", "-t", &name]);
+        }
+        LiveEngine::Dtach => {
+            let sock = dtach_socket(session);
+            let pattern = dtach_kill_pattern(session);
+            run_in_shell_world(&["pkill", "-f", &pattern]);
+            // Unlink separately: a stale socket makes the next `-A` attach to a
+            // session with no master instead of creating a fresh one.
+            run_in_shell_world(&["rm", "-f", &sock]);
+        }
+    }
+}
+
+// ─── transcript ─────────────────────────────────────────────────────────────
+
+/// How much output is kept per session. Enough to be the scrollback you wanted
+/// back, small enough that a runaway `yes` can't fill the disk.
+///
+/// Compaction is amortised, so a file sits between this and **twice** this
+/// between rewrites. Replay is always capped at exactly this much
+/// ([`read_transcript`] seeks to the tail), so the extra never reaches the screen.
+const TRANSCRIPT_MAX: u64 = 256 * 1024;
+
+/// Records the PTY byte stream so a reopened terminal shows what was there.
+///
+/// Owned solely by the reader thread (the only writer), so there's no lock on the
+/// hot path. Growth is bounded by rewriting the file down to the last
+/// `TRANSCRIPT_MAX` bytes once it reaches twice that — amortised, so the common
+/// case is a plain append.
+struct Transcript {
+    path: PathBuf,
+    file: std::fs::File,
+    len: u64,
+}
+
+impl Transcript {
+    fn open(dir: &std::path::Path, session: u64) -> Option<Self> {
+        std::fs::create_dir_all(dir).ok()?;
+        let path = dir.join(format!("{session}.log"));
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok()?;
+        let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+        Some(Self { path, file, len })
+    }
+
+    fn append(&mut self, buf: &[u8]) {
+        if self.file.write_all(buf).is_err() {
+            return;
+        }
+        self.len += buf.len() as u64;
+        if self.len > TRANSCRIPT_MAX * 2 {
+            self.compact();
+        }
+    }
+
+    /// Keep the tail. The cut is moved forward to just after a newline so replay
+    /// doesn't begin halfway through an escape sequence — imperfect (a long
+    /// single-line TUI frame has no newline to find), but it costs nothing and
+    /// fixes the common case.
+    fn compact(&mut self) {
+        let Ok(all) = std::fs::read(&self.path) else {
+            return;
+        };
+        let start = all.len().saturating_sub(TRANSCRIPT_MAX as usize);
+        let cut = all[start..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map(|i| start + i + 1)
+            .unwrap_or(start);
+        let tail = &all[cut..];
+        if std::fs::write(&self.path, tail).is_err() {
+            return;
+        }
+        match std::fs::OpenOptions::new().append(true).open(&self.path) {
+            Ok(f) => {
+                self.file = f;
+                self.len = tail.len() as u64;
+            }
+            // Couldn't reopen: stop recording rather than write to a stale handle
+            // that now points into a truncated file.
+            Err(_) => self.len = 0,
+        }
+    }
+}
+
+/// Where transcripts live. Per-session files under the app data dir.
+fn transcript_dir(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|d| d.join("terminal-log"))
+}
+
+/// The recorded output for a session, if any, as the bytes to replay.
+fn read_transcript(app: &AppHandle, session: u64) -> Option<Vec<u8>> {
+    let path = transcript_dir(app)?.join(format!("{session}.log"));
+    let mut f = std::fs::File::open(path).ok()?;
+    // Only ever replay the tail, even if an older/larger file is lying around.
+    let len = f.metadata().ok()?.len();
+    if len > TRANSCRIPT_MAX {
+        f.seek(SeekFrom::Start(len - TRANSCRIPT_MAX)).ok()?;
+    }
+    let mut out = Vec::new();
+    f.read_to_end(&mut out).ok()?;
+    (!out.is_empty()).then_some(out)
+}
+
+fn remove_transcript(app: &AppHandle, session: u64) {
+    if let Some(dir) = transcript_dir(app) {
+        let _ = std::fs::remove_file(dir.join(format!("{session}.log")));
     }
 }
 
@@ -431,6 +770,119 @@ fn expand_home(path: &str) -> String {
     match path.strip_prefix('~') {
         Some(rest) => format!("{}{}", home_dir(), rest),
         None => path.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persist_mode_parsing() {
+        // Back-compat: FLUX_TERM_PERSIST=1 has always meant "keep it running".
+        for on in ["1", "true", "yes", "LIVE", " live "] {
+            let m = parse_mode(on);
+            assert!(m.live, "{on:?} enables the live half");
+            assert!(
+                !m.transcript,
+                "{on:?} does not silently start writing to disk"
+            );
+        }
+        for off in ["", "0", "off", "no", "none", "false"] {
+            assert_eq!(parse_mode(off), PersistMode::default(), "{off:?} is off");
+        }
+        let t = parse_mode("transcript");
+        assert!(t.transcript && !t.live);
+        let both = parse_mode("both");
+        assert!(both.live && both.transcript);
+        // A combined form is honoured rather than read as off.
+        let combo = parse_mode("live+transcript");
+        assert!(combo.live && combo.transcript);
+        // Something unrecognised mentions neither half, so nothing is enabled.
+        assert_eq!(parse_mode("wibble"), PersistMode::default());
+    }
+
+    #[test]
+    fn explicit_request_beats_the_env_fallback() {
+        // A blank request defers to the env var; a real one (including "off")
+        // decides on its own, so a UI setting can turn persistence off even with
+        // FLUX_TERM_PERSIST exported.
+        assert_eq!(resolve_mode(Some("off")), PersistMode::default());
+        assert!(resolve_mode(Some("both")).live);
+        assert!(resolve_mode(Some("both")).transcript);
+        assert!(resolve_mode(Some("transcript")).transcript);
+    }
+
+    #[test]
+    fn transcript_is_capped_and_keeps_the_tail() {
+        let dir = std::env::temp_dir().join(format!("flux-term-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut t = Transcript::open(&dir, 7).expect("open transcript");
+
+        // Well under the cap: a plain append, nothing dropped.
+        t.append(b"hello\n");
+        assert_eq!(std::fs::read(&t.path).unwrap(), b"hello\n");
+
+        // Push it past the compaction trigger with identifiable lines.
+        for i in 0..80_000u32 {
+            t.append(format!("line {i}\n").as_bytes());
+        }
+        // Amortised: the file lives between one and two caps between rewrites,
+        // which is what keeps the common path a plain append.
+        let kept = std::fs::read(&t.path).unwrap();
+        assert!(
+            kept.len() as u64 <= TRANSCRIPT_MAX * 2,
+            "grew to {} bytes, past the {} amortised bound",
+            kept.len(),
+            TRANSCRIPT_MAX * 2
+        );
+        let text = String::from_utf8_lossy(&kept);
+        assert!(
+            text.ends_with("line 79999\n"),
+            "the newest output is what's kept"
+        );
+        assert!(!text.contains("hello"), "the oldest output is dropped");
+        assert!(
+            !text.starts_with("ine ") && text.starts_with("line "),
+            "replay starts at a line boundary, not mid-line: {:?}",
+            &text[..20.min(text.len())]
+        );
+
+        // A compaction itself lands under the cap, at a line boundary.
+        t.compact();
+        let packed = std::fs::read(&t.path).unwrap();
+        assert!(
+            packed.len() as u64 <= TRANSCRIPT_MAX,
+            "compaction left {} bytes, over the {TRANSCRIPT_MAX} cap",
+            packed.len()
+        );
+        let packed_text = String::from_utf8_lossy(&packed);
+        assert!(packed_text.starts_with("line "), "cut at a line boundary");
+        assert!(
+            packed_text.ends_with("line 79999\n"),
+            "kept the newest output"
+        );
+
+        // Recording continues after a compaction (the handle was reopened).
+        t.append(b"after\n");
+        let after = std::fs::read(&t.path).unwrap();
+        assert!(String::from_utf8_lossy(&after).ends_with("after\n"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dtach_kill_pattern_requires_dtach() {
+        let pat = dtach_kill_pattern(42);
+        assert!(pat.contains("flux-term-42"), "targets one session: {pat}");
+        // The guard that matters: `pkill -f` matches the whole command line, so
+        // the socket path on its own also matches anything that merely mentions
+        // it. Verified against a live decoy; don't simplify this back.
+        assert!(
+            pat.starts_with("dtach"),
+            "the pattern must require dtach before the socket: {pat}"
+        );
+        assert_ne!(pat, dtach_socket(42), "never kill on the bare path");
     }
 }
 } // mod real
@@ -467,6 +919,7 @@ mod stub {
         _cols: u16,
         _rows: u16,
         _on_data: Channel<Vec<u8>>,
+        _persist: Option<String>,
     ) -> Result<(), String> {
         Err(UNAVAILABLE.into())
     }
@@ -492,6 +945,7 @@ mod stub {
 
     #[tauri::command]
     pub fn terminal_kill(
+        _app: AppHandle,
         _manager: State<'_, TerminalManager>,
         _session: u64,
     ) -> Result<(), String> {

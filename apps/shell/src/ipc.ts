@@ -1457,9 +1457,24 @@ export const onFsChanged = (cb: (path: string) => void): Promise<UnlistenFn> =>
 
 // ─── Terminal (PTY) ────────────────────────────────────────────────────────
 
+/** What a terminal survives a Flux restart (BACKLOG #98). `live` keeps the shell
+ *  and its children running via dtach/tmux; `transcript` replays the recorded
+ *  output. They're independent — `both` is the pair that gives back the running
+ *  work *and* the scrollback. Off by default: `transcript` writes terminal output
+ *  to disk. */
+export type TermPersist = "off" | "live" | "transcript" | "both";
+export const TERM_PERSIST_KEY = "flux.term.persist";
+export const termPersist = (): TermPersist =>
+  (localStorage.getItem(TERM_PERSIST_KEY) as TermPersist | null) ?? "off";
+
 /** Spawn a PTY for `session`; `onData` streams raw output bytes (number[]). */
-export const terminalSpawn = (session: number, cols: number, rows: number, onData: Channel<number[]>) =>
-  invoke<void>("terminal_spawn", { session, cols, rows, onData });
+export const terminalSpawn = (
+  session: number,
+  cols: number,
+  rows: number,
+  onData: Channel<number[]>,
+  persist: TermPersist = termPersist(),
+) => invoke<void>("terminal_spawn", { session, cols, rows, onData, persist });
 
 /** Write input bytes (encoded keystrokes/paste) to the session's stdin. */
 export const terminalWrite = (session: number, data: Uint8Array) =>
