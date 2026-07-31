@@ -1,8 +1,20 @@
 /**
- * flux://tasks — built-in task manager (BACKLOG #107), btop-style. A full-page
- * system monitor: CPU (overall graph + per-core bars), memory + swap, network
- * throughput, GPU(s) via nvidia-smi, and a sortable process list with end-task.
- * Flux's own process tree is flagged. DOM-rendered, polls only while visible.
+ * flux://tasks — the built-in task manager (BACKLOG #107).
+ *
+ * **Answer-first.** A conventional monitor shows you numbers and leaves you to
+ * find the culprit; this one names it. A verdict line says what is constrained
+ * right now and what is holding it, every resource card names its own top
+ * consumer (an idea taken from COSMIC's 2026 system monitor), and memory is a
+ * treemap rather than a sorted column — because "one process holds 6 GB" and
+ * "forty processes hold 150 MB each" are the same number in a list and obviously
+ * different shapes as areas.
+ *
+ * Underneath it is still the same data: CPU overall + per core, memory and swap,
+ * network throughput, GPUs via nvidia-smi, and a sortable process list with
+ * end-task. Flux's own tree is called out because "lighter than Chrome" is a
+ * claim this project makes and should be checkable.
+ *
+ * DOM-rendered, polls only while visible.
  */
 import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
 
@@ -17,6 +29,7 @@ import {
   type SysStats,
 } from "./ipc";
 import { activeId, updateTabTitle } from "./store";
+import { groupByName, squarify } from "./treemap";
 
 type SortKey = "mem" | "cpu" | "name";
 const HISTORY = 90; // samples kept (~3 min at 2s/poll)
@@ -126,6 +139,67 @@ const TasksPage: Component = () => {
   const fluxProcs = createMemo(() => procs().filter((p) => p.is_flux));
   const fluxMem = createMemo(() => fluxProcs().reduce((s, p) => s + p.mem_mb, 0));
 
+  /** The heaviest process for a resource — what each card names. */
+  const topBy = (key: "cpu" | "mem_mb") => createMemo(() => [...procs()].sort((a, b) => b[key] - a[key])[0]);
+  const topCpu = topBy("cpu");
+  const topMem = topBy("mem_mb");
+
+  /**
+   * What's actually constrained, in a sentence.
+   *
+   * Thresholds, not a score: a machine at 91% memory is in a different state
+   * from one at 60%, and averaging the two into an index would hide which. Order
+   * matters — memory pressure hurts more than a busy CPU, which is transient.
+   */
+  const verdict = createMemo(() => {
+    const s = stats();
+    if (!s) return null;
+    const mem = s.mem_pct;
+    const cpu = s.cpu;
+    const swapping = s.swap_total_mb > 0 && s.swap_used_mb / s.swap_total_mb > 0.25;
+    if (swapping)
+      return {
+        level: "bad" as const,
+        what: "Swapping",
+        why: `${gb(s.swap_used_mb)} GB of swap in use — the machine is out of RAM and paging to disk.`,
+      };
+    if (mem >= 90)
+      return {
+        level: "bad" as const,
+        what: "Memory is the constraint",
+        why: `${mem}% used${topMem() ? `, and ${topMem()!.name} holds ${gb(topMem()!.mem_mb)} GB` : ""}.`,
+      };
+    if (cpu >= 85)
+      return {
+        level: "warn" as const,
+        what: "CPU is saturated",
+        why: `${cpu.toFixed(0)}% across ${s.cores} cores${topCpu() ? `, mostly ${topCpu()!.name}` : ""}.`,
+      };
+    if (mem >= 75)
+      return {
+        level: "warn" as const,
+        what: "Memory is getting tight",
+        why: `${mem}% used${topMem() ? `, ${topMem()!.name} is the largest at ${gb(topMem()!.mem_mb)} GB` : ""}.`,
+      };
+    return {
+      level: "ok" as const,
+      what: "Nothing is under pressure",
+      why: `${mem}% memory, ${cpu.toFixed(0)}% CPU, ${procs().length} processes.`,
+    };
+  });
+
+  /** Memory as areas. Grouped by name: a browser is dozens of processes, and
+   *  dozens of tiles reading "chrome" say less than one that sums them. */
+  // Nine, not more: past that the tail tiles become slivers whose area a reader
+  // can't judge, which is the whole reason for using a treemap. The remainder
+  // still counts — it's gathered into "other" so the areas sum to the whole.
+  const memGroups = createMemo(() => groupByName(procs(), 9));
+  const [focus, setFocus] = createSignal<string | null>(null);
+  const listed = createMemo(() => {
+    const f = focus();
+    return f ? sorted().filter((p) => p.name === f) : sorted();
+  });
+
   const end = async (p: ProcInfo) => {
     if (p.current && !window.confirm("End the main Flux process? This quits the browser.")) return;
     setBusy(p.pid);
@@ -161,6 +235,17 @@ const TasksPage: Component = () => {
         </button>
       </header>
 
+      {/* The answer, before the data. */}
+      <Show when={verdict()}>
+        {(v) => (
+          <div classList={{ "tm-verdict": true, [v().level]: true }}>
+            <span class="tm-verdict-dot" />
+            <strong>{v().what}</strong>
+            <span class="tm-verdict-why">{v().why}</span>
+          </div>
+        )}
+      </Show>
+
       <div class="tm-grid">
         {/* CPU — overall graph + per-core bars */}
         <div class="tm-card tm-card-wide">
@@ -171,6 +256,15 @@ const TasksPage: Component = () => {
             </span>
           </div>
           <Graph data={cpuHist()} color="var(--flux-teal)" />
+          <Show when={topCpu()}>
+            {(t) => (
+              <div class="tm-top" title="Heaviest process on this resource">
+                <span class="tm-top-label">hottest</span>
+                <span class="tm-top-name">{t().name}</span>
+                <span class="tm-top-val">{t().cpu.toFixed(0)}%</span>
+              </div>
+            )}
+          </Show>
           <div class="tm-cores">
             <For each={stats()?.per_core ?? []}>
               {(c, i) => (
@@ -217,6 +311,64 @@ const TasksPage: Component = () => {
               </>
             )}
           </Show>
+          <Show when={topMem()}>
+            {(t) => (
+              <div class="tm-top" title="Heaviest process on this resource">
+                <span class="tm-top-label">largest</span>
+                <span class="tm-top-name">{t().name}</span>
+                <span class="tm-top-val">{gb(t().mem_mb)} GB</span>
+              </div>
+            )}
+          </Show>
+        </div>
+
+        {/* Memory as area, not as a column of numbers. "One process holds 6 GB"
+            and "forty hold 150 MB each" read identically in a sorted list and
+            are obviously different here. Click a tile to filter the list. */}
+        <div class="tm-card tm-card-wide">
+          <div class="tm-card-head">
+            <span>Memory map</span>
+            <Show when={focus()} fallback={<span class="tm-card-sub">click a block to filter</span>}>
+              <button class="tm-clear-focus" onClick={() => setFocus(null)}>
+                showing {focus()} — clear ✕
+              </button>
+            </Show>
+          </div>
+          <div class="tm-map">
+            <For
+              each={squarify(
+                memGroups().map((g) => ({ value: g.mem_mb, datum: g })),
+                { x: 0, y: 0, w: 100, h: 100 },
+              )}
+            >
+              {(tile) => (
+                <button
+                  classList={{
+                    "tm-tile": true,
+                    on: focus() === tile.datum.name,
+                    flux: tile.datum.name.toLowerCase().includes("flux"),
+                  }}
+                  style={{
+                    left: `${tile.x}%`,
+                    top: `${tile.y}%`,
+                    width: `${tile.width}%`,
+                    height: `${tile.height}%`,
+                  }}
+                  title={`${tile.datum.name} — ${gb(tile.datum.mem_mb)} GB across ${tile.datum.count} process${tile.datum.count === 1 ? "" : "es"}`}
+                  onClick={() => setFocus((f) => (f === tile.datum.name ? null : tile.datum.name))}
+                >
+                  {/* Only label a tile with room for it — a clipped word is worse
+                      than none, and the tooltip always has the full figure. */}
+                  <Show when={tile.width > 11 && tile.height > 13}>
+                    <span class="tm-tile-name">{tile.datum.name}</span>
+                    <Show when={tile.height > 22}>
+                      <span class="tm-tile-val">{gb(tile.datum.mem_mb)} GB</span>
+                    </Show>
+                  </Show>
+                </button>
+              )}
+            </For>
+          </div>
         </div>
 
         {/* Network */}
@@ -278,8 +430,8 @@ const TasksPage: Component = () => {
           <span class="tm-act" />
         </div>
         <div class="tm-proc-list">
-          <Show when={sorted().length > 0} fallback={<div class="tm-empty">Reading processes…</div>}>
-            <For each={sorted()}>
+          <Show when={listed().length > 0} fallback={<div class="tm-empty">Reading processes…</div>}>
+            <For each={listed()}>
               {(p) => (
                 <div classList={{ "tm-row": true, flux: p.is_flux, self: p.current }}>
                   <span class="tm-badge" title={p.is_flux ? "Flux process" : "System process"}>

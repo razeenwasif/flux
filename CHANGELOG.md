@@ -29,6 +29,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   by reintroducing the "only the active group is drawn" bug and watching the suite fail.
 
 ### Changed
+- **The task manager is answer-first.** It was a good btop-style monitor: four cards of numbers,
+  a sorted process list, and the work of finding the culprit left to you. Now it opens with a
+  **verdict** — one line naming what's constrained and what's holding it ("Memory is the
+  constraint — 91% used, and chrome holds 6.2 GB") — and each resource card names its own top
+  consumer, an idea taken from COSMIC's 2026 system monitor.
+
+  Memory is a **treemap** rather than a column of numbers. "One process holds 6 GB" and "forty
+  hold 150 MB each" are indistinguishable in a sorted list and obviously different as areas.
+  Tiles are grouped by process family (a browser is dozens of processes), click one to filter the
+  list, and Flux's own footprint is tinted its own colour — "lighter than Chrome" is a claim this
+  project makes and should be checkable at a glance.
+
+  The layout is squarified (Bruls–Huizing–van Wijk) rather than sliced, because slivers carry no
+  area a reader can judge — with 9 groups the worst aspect ratio measures 5.7 against 100%
+  coverage and no overlaps. It's a pure function with 11 unit tests, which is what the new
+  frontend test runner was for.
 - **The agent's "My notes" scope no longer searches browsing snapshots.** It passed no source
   filter, so it answered from every corpus including pages you'd merely visited — which the
   Trail already graphs separately. Scoped to your own corpora, matching the connections rail.
