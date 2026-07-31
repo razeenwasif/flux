@@ -271,6 +271,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Signed-in github.com crashed the renderer** (`STATUS_ACCESS_VIOLATION`). Two of Flux's ten
+  injected page scripts called the IPC bridge *synchronously at document-created* — before the
+  parser had produced `<html>`. Doing that kills the WebView2 renderer outright: a null-pointer
+  read at a fixed offset inside `msedge.dll`, with no Flux code in the faulting process at all.
+  `passwords.js` and `drafts.js` were the only two scripts that did it, and the only two that
+  reproduced the crash on their own; the other eight make no bridge call until the document
+  exists. Both are deferred now.
+
+  The engine fault is Microsoft's — a null dereference is never the caller's fault, and the same
+  page loads in Edge at the identical runtime version — but Flux was provoking it on every page
+  load. A test now asserts no injected script calls the bridge at document-start, verified by
+  reintroducing the bug and watching the test fail: this failure mode is a hard crash with
+  nothing in the page console to explain it, so it needed a guard rather than a comment.
 - **Flux wrote no log on Windows at all.** Release builds set
   `windows_subsystem = "windows"`, so there is no console and everything `tracing` emitted went
   nowhere — which made the browser undiagnosable on its main platform, and made every

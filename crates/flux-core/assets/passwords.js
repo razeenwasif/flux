@@ -25,11 +25,28 @@
   if (!inv) return;
   var call = function (cmd, args) { return inv("plugin:fluxtab|" + cmd, args || {}); };
 
+  /** Run `fn` once the document exists. See the note at the first call site. */
+  function whenReady(fn) {
+    if (document.readyState === "loading") {
+      addEventListener("DOMContentLoaded", fn, { once: true });
+    } else {
+      fn();
+    }
+  }
+
   // Heartbeat: prove the script is running with a working bridge. Without it,
   // "never reported back" covers three very different things — not injected,
   // returned at the iframe gate, or no Tauri internals on this page — and the
   // diagnostic can't tell you which.
-  call("vault_probe_report", { reason: "alive" }).catch(function () {});
+  // Deferred, NOT called here. An init script runs at document-created, before the
+  // parser has produced <html> — and invoking the IPC bridge in that window
+  // crashes the WebView2 renderer outright (null-pointer read inside msedge.dll,
+  // confirmed by two matching crash dumps on signed-in github.com). The two
+  // scripts that did this were the only two of ten that crashed; the other eight
+  // make no IPC call until the document exists.
+  whenReady(function () {
+    call("vault_probe_report", { reason: "alive" }).catch(function () {});
+  });
 
   // Sensitive-input trigger (ADR 0013, Pillar 1): tell Rust the moment a
   // password field takes focus, so a wrong-origin warning can be raised BEFORE

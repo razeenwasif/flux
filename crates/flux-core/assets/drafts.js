@@ -69,10 +69,25 @@
     );
   };
 
-  // One enablement check at load; the toggle applies to newly-loaded pages.
-  invoke("plugin:fluxtab|trace_drafts_enabled", {})
-    .then((on) => {
-      if (on === true) attach();
-    })
-    .catch(() => {});
+  /** Run `fn` once the document exists. */
+  const whenReady = (fn) => {
+    if (document.readyState === "loading") {
+      addEventListener("DOMContentLoaded", fn, { once: true });
+    } else {
+      fn();
+    }
+  };
+
+  // One enablement check, deferred until the document exists. Calling the IPC
+  // bridge from an init script at document-created — before the parser has made
+  // <html> — crashes the WebView2 renderer (null-pointer read in msedge.dll,
+  // reproduced on signed-in github.com). This script did nothing else at load and
+  // still took the page down, which is what isolated the bridge call itself.
+  whenReady(() => {
+    invoke("plugin:fluxtab|trace_drafts_enabled", {})
+      .then((on) => {
+        if (on === true) attach();
+      })
+      .catch(() => {});
+  });
 })();

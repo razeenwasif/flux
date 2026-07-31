@@ -953,6 +953,10 @@ pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
     #[cfg(test)]
     mod script_join_tests {
         use super::{filter_scripts, join_page_scripts};
+        use super::{
+            CAPTURE_JS, DARKMODE_JS, DRAFTS_JS, HIBERNATE_JS, MACRO_REC_JS, NAV_JS, NEWTAB_JS,
+            PANEL_BADGE_JS, PASSWORDS_JS, PIP_JS, SHORTCUTS_JS,
+        };
 
         #[test]
         fn one_failing_script_cannot_kill_the_rest() {
@@ -1002,6 +1006,48 @@ pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
             // An unknown name selects nothing rather than silently injecting all —
             // a typo must not look like a passing test.
             assert!(filter_scripts(&all, Some("typo")).is_empty());
+        }
+
+        /// An init script runs at document-created, before the parser has made
+        /// `<html>`. Calling the IPC bridge in that window crashes the WebView2
+        /// renderer outright - a null-pointer read inside msedge.dll, confirmed by
+        /// matching crash dumps on signed-in github.com. `passwords.js` and
+        /// `drafts.js` were the only two of ten scripts that did it, and the only
+        /// two that took the page down.
+        ///
+        /// The bridge call must be deferred until the document exists. This guards
+        /// the rule for every injected script, since the failure is a hard crash
+        /// with nothing in the page console to explain it.
+        #[test]
+        fn no_page_script_calls_ipc_at_document_start() {
+            let scripts: &[(&str, &str)] = &[
+                ("capture", CAPTURE_JS),
+                ("shortcuts", SHORTCUTS_JS),
+                ("hibernate", HIBERNATE_JS),
+                ("darkmode", DARKMODE_JS),
+                ("nav", NAV_JS),
+                ("newtab", NEWTAB_JS),
+                ("pip", PIP_JS),
+                ("macro-record", MACRO_REC_JS),
+                ("passwords", PASSWORDS_JS),
+                ("drafts", DRAFTS_JS),
+                ("panel-badge", PANEL_BADGE_JS),
+            ];
+            for (name, src) in scripts {
+                for (i, line) in src.lines().enumerate() {
+                    // Top level of the file's IIFE: exactly two spaces of indent.
+                    let top_level = line.starts_with("  ") && !line.starts_with("   ");
+                    let body = line.trim_start();
+                    let calls_bridge = body.starts_with("invoke(")
+                        || body.starts_with("call(")
+                        || body.starts_with("inv(");
+                    assert!(
+                        !(top_level && calls_bridge),
+                        "{name}.js:{} calls the IPC bridge at document-created, which crashes the renderer. Defer it (whenReady / DOMContentLoaded).\n  {body}",
+                        i + 1
+                    );
+                }
+            }
         }
 }
 } // mod real
