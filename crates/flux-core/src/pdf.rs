@@ -315,6 +315,9 @@ impl PdfStore {
 /// Record a PDF's text and publish it as the tab's snapshot, so the agent sees
 /// the open document exactly as it sees a web page.
 #[tauri::command]
+// Three of the eight are Tauri's own injections (app/state/tab id); the callable
+// surface is the document and its two page counts.
+#[allow(clippy::too_many_arguments)]
 pub fn pdf_publish_text(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::state::FluxState>,
