@@ -33,6 +33,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   calling the IPC bridge at document-created, and clearing the caches changed nothing. The
   feature stands on its own (a browser should let you see and clear this), but it fixed no crash.
 
+### Changed
+- **Scribe drawings: transparent, cropped to the ink, and resizable on every axis.** Inserting a
+  drawing exported the *entire* 900×620 pad including its background and grid, so a small sketch
+  arrived as a mostly-empty opaque rectangle that covered the text beneath it and looked far too
+  small once placed. It now crops to the ink's bounding box and renders on transparency —
+  measured on a corner sketch: 900×620 → 168×88, 97% of the exported pixels dropped, and the ink
+  itself 5× wider at the same placement width. An empty pad inserts nothing instead of a blank
+  box, and the object is sized from the drawing rather than a fixed 560px.
+
+  Resizing had one corner handle that locked the aspect ratio. There are now edge handles that
+  stretch width or height freely, with the corner still proportional.
+
 ### Fixed
 - **Scribe: each new stroke in the Draw pane erased the previous one.** `InkCanvas` is a
   *controlled* component — it rebuilds from `props.strokes` on every commit, so the parent must

@@ -14596,6 +14596,35 @@ input[type="radio"].pdf-fw {
   border-radius: 3px;
   background: rgba(47, 243, 255, 0.8);
   cursor: nwse-resize;
+  z-index: 2; /* the corner wins where it overlaps the two edge handles */
+}
+/* Edge handles: stretch one axis. Long and thin so they're easy to hit without
+   competing with the corner, which keeps proportions. */
+.sdoc-obj-h,
+.sdoc-obj-v {
+  position: absolute;
+  border-radius: 3px;
+  background: rgba(47, 243, 255, 0.55);
+}
+.sdoc-obj-h:hover,
+.sdoc-obj-v:hover {
+  background: rgba(47, 243, 255, 0.85);
+}
+.sdoc-obj-h {
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 42px;
+  cursor: ew-resize;
+}
+.sdoc-obj-v {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 42px;
+  height: 12px;
+  cursor: ns-resize;
 }
 /* The drawing pane. */
 .sdoc-pad-scrim {

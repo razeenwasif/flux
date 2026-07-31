@@ -189,8 +189,19 @@ export type InkBounds = { w: number; h: number } | null;
 export type InkTemplate = "plain" | "grid" | "lined" | "squared";
 /** Imperative handle handed to the parent once on mount (Scribe uses it to
  * render the current page to a PNG for publishing). */
+/** How to render a PNG of the surface. Defaults reproduce the whiteboard's export:
+ *  the whole page, background and all. */
+export type BlobOpts = {
+  /** Crop to the ink's bounding box instead of the full page rectangle. A pad is
+   *  mostly empty, so exporting all of it makes the drawing look tiny once it's
+   *  placed at a fixed width. */
+  crop?: boolean;
+  /** Omit the page background and template, leaving the ink on transparency. */
+  transparent?: boolean;
+};
+
 export type InkApi = {
-  pageToBlob: () => Promise<Blob | null>;
+  pageToBlob: (opts?: BlobOpts) => Promise<Blob | null>;
   /** Multiply the zoom about the viewport centre (1.2 = in, 1/1.2 = out). */
   zoomBy: (f: number) => void;
   /** Re-fit the page to the viewport (the paged surface's "100%"). */
@@ -1011,9 +1022,11 @@ const InkCanvas: Component<Props> = (props) => {
 
   /** Render the current content to a PNG blob at 2×. For a bounded page, the
    * whole page rectangle; otherwise the strokes' bounding box (+ margin). */
-  const renderBlob = async (): Promise<Blob | null> => {
+  const renderBlob = async (opts?: BlobOpts): Promise<Blob | null> => {
     const ss = strokes();
-    const b = bounds();
+    // `crop` measures the ink, which is the same thing the unbounded path does —
+    // so a bounded pad takes that branch too.
+    const b = opts?.crop ? null : bounds();
     let x0: number, y0: number, w: number, h: number;
     if (b) {
       x0 = 0;
@@ -1054,10 +1067,13 @@ const InkCanvas: Component<Props> = (props) => {
     const ctx = off.getContext("2d")!;
     ctx.scale(2, 2);
     ctx.translate(-x0, -y0);
-    if (b) drawPage(ctx, b);
-    else {
-      ctx.fillStyle = PAGE_BG;
-      ctx.fillRect(x0, y0, w, h);
+    // Transparent = draw no background at all; the canvas starts clear.
+    if (!opts?.transparent) {
+      if (b) drawPage(ctx, b);
+      else {
+        ctx.fillStyle = PAGE_BG;
+        ctx.fillRect(x0, y0, w, h);
+      }
     }
     for (const s of ss) drawStroke(ctx, s);
     return await new Promise((res) => off.toBlob(res, "image/png"));

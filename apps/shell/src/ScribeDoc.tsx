@@ -267,7 +267,10 @@ const ScribeDoc: Component<Props> = (props) => {
   // ── ink objects ──
   const insertDrawing = async () => {
     if (!inkApi) return;
-    const blob = await inkApi.pageToBlob();
+    // Cropped to the ink and with no page background: the pad is mostly empty, so
+    // exporting all of it made the drawing look tiny once placed, on an opaque
+    // rectangle that covered the text underneath.
+    const blob = await inkApi.pageToBlob({ crop: true, transparent: true });
     setDrawing(false);
     if (!blob) return;
     const src = await new Promise<string>((res) => {
@@ -275,11 +278,14 @@ const ScribeDoc: Component<Props> = (props) => {
       r.onload = () => res(String(r.result));
       r.readAsDataURL(blob);
     });
-    // Land it near the top-left of the page's writing area, sized to fit.
-    const w = Math.min(560, DOC_W - 96);
     const img = new Image();
     img.src = src;
     await img.decode().catch(() => {});
+    // Size from the drawing itself rather than a fixed width, so what you drew is
+    // what you get. The PNG is rendered at 2x, hence the halving. Clamped so a
+    // tiny mark is still grabbable and a big one still fits the page.
+    const natural = img.width ? img.width / 2 : 320;
+    const w = Math.round(Math.max(120, Math.min(DOC_W - 96, natural)));
     const h = img.height && img.width ? Math.round((w * img.height) / img.width) : 320;
     setObjects((o) => [
       ...o,
@@ -288,7 +294,12 @@ const ScribeDoc: Component<Props> = (props) => {
     emit();
   };
 
-  const startObjDrag = (e: PointerEvent, id: string, mode: "move" | "resize") => {
+  /** Which way a handle stretches the object. "se" keeps the aspect ratio (the
+   *  usual case for a drawing); the edges stretch one axis freely, which is what
+   *  you want for squaring up a wonky sketch or fitting a column. */
+  type DragMode = "move" | "e" | "s" | "se";
+
+  const startObjDrag = (e: PointerEvent, id: string, mode: DragMode) => {
     e.preventDefault();
     e.stopPropagation();
     setSelected(id);
@@ -304,8 +315,10 @@ const ScribeDoc: Component<Props> = (props) => {
         all.map((o) => {
           if (o.id !== id) return o;
           if (mode === "move") return { ...o, x: start.x + dx, y: start.y + dy };
-          // Resize keeps the aspect ratio: a squashed diagram is never wanted.
-          const w = Math.max(80, start.w + dx);
+          if (mode === "e") return { ...o, w: Math.max(40, start.w + dx) };
+          if (mode === "s") return { ...o, h: Math.max(40, start.h + dy) };
+          // Corner: proportional, so a diagram isn't squashed by accident.
+          const w = Math.max(40, start.w + dx);
           return { ...o, w, h: Math.round((w * start.h) / start.w) };
         }),
       );
@@ -457,9 +470,19 @@ const ScribeDoc: Component<Props> = (props) => {
                       ✕
                     </button>
                     <div
+                      class="sdoc-obj-h"
+                      title="Stretch width"
+                      onPointerDown={(e) => startObjDrag(e, o.id, "e")}
+                    />
+                    <div
+                      class="sdoc-obj-v"
+                      title="Stretch height"
+                      onPointerDown={(e) => startObjDrag(e, o.id, "s")}
+                    />
+                    <div
                       class="sdoc-obj-resize"
-                      title="Resize"
-                      onPointerDown={(e) => startObjDrag(e, o.id, "resize")}
+                      title="Resize (keeps proportions)"
+                      onPointerDown={(e) => startObjDrag(e, o.id, "se")}
                     />
                   </Show>
                 </div>
