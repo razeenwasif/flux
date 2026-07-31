@@ -1,11 +1,17 @@
 //! On-disk browsing data: how much the engine is holding, and how to clear it.
 //!
-//! This exists because of a real failure. A service-worker CacheStorage grew to
-//! 753 MB and started crashing the renderer with `STATUS_ACCESS_VIOLATION` on one
-//! origin — every Flux surface, while Edge and private tabs were fine, because
-//! they don't share that profile. Two things were missing: any way to see that
-//! the profile had grown pathological, and any way to clear it short of deleting
-//! folders by hand from PowerShell.
+//! This exists because of a real gap, found while chasing a renderer crash. A
+//! service-worker CacheStorage had grown to **753 MB** without anything ever
+//! saying so, and there was no way to clear it from inside Flux — the only cure
+//! was deleting folders by hand from PowerShell. Every other browser has this;
+//! Flux didn't.
+//!
+//! **It was not the crash.** That turned out to be two injected page scripts
+//! calling the IPC bridge at document-created (see `webview.rs`), and clearing
+//! the caches changed nothing. The size was a real problem worth surfacing on its
+//! own terms — a browser that sells itself on being light shouldn't quietly sit
+//! on a gigabyte — but this is hygiene, not a fix for anything.
+//!
 //!
 //! **Clearing is deferred to the next launch.** The engine holds these files open
 //! while it runs, so deleting them live either fails or corrupts the profile
@@ -40,10 +46,11 @@ const CATEGORIES: &[Category] = &[
     Category {
         key: "serviceworkers",
         label: "Service workers",
-        hint: "Offline caches sites install. The usual cause of a profile going bad — this is what crashed on github.com at 753 MB.",
+        hint: "Offline caches sites install. The group most likely to grow without bound — one reached 753 MB here before anything surfaced it.",
         paths: &["Default/Service Worker"],
         // A healthy service-worker store is single-digit MB. A quarter of a
-        // gigabyte already means something is not evicting.
+        // gigabyte already means something is not evicting, which is worth saying
+        // even though a large store has not been shown to break anything.
         warn_over: Some(250 * MB),
     },
     Category {
@@ -343,10 +350,10 @@ mod tests {
             .find(|c| c.key == "serviceworkers")
             .unwrap();
         let limit = sw.warn_over.unwrap();
-        // The size that actually broke a profile must trip the warning.
+        // The size actually observed in the wild must trip the warning.
         assert!(
             753 * MB > limit,
-            "753 MB has to be flagged — it crashed a renderer"
+            "753 MB is the size that went unnoticed; it has to be flagged"
         );
         // A healthy store must not.
         assert!(8 * MB < limit, "a normal service-worker store stays quiet");

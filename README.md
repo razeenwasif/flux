@@ -334,74 +334,66 @@ off by default and why an explicit tab close deletes that session's file.
 
 ## Troubleshooting
 
-**A single site fails while every other browser loads it.** Check
-**Settings → Browsing data** and hit *Measure*. A service-worker cache or site
-storage that has grown to hundreds of megabytes can crash the renderer on that
-one origin, in every Flux window, while private tabs (which use an in-memory
-session) and other browsers are unaffected — because they don't share the
-profile. Select the flagged group and clear it; the deletion happens on the next
-launch, because the engine holds those files open while it runs. The resource
-monitor (`flux://resources`) shows the same figure next to RAM and warns when it
-looks wrong.
+**Read the log first.** Release builds on Windows have no console, so this file is
+the only place Flux's output appears — including confirmation that a diagnostic
+environment variable actually took effect:
 
+```powershell
+Get-Content "$env:LOCALAPPDATA\dev.flux.browser\flux.log" -Tail 40
+```
 
 **A page dies with `STATUS_ACCESS_VIOLATION` (Windows).** That's the WebView2
-renderer crashing, not Flux — but Flux can contribute to it, so bisect in this
-order, restarting Flux between each:
+renderer crashing. It can be provoked by what Flux injects into the page, so start
+there — that's where the one real instance of this turned out to be.
 
-These are Windows-only, so the examples are PowerShell. Set the variable as its
-own statement — PowerShell has no `VAR=value command` form — and launch Flux from
-that same window, or the variable won't reach it:
+The examples are PowerShell. Set the variable as its own statement (there is no
+`VAR=value command` form) and launch Flux from that same window, or it won't reach
+the process. Check the log line each time before trusting a result.
 
-1. Rule out HTTP/3. This passes `--disable-quic` — note that *omitting*
-   `--enable-quic` is not enough, since HTTP/3 is the WebView2 default, so the
-   opt-out has to disable it explicitly.
+1. **Rule out Flux's page scripts** — the highest-yield step. `none` injects
+   nothing; a comma-separated list injects only those named, so ten scripts
+   bisect in three or four runs. Diagnostic only: it disables real features while
+   set, and says so in the log.
 
    ```powershell
-   $env:FLUX_NO_QUIC = "1"
+   $env:FLUX_PAGE_SCRIPTS = "none"
    flux
    ```
 
-   If that fixes it, the profile's cached Alt-Svc records are likely part of it
-   (they're what makes a saved profile prefer HTTP/3 where a fresh private
-   session wouldn't). Close Flux and delete
-   `%LOCALAPPDATA%\dev.flux.browser\EBWebView\Default\Network\Network Persistent State`.
+   If the page loads, halve the list until one name reproduces it
+   (`"capture,shortcuts,hibernate,darkmode,nav"`, then narrow).
 
-2. Rule out the GPU — the standard WebView2 access-violation workaround. A fix
-   here points at the graphics driver rather than at Flux.
+2. **Compare against Edge**, which is the same engine. If Edge crashes too, it's
+   the runtime rather than Flux: `winget install Microsoft.EdgeWebView2Runtime`.
+   Check both versions match — they update independently.
+
+3. **Try a private tab.** Private tabs use an in-memory session, so if the page
+   loads there and not otherwise, the trigger depends on stored state or on being
+   signed in. That narrows it, but note it does *not* prove the profile is corrupt
+   — a signed-in page is a different page.
+
+4. **Rule out the GPU** — the standard WebView2 access-violation workaround. A fix
+   here points at the graphics driver.
 
    ```powershell
    $env:FLUX_WEBVIEW2_ARGS = "--disable-gpu"
    flux
    ```
 
-3. Turn **Shields** off for that site (Settings → Privacy & security) to rule out
-   request blocking.
-4. Rule out Flux's page scripts. `FLUX_PAGE_SCRIPTS=none` injects nothing at all;
-   a comma-separated list (`FLUX_PAGE_SCRIPTS=shortcuts,darkmode`) injects only
-   those, so a page that misbehaves only under Flux can be bisected in a couple of
-   runs. Diagnostic only - it disables real features while set, and the startup
-   log says so.
+5. **Rule out HTTP/3** (`$env:FLUX_NO_QUIC = "1"`, which passes `--disable-quic` —
+   omitting `--enable-quic` isn't enough, since H3 is the WebView2 default) and
+   **Shields** for that site (Settings → Privacy & security).
 
-   ```powershell
-   $env:FLUX_PAGE_SCRIPTS = "none"
-   flux
-   ```
-5. `winget install Microsoft.EdgeWebView2Runtime` — these crashes are often a
-   runtime bug already fixed upstream.
+6. **Capture the crash dump.** WebView2 writes Crashpad reports under
+   `%LOCALAPPDATA%\dev.flux.browser\EBWebView\Crashpad\reports`, but uploads and
+   deletes them within a few minutes — copy one out promptly. The exception record
+   and module list name the faulting module, which beats guessing.
 
-Flux writes a log to `%LOCALAPPDATA%\dev.flux.browser\flux.log` (release builds
-on Windows have no console, so this is the only place output appears). It logs the
-arguments it applied at startup under `flux::net`
-(`WebView2 browser args set … quic=false`), so you can confirm a step took effect
-rather than assuming it did. To undo a setting: `Remove-Item Env:FLUX_NO_QUIC`.
-
-To make one stick across restarts and shortcut launches, set it for the user
-instead and sign out and back in:
-
-```powershell
-[Environment]::SetEnvironmentVariable("FLUX_NO_QUIC", "1", "User")
-```
+**Browsing data has grown large.** Settings → Browsing data → *Measure* shows what
+the engine keeps on disk by group, and clears what you select on the next launch.
+Nothing evicts these stores on a schedule, so a service-worker cache can reach
+hundreds of megabytes. This is housekeeping — an oversized store has not been
+shown to break anything.
 
 ## Files
 

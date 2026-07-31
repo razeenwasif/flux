@@ -657,7 +657,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             hint={
               store()
                 ? `Measured at ${store()!.root}. Clearing happens on the next launch — the engine keeps these files open while it's running, so they can't be deleted from under it.`
-                : "Cache, service workers, site storage and cookies the engine keeps. A service-worker cache that grows without bound can crash pages on one site while every other browser is fine, so it's worth a look if a site starts failing."
+                : "Cache, service workers, site storage and cookies the engine keeps. Nothing evicts these on a schedule, so a service-worker cache can quietly reach hundreds of megabytes."
             }
           >
             <button class="set-link-btn" disabled={storeBusy()} onClick={measure}>
@@ -669,8 +669,8 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               <Show when={store()!.warn}>
                 <p class="store-warn">
                   ⚠ {mb(store()!.total_bytes)} stored, and at least one group is far larger than it should be.
-                  That's the shape of the profile corruption that crashes a single site in every Flux window
-                  while private tabs and other browsers load it fine.
+                  Nothing is known to break at this size — it's simply more than a browsing profile should be
+                  holding, and worth clearing.
                 </p>
               </Show>
               <Show when={store()!.pending.length > 0}>

@@ -91,8 +91,7 @@ const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackg
           {store()!.entries.find((e) => e.warn)
             ? ` (${store()!.entries.find((e) => e.warn)!.label}: ${Math.round(store()!.entries.find((e) => e.warn)!.bytes / 1048576)} MB)`
             : ""}
-          . This can crash a single site in every Flux window while private tabs and other browsers load it
-          fine.{" "}
+          . Nothing evicts these stores on a schedule, so they only shrink when you clear them.{" "}
           <button class="res-store-link" onClick={() => props.onNavigate(SETTINGS_URL)}>
             Clear browsing data
           </button>
