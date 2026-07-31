@@ -46,6 +46,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   stretch width or height freely, with the corner still proportional.
 
 ### Fixed
+- **Scribe notebooks that arrived without being edited never reached the knowledge base.** The
+  auto-indexer watches a change counter, which only moves on a mutation — so a notebook copied
+  from another machine, restored from a backup, or simply present before the indexer existed
+  would sit unindexed until something happened to edit it. There's now a single startup pass
+  when the corpus is on disk but the KB has no `scribe` docs at all.
 - **Scribe notebooks now reach the knowledge base on their own.** They were indexed only by a
   manual ↻ Reindex, so anything written since was invisible to the agent's "My notes" scope —
   only browsing had a background indexer. Scribe now uses the same settle rule: the store carries

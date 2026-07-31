@@ -701,6 +701,12 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             // autosave doesn't re-embed a notebook on every keystroke.
             let mut scribe_seen: u64 = 0;
             let mut scribe_indexed: u64 = 0;
+            // The counter only moves on a *mutation*, so notebooks that arrived
+            // any other way — copied from another machine, restored from a
+            // backup, or simply present before this indexer existed — would sit
+            // unindexed until something happened to edit one. Index once at
+            // startup when the corpus is on disk but absent from the KB.
+            let mut scribe_bootstrapped = false;
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(60));
                 if let Some(t) = handle.try_state::<trace::TraceStore>() {
@@ -766,9 +772,18 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                     handle.try_state::<trace::TraceSnapshots>(),
                 ) {
                     let generation = st.generation();
+                    // One startup pass for a corpus the KB has never seen.
+                    let unseen = !scribe_bootstrapped
+                        && !st.list().is_empty()
+                        && kb
+                            .status()
+                            .sources
+                            .iter()
+                            .any(|s| s.source == "scribe" && s.docs == 0);
+                    scribe_bootstrapped = true;
                     let settled = generation == scribe_seen && generation != scribe_indexed;
                     scribe_seen = generation;
-                    if settled {
+                    if settled || unseen {
                         // Always hand over both in-process corpora: a `None`
                         // source rebuilds everything, and even a single-source
                         // rebuild reads them.
