@@ -45,6 +45,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   area a reader can judge — with 9 groups the worst aspect ratio measures 5.7 against 100%
   coverage and no overlaps. It's a pure function with 11 unit tests, which is what the new
   frontend test runner was for.
+
+  **It works pinned as a web panel.** The breakpoints are *container* queries, not viewport ones:
+  in a panel this page is ~340px wide inside a 3440px window, and a media query would lay it out
+  for the display it isn't on. Each step drops what's least useful rather than scaling everything
+  down — the per-core bars go first (sixteen 6px slivers are noise), then the PID column, then
+  the CPU column. Tile labels are their own containers, so a name hides itself when its tile
+  lacks the pixels rather than being clipped; measured at 1000/640/400/300px, zero clipped labels
+  and no horizontal overflow at any width.
 - **The agent's "My notes" scope no longer searches browsing snapshots.** It passed no source
   filter, so it answered from every corpus including pages you'd merely visited — which the
   Trail already graphs separately. Scoped to your own corpora, matching the connections rail.

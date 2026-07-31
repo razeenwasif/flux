@@ -357,14 +357,13 @@ const TasksPage: Component = () => {
                   title={`${tile.datum.name} — ${gb(tile.datum.mem_mb)} GB across ${tile.datum.count} process${tile.datum.count === 1 ? "" : "es"}`}
                   onClick={() => setFocus((f) => (f === tile.datum.name ? null : tile.datum.name))}
                 >
-                  {/* Only label a tile with room for it — a clipped word is worse
-                      than none, and the tooltip always has the full figure. */}
-                  <Show when={tile.width > 11 && tile.height > 13}>
-                    <span class="tm-tile-name">{tile.datum.name}</span>
-                    <Show when={tile.height > 22}>
-                      <span class="tm-tile-val">{gb(tile.datum.mem_mb)} GB</span>
-                    </Show>
-                  </Show>
+                  {/* Always rendered; CSS hides them when the tile is too small
+                      to hold them. A percentage threshold can't do this job — 11%
+                      of a 1000px card is roomy and 11% of a 300px panel is 33px —
+                      so each tile is its own query container and the cutoff is in
+                      pixels. The tooltip always carries the full figure. */}
+                  <span class="tm-tile-name">{tile.datum.name}</span>
+                  <span class="tm-tile-val">{gb(tile.datum.mem_mb)} GB</span>
                 </button>
               )}
             </For>

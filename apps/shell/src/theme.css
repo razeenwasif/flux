@@ -9359,6 +9359,11 @@ body.busy .start-card {
   padding: 16px 20px;
   overflow: hidden;
   color: var(--flux-text);
+  /* A *container* query, not a viewport one: pinned as a web panel this page is
+     ~340px wide inside a 3440px window, and viewport media queries would leave
+     it laid out for the desktop it isn't on. */
+  container-type: inline-size;
+  container-name: tm;
 }
 .tm-head {
   display: flex;
@@ -9518,6 +9523,10 @@ body.busy .start-card {
 }
 .tm-tile {
   position: absolute;
+  /* Its own query container, so a label hides itself when its tile lacks the
+     room — at any card width, without measuring anything in JS. */
+  container-type: size;
+  container-name: tile;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -9558,6 +9567,102 @@ body.busy .start-card {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.75);
   font-variant-numeric: tabular-nums;
+}
+
+/* A clipped word is worse than no word: the tooltip always has the full figure. */
+@container tile (max-width: 66px) {
+  .tm-tile-name,
+  .tm-tile-val {
+    display: none;
+  }
+}
+@container tile (max-height: 30px) {
+  .tm-tile-name,
+  .tm-tile-val {
+    display: none;
+  }
+}
+@container tile (max-height: 48px) {
+  .tm-tile-val {
+    display: none;
+  }
+}
+
+/* ── Task manager at narrow widths ───────────────────────────────────────────
+   Two steps: a small window or half a split (720px), and the web-panel column
+   (460px), where the page is a strip beside the page you're actually reading.
+   Each step drops what is least useful at that size rather than scaling
+   everything down uniformly — a 6px core bar reads as noise, not information. */
+@container tm (max-width: 720px) {
+  .tm-page {
+    padding: 12px 12px;
+    gap: 10px;
+  }
+  .tm-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+  }
+  .tm-map {
+    height: 168px;
+  }
+  /* The uptime/cpu-brand line is the first thing to go: it never changes. */
+  .tm-sub {
+    display: none;
+  }
+}
+
+@container tm (max-width: 460px) {
+  .tm-page {
+    padding: 10px;
+  }
+  /* One column. Cards side by side at this width are two unreadable columns
+     rather than one readable one. */
+  .tm-grid {
+    grid-template-columns: 1fr;
+  }
+  .tm-verdict {
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    font-size: 12.5px;
+  }
+  .tm-verdict-dot {
+    align-self: flex-start;
+  }
+  /* Per-core bars are the densest thing here and the least legible small: at
+     16 cores they wrap to three rows of 6px slivers. The overall CPU graph and
+     the "hottest process" line carry the same story. */
+  .tm-cores {
+    display: none;
+  }
+  .tm-map {
+    height: 140px;
+  }
+  /* PID is a lookup key, not something you scan for — the name and the numbers
+     are what the list is read for. */
+  .tm-pid,
+  .tm-row.tm-header .tm-pid {
+    display: none;
+  }
+  .tm-row {
+    gap: 7px;
+    padding: 5px 6px;
+    font-size: 12px;
+  }
+  .tm-title {
+    font-size: 13px;
+  }
+}
+
+/* Narrower still (a squeezed panel): memory alone, since RAM is what a browser
+   pinned beside your work is being watched for. */
+@container tm (max-width: 320px) {
+  .tm-map {
+    height: 116px;
+  }
+  .tm-cpu {
+    display: none;
+  }
 }
 .tm-card {
   background: var(--flux-surface);
