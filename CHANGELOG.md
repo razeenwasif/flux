@@ -8,6 +8,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **A dock column: calendar above mail, in a layout column of its own.** Both used to compete
+  for the web panel — docking the calendar there left a pinned site sharing the same strip — so
+  this frees the panel entirely for something else. Structurally it's the agent/terminal stack
+  again: one width charged once, two slots, a draggable seam, and it reuses that CSS rather than
+  growing a parallel set. Toggle it from ⌘K ("Show calendar + mail column"); the width and split
+  persist, and it sheds under the same responsive rule as the other columns.
+
+  The calendar now has three placements, so its ⇥ button **cycles** — floating over the page,
+  sharing the web-panel column, or its own column above mail. A two-way toggle would have
+  stranded the third, and keying the dock column off "is the calendar open" rather than "is its
+  placement here" would have drawn it in two columns at once.
+
+  The mail pane is a placeholder for now, and says so — "no mail" and "not set up" look identical
+  otherwise. IMAP with an app password lands next: read-only, no OAuth, no Google Cloud project.
 - **Terminal tabs can be tiled.** A lecture sheet beside nvim now works: any tab joins a split,
   terminals included. They were excluded because a terminal doesn't render like the other
   internal pages — it lives in an always-mounted layer so its PTY and scrollback survive tab

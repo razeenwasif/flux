@@ -29,7 +29,15 @@ import {
   type CalEvent,
   type CalEventFields,
 } from "./ipc";
-import { calendarPopView, openTab, setCalendarDock, setCalendarPopOpen, setCalendarPopView } from "./store";
+import {
+  calendarDock,
+  calendarPopView,
+  openTab,
+  setCalendarDock,
+  setCalendarPopOpen,
+  setCalendarPopView,
+  type CalendarDock,
+} from "./store";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const dateStrOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -62,7 +70,23 @@ const REPEATS: { v: string; label: string }[] = [
   { v: "FREQ=YEARLY", label: "Yearly" },
 ];
 
+/** Where the ⇥ button sends the calendar next, and what it says while there. */
+const PLACEMENT: Record<CalendarDock, { next: CalendarDock; icon: string; title: string }> = {
+  overlay: {
+    next: "panel",
+    icon: "⇥",
+    title: "Dock in the web-panel column — stays open beside the page",
+  },
+  panel: {
+    next: "dock",
+    icon: "🗓",
+    title: "Move to its own column, above mail — frees the web panel",
+  },
+  dock: { next: "overlay", icon: "⤢", title: "Float over the page (hides the page while open)" },
+};
+
 const CalendarPop: Component<{ docked?: boolean }> = (props) => {
+  const placement = () => PLACEMENT[calendarDock()] ?? PLACEMENT.overlay;
   const [events, setEvents] = createSignal<CalEvent[]>([]);
   const [loading, setLoading] = createSignal(true);
   const todayStr = dateStrOf(new Date());
@@ -515,16 +539,15 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
           </select>
         </Show>
         <span style={{ flex: 1 }} />
+        {/* Three placements, so this cycles rather than toggles: floating over
+            the page, sharing the web-panel column with a pinned site, or in its
+            own column above mail. A two-way toggle would strand the third. */}
         <button
           class="cal-pop-nav"
-          title={
-            props.docked
-              ? "Float over the page (hides the page while open)"
-              : "Dock in the side panel — stays open beside the page"
-          }
-          onClick={() => setCalendarDock(props.docked ? "overlay" : "panel")}
+          title={placement().title}
+          onClick={() => setCalendarDock(placement().next)}
         >
-          {props.docked ? "⤢" : "⇥"}
+          {placement().icon}
         </button>
         <button class="cal-pop-full" title="Open the full calendar (home)" onClick={openFull}>
           ↗ Full calendar

@@ -14330,6 +14330,51 @@ input[type="radio"].pdf-fw {
   min-height: 0;
   position: relative;
 }
+
+/* The dock column reuses .rightstack's geometry (one width, two slots, a seam)
+   and only claims its own grid area. */
+.dock-col {
+  grid-area: dock;
+}
+.mail-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+  padding: var(--flux-frame-pad);
+  padding-left: 0;
+}
+.mail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.mail-title {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--flux-text-dim);
+}
+.mail-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--flux-text);
+  border-radius: var(--flux-radius-card, 14px);
+  border: 1px solid var(--flux-border);
+  background: var(--glass-fill-soft);
+  padding: 12px 14px;
+}
+.mail-empty p {
+  margin: 0 0 8px;
+}
+.mail-dim {
+  color: var(--flux-text-dim);
+}
 .rightstack-slot {
   display: flex;
   flex-direction: column;

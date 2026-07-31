@@ -336,18 +336,25 @@ export function setCalendarPopOpen(v: boolean): void {
  * **docked** in the web-panel column, which is an ordinary layout column and so
  * sits *beside* the page instead of over it. Persisted.
  */
-const [calendarDock, setCalendarDockSig] = createSignal<"overlay" | "panel">(
-  localStorage.getItem("flux.cal.dock") === "panel" ? "panel" : "overlay",
-);
+export type CalendarDock = "overlay" | "panel" | "dock";
+const readDock = (): CalendarDock => {
+  const v = localStorage.getItem("flux.cal.dock");
+  return v === "panel" || v === "dock" ? v : "overlay";
+};
+const [calendarDock, setCalendarDockSig] = createSignal<CalendarDock>(readDock());
 export { calendarDock };
-export function setCalendarDock(v: "overlay" | "panel"): void {
+export function setCalendarDock(v: CalendarDock): void {
   setCalendarDockSig(v);
   localStorage.setItem("flux.cal.dock", v);
 }
 /** True only while the calendar is showing as a page-covering overlay. */
 export const calendarOverlayOpen = (): boolean => calendarPopOpen() && calendarDock() === "overlay";
-/** True only while it's docked in the panel column. */
+/** True only while it's docked in the *web-panel* column, sharing that space
+ *  with a pinned site. */
 export const calendarDocked = (): boolean => calendarPopOpen() && calendarDock() === "panel";
+/** True while it lives in its own column, above mail — which leaves the web
+ *  panel free for something else entirely. */
+export const calendarInDock = (): boolean => calendarPopOpen() && calendarDock() === "dock";
 /** The docked calendar's share of the panel column's height, so it can sit
  *  above a pinned panel (mail, chat) instead of taking the whole column. */
 const [calDockRatio, setCalDockRatioSig] = createSignal(
@@ -358,6 +365,16 @@ export function setCalDockRatio(r: number): void {
   const v = Math.min(0.8, Math.max(0.2, r));
   setCalDockRatioSig(v);
   localStorage.setItem("flux.cal.dockratio", String(v));
+}
+/** The calendar's share of the dock column's height, above the mail pane. */
+const [dockRatio, setDockRatioSig] = createSignal(
+  Math.min(0.85, Math.max(0.15, Number(localStorage.getItem("flux.dock.split")) || 0.5)),
+);
+export { dockRatio };
+export function setDockRatio(r: number): void {
+  const v = Math.min(0.85, Math.max(0.15, r));
+  setDockRatioSig(v);
+  localStorage.setItem("flux.dock.split", String(v));
 }
 /** Which view the calendar pane opens in: the month+agenda editor, or the
  *  week hour-grid used as a timetable. Persisted, so the pane reopens in

@@ -129,6 +129,7 @@ const FilesView = lazy(() => import("./FilesView"));
 const Playground = lazy(() => import("./playground/Playground"));
 const NotebookPage = lazy(() => import("./NotebookPage"));
 const ConnectionsRail = lazy(() => import("./ConnectionsRail"));
+const DockColumn = lazy(() => import("./DockColumn"));
 const MusicBubble = lazy(() => import("./MusicBubble"));
 const AgentPanel = lazy(() => import("./AgentPanel"));
 import {
@@ -154,7 +155,9 @@ import {
   kbPanelOpen,
   setKbPanelOpen,
   shellHistOpen,
+  calendarDock,
   calendarDocked,
+  setCalendarDock,
   setCalendarPopOpen,
   openMessagingPanel,
   setShellHistOpen,
@@ -304,6 +307,18 @@ const App: Component = () => {
     localStorage.setItem("flux.stack.split", String(v));
   };
   const [connectW] = createSignal(loadW("flux.w.connect", 212));
+  // The dock column (calendar over mail). Its own column so the web panel is
+  // free for something else — the whole point of asking for it.
+  const [dockW, setDockW] = createSignal(loadW("flux.w.dock", 340));
+  const [dockOpen, setDockOpen] = createSignal(localStorage.getItem("flux.dock.open") === "1");
+  const toggleDock = () => {
+    const v = !dockOpen();
+    setDockOpen(v);
+    localStorage.setItem("flux.dock.open", v ? "1" : "0");
+    // Sending the calendar to the dock is what makes the pairing useful; leaving
+    // it in the web panel would keep the column half-empty and the panel busy.
+    if (v && calendarDock() !== "dock") setCalendarDock("dock");
+  };
 
   // Window width drives the responsive pane-shedding (#28). Tracked from the window
   // resize event only (not layout changes) so it can't feed back into the columns
@@ -1245,6 +1260,12 @@ const App: Component = () => {
       run: () => setTrackerGraphOpen(true),
     },
     {
+      id: "dock-col",
+      label: dockOpen() ? "Hide calendar + mail column" : "Show calendar + mail column",
+      icon: "🗓",
+      run: () => toggleDock(),
+    },
+    {
       id: "split",
       label: tileGroup() != null ? "Exit split view" : "Split view (tile up to four tabs)",
       icon: "◫",
@@ -1428,7 +1449,15 @@ const App: Component = () => {
   const SIDEBAR_RAIL = 72; // --flux-sidebar-w-min
   const MIN_CONTENT = 460; // narrowest content card we'll keep before shedding a pane
   const responsive = createMemo(() => {
-    if (focusMode()) return { sidebar: false, panel: false, terminal: false, agent: false, connect: false };
+    if (focusMode())
+      return {
+        sidebar: false,
+        panel: false,
+        terminal: false,
+        agent: false,
+        connect: false,
+        dock: false,
+      };
     // What the user wants open (same conditions as the non-responsive layout used).
     const want = {
       sidebar: sidebarOpen(),
@@ -1440,8 +1469,18 @@ const App: Component = () => {
       // the persistent shell; a launched TUI app tab lives alongside it.
       terminal: terminalOpen(),
       connect: connectOpen(),
+      // The dock column holds mail (always) plus the calendar when it's set to
+      // that placement — so it's wanted whenever the user has it switched on.
+      dock: dockOpen(),
     };
-    const out = { sidebar: false, agent: false, panel: false, terminal: false, connect: false };
+    const out = {
+      sidebar: false,
+      agent: false,
+      panel: false,
+      terminal: false,
+      connect: false,
+      dock: false,
+    };
     // Content card + the always-present sidebar rail are reserved first.
     let used = MIN_CONTENT + SIDEBAR_RAIL;
     const w = winW();
@@ -1454,6 +1493,7 @@ const App: Component = () => {
       ["sidebar", sidebarW() - SIDEBAR_RAIL], // extra beyond the rail it already has
       ["stack", wantStack ? stackW() : 0],
       ["panel", panelWidth()],
+      ["dock", dockW()],
       ["connect", connectW()],
     ];
     for (const [k, extra] of order) {
@@ -1479,16 +1519,20 @@ const App: Component = () => {
   const panelColVisible = () => responsive().panel;
   const agentColVisible = () => responsive().agent;
   const connectColVisible = () => responsive().connect;
+  /** The dock column is up whenever anything wants to live in it. Mail is always
+   *  a reason; the calendar only when it's set to this placement. */
+  const dockColVisible = () => responsive().dock;
   /** The shared right-hand column is up whenever either pane in it is. */
   const stackVisible = () => agentColVisible() || termColVisible();
 
   const columns = () =>
     focusMode()
-      ? "0px 1fr 0px 0px 0px" // focus/compact mode (#55): content only
+      ? "0px 1fr 0px 0px 0px 0px" // focus/compact mode (#55): content only
       : [
           responsive().sidebar ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
           "1fr",
           panelColVisible() ? `${panelWidth()}px` : "0px",
+          dockColVisible() ? `${dockW()}px` : "0px",
           stackVisible() ? `${stackW()}px` : "0px",
           connectColVisible() ? `${connectW()}px` : "0px",
         ].join(" ");
@@ -1560,7 +1604,7 @@ const App: Component = () => {
           : {
               "grid-template-columns": columns(),
               "grid-template-rows": "var(--flux-titlebar-h) 1fr",
-              "grid-template-areas": `"title title title title title" "side content webpanel stack connect"`,
+              "grid-template-areas": `"title title title title title title" "side content webpanel dock stack connect"`,
             }
       }
     >
@@ -1633,6 +1677,13 @@ const App: Component = () => {
       <Show when={panelColVisible()}>
         <WebPanelPane />
       </Show>
+      {/* Calendar + mail in a column of their own, so the web panel stays free
+          for a pinned site. */}
+      <Show when={dockColVisible()}>
+        <Suspense>
+          <DockColumn />
+        </Suspense>
+      </Show>
       {/* One right-hand column holding both panes: agent above, terminal below,
           with a draggable seam. Sharing a column is what reclaims the screen —
           two columns cost two widths. */}
@@ -1676,6 +1727,15 @@ const App: Component = () => {
           class="pane-splitter"
           style={{ left: `${sidebarW()}px` }}
           onPointerDown={(e) => startPaneResize(e, sidebarW, setSidebarW, 1, "flux.w.sidebar", 180, 460)}
+        />
+      </Show>
+      <Show when={dockColVisible()}>
+        <div
+          class="pane-splitter"
+          style={{
+            right: `${(connectColVisible() ? connectW() : 0) + (stackVisible() ? stackW() : 0) + dockW()}px`,
+          }}
+          onPointerDown={(e) => startPaneResize(e, dockW, setDockW, -1, "flux.w.dock", 260, 620)}
         />
       </Show>
       <Show when={stackVisible()}>
