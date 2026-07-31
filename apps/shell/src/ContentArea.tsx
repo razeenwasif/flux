@@ -79,32 +79,11 @@ const OAuthConsentBanner = lazy(() => import("./OAuthConsentBanner")); // shown 
 const SensitiveSiteBanner = lazy(() => import("./SensitiveSiteBanner")); // shown only on a bank/health/gov site
 const PolicyFlagsBanner = lazy(() => import("./PolicyFlagsBanner")); // shown only on a policy/ToS page
 const ConsentBanner = lazy(() => import("./ConsentBanner")); // shown only when a consent banner is detected
-const StartPage = lazy(() => import("./StartPage"));
 // Lazy like the other heavy surfaces: a session with no terminal open shouldn't
 // pay for xterm's host component in the eager chrome bundle. Once loaded it stays
 // resident, so the keep-alive contract (#73) is unaffected.
 const TerminalView = lazy(() => import("./TerminalView"));
-const FilesView = lazy(() => import("./FilesView"));
-const OmniDashboard = lazy(() => import("./OmniDashboard"));
-const NotebookPage = lazy(() => import("./NotebookPage"));
-const TrailPage = lazy(() => import("./TrailPage"));
-const WhiteboardPage = lazy(() => import("./WhiteboardPage"));
-const ScribePage = lazy(() => import("./ScribePage"));
-const VaultPage = lazy(() => import("./VaultPage"));
-const HistoryPage = lazy(() => import("./HistoryPage"));
-const BookmarksPage = lazy(() => import("./BookmarksPage"));
-const SessionsPage = lazy(() => import("./SessionsPage"));
-const ResourcesPage = lazy(() => import("./ResourcesPage"));
-const TasksPage = lazy(() => import("./TasksPage"));
-const SpeedtestPage = lazy(() => import("./SpeedtestPage"));
-const PermissionsPage = lazy(() => import("./PermissionsPage"));
-const SentinelAuditPage = lazy(() => import("./SentinelAuditPage"));
-const PdfViewer = lazy(() => import("./PdfViewer"));
-const ArchivePage = lazy(() => import("./ArchivePage"));
-const FeedsPage = lazy(() => import("./FeedsPage"));
-const SyncPage = lazy(() => import("./SyncPage"));
-const AppsPage = lazy(() => import("./AppsPage"));
-const SettingsPage = lazy(() => import("./SettingsPage"));
+import InternalPage from "./InternalPage";
 const ReaderView = lazy(() => import("./ReaderView"));
 const BookmarkBar = lazy(() => import("./BookmarkBar"));
 const PagesBar = lazy(() => import("./PagesBar"));
@@ -186,6 +165,19 @@ const ContentArea: Component<{
       : null;
   };
 
+  /** The internal-page renderer with this surface's callbacks bound once, so the
+   *  two call sites below (whole card, and one per tile) can't drift. */
+  const Page: Component<{ tab: () => TabMeta | null | undefined }> = (p) => (
+    <InternalPage
+      tab={p.tab}
+      onNavigate={props.onNavigate}
+      onNewTerminal={props.onNewTerminal}
+      onToggleAgent={props.onToggleAgent}
+      onOpenMap={props.onOpenMap}
+      onSleepBackground={props.onSleepBackground}
+    />
+  );
+
   const terminalIds = createMemo(() =>
     tabs()
       .filter((t) => t.kind === "terminal")
@@ -195,108 +187,6 @@ const ContentArea: Component<{
   // The internal (DOM) page for a tab — Flux's own pages render here; a real web
   // page falls through to the placeholder its native webview overlays. Parameterized
   // by tab so split view can render BOTH panes' pages, not just the active one (#43).
-  const pageFor = (tab: () => TabMeta | null | undefined) => (
-    <Switch
-      fallback={
-        <span style={{ "text-align": "center", "line-height": 1.8 }}>
-          <strong style={{ color: "var(--flux-text)" }}>{tab()?.title || "Flux"}</strong>
-          <br />
-          loading…
-        </span>
-      }
-    >
-      <Match when={tab()?.kind === "files"}>
-        {/* Key on the tab id (stable) so navigation patching the tab object doesn't
-            remount FilesView into a reload loop — only a tab switch should. */}
-        <Show when={tab()?.id} keyed>
-          {(id) => (
-            <FilesView
-              id={id}
-              path={tabs().find((t) => t.id === id)?.url ?? ""}
-              onPathChange={(p) => {
-                updateTabUrl(id, p);
-                updateTabTitle(id, basename(p));
-              }}
-              onOpenInTab={props.onNavigate}
-            />
-          )}
-        </Show>
-      </Match>
-      <Match when={tab()?.url === OMNI_URL}>
-        <OmniDashboard onNavigate={props.onNavigate} />
-      </Match>
-      <Match when={tab()?.url === NOTEBOOK_URL}>
-        <NotebookPage />
-      </Match>
-      <Match when={tab()?.url === TRAIL_URL}>
-        <TrailPage onNavigate={props.onNavigate} />
-      </Match>
-      <Match when={tab()?.url === WHITEBOARD_URL}>
-        <WhiteboardPage />
-      </Match>
-      <Match when={tab()?.url === SCRIBE_URL}>
-        <ScribePage />
-      </Match>
-      <Match when={tab()?.url === VAULT_URL}>
-        <VaultPage onNavigate={props.onNavigate} />
-      </Match>
-      <Match when={tab()?.url === HISTORY_URL}>
-        <HistoryPage onNavigate={props.onNavigate} />
-      </Match>
-      <Match when={tab()?.url === BOOKMARKS_URL}>
-        <BookmarksPage onNavigate={props.onNavigate} />
-      </Match>
-      <Match when={tab()?.url === SESSIONS_URL}>
-        <SessionsPage onNavigate={props.onNavigate} />
-      </Match>
-      <Match when={tab()?.url === RESOURCES_URL}>
-        <ResourcesPage onNavigate={props.onNavigate} onSleepBackground={props.onSleepBackground} />
-      </Match>
-      <Match when={tab()?.url === TASKS_URL}>
-        <TasksPage />
-      </Match>
-      <Match when={tab()?.url === SPEEDTEST_URL}>
-        <SpeedtestPage />
-      </Match>
-      <Match when={tab()?.url === PERMISSIONS_URL}>
-        <PermissionsPage />
-      </Match>
-      <Match when={tab()?.url === SENTINEL_URL}>
-        <SentinelAuditPage />
-      </Match>
-      <Match when={tab()?.url?.startsWith(PDF_URL)}>
-        {/* Keyed on the tab id (a primitive — never the tab object, which would
-            remount in a loop) so each PDF tab gets its OWN viewer. Sharing one
-            instance made every PDF tab show whichever file was opened last. */}
-        <Show when={tab()?.id} keyed>
-          {(id) => <PdfViewer tabId={id} />}
-        </Show>
-      </Match>
-      <Match when={tab()?.url === ARCHIVE_URL}>
-        <ArchivePage onNavigate={props.onNavigate} />
-      </Match>
-      <Match when={tab()?.url === FEEDS_URL}>
-        <FeedsPage />
-      </Match>
-      <Match when={tab()?.url === SYNC_URL}>
-        <SyncPage />
-      </Match>
-      <Match when={tab()?.url === APPS_URL}>
-        <AppsPage />
-      </Match>
-      <Match when={tab()?.url === SETTINGS_URL}>
-        <SettingsPage onNavigate={props.onNavigate} />
-      </Match>
-      <Match when={tab() && isStartUrl(tab()!.url)}>
-        <StartPage
-          onNavigate={props.onNavigate}
-          onNewTerminal={props.onNewTerminal}
-          onToggleAgent={props.onToggleAgent}
-          onOpenMap={props.onOpenMap}
-        />
-      </Match>
-    </Switch>
-  );
   return (
     <main class="content">
       {/* Pages bar: quick-access native-page chips docked above the card. A sibling
@@ -438,7 +328,7 @@ const ContentArea: Component<{
             {/* Split view (#43): two DOM halves, each rendering its tab's internal page
             (a real web page falls through to the placeholder its tiled webview
             overlays). Accessors keep navigation reactive without remounting. */}
-            <Show when={panes()} fallback={pageFor(activeTab)}>
+            <Show when={panes()} fallback={<Page tab={activeTab} />}>
               {/* <Index>, not <For>: tileRects() returns fresh objects on every
                   seam move, and For keys by reference — it would tear down and
                   remount each pane's whole page on every pointer move. Index
@@ -460,7 +350,7 @@ const ContentArea: Component<{
                         height: `${r().height}%`,
                       }}
                     >
-                      {pageFor(() => panes()?.[i])}
+                      <Page tab={() => panes()?.[i]} />
                     </div>
                   </Show>
                 )}

@@ -1666,7 +1666,7 @@ const App: Component = () => {
         onSleepBackground={sleepBackgroundTabs}
       />
       <Show when={panelColVisible()}>
-        <WebPanelPane />
+        <WebPanelPane onNavigate={go} />
       </Show>
       {/* Calendar + mail in a column of their own, so the web panel stays free
           for a pinned site. */}

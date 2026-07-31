@@ -389,6 +389,17 @@ body.resizing .panel-edge-resize::after {
   position: absolute;
   inset: 34px 0 0;
 }
+
+/* A flux:// panel renders as DOM in the slot the native webview would have
+   covered. Scrolls on its own: these pages were built for a full card and the
+   panel column is a fraction of that width. */
+.panel-internal {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  scrollbar-width: thin;
+}
 .panel-title {
   flex: 1;
   min-width: 0;

@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Flux's own pages can be pinned as web panels** — the Trail, Omni, Settings, the notebook and
+  the rest, beside the page rather than as a tab. This needed a refactor rather than a URL
+  change: a web panel is a native webview pointing at a URL, and a `flux://` page isn't a URL at
+  all — it's a Solid component `ContentArea` rendered through a 22-arm switch, so there was
+  nothing for a webview to load.
+
+  That switch is now `InternalPage`, a component any surface can host. `ContentArea` renders it
+  for the whole card and once per tile; the panel column renders it in the slot a native webview
+  would have covered, and the tiler is taught not to open a webview for an internal panel (an
+  empty native surface over DOM). `ContentArea` lost 126 lines.
+
+  The PDF viewer is the one exclusion: it resolves its file from the *tab* it belongs to, and a
+  panel has no tab, so it would open empty. Pinning it is disabled rather than offered and broken.
 - **A frontend test runner** (`npm test` in `apps/shell`, vitest) with 16 tests covering the
   tiling geometry, the group algebra and the tab-strip layout. These were verified by throwaway
   scripts when written, so nothing guarded them afterwards — and split view regressed twice in

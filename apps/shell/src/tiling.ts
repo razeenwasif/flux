@@ -300,6 +300,16 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
       opened[slot] = null;
     }
     if (!p) return;
+    // A flux:// panel is DOM (WebPanelPane renders it through InternalPage), so
+    // there is no webview to position — opening one would put an empty native
+    // surface over the page.
+    if (isStartUrl(p.url)) {
+      if (opened[slot] != null) {
+        wv(panelClose(opened[slot]!));
+        opened[slot] = null;
+      }
+      return;
+    }
     if (!rect) {
       wv(panelHide(p.id));
       return;

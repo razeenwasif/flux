@@ -2,7 +2,8 @@
 // one or two pinned-site native webviews; this DOM is just the toolbars +
 // placeholders the OS webviews are positioned over, plus the drag handles.
 import { type Component, Show, lazy } from "solid-js";
-import { panelNavigate, type WebPanel } from "./ipc";
+import { isStartUrl, panelNavigate, type TabMeta, type WebPanel } from "./ipc";
+import InternalPage from "./InternalPage";
 import {
   activePanel,
   calDockRatio,
@@ -20,7 +21,11 @@ import {
 
 const CalendarPop = lazy(() => import("./CalendarPop"));
 
-const WebPanelPane: Component = () => {
+/** A panel isn't a tab, but `InternalPage` renders from a tab's shape. Negative
+ *  ids so a synthetic panel tab can never collide with a real one. */
+const PANEL_TAB = { kind: "browser", pinned: false, cluster: null } as unknown as TabMeta;
+
+const WebPanelPane: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const both = () => activePanel() != null && activePanelB() != null;
   // Drag the horizontal divider to re-balance the top/bottom split. Webviews hide
   // during the drag (panelDragging) so the DOM divider can track the pointer freely.
@@ -98,7 +103,21 @@ const WebPanelPane: Component = () => {
           ✕
         </button>
       </div>
-      <div class="panel-placeholder" />
+      {/* A flux:// panel has no webview to cover this slot, so it renders here
+          as DOM. Everything else keeps the placeholder its native panel sits
+          over. */}
+      <Show when={isStartUrl(p.url)} fallback={<div class="panel-placeholder" />}>
+        <div class="panel-internal">
+          <InternalPage
+            tab={() => ({ ...PANEL_TAB, id: -p.id, url: p.url, title: p.title })}
+            onNavigate={props.onNavigate}
+            onNewTerminal={() => {}}
+            onToggleAgent={() => {}}
+            onOpenMap={() => {}}
+            onSleepBackground={() => {}}
+          />
+        </div>
+      </Show>
     </div>
   );
   return (

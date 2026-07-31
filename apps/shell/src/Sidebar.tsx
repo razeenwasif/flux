@@ -10,6 +10,7 @@ import {
   calEvents,
   historySearch,
   isStartUrl,
+  PDF_URL,
   memStatus,
   noteGet,
   noteSet,
@@ -267,6 +268,18 @@ const Sidebar: Component<SidebarProps> = (props) => {
    *  and a terminal's keep-alive layer (#73) is positioned into its slot. */
   const splitCandidates = () =>
     tabs().filter((t) => t.workspace === activeWorkspace() && t.id !== activeId());
+  /** Can this page be pinned as a panel?
+   *
+   *  Web pages get a native webview; Flux's own pages render as DOM through
+   *  `InternalPage`. The one exclusion is the PDF viewer, which resolves its file
+   *  from the *tab* it belongs to — a panel has no tab, so it would open empty.
+   *  Files tabs are excluded by `kind` for the same reason. */
+  const canPinAsPanel = () => {
+    const t = activeTab();
+    if (!t || t.kind !== "browser") return false;
+    return !t.url.startsWith(PDF_URL);
+  };
+
   /** The group holding `id`, if any. Distinct from `tileGroup()`, which is only
    *  the group the *active* tab is in: the tab strip and the context menu have to
    *  reflect every split, not just the one currently on screen. */
@@ -2259,7 +2272,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <div class="sidebar-section" style={{ padding: "4px 8px" }}>
                 Web panels
               </div>
-              <Show when={activeTab()?.kind === "browser" && !isStartUrl(activeTab()!.url)}>
+              <Show when={canPinAsPanel()}>
                 <button
                   class="shields-update"
                   onClick={() => {
