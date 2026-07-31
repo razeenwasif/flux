@@ -390,7 +390,9 @@ that same window, or the variable won't reach it:
 5. `winget install Microsoft.EdgeWebView2Runtime` — these crashes are often a
    runtime bug already fixed upstream.
 
-Flux logs the arguments it applied at startup under `flux::net`
+Flux writes a log to `%LOCALAPPDATA%\dev.flux.browser\flux.log` (release builds
+on Windows have no console, so this is the only place output appears). It logs the
+arguments it applied at startup under `flux::net`
 (`WebView2 browser args set … quic=false`), so you can confirm a step took effect
 rather than assuming it did. To undo a setting: `Remove-Item Env:FLUX_NO_QUIC`.
 

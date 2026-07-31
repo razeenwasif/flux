@@ -271,6 +271,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Flux wrote no log on Windows at all.** Release builds set
+  `windows_subsystem = "windows"`, so there is no console and everything `tracing` emitted went
+  nowhere — which made the browser undiagnosable on its main platform, and made every
+  "check the startup log" instruction impossible to follow. Logs now also go to
+  `%LOCALAPPDATA%\dev.flux.browser\flux.log` (`~/.local/share/...` elsewhere), truncated at 4 MB
+  because an unbounded log is the same mistake as an unbounded cache.
 - **Tracking prevention didn't persist.** The level lived in an in-memory `AtomicI32` that was
   never written to disk, so it silently reverted to Balanced on every launch — which also made
   it useless as a workaround for a site that a higher level breaks. It's saved now and restored

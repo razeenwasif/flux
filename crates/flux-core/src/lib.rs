@@ -153,6 +153,59 @@ fn compose_browser_args(existing: &str, extra: &str, quic: bool) -> String {
     args
 }
 
+/// Where the log file lives. Env-resolved (no Tauri yet) and matching
+/// `storage.rs`'s identifier.
+fn log_path() -> Option<std::path::PathBuf> {
+    let base = if cfg!(windows) {
+        std::path::PathBuf::from(std::env::var("LOCALAPPDATA").ok()?)
+    } else if let Ok(x) = std::env::var("XDG_DATA_HOME") {
+        std::path::PathBuf::from(x)
+    } else {
+        std::path::PathBuf::from(std::env::var("HOME").ok()?).join(".local/share")
+    };
+    Some(base.join("dev.flux.browser").join("flux.log"))
+}
+
+/// Start tracing to stdout **and** a file.
+///
+/// The file is the point: release builds set `windows_subsystem = "windows"`, so
+/// on Windows there is no console and stdout goes nowhere. Every "check the log"
+/// instruction was impossible to follow there, which made the browser
+/// undiagnosable on its main platform.
+///
+/// Rotated by truncation at 4 MB, because an unbounded log is the same mistake as
+/// an unbounded cache.
+fn init_tracing() {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "flux=info".into());
+    let file = log_path().and_then(|p| {
+        if std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0) > 4 * 1024 * 1024 {
+            let _ = std::fs::remove_file(&p);
+        }
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&p)
+            .ok()
+    });
+    match file {
+        Some(f) => {
+            use tracing_subscriber::fmt::writer::MakeWriterExt;
+            tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_ansi(false)
+                .with_writer(std::io::stdout.and(std::sync::Arc::new(f)))
+                .init();
+        }
+        None => {
+            tracing_subscriber::fmt().with_env_filter(filter).init();
+        }
+    }
+}
+
 fn boot_phase<T>(
     phase: &'static str,
     boot_started: std::time::Instant,
@@ -755,12 +808,7 @@ fn finish_boot(app: &tauri::App, boot_started: std::time::Instant) {
 
 /// Build the Tauri application. Split from `main` for testability.
 pub fn run(intent: cli::LaunchIntent) {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "flux=info".into()),
-        )
-        .init();
+    init_tracing();
 
     // Before Tauri builds anything: a queued clear must run while the engine
     // still holds no profile files open (see storage.rs).
