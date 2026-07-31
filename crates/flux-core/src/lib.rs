@@ -936,6 +936,15 @@ fn finish_boot(app: &tauri::App, boot_started: std::time::Instant) {
 /// Build the Tauri application. Split from `main` for testability.
 pub fn run(intent: cli::LaunchIntent) {
     init_tracing();
+    // First line in every log. Three separate diagnoses this project has run were
+    // wasted on results from a binary that predated the fix being tested, and
+    // "which build is this?" had no answer short of guessing from behaviour.
+    tracing::info!(
+        target: "flux::boot",
+        version = env!("CARGO_PKG_VERSION"),
+        built = env!("FLUX_BUILD_STAMP"),
+        "flux starting"
+    );
 
     // Before Tauri builds anything: a queued clear must run while the engine
     // still holds no profile files open (see storage.rs).

@@ -41,4 +41,21 @@ fn main() {
         ),
     )
     .expect("failed to run tauri-build");
+
+    // A build stamp, so the first line of every log answers "is this the binary I
+    // just built?". Three diagnoses in this project have been run against a stale
+    // binary and their results thrown away; behaviour is a poor way to tell.
+    // Falls back to the source timestamp when git isn't available (a release
+    // tarball), rather than failing the build.
+    let stamp = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("cargo:rustc-env=FLUX_BUILD_STAMP={stamp}");
+    // Re-run when HEAD moves, or the stamp goes stale the moment you commit.
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
 }
