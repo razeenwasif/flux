@@ -8,6 +8,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Mail in the dock column — read-only IMAP, no OAuth.** Connect with an app password (Gmail
+  needs 2-factor authentication to issue one) and the newest 20 INBOX messages show as sender,
+  subject and age, unread carrying the weight and a teal edge. Clicking one opens *exactly* that
+  message in Gmail via an `rfc822msgid:` search rather than guessing from the subject.
+
+  **Read-only structurally, not just by intent:** the module issues `SELECT`/`FETCH` and nothing
+  else — no `STORE`, no flag changes, no deletes — so glancing here cannot mark anything seen in
+  your real client. The password goes to the OS keychain and only *after* the server accepts it,
+  so a typo can't be stored as though it worked. Config lives beside it with no secret in the
+  file.
+
+  A connection is made per fetch rather than held open: a long-lived IMAP session needs
+  keepalives, reconnect-on-drop and locking, and this pane refreshes on demand or every two
+  minutes while visible. RFC 2047 header decoding is included (base64 and quoted-printable,
+  UTF-8 and Latin-1) — without it any non-English subject reads as line noise — and an unknown
+  charset is left as written rather than mangled.
 - **A dock column: calendar above mail, in a layout column of its own.** Both used to compete
   for the web panel — docking the calendar there left a pinned site sharing the same strip — so
   this frees the panel entirely for something else. Structurally it's the agent/terminal stack

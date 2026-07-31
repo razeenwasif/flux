@@ -36,6 +36,7 @@ pub mod kb;
 pub mod leanmode;
 pub mod lens;
 pub mod macros;
+pub mod mail;
 pub mod mem;
 pub mod memory;
 pub mod nav;
@@ -1072,6 +1073,10 @@ pub fn run(intent: cli::LaunchIntent) {
             scribe::scribe_delete,
             scribe::scribe_publish_page,
             scribe::scribe_proofread,
+            mail::mail_connect,
+            mail::mail_config,
+            mail::mail_disconnect,
+            mail::mail_fetch,
             storage::storage_usage,
             storage::storage_clear,
             storage::storage_clear_cancel,

@@ -101,6 +101,15 @@ export type PolicyFlag = { clause: string; why: string }
  */
 export type TextFix = { before: string; after: string; why: string }
 /**
+ * Where the account lives. The password is **not** here — it's in the OS
+ * keychain, same as the vault's key.
+ */
+export type MailConfig = { host: string; port: number; email: string }
+/**
+ * One inbox message, as much as a glance needs.
+ */
+export type MailMsg = { uid: number; from: string; subject: string; date_ms: number; unread: boolean; message_id: string }
+/**
  * One row in the storage report.
  */
 export type StorageEntry = { key: string; label: string; hint: string; bytes: number; warn: boolean }

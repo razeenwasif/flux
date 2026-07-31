@@ -97,6 +97,9 @@ pub fn generate_ts() -> String {
         // Scribe (ADR 0014): Gemma's proofreading suggestions.
         specta::ts::export::<crate::scribe::TextFix>(&c),
         // Browsing data: what the engine is holding on disk, and clearing it.
+        // Mail: the read-only IMAP inbox glance.
+        specta::ts::export::<crate::mail::MailConfig>(&c),
+        specta::ts::export::<crate::mail::MailMsg>(&c),
         specta::ts::export::<crate::storage::StorageEntry>(&c),
         specta::ts::export::<crate::storage::StorageReport>(&c),
         // Sentinel (ADR 0013, Pillar 0): the sealed agent-action audit log.

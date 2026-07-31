@@ -88,6 +88,8 @@ notify = "6"
 # HTTP client for Rust-side fetches: the flux://omni dashboard (/stats, http)
 # and the content-blocker filter lists (EasyList/EasyPrivacy, https → needs TLS).
 ureq = { version = "2", default-features = false, features = ["tls", "gzip"] }
+imap = { version = "2", default-features = false }
+rustls-connector = { version = "0.23.6", default-features = false, features = ["rustls--ring", "webpki-root-certs"] }
 
 # Windows-only: DWM rounded corners (the window is opaque, so CSS can't round
 # it). Cross-verified against the x86_64-pc-windows-msvc target.

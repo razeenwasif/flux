@@ -151,6 +151,8 @@ import type {
   PolicyFlag as GenPolicyFlag,
   AuditEntry as GenAuditEntry,
   TextFix as GenTextFix,
+  MailConfig as GenMailConfig,
+  MailMsg as GenMailMsg,
   StorageEntry as GenStorageEntry,
   StorageReport as GenStorageReport,
 } from "./bindings.gen";
@@ -603,6 +605,20 @@ export type TextFix = GenTextFix;
  *  verbatim span of the text sent, so the editor can always locate it. An empty
  *  list means "nothing to fix", including when no model is available. */
 export const scribeProofread = (text: string) => invoke<TextFix[]>("scribe_proofread", { text });
+// ─── Mail (read-only IMAP) ──────────────────────────────────────────────────
+export type MailConfig = GenMailConfig;
+export type MailMsg = GenMailMsg;
+/** The saved account, or null. Never returns the password. */
+export const mailConfig = () => invoke<MailConfig | null>("mail_config");
+/** Verify an account and save it — the password reaches the OS keychain only
+ *  after the server accepts it, so a typo can't be stored as if it worked. */
+export const mailConnect = (host: string, port: number, email: string, password: string) =>
+  invoke<void>("mail_connect", { host, port, email, password });
+export const mailDisconnect = () => invoke<void>("mail_disconnect");
+/** Newest messages in INBOX, newest first. Read-only: no flags are ever set, so
+ *  reading here can't mark anything seen in your real client. */
+export const mailFetch = (limit?: number) => invoke<MailMsg[]>("mail_fetch", { limit: limit ?? null });
+
 // ─── Browsing data on disk ──────────────────────────────────────────────────
 /** One clearable group of stored data, with its size and whether it's abnormal. */
 export type StorageEntry = GenStorageEntry;
