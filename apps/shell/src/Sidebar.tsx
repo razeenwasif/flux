@@ -260,17 +260,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
       .then(() => setWatched(true))
       .catch(() => {});
   };
-  /** Tabs that can join the tiling: web pages, Files tabs, and Flux's own pages —
-   *  all of which render through `pageFor` in ContentArea and so can be drawn into
-   *  a tile slot.
-   *
-   *  Terminal tabs can't, and are excluded rather than offered and broken: they
-   *  live in a separate keep-alive layer (#73) that shows only the *active*
-   *  terminal full-card, and ContentArea skips the tiled panes entirely while a
-   *  terminal is active. Tiling one needs that layer taught about tile rects. */
-  const canTilePage = (t: TabMeta) => t.kind !== "terminal";
+  /** Every open tab in the workspace can be tiled: web pages get a native webview
+   *  over their slot, Files tabs and Flux's own pages render through `pageFor`,
+   *  and a terminal's keep-alive layer (#73) is positioned into its slot. */
   const splitCandidates = () =>
-    tabs().filter((t) => t.workspace === activeWorkspace() && t.id !== activeId() && canTilePage(t));
+    tabs().filter((t) => t.workspace === activeWorkspace() && t.id !== activeId());
   /** The group holding `id`, if any. Distinct from `tileGroup()`, which is only
    *  the group the *active* tab is in: the tab strip and the context menu have to
    *  reflect every split, not just the one currently on screen. */
@@ -280,11 +274,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const tiledElsewhere = (id: number) => {
     const g = groupOf(id);
     return g != null && g !== tileGroup();
-  };
-  /** Whether the current page can be tiled at all — see `canTilePage`. */
-  const canTile = () => {
-    const t = activeTab();
-    return t != null && canTilePage(t);
   };
   /** A real web page, i.e. one with a native webview behind the card. Flux's own
    *  pages (any flux:// url) and files tabs are DOM. */
@@ -1075,7 +1064,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             for every tab and only the web-page actions (bookmark, reader, capture,
             translate…) are gated. It used to be gated as a whole, which left an
             internal page with no ◫ at all and tileable only from the palette. */}
-        <Show when={canTile()}>
+        <Show when={activeTab()}>
           <div class="page-actions">
             <Show when={isWebPage()}>
               <button
@@ -1505,7 +1494,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               {/* Both pages must be tileable — the same rule the ◫ and the picker
                   use. This was gated on "is a real web page" too, so a Flux page
                   never offered it either. */}
-              <Show when={canTilePage(t()) && canTile() && activeId() !== t().id}>
+              <Show when={activeTab() != null && activeId() !== t().id}>
                 <div class="ctx-sep" />
                 <button
                   onClick={() => {

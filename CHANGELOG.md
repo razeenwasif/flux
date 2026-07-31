@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Terminal tabs can be tiled.** A lecture sheet beside nvim now works: any tab joins a split,
+  terminals included. They were excluded because a terminal doesn't render like the other
+  internal pages — it lives in an always-mounted layer so its PTY and scrollback survive tab
+  switches (#73), and that layer only ever filled the whole card. It's now positioned into its
+  tile slot instead, and the panes block no longer skips itself when a terminal is the focused
+  tab. No DOM pane is drawn for a terminal's slot: an empty one would sit *above* the terminal
+  layer and swallow every click meant for the shell.
+
+  `TerminalView` also gained a `visible` prop distinct from `active`. One prop was doing both
+  jobs, and a tiled terminal is on screen without being focused — it has to re-measure when it
+  appears, but must not steal the caret from the pane you're typing in. Only the active terminal
+  draws the WebGL backdrop, so tiling several doesn't multiply GPU contexts (#75).
 - **`FLUX_PAGE_SCRIPTS`** — a diagnostic switch for bisecting a page that only misbehaves under
   Flux. `none` injects no page scripts at all; a comma-separated list injects only those named.
   An unknown name selects nothing rather than falling back to everything, so a typo can't look
@@ -34,6 +46,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   feature stands on its own (a browser should let you see and clear this), but it fixed no crash.
 
 ### Changed
+- **`TerminalView` is a lazy chunk.** It was imported eagerly by three files while xterm itself
+  was already lazy inside it, so every session paid for it whether or not a terminal was opened.
+  Moving it out took the eager chrome bundle from **70.0 KB (over budget) to 62.6 KB** — more
+  than its own size, since it was pulling its dependencies in with it.
 - **Scribe drawings: transparent, cropped to the ink, and resizable on every axis.** Inserting a
   drawing exported the *entire* 900×620 pad including its background and grid, so a small sketch
   arrived as a mostly-empty opaque rectangle that covered the text beneath it and looked far too

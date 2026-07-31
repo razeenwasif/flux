@@ -6,7 +6,6 @@
 import ClockAlarm from "./ClockAlarm";
 import PermissionBar from "./PermissionBar";
 import SavePasswordBar from "./SavePasswordBar";
-import TerminalView from "./TerminalView";
 import {
   APPS_URL,
   ARCHIVE_URL,
@@ -81,6 +80,10 @@ const SensitiveSiteBanner = lazy(() => import("./SensitiveSiteBanner")); // show
 const PolicyFlagsBanner = lazy(() => import("./PolicyFlagsBanner")); // shown only on a policy/ToS page
 const ConsentBanner = lazy(() => import("./ConsentBanner")); // shown only when a consent banner is detected
 const StartPage = lazy(() => import("./StartPage"));
+// Lazy like the other heavy surfaces: a session with no terminal open shouldn't
+// pay for xterm's host component in the eager chrome bundle. Once loaded it stays
+// resident, so the keep-alive contract (#73) is unaffected.
+const TerminalView = lazy(() => import("./TerminalView"));
 const FilesView = lazy(() => import("./FilesView"));
 const OmniDashboard = lazy(() => import("./OmniDashboard"));
 const NotebookPage = lazy(() => import("./NotebookPage"));
@@ -155,6 +158,33 @@ const ContentArea: Component<{
     const o = tileOpts();
     return o ? tileSeams(o) : [];
   });
+
+  /** Where a Terminal tab's keep-alive layer sits, or `null` when it's hidden.
+   *
+   *  A terminal can't render through `pageFor` like the other internal pages: it
+   *  lives in its own always-mounted layer so the PTY and scrollback survive tab
+   *  switches (#73). To tile one, that layer is positioned into its slot instead
+   *  of filling the card. */
+  const termSlot = (id: number): Record<string, string> | null => {
+    const p = panes();
+    if (p) {
+      const i = p.findIndex((t) => t.id === id);
+      const r = i >= 0 ? domRects()[i] : undefined;
+      // A tiling is on screen: show only its members, each in its own slot.
+      return r
+        ? {
+            display: "block",
+            left: `${r.x}%`,
+            top: `${r.y}%`,
+            width: `${r.width}%`,
+            height: `${r.height}%`,
+          }
+        : null;
+    }
+    return activeTab()?.id === id
+      ? { display: "block", left: "0", top: "0", width: "100%", height: "100%" }
+      : null;
+  };
 
   const terminalIds = createMemo(() =>
     tabs()
@@ -387,18 +417,23 @@ const ContentArea: Component<{
           which removes it from this list.) */}
         <For each={terminalIds()}>
           {(id) => (
-            <div class="term-layer" style={{ display: activeTab()?.id === id ? "block" : "none" }}>
-              {/* Only the visible terminal tab draws the WebGL backdrop — hidden
-                keep-alive tabs would otherwise each hold a WebGL2 context (#75). */}
+            <div class="term-layer" style={termSlot(id) ?? { display: "none" }}>
+              {/* Only the *active* terminal draws the WebGL backdrop, even when
+                several are tiled — each context costs, and too many white out
+                other GPU-composited glass surfaces (#75). */}
               <TerminalView
                 session={id}
                 active={activeTab()?.id === id}
-                background={activeTab()?.id === id}
+                visible={termSlot(id) != null}
+                background={activeTab()?.id === id && panes() == null}
               />
             </div>
           )}
         </For>
-        <Show when={activeTab()?.kind !== "terminal"}>
+        {/* A terminal renders in the layer above, not here — but when one is
+            *tiled*, the other panes still have to draw, so this can't skip the
+            whole block just because the active tab is a terminal. */}
+        <Show when={panes() != null || activeTab()?.kind !== "terminal"}>
           <Suspense>
             {/* Split view (#43): two DOM halves, each rendering its tab's internal page
             (a real web page falls through to the placeholder its tiled webview
@@ -411,17 +446,23 @@ const ContentArea: Component<{
                   geometry updates. */}
               <Index each={domRects()}>
                 {(r, i) => (
-                  <div
-                    class="split-dom-pane"
-                    style={{
-                      left: `${r().x}%`,
-                      top: `${r().y}%`,
-                      width: `${r().width}%`,
-                      height: `${r().height}%`,
-                    }}
-                  >
-                    {pageFor(() => panes()?.[i])}
-                  </div>
+                  <Show when={panes()?.[i]?.kind !== "terminal"}>
+                    {/* No DOM pane for a terminal: its keep-alive layer already
+                        occupies this slot, and an empty pane rendered here would
+                        sit *above* that layer (it comes later in the document)
+                        and swallow every click meant for the shell. */}
+                    <div
+                      class="split-dom-pane"
+                      style={{
+                        left: `${r().x}%`,
+                        top: `${r().y}%`,
+                        width: `${r().width}%`,
+                        height: `${r().height}%`,
+                      }}
+                    >
+                      {pageFor(() => panes()?.[i])}
+                    </div>
+                  </Show>
                 )}
               </Index>
             </Show>

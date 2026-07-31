@@ -237,14 +237,14 @@ export function clearTile(): void {
  *  than two members survive in this workspace. Switching to an unrelated tab
  *  pauses its tiling rather than dissolving it, as the pair model did.
  *
- *  `kind !== "terminal"` and not `kind === "browser"`: Files tabs and Flux's own
- *  pages render into a tile slot through `pageFor`, and requiring "browser" here
- *  silently dropped a Files pane. Terminals can't tile — see `canTilePage` in
- *  Sidebar for why. */
+ *  No `kind` filter: web pages get a native webview positioned over their slot,
+ *  Files tabs and Flux's own pages render through `pageFor`, and terminals draw
+ *  in their keep-alive layer positioned into the same slot. Requiring "browser"
+ *  here once silently dropped a Files pane. */
 export const tilePanes = (): TabMeta[] | null => {
   const g = tileGroup();
   if (!g) return null;
-  const ok = (t?: TabMeta) => !!t && t.kind !== "terminal" && t.workspace === activeWorkspace();
+  const ok = (t?: TabMeta) => !!t && t.workspace === activeWorkspace();
   const members = g.tabs.map((id) => tabs().find((t) => t.id === id)).filter((t): t is TabMeta => ok(t));
   return members.length >= 2 ? members : null;
 };

@@ -2873,9 +2873,15 @@ body.resizing .panel-edge-resize::after {
 /* Keep-alive terminal layer (#73): each Terminal tab's xterm stays mounted,
    overlaying the card; only the active one is `display:block`. Absolute so the
    hidden ones don't add implicit grid rows to the card. */
+/* Positioned from ContentArea: the whole card normally, a tile slot when the
+   terminal is in a split. Not `inset: 0` — that pins right/bottom, which would
+   fight the width/height a slot sets. */
 .term-layer {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .terminal-col {

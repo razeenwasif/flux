@@ -51,7 +51,15 @@ const THEME = {
   brightWhite: "#eef0fb",
 } as const;
 
-const TerminalView: Component<{ session: number; active?: boolean; background?: boolean }> = (props) => {
+const TerminalView: Component<{
+  session: number;
+  /** The focused tab: takes the caret and becomes the agent's read target. */
+  active?: boolean;
+  /** On screen at all. A tiled terminal is visible without being active, and
+   *  still has to re-fit when it appears. Defaults to `active`. */
+  visible?: boolean;
+  background?: boolean;
+}> = (props) => {
   let host!: HTMLDivElement;
   let termRef: XTerm | undefined;
   let fitRef: { fit: () => void } | undefined;
@@ -72,14 +80,20 @@ const TerminalView: Component<{ session: number; active?: boolean; background?: 
   let explainRef: (() => void) | undefined;
   let fixRef: (() => void) | undefined;
 
-  // Re-fit + re-focus when this terminal becomes the active tab again — it was
-  // hidden (display:none) in the keep-alive layer (#73), so xterm needs to
-  // re-measure now that it has a size. (onMount handles the first show.)
+  // Re-fit whenever this terminal becomes *visible* — it was hidden
+  // (display:none) in the keep-alive layer (#73), so xterm has to re-measure now
+  // that it has a size. Separate from focus: a terminal tiled beside another tab
+  // is on screen without being the active tab, and must fit without stealing the
+  // caret. (onMount handles the first show.)
+  createEffect(() => {
+    if ((props.visible ?? props.active) && termRef) {
+      requestAnimationFrame(() => fitRef?.fit());
+    }
+  });
   createEffect(() => {
     if (props.active && termRef) {
       setActiveTerminal(props.session); // agent reads the active terminal's buffer
       termRef.focus();
-      requestAnimationFrame(() => fitRef?.fit());
     }
   });
 

@@ -11,11 +11,10 @@
  * The PTY dies with the pane: TerminalView's own onCleanup kills the session on
  * unmount, so closing the window is the whole teardown.
  */
-import { For, createSignal, onMount, type Component } from "solid-js";
+import { For, createSignal, onMount, type Component, lazy, Suspense } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { RESIZE_HANDLES, startPaneDrag, startPaneResize } from "./paneGeometry";
-import TerminalView from "./TerminalView";
 import {
   closeTuiPane,
   focusedTuiPane,
@@ -23,6 +22,8 @@ import {
   setFocusedTuiPane,
   type TuiPane as TuiPaneRec,
 } from "./store";
+
+const TerminalView = lazy(() => import("./TerminalView"));
 
 const TuiPane: Component<{ pane: TuiPaneRec; index: number }> = (props) => {
   const [pos, setPos] = createSignal({ x: 140, y: 100 });
@@ -91,7 +92,9 @@ const TuiPane: Component<{ pane: TuiPaneRec; index: number }> = (props) => {
         <div class="tuipane-body" classList={{ noevents: dragging() }}>
           {/* background=false: a floating pane must not hold its own WebGL2
               context for the liquid backdrop (the terminal-splits rule). */}
-          <TerminalView session={props.pane.session} active={isFocused()} background={false} />
+          <Suspense>
+            <TerminalView session={props.pane.session} active={isFocused()} background={false} />
+          </Suspense>
         </div>
         <For each={RESIZE_HANDLES}>
           {(h) => (

@@ -3,13 +3,14 @@
 // persistent PANE_SESSION, and #75 adds resizable side-by-side / stacked PTY
 // panes, each its own shell. (Extra panes are session-local — they reset if the
 // column is hidden.)
-import { type Component, For, Show, createSignal } from "solid-js";
+import { type Component, For, Show, createSignal, lazy, Suspense } from "solid-js";
 import { PANE_SESSION } from "./ipc";
-import TerminalView from "./TerminalView";
 
 /** Reserved session-id range for the column's *extra* split panes (#75). Tab ids
  *  start at 1 and climb slowly; PANE_SESSION is 0 — so a high base never collides. */
 const COL_PANE_BASE = 0xf000_0000;
+
+const TerminalView = lazy(() => import("./TerminalView"));
 
 const TerminalColumn: Component = () => {
   const [panes, setPanes] = createSignal<number[]>([PANE_SESSION]);
@@ -116,7 +117,9 @@ const TerminalColumn: Component = () => {
                 onPointerDown={() => setActive(s)}
               >
                 <div class="terminal-surface">
-                  <TerminalView session={s} active={active() === s} background={panes().length === 1} />
+                  <Suspense>
+                    <TerminalView session={s} active={active() === s} background={panes().length === 1} />
+                  </Suspense>
                 </div>
               </div>
             </>
