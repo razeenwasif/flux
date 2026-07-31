@@ -625,8 +625,14 @@ export const scribeTranscript = (notebook: string, page: string) =>
 /** Hand a PDF's extracted text to Flux: it becomes the tab's snapshot (so the
  *  agent can read the open document) and is stored for the knowledge base (so it
  *  stays answerable after the tab closes). */
-export const pdfPublishText = (tabId: number, src: string, title: string, text: string) =>
-  invoke<void>("pdf_publish_text", { tabId, src, title, text });
+export const pdfPublishText = (
+  tabId: number,
+  src: string,
+  title: string,
+  text: string,
+  pages: number,
+  pagesWithText: number,
+) => invoke<void>("pdf_publish_text", { tabId, src, title, text, pages, pagesWithText });
 
 // ─── Mail (read-only IMAP) ──────────────────────────────────────────────────
 export type MailConfig = GenMailConfig;

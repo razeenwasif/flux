@@ -322,8 +322,24 @@ pub fn pdf_publish_text(
     src: String,
     title: String,
     text: String,
+    // Total pages, and how many yielded any text. Logged rather than stored:
+    // "the model only saw the first N slides" has two very different causes — a
+    // cap somewhere, or later pages being images with no text layer — and they
+    // are indistinguishable without this.
+    pages: Option<u32>,
+    pages_with_text: Option<u32>,
 ) -> Result<(), String> {
+    let raw_len = text.len();
     let text = crate::dom::cap_utf8(text, MAX_PDF_TEXT);
+    tracing::info!(
+        target: "flux::pdf",
+        src = %src,
+        pages = pages.unwrap_or(0),
+        pages_with_text = pages_with_text.unwrap_or(0),
+        chars_extracted = raw_len,
+        chars_stored = text.len(),
+        "extracted PDF text"
+    );
     if text.trim().is_empty() {
         // A scanned PDF has no text layer. Storing an empty doc would make the
         // KB claim to know a paper it can't quote a word of.

@@ -248,8 +248,15 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
         }
       }
       const text = parts.join("\n\n");
-      if (!text.trim()) return; // scanned: no text layer to offer
-      await pdfPublishText(props.tabId, src() || filename(), filename(), text);
+      // Report what was found per page, not just the total: a deck whose later
+      // slides are images extracts fine for the first few and then silently
+      // yields nothing, which looks identical to a truncation bug.
+      const withText = parts.length;
+      if (!text.trim()) {
+        void pdfPublishText(props.tabId, src() || filename(), filename(), "", pdfDoc.numPages, 0);
+        return; // no text layer at all
+      }
+      await pdfPublishText(props.tabId, src() || filename(), filename(), text, pdfDoc.numPages, withText);
     } catch {
       /* never let text extraction break the viewer */
     }
