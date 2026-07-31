@@ -8,6 +8,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **`FLUX_PAGE_SCRIPTS`** — a diagnostic switch for bisecting a page that only misbehaves under
+  Flux. `none` injects no page scripts at all; a comma-separated list injects only those named.
+  An unknown name selects nothing rather than falling back to everything, so a typo can't look
+  like a passing test. The startup log says when it's limiting injection, since it disables real
+  features while set.
 - **Clear browsing data, and a warning when it grows pathological** (Settings → Browsing data,
   plus the resource monitor). Both exist because of a real failure: a service-worker
   `CacheStorage` reached **753 MB** and began crashing the renderer with

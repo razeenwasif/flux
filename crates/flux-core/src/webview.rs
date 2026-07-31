@@ -138,7 +138,7 @@ pub async fn webview_open(
     };
     let init = format!(
         "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{macro_flag}{}",
-        join_page_scripts(&[
+        page_scripts(&[
             ("capture", CAPTURE_JS),
             ("shortcuts", SHORTCUTS_JS),
             ("hibernate", HIBERNATE_JS),
@@ -361,6 +361,52 @@ pub async fn webview_hide(app: AppHandle, tab_id: TabId) -> Result<(), String> {
 ///
 /// Safe because every asset is already a self-contained IIFE — nothing declares a
 /// global the others read.
+/// Restrict which page scripts are injected, for bisecting a page that misbehaves
+/// only under Flux.
+///
+/// `spec` is `FLUX_PAGE_SCRIPTS`: unset injects everything (the normal case),
+/// `none` injects nothing at all, and a comma-separated list injects only those
+/// named. Pure so the parsing is testable — a diagnostic that silently injects
+/// the wrong set is worse than none.
+fn filter_scripts<'a>(
+    all: &[(&'a str, &'a str)],
+    spec: Option<&str>,
+) -> Vec<(&'a str, &'a str)> {
+    let Some(spec) = spec else {
+        return all.to_vec();
+    };
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return all.to_vec();
+    }
+    if spec.eq_ignore_ascii_case("none") {
+        return Vec::new();
+    }
+    let wanted: Vec<&str> = spec
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    all.iter()
+        .filter(|(name, _)| wanted.iter().any(|w| w.eq_ignore_ascii_case(name)))
+        .copied()
+        .collect()
+}
+
+/// The page scripts to inject, honouring `FLUX_PAGE_SCRIPTS`.
+fn page_scripts<'a>(all: &[(&'a str, &'a str)]) -> String {
+    let spec = std::env::var("FLUX_PAGE_SCRIPTS").ok();
+    let chosen = filter_scripts(all, spec.as_deref());
+    if chosen.len() != all.len() {
+        tracing::warn!(
+            target: "flux::webview",
+            injecting = chosen.len(), of = all.len(),
+            "FLUX_PAGE_SCRIPTS is limiting page scripts - diagnostic mode, not a normal run"
+        );
+    }
+    join_page_scripts(&chosen)
+}
+
 fn join_page_scripts(scripts: &[(&str, &str)]) -> String {
     scripts
         .iter()
@@ -603,7 +649,7 @@ pub async fn panel_open(
     };
     let init = format!(
         "{dark_flag}{}",
-        join_page_scripts(&[
+        page_scripts(&[
             ("shortcuts", SHORTCUTS_JS),
             ("darkmode", DARKMODE_JS),
             ("panel-badge", PANEL_BADGE_JS),
@@ -906,7 +952,7 @@ pub fn round_window_corners(window: &tauri::WebviewWindow) {
 pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
     #[cfg(test)]
     mod script_join_tests {
-        use super::join_page_scripts;
+        use super::{filter_scripts, join_page_scripts};
 
         #[test]
         fn one_failing_script_cannot_kill_the_rest() {
@@ -934,7 +980,30 @@ pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
                 "closing brace must start a new line: {blob}"
             );
         }
-    }
+
+        #[test]
+        fn page_script_filter() {
+            let all = [("capture", "A"), ("shortcuts", "B"), ("darkmode", "C")];
+            fn names<'a>(v: Vec<(&'a str, &'a str)>) -> Vec<&'a str> {
+                v.into_iter().map(|(n, _)| n).collect()
+            }
+
+            // Unset or blank injects everything — the normal run must not change.
+            assert_eq!(names(filter_scripts(&all, None)).len(), 3);
+            assert_eq!(names(filter_scripts(&all, Some("  "))).len(), 3);
+            // The whole point of the diagnostic: nothing at all.
+            assert!(filter_scripts(&all, Some("none")).is_empty());
+            assert!(filter_scripts(&all, Some("NONE")).is_empty());
+            // An explicit subset, order-independent and whitespace-tolerant.
+            assert_eq!(
+                names(filter_scripts(&all, Some("darkmode, capture"))),
+                ["capture", "darkmode"]
+            );
+            // An unknown name selects nothing rather than silently injecting all —
+            // a typo must not look like a passing test.
+            assert!(filter_scripts(&all, Some("typo")).is_empty());
+        }
+}
 } // mod real
 #[cfg(desktop)]
 pub use real::*;
@@ -1086,4 +1155,3 @@ mod stub {
 }
 #[cfg(mobile)]
 pub use stub::*;
-

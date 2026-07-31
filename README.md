@@ -377,7 +377,17 @@ that same window, or the variable won't reach it:
 
 3. Turn **Shields** off for that site (Settings → Privacy & security) to rule out
    request blocking.
-4. `winget install Microsoft.EdgeWebView2Runtime` — these crashes are often a
+4. Rule out Flux's page scripts. `FLUX_PAGE_SCRIPTS=none` injects nothing at all;
+   a comma-separated list (`FLUX_PAGE_SCRIPTS=shortcuts,darkmode`) injects only
+   those, so a page that misbehaves only under Flux can be bisected in a couple of
+   runs. Diagnostic only - it disables real features while set, and the startup
+   log says so.
+
+   ```powershell
+   $env:FLUX_PAGE_SCRIPTS = "none"
+   flux
+   ```
+5. `winget install Microsoft.EdgeWebView2Runtime` — these crashes are often a
    runtime bug already fixed upstream.
 
 Flux logs the arguments it applied at startup under `flux::net`
