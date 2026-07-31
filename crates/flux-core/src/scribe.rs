@@ -79,6 +79,10 @@ pub struct ScribeStore {
     /// Monotonic tiebreaker so two notebooks created in the same millisecond
     /// still get distinct ids.
     seq: AtomicU64,
+    /// Bumped on every mutation. The KB's background indexer watches this so
+    /// notebooks reach the knowledge base without a manual reindex — and, by
+    /// waiting for it to settle, without re-embedding on every autosave.
+    generation: AtomicU64,
 }
 
 impl ScribeStore {
@@ -104,6 +108,7 @@ impl ScribeStore {
             books: RwLock::new(books),
             dir: Some(dir),
             seq: AtomicU64::new(0),
+            generation: AtomicU64::new(0),
         }
     }
 
@@ -131,6 +136,17 @@ impl ScribeStore {
     }
 
     /// Create an empty notebook with one blank page and persist it.
+    /// Bump the change counter. See `generation`.
+    fn touch(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// How many times the store has changed. Compared across ticks by the KB
+    /// indexer, never interpreted as a count of anything.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
     pub fn create(&self, name: String, course: Option<String>) -> Notebook {
         let now = now_ms();
         let id = format!("nb-{now}-{}", self.seq.fetch_add(1, Ordering::Relaxed));
@@ -159,6 +175,7 @@ impl ScribeStore {
         };
         self.books.write().insert(nb.id.clone(), nb.clone());
         self.write(&nb);
+        self.touch();
         nb
     }
 
@@ -168,6 +185,7 @@ impl ScribeStore {
         nb.ts = now_ms();
         self.books.write().insert(nb.id.clone(), nb.clone());
         self.write(&nb);
+        self.touch();
     }
 
     pub fn delete(&self, id: &str) {
@@ -175,6 +193,7 @@ impl ScribeStore {
         if let Some(dir) = &self.dir {
             let _ = std::fs::remove_file(dir.join(format!("{id}.json")));
         }
+        self.touch();
     }
 
     fn write(&self, nb: &Notebook) {
@@ -564,6 +583,35 @@ mod tests {
         assert_eq!(d.len(), 10);
         assert_eq!(d.as_bytes()[4], b'-');
         assert_eq!(d.as_bytes()[7], b'-');
+    }
+
+    #[test]
+    fn every_mutation_bumps_the_generation() {
+        // The KB indexer decides whether to re-embed by comparing this across
+        // ticks. A mutation that fails to bump it leaves those pages invisible to
+        // the agent until something unrelated happens to change the store.
+        let store = ScribeStore::default();
+        let g0 = store.generation();
+
+        let nb = store.create("Calculus".into(), None);
+        let g1 = store.generation();
+        assert!(g1 > g0, "create bumps");
+
+        store.save(nb.clone());
+        let g2 = store.generation();
+        assert!(
+            g2 > g1,
+            "save bumps - the autosave path, and the common one"
+        );
+
+        store.delete(&nb.id);
+        assert!(store.generation() > g2, "delete bumps");
+
+        // Reads must not bump, or the indexer would re-embed on every tick.
+        let g3 = store.generation();
+        let _ = store.list();
+        let _ = store.load(&nb.id);
+        assert_eq!(store.generation(), g3, "reads leave it alone");
     }
 }
 

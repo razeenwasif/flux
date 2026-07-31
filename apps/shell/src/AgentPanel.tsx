@@ -2038,7 +2038,9 @@ const AgentPanel: Component = () => {
             .catch(() => {});
         void speak(text);
       } else if (scope() === "notes") {
-        // Ground the answer in the knowledge base (Onyx + Scroll) with citations
+        // Ground the answer in the knowledge base with citations — every indexed
+        // source, since no `sources` filter is passed (kb_answer's None matches
+        // all of SOURCES, browsing snapshots included, not just notes/papers)
         // (#116). Uses kb_answer directly (its own grounded prompt), not the page
         // preamble; sources arrive first, then tokens stream into one bubble.
         const gen = ++replyGen;
@@ -2719,7 +2721,7 @@ const AgentPanel: Component = () => {
           </button>
           <button
             classList={{ "agent-scope": true, on: scope() === "notes" }}
-            title="Answer from your notes & papers (Onyx + Scroll), with citations"
+            title="Answer from your knowledge base, with citations — Onyx notes, Scroll papers, Council debates, Scribe pages, and snapshots of pages you've visited"
             onClick={() => setScope("notes")}
           >
             ✦ My notes

@@ -695,6 +695,12 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 .unwrap_or(true);
             let mut last_seen: u64 = 0;
             let mut last_indexed: u64 = 0;
+            // Scribe gets the same treatment: notebooks reached the KB only on a
+            // manual reindex, so anything written since was invisible to the
+            // agent's "My notes" scope. Same settle rule, so the debounced
+            // autosave doesn't re-embed a notebook on every keystroke.
+            let mut scribe_seen: u64 = 0;
+            let mut scribe_indexed: u64 = 0;
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(60));
                 if let Some(t) = handle.try_state::<trace::TraceStore>() {
@@ -748,6 +754,36 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                         // leave last_indexed behind so the next settled tick retries.
                         Err(e) => {
                             tracing::debug!(target: "flux::kb", "web auto-reindex skipped: {e}")
+                        }
+                    }
+                }
+                // Scribe notebooks, same settle rule. Kept separate from the web
+                // block (rather than folded into it) so a burst of browsing never
+                // starves an edited notebook, and vice versa.
+                if let (Some(st), Some(kb), Some(snaps)) = (
+                    handle.try_state::<scribe::ScribeStore>(),
+                    handle.try_state::<kb::KbStore>(),
+                    handle.try_state::<trace::TraceSnapshots>(),
+                ) {
+                    let generation = st.generation();
+                    let settled = generation == scribe_seen && generation != scribe_indexed;
+                    scribe_seen = generation;
+                    if settled {
+                        // Always hand over both in-process corpora: a `None`
+                        // source rebuilds everything, and even a single-source
+                        // rebuild reads them.
+                        match kb.reindex(
+                            Some("scribe".to_string()),
+                            snaps.web_docs(),
+                            kb::scribe_docs(&st),
+                        ) {
+                            Ok(_) => {
+                                scribe_indexed = generation;
+                                tracing::info!(target: "flux::kb", generation, "auto-indexed Scribe notebooks");
+                            }
+                            Err(e) => {
+                                tracing::debug!(target: "flux::kb", "scribe auto-reindex skipped: {e}")
+                            }
                         }
                     }
                 }

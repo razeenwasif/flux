@@ -46,6 +46,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   stretch width or height freely, with the corner still proportional.
 
 ### Fixed
+- **Scribe notebooks now reach the knowledge base on their own.** They were indexed only by a
+  manual ↻ Reindex, so anything written since was invisible to the agent's "My notes" scope —
+  only browsing had a background indexer. Scribe now uses the same settle rule: the store carries
+  a change counter, and the indexer re-embeds once it stops moving, so the debounced autosave
+  doesn't re-index a notebook on every keystroke. Note this covers **typed** text only; ink is
+  stored as PNG objects and nothing OCRs it (BACKLOG #137), so a page of pure handwriting still
+  indexes as empty.
+- **The agent's "My notes" tooltip was wrong.** It claimed "Onyx + Scroll" while the scope passes
+  no source filter at all, so it searches every indexed corpus — Council debates, Scribe pages
+  and snapshots of visited pages included. The tooltip now says what it actually searches.
 - **Scribe: each new stroke in the Draw pane erased the previous one.** `InkCanvas` is a
   *controlled* component — it rebuilds from `props.strokes` on every commit, so the parent must
   hand back the updated array. ScribeDoc passed a plain `let`, which Solid reads once at
