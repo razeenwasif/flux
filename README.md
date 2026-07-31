@@ -338,19 +338,42 @@ off by default and why an explicit tab close deletes that session's file.
 renderer crashing, not Flux — but Flux can contribute to it, so bisect in this
 order, restarting Flux between each:
 
-1. `FLUX_NO_QUIC=1` — drops `--enable-quic`, the one non-default browser argument
-   Flux forces onto WebView2. HTTP/3 is already the WebView2 default, so this
-   costs nothing; a crash that stops here was a QUIC/network-stack fault.
-2. `FLUX_WEBVIEW2_ARGS=--disable-gpu` — the standard WebView2 access-violation
-   workaround, and it points at the graphics driver rather than at Flux.
+These are Windows-only, so the examples are PowerShell. Set the variable as its
+own statement — PowerShell has no `VAR=value command` form — and launch Flux from
+that same window, or the variable won't reach it:
+
+1. Rule out QUIC. This drops `--enable-quic`, the one non-default browser
+   argument Flux forces onto WebView2. HTTP/3 is already the WebView2 default, so
+   it costs nothing; a crash that stops here was a network-stack fault.
+
+   ```powershell
+   $env:FLUX_NO_QUIC = "1"
+   flux
+   ```
+
+2. Rule out the GPU — the standard WebView2 access-violation workaround. A fix
+   here points at the graphics driver rather than at Flux.
+
+   ```powershell
+   $env:FLUX_WEBVIEW2_ARGS = "--disable-gpu"
+   flux
+   ```
+
 3. Turn **Shields** off for that site (Settings → Privacy & security) to rule out
    request blocking.
-4. Update the WebView2 Runtime
-   (`winget install Microsoft.EdgeWebView2Runtime`) — these crashes are often a
-   runtime bug fixed upstream.
+4. `winget install Microsoft.EdgeWebView2Runtime` — these crashes are often a
+   runtime bug already fixed upstream.
 
-Flux logs the arguments it set at startup under `flux::net`, so you can confirm
-which of these actually applied.
+Flux logs the arguments it applied at startup under `flux::net`
+(`WebView2 browser args set … quic=false`), so you can confirm a step took effect
+rather than assuming it did. To undo a setting: `Remove-Item Env:FLUX_NO_QUIC`.
+
+To make one stick across restarts and shortcut launches, set it for the user
+instead and sign out and back in:
+
+```powershell
+[Environment]::SetEnvironmentVariable("FLUX_NO_QUIC", "1", "User")
+```
 
 ## Files
 

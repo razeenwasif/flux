@@ -137,7 +137,19 @@ pub async fn webview_open(
         ""
     };
     let init = format!(
-        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{macro_flag}{CAPTURE_JS}\n{SHORTCUTS_JS}\n{HIBERNATE_JS}\n{DARKMODE_JS}\n{NAV_JS}\n{NEWTAB_JS}\n{PIP_JS}\n{MACRO_REC_JS}\n{PASSWORDS_JS}\n{DRAFTS_JS}"
+        "window.__FLUX_TAB_ID__ = {tab_id};\n{dark_flag}{nav_flag}{macro_flag}{}",
+        join_page_scripts(&[
+            ("capture", CAPTURE_JS),
+            ("shortcuts", SHORTCUTS_JS),
+            ("hibernate", HIBERNATE_JS),
+            ("darkmode", DARKMODE_JS),
+            ("nav", NAV_JS),
+            ("newtab", NEWTAB_JS),
+            ("pip", PIP_JS),
+            ("macro-record", MACRO_REC_JS),
+            ("passwords", PASSWORDS_JS),
+            ("drafts", DRAFTS_JS),
+        ])
     );
 
     // Private tabs (#59) use an in-memory session; container tabs (#59) use a
@@ -335,6 +347,25 @@ pub async fn webview_hide(app: AppHandle, tab_id: TabId) -> Result<(), String> {
         wv.hide().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Join page scripts into one injected blob, each isolated in its own
+/// `try/catch`.
+///
+/// They share a single initialization script, so a top-level throw in one aborts
+/// **every script after it** — silently, since nothing is watching the page
+/// console. That is not hypothetical: `passwords.js` hit a null
+/// `document.documentElement` on github.com (the script runs at document-created,
+/// before the parser makes `<html>`) and took the rest of itself plus `drafts.js`
+/// with it. Isolating them turns a cascade into one logged, contained failure.
+///
+/// Safe because every asset is already a self-contained IIFE — nothing declares a
+/// global the others read.
+fn join_page_scripts(scripts: &[(&str, &str)]) -> String {
+    scripts
+        .iter()
+        .map(|(name, src)| format!("try{{\n{src}\n}}catch(e){{console.error(\"flux: {name}.js failed\",e)}}\n"))
+        .collect()
 }
 
 /// Open the devtools inspector for a tab's webview (F12). Requires Tauri's
@@ -570,7 +601,14 @@ pub async fn panel_open(
     } else {
         ""
     };
-    let init = format!("{dark_flag}{SHORTCUTS_JS}\n{DARKMODE_JS}\n{PANEL_BADGE_JS}");
+    let init = format!(
+        "{dark_flag}{}",
+        join_page_scripts(&[
+            ("shortcuts", SHORTCUTS_JS),
+            ("darkmode", DARKMODE_JS),
+            ("panel-badge", PANEL_BADGE_JS),
+        ])
+    );
     let mut builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target))
         .initialization_script(&init);
     if let Some(proxy) = app
@@ -866,6 +904,37 @@ pub fn round_window_corners(window: &tauri::WebviewWindow) {
 
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
+    #[cfg(test)]
+    mod script_join_tests {
+        use super::join_page_scripts;
+
+        #[test]
+        fn one_failing_script_cannot_kill_the_rest() {
+            let blob = join_page_scripts(&[("first", "throw new Error('x')"), ("second", "ran=1")]);
+            // Each script is fenced, so the parser can't run them as one statement list.
+            assert_eq!(blob.matches("try{").count(), 2);
+            assert_eq!(blob.matches("catch(e)").count(), 2);
+            // The failure is reported rather than swallowed — the whole point, since
+            // nothing watches the page console unless it names the script.
+            assert!(blob.contains("flux: first.js failed"));
+            assert!(blob.contains("flux: second.js failed"));
+            // Sources survive verbatim, in order.
+            let a = blob.find("throw new Error").unwrap();
+            let b = blob.find("ran=1").unwrap();
+            assert!(a < b, "injection order preserved");
+        }
+
+        #[test]
+        fn a_script_ending_without_a_newline_still_closes_its_block() {
+            // A trailing `// comment` with no newline would otherwise comment out the
+            // closing brace and break every script after it.
+            let blob = join_page_scripts(&[("a", "var x=1; // trailing comment"), ("b", "var y=2;")]);
+            assert!(
+                blob.contains("// trailing comment\n}"),
+                "closing brace must start a new line: {blob}"
+            );
+        }
+    }
 } // mod real
 #[cfg(desktop)]
 pub use real::*;
@@ -1017,3 +1086,4 @@ mod stub {
 }
 #[cfg(mobile)]
 pub use stub::*;
+

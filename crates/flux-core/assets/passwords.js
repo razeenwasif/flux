@@ -372,12 +372,25 @@
     safeScan();
   }, 1500);
 
-  new MutationObserver(queueScan).observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["type", "style", "class", "hidden", "disabled"],
-  });
+  // The observer needs a DOM root, and there isn't one at injection time: this
+  // script runs at document-created, before the parser has produced <html>, so
+  // `document.documentElement` is null and `observe()` throws. That threw at the
+  // top level of a script shared with every other injected file, which killed
+  // everything after it — the focusin retrigger below, and drafts.js entirely.
+  // (The scan interval above survived only because it is registered first, which
+  // is why the interval fix worked where the observer never did.)
+  // Same guard capture.js already uses.
+  function watchDom() {
+    if (!document.documentElement) return;
+    new MutationObserver(queueScan).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["type", "style", "class", "hidden", "disabled"],
+    });
+  }
+  if (document.documentElement) watchDom();
+  else addEventListener("DOMContentLoaded", watchDom, { once: true });
   addEventListener("focusin", function (e) {
     if (e.target && e.target.matches && e.target.matches('input[type="password"]')) queueScan();
   }, true);

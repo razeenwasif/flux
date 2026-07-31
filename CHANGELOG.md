@@ -247,6 +247,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **One injected script throwing silently killed every script after it.** All of Flux's page
+  scripts share a single initialization script, so a top-level error aborts the rest of the
+  blob — with nothing watching the page console, the features just quietly stopped existing.
+  `passwords.js` observed `document.documentElement` unguarded, and that is null at
+  document-created (WebView2 runs the script before the parser produces `<html>`), so on
+  github.com it threw *"Failed to execute 'observe' on 'MutationObserver': parameter 1 is not
+  of type 'Node'"* and took the rest of itself — including the focusin retrigger that makes
+  autofill work — plus all of `drafts.js` with it. That also explains why the autofill *interval*
+  fix worked where the observer never did: the interval is registered a few lines earlier, on
+  the surviving side of the throw.
+
+  Two fixes: `passwords.js` now uses the same deferred guard `capture.js` already documented,
+  and each script is wrapped in its own `try/catch` when the blob is assembled, so a future
+  throw is contained and *named* in the console instead of cascading. Verified by replaying the
+  real concatenation under a document-created shim: before, a top-level throw and execution
+  never reaching the end of the blob; after, neither.
 - **Splits vanished from the tab strip when you clicked away, and a second split was never
   visible.** Both symptoms were one bug: the strip collapsed tiled tabs into a row using
   `tileGroup()` — the group the *active* tab is in — and emitted at most one such row. So a
