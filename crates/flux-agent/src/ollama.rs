@@ -316,11 +316,25 @@ fn generate_body(
     } else {
         num_predict()
     };
+    let ctx = ctx_for(prompt, out_cap);
+    // The last hop where a prompt can be silently shortened. Everything upstream
+    // caps by character count; this is where those characters meet a token
+    // budget, and if the prompt needs more tokens than `ctx` allows, the server
+    // drops the oldest — the instructions — without telling anyone.
+    tracing::debug!(
+        target: "flux::ollama",
+        prompt_chars = prompt.len(),
+        est_tokens = estimate_tokens(prompt),
+        num_ctx = ctx,
+        out_cap,
+        structured,
+        "sending prompt"
+    );
     let mut options = merge_options(
         serde_json::json!({
             "temperature": if structured { 0.1 } else { 0.6 },
             "num_predict": out_cap,
-            "num_ctx": ctx_for(prompt, out_cap),
+            "num_ctx": ctx,
         }),
         extra_options(),
     );
