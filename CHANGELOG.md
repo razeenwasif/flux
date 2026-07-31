@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **A frontend test runner** (`npm test` in `apps/shell`, vitest) with 16 tests covering the
+  tiling geometry, the group algebra and the tab-strip layout. These were verified by throwaway
+  scripts when written, so nothing guarded them afterwards — and split view regressed twice in
+  ways typecheck cannot catch. Configured for `node`, not jsdom: nothing here touches the DOM,
+  and pulling jsdom in for tests that don't need it is install weight for no coverage. Verified
+  by reintroducing the "only the active group is drawn" bug and watching the suite fail.
+
+### Changed
+- **The agent's "My notes" scope no longer searches browsing snapshots.** It passed no source
+  filter, so it answered from every corpus including pages you'd merely visited — which the
+  Trail already graphs separately. Scoped to your own corpora, matching the connections rail.
+  `OWN_SOURCES` now has one definition in `ipc.ts` instead of a per-file copy.
 - **Scribe handwriting → LaTeX, transcribed by the local vision model** (BACKLOG #137's headline
   fast-follow). The 🔍 Transcribe button reads a page's ink through the same Ollama vision path
   Lens already uses (`gemma3:4b`, `FLUX_VISION_MODEL` to override) and returns LaTeX, which is

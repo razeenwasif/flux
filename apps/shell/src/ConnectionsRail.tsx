@@ -15,7 +15,16 @@
  */
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
-import { fsOpen, kbRelated, kbStatus, onDomUpdated, traceAmbient, type AmbientHint, type KbHit } from "./ipc";
+import {
+  fsOpen,
+  kbRelated,
+  kbStatus,
+  onDomUpdated,
+  OWN_SOURCES,
+  traceAmbient,
+  type AmbientHint,
+  type KbHit,
+} from "./ipc";
 import { activeId, openTab } from "./store";
 
 const SOURCE_ICON: Record<string, string> = {
@@ -30,9 +39,6 @@ const SOURCE_ICON: Record<string, string> = {
 };
 /** Sources whose text a model produced rather than the user. */
 const MACHINE_READ = new Set(["scribe-ocr"]);
-/** Mirrors `kb::OWN_SOURCES` — used only to count the docs the rail can draw on,
- *  so the empty state doesn't cite a total that includes the excluded corpus. */
-const OWN_SOURCES = ["onyx", "scroll", "council", "scribe", "pdf", "scribe-ocr"];
 
 const ConnectionsRail: Component = () => {
   const [hits, setHits] = createSignal<KbHit[]>([]);

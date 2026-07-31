@@ -20,4 +20,11 @@ export default defineConfig({
     chunkSizeWarningLimit: 4000,
   },
   clearScreen: false,
+  // Pure-logic unit tests (geometry, group algebra, strip layout). Node, not
+  // jsdom: nothing here touches the DOM, and pulling jsdom in for tests that
+  // don't need it costs install weight for no coverage.
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
+  },
 });

@@ -606,6 +606,12 @@ export type TextFix = GenTextFix;
  *  verbatim span of the text sent, so the editor can always locate it. An empty
  *  list means "nothing to fix", including when no model is available. */
 export const scribeProofread = (text: string) => invoke<TextFix[]>("scribe_proofread", { text });
+/** The corpora the user authored or deliberately read, as opposed to `web` —
+ *  pages they merely visited, which the Trail already graphs. Mirrors
+ *  `kb::OWN_SOURCES`; anything scoped to "my knowledge" rather than "everything
+ *  Flux has seen" should use this. */
+export const OWN_SOURCES = ["onyx", "scroll", "council", "scribe", "pdf", "scribe-ocr"];
+
 /** A page's handwriting transcribed to LaTeX by the local vision model. */
 export type Transcript = GenTranscript;
 /** Transcribe a Scribe page's ink to LaTeX. Slow (a vision model, per drawing)

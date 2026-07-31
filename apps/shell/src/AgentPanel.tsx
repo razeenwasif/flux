@@ -24,6 +24,7 @@ import {
   type TabThread,
   agentChatTabsStream,
   kbAnswer,
+  OWN_SOURCES,
   kbCheck,
   type KbHit,
   fsOpen,
@@ -2057,17 +2058,24 @@ const AgentPanel: Component = () => {
         const idx = feed().length;
         setFeed((f) => [...f, { role: "assistant", text: "" }]);
         let acc = "";
-        await kbAnswer(p, (e) => {
-          if (gen !== replyGen) return;
-          if (e.kind === "sources")
-            setFeed((f) => f.map((it, i) => (i === idx ? { ...it, citations: e.hits } : it)));
-          else if (e.kind === "voice")
-            setFeed((f) => f.map((it, i) => (i === idx ? { ...it, voice: e.label } : it)));
-          else if (e.kind === "token") {
-            acc += e.text;
-            setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + e.text } : it)));
-          }
-        });
+        // Scoped to your own corpora: a button called "My notes" shouldn't be
+        // answering from pages you merely visited, and the Trail already graphs
+        // those separately.
+        await kbAnswer(
+          p,
+          (e) => {
+            if (gen !== replyGen) return;
+            if (e.kind === "sources")
+              setFeed((f) => f.map((it, i) => (i === idx ? { ...it, citations: e.hits } : it)));
+            else if (e.kind === "voice")
+              setFeed((f) => f.map((it, i) => (i === idx ? { ...it, voice: e.label } : it)));
+            else if (e.kind === "token") {
+              acc += e.text;
+              setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + e.text } : it)));
+            }
+          },
+          OWN_SOURCES,
+        );
         if (gen !== replyGen) return;
         const text = acc.trim() || "(no relevant notes found — try Reindex in the Notebook)";
         setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text } : it)));
