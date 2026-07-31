@@ -151,6 +151,8 @@ import type {
   PolicyFlag as GenPolicyFlag,
   AuditEntry as GenAuditEntry,
   TextFix as GenTextFix,
+  StorageEntry as GenStorageEntry,
+  StorageReport as GenStorageReport,
 } from "./bindings.gen";
 /** One logged agent action (ADR 0013, Pillar 0). */
 export type AuditEntry = GenAuditEntry;
@@ -601,6 +603,20 @@ export type TextFix = GenTextFix;
  *  verbatim span of the text sent, so the editor can always locate it. An empty
  *  list means "nothing to fix", including when no model is available. */
 export const scribeProofread = (text: string) => invoke<TextFix[]>("scribe_proofread", { text });
+// ─── Browsing data on disk ──────────────────────────────────────────────────
+/** One clearable group of stored data, with its size and whether it's abnormal. */
+export type StorageEntry = GenStorageEntry;
+export type StorageReport = GenStorageReport;
+/** Measure the engine's profile. Walks the tree, so it can take a moment. */
+export const storageUsage = () => invoke<StorageReport>("storage_usage");
+/** Queue groups for deletion. Nothing is deleted until the next launch — the
+ *  engine holds these files open while it runs, and the case that matters most
+ *  is a profile so broken it crashes on load. Returns the message to show. */
+export const storageClear = (keys: string[]) => invoke<string>("storage_clear", { keys });
+export const storageClearCancel = () => invoke<void>("storage_clear_cancel");
+/** The last report taken this session, without re-walking. */
+export const storageLast = () => invoke<StorageReport | null>("storage_last");
+
 // ─── TUI app launcher (#117) ────────────────────────────────────────────────
 export type TuiApp = GenTuiApp;
 /** The user's curated terminal-app list (seeded on first run). */

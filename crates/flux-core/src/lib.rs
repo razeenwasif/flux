@@ -66,6 +66,7 @@ pub mod shields;
 pub mod specialists;
 pub mod spotify;
 pub mod state;
+pub mod storage;
 pub mod stt;
 pub mod sync;
 pub mod taskmgr;
@@ -140,16 +141,17 @@ fn compose_browser_args(existing: &str, extra: &str, quic: bool) -> String {
         }
         args.push_str(flag);
     };
-    if quic {
-        push("--enable-quic");
-    }
+    // `--enable-quic` alone is nearly a no-op (H3 is already the WebView2
+    // default), so opting out has to pass the *disable* flag — otherwise
+    // FLUX_NO_QUIC would read as "QUIC is off" while HTTP/3 carried on. That
+    // mistake cost a round of debugging.
+    push(if quic { "--enable-quic" } else { "--disable-quic" });
     // The user's own flags last, so they can add things like --disable-gpu.
     for flag in extra.split_whitespace() {
         push(flag);
     }
     args
 }
-
 
 fn boot_phase<T>(
     phase: &'static str,
@@ -541,6 +543,8 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
     app.manage(boot_phase("scribe.restore", boot_started, || {
         scribe::ScribeStore::restore(scribe_dir)
     }));
+    // Cached storage report, so the resource monitor can warn without re-walking.
+    app.manage(storage::StorageWarn::default());
     // Browsing history (#39) — recorded from dom_publish, persisted.
     let history_path = app
         .path()
@@ -753,6 +757,9 @@ pub fn run(intent: cli::LaunchIntent) {
         )
         .init();
 
+    // Before Tauri builds anything: a queued clear must run while the engine
+    // still holds no profile files open (see storage.rs).
+    storage::apply_pending_clear_early();
     enable_http3();
 
     let builder = tauri::Builder::default();
@@ -961,6 +968,10 @@ pub fn run(intent: cli::LaunchIntent) {
             scribe::scribe_delete,
             scribe::scribe_publish_page,
             scribe::scribe_proofread,
+            storage::storage_usage,
+            storage::storage_clear,
+            storage::storage_clear_cancel,
+            storage::storage_last,
             feeds::feeds_list,
             feeds::feed_add,
             feeds::feed_remove,
@@ -1259,13 +1270,19 @@ mod browser_arg_tests {
     #[test]
     fn quic_is_opt_out_and_user_flags_are_kept() {
         assert_eq!(compose_browser_args("", "", true), "--enable-quic");
-        // The whole point of FLUX_NO_QUIC: the flag must actually disappear.
-        assert_eq!(compose_browser_args("", "", false), "");
-        assert!(!compose_browser_args("", "--disable-gpu", false).contains("quic"));
+        // The whole point of FLUX_NO_QUIC: HTTP/3 must actually be off. Merely
+        // omitting --enable-quic leaves it on, since it's the engine default —
+        // the opt-out has to say --disable-quic or it silently does nothing.
+        assert_eq!(compose_browser_args("", "", false), "--disable-quic");
+        assert!(compose_browser_args("", "--disable-gpu", false).contains("--disable-quic"));
         // Pre-existing args survive, and nothing is added twice.
         assert_eq!(
             compose_browser_args("--foo", "--disable-gpu", true),
             "--foo --enable-quic --disable-gpu"
+        );
+        assert_eq!(
+            compose_browser_args("--foo", "", false),
+            "--foo --disable-quic"
         );
         assert_eq!(
             compose_browser_args("--enable-quic", "", true),
@@ -1281,7 +1298,7 @@ mod browser_arg_tests {
         // Multiple user flags, whitespace-separated.
         assert_eq!(
             compose_browser_args("", "--disable-gpu --disable-features=X", false),
-            "--disable-gpu --disable-features=X"
+            "--disable-quic --disable-gpu --disable-features=X"
         );
     }
 }

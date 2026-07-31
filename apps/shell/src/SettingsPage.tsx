@@ -55,6 +55,10 @@ import {
   traceDraftsSet,
   termPersist,
   TERM_PERSIST_KEY,
+  storageUsage,
+  storageClear,
+  storageClearCancel,
+  type StorageReport,
   type TermPersist,
 } from "./ipc";
 import {
@@ -212,6 +216,44 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     localStorage.setItem("flux.shellplan.always", v ? "1" : "0");
     setShellAlways(v);
   };
+  // Browsing data on disk. Measured on demand: walking a multi-gigabyte profile
+  // isn't something to do on every Settings open.
+  const [store, setStore] = createSignal<StorageReport | null>(null);
+  const [storeBusy, setStoreBusy] = createSignal(false);
+  const [storeMsg, setStoreMsg] = createSignal("");
+  const [storePick, setStorePick] = createSignal<string[]>([]);
+  const measure = () => {
+    setStoreBusy(true);
+    setStoreMsg("");
+    void storageUsage()
+      .then(setStore)
+      .catch((e) => setStoreMsg(String(e)))
+      .finally(() => setStoreBusy(false));
+  };
+  const togglePick = (k: string) =>
+    setStorePick((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
+  const doClear = () => {
+    const keys = storePick();
+    if (!keys.length) return;
+    void storageClear(keys)
+      .then((m) => {
+        setStoreMsg(m);
+        setStorePick([]);
+        measure();
+      })
+      .catch((e) => setStoreMsg(String(e)));
+  };
+  const cancelClear = () => {
+    void storageClearCancel()
+      .then(() => {
+        setStoreMsg("Queued clear cancelled.");
+        measure();
+      })
+      .catch((e) => setStoreMsg(String(e)));
+  };
+  const mb = (n: number) =>
+    n >= 1024 * 1024 * 1024 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 / 1024)} MB`;
+
   // Terminal persistence (BACKLOG #98). Applies to terminals opened from now on:
   // the mode is resolved when the PTY is spawned, so a change can't reach into a
   // shell that's already running.
@@ -607,6 +649,64 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           >
             <Toggle on={omniAutoAnswer()} onClick={() => setOmniAutoAnswer(!omniAutoAnswer())} />
           </Row>
+        </Section>
+
+        <Section title="Browsing data">
+          <Row
+            label="Stored on disk"
+            hint={
+              store()
+                ? `Measured at ${store()!.root}. Clearing happens on the next launch — the engine keeps these files open while it's running, so they can't be deleted from under it.`
+                : "Cache, service workers, site storage and cookies the engine keeps. A service-worker cache that grows without bound can crash pages on one site while every other browser is fine, so it's worth a look if a site starts failing."
+            }
+          >
+            <button class="set-link-btn" disabled={storeBusy()} onClick={measure}>
+              {storeBusy() ? "Measuring…" : store() ? "Re-measure" : "Measure"}
+            </button>
+          </Row>
+          <Show when={store()}>
+            <div class="store-list">
+              <Show when={store()!.warn}>
+                <p class="store-warn">
+                  ⚠ {mb(store()!.total_bytes)} stored, and at least one group is far larger than it should be.
+                  That's the shape of the profile corruption that crashes a single site in every Flux window
+                  while private tabs and other browsers load it fine.
+                </p>
+              </Show>
+              <Show when={store()!.pending.length > 0}>
+                <p class="store-pending">
+                  Queued for deletion on next launch: {store()!.pending.join(", ")}.{" "}
+                  <button class="store-link" onClick={cancelClear}>
+                    Cancel
+                  </button>
+                </p>
+              </Show>
+              <For each={store()!.entries}>
+                {(e) => (
+                  <label classList={{ "store-row": true, warn: e.warn }} title={e.hint}>
+                    <input
+                      type="checkbox"
+                      checked={storePick().includes(e.key)}
+                      onChange={() => togglePick(e.key)}
+                    />
+                    <span class="store-label">{e.label}</span>
+                    <span class="store-size">{mb(e.bytes)}</span>
+                    <Show when={e.warn}>
+                      <span class="store-flag">⚠</span>
+                    </Show>
+                  </label>
+                )}
+              </For>
+              <div class="store-actions">
+                <button class="set-link-btn" disabled={storePick().length === 0} onClick={doClear}>
+                  Clear selected on next launch
+                </button>
+                <Show when={storeMsg()}>
+                  <span class="store-msg">{storeMsg()}</span>
+                </Show>
+              </div>
+            </div>
+          </Show>
         </Section>
 
         <Section title="Terminal">

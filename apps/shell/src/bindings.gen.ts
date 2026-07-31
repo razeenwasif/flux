@@ -101,6 +101,11 @@ export type PolicyFlag = { clause: string; why: string }
  */
 export type TextFix = { before: string; after: string; why: string }
 /**
+ * One row in the storage report.
+ */
+export type StorageEntry = { key: string; label: string; hint: string; bytes: number; warn: boolean }
+export type StorageReport = { entries: StorageEntry[]; total_bytes: number; warn: boolean; pending: string[]; root: string }
+/**
  * One logged agent action.
  */
 export type AuditEntry = { ms: number; tab: number; action: string; destructive: string | null; confirmed: boolean }

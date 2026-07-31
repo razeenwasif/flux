@@ -6,7 +6,7 @@
  * state, which is what's actionable here. Polls only while open.
  */
 import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
-import { memStatus, tabDomSizes, type MemInfo } from "./ipc";
+import { SETTINGS_URL, memStatus, storageUsage, tabDomSizes, type MemInfo, type StorageReport } from "./ipc";
 import { visibleInterval } from "./poll";
 import { activeId, activeWorkspace, isHibernated, tabs, updateTabTitle } from "./store";
 
@@ -25,6 +25,10 @@ const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackg
 ) => {
   const [mem, setMem] = createSignal<MemInfo | null>(null);
   const [sizes, setSizes] = createSignal<Record<number, number>>({});
+  // On-disk profile size. RAM is only half the resource story, and the half that
+  // grows silently is the one that eventually breaks a site (see storage.rs).
+  // Measured once per visit, not on the 2.5s poll — it walks the tree.
+  const [store, setStore] = createSignal<StorageReport | null>(null);
 
   const refresh = () => {
     void memStatus()
@@ -38,6 +42,9 @@ const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackg
     const id = activeId();
     if (id != null) updateTabTitle(id, "Resources");
     visibleInterval(refresh, 2500);
+    void storageUsage()
+      .then(setStore)
+      .catch(() => {});
   });
 
   // Browser tabs in the active workspace, heaviest first.
@@ -63,10 +70,34 @@ const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackg
             </span>
           )}
         </Show>
+        <Show when={store()}>
+          {(st) => (
+            <span classList={{ "res-store": true, warn: st().warn }} title={`Browsing data at ${st().root}`}>
+              {st().total_bytes >= 1024 ** 3
+                ? `${(st().total_bytes / 1024 ** 3).toFixed(1)} GB on disk`
+                : `${Math.round(st().total_bytes / 1048576)} MB on disk`}
+            </span>
+          )}
+        </Show>
         <button class="hist-clear" onClick={() => props.onSleepBackground()}>
           💤 Sleep background tabs
         </button>
       </header>
+      {/* Storage that has grown pathological is worth saying out loud: it breaks
+          one site at a time, in a way that looks like a bug in that site. */}
+      <Show when={store()?.warn}>
+        <div class="res-store-warn">
+          ⚠ Browsing data on disk has grown unusually large
+          {store()!.entries.find((e) => e.warn)
+            ? ` (${store()!.entries.find((e) => e.warn)!.label}: ${Math.round(store()!.entries.find((e) => e.warn)!.bytes / 1048576)} MB)`
+            : ""}
+          . This can crash a single site in every Flux window while private tabs and other browsers load it
+          fine.{" "}
+          <button class="res-store-link" onClick={() => props.onNavigate(SETTINGS_URL)}>
+            Clear browsing data
+          </button>
+        </div>
+      </Show>
 
       <div class="hist-body">
         <div class="res-note">

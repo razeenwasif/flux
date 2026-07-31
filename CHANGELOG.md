@@ -8,6 +8,25 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Clear browsing data, and a warning when it grows pathological** (Settings → Browsing data,
+  plus the resource monitor). Both exist because of a real failure: a service-worker
+  `CacheStorage` reached **753 MB** and began crashing the renderer with
+  `STATUS_ACCESS_VIOLATION` on one origin — in every Flux tab and panel, while private tabs and
+  other browsers loaded the same site fine, because they don't share that profile. Nothing
+  surfaced that the profile had gone bad, and the only cure was deleting folders by hand from
+  PowerShell.
+
+  Settings now measures the engine's profile by group — service workers, cache, site storage,
+  cookies — flags any group that's far past a sane size, and clears what you select. Cookies are
+  a separate group so clearing junk never silently signs you out. The resource monitor shows the
+  on-disk total next to RAM and raises a banner when something is abnormal, since this failure
+  presents as one site being broken rather than as a storage problem.
+
+  **Clearing is deferred to the next launch.** The engine holds those files open while running,
+  so a live delete either fails or half-succeeds and leaves the profile worse — and the case
+  that matters most is a profile so broken it crashes on load. The queued clear records
+  **absolute paths resolved at queue time**, so the boot pass deletes exactly what was measured
+  rather than re-deriving the layout and risking deleting elsewhere.
 - **`FLUX_NO_QUIC=1`** drops the `--enable-quic` flag Flux forces onto WebView2, plus a
   Troubleshooting section in the README for `STATUS_ACCESS_VIOLATION` renderer crashes. That
   flag was the only non-default browser argument Flux set and there was no way to turn it off,
@@ -247,6 +266,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **`FLUX_NO_QUIC=1` didn't actually disable HTTP/3.** It only omitted `--enable-quic`, and
+  HTTP/3 is the WebView2 default — so the opt-out silently did nothing and a round of debugging
+  was spent treating QUIC as ruled out when it never had been. It passes `--disable-quic` now,
+  with tests asserting the disable flag is present.
 - **One injected script throwing silently killed every script after it.** All of Flux's page
   scripts share a single initialization script, so a top-level error aborts the rest of the
   blob — with nothing watching the page console, the features just quietly stopped existing.

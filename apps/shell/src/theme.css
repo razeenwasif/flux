@@ -8661,6 +8661,71 @@ body.busy .start-card {
   cursor: pointer;
   white-space: nowrap;
 }
+
+/* Browsing-data list (Settings → Browsing data). Sizes are the point, so they get
+   a tabular figure column and the abnormal ones are called out rather than left
+   for the reader to compare by eye. */
+.store-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0 2px;
+}
+.store-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.store-row:hover {
+  background: rgba(123, 97, 255, 0.1);
+}
+.store-row.warn {
+  border-color: rgba(236, 75, 224, 0.35);
+  background: rgba(236, 75, 224, 0.07);
+}
+.store-label {
+  flex: 1;
+  color: var(--flux-text);
+}
+.store-size {
+  font-variant-numeric: tabular-nums;
+  color: var(--flux-text-dim);
+}
+.store-flag {
+  color: var(--flux-magenta, #ec4be0);
+}
+.store-warn,
+.store-pending,
+.store-msg {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--flux-text-dim);
+}
+.store-warn {
+  color: var(--flux-magenta, #ec4be0);
+}
+.store-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+  flex-wrap: wrap;
+}
+.store-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--flux-teal);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
 .set-link-btn:hover {
   color: var(--flux-teal);
   border-color: var(--flux-teal);
@@ -8949,6 +9014,36 @@ body.busy .start-card {
   flex: 1;
   font-size: 11.5px;
   color: var(--flux-text-dim);
+}
+
+/* On-disk profile size in the resource monitor header, and the banner when it's
+   grown past what any browsing profile should hold. */
+.res-store {
+  font-size: 12px;
+  color: var(--flux-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.res-store.warn {
+  color: var(--flux-magenta, #ec4be0);
+}
+.res-store-warn {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--flux-text);
+  background: rgba(236, 75, 224, 0.09);
+  border: 1px solid rgba(236, 75, 224, 0.32);
+}
+.res-store-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--flux-teal);
+  cursor: pointer;
+  text-decoration: underline;
 }
 .res-note {
   font-size: 11.5px;

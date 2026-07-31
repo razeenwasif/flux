@@ -334,6 +334,17 @@ off by default and why an explicit tab close deletes that session's file.
 
 ## Troubleshooting
 
+**A single site fails while every other browser loads it.** Check
+**Settings → Browsing data** and hit *Measure*. A service-worker cache or site
+storage that has grown to hundreds of megabytes can crash the renderer on that
+one origin, in every Flux window, while private tabs (which use an in-memory
+session) and other browsers are unaffected — because they don't share the
+profile. Select the flagged group and clear it; the deletion happens on the next
+launch, because the engine holds those files open while it runs. The resource
+monitor (`flux://resources`) shows the same figure next to RAM and warns when it
+looks wrong.
+
+
 **A page dies with `STATUS_ACCESS_VIOLATION` (Windows).** That's the WebView2
 renderer crashing, not Flux — but Flux can contribute to it, so bisect in this
 order, restarting Flux between each:
@@ -342,14 +353,19 @@ These are Windows-only, so the examples are PowerShell. Set the variable as its
 own statement — PowerShell has no `VAR=value command` form — and launch Flux from
 that same window, or the variable won't reach it:
 
-1. Rule out QUIC. This drops `--enable-quic`, the one non-default browser
-   argument Flux forces onto WebView2. HTTP/3 is already the WebView2 default, so
-   it costs nothing; a crash that stops here was a network-stack fault.
+1. Rule out HTTP/3. This passes `--disable-quic` — note that *omitting*
+   `--enable-quic` is not enough, since HTTP/3 is the WebView2 default, so the
+   opt-out has to disable it explicitly.
 
    ```powershell
    $env:FLUX_NO_QUIC = "1"
    flux
    ```
+
+   If that fixes it, the profile's cached Alt-Svc records are likely part of it
+   (they're what makes a saved profile prefer HTTP/3 where a fresh private
+   session wouldn't). Close Flux and delete
+   `%LOCALAPPDATA%\dev.flux.browser\EBWebView\Default\Network\Network Persistent State`.
 
 2. Rule out the GPU — the standard WebView2 access-violation workaround. A fix
    here points at the graphics driver rather than at Flux.
