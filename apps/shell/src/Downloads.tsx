@@ -62,17 +62,61 @@ const Downloads: Component = () => {
   const pct = (d: DownloadItem) =>
     d.total > 0 ? Math.min(100, Math.round((d.received / d.total) * 100)) : null;
 
+  /** Aggregate progress across everything in flight, for the button's ring.
+   *  `null` when no running download reports a size — a ring that jumped to
+   *  100% because one item had `total: 0` would be worse than no ring. */
+  const overall = createMemo<number | null>(() => {
+    const running = items().filter((d) => d.state === "in_progress" || d.state === "paused");
+    const sized = running.filter((d) => d.total > 0);
+    if (!sized.length) return null;
+    const got = sized.reduce((n, d) => n + d.received, 0);
+    const all = sized.reduce((n, d) => n + d.total, 0);
+    return all > 0 ? Math.min(100, Math.round((got / all) * 100)) : null;
+  });
+
+  // A finished download deserves a moment of feedback, because the badge simply
+  // disappearing reads as "it stopped" rather than "it's done". Watching the
+  // completed count rather than an event keeps this working however the refresh
+  // arrived (poll or push).
+  const [justDone, setJustDone] = createSignal(false);
+  let doneSeen = -1;
+  let doneTimer = 0;
+  createEffect(() => {
+    const done = items().filter((d) => d.state === "completed").length;
+    // The first observation is the existing history, not a new arrival.
+    if (doneSeen >= 0 && done > doneSeen) {
+      setJustDone(true);
+      clearTimeout(doneTimer);
+      doneTimer = window.setTimeout(() => setJustDone(false), 1400);
+    }
+    doneSeen = done;
+  });
+  onCleanup(() => clearTimeout(doneTimer));
+
   return (
     <div style={{ display: "contents" }}>
       <button
-        classList={{ "icon-btn": true, active: open() }}
-        title="Downloads"
+        classList={{
+          "icon-btn": true,
+          "dl-btn": true,
+          active: open(),
+          busy: active() > 0,
+          done: justDone(),
+        }}
+        // The ring is drawn from a CSS variable so progress costs one custom
+        // property write, not a re-render of the button.
+        style={overall() != null ? { "--dl-pct": `${overall()}%` } : undefined}
+        title={
+          active() > 0
+            ? `Downloads — ${active()} in progress${overall() != null ? ` (${overall()}%)` : ""}`
+            : "Downloads"
+        }
         onClick={() => {
           setOpen((v) => !v);
           if (!open()) refresh();
         }}
       >
-        ⬇
+        <span class="dl-arrow">⬇</span>
         <Show when={active() > 0}>
           <span class="shield-badge">{active()}</span>
         </Show>

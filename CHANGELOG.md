@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Download feedback on the footer ⬇.** Previously the only signal was a count badge appearing
+  and vanishing, which reads as "something stopped" rather than "your file arrived". The button
+  now has three distinct states: a progress ring while downloading (aggregate across everything
+  in flight), a slow bob on the arrow so activity is legible in peripheral vision, and a one-shot
+  pulse with an expanding halo when a download completes.
+
+  When no running download reports a size, the ring sweeps instead of filling — a ring that
+  jumped to 100% because one item had `total: 0` would be worse than none. Under
+  `prefers-reduced-motion` the movement is dropped but the *information* is kept: the ring still
+  shows its fill and completion still tints the arrow.
 - **Mail in the dock column — read-only IMAP, no OAuth.** Connect with an app password (Gmail
   needs 2-factor authentication to issue one) and the newest 20 INBOX messages show as sender,
   subject and age, unread carrying the weight and a teal edge. Clicking one opens *exactly* that
