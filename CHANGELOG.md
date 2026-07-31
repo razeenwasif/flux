@@ -271,6 +271,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Scribe: each new stroke in the Draw pane erased the previous one.** `InkCanvas` is a
+  *controlled* component — it rebuilds from `props.strokes` on every commit, so the parent must
+  hand back the updated array. ScribeDoc passed a plain `let`, which Solid reads once at
+  creation and freezes, so every stroke was appended to the original empty array and only the
+  newest survived. It's a signal now, matching how the whiteboard has always fed the same
+  component. Opening the pane also starts from a blank pad rather than the previous drawing.
 - **Signed-in github.com crashed the renderer** (`STATUS_ACCESS_VIOLATION`). Two of Flux's ten
   injected page scripts called the IPC bridge *synchronously at document-created* — before the
   parser had produced `<html>`. Doing that kills the WebView2 renderer outright: a null-pointer

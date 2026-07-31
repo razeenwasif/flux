@@ -121,7 +121,13 @@ const ScribeDoc: Component<Props> = (props) => {
   createEffect(() => props.onScale?.(scale()));
 
   let inkApi: InkApi | null = null;
-  let padStrokes: Stroke[] = [];
+  // A signal, not a plain `let`. InkCanvas is *controlled*: it rebuilds from
+  // `props.strokes` on every commit, so the parent has to hand back an updated
+  // array. Solid compiles `strokes={padStrokes()}` into a reactive getter, while a
+  // bare `strokes={padStrokes}` is read once at creation and frozen — which left
+  // every stroke appending to the original empty array, so each new stroke
+  // replaced the previous one.
+  const [padStrokes, setPadStrokes] = createSignal<Stroke[]>([]);
 
   // Gemma's proofreading suggestions. `null` means "not asked yet", which is a
   // different thing from an empty list ("asked, nothing wrong") — and the panel
@@ -360,7 +366,10 @@ const ScribeDoc: Component<Props> = (props) => {
         <button
           class="sdoc-draw"
           title="Draw an equation or diagram to insert"
-          onClick={() => setDrawing(true)}
+          onClick={() => {
+            setPadStrokes([]); // each drawing starts blank, not on top of the last
+            setDrawing(true);
+          }}
         >
           ✏️ Draw
         </button>
@@ -476,8 +485,8 @@ const ScribeDoc: Component<Props> = (props) => {
               </button>
             </div>
             <InkCanvas
-              strokes={padStrokes}
-              onChange={(s) => (padStrokes = s)}
+              strokes={padStrokes()}
+              onChange={(s) => setPadStrokes(s)}
               bounds={{ w: PAD_W, h: PAD_H }}
               template="grid"
               api={(a) => (inkApi = a)}
