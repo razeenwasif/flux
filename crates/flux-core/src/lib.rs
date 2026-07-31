@@ -249,7 +249,12 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
     // HTTPS-only mode (#58) — shares the request interceptor with shields.
     app.manage(https::HttpsState::new());
     // Tracking prevention (#58) — native WebView2 3rd-party blocking.
-    app.manage(tracking::TrackingState::new());
+    app.manage(
+        match app.path().app_data_dir().ok().map(|d| d.join("tracking.txt")) {
+            Some(p) => tracking::TrackingState::restore(p),
+            None => tracking::TrackingState::new(),
+        },
+    );
     // Per-site cookie flags (clear-on-close, #58).
     app.manage(cookies::CookieState::new());
     // Site-permission hardening (#58) — block camera/mic/geo on demand.

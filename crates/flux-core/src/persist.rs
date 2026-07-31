@@ -29,6 +29,12 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     })
 }
 
+/// Atomically replace `path` with plain text. For settings that are a single
+/// scalar, where JSON would only add quotes to read back.
+pub(crate) fn save_text(path: &Path, text: &str) {
+    let _ = write_atomic(path, text.as_bytes());
+}
+
 /// Serialize `value` and atomically replace `path`. Best-effort: serialization
 /// or IO failure is swallowed, matching the previous per-module writers.
 pub(crate) fn save_json<T: serde::Serialize + ?Sized>(path: &Path, value: &T) {

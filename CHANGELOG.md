@@ -266,6 +266,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   target). Also pinned **Google Calendar** in the app dock.
 
 ### Fixed
+- **Tracking prevention didn't persist.** The level lived in an in-memory `AtomicI32` that was
+  never written to disk, so it silently reverted to Balanced on every launch — which also made
+  it useless as a workaround for a site that a higher level breaks. It's saved now and restored
+  at boot, with a test covering the case most likely to be mishandled: level **0 (Off)** must
+  survive, rather than being treated as absent and falling back to the default.
 - **`FLUX_NO_QUIC=1` didn't actually disable HTTP/3.** It only omitted `--enable-quic`, and
   HTTP/3 is the WebView2 default — so the opt-out silently did nothing and a round of debugging
   was spent treating QUIC as ruled out when it never had been. It passes `--disable-quic` now,
