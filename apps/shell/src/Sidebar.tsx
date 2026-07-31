@@ -44,6 +44,8 @@ import {
   calendarPopOpen,
   calendarOverlayOpen,
   setCalendarPopOpen,
+  dockOpen,
+  toggleDock,
   restoreBranch,
   removeBranch,
   clearArchived,
@@ -1874,6 +1876,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <Show when={calSoon()}>
             <span class="cal-soon-dot" title="An event starts within 30 minutes" />
           </Show>
+        </button>
+        {/* The calendar+mail column. Every other column has a button here; this
+            one had only a palette entry, which made it effectively invisible. */}
+        <button
+          classList={{ "icon-btn": true, active: dockOpen() }}
+          title={
+            dockOpen()
+              ? "Hide the calendar + mail column"
+              : "Calendar + mail in their own column (also in ⌘K)"
+          }
+          onClick={() => toggleDock()}
+        >
+          ✉
         </button>
         {/* Overlay mode only — the docked pane renders inside the web-panel
             column (WebPanelPane) so it sits beside the page, not over it. */}

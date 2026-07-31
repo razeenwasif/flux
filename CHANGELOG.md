@@ -76,6 +76,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   feature stands on its own (a browser should let you see and clear this), but it fixed no crash.
 
 ### Changed
+- **The calendar + mail column has a footer button (✉).** It shipped reachable only from the
+  command palette, which made it effectively invisible — every other column in Flux has a button,
+  so this one looked like it didn't exist. The toggle moved into the store so the sidebar and the
+  palette drive the same state.
+- **Each message in the mail pane is its own card.** A borderless list ran together at column
+  width, where sender and subject are both single truncated lines and the boundary between two
+  messages was doing no work. Unread keeps the card and adds a lit edge and warmer fill, so the
+  two states differ by more than font weight.
 - **`TerminalView` is a lazy chunk.** It was imported eagerly by three files while xterm itself
   was already lazy inside it, so every session paid for it whether or not a terminal was opened.
   Moving it out took the eager chrome bundle from **70.0 KB (over budget) to 62.6 KB** — more

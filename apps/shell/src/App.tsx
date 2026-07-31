@@ -155,9 +155,9 @@ import {
   kbPanelOpen,
   setKbPanelOpen,
   shellHistOpen,
-  calendarDock,
   calendarDocked,
-  setCalendarDock,
+  dockOpen,
+  toggleDock,
   setCalendarPopOpen,
   openMessagingPanel,
   setShellHistOpen,
@@ -310,15 +310,6 @@ const App: Component = () => {
   // The dock column (calendar over mail). Its own column so the web panel is
   // free for something else — the whole point of asking for it.
   const [dockW, setDockW] = createSignal(loadW("flux.w.dock", 340));
-  const [dockOpen, setDockOpen] = createSignal(localStorage.getItem("flux.dock.open") === "1");
-  const toggleDock = () => {
-    const v = !dockOpen();
-    setDockOpen(v);
-    localStorage.setItem("flux.dock.open", v ? "1" : "0");
-    // Sending the calendar to the dock is what makes the pairing useful; leaving
-    // it in the web panel would keep the column half-empty and the panel busy.
-    if (v && calendarDock() !== "dock") setCalendarDock("dock");
-  };
 
   // Window width drives the responsive pane-shedding (#28). Tracked from the window
   // resize event only (not layout changes) so it can't feed back into the columns

@@ -366,6 +366,17 @@ export function setCalDockRatio(r: number): void {
   setCalDockRatioSig(v);
   localStorage.setItem("flux.cal.dockratio", String(v));
 }
+/** Is the dock column (calendar over mail) showing? Persisted. */
+const [dockOpen, setDockOpenSig] = createSignal(localStorage.getItem("flux.dock.open") === "1");
+export { dockOpen };
+export function toggleDock(): void {
+  const v = !dockOpen();
+  setDockOpenSig(v);
+  localStorage.setItem("flux.dock.open", v ? "1" : "0");
+  // Opening the column is what makes the pairing useful; leaving the calendar in
+  // the web panel would keep this column half-empty and the panel busy.
+  if (v && calendarDock() !== "dock") setCalendarDock("dock");
+}
 /** The calendar's share of the dock column's height, above the mail pane. */
 const [dockRatio, setDockRatioSig] = createSignal(
   Math.min(0.85, Math.max(0.15, Number(localStorage.getItem("flux.dock.split")) || 0.5)),

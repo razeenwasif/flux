@@ -14425,24 +14425,31 @@ input[type="radio"].pdf-fw {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
+  padding-right: 2px;
   scrollbar-width: thin;
 }
+/* Each message is its own card. A borderless list runs together at this width,
+   where sender and subject are both one truncated line — the box is what makes
+   the boundary between two messages readable at a glance. */
 .mail-msg {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   text-align: left;
   cursor: pointer;
-  padding: 7px 9px;
-  border-radius: 9px;
-  border: 1px solid transparent;
-  background: none;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--flux-border);
+  background: rgba(255, 255, 255, 0.03);
   color: inherit;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
 }
 .mail-msg:hover {
   background: rgba(123, 97, 255, 0.12);
-  border-color: rgba(123, 97, 255, 0.3);
+  border-color: rgba(123, 97, 255, 0.42);
 }
 .mail-msg-top {
   display: flex;
@@ -14478,9 +14485,17 @@ input[type="radio"].pdf-fw {
 .mail-msg.unread .mail-subject {
   color: var(--flux-text);
 }
+/* Unread keeps the card but gains a lit edge and a warmer fill, so the two
+   states differ by more than font weight alone. */
 .mail-msg.unread {
+  border-color: rgba(47, 243, 255, 0.28);
+  background: rgba(47, 243, 255, 0.06);
   border-left: 2px solid var(--flux-teal);
-  border-radius: 3px 9px 9px 3px;
+  border-radius: 4px 10px 10px 4px;
+}
+.mail-msg.unread:hover {
+  border-color: rgba(47, 243, 255, 0.55);
+  background: rgba(47, 243, 255, 0.11);
 }
 .mail-dim {
   color: var(--flux-text-dim);
