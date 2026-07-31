@@ -18,6 +18,8 @@ import {
   scribeList,
   scribeLoad,
   scribePublishPage,
+  scribeTranscribe,
+  type Transcript,
   scribeSave,
   type Notebook,
   type NotebookMeta,
@@ -330,6 +332,25 @@ const ScribePage: Component = () => {
     setPubOpen(true);
   };
 
+  // Handwriting → LaTeX with the local vision model. Never written into the page:
+  // the document stays as drawn, and the transcript is indexed under its own
+  // machine-read source so a model's mistake can't masquerade as your notes.
+  const [ocrBusy, setOcrBusy] = createSignal(false);
+  const [ocr, setOcr] = createSignal<Transcript | null>(null);
+  const [ocrErr, setOcrErr] = createSignal("");
+  const doTranscribe = async () => {
+    const cur = notebook();
+    if (!cur) return;
+    setOcrBusy(true);
+    setOcrErr("");
+    try {
+      setOcr(await scribeTranscribe(cur.id, pageIndex()));
+    } catch (e) {
+      setOcrErr(String(e).replace(/^Error:\s*/, ""));
+    }
+    setOcrBusy(false);
+  };
+
   const doPublish = async () => {
     const cur = notebook();
     if (!cur || !docApi) return;
@@ -501,12 +522,48 @@ const ScribePage: Component = () => {
           >
             {saveState() === "saving" ? "Saving…" : saveState() === "dirty" ? "● Save" : "✓ Saved"}
           </button>
+          <button
+            class="wb-btn"
+            title="Transcribe this page's handwriting to LaTeX with the local vision model"
+            disabled={ocrBusy()}
+            onClick={() => void doTranscribe()}
+          >
+            {ocrBusy() ? "Reading…" : "🔍 Transcribe"}
+          </button>
           <button class="wb-btn" title="Publish this page to Onyx" onClick={openPublish}>
             ⇪ Onyx
           </button>
         </div>
         <Show when={saveErr()}>
           <div class="scribe-err">Autosave failed: {saveErr()}</div>
+        </Show>
+        <Show when={ocrErr()}>
+          <div class="scribe-err">{ocrErr()}</div>
+        </Show>
+        <Show when={ocr()}>
+          <div class="scribe-ocr">
+            <div class="scribe-ocr-head">
+              <span>LaTeX — read by {ocr()!.model}, not written by you</span>
+              <span style={{ flex: 1 }} />
+              <button
+                class="wb-btn"
+                title="Copy the LaTeX"
+                onClick={() => void navigator.clipboard.writeText(ocr()!.latex)}
+              >
+                Copy
+              </button>
+              <button class="wb-btn" onClick={() => setOcr(null)}>
+                Close
+              </button>
+            </div>
+            {/* Shown as plain text, not rendered: the point is to check it
+                against the page before trusting it. */}
+            <pre class="scribe-ocr-body">{ocr()!.latex}</pre>
+            <p class="scribe-ocr-note">
+              Saved and searchable in the Notebook, marked as machine-read. Check it before relying on it — a
+              vision model can transcribe a symbol that isn't there.
+            </p>
+          </div>
         </Show>
         <div class="scribe-work">
           {/* Page rail: real thumbnails of each page's ink, so a long notebook is

@@ -22,7 +22,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Manager as _, State};
 
 /// One page of a notebook. `strokes` is the ink engine's `Stroke[]` serialized
 /// to JSON — opaque here on purpose (see module docs).
@@ -613,6 +613,30 @@ mod tests {
         let _ = store.load(&nb.id);
         assert_eq!(store.generation(), g3, "reads leave it alone");
     }
+
+    #[test]
+    fn page_images_and_fence_stripping() {
+        // The v2 doc shape: ink lives in `objects[].src` as data URLs.
+        let doc = r#"{"v":2,"html":"<p>hi</p>","objects":[
+            {"id":"a","src":"data:image/png;base64,AAAA","x":0,"y":0,"w":10,"h":10},
+            {"id":"b","src":"data:image/png;base64,BBBB","x":0,"y":0,"w":10,"h":10}]}"#;
+        assert_eq!(page_images(doc), vec!["AAAA", "BBBB"]);
+
+        // A page with only typed text has nothing to transcribe, and the legacy
+        // stroke-array format has no objects at all - neither may panic.
+        assert!(page_images(r#"{"v":2,"html":"<p>typed</p>","objects":[]}"#).is_empty());
+        assert!(page_images("[]").is_empty());
+        assert!(page_images("not json").is_empty());
+        // A malformed src is skipped rather than yielding a bogus payload.
+        assert!(page_images(r#"{"objects":[{"src":"data:image/png,notbase64"}]}"#).is_empty());
+
+        // Models wrap output in fences however firmly the prompt says not to.
+        assert_eq!(strip_fences("```latex\nx^2 + y^2\n```"), "x^2 + y^2");
+        assert_eq!(strip_fences("```\n\\int f\n```"), "\\int f");
+        assert_eq!(strip_fences("  $E=mc^2$  "), "$E=mc^2$");
+        // No fence: returned as-is, not mangled.
+        assert_eq!(strip_fences("\\[ a+b \\]"), "\\[ a+b \\]");
+    }
 }
 
 /// A suggested spelling/grammar fix in a page (mirrors the agent's `TextFix` so
@@ -651,4 +675,174 @@ pub async fn scribe_proofread(text: String) -> Result<Vec<TextFix>, String> {
             why: f.why,
         })
         .collect())
+}
+
+// ─── Handwriting transcription ───────────────────────────────────────────────
+//
+// A page of handwritten maths indexes as empty: the ink is a PNG and nothing
+// reads it. The local vision model already wired for Lens (`lens.rs`,
+// `gemma3:4b` over Ollama) can, and what's wanted out of a maths page is LaTeX
+// rather than a plain-text approximation.
+//
+// The result is stored, never written back into the page. Two reasons: the
+// document stays exactly as the user drew it, and — because a model can invent a
+// line that was never on the paper — the transcript is indexed under its own KB
+// source (`scribe-ocr`) so its machine-read origin travels with every citation
+// instead of being indistinguishable from something the user wrote.
+
+/// One transcribed page.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct Transcript {
+    /// `<notebook id>/<page id>`.
+    pub key: String,
+    pub notebook: String,
+    pub page: String,
+    pub title: String,
+    pub latex: String,
+    /// Which model produced it — provenance, and it changes with the model.
+    pub model: String,
+    pub ts: u64,
+}
+
+#[derive(Default)]
+pub struct TranscriptStore {
+    items: RwLock<HashMap<String, Transcript>>,
+    path: Option<PathBuf>,
+    generation: AtomicU64,
+}
+
+impl TranscriptStore {
+    pub fn restore(path: PathBuf) -> Self {
+        let items = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<Transcript>>(&s).ok())
+            .map(|v| v.into_iter().map(|t| (t.key.clone(), t)).collect())
+            .unwrap_or_default();
+        Self {
+            items: RwLock::new(items),
+            path: Some(path),
+            generation: AtomicU64::new(0),
+        }
+    }
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+    pub fn list(&self) -> Vec<Transcript> {
+        self.items.read().values().cloned().collect()
+    }
+    pub fn get(&self, key: &str) -> Option<Transcript> {
+        self.items.read().get(key).cloned()
+    }
+    fn put(&self, t: Transcript) {
+        self.items.write().insert(t.key.clone(), t);
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        if let Some(p) = &self.path {
+            let all: Vec<Transcript> = self.items.read().values().cloned().collect();
+            crate::persist::save_json(p, &all);
+        }
+    }
+}
+
+/// Every ink image on a page, as base64 PNG payloads (no `data:` prefix).
+///
+/// Pulled out of the opaque content string the same way `page_text` reads the
+/// HTML from it — Rust still doesn't own the format, it just knows these two
+/// fields.
+pub fn page_images(content_json: &str) -> Vec<String> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(content_json) else {
+        return Vec::new();
+    };
+    v.get("objects")
+        .and_then(|o| o.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|o| o.get("src").and_then(|s| s.as_str()))
+                .filter_map(|src| src.split_once("base64,").map(|(_, b)| b.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+const LATEX_PROMPT: &str = "Transcribe this handwritten page into LaTeX. Output ONLY the LaTeX \
+body — no preamble, no \\documentclass, no code fences, no commentary. Use $...$ for inline maths \
+and \\[...\\] for displayed equations. Keep the original line and paragraph structure. Transcribe \
+ONLY what is actually written: if a symbol is unreadable, write \\text{[?]} rather than guessing at \
+what it probably said. Do not solve, correct, complete or explain anything.";
+
+/// Transcribe a page's handwriting to LaTeX with the local vision model.
+///
+/// Every ink image on the page is read separately and the results joined: one
+/// prompt per drawing keeps each image small enough for a 4B model to read
+/// carefully, and a page's drawings are usually separate workings anyway.
+#[tauri::command]
+pub async fn scribe_transcribe(
+    app: tauri::AppHandle,
+    store: State<'_, ScribeStore>,
+    id: String,
+    page_index: usize,
+) -> Result<Transcript, String> {
+    let nb = store.load(&id).ok_or("notebook not found")?;
+    let page = nb.pages.get(page_index).ok_or("no such page")?.clone();
+    let images = page_images(&page.strokes);
+    if images.is_empty() {
+        return Err("nothing handwritten on this page to transcribe".into());
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    for img in images {
+        // Blocking HTTP to Ollama; off the async runtime's thread.
+        let out = tauri::async_runtime::spawn_blocking(move || {
+            crate::lens::vision_call(img, Some(LATEX_PROMPT.to_string()))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        let cleaned = strip_fences(&out);
+        if !cleaned.trim().is_empty() {
+            parts.push(cleaned);
+        }
+    }
+    let latex = parts.join("\n\n");
+    if latex.trim().is_empty() {
+        return Err("the model read nothing from this page".into());
+    }
+
+    let t = Transcript {
+        key: format!("{}/{}", nb.id, page.id),
+        notebook: nb.id.clone(),
+        page: page.id.clone(),
+        title: format!("{} — p{} (transcribed)", nb.name, page_index + 1),
+        latex,
+        model: std::env::var("FLUX_VISION_MODEL").unwrap_or_else(|_| "gemma3:4b".into()),
+        ts: now_ms(),
+    };
+    if let Some(ts) = app.try_state::<TranscriptStore>() {
+        ts.put(t.clone());
+    }
+    Ok(t)
+}
+
+/// The stored transcript for a page, if it has been transcribed.
+#[tauri::command]
+pub fn scribe_transcript(
+    store: State<'_, TranscriptStore>,
+    notebook: String,
+    page: String,
+) -> Option<Transcript> {
+    store.get(&format!("{notebook}/{page}"))
+}
+
+/// Models like to wrap output in ```latex fences however firmly you ask them not
+/// to. Stripping them here rather than trusting the prompt.
+fn strip_fences(s: &str) -> String {
+    let t = s.trim();
+    let Some(rest) = t.strip_prefix("```") else {
+        return t.to_string();
+    };
+    // Drop the language tag on the opening fence, and the closing fence.
+    let rest = rest.split_once('\n').map(|(_, r)| r).unwrap_or(rest);
+    rest.trim_end()
+        .strip_suffix("```")
+        .unwrap_or(rest)
+        .trim()
+        .to_string()
 }

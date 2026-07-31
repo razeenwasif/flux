@@ -18,10 +18,21 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount, type Compone
 import { fsOpen, kbRelated, kbStatus, onDomUpdated, traceAmbient, type AmbientHint, type KbHit } from "./ipc";
 import { activeId, openTab } from "./store";
 
-const SOURCE_ICON: Record<string, string> = { onyx: "📝", scroll: "📜", council: "⚖", scribe: "✍" };
+const SOURCE_ICON: Record<string, string> = {
+  onyx: "📝",
+  scroll: "📜",
+  council: "⚖",
+  scribe: "✍",
+  pdf: "📄",
+  // Machine-read: a vision model transcribed handwriting into this text, so it
+  // may not say quite what the page said. Marked wherever it's cited.
+  "scribe-ocr": "🔍",
+};
+/** Sources whose text a model produced rather than the user. */
+const MACHINE_READ = new Set(["scribe-ocr"]);
 /** Mirrors `kb::OWN_SOURCES` — used only to count the docs the rail can draw on,
  *  so the empty state doesn't cite a total that includes the excluded corpus. */
-const OWN_SOURCES = ["onyx", "scroll", "council", "scribe"];
+const OWN_SOURCES = ["onyx", "scroll", "council", "scribe", "pdf", "scribe-ocr"];
 
 const ConnectionsRail: Component = () => {
   const [hits, setHits] = createSignal<KbHit[]>([]);
@@ -163,6 +174,14 @@ const ConnectionsRail: Component = () => {
                 <span class="connect-item-top">
                   <span class="connect-item-ico">{SOURCE_ICON[h.source] ?? "•"}</span>
                   <span class="connect-item-title">{h.title}</span>
+                  <Show when={MACHINE_READ.has(h.source)}>
+                    <span
+                      class="kb-machine"
+                      title="Transcribed by a local vision model — it may not match the page exactly"
+                    >
+                      machine-read
+                    </span>
+                  </Show>
                   <span class="connect-item-score">{h.score}</span>
                 </span>
                 <span class="connect-item-snip">{h.snippet}</span>

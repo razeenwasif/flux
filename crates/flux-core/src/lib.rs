@@ -207,6 +207,32 @@ fn init_tracing() {
     }
 }
 
+/// Every in-process corpus, gathered from app state.
+///
+/// One place, because a `None` source rebuilds the whole index: a call site that
+/// forgets one would silently wipe that corpus rather than fail.
+fn corpora(app: &tauri::AppHandle) -> kb::Corpora {
+    use tauri::Manager as _;
+    kb::Corpora {
+        web: app
+            .try_state::<trace::TraceSnapshots>()
+            .map(|s| s.web_docs())
+            .unwrap_or_default(),
+        scribe: app
+            .try_state::<scribe::ScribeStore>()
+            .map(|s| kb::scribe_docs(&s))
+            .unwrap_or_default(),
+        pdf: app
+            .try_state::<pdf::PdfStore>()
+            .map(|s| kb::pdf_docs(&s))
+            .unwrap_or_default(),
+        scribe_ocr: app
+            .try_state::<scribe::TranscriptStore>()
+            .map(|s| kb::scribe_ocr_docs(&s))
+            .unwrap_or_default(),
+    }
+}
+
 fn boot_phase<T>(
     phase: &'static str,
     boot_started: std::time::Instant,
@@ -602,6 +628,17 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
     app.manage(boot_phase("scribe.restore", boot_started, || {
         scribe::ScribeStore::restore(scribe_dir)
     }));
+    app.manage(
+        match app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|d| d.join("scribe-transcripts.json"))
+        {
+            Some(p) => scribe::TranscriptStore::restore(p),
+            None => scribe::TranscriptStore::default(),
+        },
+    );
     // PDFs read in the built-in viewer: their extracted text, for the agent and
     // the knowledge base.
     app.manage(
@@ -765,17 +802,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                     } else {
                         Some("web".to_string())
                     };
-                    // A None source rebuilds every corpus, so the in-process
-                    // ones must both be supplied or the rebuild would wipe them.
-                    let scribe_docs = handle
-                        .try_state::<scribe::ScribeStore>()
-                        .map(|st| kb::scribe_docs(&st))
-                        .unwrap_or_default();
-                    let pdf_docs = handle
-                        .try_state::<pdf::PdfStore>()
-                        .map(|st| kb::pdf_docs(&st))
-                        .unwrap_or_default();
-                    match kb.reindex(source, s.web_docs(), scribe_docs, pdf_docs) {
+                    // A None source rebuilds every corpus, which is why the
+                    // whole set is gathered in one place (see `corpora`).
+                    match kb.reindex(source, corpora(&handle)) {
                         Ok(_) => {
                             last_indexed = generation;
                             tracing::info!(target: "flux::kb", generation, "auto-indexed browsing into the web source");
@@ -788,11 +817,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                     }
                 }
                 // PDFs read in the viewer, same settle rule.
-                if let (Some(st), Some(kb), Some(snaps), Some(sc)) = (
+                if let (Some(st), Some(kb)) = (
                     handle.try_state::<pdf::PdfStore>(),
                     handle.try_state::<kb::KbStore>(),
-                    handle.try_state::<trace::TraceSnapshots>(),
-                    handle.try_state::<scribe::ScribeStore>(),
                 ) {
                     let generation = st.generation();
                     let unseen = !pdf_bootstrapped
@@ -806,12 +833,7 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                     let settled = generation == pdf_seen && generation != pdf_indexed;
                     pdf_seen = generation;
                     if settled || unseen {
-                        match kb.reindex(
-                            Some("pdf".to_string()),
-                            snaps.web_docs(),
-                            kb::scribe_docs(&sc),
-                            kb::pdf_docs(&st),
-                        ) {
+                        match kb.reindex(Some("pdf".to_string()), corpora(&handle)) {
                             Ok(_) => {
                                 pdf_indexed = generation;
                                 tracing::info!(target: "flux::kb", generation, "auto-indexed PDFs");
@@ -825,10 +847,9 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 // Scribe notebooks, same settle rule. Kept separate from the web
                 // block (rather than folded into it) so a burst of browsing never
                 // starves an edited notebook, and vice versa.
-                if let (Some(st), Some(kb), Some(snaps)) = (
+                if let (Some(st), Some(kb)) = (
                     handle.try_state::<scribe::ScribeStore>(),
                     handle.try_state::<kb::KbStore>(),
-                    handle.try_state::<trace::TraceSnapshots>(),
                 ) {
                     let generation = st.generation();
                     // One startup pass for a corpus the KB has never seen.
@@ -846,16 +867,7 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                         // Always hand over both in-process corpora: a `None`
                         // source rebuilds everything, and even a single-source
                         // rebuild reads them.
-                        let pdf_docs = handle
-                            .try_state::<pdf::PdfStore>()
-                            .map(|p| kb::pdf_docs(&p))
-                            .unwrap_or_default();
-                        match kb.reindex(
-                            Some("scribe".to_string()),
-                            snaps.web_docs(),
-                            kb::scribe_docs(&st),
-                            pdf_docs,
-                        ) {
+                        match kb.reindex(Some("scribe".to_string()), corpora(&handle)) {
                             Ok(_) => {
                                 scribe_indexed = generation;
                                 tracing::info!(target: "flux::kb", generation, "auto-indexed Scribe notebooks");
@@ -1136,6 +1148,8 @@ pub fn run(intent: cli::LaunchIntent) {
             scribe::scribe_delete,
             scribe::scribe_publish_page,
             scribe::scribe_proofread,
+            scribe::scribe_transcribe,
+            scribe::scribe_transcript,
             pdf::pdf_publish_text,
             pdf::pdf_docs,
             mail::mail_connect,

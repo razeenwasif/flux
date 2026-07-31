@@ -8,6 +8,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Scribe handwriting → LaTeX, transcribed by the local vision model** (BACKLOG #137's headline
+  fast-follow). The 🔍 Transcribe button reads a page's ink through the same Ollama vision path
+  Lens already uses (`gemma3:4b`, `FLUX_VISION_MODEL` to override) and returns LaTeX, which is
+  what a maths page actually wants — a plain-text approximation of an integral is worthless.
+
+  **The result is never written back into the page**, and it is indexed under its own KB source
+  (`scribe-ocr`) rather than alongside your own writing. That is the point: a vision model can
+  transcribe a symbol that was never on the paper, and once indexed that sentence would be
+  citable as though you had written it. Citations now carry a **machine-read** marker, the review
+  panel shows plain LaTeX rather than rendered maths (rendering hides exactly the small errors
+  you are checking for), and the model that produced it is recorded with the text.
+
+  Also: `reindex` now takes a `Corpora` struct instead of a growing list of positional `Vec`s. A
+  `None` source rebuilds everything, so a call site that forgot one would silently wipe that
+  corpus — there are four now, and four bare vectors in a row is the shape that invites passing
+  them in the wrong order.
 - **PDFs are visible to Gemma, and go into the knowledge base.** A PDF open in the built-in
   viewer used to be invisible to the agent for two separate reasons: `capture.js` never runs
   there (the viewer is Flux's own DOM, not a webview, so no snapshot existed), and the agent's

@@ -96,6 +96,8 @@ pub fn generate_ts() -> String {
         specta::ts::export::<crate::sentinel::PolicyFlag>(&c),
         // Scribe (ADR 0014): Gemma's proofreading suggestions.
         specta::ts::export::<crate::scribe::TextFix>(&c),
+        // Handwriting transcribed by the local vision model.
+        specta::ts::export::<crate::scribe::Transcript>(&c),
         // Browsing data: what the engine is holding on disk, and clearing it.
         // PDFs read in the built-in viewer, for the agent and the KB.
         specta::ts::export::<crate::pdf::PdfDoc>(&c),

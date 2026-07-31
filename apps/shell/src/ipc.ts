@@ -151,6 +151,7 @@ import type {
   PolicyFlag as GenPolicyFlag,
   AuditEntry as GenAuditEntry,
   TextFix as GenTextFix,
+  Transcript as GenTranscript,
   MailConfig as GenMailConfig,
   MailMsg as GenMailMsg,
   StorageEntry as GenStorageEntry,
@@ -605,6 +606,16 @@ export type TextFix = GenTextFix;
  *  verbatim span of the text sent, so the editor can always locate it. An empty
  *  list means "nothing to fix", including when no model is available. */
 export const scribeProofread = (text: string) => invoke<TextFix[]>("scribe_proofread", { text });
+/** A page's handwriting transcribed to LaTeX by the local vision model. */
+export type Transcript = GenTranscript;
+/** Transcribe a Scribe page's ink to LaTeX. Slow (a vision model, per drawing)
+ *  and never written back into the page — the result is stored and indexed under
+ *  its own `scribe-ocr` source so its machine-read origin shows in citations. */
+export const scribeTranscribe = (id: string, pageIndex: number) =>
+  invoke<Transcript>("scribe_transcribe", { id, pageIndex });
+export const scribeTranscript = (notebook: string, page: string) =>
+  invoke<Transcript | null>("scribe_transcript", { notebook, page });
+
 /** Hand a PDF's extracted text to Flux: it becomes the tab's snapshot (so the
  *  agent can read the open document) and is stored for the knowledge base (so it
  *  stays answerable after the tab closes). */

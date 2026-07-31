@@ -101,6 +101,10 @@ export type PolicyFlag = { clause: string; why: string }
  */
 export type TextFix = { before: string; after: string; why: string }
 /**
+ * One transcribed page.
+ */
+export type Transcript = { key: string; notebook: string; page: string; title: string; latex: string; model: string; ts: number }
+/**
  * One PDF's extracted text, keyed by its source URL/path.
  */
 export type PdfDoc = { src: string; title: string; text: string; ts: number }

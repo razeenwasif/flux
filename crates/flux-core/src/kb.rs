@@ -143,7 +143,32 @@ pub struct KbRecentItem {
 const RELATED_MIN_SCORE: u32 = 30;
 
 /// Sources Flux knows how to pull (Onyx vault notes, Scroll papers, Council briefs).
-pub const SOURCES: &[&str] = &["onyx", "scroll", "council", "web", "scribe", "pdf"];
+pub const SOURCES: &[&str] = &[
+    "onyx",
+    "scroll",
+    "council",
+    "web",
+    "scribe",
+    "pdf",
+    "scribe-ocr",
+];
+
+/// The corpora that live in memory rather than on disk as files, handed to
+/// `reindex` by the caller.
+///
+/// A struct rather than four positional arguments: a `None` source rebuilds
+/// everything, so *all* of them must be supplied on every call or a rebuild
+/// silently wipes whichever was omitted — and four bare `Vec`s in a row is
+/// exactly the shape that invites passing them in the wrong order.
+#[derive(Default)]
+pub struct Corpora {
+    pub web: Vec<crate::trace::WebDoc>,
+    pub scribe: Vec<RawDoc>,
+    pub pdf: Vec<RawDoc>,
+    /// Handwriting transcribed by the local vision model. Its own source so the
+    /// machine-read origin travels with every citation.
+    pub scribe_ocr: Vec<RawDoc>,
+}
 
 /// The corpora the user **authored**, as opposed to `web` — pages they merely
 /// visited, captured by the Trail. The connections rail draws from these only:
@@ -178,6 +203,24 @@ pub fn pdf_docs(store: &crate::pdf::PdfStore) -> Vec<RawDoc> {
             path: d.src,
             mtime: d.ts,
             body: d.text,
+        })
+        .collect()
+}
+
+/// Transcribed handwriting, as its own corpus. Separate from `scribe_docs` on
+/// purpose: the source name is what tells a citation this text was read by a
+/// model rather than written by the user.
+pub fn scribe_ocr_docs(store: &crate::scribe::TranscriptStore) -> Vec<RawDoc> {
+    store
+        .list()
+        .into_iter()
+        .filter(|t| !t.latex.trim().is_empty())
+        .map(|t| RawDoc {
+            doc_id: t.key.clone(),
+            title: t.title,
+            path: format!("flux://scribe#{}", t.notebook),
+            mtime: t.ts,
+            body: t.latex,
         })
         .collect()
 }
@@ -395,29 +438,17 @@ impl KbStore {
     /// source — supplied by the caller (from the Trail store) since it's an
     /// in-process corpus, not a file/HTTP connector. Empty means "no snapshots
     /// yet" (the web source legitimately indexes to 0 docs).
-    pub fn reindex(
-        &self,
-        source: Option<String>,
-        web: Vec<crate::trace::WebDoc>,
-        scribe: Vec<RawDoc>,
-        pdf: Vec<RawDoc>,
-    ) -> Result<KbStatus, String> {
+    pub fn reindex(&self, source: Option<String>, c: Corpora) -> Result<KbStatus, String> {
         self.hydrate();
         if self.indexing.swap(true, Ordering::AcqRel) {
             return Err("an index build is already running".into());
         }
-        let result = self.reindex_inner(source, web, scribe, pdf);
+        let result = self.reindex_inner(source, c);
         self.indexing.store(false, Ordering::Release);
         result.map(|_| self.status())
     }
 
-    fn reindex_inner(
-        &self,
-        source: Option<String>,
-        web: Vec<crate::trace::WebDoc>,
-        scribe: Vec<RawDoc>,
-        pdf: Vec<RawDoc>,
-    ) -> Result<(), String> {
+    fn reindex_inner(&self, source: Option<String>, c: Corpora) -> Result<(), String> {
         let targets: Vec<&str> = match &source {
             Some(s) => {
                 if !SOURCES.contains(&s.as_str()) {
@@ -446,11 +477,13 @@ impl KbStore {
             // are in-process corpora supplied by the caller, which owns their
             // stores; the rest are file/HTTP connectors.
             let raw = if src == "pdf" {
-                Ok(pdf.clone())
+                Ok(c.pdf.clone())
+            } else if src == "scribe-ocr" {
+                Ok(c.scribe_ocr.clone())
             } else if src == "scribe" {
-                Ok(scribe.clone())
+                Ok(c.scribe.clone())
             } else if src == "web" {
-                Ok(web
+                Ok(c.web
                     .iter()
                     .map(|w| RawDoc {
                         doc_id: w.doc_id.clone(),
@@ -1010,6 +1043,7 @@ pub async fn kb_reindex(
     kb: State<'_, KbStore>,
     snaps: State<'_, crate::trace::TraceSnapshots>,
     scribe: State<'_, crate::scribe::ScribeStore>,
+    transcripts: State<'_, crate::scribe::TranscriptStore>,
     pdf: State<'_, crate::pdf::PdfStore>,
     source: Option<String>,
 ) -> Result<KbStatus, String> {
@@ -1017,10 +1051,13 @@ pub async fn kb_reindex(
     // The Trail's dwell snapshots are the `web` corpus and Scribe's notebooks are
     // the `scribe` one — both live in-process, so they're pulled here and handed
     // over, then chunked/embedded/cited like any file-backed source.
-    let web = snaps.web_docs();
-    let scribe_docs = scribe_docs(&scribe);
-    let pdf_docs_v = pdf_docs(&pdf);
-    tauri::async_runtime::spawn_blocking(move || kb.reindex(source, web, scribe_docs, pdf_docs_v))
+    let corpora = Corpora {
+        web: snaps.web_docs(),
+        scribe: scribe_docs(&scribe),
+        pdf: pdf_docs(&pdf),
+        scribe_ocr: scribe_ocr_docs(&transcripts),
+    };
+    tauri::async_runtime::spawn_blocking(move || kb.reindex(source, corpora))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -1647,7 +1684,13 @@ mod tests {
             body: "resolving a CUDA out of memory error by reducing the batch size and clearing the cache".into(),
         }];
         store
-            .reindex(Some("web".into()), web, vec![], vec![])
+            .reindex(
+                Some("web".into()),
+                Corpora {
+                    web,
+                    ..Default::default()
+                },
+            )
             .unwrap();
 
         let hits = store
@@ -1660,7 +1703,7 @@ mod tests {
 
         // Absent from a later (empty) web batch → evicted, mirroring snapshot eviction.
         store
-            .reindex(Some("web".into()), vec![], vec![], vec![])
+            .reindex(Some("web".into()), Corpora::default())
             .unwrap();
         assert!(!store.data.read().chunks.iter().any(|c| c.source == "web"));
 
@@ -1694,7 +1737,13 @@ mod tests {
             },
         ];
         store
-            .reindex(Some("web".into()), web, vec![], vec![])
+            .reindex(
+                Some("web".into()),
+                Corpora {
+                    web,
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(
             store

@@ -23,7 +23,7 @@ State what it is by name, then a short, useful description. If uncertain, give y
 
 /// Ask the local vision model about a base64 image. Shared by the page-capture
 /// Lens and uploaded images.
-fn vision_call(b64: String, prompt: Option<String>) -> Result<String, String> {
+pub(crate) fn vision_call(b64: String, prompt: Option<String>) -> Result<String, String> {
     if b64.is_empty() {
         return Err("no image data".into());
     }
