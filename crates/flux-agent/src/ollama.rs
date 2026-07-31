@@ -210,7 +210,7 @@ const DEFAULT_NUM_CTX: u32 = 4096;
 
 /// Ceiling on auto-grown context. Bounds RAM — the low-memory wedge is the whole
 /// point of Flux — even if a caller hands us an enormous prompt.
-const MAX_AUTO_CTX: u32 = 16384;
+pub(crate) const MAX_AUTO_CTX: u32 = 16384;
 
 /// An explicit user override, which always wins over auto-sizing.
 fn num_ctx_override() -> Option<u32> {
@@ -222,7 +222,7 @@ fn num_ctx_override() -> Option<u32> {
 /// Rough token count, for sizing only. ~3 chars/token deliberately *over*-counts
 /// for English prose: under-counting is the failure that hurts, because it
 /// silently truncates the prompt.
-fn estimate_tokens(s: &str) -> u32 {
+pub(crate) fn estimate_tokens(s: &str) -> u32 {
     u32::try_from(s.len() / 3).unwrap_or(u32::MAX)
 }
 
@@ -252,7 +252,7 @@ fn ctx_for(prompt: &str, out_cap: i32) -> u32 {
 /// words, the opposite of "infinite". Bounded by `num_ctx` regardless.
 /// `FLUX_OLLAMA_NUM_PREDICT` overrides (e.g. `-1` if your build handles it, or a
 /// smaller cap). Structured replies use [`STRUCTURED_PREDICT_CAP`] instead.
-fn num_predict() -> i32 {
+pub(crate) fn num_predict() -> i32 {
     std::env::var("FLUX_OLLAMA_NUM_PREDICT")
         .ok()
         .and_then(|s| s.parse().ok())

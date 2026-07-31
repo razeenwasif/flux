@@ -141,6 +141,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   stretch width or height freely, with the corner still proportional.
 
 ### Fixed
+- **The agent only saw the first ~6 KB of a page** — about ten slides of a lecture PDF, after
+  which it answered confidently about the part it could see. That budget was tuned for a web
+  page, where "visible text" is mostly navigation and boilerplate; a document publishes its whole
+  text and needs far more. Raised to 32 KB, roughly five times as much.
+
+  The ceiling is the context window, not the number: `num_ctx` covers prompt *and* reply, and
+  when the prompt overflows Ollama drops the **oldest** tokens — which is where the instructions
+  live, not the document. So a test now asserts the budget still fits inside the auto-grown
+  context with room to answer, verified by raising it to 64 KB and watching the test fail with
+  the exact arithmetic.
+
+  For a document longer than this will ever hold, the answer isn't a bigger budget — it's
+  retrieval. PDFs are indexed in the knowledge base now, so the agent's **My notes** scope
+  answers from the relevant chunks of a whole lecture course rather than stuffing one file.
 - **Scribe notebooks that arrived without being edited never reached the knowledge base.** The
   auto-indexer watches a change counter, which only moves on a mutation — so a notebook copied
   from another machine, restored from a backup, or simply present before the indexer existed
