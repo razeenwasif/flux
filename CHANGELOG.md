@@ -8,6 +8,21 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **PDFs are visible to Gemma, and go into the knowledge base.** A PDF open in the built-in
+  viewer used to be invisible to the agent for two separate reasons: `capture.js` never runs
+  there (the viewer is Flux's own DOM, not a webview, so no snapshot existed), and the agent's
+  "All tabs" scope filtered out every `flux://` url. Both are fixed.
+
+  The text comes from **PDF.js's own text layer** — already parsed for search and selection —
+  rather than parsing the file a second time in Rust with another dependency. It's published as
+  the tab's snapshot, so per-page chat and "All tabs" read a PDF exactly as they read a web page,
+  and it's *stored*, so the document stays answerable long after the tab closes. That store is a
+  new `pdf` KB source, auto-indexed on the same settle rule as Scribe.
+
+  A scanned PDF with no text layer stores nothing rather than an empty document — the knowledge
+  base shouldn't claim to know a paper it can't quote a word of. The snapshot is built directly
+  rather than routed through `dom_publish`, which would also have written browsing history, the
+  Trail and Omni — none of which should record an internal viewer page.
 - **Download feedback on the footer ⬇.** Previously the only signal was a count badge appearing
   and vanishing, which reads as "something stopped" rather than "your file arrived". The button
   now has three distinct states: a progress ring while downloading (aggregate across everything

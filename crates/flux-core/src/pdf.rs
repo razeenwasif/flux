@@ -237,3 +237,138 @@ mod tests {
         assert_eq!(file_url_to_path("/plain/path.pdf"), "/plain/path.pdf");
     }
 }
+
+// ─── Extracted text ──────────────────────────────────────────────────────────
+//
+// A PDF open in the viewer used to be invisible to the agent: the viewer is
+// Flux's own DOM inside the chrome, so `capture.js` never runs and no snapshot
+// exists — the same reason `flux://scribe` isn't visible. The text is extracted
+// **in the viewer**, where PDF.js has already parsed the document for its text
+// layer, rather than parsed a second time in Rust with another dependency.
+//
+// It's stored rather than only published, so a PDF stays answerable after the
+// tab closes. That's what puts it in the knowledge base: the KB indexes this
+// store, not the live snapshot.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use tauri::Manager as _;
+
+/// One PDF's extracted text, keyed by its source URL/path.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct PdfDoc {
+    pub src: String,
+    pub title: String,
+    pub text: String,
+    pub ts: u64,
+}
+
+/// Most text kept per document. Long enough for a thesis chapter, bounded so one
+/// enormous file can't dominate the store or the index.
+const MAX_PDF_TEXT: usize = 400_000;
+
+#[derive(Default)]
+pub struct PdfStore {
+    docs: RwLock<HashMap<String, PdfDoc>>,
+    path: Option<PathBuf>,
+    /// Bumped on every write, so the KB indexer can tell when to re-embed
+    /// without re-reading the whole store.
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl PdfStore {
+    pub fn restore(path: PathBuf) -> Self {
+        let docs = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<PdfDoc>>(&s).ok())
+            .map(|v| v.into_iter().map(|d| (d.src.clone(), d)).collect())
+            .unwrap_or_default();
+        Self {
+            docs: RwLock::new(docs),
+            path: Some(path),
+            generation: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn list(&self) -> Vec<PdfDoc> {
+        self.docs.read().values().cloned().collect()
+    }
+
+    fn put(&self, doc: PdfDoc) {
+        self.docs.write().insert(doc.src.clone(), doc);
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Some(p) = &self.path {
+            let all: Vec<PdfDoc> = self.docs.read().values().cloned().collect();
+            crate::persist::save_json(p, &all);
+        }
+    }
+}
+
+/// Record a PDF's text and publish it as the tab's snapshot, so the agent sees
+/// the open document exactly as it sees a web page.
+#[tauri::command]
+pub fn pdf_publish_text(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::FluxState>,
+    tab_id: crate::state::TabId,
+    src: String,
+    title: String,
+    text: String,
+) -> Result<(), String> {
+    let text = crate::dom::cap_utf8(text, MAX_PDF_TEXT);
+    if text.trim().is_empty() {
+        // A scanned PDF has no text layer. Storing an empty doc would make the
+        // KB claim to know a paper it can't quote a word of.
+        return Ok(());
+    }
+    let title = if title.trim().is_empty() {
+        src.rsplit(['/', '\\']).next().unwrap_or("PDF").to_string()
+    } else {
+        title
+    };
+
+    if let Some(store) = app.try_state::<PdfStore>() {
+        store.put(PdfDoc {
+            src: src.clone(),
+            title: title.clone(),
+            text: text.clone(),
+            ts: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        });
+    }
+
+    // The live snapshot is what `agent_chat` and chat-with-tabs read. Built here
+    // rather than routed through `dom_publish`: that also writes history, the
+    // Trail and Omni, none of which should record an internal viewer page.
+    state.dom_cache.insert(
+        tab_id,
+        std::sync::Arc::new(crate::state::DomSnapshot {
+            tab: tab_id,
+            url: src.clone(),
+            html: std::sync::Arc::from(""),
+            text: std::sync::Arc::from(text.as_str()),
+            captured_at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        }),
+    );
+    let _ = tauri::Emitter::emit(&app, "flux://dom-updated", tab_id);
+    Ok(())
+}
+
+/// Everything read so far, for the knowledge base.
+#[tauri::command]
+pub fn pdf_docs(store: tauri::State<'_, PdfStore>) -> Vec<PdfDoc> {
+    store.list()
+}

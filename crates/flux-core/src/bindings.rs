@@ -97,6 +97,8 @@ pub fn generate_ts() -> String {
         // Scribe (ADR 0014): Gemma's proofreading suggestions.
         specta::ts::export::<crate::scribe::TextFix>(&c),
         // Browsing data: what the engine is holding on disk, and clearing it.
+        // PDFs read in the built-in viewer, for the agent and the KB.
+        specta::ts::export::<crate::pdf::PdfDoc>(&c),
         // Mail: the read-only IMAP inbox glance.
         specta::ts::export::<crate::mail::MailConfig>(&c),
         specta::ts::export::<crate::mail::MailMsg>(&c),

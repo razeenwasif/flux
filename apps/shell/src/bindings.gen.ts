@@ -101,6 +101,10 @@ export type PolicyFlag = { clause: string; why: string }
  */
 export type TextFix = { before: string; after: string; why: string }
 /**
+ * One PDF's extracted text, keyed by its source URL/path.
+ */
+export type PdfDoc = { src: string; title: string; text: string; ts: number }
+/**
  * Where the account lives. The password is **not** here — it's in the OS
  * keychain, same as the vault's key.
  */

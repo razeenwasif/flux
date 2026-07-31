@@ -15,7 +15,7 @@
  *    current annotations first, so annotation→page indices never drift.
  */
 import { For, Match, Show, Switch, createEffect, createSignal, onMount, type Component } from "solid-js";
-import { pdfFetch, pdfSave } from "./ipc";
+import { pdfFetch, pdfPublishText, pdfSave } from "./ipc";
 import { tabs, updateTabTitle } from "./store";
 
 // ─── Annotation model (all geometry in PDF points, origin top-left, y-down) ──
@@ -196,6 +196,10 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     return pdfjs;
   };
 
+  /** Matches the Rust-side cap; stopping here avoids extracting pages whose text
+   *  would only be truncated on arrival. */
+  const MAX_TEXT = 400_000;
+
   /** (Re)load the viewer from a byte buffer (initial load + after a page-op). */
   const loadBytes = async (bytes: Uint8Array) => {
     working = bytes;
@@ -212,6 +216,43 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     setPages(Array.from({ length: n }, (_, i) => i + 1));
     setReady(true);
     setDocVersion((v) => v + 1);
+    void publishText();
+  };
+
+  /** Hand the document's text to Flux once it's open.
+   *
+   *  Without this a PDF is invisible to the agent: the viewer is Flux's own DOM
+   *  inside the chrome, so `capture.js` never runs and no snapshot exists. The
+   *  text is taken from PDF.js's own text layer — already parsed for search and
+   *  selection — rather than parsing the file a second time in Rust.
+   *
+   *  Best-effort and non-blocking: a scanned PDF has no text layer, and a failure
+   *  here must never stop the document rendering. */
+  const publishText = async () => {
+    if (!pdfDoc) return;
+    try {
+      const parts: string[] = [];
+      let chars = 0;
+      for (let i = 1; i <= pdfDoc.numPages && chars < MAX_TEXT; i++) {
+        const content = await (await pdfDoc.getPage(i)).getTextContent();
+        // PDF.js gives positioned runs, not lines; joining on spaces is what the
+        // embedder wants anyway (it reads prose, not layout).
+        const page = content.items
+          .map((it: { str?: string }) => it.str ?? "")
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (page) {
+          parts.push(page);
+          chars += page.length;
+        }
+      }
+      const text = parts.join("\n\n");
+      if (!text.trim()) return; // scanned: no text layer to offer
+      await pdfPublishText(props.tabId, src() || filename(), filename(), text);
+    } catch {
+      /* never let text extraction break the viewer */
+    }
   };
 
   const renderPage = async (pageNo: number, token: number) => {
@@ -1127,9 +1168,7 @@ const PageThumb: Component<{ pageNo: number; getDoc: () => unknown; version: num
   createEffect(() => {
     props.version; // re-render after a page-op
     const doc = props.getDoc() as {
-      getPage: (
-        n: number,
-      ) => Promise<{
+      getPage: (n: number) => Promise<{
         getViewport: (o: { scale: number }) => { width: number; height: number };
         render: (o: unknown) => { promise: Promise<void> };
       }>;

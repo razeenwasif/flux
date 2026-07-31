@@ -602,6 +602,19 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
     app.manage(boot_phase("scribe.restore", boot_started, || {
         scribe::ScribeStore::restore(scribe_dir)
     }));
+    // PDFs read in the built-in viewer: their extracted text, for the agent and
+    // the knowledge base.
+    app.manage(
+        match app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|d| d.join("pdf-text.json"))
+        {
+            Some(p) => pdf::PdfStore::restore(p),
+            None => pdf::PdfStore::default(),
+        },
+    );
     // Cached storage report, so the resource monitor can warn without re-walking.
     app.manage(storage::StorageWarn::default());
     // Browsing history (#39) — recorded from dom_publish, persisted.
@@ -708,6 +721,12 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             // unindexed until something happened to edit one. Index once at
             // startup when the corpus is on disk but absent from the KB.
             let mut scribe_bootstrapped = false;
+            // PDFs are read in bursts too (open, scroll, close), so the same
+            // settle rule keeps a document being read from re-embedding on every
+            // page turn.
+            let mut pdf_seen: u64 = 0;
+            let mut pdf_indexed: u64 = 0;
+            let mut pdf_bootstrapped = false;
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(60));
                 if let Some(t) = handle.try_state::<trace::TraceStore>() {
@@ -752,7 +771,11 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                         .try_state::<scribe::ScribeStore>()
                         .map(|st| kb::scribe_docs(&st))
                         .unwrap_or_default();
-                    match kb.reindex(source, s.web_docs(), scribe_docs) {
+                    let pdf_docs = handle
+                        .try_state::<pdf::PdfStore>()
+                        .map(|st| kb::pdf_docs(&st))
+                        .unwrap_or_default();
+                    match kb.reindex(source, s.web_docs(), scribe_docs, pdf_docs) {
                         Ok(_) => {
                             last_indexed = generation;
                             tracing::info!(target: "flux::kb", generation, "auto-indexed browsing into the web source");
@@ -761,6 +784,41 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                         // leave last_indexed behind so the next settled tick retries.
                         Err(e) => {
                             tracing::debug!(target: "flux::kb", "web auto-reindex skipped: {e}")
+                        }
+                    }
+                }
+                // PDFs read in the viewer, same settle rule.
+                if let (Some(st), Some(kb), Some(snaps), Some(sc)) = (
+                    handle.try_state::<pdf::PdfStore>(),
+                    handle.try_state::<kb::KbStore>(),
+                    handle.try_state::<trace::TraceSnapshots>(),
+                    handle.try_state::<scribe::ScribeStore>(),
+                ) {
+                    let generation = st.generation();
+                    let unseen = !pdf_bootstrapped
+                        && !st.list().is_empty()
+                        && kb
+                            .status()
+                            .sources
+                            .iter()
+                            .any(|s| s.source == "pdf" && s.docs == 0);
+                    pdf_bootstrapped = true;
+                    let settled = generation == pdf_seen && generation != pdf_indexed;
+                    pdf_seen = generation;
+                    if settled || unseen {
+                        match kb.reindex(
+                            Some("pdf".to_string()),
+                            snaps.web_docs(),
+                            kb::scribe_docs(&sc),
+                            kb::pdf_docs(&st),
+                        ) {
+                            Ok(_) => {
+                                pdf_indexed = generation;
+                                tracing::info!(target: "flux::kb", generation, "auto-indexed PDFs");
+                            }
+                            Err(e) => {
+                                tracing::debug!(target: "flux::kb", "pdf auto-reindex skipped: {e}")
+                            }
                         }
                     }
                 }
@@ -788,10 +846,15 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                         // Always hand over both in-process corpora: a `None`
                         // source rebuilds everything, and even a single-source
                         // rebuild reads them.
+                        let pdf_docs = handle
+                            .try_state::<pdf::PdfStore>()
+                            .map(|p| kb::pdf_docs(&p))
+                            .unwrap_or_default();
                         match kb.reindex(
                             Some("scribe".to_string()),
                             snaps.web_docs(),
                             kb::scribe_docs(&st),
+                            pdf_docs,
                         ) {
                             Ok(_) => {
                                 scribe_indexed = generation;
@@ -1073,6 +1136,8 @@ pub fn run(intent: cli::LaunchIntent) {
             scribe::scribe_delete,
             scribe::scribe_publish_page,
             scribe::scribe_proofread,
+            pdf::pdf_publish_text,
+            pdf::pdf_docs,
             mail::mail_connect,
             mail::mail_config,
             mail::mail_disconnect,

@@ -605,6 +605,12 @@ export type TextFix = GenTextFix;
  *  verbatim span of the text sent, so the editor can always locate it. An empty
  *  list means "nothing to fix", including when no model is available. */
 export const scribeProofread = (text: string) => invoke<TextFix[]>("scribe_proofread", { text });
+/** Hand a PDF's extracted text to Flux: it becomes the tab's snapshot (so the
+ *  agent can read the open document) and is stored for the knowledge base (so it
+ *  stays answerable after the tab closes). */
+export const pdfPublishText = (tabId: number, src: string, title: string, text: string) =>
+  invoke<void>("pdf_publish_text", { tabId, src, title, text });
+
 // ─── Mail (read-only IMAP) ──────────────────────────────────────────────────
 export type MailConfig = GenMailConfig;
 export type MailMsg = GenMailMsg;

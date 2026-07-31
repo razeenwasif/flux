@@ -65,6 +65,7 @@ import {
   webviewCapture,
   onScreenshot,
   isStartUrl,
+  PDF_URL,
   scrollClip,
   onyxCapturePage,
   onyxNewNote,
@@ -308,9 +309,18 @@ const AgentPanel: Component = () => {
   };
   let feedEl: HTMLDivElement | undefined;
 
+  /** Tabs the agent can read. `isStartUrl` matches every flux:// url, which used
+   *  to exclude PDFs opened in the built-in viewer along with the rest — but a
+   *  PDF publishes its text as a snapshot, so it has exactly as much to say as a
+   *  web page. */
   const browserTabIds = () =>
     tabs()
-      .filter((t) => t.kind === "browser" && t.workspace === activeWorkspace() && !isStartUrl(t.url))
+      .filter(
+        (t) =>
+          t.kind === "browser" &&
+          t.workspace === activeWorkspace() &&
+          (!isStartUrl(t.url) || t.url.startsWith(PDF_URL)),
+      )
       .map((t) => t.id);
 
   onMount(async () => {

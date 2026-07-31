@@ -143,13 +143,13 @@ pub struct KbRecentItem {
 const RELATED_MIN_SCORE: u32 = 30;
 
 /// Sources Flux knows how to pull (Onyx vault notes, Scroll papers, Council briefs).
-pub const SOURCES: &[&str] = &["onyx", "scroll", "council", "web", "scribe"];
+pub const SOURCES: &[&str] = &["onyx", "scroll", "council", "web", "scribe", "pdf"];
 
 /// The corpora the user **authored**, as opposed to `web` — pages they merely
 /// visited, captured by the Trail. The connections rail draws from these only:
 /// the Trail has its own graph in the sidebar, so surfacing visited pages here
 /// too was showing the same browsing history twice.
-pub const OWN_SOURCES: &[&str] = &["onyx", "scroll", "council", "scribe"];
+pub const OWN_SOURCES: &[&str] = &["onyx", "scroll", "council", "scribe", "pdf"];
 
 /// A document yielded by a connector, before chunking/embedding.
 #[derive(Clone)]
@@ -165,6 +165,23 @@ pub struct RawDoc {
 /// **typed** text blocks. Handwriting isn't readable without OCR (that's the
 /// deferred transcription follow-up), so a page contributes what it actually has
 /// as text; a page with only ink yields nothing rather than an empty stub.
+/// PDFs read in the built-in viewer. The text was extracted once by PDF.js when
+/// the document was opened; this makes it answerable long after the tab closed.
+pub fn pdf_docs(store: &crate::pdf::PdfStore) -> Vec<RawDoc> {
+    store
+        .list()
+        .into_iter()
+        .filter(|d| !d.text.trim().is_empty())
+        .map(|d| RawDoc {
+            doc_id: d.src.clone(),
+            title: d.title,
+            path: d.src,
+            mtime: d.ts,
+            body: d.text,
+        })
+        .collect()
+}
+
 pub fn scribe_docs(store: &crate::scribe::ScribeStore) -> Vec<RawDoc> {
     let mut out = Vec::new();
     for meta in store.list() {
@@ -383,12 +400,13 @@ impl KbStore {
         source: Option<String>,
         web: Vec<crate::trace::WebDoc>,
         scribe: Vec<RawDoc>,
+        pdf: Vec<RawDoc>,
     ) -> Result<KbStatus, String> {
         self.hydrate();
         if self.indexing.swap(true, Ordering::AcqRel) {
             return Err("an index build is already running".into());
         }
-        let result = self.reindex_inner(source, web, scribe);
+        let result = self.reindex_inner(source, web, scribe, pdf);
         self.indexing.store(false, Ordering::Release);
         result.map(|_| self.status())
     }
@@ -398,6 +416,7 @@ impl KbStore {
         source: Option<String>,
         web: Vec<crate::trace::WebDoc>,
         scribe: Vec<RawDoc>,
+        pdf: Vec<RawDoc>,
     ) -> Result<(), String> {
         let targets: Vec<&str> = match &source {
             Some(s) => {
@@ -426,7 +445,9 @@ impl KbStore {
             // Both "web" (Trail snapshots) and "scribe" (handwritten notebooks)
             // are in-process corpora supplied by the caller, which owns their
             // stores; the rest are file/HTTP connectors.
-            let raw = if src == "scribe" {
+            let raw = if src == "pdf" {
+                Ok(pdf.clone())
+            } else if src == "scribe" {
                 Ok(scribe.clone())
             } else if src == "web" {
                 Ok(web
@@ -989,6 +1010,7 @@ pub async fn kb_reindex(
     kb: State<'_, KbStore>,
     snaps: State<'_, crate::trace::TraceSnapshots>,
     scribe: State<'_, crate::scribe::ScribeStore>,
+    pdf: State<'_, crate::pdf::PdfStore>,
     source: Option<String>,
 ) -> Result<KbStatus, String> {
     let kb = (*kb).clone();
@@ -997,7 +1019,8 @@ pub async fn kb_reindex(
     // over, then chunked/embedded/cited like any file-backed source.
     let web = snaps.web_docs();
     let scribe_docs = scribe_docs(&scribe);
-    tauri::async_runtime::spawn_blocking(move || kb.reindex(source, web, scribe_docs))
+    let pdf_docs_v = pdf_docs(&pdf);
+    tauri::async_runtime::spawn_blocking(move || kb.reindex(source, web, scribe_docs, pdf_docs_v))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -1623,7 +1646,9 @@ mod tests {
             mtime: 100,
             body: "resolving a CUDA out of memory error by reducing the batch size and clearing the cache".into(),
         }];
-        store.reindex(Some("web".into()), web, vec![]).unwrap();
+        store
+            .reindex(Some("web".into()), web, vec![], vec![])
+            .unwrap();
 
         let hits = store
             .query("cuda memory error", 5, Some(vec!["web".into()]))
@@ -1634,7 +1659,9 @@ mod tests {
         assert_eq!(hits[0].path, "https://forum.example/cuda-oom");
 
         // Absent from a later (empty) web batch → evicted, mirroring snapshot eviction.
-        store.reindex(Some("web".into()), vec![], vec![]).unwrap();
+        store
+            .reindex(Some("web".into()), vec![], vec![], vec![])
+            .unwrap();
         assert!(!store.data.read().chunks.iter().any(|c| c.source == "web"));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1666,7 +1693,9 @@ mod tests {
                 body: "a private page that must vanish from the index".into(),
             },
         ];
-        store.reindex(Some("web".into()), web, vec![]).unwrap();
+        store
+            .reindex(Some("web".into()), web, vec![], vec![])
+            .unwrap();
         assert_eq!(
             store
                 .data
