@@ -87,9 +87,16 @@ type Entries = Arc<RwLock<Vec<ArchiveEntry>>>;
 pub struct ArchiveStore {
     path: Option<PathBuf>,
     entries: Entries,
-    /// The embedder this store's vectors use (chosen at load; whole corpus stays
-    /// on one kind so cosine is meaningful).
-    embedder: Embedder,
+    /// The embedder this store's vectors use (whole corpus stays on one kind so
+    /// cosine is meaningful).
+    ///
+    /// Resolved **lazily on first use**, never at construction: this store is
+    /// built during setup, and `embedding::current()` talks to Ollama over HTTP.
+    /// Probing there put a network round trip in front of `window up` - it cost
+    /// 3.3s on a run where Ollama had to load the model, and could have blocked
+    /// for the full read timeout. `TraceSnapshots` already carried this warning;
+    /// this store didn't honour it.
+    embedder: std::sync::OnceLock<Embedder>,
     next_id: AtomicU64,
     hydrated: AtomicBool,
     dirty: AtomicBool,
@@ -129,7 +136,7 @@ impl Default for ArchiveStore {
         Self {
             path: None,
             entries: Arc::new(RwLock::new(Vec::new())),
-            embedder: Embedder::Hash,
+            embedder: Embedder::Hash.into(),
             next_id: AtomicU64::new(1),
             hydrated: AtomicBool::new(true),
             dirty: AtomicBool::new(false),
@@ -151,15 +158,19 @@ impl ArchiveStore {
     /// Create a store bound to `path` without touching disk. Pair with
     /// `hydrate()` on a background thread when startup latency matters.
     pub fn empty(path: PathBuf) -> Self {
-        let embedder = embedding::current();
         Self {
             path: Some(path),
             entries: Arc::new(RwLock::new(Vec::new())),
-            embedder,
+            embedder: std::sync::OnceLock::new(),
             next_id: AtomicU64::new(1),
             hydrated: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
         }
+    }
+
+    /// Which embedder this corpus uses, probing Ollama at most once per store.
+    fn embedder(&self) -> Embedder {
+        *self.embedder.get_or_init(embedding::current)
     }
 
     /// Load archived pages from disk into a live store. This is merge-based, not a
@@ -204,7 +215,7 @@ impl ArchiveStore {
             self.next_id.store(next_merge_id, Ordering::Relaxed);
             needs_migrate = g
                 .iter()
-                .any(|e| e.embedder != self.embedder || e.embedding.is_empty());
+                .any(|e| e.embedder != self.embedder() || e.embedding.is_empty());
             self.hydrated.store(true, Ordering::Release);
             if self.dirty.swap(false, Ordering::AcqRel) {
                 write_json(&self.path, &g);
@@ -214,21 +225,21 @@ impl ArchiveStore {
         if needs_migrate {
             let entries = Arc::clone(&self.entries);
             let path = self.path.clone();
-            let embedder = self.embedder;
+            let embedder = self.embedder();
             std::thread::spawn(move || migrate(entries, path, embedder));
         }
     }
 
     /// Save a page (or refresh it if the URL is already archived). Returns the row.
     pub fn save(&self, url: String, title: String, text: String) -> ArchiveMeta {
-        let embedding = embedding::embed_with(&text, self.embedder).unwrap_or_default();
+        let embedding = embedding::embed_with(&text, self.embedder()).unwrap_or_default();
         let mut g = self.entries.write();
         let result = if let Some(e) = g.iter_mut().find(|e| e.url == url) {
             e.title = title;
             e.text = text;
             e.saved_ms = now_ms();
             e.embedding = embedding;
-            e.embedder = self.embedder;
+            e.embedder = self.embedder();
             meta(e, 0)
         } else {
             let entry = ArchiveEntry {
@@ -238,7 +249,7 @@ impl ArchiveStore {
                 saved_ms: now_ms(),
                 text,
                 embedding,
-                embedder: self.embedder,
+                embedder: self.embedder(),
             };
             let m = meta(&entry, 0);
             g.push(entry);
@@ -278,7 +289,7 @@ impl ArchiveStore {
             }
             return v;
         }
-        let Some(q) = embedding::embed_with(query, self.embedder) else {
+        let Some(q) = embedding::embed_with(query, self.embedder()) else {
             return self
                 .list()
                 .into_iter()
@@ -389,6 +400,22 @@ pub fn archive_search(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn empty_does_not_probe_ollama_on_the_boot_path() {
+        // This store is constructed during setup, and `window up` is gated behind
+        // it. Resolving the embedder here meant an HTTP round trip to Ollama in
+        // front of the window appearing - 3.3s on a run where the model had to be
+        // loaded, and up to the full read timeout in the worst case.
+        let dir = std::env::temp_dir().join(format!("flux-arch-probe-{}", now_ms()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = ArchiveStore::empty(dir.join("archive.json"));
+        assert!(
+            a.embedder.get().is_none(),
+            "empty() resolved the embedder eagerly - that is a network call on the boot path"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use super::*;
 
     #[test]

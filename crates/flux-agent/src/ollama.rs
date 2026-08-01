@@ -96,6 +96,46 @@ pub fn embed_model() -> String {
     std::env::var("FLUX_EMBED_MODEL").unwrap_or_else(|_| DEFAULT_EMBED_MODEL.into())
 }
 
+/// Is the configured embedding model pulled and the server answering?
+///
+/// Deliberately `/api/tags` rather than a real embed. A trial embed was the old
+/// reachability check, and it has two costs a *probe* must not pay: it can make
+/// Ollama load the model into VRAM (seconds), and it inherits the 30s read
+/// timeout below. Listing tags touches no model and answers in milliseconds,
+/// while still distinguishing "server up with the model pulled" from "server up
+/// but the model was never fetched" - which is the whole question being asked.
+pub fn has_embed_model() -> bool {
+    let url = format!("{}/api/tags", endpoint());
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(1))
+        // A probe that waits is a probe that hangs the caller. If a local server
+        // can't list its models in two seconds, treat it as unavailable and use
+        // the hashing embedder; being wrong here costs search sharpness, not
+        // correctness.
+        .timeout_read(Duration::from_secs(2))
+        .build();
+    let Ok(resp) = agent.get(&url).call() else {
+        return false;
+    };
+    let Ok(value) = resp.into_json::<serde_json::Value>() else {
+        return false;
+    };
+    let want = embed_model();
+    // Tags carry an explicit version ("embeddinggemma:latest"); a configured name
+    // without one should still match.
+    let base = |n: &str| n.split(':').next().unwrap_or(n).to_string();
+    value
+        .get("models")
+        .and_then(|m| m.as_array())
+        .is_some_and(|models| {
+            models.iter().any(|m| {
+                m.get("name")
+                    .and_then(|n| n.as_str())
+                    .is_some_and(|n| n == want || base(n) == base(&want))
+            })
+        })
+}
+
 /// Embed `text` via Ollama's `/api/embed`, L2-normalized so cosine == dot.
 /// `None` on any failure (server down, model not pulled) → callers fall back to
 /// the local hashing embedder, so search always works.

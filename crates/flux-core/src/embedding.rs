@@ -10,7 +10,9 @@
 //! embedders (e.g. the user pulls the model) must re-embed its corpus to keep
 //! cosine meaningful. All vectors are L2-normalized, so cosine == dot product.
 
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -56,12 +58,35 @@ pub fn embed_batch(texts: &[String], kind: Embedder) -> Option<Vec<Vec<f32>>> {
 /// The embedder [`embed`] would use right now (Model if Ollama answers, else
 /// Hash) — used to decide whether a persisted corpus needs re-embedding.
 pub fn current() -> Embedder {
-    // A trivial probe doubles as a cheap reachability check.
-    if flux_agent::ollama::embed_remote("flux").is_some() {
+    if let Some((at, kind)) = *PROBE.lock() {
+        if at.elapsed() < PROBE_TTL {
+            return kind;
+        }
+    }
+    let kind = if flux_agent::ollama::has_embed_model() {
         Embedder::Model
     } else {
         Embedder::Hash
-    }
+    };
+    *PROBE.lock() = Some((Instant::now(), kind));
+    kind
+}
+
+/// Last probe result and when it was taken.
+///
+/// This function reads as a cheap accessor and was called like one - on the boot
+/// path, on file search, on watch evaluation - but every call was an HTTP round
+/// trip to Ollama. Ollama starting, stopping, or having a model pulled are all
+/// human-scale events, so a minute-stale answer is fine; the cost of asking is
+/// not.
+static PROBE: Mutex<Option<(Instant, Embedder)>> = Mutex::new(None);
+const PROBE_TTL: Duration = Duration::from_secs(60);
+
+/// Forget the cached probe, so the next `current()` asks again. For when the user
+/// has just changed something that would change the answer (pulled the model,
+/// started the server) and shouldn't wait out the TTL.
+pub fn invalidate_probe() {
+    *PROBE.lock() = None;
 }
 
 /// Cosine similarity for L2-normalized vectors (== dot product). Mismatched
@@ -75,6 +100,35 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn current_is_cached_rather_than_probed_per_call() {
+        // `current()` reads like a cheap accessor and was called like one, but
+        // each call was an HTTP round trip. Works whether or not Ollama is up:
+        // what's asserted is that the answer is memoized and stable.
+        invalidate_probe();
+        let first = current();
+        assert!(
+            PROBE.lock().is_some(),
+            "first call should populate the cache"
+        );
+        let stamp = PROBE.lock().map(|(at, _)| at);
+        for _ in 0..5 {
+            assert_eq!(current(), first, "cached probe must be stable");
+        }
+        assert_eq!(
+            PROBE.lock().map(|(at, _)| at),
+            stamp,
+            "a cached call re-probed instead of reusing the answer"
+        );
+    }
+
+    #[test]
+    fn invalidating_the_probe_forces_a_fresh_answer() {
+        current();
+        invalidate_probe();
+        assert!(PROBE.lock().is_none(), "invalidate should clear the cache");
+    }
     use super::*;
 
     // These assert env-independent invariants (whether or not Ollama is up). The

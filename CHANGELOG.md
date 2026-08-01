@@ -28,6 +28,21 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   stub — which is the card a two-GPU machine actually wants to watch.
 
 ### Fixed
+- **Slow startup and intermittent stalls: an Ollama round trip on the boot path.**
+  `embedding::current()` reads like a cheap accessor — "which embedder would we use?" — but it
+  answered by sending a real embedding request to Ollama and seeing whether one came back. That
+  ran during setup, with `window up` gated behind it: 113ms on one launch and **3330ms** on the
+  next, the difference being whether Ollama had the model loaded. Worst case it inherited the 30s
+  read timeout. It was also called per-call on file search, watch evaluation and KB reindex.
+
+  Three changes. The probe is now `/api/tags` instead of a trial embed, so it can't trigger a
+  model load and still distinguishes "model pulled" from "server up but model missing", with 1s
+  connect / 2s read timeouts because a probe that waits is a probe that hangs its caller. The
+  result is cached for 60s — Ollama starting, stopping, or gaining a model are human-scale events,
+  so a minute-stale answer is fine and the cost of asking wasn't. And `ArchiveStore` resolves its
+  embedder lazily on first use rather than at construction, so boot performs no network I/O at
+  all; `TraceSnapshots` already carried that warning in a comment and the archive store hadn't
+  honoured it.
 - **The build stamp lied about which commit was running.** `FLUX_BUILD_STAMP` exists so the first
   line of every log answers "is this the binary I just built?" — but it watched only `.git/HEAD`,
   which committing on the branch you are already on leaves byte-identical. Cargo therefore never
