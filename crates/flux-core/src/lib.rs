@@ -1165,6 +1165,7 @@ pub fn run(intent: cli::LaunchIntent) {
             mail::mail_config,
             mail::mail_disconnect,
             mail::mail_fetch,
+            mail::mail_mark_all_read,
             storage::storage_usage,
             storage::storage_clear,
             storage::storage_clear_cancel,

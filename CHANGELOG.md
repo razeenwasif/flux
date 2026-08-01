@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Mail: mark all as read.** The ✓ button marks every unread message in INBOX, after a
+  confirmation naming the count — because this is the one thing the mail module changes on the
+  server, and the change shows up everywhere else the account is open.
+
+  Worth stating plainly: the module was **structurally** read-only before this, and now it isn't.
+  Listing still issues only `SELECT`/`SEARCH`/`FETCH` and reads envelopes rather than bodies, so
+  *looking* at the pane can never mark anything seen. `STORE +FLAGS (\Seen)` is deliberately the
+  only write it can perform — no deletes, no moves, no `APPEND` — so "did Flux touch my mailbox?"
+  has one possible answer rather than an audit. The module docs say so rather than still claiming
+  a guarantee that no longer holds.
 - **Task manager: per-interface network, disks, and a graph for every GPU.** The network card
   summed all interfaces, which hides whether it's the ethernet or the VPN doing the work — the
   usual question. Each interface now has its own row, busiest first, with loopback filtered

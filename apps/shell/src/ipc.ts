@@ -646,9 +646,13 @@ export const mailConfig = () => invoke<MailConfig | null>("mail_config");
 export const mailConnect = (host: string, port: number, email: string, password: string) =>
   invoke<void>("mail_connect", { host, port, email, password });
 export const mailDisconnect = () => invoke<void>("mail_disconnect");
-/** Newest messages in INBOX, newest first. Read-only: no flags are ever set, so
- *  reading here can't mark anything seen in your real client. */
+/** Newest messages in INBOX, newest first. Listing never sets flags, so *looking*
+ *  at the pane can't mark anything seen in your real client. */
 export const mailFetch = (limit?: number) => invoke<MailMsg[]>("mail_fetch", { limit: limit ?? null });
+/** Mark every unread message in INBOX as read. The one write the mail module can
+ *  perform — the change is real and shows up everywhere else the account is open.
+ *  Returns how many were marked. */
+export const mailMarkAllRead = () => invoke<number>("mail_mark_all_read");
 
 // ─── Browsing data on disk ──────────────────────────────────────────────────
 /** One clearable group of stored data, with its size and whether it's abnormal. */

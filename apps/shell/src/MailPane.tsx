@@ -13,7 +13,7 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 
-import { mailConfig, mailConnect, mailDisconnect, mailFetch, type MailMsg } from "./ipc";
+import { mailConfig, mailConnect, mailDisconnect, mailFetch, mailMarkAllRead, type MailMsg } from "./ipc";
 import { openTab } from "./store";
 import { visibleInterval } from "./poll";
 
@@ -86,6 +86,20 @@ const MailPane: Component = () => {
       .finally(() => setBusy(false));
   };
 
+  /** The only thing this pane changes on the server, so it asks first and says
+   *  what happened after. */
+  const markAllRead = () => {
+    const n = unread();
+    if (!n) return;
+    if (!window.confirm(`Mark ${n} message${n === 1 ? "" : "s"} as read? This applies in Gmail too.`)) return;
+    setBusy(true);
+    setErr("");
+    void mailMarkAllRead()
+      .then(() => refresh())
+      .catch((e) => setErr(String(e).replace(/^Error:\s*/, "")))
+      .finally(() => setBusy(false));
+  };
+
   const forget = () => {
     void mailDisconnect().then(() => {
       setConfigured(false);
@@ -114,6 +128,16 @@ const MailPane: Component = () => {
         </Show>
         <span style={{ flex: 1 }} />
         <Show when={configured()}>
+          <Show when={unread() > 0}>
+            <button
+              class="mail-btn"
+              title="Mark everything in the inbox as read (applies in Gmail too)"
+              disabled={busy()}
+              onClick={markAllRead}
+            >
+              ✓ all
+            </button>
+          </Show>
           <button class="mail-btn" title="Refresh" disabled={busy()} onClick={refresh}>
             ↻
           </button>

@@ -5,11 +5,16 @@
 //! personal tool, and unverified apps face periodic re-consent. IMAP with an app
 //! password is a keychain entry and a socket.
 //!
-//! **Read-only, structurally.** This module issues `SELECT`/`SEARCH`/`FETCH` and
-//! nothing else: no `STORE`, no flag changes, no deletes, no `APPEND`. Mail is
-//! opened with `BODY.PEEK` semantics via `ENVELOPE` only, so glancing here can't
-//! mark anything read in Gmail proper. Nothing this pane does is visible from the
-//! other end.
+//! **Read-only except for one explicit action.** Listing mail issues
+//! `SELECT`/`SEARCH`/`FETCH` and nothing else — no deletes, no `APPEND`, no moves
+//! — and reads envelopes rather than bodies, so *looking* at the pane can never
+//! mark anything seen in your real client.
+//!
+//! The single exception is [`mail_mark_all_read`], which the user asks for by
+//! name: it issues `STORE +FLAGS (\Seen)`, and that change is real and visible
+//! everywhere else the account is open. It is deliberately the only write this
+//! module can perform, so "did Flux touch my mailbox?" has one possible answer
+//! rather than an audit.
 //!
 //! A connection is made per fetch rather than held open. A long-lived IMAP session
 //! needs `NOOP` keepalives, reconnect-on-drop and locking; for a pane that refreshes
@@ -245,6 +250,42 @@ pub fn mail_disconnect(app: AppHandle) -> Result<(), String> {
         let _ = std::fs::remove_file(p);
     }
     Ok(())
+}
+
+/// Mark every unread message in INBOX as read.
+///
+/// The one write this module performs. Returns how many were marked, so the UI
+/// can report what happened rather than silently succeeding — and returns 0
+/// without touching anything when there is nothing unread, which is a common
+/// case worth not turning into a needless round trip.
+#[tauri::command]
+pub async fn mail_mark_all_read(app: AppHandle) -> Result<u32, String> {
+    let cfg = load_config(&app).ok_or("no mail account configured")?;
+    let pass = password(&cfg.email)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        with_session(&cfg, &pass, |s| {
+            s.select("INBOX")
+                .map_err(|e| format!("select INBOX: {e}"))?;
+            let unseen = s
+                .uid_search("UNSEEN")
+                .map_err(|e| format!("search unseen: {e}"))?;
+            if unseen.is_empty() {
+                return Ok(0);
+            }
+            // One STORE for the whole set: a request per message would be slow
+            // on a big inbox and could half-succeed.
+            let uids = unseen
+                .iter()
+                .map(|u| u.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            s.uid_store(&uids, "+FLAGS (\\Seen)")
+                .map_err(|e| format!("mark read: {e}"))?;
+            Ok(u32::try_from(unseen.len()).unwrap_or(u32::MAX))
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The newest `limit` messages in INBOX, newest first, with unread flagged.
