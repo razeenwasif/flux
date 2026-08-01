@@ -28,6 +28,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   stub — which is the card a two-GPU machine actually wants to watch.
 
 ### Fixed
+- **Disk enumeration takes 30-53 seconds on some machines; nothing waits on it now.** The warning
+  added in the previous release fired with real numbers — six volumes, 30064ms / 50816ms /
+  32173ms / 52939ms — so the cache it shipped with was useless: a 30s TTL on an operation that
+  takes up to 53s is stale before it lands, and the next request starts another. The wait is
+  inside the OS call, so there is no timeout to set. `tasks_disks` therefore never blocks: it
+  returns what was last learned (an empty list on the first call) and refreshes on a background
+  thread, one at a time, with a 5-minute TTL. A disk card that populates a minute late beats an
+  IPC call that can hang for a minute. The slow-enumeration warning now names the mount points so
+  the offending drive can be identified and unmapped, and `FLUX_NO_DISKS=1` skips it entirely.
 - **Slow startup and intermittent stalls: an Ollama round trip on the boot path.**
   `embedding::current()` reads like a cheap accessor — "which embedder would we use?" — but it
   answered by sending a real embedding request to Ollama and seeing whether one came back. That

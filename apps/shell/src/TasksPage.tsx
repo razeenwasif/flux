@@ -133,10 +133,9 @@ const TasksPage: Component = () => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Task Manager");
     visibleInterval(refresh, 2000);
-    // Disks get their own, far slower timer. Free space doesn't change between
-    // 2-second ticks, and enumerating volumes can block for seconds on a stale
-    // network mount - polling it at CPU cadence stacked blocked threads until
-    // the whole app stopped responding.
+    // Disks get their own, far slower timer. The backend never blocks on this -
+    // enumerating volumes measured 30-53s on a real machine - so the first call
+    // returns empty and the card fills in once the background scan lands.
     visibleInterval(() => {
       void tasksDisks()
         .then(setDisks)
