@@ -557,28 +557,46 @@ impl KbStore {
         let present: std::collections::HashSet<String> =
             raw.iter().map(|r| r.doc_id.clone()).collect();
 
-        let mut new_docs: Vec<KbDoc> = Vec::new();
-        let mut new_chunks: Vec<KbChunk> = Vec::new();
-        for doc in &raw {
-            if existing.get(&doc.doc_id) == Some(&doc.mtime) {
-                continue; // unchanged → its chunks are kept below
-            }
-            let texts = chunk_text(&doc.body);
-            if texts.is_empty() {
-                new_docs.push(KbDoc {
-                    source: src.into(),
-                    doc_id: doc.doc_id.clone(),
-                    title: doc.title.clone(),
-                    path: doc.path.clone(),
-                    mtime: doc.mtime,
-                    n_chunks: 0,
-                    indexed_at: now_ms(),
-                });
-                continue;
-            }
-            let vecs = embedding::embed_batch(&texts, embedder)
-                .ok_or("embedding model unavailable (is Ollama running?)")?;
-            for (ord, (text, embedding)) in texts.into_iter().zip(vecs).enumerate() {
+        // Chunk every changed document up front, in parallel — it's pure CPU
+        // (paragraph splitting + allocation) over independent documents, and it
+        // has to finish before we can batch the embeddings anyway. `collect`
+        // preserves input order, so the index is byte-identical to the serial
+        // build. No lock is held here, which is what keeps the rayon pool safe
+        // to share with `query` (see the note there).
+        let mut chunked: Vec<(&RawDoc, Vec<String>)> = {
+            use rayon::prelude::*;
+            raw.par_iter()
+                .filter(|doc| existing.get(&doc.doc_id) != Some(&doc.mtime))
+                .map(|doc| (doc, chunk_text(&doc.body)))
+                .collect()
+        };
+
+        // Flatten into one embedding request stream. Previously this was one
+        // call per document, which for the model embedder meant a full HTTP
+        // round trip per note — a 500-note vault paid 500 sequential RTTs to
+        // embed a few thousand short paragraphs. `embed_batch` now decides its
+        // own batching (and fans out across cores for the hash embedder).
+        let mut counts: Vec<usize> = Vec::with_capacity(chunked.len());
+        let mut flat: Vec<String> = Vec::new();
+        for (_, texts) in &mut chunked {
+            counts.push(texts.len());
+            flat.append(texts);
+        }
+        let vecs = embedding::embed_batch(&flat, embedder)
+            .ok_or("embedding model unavailable (is Ollama running?)")?;
+
+        let mut new_docs: Vec<KbDoc> = Vec::with_capacity(chunked.len());
+        let mut new_chunks: Vec<KbChunk> = Vec::with_capacity(flat.len());
+        let mut texts = flat.into_iter();
+        let mut vecs = vecs.into_iter();
+        let indexed_at = now_ms();
+        for ((doc, _), n) in chunked.iter().zip(counts) {
+            for ord in 0..n {
+                // Both iterators were built from the same flattened list, and
+                // `embed_batch` returns one vector per input or `None`.
+                let (Some(text), Some(embedding)) = (texts.next(), vecs.next()) else {
+                    return Err("embedder returned the wrong number of vectors".into());
+                };
                 new_chunks.push(KbChunk {
                     source: src.into(),
                     doc_id: doc.doc_id.clone(),
@@ -596,8 +614,11 @@ impl KbStore {
                 title: doc.title.clone(),
                 path: doc.path.clone(),
                 mtime: doc.mtime,
-                n_chunks: new_chunks.iter().filter(|c| c.doc_id == doc.doc_id).count(),
-                indexed_at: now_ms(),
+                // Was a linear scan of everything accumulated so far, which made
+                // a full reindex quadratic in chunk count. It's just this
+                // document's chunk count.
+                n_chunks: n,
+                indexed_at,
             });
         }
 
@@ -618,6 +639,12 @@ impl KbStore {
     }
 
     /// Cosine top-`k` over the corpus (optionally restricted to `sources`).
+    ///
+    /// This is the highest-frequency CPU loop in Flux — the connections rail
+    /// re-runs it on every navigation — and it is a linear scan of the whole
+    /// corpus, so it is parallel over chunks and keeps only the running top `k`
+    /// rather than scoring everything and sorting. The old version allocated a
+    /// `(f32, &KbChunk)` per chunk and paid an O(n log n) sort to return 8 rows.
     pub fn query(
         &self,
         query: &str,
@@ -629,22 +656,46 @@ impl KbStore {
         let qv = embedding::embed_with(query, embedder).ok_or("embedding model unavailable")?;
         let d = self.data.read();
         let allow = sources.as_ref();
-        let mut scored: Vec<(f32, &KbChunk)> = d
-            .chunks
-            .iter()
-            .filter(|c| {
-                allow
-                    .map(|a| a.iter().any(|s| s == &c.source))
-                    .unwrap_or(true)
-            })
-            .map(|c| (embedding::cosine(&qv, &c.embedding), c))
-            .filter(|(s, _)| *s > 0.0)
-            .collect();
-        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        let k = k.clamp(1, 50);
+        let keep = |c: &KbChunk| {
+            allow
+                .map(|a| a.iter().any(|s| s == &c.source))
+                .unwrap_or(true)
+        };
+
+        // NOTE: a read guard is held across the parallel section. That is only
+        // safe because nothing runnable in the rayon pool ever takes this lock —
+        // reindex does its parallel work *before* acquiring the write guard.
+        // Keep it that way, or this becomes a pool-starvation deadlock.
+        let scored = if d.chunks.len() < PAR_MIN_CHUNKS {
+            let mut top = TopK::new(k);
+            for (i, c) in d.chunks.iter().enumerate() {
+                if keep(c) {
+                    top.push(embedding::cosine(&qv, &c.embedding), i, c);
+                }
+            }
+            top.into_ranked()
+        } else {
+            use rayon::prelude::*;
+            d.chunks
+                .par_iter()
+                .enumerate()
+                .fold(
+                    || TopK::new(k),
+                    |mut top, (i, c)| {
+                        if keep(c) {
+                            top.push(embedding::cosine(&qv, &c.embedding), i, c);
+                        }
+                        top
+                    },
+                )
+                .reduce(|| TopK::new(k), TopK::merge)
+                .into_ranked()
+        };
+
         Ok(scored
             .into_iter()
-            .take(k.clamp(1, 50))
-            .map(|(score, c)| KbHit {
+            .map(|(score, _, c)| KbHit {
                 source: c.source.clone(),
                 doc_id: c.doc_id.clone(),
                 title: c.title.clone(),
@@ -653,6 +704,78 @@ impl KbStore {
                 score: (score.clamp(0.0, 1.0) * 100.0).round() as u32,
             })
             .collect())
+    }
+}
+
+// ─── Retrieval ──────────────────────────────────────────────────────────────
+
+/// Corpus size below which [`KbStore::query`] scans serially. Splitting a few
+/// hundred dot products across cores costs more in pool hand-off than it saves,
+/// and a brand-new install shouldn't wake worker threads to rank 40 notes.
+const PAR_MIN_CHUNKS: usize = 512;
+
+/// The best `k` chunks seen so far, without materialising the rest.
+///
+/// `k` is at most 50, so a sorted `Vec` with binary-search insertion beats a
+/// heap: the comparison that matters — "is this worse than the worst I'm
+/// keeping?" — is one predictable branch that rejects nearly every chunk after
+/// the first few hundred, and the memmove it avoids never exceeds 50 entries.
+struct TopK<'a> {
+    k: usize,
+    /// Ascending by rank, so `best[0]` is the first to be evicted.
+    best: Vec<(f32, usize, &'a KbChunk)>,
+}
+
+/// Rank order: higher score wins; equal scores break toward the earlier chunk.
+///
+/// The position tiebreak isn't cosmetic. The serial version got its tie
+/// behaviour for free from a *stable* sort over corpus order; without an
+/// explicit tiebreak, work stealing would let two identical queries return
+/// equally-scored hits in different orders, and the rail would reshuffle itself
+/// for no reason the user could see.
+fn rank(a: (f32, usize), b: (f32, usize)) -> std::cmp::Ordering {
+    a.0.total_cmp(&b.0).then(b.1.cmp(&a.1))
+}
+
+impl<'a> TopK<'a> {
+    fn new(k: usize) -> Self {
+        Self {
+            k,
+            best: Vec::with_capacity(k + 1),
+        }
+    }
+
+    fn push(&mut self, score: f32, at: usize, c: &'a KbChunk) {
+        // A non-positive score is "no match", not a weak one — excluded outright
+        // so a query with three real hits returns three rows, not `k`.
+        if score <= 0.0 {
+            return;
+        }
+        if self.best.len() == self.k && rank((score, at), (self.best[0].0, self.best[0].1)).is_le()
+        {
+            return;
+        }
+        let idx = self
+            .best
+            .partition_point(|&(s, i, _)| rank((s, i), (score, at)).is_lt());
+        self.best.insert(idx, (score, at, c));
+        if self.best.len() > self.k {
+            self.best.remove(0);
+        }
+    }
+
+    fn merge(mut self, other: Self) -> Self {
+        for (s, i, c) in other.best {
+            self.push(s, i, c);
+        }
+        self
+    }
+
+    /// Best first.
+    fn into_ranked(self) -> Vec<(f32, usize, &'a KbChunk)> {
+        let mut v = self.best;
+        v.reverse();
+        v
     }
 }
 
@@ -1789,6 +1912,217 @@ mod tests {
         assert!(
             !d.chunks.iter().any(|x| x.doc_id == "2"),
             "its chunks gone too"
+        );
+        drop(d);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ─── Retrieval: top-k and the parallel scan ─────────────────────────────
+
+    fn stub_chunk(id: &str) -> KbChunk {
+        KbChunk {
+            source: "onyx".into(),
+            doc_id: id.into(),
+            title: id.into(),
+            path: id.into(),
+            ord: 0,
+            text: id.into(),
+            embedding: Vec::new(),
+            embedder: Embedder::Hash,
+        }
+    }
+
+    #[test]
+    fn top_k_bounds_the_result_and_drops_non_matches() {
+        let chunks: Vec<KbChunk> = (0..10).map(|i| stub_chunk(&format!("c{i}"))).collect();
+
+        let mut top = TopK::new(3);
+        for (i, c) in chunks.iter().enumerate() {
+            top.push(i as f32 * 0.1, i, c);
+        }
+        let got: Vec<&str> = top
+            .into_ranked()
+            .iter()
+            .map(|(_, _, c)| c.doc_id.as_str())
+            .collect();
+        assert_eq!(got, ["c9", "c8", "c7"], "best first, exactly k");
+
+        // A zero or negative cosine is "doesn't match", not "matches weakly" —
+        // asking for 5 must not pad the rail with three non-matches.
+        let mut top = TopK::new(5);
+        top.push(0.0, 0, &chunks[0]);
+        top.push(-0.5, 1, &chunks[1]);
+        top.push(0.3, 2, &chunks[2]);
+        assert_eq!(top.into_ranked().len(), 1);
+    }
+
+    #[test]
+    fn merged_partials_break_ties_by_corpus_order() {
+        // What two rayon workers each hand back, tied at the same score. Without
+        // the position tiebreak the winner would depend on which worker got
+        // there first, and identical queries would reshuffle the rail.
+        let chunks: Vec<KbChunk> = (0..4).map(|i| stub_chunk(&format!("c{i}"))).collect();
+        let mut a = TopK::new(2);
+        a.push(0.5, 3, &chunks[3]);
+        let mut b = TopK::new(2);
+        b.push(0.5, 1, &chunks[1]);
+        let got: Vec<usize> = a
+            .merge(b)
+            .into_ranked()
+            .iter()
+            .map(|(_, i, _)| *i)
+            .collect();
+        assert_eq!(got, [1, 3], "earlier chunk wins an exact tie");
+    }
+
+    #[test]
+    fn parallel_retrieval_matches_the_serial_scan_exactly() {
+        let dir = std::env::temp_dir().join(format!("flux-kb-par-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+
+        // Enough documents to cross PAR_MIN_CHUNKS, with overlapping vocabulary
+        // so scores actually spread (and tie) rather than all landing at zero.
+        const WORDS: [&str; 8] = [
+            "rust",
+            "borrow",
+            "checker",
+            "lifetimes",
+            "pasta",
+            "garlic",
+            "tensor",
+            "gradient",
+        ];
+        let raw: Vec<RawDoc> = (0..700)
+            .map(|i| RawDoc {
+                doc_id: format!("d{i}.md"),
+                title: format!("Note {i}"),
+                path: format!("/d{i}.md"),
+                mtime: 1,
+                body: format!(
+                    "note about {} and {} and {}",
+                    WORDS[i % WORDS.len()],
+                    WORDS[(i * 3) % WORDS.len()],
+                    WORDS[(i * 5) % WORDS.len()]
+                ),
+            })
+            .collect();
+        store.reindex_source("onyx", Embedder::Hash, raw).unwrap();
+        store.data.write().embedder = Embedder::Hash;
+
+        let d = store.data.read();
+        assert!(
+            d.chunks.len() >= PAR_MIN_CHUNKS,
+            "corpus must cross the threshold or this exercises the serial path"
+        );
+        drop(d);
+
+        let q = "rust borrow checker lifetimes";
+        let got: Vec<(String, u32)> = store
+            .query(q, 10, None)
+            .unwrap()
+            .iter()
+            .map(|h| (h.doc_id.clone(), h.score))
+            .collect();
+
+        // The reference is the loop this replaced: score everything, stable-sort
+        // descending, take k.
+        let qv = embedding::embed_with(q, Embedder::Hash).unwrap();
+        let d = store.data.read();
+        let mut scored: Vec<(f32, &KbChunk)> = d
+            .chunks
+            .iter()
+            .map(|c| (embedding::cosine(&qv, &c.embedding), c))
+            .filter(|(s, _)| *s > 0.0)
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        let want: Vec<(String, u32)> = scored
+            .into_iter()
+            .take(10)
+            .map(|(s, c)| (c.doc_id.clone(), (s.clamp(0.0, 1.0) * 100.0).round() as u32))
+            .collect();
+
+        assert_eq!(
+            got.len(),
+            10,
+            "the corpus has more than 10 positive matches"
+        );
+        assert_eq!(
+            got, want,
+            "parallel top-k must reproduce the serial ranking"
+        );
+        drop(d);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_document_records_its_own_chunk_count() {
+        // Guards the flatten/re-split in `reindex_source`: if the embedding
+        // stream and the per-document counts drifted apart, chunks would be
+        // attributed to the wrong document and `n_chunks` would stop matching
+        // what's actually stored. (It also replaces an O(n²) scan that computed
+        // this by filtering every chunk built so far, per document.)
+        let dir = std::env::temp_dir().join(format!("flux-kb-counts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+
+        let long = (0..8)
+            .map(|i| format!("paragraph {i} ").repeat(100))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let raw = vec![
+            RawDoc {
+                doc_id: "long.md".into(),
+                title: "Long".into(),
+                path: "/long.md".into(),
+                mtime: 1,
+                body: long,
+            },
+            RawDoc {
+                doc_id: "short.md".into(),
+                title: "Short".into(),
+                path: "/short.md".into(),
+                mtime: 1,
+                body: "one small paragraph".into(),
+            },
+            RawDoc {
+                doc_id: "empty.md".into(),
+                title: "Empty".into(),
+                path: "/empty.md".into(),
+                mtime: 1,
+                body: String::new(),
+            },
+        ];
+        store.reindex_source("onyx", Embedder::Hash, raw).unwrap();
+
+        let d = store.data.read();
+        for doc in &d.docs {
+            let actual = d.chunks.iter().filter(|c| c.doc_id == doc.doc_id).count();
+            assert_eq!(doc.n_chunks, actual, "{} n_chunks", doc.doc_id);
+            // Ord is per-document and dense, which only holds if each document's
+            // slice of the flattened stream was handed back intact.
+            let mut ords: Vec<usize> = d
+                .chunks
+                .iter()
+                .filter(|c| c.doc_id == doc.doc_id)
+                .map(|c| c.ord)
+                .collect();
+            ords.sort_unstable();
+            assert_eq!(ords, (0..actual).collect::<Vec<_>>(), "{} ords", doc.doc_id);
+        }
+        assert!(
+            d.docs.iter().any(|x| x.n_chunks > 1),
+            "the long document must actually split, or this asserts nothing"
+        );
+        assert!(
+            d.docs
+                .iter()
+                .any(|x| x.doc_id == "empty.md" && x.n_chunks == 0),
+            "an empty document is still indexed, with no chunks"
         );
         drop(d);
 

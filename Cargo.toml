@@ -54,6 +54,11 @@ anyhow = "1"
 tracing = "0.1"
 parking_lot = "0.12"   # ~5x faster than std::sync::Mutex under contention, no poisoning
 dashmap = "6"          # sharded concurrent map — lock-free reads on the tab table
+# Data parallelism for the two loops that are actually O(corpus): KB retrieval
+# (runs on every navigation) and reindex embedding. A persistent work-stealing
+# pool, NOT scoped threads — the retrieval path would otherwise pay OS thread
+# creation on every page load, which can cost more than the scan it parallelizes.
+rayon = "1"
 
 # Internal crates, path-referenced.
 flux-term = { path = "crates/flux-term" }

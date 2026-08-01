@@ -41,11 +41,45 @@ pub fn embed_with(text: &str, kind: Embedder) -> Option<Vec<f32>> {
     }
 }
 
-/// Embed many texts with a specific embedder in one shot — one batched Ollama call
-/// for Model, a fast local map for Hash. `None` (Model) if Ollama is unavailable.
+/// Chunks per Ollama request. The caller may hand us a whole vault's worth of
+/// text; one giant request risks the 60s read timeout and holds all of it in
+/// memory on both sides, while one request per *document* (what the KB used to
+/// do) paid a full round trip for a handful of short paragraphs. A fixed batch
+/// decouples request count from how the caller happens to slice its corpus.
+const REMOTE_BATCH: usize = 64;
+
+/// Below this, the rayon pool costs more than the work it splits — hashing a
+/// short paragraph is a few microseconds.
+const PAR_MIN_TEXTS: usize = 32;
+
+/// Embed many texts with a specific embedder. `None` (Model) if Ollama is
+/// unavailable.
+///
+/// Both arms are parallel in the way that suits them. Hash is pure CPU, so it
+/// fans out across cores. Model is round-trip bound and Ollama serializes
+/// inference per model anyway — firing concurrent requests would just move the
+/// queue, so it batches instead, trading request *count* rather than adding
+/// request *width*.
 pub fn embed_batch(texts: &[String], kind: Embedder) -> Option<Vec<Vec<f32>>> {
     match kind {
-        Embedder::Model => flux_agent::ollama::embed_remote_batch(texts),
+        Embedder::Model => {
+            let mut out = Vec::with_capacity(texts.len());
+            for batch in texts.chunks(REMOTE_BATCH) {
+                out.extend(flux_agent::ollama::embed_remote_batch(batch)?);
+            }
+            Some(out)
+        }
+        Embedder::Hash if texts.len() >= PAR_MIN_TEXTS => {
+            use rayon::prelude::*;
+            // `collect` into a Vec preserves input order, so the parallel result
+            // is indistinguishable from the serial one.
+            Some(
+                texts
+                    .par_iter()
+                    .map(|t| flux_embed::embed(t).to_vec())
+                    .collect(),
+            )
+        }
         Embedder::Hash => Some(
             texts
                 .iter()

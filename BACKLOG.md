@@ -237,7 +237,7 @@ the shippable wins are at the network, blocking, caching, agent, and Rust-core
 layers — not inside the engine. Each item cites its paper(s) and the existing
 BACKLOG item it extends.
 
-Status: implemented + unit-tested for all eight and **wired into the UI**; the
+Status: implemented + unit-tested for #99–#106 and **wired into the UI**; the
 only remaining pieces are engine-gated (noted per item).
 
 | # | P | Item |
@@ -250,6 +250,7 @@ only remaining pieces are engine-gated (noted per item).
 | 104 | ◐ | **Agent safety guards** (extends #8, #82, arXiv 2511.19477). _Done:_ a **destructive-action guard** enforced in the execution layer — every agent click's compiled JS reads the element's *real* accessible name and aborts on a Rust-defined deny-list (delete/pay/place-order/refund…), never trusting the model (`flux-agent`: `is_destructive` + `DESTRUCTIVE_TERMS` + the injected guard); destructive intent is flagged in the activity feed. _Remaining:_ accessibility-tree primary context + versioned element refs (`snapshot_ver:elem_ref`) + batched actions — the larger agent-architecture work. |
 | 105 | ◐ | **Per-site lean mode** (perf, arXiv 2106.08948, 2308.16729). _Done:_ `leanmode.rs` — opt-in per host via the **Shields popover** ("Lean mode here"); when on, a curated performance filter list (`assets/lean-filters.txt`: tag managers, analytics, A/B, session replay, chat/social widgets) blocks heavy third-party scripts on top of shields, wired into the request interceptor. _Remaining:_ the **dynamic per-function dead-JS elimination** (coverage trace → empty-body/lazy-load with a screenshot-diff oracle) needs a webview coverage hook the native engines don't expose through Tauri. |
 | 106 | ✅ | **Smarter hibernation eviction** (ties #45, #70, arXiv 1202.5539). The memory-pressure path now calls `hibernate_rank` to sleep tabs **Belady-style** — least likely to be needed next, discounting idle time by the #103 prediction and keeping predicted-return tabs — with a plain-LRU fallback. _Follow-up:_ surface dark-mode/shields/hibernation as measured **battery** features (arXiv 2205.11399); rematerialization policy. |
+| 107 | ◐ | **Use the CPU we have** (core). Flux was thoroughly *concurrent* (114 `spawn_blocking` sites, per-thread adblock engines, single-flight background refresh) but not *parallel* — every O(corpus) loop ran on one core. _Done:_ KB retrieval is a parallel scan into a bounded top-`k` (~8x on 16 cores, ranking provably identical to the serial scan incl. tie order); reindex chunks in parallel and batches its embedding requests instead of one HTTP round trip per document; an accidental O(n²) in `n_chunks` removed. _Remaining, in order of value:_ **(a) an ANN index** — retrieval is still a full linear scan, and parallelism only buys a constant factor where HNSW/IVF would change the complexity class; parallelism first was the right order (no index to keep correct, no recall cliff), but past ~100k chunks the algorithm is the ceiling. **(b) explicit SIMD for `cosine`** — currently a scalar fold left to autovectorization; an f32x8 dot product is the other axis of the same loop. **(c)** `Vec<f32>` per chunk means a pointer chase per dot product; one contiguous `Vec<f32>` matrix with fixed stride would make the scan cache-friendly and is a precondition for both (a) and (b). |
 
 ## Decisions wanted (not yet scheduled)
 

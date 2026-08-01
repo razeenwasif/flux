@@ -38,6 +38,7 @@ tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot.workspace = true
 dashmap.workspace = true
+rayon.workspace = true
 zeroize = "1"
 # window-state + single-instance are desktop-only (no window geometry / argv on
 # mobile) — declared under the desktop target section below (ADR 0012).

@@ -34,6 +34,30 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   citation carries that a machine read it off an image — the same treatment `scribe-ocr` gives
   handwriting.
 
+### Changed
+- **KB retrieval now uses the whole CPU (~8x faster).** `kb_query`/`kb_related` is the
+  highest-frequency CPU loop in Flux — the connections rail re-runs it on every navigation — and
+  it was a single-threaded linear scan that scored *every* chunk into a freshly allocated vector
+  and then paid an O(n log n) sort to return 8 rows. It now scans in parallel and keeps only a
+  running top-`k`. Measured on 16 cores at 768 dimensions (embeddinggemma): 2k chunks 854µs → 147µs,
+  20k chunks 8.8ms → 986µs, 60k chunks 26ms → 3.1ms.
+
+  Ranking is **unchanged, including ties.** The old order came for free from a stable sort over
+  corpus order; parallel folds have no such guarantee, so equal scores now break explicitly toward
+  the earlier chunk. Without that, two identical queries could return the same hits in different
+  orders and the rail would reshuffle for no visible reason. A test asserts the parallel result is
+  identical to the serial scan it replaced. Corpora under 512 chunks stay serial — waking worker
+  threads to rank 40 notes costs more than it saves.
+- **Reindex embeds in batches instead of one HTTP round trip per document.** The KB issued a
+  separate Ollama call per note, so a 500-note vault paid 500 sequential round trips to embed a few
+  thousand short paragraphs. Chunking now runs in parallel across documents, and the chunks are
+  embedded as one stream batched at 64. Remote batches stay *sequential* deliberately: Ollama
+  serializes inference per model, so concurrent requests would move the queue rather than shorten
+  it. The hash embedder, being pure CPU, does fan out across cores.
+
+  This also removes an accidental O(n²): each document's `n_chunks` was computed by filtering
+  every chunk built so far.
+
 ### Fixed
 - **`kb.rs` was invisible to code search.** A stray literal NUL byte inside a comment (which was
   itself describing NUL handling) made `grep` classify the 1777-line module as binary, so every
@@ -57,7 +81,6 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   tracked per device rather than for the first one, so a second card is no longer a graphless
   stub — which is the card a two-GPU machine actually wants to watch.
 
-### Fixed
 - **The page overhung the web-panel column on every restart until you clicked.** A tab's webview
   is opened with the card rect measured at that moment, but at startup the panel column mounts
   *while* that open is still in flight. The resize was observed, yet the re-run took the

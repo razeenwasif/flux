@@ -28,10 +28,13 @@ pub struct TaskManager {
     net: Mutex<NetState>,
     /// Last disk enumeration and when it happened. `Arc` because the refresh runs
     /// on its own thread - see `disks`.
-    disks: Arc<Mutex<Option<(Instant, Vec<DiskInfo>)>>>,
+    disks: Arc<Mutex<Option<DiskCache>>>,
     /// Whether an enumeration is in flight, so only one ever runs.
     disks_busy: Arc<AtomicBool>,
 }
+
+/// A disk enumeration and the instant it completed, for TTL comparison.
+type DiskCache = (Instant, Vec<DiskInfo>);
 
 struct NetState {
     nets: Networks,
