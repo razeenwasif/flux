@@ -28,6 +28,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   stub — which is the card a two-GPU machine actually wants to watch.
 
 ### Fixed
+- **The build stamp lied about which commit was running.** `FLUX_BUILD_STAMP` exists so the first
+  line of every log answers "is this the binary I just built?" — but it watched only `.git/HEAD`,
+  which committing on the branch you are already on leaves byte-identical. Cargo therefore never
+  re-ran the build script, and the stamp reported whatever commit it happened to be built at,
+  sometimes many commits stale. It now watches `.git/logs/HEAD` as well (appended on every commit,
+  checkout, reset and merge) and appends `+dirty` when the tree has uncommitted changes. A build
+  stamp that lies is worse than none, because it gets believed — this one sent a live freeze
+  diagnosis down the wrong path.
 - **Flux could stop responding with the task manager open.** The disks card polled a volume
   enumeration every 2 seconds along with CPU and memory. That call is not a cheap in-memory read
   like the rest of the task manager: on Windows it stats every drive letter, and a mapped network
