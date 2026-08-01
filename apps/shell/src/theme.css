@@ -9357,7 +9357,11 @@ body.busy .start-card {
   flex-direction: column;
   gap: 12px;
   padding: 16px 20px;
-  overflow: hidden;
+  /* Not `hidden`: in a short window the cards alone exceed the height and the
+     overflow was simply clipped, unreachable. Wide and tall it never triggers —
+     the process list absorbs the slack and this stays inert. */
+  overflow-y: auto;
+  scrollbar-width: thin;
   color: var(--flux-text);
   /* A *container* query, not a viewport one: pinned as a web panel this page is
      ~340px wide inside a 3440px window, and viewport media queries would leave
@@ -9662,6 +9666,28 @@ body.busy .start-card {
   }
   .tm-cpu {
     display: none;
+  }
+}
+
+/* Below the two-column step the page scrolls as one document, instead of pinning
+   its own height and delegating to the process list.
+   Cards stack tall in a narrow column, so the old arrangement squeezed the list
+   toward zero and clipped everything above it — and an inner scroller in a strip
+   this size swallows the wheel before the page ever sees it (the same trap the
+   docked calendar hit). One scroller, and it's the outer one. */
+@container tm (max-width: 720px) {
+  .tm-page {
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .tm-proc {
+    /* Grow to fit its rows rather than competing for a share of a fixed height. */
+    flex: none;
+  }
+  .tm-proc-list {
+    flex: none;
+    overflow: visible;
+    min-height: 0;
   }
 }
 .tm-card {

@@ -53,6 +53,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   the CPU column. Tile labels are their own containers, so a name hides itself when its tile
   lacks the pixels rather than being clipped; measured at 1000/640/400/300px, zero clipped labels
   and no horizontal overflow at any width.
+
+  **And it scrolls.** In a narrow column the cards stack tall, so the page now scrolls as one
+  document rather than pinning its height and delegating to the process list — an inner scroller
+  in a strip that size swallows the wheel before the page sees it. Measuring that also turned up
+  a pre-existing flaw: the page was `overflow: hidden`, so in any window short enough for the
+  cards to exceed the height, the surplus was clipped and unreachable at *full* width too. It
+  scrolls instead of clipping now.
 - **The agent's "My notes" scope no longer searches browsing snapshots.** It passed no source
   filter, so it answered from every corpus including pages you'd merely visited — which the
   Trail already graphs separately. Scoped to your own corpora, matching the connections rail.
