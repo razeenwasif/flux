@@ -28,6 +28,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   stub — which is the card a two-GPU machine actually wants to watch.
 
 ### Fixed
+- **Flux could stop responding with the task manager open.** The disks card polled a volume
+  enumeration every 2 seconds along with CPU and memory. That call is not a cheap in-memory read
+  like the rest of the task manager: on Windows it stats every drive letter, and a mapped network
+  share that has gone away or a sleeping external disk can block it for many seconds. A call per
+  tick that each outlive the tick stack up until nothing responds. Disks are now cached for 30s
+  server-side with only one enumeration ever in flight, polled once a minute instead of every 2
+  seconds, and an enumeration slower than 500ms logs a warning naming the likely cause — so a
+  stalling drive shows up as a log line rather than an unexplained freeze.
 - **The task manager's header was hidden behind the panel toolbar.** `.panel-toolbar` is
   `position: absolute; top: 0`, and a native panel clears it because its webview is positioned
   from `.panel-placeholder`'s rect. A DOM page had no such rect and started underneath it. Same

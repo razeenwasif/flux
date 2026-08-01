@@ -15,7 +15,8 @@
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use sysinfo::{Disks, Networks, Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tauri::State;
 
@@ -24,12 +25,22 @@ use tauri::State;
 pub struct TaskManager {
     sys: Mutex<System>,
     net: Mutex<NetState>,
+    /// Last disk enumeration and when it happened. Cached because enumerating
+    /// volumes is the one call here that can block for *seconds* - see `disks`.
+    disks: Mutex<Option<(Instant, Vec<DiskInfo>)>>,
+    /// Whether an enumeration is in flight, so concurrent callers reuse the cache
+    /// instead of each starting their own.
+    disks_busy: AtomicBool,
 }
 
 struct NetState {
     nets: Networks,
     last: Instant,
 }
+
+/// How long a disk listing stays fresh. Free space does not meaningfully change
+/// between UI ticks, and the cost of asking is unbounded.
+const DISK_TTL: Duration = Duration::from_secs(30);
 
 impl TaskManager {
     pub fn new() -> Self {
@@ -39,6 +50,8 @@ impl TaskManager {
                 nets: Networks::new_with_refreshed_list(),
                 last: Instant::now(),
             }),
+            disks: Mutex::new(None),
+            disks_busy: AtomicBool::new(false),
         }
     }
 }
@@ -162,9 +175,40 @@ impl TaskManager {
         }
     }
 
-    /// Mounted filesystems. Refreshed from a fresh list each call: drives get
-    /// plugged in and unmounted, and a cached list would show a phantom.
+    /// Mounted filesystems, cached for `DISK_TTL`.
+    ///
+    /// Enumerating volumes is not a cheap in-memory read like the rest of this
+    /// module: on Windows it stats every drive letter, and a mapped network share
+    /// that has gone away or a sleeping external disk can block the call for many
+    /// seconds. Polling that on a UI timer stacks blocked threads until the app
+    /// stops responding - which is exactly what shipping it on a 2-second loop
+    /// did. So: at most one enumeration in flight, at most one per TTL, and every
+    /// other caller gets the last known answer immediately.
     pub fn disks(&self) -> Vec<DiskInfo> {
+        if let Some((at, cached)) = self.disks.lock().as_ref() {
+            if at.elapsed() < DISK_TTL {
+                return cached.clone();
+            }
+        }
+        // Someone else is already paying the cost; don't queue up behind them.
+        if self.disks_busy.swap(true, Ordering::AcqRel) {
+            return self
+                .disks
+                .lock()
+                .as_ref()
+                .map(|(_, d)| d.clone())
+                .unwrap_or_default();
+        }
+        let fresh = Self::enumerate_disks();
+        *self.disks.lock() = Some((Instant::now(), fresh.clone()));
+        self.disks_busy.store(false, Ordering::Release);
+        fresh
+    }
+
+    /// The blocking part, timed so a slow volume is visible in the log rather than
+    /// only as an unexplained stall.
+    fn enumerate_disks() -> Vec<DiskInfo> {
+        let started = Instant::now();
         let disks = Disks::new_with_refreshed_list();
         let mut out: Vec<DiskInfo> = disks
             .list()
@@ -183,6 +227,14 @@ impl TaskManager {
             .collect();
         out.sort_by_key(|d| std::cmp::Reverse(d.total_mb));
         out.truncate(8);
+        let took = started.elapsed();
+        if took > Duration::from_millis(500) {
+            tracing::warn!(
+                ms = took.as_millis() as u64,
+                disks = out.len(),
+                "slow disk enumeration - a network share or sleeping drive is likely stalling it"
+            );
+        }
         out
     }
 
@@ -359,6 +411,39 @@ fn query_nvidia() -> Vec<GpuInfo> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn disks_are_cached_rather_than_re_enumerated() {
+        // The defect this guards: `disks()` polled on a UI timer. Volume
+        // enumeration can block for seconds on a stale network mount, so a call
+        // per tick stacks blocked threads until the app stops responding.
+        let tm = TaskManager::new();
+        let first = tm.disks();
+        let stamp = tm.disks.lock().as_ref().map(|(at, _)| *at);
+        assert!(stamp.is_some(), "first call should populate the cache");
+        let second = tm.disks();
+        assert_eq!(first.len(), second.len());
+        // Same timestamp => the second call did not re-enumerate.
+        assert_eq!(stamp, tm.disks.lock().as_ref().map(|(at, _)| *at));
+    }
+
+    #[test]
+    fn a_call_during_an_enumeration_reuses_the_cache() {
+        // Single-flight: while one enumeration is in progress every other caller
+        // must return immediately with what's known, never queue behind it.
+        let tm = TaskManager::new();
+        tm.disks();
+        let cached = tm.disks.lock().clone();
+        tm.disks_busy.store(true, Ordering::Release);
+        // Force the TTL check to fail so we exercise the busy path.
+        if let Some((at, _)) = tm.disks.lock().as_mut() {
+            *at = Instant::now() - DISK_TTL - Duration::from_secs(1);
+        }
+        let during = tm.disks();
+        assert_eq!(during.len(), cached.map(|(_, d)| d.len()).unwrap_or(0));
+        // And it left the in-flight flag alone for the real caller to clear.
+        assert!(tm.disks_busy.load(Ordering::Acquire));
+    }
     use super::*;
 
     #[test]

@@ -120,9 +120,6 @@ const TasksPage: Component = () => {
         setNetHist((h) => [...h, rate].slice(-HISTORY));
       })
       .catch(() => {});
-    void tasksDisks()
-      .then(setDisks)
-      .catch(() => {});
     void gpuStats()
       .then((g) => {
         setGpus(g ?? []);
@@ -136,6 +133,15 @@ const TasksPage: Component = () => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Task Manager");
     visibleInterval(refresh, 2000);
+    // Disks get their own, far slower timer. Free space doesn't change between
+    // 2-second ticks, and enumerating volumes can block for seconds on a stale
+    // network mount - polling it at CPU cadence stacked blocked threads until
+    // the whole app stopped responding.
+    visibleInterval(() => {
+      void tasksDisks()
+        .then(setDisks)
+        .catch(() => {});
+    }, 60_000);
   });
 
   const sorted = createMemo(() => {
