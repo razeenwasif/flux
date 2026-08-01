@@ -253,7 +253,11 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
           shown.add(id);
         }
         needRelayout = true; // throttled bounds for resize/seam follow
-      } else if (!openingWebviews.has(id)) {
+      } else if (openingWebviews.has(id)) {
+        // Opening: its bounds are already in flight with a rect that may now be
+        // stale. The `.then` re-applies from live geometry, so nothing to do
+        // here except not treat it as absent.
+      } else {
         openingWebviews.add(id);
         setHibernated(id, false); // (re)opening = waking from sleep (#45)
         lastActive.set(id, Date.now());
@@ -275,6 +279,16 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
             }
             shown.add(id);
             await webviewShow(id);
+            // `r` was measured before this webview existed. If the layout moved
+            // while the open was in flight - the panel column mounting during
+            // startup is the usual case - it is stale, and the page is left
+            // sitting over the panel column. Nothing corrects it, because the
+            // re-run triggered by that layout change took the `openingWebviews`
+            // branch above, which doesn't request a relayout. The page then
+            // stayed wrong until some unrelated event re-ran this effect, which
+            // is why clicking anywhere "fixed" it. Re-apply from current
+            // geometry now that the id is live.
+            scheduleRelayout();
           })
           .catch((e) => {
             openingWebviews.delete(id);

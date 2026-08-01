@@ -318,12 +318,18 @@ async function refreshPanels(): Promise<void> {
 }
 // Calendar popover (#114 follow-up): glanceable agenda from anywhere, opened
 // by the footer 📅 or the ⌘K palette. Store-backed so both can drive it.
-// Restored on boot only when it was DOCKED: a docked calendar is a column, so
+// Restored on boot when it was docked — either in the panel column or the dock
+// column: a docked calendar is a column, so
 // reopening it is like the web panels' "on by default". The overlay is not
 // restored — it hides the page, and a modal covering your first tab at startup
 // is hostile rather than helpful.
 const [calendarPopOpen, setCalendarPopOpenSig] = createSignal(
-  localStorage.getItem("flux.cal.dock") === "panel" && localStorage.getItem("flux.cal.open") === "1",
+  // Both docked modes, not just "panel". The dock *column* ("dock") arrived
+  // after this check was written and was never added to it, so a calendar
+  // pinned as a column - the whole point of that feature - silently failed to
+  // come back on restart. "overlay" stays excluded for the reason below.
+  ["panel", "dock"].includes(localStorage.getItem("flux.cal.dock") ?? "") &&
+    localStorage.getItem("flux.cal.open") === "1",
 );
 export { calendarPopOpen };
 export function setCalendarPopOpen(v: boolean): void {

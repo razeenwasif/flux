@@ -28,6 +28,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   stub — which is the card a two-GPU machine actually wants to watch.
 
 ### Fixed
+- **The page overhung the web-panel column on every restart until you clicked.** A tab's webview
+  is opened with the card rect measured at that moment, but at startup the panel column mounts
+  *while* that open is still in flight. The resize was observed, yet the re-run took the
+  "currently opening" branch, which never requests a relayout — so the stale rect was applied and
+  nothing corrected it until an unrelated event happened to re-run the layout effect. That
+  unrelated event was your click. The bounds are now re-applied from live geometry once the
+  webview is actually open. Since a native webview is an OS layer *over* the card, this also
+  covered the lower part of the panel — which is why the task manager appeared to stop below the
+  GPU card.
+- **A calendar pinned to the dock column didn't come back on restart.** The restore check accepted
+  only the older `"panel"` dock mode; the dock *column* saves `"dock"`, and that value was never
+  added when the column shipped — so the one mode built to be permanent was the one that didn't
+  persist.
 - **Disk enumeration takes 30-53 seconds on some machines; nothing waits on it now.** The warning
   added in the previous release fired with real numbers — six volumes, 30064ms / 50816ms /
   32173ms / 52939ms — so the cache it shipped with was useless: a 30s TTL on an operation that
