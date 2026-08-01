@@ -15,7 +15,7 @@
  *    current annotations first, so annotation→page indices never drift.
  */
 import { For, Match, Show, Switch, createEffect, createSignal, onMount, type Component } from "solid-js";
-import { pdfFetch, pdfPublishText, pdfSave } from "./ipc";
+import { ocrAvailable, ocrImage, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
 import { tabs, updateTabTitle } from "./store";
 
 // ─── Annotation model (all geometry in PDF points, origin top-left, y-down) ──
@@ -228,6 +228,72 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
    *
    *  Best-effort and non-blocking: a scanned PDF has no text layer, and a failure
    *  here must never stop the document rendering. */
+  /** True when the document yielded no selectable text at all — a scan. */
+  const [scanned, setScanned] = createSignal(false);
+  const [canOcr, setCanOcr] = createSignal(false);
+  const [ocrPage, setOcrPage] = createSignal(0); // 0 = not running
+  const [ocrErr, setOcrErr] = createSignal("");
+
+  /**
+   * Read a scanned document with OCR, one page at a time.
+   *
+   * Pages are rendered here rather than in Rust because the viewer already has
+   * them decoded — shipping the PDF to the backend to re-render would duplicate
+   * PDF.js in another language. Rendered at 2x: OCR accuracy falls off sharply
+   * below ~200dpi, and screen scale is well under that.
+   *
+   * Published to its own `pdf-ocr` source, never merged into `pdf`, so every
+   * citation carries that a machine read this off an image and may be wrong.
+   */
+  const runOcr = async () => {
+    if (!pdfDoc || ocrPage()) return;
+    setOcrErr("");
+    const parts: string[] = [];
+    try {
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        setOcrPage(i);
+        const page = await pdfDoc.getPage(i);
+        const vp = page.getViewport({ scale: 2 });
+        const c = document.createElement("canvas");
+        c.width = vp.width;
+        c.height = vp.height;
+        const ctx = c.getContext("2d");
+        if (!ctx) break;
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        const b64 = c.toDataURL("image/png").split(",")[1] ?? "";
+        // Free the bitmap before the next page: a 2x A4 canvas is ~30MB and
+        // holding one per page would be a hundreds-of-MB spike on a long scan.
+        c.width = 0;
+        c.height = 0;
+        const text = await ocrImage(b64).catch((e) => {
+          // One unreadable page shouldn't lose the other forty.
+          console.warn("[flux ocr] page", i, e);
+          return "";
+        });
+        if (text.trim()) parts.push(text.trim());
+      }
+      const joined = parts.join("\n\n");
+      if (!joined.trim()) {
+        setOcrErr("Nothing legible was found on these pages.");
+        return;
+      }
+      await pdfPublishText(
+        props.tabId,
+        src() || filename(),
+        filename(),
+        joined,
+        pdfDoc.numPages,
+        parts.length,
+        true, // machine-read: lands in `pdf-ocr`, not `pdf`
+      );
+      setScanned(false); // it has text now
+    } catch (e) {
+      setOcrErr(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      setOcrPage(0);
+    }
+  };
+
   const publishText = async () => {
     if (!pdfDoc) return;
     try {
@@ -254,6 +320,11 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       const withText = parts.length;
       if (!text.trim()) {
         void pdfPublishText(props.tabId, src() || filename(), filename(), "", pdfDoc.numPages, 0);
+        // Nothing selects in this document — it's page images, i.e. a scan. That
+        // is precisely the case OCR exists for, so offer it (only if a binary is
+        // actually installed; see `ocrAvailable`).
+        setScanned(true);
+        void ocrAvailable().then(setCanOcr);
         return; // no text layer at all
       }
       await pdfPublishText(props.tabId, src() || filename(), filename(), text, pdfDoc.numPages, withText);
@@ -893,6 +964,32 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
             {annots().length} annotation{annots().length === 1 ? "" : "s"}
           </span>
         </div>
+      </Show>
+
+      {/* A scanned document: nothing selects, so Gemma and the KB see an empty
+          page. Say so plainly and offer the one thing that helps, rather than
+          leaving the user to wonder why asking about this PDF returns nothing. */}
+      <Show when={scanned()}>
+        <div class="pdf-ocr-bar">
+          <span class="pdf-ocr-msg">
+            No selectable text — this looks like a scan, so Gemma can't read it yet.
+          </span>
+          <Show
+            when={canOcr()}
+            fallback={
+              <span class="pdf-ocr-hint" title="Flux runs the tesseract binary if it's installed">
+                Install <code>tesseract</code> to read it
+              </span>
+            }
+          >
+            <button class="pdf-ocr-btn" disabled={ocrPage() > 0} onClick={() => void runOcr()}>
+              {ocrPage() > 0 ? `Reading page ${ocrPage()}…` : "Read with OCR"}
+            </button>
+          </Show>
+        </div>
+      </Show>
+      <Show when={ocrErr()}>
+        <div class="pdf-msg">{ocrErr()}</div>
       </Show>
 
       <Show when={error()}>

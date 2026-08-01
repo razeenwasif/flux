@@ -36,6 +36,7 @@ const SOURCE_LABEL: Record<string, string> = {
   // than the user writing it, because a model can transcribe a line that wasn't
   // there and it would otherwise be indistinguishable.
   "scribe-ocr": "Scribe (machine-read)",
+  "pdf-ocr": "PDF (machine-read)",
 };
 const SOURCE_HINT: Record<string, string> = {
   onyx: "Vault path — e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault",

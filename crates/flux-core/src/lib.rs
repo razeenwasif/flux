@@ -43,6 +43,7 @@ pub mod nav;
 pub mod netfilter;
 pub mod netspeed;
 pub mod notes;
+pub mod ocr;
 pub mod omni;
 pub mod pdf;
 pub mod peek;
@@ -229,6 +230,10 @@ fn corpora(app: &tauri::AppHandle) -> kb::Corpora {
         scribe_ocr: app
             .try_state::<scribe::TranscriptStore>()
             .map(|s| kb::scribe_ocr_docs(&s))
+            .unwrap_or_default(),
+        pdf_ocr: app
+            .try_state::<pdf::PdfStore>()
+            .map(|s| kb::pdf_ocr_docs(&s))
             .unwrap_or_default(),
     }
 }
@@ -1160,6 +1165,8 @@ pub fn run(intent: cli::LaunchIntent) {
             scribe::scribe_transcribe,
             scribe::scribe_transcript,
             pdf::pdf_publish_text,
+            ocr::ocr_available,
+            ocr::ocr_image,
             pdf::pdf_docs,
             mail::mail_connect,
             mail::mail_config,

@@ -107,7 +107,7 @@ export type Transcript = { key: string; notebook: string; page: string; title: s
 /**
  * One PDF's extracted text, keyed by its source URL/path.
  */
-export type PdfDoc = { src: string; title: string; text: string; ts: number }
+export type PdfDoc = { src: string; title: string; text: string; ts: number; ocr?: boolean }
 /**
  * Where the account lives. The password is **not** here — it's in the OS
  * keychain, same as the vault's key.

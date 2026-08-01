@@ -264,6 +264,11 @@ pub struct PdfDoc {
     pub title: String,
     pub text: String,
     pub ts: u64,
+    /// True when the text was lifted off page images by OCR rather than read
+    /// from a text layer. Defaulted so documents stored before OCR existed load
+    /// unchanged.
+    #[serde(default)]
+    pub ocr: bool,
 }
 
 /// Most text kept per document. Long enough for a thesis chapter, bounded so one
@@ -331,6 +336,9 @@ pub fn pdf_publish_text(
     // are indistinguishable without this.
     pages: Option<u32>,
     pages_with_text: Option<u32>,
+    // Set when the text came from OCR: stored the same way but indexed under
+    // `pdf-ocr`, so a citation carries that a machine read it off an image.
+    ocr: Option<bool>,
 ) -> Result<(), String> {
     let raw_len = text.len();
     let text = crate::dom::cap_utf8(text, MAX_PDF_TEXT);
@@ -341,6 +349,7 @@ pub fn pdf_publish_text(
         pages_with_text = pages_with_text.unwrap_or(0),
         chars_extracted = raw_len,
         chars_stored = text.len(),
+        ocr = ocr.unwrap_or(false),
         "extracted PDF text"
     );
     if text.trim().is_empty() {
@@ -359,6 +368,7 @@ pub fn pdf_publish_text(
             src: src.clone(),
             title: title.clone(),
             text: text.clone(),
+            ocr: ocr.unwrap_or(false),
             ts: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)

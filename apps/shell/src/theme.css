@@ -10954,6 +10954,53 @@ body.busy .start-card {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+/* Scanned-PDF notice. Sits above the pages rather than over them: the point is
+   to explain why Gemma can't answer about this document, which the user is only
+   looking for after being surprised. */
+.pdf-ocr-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--glass-rim-soft);
+  border-radius: 10px;
+  background: var(--flux-surface);
+  font-size: 12.5px;
+}
+.pdf-ocr-msg {
+  flex: 1;
+  min-width: 180px;
+  color: var(--flux-text-dim);
+}
+.pdf-ocr-hint {
+  color: var(--flux-text-mute);
+}
+.pdf-ocr-hint code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--flux-surface-2, rgba(255, 255, 255, 0.06));
+  font-size: 12px;
+}
+.pdf-ocr-btn {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--flux-border);
+  background: var(--flux-surface-2, rgba(255, 255, 255, 0.06));
+  color: var(--flux-text);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.pdf-ocr-btn:hover:not(:disabled) {
+  border-color: var(--glass-rim);
+}
+.pdf-ocr-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
 .pdf-msg {
   padding: 30px;
   text-align: center;

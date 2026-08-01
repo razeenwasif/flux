@@ -612,7 +612,7 @@ export const scribeProofread = (text: string) => invoke<TextFix[]>("scribe_proof
  *  pages they merely visited, which the Trail already graphs. Mirrors
  *  `kb::OWN_SOURCES`; anything scoped to "my knowledge" rather than "everything
  *  Flux has seen" should use this. */
-export const OWN_SOURCES = ["onyx", "scroll", "council", "scribe", "pdf", "scribe-ocr"];
+export const OWN_SOURCES = ["onyx", "scroll", "council", "scribe", "pdf", "scribe-ocr", "pdf-ocr"];
 
 /** A page's handwriting transcribed to LaTeX by the local vision model. */
 export type Transcript = GenTranscript;
@@ -627,6 +627,13 @@ export const scribeTranscript = (notebook: string, page: string) =>
 /** Hand a PDF's extracted text to Flux: it becomes the tab's snapshot (so the
  *  agent can read the open document) and is stored for the knowledge base (so it
  *  stays answerable after the tab closes). */
+/** Is a `tesseract` binary available? OCR is offered only when this is true —
+ *  a button that always fails is worse than no button. */
+export const ocrAvailable = () => invoke<boolean>("ocr_available");
+/** Recognise one page image (base64 PNG). One call per page so progress is
+ *  visible and a single bad page doesn't lose the rest. */
+export const ocrImage = (pngB64: string, lang?: string) =>
+  invoke<string>("ocr_image", { pngB64, lang: lang ?? null });
 export const pdfPublishText = (
   tabId: number,
   src: string,
@@ -634,7 +641,10 @@ export const pdfPublishText = (
   text: string,
   pages: number,
   pagesWithText: number,
-) => invoke<void>("pdf_publish_text", { tabId, src, title, text, pages, pagesWithText });
+  /** True when the text came from OCR. Routes it to the `pdf-ocr` source so a
+   *  citation says a machine read it off an image. */
+  ocr = false,
+) => invoke<void>("pdf_publish_text", { tabId, src, title, text, pages, pagesWithText, ocr });
 
 // ─── Mail (read-only IMAP) ──────────────────────────────────────────────────
 export type MailConfig = GenMailConfig;

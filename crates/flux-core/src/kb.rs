@@ -151,6 +151,7 @@ pub const SOURCES: &[&str] = &[
     "scribe",
     "pdf",
     "scribe-ocr",
+    "pdf-ocr",
 ];
 
 /// The corpora that live in memory rather than on disk as files, handed to
@@ -168,13 +169,17 @@ pub struct Corpora {
     /// Handwriting transcribed by the local vision model. Its own source so the
     /// machine-read origin travels with every citation.
     pub scribe_ocr: Vec<RawDoc>,
+    /// Scanned PDFs read by tesseract. Separate from `pdf` for the same reason:
+    /// text a machine lifted off an image can be wrong in ways a text layer
+    /// can't, and a citation should say which it was.
+    pub pdf_ocr: Vec<RawDoc>,
 }
 
 /// The corpora the user **authored**, as opposed to `web` — pages they merely
 /// visited, captured by the Trail. The connections rail draws from these only:
 /// the Trail has its own graph in the sidebar, so surfacing visited pages here
 /// too was showing the same browsing history twice.
-pub const OWN_SOURCES: &[&str] = &["onyx", "scroll", "council", "scribe", "pdf"];
+pub const OWN_SOURCES: &[&str] = &["onyx", "scroll", "council", "scribe", "pdf", "pdf-ocr"];
 
 /// A document yielded by a connector, before chunking/embedding.
 #[derive(Clone)]
@@ -193,9 +198,21 @@ pub struct RawDoc {
 /// PDFs read in the built-in viewer. The text was extracted once by PDF.js when
 /// the document was opened; this makes it answerable long after the tab closed.
 pub fn pdf_docs(store: &crate::pdf::PdfStore) -> Vec<RawDoc> {
+    pdf_docs_where(store, false)
+}
+
+/// Scanned PDFs read by OCR, as their own corpus — see [`Corpora::pdf_ocr`].
+pub fn pdf_ocr_docs(store: &crate::pdf::PdfStore) -> Vec<RawDoc> {
+    pdf_docs_where(store, true)
+}
+
+/// Both corpora come from one store and one file; only the KB source differs,
+/// which is where the provenance needs to be.
+fn pdf_docs_where(store: &crate::pdf::PdfStore, ocr: bool) -> Vec<RawDoc> {
     store
         .list()
         .into_iter()
+        .filter(|d| d.ocr == ocr)
         .filter(|d| !d.text.trim().is_empty())
         .map(|d| RawDoc {
             doc_id: d.src.clone(),
@@ -480,6 +497,8 @@ impl KbStore {
                 Ok(c.pdf.clone())
             } else if src == "scribe-ocr" {
                 Ok(c.scribe_ocr.clone())
+            } else if src == "pdf-ocr" {
+                Ok(c.pdf_ocr.clone())
             } else if src == "scribe" {
                 Ok(c.scribe.clone())
             } else if src == "web" {
@@ -1056,6 +1075,7 @@ pub async fn kb_reindex(
         scribe: scribe_docs(&scribe),
         pdf: pdf_docs(&pdf),
         scribe_ocr: scribe_ocr_docs(&transcripts),
+        pdf_ocr: Vec::new(),
     };
     tauri::async_runtime::spawn_blocking(move || kb.reindex(source, corpora))
         .await
@@ -1593,7 +1613,7 @@ mod tests {
         assert_eq!(parse_scroll(wrapped).unwrap().len(), 1);
 
         // A binary/PDF-blob body is dropped, but a summary keeps the article.
-        // ` ` in the JSON source decodes to NUL chars (control) → looks_binary.
+        // `\0` in the JSON source decodes to NUL chars (control) → looks_binary.
         let blob = "\\u0000".repeat(500);
         let with_sum = format!(
             r#"[{{"id":"c1","title":"PDF","ai_summary":"the gist","content_markdown":"{blob}"}}]"#

@@ -8,6 +8,28 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **OCR for scanned PDFs.** A PDF whose pages are images has no text layer, so Gemma and the KB
+  saw an empty document and said nothing useful — with no indication why. The viewer now detects
+  that case, says so plainly, and offers **Read with OCR**: each page renders at 2x (accuracy
+  falls off sharply below ~200dpi) and goes to the local `tesseract` binary, one page at a time
+  so progress is visible and a single unreadable page doesn't lose the rest.
+
+  A subprocess rather than a Rust binding, because `leptess`/`tesseract-rs` link libtesseract at
+  build time and would turn a pure-Rust cross-compile into a C toolchain problem on every target
+  including the Android build. That also keeps OCR genuinely optional: with no binary installed
+  the button never appears and Flux is exactly as it was. Images stream in on stdin and text
+  comes back on stdout, so no page image is ever written to disk. The language argument is
+  restricted to real traineddata names since it reaches a command line, and a page that hangs is
+  killed after 45s.
+
+  Recognised text is indexed under its own **`pdf-ocr`** source, never merged into `pdf`, so every
+  citation carries that a machine read it off an image — the same treatment `scribe-ocr` gives
+  handwriting.
+
+### Fixed
+- **`kb.rs` was invisible to code search.** A stray literal NUL byte inside a comment (which was
+  itself describing NUL handling) made `grep` classify the 1777-line module as binary, so every
+  text search of it silently returned nothing. It compiled fine, which is why it went unnoticed.
 - **Mail: mark all as read.** The ✓ button marks every unread message in INBOX, after a
   confirmation naming the count — because this is the one thing the mail module changes on the
   server, and the change shows up everywhere else the account is open.

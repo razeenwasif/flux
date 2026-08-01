@@ -36,9 +36,10 @@ const SOURCE_ICON: Record<string, string> = {
   // Machine-read: a vision model transcribed handwriting into this text, so it
   // may not say quite what the page said. Marked wherever it's cited.
   "scribe-ocr": "🔍",
+  "pdf-ocr": "🔍",
 };
 /** Sources whose text a model produced rather than the user. */
-const MACHINE_READ = new Set(["scribe-ocr"]);
+const MACHINE_READ = new Set(["scribe-ocr", "pdf-ocr"]);
 
 const ConnectionsRail: Component = () => {
   const [hits, setHits] = createSignal<KbHit[]>([]);
