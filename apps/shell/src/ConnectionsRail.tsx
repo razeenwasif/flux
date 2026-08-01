@@ -41,6 +41,12 @@ const SOURCE_ICON: Record<string, string> = {
 /** Sources whose text a model produced rather than the user. */
 const MACHINE_READ = new Set(["scribe-ocr", "pdf-ocr"]);
 
+/** Default cards. */
+const RAIL_LIMIT = 8;
+/** The most `kb_related` will ever return (it clamps at 20), so "show more"
+ *  stops offering once we're asking for everything there is. */
+const MAX_RELATED = 20;
+
 const ConnectionsRail: Component = () => {
   const [hits, setHits] = createSignal<KbHit[]>([]);
   const [seen, setSeen] = createSignal<AmbientHint[]>([]);
@@ -49,6 +55,11 @@ const ConnectionsRail: Component = () => {
   // real cause is an unindexed corpus — an invisible failure that makes the whole
   // feature look broken, so the empty state names the actual reason.
   const [why, setWhy] = createSignal("");
+  /** How many cards to ask for. Hits come back ranked, so the tail is
+   *  monotonically weaker — 8 keeps the rail scannable, and the rest is there
+   *  when you actually want to dig. `MAX_RELATED` is the backend's own clamp;
+   *  asking for more returns the same thing. */
+  const [limit, setLimit] = createSignal(RAIL_LIMIT);
   let gen = 0;
 
   const refresh = async () => {
@@ -59,7 +70,7 @@ const ConnectionsRail: Component = () => {
       // The ambient check is cheap (empty unless the page shows a shaped error),
       // so it rides along with every relatedness refresh.
       const [r, s] = await Promise.all([
-        kbRelated(8),
+        kbRelated(limit()),
         id != null ? traceAmbient(id).catch(() => [] as AmbientHint[]) : Promise.resolve([] as AmbientHint[]),
       ]);
       if (mine === gen) {
@@ -77,6 +88,18 @@ const ConnectionsRail: Component = () => {
     } finally {
       if (mine === gen) setLoading(false);
     }
+  };
+
+  /** Ask for the long tail. A refetch rather than a client-side reveal: the
+   *  backend only ever sent the top `limit`, so the extra cards don't exist here
+   *  yet. */
+  const showMore = () => {
+    setLimit(MAX_RELATED);
+    void refresh();
+  };
+  const showLess = () => {
+    setLimit(RAIL_LIMIT);
+    setHits((h) => h.slice(0, RAIL_LIMIT)); // already have these; no round trip
   };
 
   /** Distinguish "your corpus is empty" from "this page matched nothing". */
@@ -112,6 +135,9 @@ const ConnectionsRail: Component = () => {
   // Re-query whenever the active tab changes (also runs once on mount).
   createEffect(() => {
     activeId();
+    // Collapse on navigation: expanding is a choice about the page you were
+    // looking at, not a standing preference.
+    setLimit(RAIL_LIMIT);
     schedule();
   });
 
@@ -195,6 +221,18 @@ const ConnectionsRail: Component = () => {
               </button>
             )}
           </For>
+          {/* Only offered when there might be more: a short result list means
+              the corpus had nothing else, not that it's being withheld. */}
+          <Show when={limit() === RAIL_LIMIT && hits().length >= RAIL_LIMIT}>
+            <button class="connect-more" disabled={loading()} onClick={showMore}>
+              {loading() ? "Looking…" : "Show more"}
+            </button>
+          </Show>
+          <Show when={limit() > RAIL_LIMIT && hits().length > RAIL_LIMIT}>
+            <button class="connect-more" onClick={showLess}>
+              Show fewer
+            </button>
+          </Show>
         </div>
       </Show>
     </aside>

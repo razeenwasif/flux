@@ -8,6 +8,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Connections rail: "Show more".** The rail asked for exactly 8 related notes and there was no
+  way to see past them. It still shows 8 by default — hits come back ranked, so the tail is
+  monotonically weaker and a longer rail isn't a more useful one — but **Show more** refetches up
+  to the backend's 20-result ceiling on demand, with **Show fewer** to collapse. A refetch rather
+  than a client-side reveal, because the extra hits were never sent. The button appears only when
+  the list is actually full: a short result means your corpus had nothing else, not that
+  something is being withheld. Expanding resets on navigation, since it's a decision about the
+  page you were reading rather than a standing preference.
 - **OCR for scanned PDFs.** A PDF whose pages are images has no text layer, so Gemma and the KB
   saw an empty document and said nothing useful — with no indication why. The viewer now detects
   that case, says so plainly, and offers **Read with OCR**: each page renders at 2x (accuracy
