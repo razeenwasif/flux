@@ -21,9 +21,11 @@ import { For, Show, createMemo, createSignal, onMount, type Component } from "so
 import { visibleInterval } from "./poll";
 import {
   gpuStats,
+  tasksDisks,
   tasksKill,
   tasksList,
   tasksStats,
+  type DiskInfo,
   type GpuInfo,
   type ProcInfo,
   type SysStats,
@@ -94,10 +96,11 @@ const TasksPage: Component = () => {
   const [procs, setProcs] = createSignal<ProcInfo[]>([]);
   const [stats, setStats] = createSignal<SysStats | null>(null);
   const [gpus, setGpus] = createSignal<GpuInfo[]>([]);
+  const [disks, setDisks] = createSignal<DiskInfo[]>([]);
   const [cpuHist, setCpuHist] = createSignal<number[]>([]);
   const [memHist, setMemHist] = createSignal<number[]>([]);
   const [netHist, setNetHist] = createSignal<number[]>([]);
-  const [gpuHist, setGpuHist] = createSignal<number[]>([]);
+  const [gpuHist, setGpuHist] = createSignal<number[][]>([]);
   const [netPeak, setNetPeak] = createSignal(1);
   const [sort, setSort] = createSignal<SortKey>("cpu");
   const [busy, setBusy] = createSignal<number | null>(null);
@@ -117,10 +120,15 @@ const TasksPage: Component = () => {
         setNetHist((h) => [...h, rate].slice(-HISTORY));
       })
       .catch(() => {});
+    void tasksDisks()
+      .then(setDisks)
+      .catch(() => {});
     void gpuStats()
       .then((g) => {
         setGpus(g ?? []);
-        if (g?.[0]) setGpuHist((h) => [...h, g[0]!.util_pct].slice(-HISTORY));
+        // History per GPU, not just the first: a second card with no graph is
+        // the one thing a two-GPU machine actually wants to watch.
+        setGpuHist((prev) => (g ?? []).map((gpu, i) => [...(prev[i] ?? []), gpu.util_pct].slice(-HISTORY)));
       })
       .catch(() => {});
   };
@@ -384,7 +392,45 @@ const TasksPage: Component = () => {
               </div>
             )}
           </Show>
+          {/* Which interface — the summed figure hides whether it's the ethernet
+              or the VPN doing the work, which is usually the question. Loopback
+              is filtered out server-side; it would otherwise top this list on a
+              dev machine. */}
+          <For each={stats()?.nets ?? []}>
+            {(n) => (
+              <div class="tm-iface" title={n.name}>
+                <span class="tm-iface-name">{n.name}</span>
+                <span class="tm-iface-rate">↓ {fmtBps(n.rx_bps)}</span>
+                <span class="tm-iface-rate">↑ {fmtBps(n.tx_bps)}</span>
+              </div>
+            )}
+          </For>
         </div>
+
+        {/* Disks — capacity, not I/O: sysinfo has no per-disk throughput and a
+            number invented from process counters would be a guess. */}
+        <Show when={disks().length > 0}>
+          <div class="tm-card">
+            <div class="tm-card-head">
+              <span>Disks</span>
+              <span class="tm-card-sub">{disks().length} mounted</span>
+            </div>
+            <For each={disks()}>
+              {(d) => {
+                const usedPct = () =>
+                  d.total_mb > 0 ? Math.round(((d.total_mb - d.avail_mb) * 100) / d.total_mb) : 0;
+                return (
+                  <Bar
+                    label={`${d.mount}${d.removable ? " ⏏" : ""}`}
+                    pct={usedPct()}
+                    text={`${gb(d.avail_mb)} GB free of ${gb(d.total_mb)}`}
+                    color={usedPct() >= 90 ? "#ff6b6b" : usedPct() >= 75 ? "#f5c451" : "#5bc0eb"}
+                  />
+                );
+              }}
+            </For>
+          </div>
+        </Show>
 
         {/* GPU(s) — only when nvidia-smi reports any */}
         <For each={gpus()}>
@@ -396,9 +442,7 @@ const TasksPage: Component = () => {
                   {g.util_pct.toFixed(0)}%
                 </span>
               </div>
-              <Show when={i() === 0}>
-                <Graph data={gpuHist()} color="#7CF5B0" />
-              </Show>
+              <Graph data={gpuHist()[i()] ?? []} color="#7CF5B0" />
               <Bar
                 label="VRAM"
                 pct={pctOf(g.mem_used_mb, g.mem_total_mb)}

@@ -393,11 +393,14 @@ body.resizing .panel-edge-resize::after {
 /* A flux:// panel renders as DOM in the slot the native webview would have
    covered. Scrolls on its own: these pages were built for a full card and the
    panel column is a fraction of that width. */
+/* The toolbar is `position: absolute; top: 0`, so it overlays the surface — a
+   native panel clears it because its webview is positioned from
+   `.panel-placeholder`'s rect (inset 34px). A DOM page has no such rect and
+   started underneath it, with its header hidden. Same offset, same reason. */
 .panel-internal {
-  flex: 1 1 auto;
-  min-height: 0;
+  position: absolute;
+  inset: 34px 0 0;
   overflow: auto;
-  position: relative;
   scrollbar-width: thin;
 }
 .panel-title {
@@ -9788,6 +9791,37 @@ body.busy .start-card {
   justify-content: space-between;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Per-interface throughput under the network graph. Monospaced figures so the
+   rates line up and a spike is visible as a change in width, not just digits. */
+.tm-iface {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  padding: 2px 0;
+  color: var(--flux-text-dim);
+}
+.tm-iface-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--flux-text);
+}
+.tm-iface-rate {
+  font-variant-numeric: tabular-nums;
+  min-width: 68px;
+  text-align: right;
+}
+/* In a panel the two rate columns don't fit beside the name; the summed figures
+   above still carry the total. */
+@container tm (max-width: 460px) {
+  .tm-iface-rate {
+    min-width: 0;
+  }
 }
 .tm-net-dn {
   color: #7cf5b0;

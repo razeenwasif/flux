@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
-use sysinfo::{Networks, Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{Disks, Networks, Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tauri::State;
 
 /// Owns a reused `System` so CPU deltas are meaningful across polls, plus a
@@ -118,14 +118,29 @@ impl TaskManager {
             .map(|c| c.brand().trim().to_string())
             .unwrap_or_default();
         // Network throughput as a real bytes/sec rate (delta since last refresh).
-        let (net_rx_bps, net_tx_bps) = {
+        let (net_rx_bps, net_tx_bps, nets) = {
             let mut net = self.net.lock();
             net.nets.refresh();
             let secs = net.last.elapsed().as_secs_f64().max(0.001);
             net.last = Instant::now();
+            let rate = |b: u64| (b as f64 / secs) as u64;
+            let mut per: Vec<NetIface> = net
+                .nets
+                .iter()
+                .map(|(name, d)| NetIface {
+                    name: name.clone(),
+                    rx_bps: rate(d.received()),
+                    tx_bps: rate(d.transmitted()),
+                })
+                // Loopback carries no real traffic and would usually top the
+                // list on a dev machine, burying the interface you care about.
+                .filter(|n| !is_loopback(&n.name))
+                .collect();
+            per.sort_by_key(|n| std::cmp::Reverse(n.rx_bps + n.tx_bps));
+            per.truncate(6);
             let rx: u64 = net.nets.values().map(|d| d.received()).sum();
             let tx: u64 = net.nets.values().map(|d| d.transmitted()).sum();
-            ((rx as f64 / secs) as u64, (tx as f64 / secs) as u64)
+            (rate(rx), rate(tx), per)
         };
         SysStats {
             cpu: sys.global_cpu_usage(),
@@ -141,9 +156,34 @@ impl TaskManager {
             swap_total_mb: swap_total / 1_048_576,
             cores: sys.cpus().len(),
             uptime_secs: System::uptime(),
+            nets,
             net_rx_bps,
             net_tx_bps,
         }
+    }
+
+    /// Mounted filesystems. Refreshed from a fresh list each call: drives get
+    /// plugged in and unmounted, and a cached list would show a phantom.
+    pub fn disks(&self) -> Vec<DiskInfo> {
+        let disks = Disks::new_with_refreshed_list();
+        let mut out: Vec<DiskInfo> = disks
+            .list()
+            .iter()
+            .map(|d| DiskInfo {
+                name: d.name().to_string_lossy().to_string(),
+                mount: d.mount_point().to_string_lossy().to_string(),
+                fs: d.file_system().to_string_lossy().to_string(),
+                total_mb: d.total_space() / 1_048_576,
+                avail_mb: d.available_space() / 1_048_576,
+                removable: d.is_removable(),
+            })
+            // Pseudo-filesystems (snap loopbacks, overlays, tmpfs) are numerous
+            // on Linux and tell you nothing about free space.
+            .filter(|d| d.total_mb > 0)
+            .collect();
+        out.sort_by_key(|d| std::cmp::Reverse(d.total_mb));
+        out.truncate(8);
+        out
     }
 
     /// End a process by pid. Returns whether the signal was sent.
@@ -153,6 +193,13 @@ impl TaskManager {
         sys.refresh_processes(ProcessesToUpdate::Some(&[target]), true);
         sys.process(target).map(|p| p.kill()).unwrap_or(false)
     }
+}
+
+/// Is this a loopback interface? Named rather than inlined so the platform
+/// spellings are in one place.
+pub fn is_loopback(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n == "lo" || n.starts_with("loopback") || n.contains("loopback pseudo-interface")
 }
 
 /// The set of pids in `current`'s process tree (itself + all descendants),
@@ -183,6 +230,28 @@ fn flux_tree(pairs: &[(u32, Option<u32>)], current: u32) -> HashSet<u32> {
     tree
 }
 
+/// One network interface's live throughput. Loopback and down interfaces are
+/// filtered out before this reaches the UI — a list where half the rows are
+/// permanently 0 B/s is a list nobody reads.
+#[derive(Serialize, Debug, Clone, PartialEq, specta::Type)]
+pub struct NetIface {
+    pub name: String,
+    pub rx_bps: u64,
+    pub tx_bps: u64,
+}
+
+/// A mounted filesystem. Capacity only — sysinfo doesn't give per-disk I/O
+/// rates, and inventing one from process counters would be a guess.
+#[derive(Serialize, Debug, Clone, PartialEq, specta::Type)]
+pub struct DiskInfo {
+    pub name: String,
+    pub mount: String,
+    pub fs: String,
+    pub total_mb: u64,
+    pub avail_mb: u64,
+    pub removable: bool,
+}
+
 /// System-wide CPU / memory / swap / network snapshot for the task manager.
 #[derive(Serialize, Debug, Clone, PartialEq, specta::Type)]
 pub struct SysStats {
@@ -200,6 +269,9 @@ pub struct SysStats {
     pub cores: usize,
     /// System uptime, seconds.
     pub uptime_secs: u64,
+    /// Per-interface throughput, busiest first. The summed figures below stay
+    /// for the overall graph.
+    pub nets: Vec<NetIface>,
     /// Network throughput, bytes/sec (summed across interfaces).
     pub net_rx_bps: u64,
     pub net_tx_bps: u64,
@@ -226,6 +298,12 @@ pub fn tasks_list(state: State<'_, TaskManager>) -> Vec<ProcInfo> {
 #[tauri::command]
 pub fn tasks_stats(state: State<'_, TaskManager>) -> SysStats {
     state.stats()
+}
+
+/// Mounted filesystems, for the task manager's disk card.
+#[tauri::command]
+pub fn tasks_disks(state: State<'_, TaskManager>) -> Vec<DiskInfo> {
+    state.disks()
 }
 
 #[tauri::command]

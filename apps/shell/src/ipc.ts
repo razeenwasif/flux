@@ -116,6 +116,8 @@ import type {
   ShellSnapshot as GenShellSnapshot,
   SysStats as GenSysStats,
   GpuInfo as GenGpuInfo,
+  NetIface as GenNetIface,
+  DiskInfo as GenDiskInfo,
   TabFolder as GenTabFolder,
   TabGroup as GenTabGroup,
   TabKind as GenTabKind,
@@ -1182,6 +1184,10 @@ export const pdfSave = (dataB64: string, filename: string) =>
 export const TASKS_URL = "flux://tasks";
 // ProcInfo + SysStats from bindings.gen.
 export const tasksList = () => invoke<ProcInfo[]>("tasks_list");
+export type NetIface = GenNetIface;
+export type DiskInfo = GenDiskInfo;
+/** Mounted filesystems, for the task manager's disk card. */
+export const tasksDisks = () => invoke<DiskInfo[]>("tasks_disks");
 export const tasksKill = (pid: number) => invoke<boolean>("tasks_kill", { pid });
 export const tasksStats = () => invoke<SysStats>("tasks_stats");
 /** Live GPU stats via nvidia-smi (empty on non-NVIDIA / no driver). */

@@ -49,7 +49,7 @@ use crate::state::{
     AgentStatus, ClusterTag, Container, TabFolder, TabGroup, TabKind, TabMeta, WebPanel, Workspace,
 };
 use crate::sync::{SyncReport, SyncStatus};
-use crate::taskmgr::{GpuInfo, ProcInfo, SysStats};
+use crate::taskmgr::{DiskInfo, GpuInfo, NetIface, ProcInfo, SysStats};
 use crate::todos::Todo;
 use crate::trackers::{TrackerEdge, TrackerGraph, TrackerNode};
 use crate::tui_apps::TuiApp;
@@ -122,6 +122,8 @@ pub fn generate_ts() -> String {
         specta::ts::export::<DaySnapshot>(&c),
         specta::ts::export::<ProcInfo>(&c),
         specta::ts::export::<SysStats>(&c),
+        specta::ts::export::<NetIface>(&c),
+        specta::ts::export::<DiskInfo>(&c),
         specta::ts::export::<GpuInfo>(&c),
         specta::ts::export::<SpeedResult>(&c),
         specta::ts::export::<ArchiveMeta>(&c),

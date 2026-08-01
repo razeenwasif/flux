@@ -1370,6 +1370,7 @@ pub fn run(intent: cli::LaunchIntent) {
             leanmode::lean_active_for,
             taskmgr::tasks_list,
             taskmgr::tasks_kill,
+            taskmgr::tasks_disks,
             taskmgr::tasks_stats,
             taskmgr::gpu_stats,
             netspeed::netspeed_run,

@@ -158,7 +158,18 @@ export type ProcInfo = { pid: number; name: string; cpu: number; mem_mb: number;
 /**
  * System-wide CPU / memory / swap / network snapshot for the task manager.
  */
-export type SysStats = { cpu: number; per_core: number[]; cpu_brand: string; mem_used_mb: number; mem_total_mb: number; mem_pct: number; swap_used_mb: number; swap_total_mb: number; cores: number; uptime_secs: number; net_rx_bps: number; net_tx_bps: number }
+export type SysStats = { cpu: number; per_core: number[]; cpu_brand: string; mem_used_mb: number; mem_total_mb: number; mem_pct: number; swap_used_mb: number; swap_total_mb: number; cores: number; uptime_secs: number; nets: NetIface[]; net_rx_bps: number; net_tx_bps: number }
+/**
+ * One network interface's live throughput. Loopback and down interfaces are
+ * filtered out before this reaches the UI — a list where half the rows are
+ * permanently 0 B/s is a list nobody reads.
+ */
+export type NetIface = { name: string; rx_bps: number; tx_bps: number }
+/**
+ * A mounted filesystem. Capacity only — sysinfo doesn't give per-disk I/O
+ * rates, and inventing one from process counters would be a guess.
+ */
+export type DiskInfo = { name: string; mount: string; fs: string; total_mb: number; avail_mb: number; removable: boolean }
 /**
  * One GPU's live stats (NVIDIA via `nvidia-smi`).
  */

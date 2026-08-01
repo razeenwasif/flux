@@ -8,6 +8,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Task manager: per-interface network, disks, and a graph for every GPU.** The network card
+  summed all interfaces, which hides whether it's the ethernet or the VPN doing the work — the
+  usual question. Each interface now has its own row, busiest first, with loopback filtered
+  server-side (it would otherwise top the list on a dev machine). A disks card shows each mounted
+  filesystem's free space, colouring at 75% and 90%; capacity only, because sysinfo exposes no
+  per-disk I/O and a rate invented from process counters would be a guess. And GPU history is
+  tracked per device rather than for the first one, so a second card is no longer a graphless
+  stub — which is the card a two-GPU machine actually wants to watch.
+
+### Fixed
+- **The task manager's header was hidden behind the panel toolbar.** `.panel-toolbar` is
+  `position: absolute; top: 0`, and a native panel clears it because its webview is positioned
+  from `.panel-placeholder`'s rect. A DOM page had no such rect and started underneath it. Same
+  34px offset now, from the same reason.
 - **Flux's own pages can be pinned as web panels** — the Trail, Omni, Settings, the notebook and
   the rest, beside the page rather than as a tab. This needed a refactor rather than a URL
   change: a web panel is a native webview pointing at a URL, and a `flux://` page isn't a URL at
