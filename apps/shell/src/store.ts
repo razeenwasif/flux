@@ -961,6 +961,12 @@ export { shellHistOpen, setShellHistOpen };
 // Split-view picker overlay (#43) — center-screen, so it must gate the webview.
 const [splitPickerOpen, setSplitPickerOpen] = createSignal(false);
 export { splitPickerOpen, setSplitPickerOpen };
+// Collapsed sidebar's workspace list (#111). Lives in the store rather than in
+// Sidebar because it extends over the content card, so it has to be visible to
+// the overlay registry below — as a Sidebar-local signal it rendered *under* the
+// page, which is the failure this registry exists to prevent.
+const [wsPanelOpen, setWsPanelOpen] = createSignal(false);
+export { wsPanelOpen, setWsPanelOpen };
 // Semantic find overlay (#126) — find-by-meaning in-page / across tabs.
 const [semFindOpen, setSemFindOpen] = createSignal(false);
 export { semFindOpen, setSemFindOpen };
@@ -1049,6 +1055,7 @@ export const pageOverlayActive = (): boolean =>
   homeModalOpen() ||
   shellHistOpen() ||
   splitPickerOpen() ||
+  wsPanelOpen() ||
   semFindOpen() ||
   watchPanelOpen() ||
   trackerGraphOpen() ||

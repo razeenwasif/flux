@@ -132,6 +132,8 @@ import {
   vimHints,
   workspaceColor,
   workspaces,
+  wsPanelOpen,
+  setWsPanelOpen,
   zoomFor,
 } from "./store";
 import { visibleInterval } from "./poll";
@@ -390,9 +392,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Inline rename (window.prompt is a no-op in the webview, so edit in place).
   const [editGroup, setEditGroup] = createSignal<number | null>(null);
   const [editWs, setEditWs] = createSignal<number | null>(null);
-  /** Collapsed rail only: the workspace list, which the expanded sidebar shows
-   *  as hover-popouts on the dot rail. */
-  const [wsPanelOpen, setWsPanelOpen] = createSignal(false);
   const activeWs = () => workspaces().find((w) => w.id === activeWorkspace());
   const activeWorkspaceName = () => activeWs()?.name ?? "Workspace";
   const activeWorkspaceColor = () => {

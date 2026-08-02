@@ -41,8 +41,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   searches** beneath, which come from whichever engine you've set as default rather than a
   hardcoded Google.
 
-  Three buttons sit in the field: **⌂** goes to the start page, **▤** opens the result *beside*
-  the current page as a split (also `Shift+Enter`), and **⌕** searches. Queries resolve through
+  The toolbar carries the sidebar's **page tools** — bookmark this page, reader mode, save for
+  offline, translate, capture, find, watch, install as app — rather than destinations, which the
+  palette already lists and an icon-only row can't label anyway. (Bookmarking the current page was
+  previously reachable only by `Ctrl+D`, with no palette entry at all.)
+
+  Four buttons sit in the field: **⌂** start page, **🗁** file explorer, **▤** opens the result
+  *beside* the current page as a split (also `Shift+Enter`), and **⌕** searches. Queries resolve through
   the same pluggable backend as the omnibox, so `!bangs`, keyword routing and the
   navigate-vs-search decision behave identically instead of being re-decided here. Typing
   something that's already a URL stops suggestions entirely — completing one returns noise, and
@@ -126,6 +131,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   every chunk built so far.
 
 ### Fixed
+- **The collapsed sidebar's workspace panel rendered under the page.** Native tab webviews are an
+  OS layer above *all* chrome HTML, so no amount of z-index puts an overlay over them — the page
+  has to be hidden while one is open. `store.ts` has a registry for exactly this, with a comment
+  warning that forgetting to add a flag is a recurring bug class; the panel's flag was a
+  Sidebar-local signal the registry couldn't see. It lives in the store now, and a `createEffect`
+  drives the native layer from it, since Sidebar has no access to the show/hide helpers.
+
+  Worth noting for next time: being *in* the registry only stops something else from re-showing the
+  page — it doesn't hide it. Store-driven overlays need both.
 - **OCR'd PDFs indexed to nothing.** `kb_reindex` passed an empty list for the `pdf-ocr` corpus, so
   text that OCR had extracted, published and stored was dropped on the way to the index — the
   connector existed and was never called. Anything read out of a scanned PDF was therefore

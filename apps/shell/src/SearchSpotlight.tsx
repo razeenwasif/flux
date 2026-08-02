@@ -23,20 +23,23 @@ import { START_URL, searchResolve, searchSuggest } from "./ipc";
 import { activeId, openTab, setTile } from "./store";
 import { MAX_PANES, layoutsFor } from "./tiles";
 
-/** The toolbar is a curated set, not `actions.slice(0, n)` — taking the first
- *  few produced two identical 🔖 (Open Bookmarks and Show bookmark bar) and a
- *  couple of toggles, which read as noise in an icon-only row. These are
- *  destinations you'd plausibly want *instead of* searching, in that order;
- *  anything missing from `actions` is skipped rather than rendered dead. */
+/** The toolbar carries the sidebar's *page tools* — things you do to the page
+ *  you're on — rather than destinations, which the palette already lists and
+ *  the toolbar can't label anyway.
+ *
+ *  Curated, not `actions.slice(0, n)`: the first few produced two identical 🔖
+ *  (Open Bookmarks and Show bookmark bar) and a couple of toggles, which in an
+ *  icon-only row reads as noise. Anything missing from `actions` is skipped
+ *  rather than rendered dead. */
 const TOOLBAR_IDS = [
-  "new-tab",
-  "new-private",
-  "scribe",
-  "notebook",
-  "trail",
-  "history",
-  "bookmarks",
-  "new-term",
+  "bookmark-page",
+  "reader",
+  "archive-save",
+  "translate",
+  "capture",
+  "find",
+  "watches",
+  "install-app",
 ];
 
 const SearchSpotlight: Component<{
@@ -44,6 +47,7 @@ const SearchSpotlight: Component<{
   onClose: () => void;
   onNavigate: (url: string) => void;
   onAiSearch: (q: string) => void;
+  onOpenFiles: () => void;
 }> = (props) => {
   const [query, setQuery] = createSignal("");
   const [related, setRelated] = createSignal<string[]>([]);
@@ -190,6 +194,16 @@ const SearchSpotlight: Component<{
             }}
           >
             ⌂
+          </button>
+          <button
+            class="spot-btn"
+            title="File explorer"
+            onClick={() => {
+              props.onClose();
+              props.onOpenFiles();
+            }}
+          >
+            🗁
           </button>
           <button
             class="spot-btn"

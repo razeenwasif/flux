@@ -25,6 +25,7 @@ import {
   createMemo,
   createSignal,
   lazy,
+  on,
   onCleanup,
   onMount,
   type Component,
@@ -186,6 +187,7 @@ import {
   pageOverlayActive,
   pushPermAsk,
   setSavePrompt,
+  wsPanelOpen,
 } from "./store";
 import { createWebviewTiling } from "./tiling";
 import { startClockDriver } from "./clocks";
@@ -1071,6 +1073,23 @@ const App: Component = () => {
     )
       wv(webviewShow(t.id));
   };
+  // The collapsed sidebar's workspace list is toggled from Sidebar, which has no
+  // access to these helpers — so the native layer is driven from the flag here,
+  // the same way the mobile drawer is below. Without this the panel rendered
+  // *under* the page: it's in `pageOverlayActive`, but that registry only stops
+  // something else from re-showing the page, it doesn't hide it in the first
+  // place. `defer` so this doesn't fire a show on mount.
+  createEffect(
+    on(
+      wsPanelOpen,
+      (open) => {
+        if (open) hideActivePage();
+        else showActivePageIfClear();
+      },
+      { defer: true },
+    ),
+  );
+
   // Mobile: react to the drawer / agent / tab-switcher opening + closing so the
   // native tab WebView (which sits above the shell) doesn't cover them.
   if (isMobile) {
@@ -1210,6 +1229,9 @@ const App: Component = () => {
     { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
     { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
     { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
+    // Bookmarking the current page was reachable only by Ctrl+D — no palette
+    // entry, so it was undiscoverable and unusable from the spotlight.
+    { id: "bookmark-page", label: "Bookmark this page", icon: "🔖", run: () => toggleBookmark() },
     {
       id: "bookmark-bar",
       label: bookmarkBarOpen() ? "Hide bookmark bar" : "Show bookmark bar",
@@ -1818,6 +1840,7 @@ const App: Component = () => {
             actions={paletteActions()}
             onClose={closeSpotlight}
             onNavigate={go}
+            onOpenFiles={openFilesPanel}
             onAiSearch={(q) => {
               if (aiAnswersOn()) {
                 setAgentOpen(true);
