@@ -20,6 +20,7 @@ export type ShortcutAction =
   | "toggle-sidebar"
   | "focus-address"
   | "palette"
+  | "spotlight"
   | "find"
   | "reload"
   | "back"
@@ -71,10 +72,13 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
   }
   if (mod && e.shiftKey && !e.altKey) {
     if (k === "t") return "reopen-tab"; // Ctrl/Cmd+Shift+T → reopen last closed tab
-                                        // (terminal: Ctrl+` toggles the column; sidebar has a Terminal-tab button)
+    // (terminal: Ctrl+` toggles the column; sidebar has a Terminal-tab button)
     if (k === "a") return "toggle-agent";
     if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
     if (k === "r") return "shell-history"; // Ctrl/Cmd+Shift+R → semantic shell-history search
+    // Ctrl/Cmd+Shift+K → search spotlight. Deliberately next to the palette's
+    // Ctrl+K: same gesture, outward instead of inward (web vs. what you have).
+    if (k === "k") return "spotlight";
     if (k === "+") return "zoom-in"; // Ctrl+Shift+= (a.k.a. Ctrl++)
     if (k === "f") return "focus-mode"; // Ctrl+Shift+F → focus/compact mode
     if (e.key === "Tab") return "prev-tab";

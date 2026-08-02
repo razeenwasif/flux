@@ -34,6 +34,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   citation carries that a machine read it off an image — the same treatment `scribe-ocr` gives
   handwriting.
 
+- **Search spotlight — `Ctrl/Cmd+Shift+K`** (flux-plan1). The command palette answers "find
+  something I already have"; this answers "search the web", which was otherwise only reachable
+  through the omnibox — and the omnibox lives in the sidebar, so it vanished the moment you
+  collapsed it. A row of quick destinations, the query field, and the engine's **related
+  searches** beneath, which come from whichever engine you've set as default rather than a
+  hardcoded Google.
+
+  Three buttons sit in the field: **⌂** goes to the start page, **▤** opens the result *beside*
+  the current page as a split (also `Shift+Enter`), and **⌕** searches. Queries resolve through
+  the same pluggable backend as the omnibox, so `!bangs`, keyword routing and the
+  navigate-vs-search decision behave identically instead of being re-decided here. Typing
+  something that's already a URL stops suggestions entirely — completing one returns noise, and
+  it would hand the address you're navigating to over to the suggest endpoint.
+
+  A separate lazy chunk (1.6 KB gzip); the eager chrome bundle moves 64.4 → 64.5 KB.
+
 ### Changed
 - **The collapsed sidebar is a real rail.** It used to show pinned tiles and nothing else, which
   made collapsing a way to *lose* your open tabs rather than a way to reclaim width — switching

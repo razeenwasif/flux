@@ -11827,6 +11827,151 @@ input[type="radio"].pdf-fw {
   padding-top: 12vh;
 }
 
+/* ── Search spotlight (flux-plan1) ────────────────────────────────────────────
+   Web-facing sibling of the command palette: quick actions, the query field
+   with home/split/search, and the engine's related searches. */
+.spot-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+}
+.spot {
+  width: min(640px, 92vw);
+  border-radius: 16px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+}
+.spot-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px;
+}
+.spot-tool {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--flux-text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+.spot-tool:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--flux-text);
+}
+
+.spot-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 12px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-rim-soft);
+}
+.spot-field:focus-within {
+  border-color: rgba(47, 243, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(47, 243, 255, 0.08);
+}
+.spot-glyph {
+  color: var(--flux-text-mute);
+  font-size: 14px;
+}
+.spot-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--flux-text);
+  font-size: 15px;
+  padding: 9px 2px;
+}
+.spot-input::placeholder {
+  color: var(--flux-text-mute);
+}
+.spot-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--flux-text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+.spot-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--flux-text);
+}
+.spot-btn.primary:not(:disabled) {
+  color: var(--flux-teal);
+  background: var(--flux-teal-dim);
+}
+.spot-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.spot-related {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.spot-related-head {
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 3px 10px 5px;
+}
+.spot-related-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--flux-text);
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.spot-related-item.sel {
+  background: rgba(47, 243, 255, 0.1);
+}
+.spot-related-glyph {
+  flex: none;
+  color: var(--flux-text-mute);
+  font-size: 12px;
+}
+.spot-related-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Right-click "open in new tab" menu for internal-page links. */
 .link-menu {
   position: fixed;

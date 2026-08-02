@@ -125,6 +125,7 @@ import { LinkMenu } from "./linkMenu";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
 // and load on first use (instant — assets are local/embedded). #startup
 const CommandPalette = lazy(() => import("./CommandPalette"));
+const SearchSpotlight = lazy(() => import("./SearchSpotlight"));
 const FilesView = lazy(() => import("./FilesView"));
 const Playground = lazy(() => import("./playground/Playground"));
 const NotebookPage = lazy(() => import("./NotebookPage"));
@@ -279,11 +280,12 @@ const App: Component = () => {
   // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
   const [focusMode, setFocusMode] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [spotOpen, setSpotOpen] = createSignal(false);
   // Overlay registry (store.ts pageOverlayActive) + the one App-local overlay
   // flag. Every webview show/hide decision reads THESE, never a hand-rolled
   // boolean chain — chains drifted apart and dropped newer flags (the split-view
   // and home-widget hide bugs).
-  const overlayActive = () => pageOverlayActive() || paletteOpen();
+  const overlayActive = () => pageOverlayActive() || paletteOpen() || spotOpen();
   const uiDragging = () => splitDragging() || panelDragging();
 
   // Resizable pane widths (px), persisted across sessions (BACKLOG #27).
@@ -412,6 +414,15 @@ const App: Component = () => {
           e.preventDefault();
           e.stopPropagation();
           dispatch("palette");
+        }
+        return;
+      }
+      // Ditto for the spotlight: modal, so only its own toggle gets through.
+      if (spotOpen()) {
+        if (keyToAction(e) === "spotlight") {
+          e.preventDefault();
+          e.stopPropagation();
+          dispatch("spotlight");
         }
         return;
       }
@@ -1053,6 +1064,7 @@ const App: Component = () => {
       !isStartUrl(t.url) &&
       !pageOverlayActive() &&
       !paletteOpen() &&
+      !spotOpen() &&
       // Mobile: the drawer, the full-screen agent, and the tab switcher are HTML
       // overlays the native page would otherwise cover (ADR 0012, Milestone 2).
       !(isMobile && (sidebarOpen() || agentOpen() || mobileTabsOpen()))
@@ -1101,6 +1113,16 @@ const App: Component = () => {
   };
   const closePalette = () => {
     setPaletteOpen(false);
+    showActivePageIfClear();
+  };
+  // Same native-layer dance as the palette: the page is an OS layer over the
+  // content card, so it has to be hidden or it paints through the overlay.
+  const openSpotlight = () => {
+    hideActivePage();
+    setSpotOpen(true);
+  };
+  const closeSpotlight = () => {
+    setSpotOpen(false);
     showActivePageIfClear();
   };
   // Files / Maps / Notebook / Playground popouts — same native-layer dance.
@@ -1230,6 +1252,12 @@ const App: Component = () => {
     },
     { id: "discord", label: "Open Discord panel", icon: "💬", run: () => void openMessagingPanel("discord") },
     { id: "teams", label: "Open Teams panel", icon: "💬", run: () => void openMessagingPanel("teams") },
+    {
+      id: "spotlight",
+      label: "Search the web (spotlight)",
+      icon: "⌕",
+      run: () => openSpotlight(),
+    },
     { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
     {
       id: "semantic-find",
@@ -1376,6 +1404,10 @@ const App: Component = () => {
       case "palette":
         if (paletteOpen()) closePalette();
         else openPalette();
+        return true;
+      case "spotlight":
+        if (spotOpen()) closeSpotlight();
+        else openSpotlight();
         return true;
       case "find":
         openFind();
@@ -1776,6 +1808,23 @@ const App: Component = () => {
       <Show when={paletteOpen()}>
         <Suspense>
           <CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} />
+        </Suspense>
+      </Show>
+      {/* Search spotlight (flux-plan1) — Ctrl+Shift+K. Outward-facing sibling of
+          the palette: the web, rather than what you already have. */}
+      <Show when={spotOpen()}>
+        <Suspense>
+          <SearchSpotlight
+            actions={paletteActions()}
+            onClose={closeSpotlight}
+            onNavigate={go}
+            onAiSearch={(q) => {
+              if (aiAnswersOn()) {
+                setAgentOpen(true);
+                setPendingAsk(q);
+              }
+            }}
+          />
         </Suspense>
       </Show>
       {/* The overlays below are lazy + store-gated: their chunks load on first
