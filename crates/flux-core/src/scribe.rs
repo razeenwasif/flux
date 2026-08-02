@@ -37,6 +37,66 @@ pub struct Page {
     pub ts: u64,
 }
 
+impl Page {
+    /// A typed prose page, the shape the document editor writes (`{"html": …}`).
+    /// Used by the agent's `new_page` (#108) so a written page is a real
+    /// document page rather than an empty ink canvas.
+    pub fn document(title: &str, body: &str) -> Self {
+        let now = now_ms();
+        let html = format!(
+            "<h1>{}</h1>{}",
+            escape_html(title.trim()),
+            prose_to_html(body)
+        );
+        Page {
+            id: format!("pg-{now}"),
+            template: "plain".to_string(),
+            strokes: serde_json::json!({ "html": html }).to_string(),
+            ts: now,
+        }
+    }
+}
+
+/// Append prose to a page's document body.
+///
+/// Only document (`{"html": …}`) pages: an ink page's content is a stroke
+/// array, and there is no honest way to add typed text to one — refusing is
+/// better than converting a handwritten page into something else. Never
+/// rewrites what's there; the new prose goes after it.
+pub fn append_prose(page: &mut Page, body: &str) -> Result<(), String> {
+    let body = body.trim();
+    if body.is_empty() {
+        return Err("nothing to append".into());
+    }
+    let mut v: serde_json::Value = serde_json::from_str(&page.strokes)
+        .map_err(|_| "this page's content couldn't be read".to_string())?;
+    let Some(html) = v.get("html").and_then(|h| h.as_str()) else {
+        return Err("that page is handwritten — typed text can't be appended to it".into());
+    };
+    let merged = format!("{html}{}", prose_to_html(body));
+    v["html"] = serde_json::Value::String(merged);
+    page.strokes = v.to_string();
+    page.ts = now_ms();
+    Ok(())
+}
+
+/// Markdown-ish plain text → the minimal HTML the document editor round-trips.
+/// Blank-line-separated blocks become paragraphs; everything is escaped, since
+/// the body came from a model that was reading untrusted pages.
+fn prose_to_html(body: &str) -> String {
+    body.split("\n\n")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| format!("<p>{}</p>", escape_html(p).replace('\n', "<br>")))
+        .collect()
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 /// A course notebook: an ordered list of fixed-size pages you flip through.
 #[derive(Serialize, Deserialize, Clone, specta::Type)]
 pub struct Notebook {

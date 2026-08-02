@@ -106,6 +106,130 @@ impl AgentAction {
     }
 }
 
+/// What the agent may write into your notes (#108).
+///
+/// **A separate vocabulary from [`AgentAction`], deliberately.** That one is
+/// page automation compiled to JavaScript and injected into a tab; this one
+/// touches the user's own Onyx vault and Scribe notebooks. Sharing an enum
+/// would mean one policy check guarding two entirely different blast radii.
+///
+/// **Additive only, and not by policy — by vocabulary.** There is no variant
+/// that replaces, rewrites, reorders or deletes anything. A model that decides
+/// your notes would read better rewritten has no way to say so, and a prompt
+/// injection buried in a page cannot reach for a capability that doesn't exist.
+/// Appending is the most destructive thing expressible, and appending never
+/// loses text. Keep it that way: adding a variant here widens what a bad
+/// generation can do to data the user cannot easily reconstruct.
+///
+/// Nothing here executes on its own. `plan_note` produces a proposal; the user
+/// approves it; a separate command applies it. See `notewrite.rs`.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum NoteAction {
+    /// A new note in the Onyx vault.
+    NewNote {
+        title: String,
+        body: String,
+        /// Vault-relative folder, e.g. "Calculus". Created if missing.
+        folder: Option<String>,
+        tags: Option<String>,
+    },
+    /// Add to the end of an existing Onyx note. Never rewrites what's there.
+    AppendNote {
+        /// Vault-relative path of the note, as cited by the KB.
+        path: String,
+        body: String,
+    },
+    /// A new typed page at the end of a Scribe notebook.
+    NewPage {
+        /// Notebook id (not its name — names aren't unique).
+        notebook: String,
+        title: String,
+        body: String,
+    },
+    /// Add to the end of an existing Scribe page's prose.
+    AppendPage {
+        notebook: String,
+        page: String,
+        body: String,
+    },
+    /// The request didn't call for writing anything.
+    Nothing { reason: String },
+}
+
+impl NoteAction {
+    /// One line for the confirmation card and the activity feed.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::NewNote { title, folder, .. } => match folder {
+                Some(f) if !f.trim().is_empty() => format!("New Onyx note “{title}” in {f}/"),
+                _ => format!("New Onyx note “{title}”"),
+            },
+            Self::AppendNote { path, .. } => format!("Append to Onyx note {path}"),
+            Self::NewPage { title, .. } => format!("New Scribe page “{title}”"),
+            Self::AppendPage { page, .. } => format!("Append to Scribe page {page}"),
+            Self::Nothing { reason } => format!("Nothing to write: {reason}"),
+        }
+    }
+
+    /// The text that would be written, for the confirmation card. The user
+    /// approves *content*, not a description of content — a card that said
+    /// "adds a summary" while writing something else would be worthless.
+    pub fn body(&self) -> Option<&str> {
+        match self {
+            Self::NewNote { body, .. }
+            | Self::AppendNote { body, .. }
+            | Self::NewPage { body, .. }
+            | Self::AppendPage { body, .. } => Some(body),
+            Self::Nothing { .. } => None,
+        }
+    }
+
+    /// Does this actually touch anything?
+    pub fn writes(&self) -> bool {
+        !matches!(self, Self::Nothing { .. })
+    }
+}
+
+/// JSON schema pinning generation to [`NoteAction`].
+pub fn note_action_schema() -> serde_json::Value {
+    use serde_json::json;
+    let s = || json!({ "type": "string" });
+    let opt = || json!({ "type": ["string", "null"] });
+    let variant = |props: serde_json::Value, required: &[&str]| {
+        json!({
+            "type": "object",
+            "properties": props,
+            "required": required,
+            "additionalProperties": false,
+        })
+    };
+    json!({
+        "oneOf": [
+            variant(
+                json!({ "action": { "const": "new_note" }, "title": s(), "body": s(), "folder": opt(), "tags": opt() }),
+                &["action", "title", "body"],
+            ),
+            variant(
+                json!({ "action": { "const": "append_note" }, "path": s(), "body": s() }),
+                &["action", "path", "body"],
+            ),
+            variant(
+                json!({ "action": { "const": "new_page" }, "notebook": s(), "title": s(), "body": s() }),
+                &["action", "notebook", "title", "body"],
+            ),
+            variant(
+                json!({ "action": { "const": "append_page" }, "notebook": s(), "page": s(), "body": s() }),
+                &["action", "notebook", "page", "body"],
+            ),
+            variant(
+                json!({ "action": { "const": "nothing" }, "reason": s() }),
+                &["action", "reason"],
+            ),
+        ]
+    })
+}
+
 /// Execution-layer destructive-action deny-list (BACKLOG #104). Matched
 /// case-insensitively as substrings — in Rust against the action's
 /// selector+reason, and in the injected click JS against the resolved element's
@@ -671,6 +795,56 @@ impl AgentPlanner {
         let action: AgentAction = serde_json::from_str(first_json_object(&raw))?;
         policy_check(&action)?;
         tracing::info!(target: "flux::agent", action = %action.describe(), "planned");
+        Ok(action)
+    }
+
+    /// Plan a write into the user's notes (#108) — a **proposal**, never an act.
+    ///
+    /// `targets` is a short listing of the notes and notebooks that exist, so
+    /// the model appends to a real path instead of inventing one; `context` is
+    /// whatever the request should draw on (page text, a KB answer). Both are
+    /// fenced as untrusted: `targets` is derived from filenames the user
+    /// controls, and `context` routinely is a web page.
+    ///
+    /// The caller shows the returned action to the user and applies it only on
+    /// approval. Nothing here writes.
+    pub fn plan_note(
+        &self,
+        request: &str,
+        targets: &str,
+        context: Option<&str>,
+    ) -> Result<NoteAction, AgentError> {
+        const CONTEXT_BUDGET: usize = 6 * 1024;
+        const TARGET_BUDGET: usize = 4 * 1024;
+        let targets = wrap_untrusted(truncate_utf8(targets, TARGET_BUDGET));
+        let context = context
+            .map(|c| wrap_untrusted(truncate_utf8(c, CONTEXT_BUDGET)))
+            .unwrap_or_default();
+
+        let prompt = format!(
+            "You are the Flux notes assistant. {UNTRUSTED_PREAMBLE}\n\nYou may ADD to \
+             the user's notes. You can create a note or page, or append to an \
+             existing one. You can NEVER edit, rewrite, reorder or delete anything \
+             that is already written — there is no way to express that, so do not \
+             try.\n\nRespond with EXACTLY ONE JSON object and nothing else, one of \
+             these shapes:\n\
+             {{\"action\":\"new_note\",\"title\":\"<title>\",\"body\":\"<markdown>\",\"folder\":\"<folder or null>\",\"tags\":\"<comma tags or null>\"}}\n\
+             {{\"action\":\"append_note\",\"path\":\"<exact path from EXISTING>\",\"body\":\"<markdown>\"}}\n\
+             {{\"action\":\"new_page\",\"notebook\":\"<exact notebook id from EXISTING>\",\"title\":\"<title>\",\"body\":\"<markdown>\"}}\n\
+             {{\"action\":\"append_page\",\"notebook\":\"<id>\",\"page\":\"<page id from EXISTING>\",\"body\":\"<markdown>\"}}\n\
+             {{\"action\":\"nothing\",\"reason\":\"<why>\"}}\n\n\
+             Only ever append to a path or id that appears verbatim in EXISTING. \
+             If the request is a question, or asks to change something already \
+             written, use \"nothing\". Write the body the user asked for — not a \
+             description of it.\n\n\
+             EXISTING:\n{targets}\n\n{context}REQUEST: {request}"
+        );
+
+        let raw = self
+            .backend
+            .complete(&prompt, Some(&note_action_schema()))?;
+        let action: NoteAction = serde_json::from_str(first_json_object(&raw))?;
+        tracing::info!(target: "flux::agent", action = %action.describe(), "planned note write");
         Ok(action)
     }
 

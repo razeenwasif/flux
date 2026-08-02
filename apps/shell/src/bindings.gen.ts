@@ -405,6 +405,30 @@ export type Resolution = { kind: "navigate"; url: string } | { kind: "search"; e
 export type AgentAction = { action: "click"; selector: string; reason: string } | { action: "extract_table"; selector: string; format: ExtractFormat } | { action: "type"; selector: string; text: string } | { action: "reveal"; selector: string } | { action: "refuse"; reason: string } | { action: "finish"; summary: string }
 export type ExtractFormat = "csv" | "json"
 /**
+ * What the agent may write into your notes (#108).
+ * 
+ * **A separate vocabulary from [`AgentAction`], deliberately.** That one is
+ * page automation compiled to JavaScript and injected into a tab; this one
+ * touches the user's own Onyx vault and Scribe notebooks. Sharing an enum
+ * would mean one policy check guarding two entirely different blast radii.
+ * 
+ * **Additive only, and not by policy — by vocabulary.** There is no variant
+ * that replaces, rewrites, reorders or deletes anything. A model that decides
+ * your notes would read better rewritten has no way to say so, and a prompt
+ * injection buried in a page cannot reach for a capability that doesn't exist.
+ * Appending is the most destructive thing expressible, and appending never
+ * loses text. Keep it that way: adding a variant here widens what a bad
+ * generation can do to data the user cannot easily reconstruct.
+ * 
+ * Nothing here executes on its own. `plan_note` produces a proposal; the user
+ * approves it; a separate command applies it. See `notewrite.rs`.
+ */
+export type NoteAction = { action: "new_note"; title: string; body: string; folder: string | null; tags: string | null } | { action: "append_note"; path: string; body: string } | { action: "new_page"; notebook: string; title: string; body: string } | { action: "append_page"; notebook: string; page: string; body: string } | { action: "nothing"; reason: string }
+/**
+ * A proposal, plus everything the confirmation card needs to show it.
+ */
+export type NoteProposal = { action: NoteAction; summary: string; body: string | null; writes: boolean }
+/**
  * One surgical file edit: replace the first occurrence of `search` with `replace`.
  */
 export type FileEdit = { search: string; replace: string }

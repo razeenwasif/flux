@@ -55,6 +55,23 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
   A separate lazy chunk (1.6 KB gzip); the eager chrome bundle moves 64.4 → 64.5 KB.
 
+- **Gemma can write to your notes — `/note <what to add>`** (#108). She drafts a new Onyx note, a new
+  Scribe page, or an addition to an existing one, and you see **the exact text** before anything is
+  written. Approving content rather than a description of content is the point: a card that said
+  "adds a summary" while writing something else would be worthless.
+
+  **She can only add.** The action vocabulary has no variant that replaces, rewrites, reorders or
+  deletes — so a model that decides your notes would read better rewritten has no way to say so, and
+  a prompt injection buried in a page cannot reach for a capability that doesn't exist. Appending is
+  the most destructive thing expressible, and appending cannot lose text. A test fails if the
+  vocabulary ever gains one of those verbs.
+
+  Planning and applying are **two separate commands** with nothing joining them in the backend, so
+  there is no path from the model's output to your vault that skips your approval — that's a missing
+  edge in the call graph, not a policy someone has to remember. And because a generated path is
+  still just text, it's checked to resolve inside the vault and to already exist before a byte is
+  written: "append to `../../.bashrc`" would otherwise be a working instruction.
+
 ### Changed
 - **Scrollbars match the rest of Flux, from one rule.** Every surface now draws the same rounded,
   inset thumb with hover and drag states, defined once against theme tokens

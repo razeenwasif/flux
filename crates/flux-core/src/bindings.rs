@@ -200,6 +200,8 @@ pub fn generate_ts() -> String {
         specta::ts::export::<flux_search::Resolution>(&c),
         specta::ts::export::<flux_agent::AgentAction>(&c),
         specta::ts::export::<flux_agent::ExtractFormat>(&c),
+        specta::ts::export::<flux_agent::NoteAction>(&c),
+        specta::ts::export::<crate::notewrite::NoteProposal>(&c),
         specta::ts::export::<flux_agent::FileEdit>(&c),
         specta::ts::export::<flux_agent::EditPlan>(&c),
         specta::ts::export::<flux_agent::NextStep>(&c),

@@ -70,6 +70,9 @@ import {
   scrollClip,
   onyxCapturePage,
   onyxNewNote,
+  notePlan,
+  noteApply,
+  type NoteProposal,
   calEvents,
   calLocalEvents,
   calEventAdd,
@@ -120,9 +123,13 @@ import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
 
 type FeedItem = {
-  role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit";
+  role: "user" | "assistant" | "action" | "error" | "plan" | "task" | "shell" | "edit" | "note";
   text: string;
   action?: AgentAction;
+  /** A proposed write into your notes, awaiting confirmation (#108). */
+  note?: NoteProposal;
+  /** Set once applied — the written path, so the card stops offering to write. */
+  noteDone?: string;
   pending?: boolean;
   image?: string;
   shellCmd?: string;
@@ -863,6 +870,7 @@ const AgentPanel: Component = () => {
     '- Chain several of the above in one request: join steps with "then" / "+" — e.g. "read src/foo.rs then fix the bug then run the tests" or "play my liked songs + shuffle on". Each step runs in order; edits/commands still ask for approval.\n' +
     '- Adaptive goal loop: "/fix <goal>" (e.g. "/fix make the tests in src/foo.rs pass") — you run one step, read the result, and re-plan: run → read the failure → edit a fix → re-run, until it\'s done or stuck. Each edit/command still asks for approval.\n' +
     '- Power Platform (Power Apps / Power Automate ALM): "/pac <request>" maps to ONE Power Platform CLI command — e.g. "/pac export my solution Contoso", "/pac unpack the solution zip", "/pac list my canvas apps". It runs the command via the approval card; environment-mutating ones (import/delete/publish) are flagged first.\n' +
+    '- Notes: "/note <what to add>" drafts something to ADD to the user\'s Onyx vault or a Scribe notebook — a new note/page, or an append to an existing one. They see the exact text and approve it before anything is written. You can never edit, rewrite or delete what is already there.\n' +
     '- Voice: always-on "Hey Gemma" + push-to-talk; the user can interrupt you by talking or the Stop button.\n' +
     "When asked what you can do, summarize the above. Don't claim abilities not listed.";
 
@@ -1154,6 +1162,7 @@ const AgentPanel: Component = () => {
       "🔗 Chains — join steps with “then”/“+”, e.g. “read foo.rs then fix the bug then run the tests”\n" +
       "🛠 Fix loop — “/fix <goal>”, e.g. “/fix make the tests pass”; I run → read the failure → fix → re-run\n" +
       "⚡ Power Platform — “/pac <request>”, e.g. “/pac export my solution Contoso”; I map it to a pac CLI command you approve\n" +
+      "✎ Notes — “/note <what to add>” drafts a note or page; you see the exact text and approve before anything is written\n" +
       "🎙 Voice — “Hey Gemma” always-on + push-to-talk; talk over me or tap ■ Stop to interrupt";
     setFeed((fd) => [...fd, { role: "assistant", text: card }]);
     return "I can handle reminders, memory, terminal commands, system stats, web search, music, page actions, and voice. What would you like to do?";
@@ -1847,6 +1856,17 @@ const AgentPanel: Component = () => {
         void runTask(task[1].trim());
         return;
       }
+      // "/note <request>" drafts something to ADD to your notes. Explicitly a
+      // slash command, not an inference from phrasing: writing is the one thing
+      // here that changes your own files, and it should never happen because a
+      // question was misread as an instruction.
+      const note = p.match(/^\/note\s+([\s\S]+)/i);
+      if (note?.[1]) {
+        setPrompt("");
+        setFeed((f) => [...f, { role: "user", text: p }]);
+        void planNote(note[1].trim());
+        return;
+      }
       // "/fix <goal>" runs the adaptive tool loop — run → read the failure → fix →
       // re-run, reacting to each result until done or stuck (#115 follow-up).
       const fix = p.match(/^\/(?:fix|auto|iterate)\s+([\s\S]+)/i);
@@ -2284,6 +2304,40 @@ const AgentPanel: Component = () => {
   // model says it's done / stuck or the step cap. Each step routes through the same
   // tools (so edits/commands still ask for approval), and the result is fed back.
   const MAX_FIX_STEPS = 10;
+  /** Draft a note write and put it up for confirmation. Never writes. */
+  const planNote = async (request: string): Promise<void> => {
+    setBusy(true);
+    try {
+      const proposal = await notePlan(request);
+      if (!proposal.writes) {
+        // The model decided there was nothing to add — usually a question, or a
+        // request to change something already written, which it cannot do.
+        setFeed((f) => [...f, { role: "assistant", text: proposal.summary }]);
+        return;
+      }
+      setFeed((f) => [...f, { role: "note", text: proposal.summary, note: proposal }]);
+    } catch (err) {
+      setFeed((f) => [...f, { role: "error", text: String(err) }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Drop a proposal without writing. The card collapses to a plain line rather
+   *  than vanishing, so the feed still records that something was offered. */
+  const discardNote = (idx: number) =>
+    setFeed((f) => f.map((it, i) => (i === idx ? { role: "assistant", text: `Discarded: ${it.text}` } : it)));
+
+  /** Apply a proposal the user approved. */
+  const applyNote = async (idx: number, proposal: NoteProposal): Promise<void> => {
+    try {
+      const path = await noteApply(proposal.action);
+      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, noteDone: path } : it)));
+    } catch (err) {
+      setFeed((f) => [...f, { role: "error", text: String(err) }]);
+    }
+  };
+
   const runAdaptiveTask = async (goal: string): Promise<void> => {
     if (taskRunning()) return;
     setTaskRunning(true);
@@ -2632,6 +2686,39 @@ const AgentPanel: Component = () => {
                       <button class="agent-approve-no" onClick={() => cancelShell(i())}>
                         Cancel
                       </button>
+                    </div>
+                  </Show>
+                  {/* A proposed write into your notes. The card shows the exact
+                      text — you approve content, not a description of it. */}
+                  <Show when={item.role === "note" && item.note}>
+                    <div class="agent-note">
+                      <div class="agent-note-head">
+                        <span class="agent-note-ico">✎</span>
+                        <span class="agent-note-target">{item.note!.summary}</span>
+                      </div>
+                      <Show when={item.note!.body}>
+                        <pre class="agent-note-body">{item.note!.body}</pre>
+                      </Show>
+                      <Show
+                        when={!item.noteDone}
+                        fallback={
+                          <div class="agent-note-done">
+                            ✓ Added ·{" "}
+                            <span class="agent-note-path" title={item.noteDone}>
+                              {item.noteDone}
+                            </span>
+                          </div>
+                        }
+                      >
+                        <div class="agent-approve">
+                          <button class="agent-approve-yes" onClick={() => void applyNote(i(), item.note!)}>
+                            ✓ Add to my notes
+                          </button>
+                          <button class="agent-approve-no" onClick={() => discardNote(i())}>
+                            Discard
+                          </button>
+                        </div>
+                      </Show>
                     </div>
                   </Show>
                   <Show when={item.role === "edit" && item.editDiff}>

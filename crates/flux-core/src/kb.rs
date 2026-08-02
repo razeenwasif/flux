@@ -1084,6 +1084,36 @@ and {home}/OnyxVault)."
     Ok(out)
 }
 
+/// Vault-relative paths of every note, for the agent's write targets (#108) —
+/// the listing the model appends against. Paths only: the bodies are what the
+/// KB is for, and a whole vault will not fit in a prompt.
+pub(crate) fn onyx_note_paths(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_paths(root, root, &mut out);
+    out.sort();
+    out
+}
+
+fn collect_paths(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for ent in read.flatten() {
+        let path = ent.path();
+        let name = ent.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        if ent.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            collect_paths(root, &path, out);
+        } else if name.to_ascii_lowercase().ends_with(".md") {
+            if let Ok(rel) = path.strip_prefix(root) {
+                out.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+}
+
 fn walk_md(root: &Path, dir: &Path, out: &mut Vec<RawDoc>) {
     let Ok(read) = std::fs::read_dir(dir) else {
         return;
@@ -1728,7 +1758,7 @@ and scroll it into view, then try again.",
     out
 }
 
-fn write_onyx_note(
+pub(crate) fn write_onyx_note(
     location: Option<&str>,
     title: &str,
     content: &str,

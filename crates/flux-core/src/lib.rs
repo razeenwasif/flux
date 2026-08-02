@@ -44,6 +44,7 @@ pub mod nav;
 pub mod netfilter;
 pub mod netspeed;
 pub mod notes;
+pub mod notewrite;
 pub mod ocr;
 pub mod omni;
 pub mod pdf;
@@ -1437,6 +1438,8 @@ pub fn run(intent: cli::LaunchIntent) {
             kb::kb_status,
             kb::kb_recent,
             kb::kb_reindex,
+            notewrite::note_plan,
+            notewrite::note_apply,
             kb::kb_set_source,
             kb::kb_query,
             kb::kb_related,

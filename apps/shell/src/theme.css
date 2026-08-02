@@ -4216,6 +4216,57 @@ body.resizing .panel-edge-resize::after {
   background: rgba(236, 75, 224, 0.1);
   border: 1px solid rgba(236, 75, 224, 0.3);
 }
+/* Proposed note write (#108). The body is shown verbatim and monospaced: the
+   user is approving the exact text that lands in their vault, not a summary of
+   it, so it must not be reflowed or prettified into something else. */
+.agent-note {
+  margin-top: 7px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-rim-soft);
+  background: rgba(123, 97, 255, 0.07);
+}
+.agent-note-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--flux-text);
+}
+.agent-note-ico {
+  color: var(--flux-teal);
+}
+.agent-note-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-note-body {
+  margin-top: 7px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 8px 9px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  font-family: var(--flux-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--flux-text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.agent-note-done {
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+.agent-note-path {
+  color: var(--flux-text-dim);
+  word-break: break-all;
+}
+
 .agent-approve {
   display: flex;
   gap: 6px;

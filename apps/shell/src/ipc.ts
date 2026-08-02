@@ -131,6 +131,8 @@ import type {
   ChromeProfilePreview as GenChromeProfilePreview,
   ChromeBookmark as GenChromeBookmark,
   AgentAction as GenAgentAction,
+  NoteAction as GenNoteAction,
+  NoteProposal as GenNoteProposal,
   EditPlan as GenEditPlan,
   NextStep as GenNextStep,
   PacPlan as GenPacPlan,
@@ -700,6 +702,17 @@ export const scrollClip = (url: string, tags?: string) => invoke<string>("scroll
  *  `#` optional) and becomes YAML frontmatter. */
 export const onyxNewNote = (title: string, content: string, folder?: string, tags?: string) =>
   invoke<string>("onyx_new_note", { title, content, folder, tags });
+
+/** What the agent proposes to add to your notes (#108). Planning NEVER writes —
+ *  the two commands are deliberately separate, so there is no path from the
+ *  model's output to your vault that doesn't pass through `noteApply`. */
+export type NoteAction = GenNoteAction;
+export type NoteProposal = GenNoteProposal;
+/** Ask the model what to add. Returns a proposal to confirm; writes nothing. */
+export const notePlan = (request: string, context?: string) =>
+  invoke<NoteProposal>("note_plan", { request, context });
+/** Apply a proposal the user approved. Returns the written path. */
+export const noteApply = (action: NoteAction) => invoke<string>("note_apply", { action });
 /** Capture the ACTIVE page's visible text into an Onyx note — for lecture
  *  transcripts (Echo360 &c.). Errors if too little text was captured, rather
  *  than filing an empty stub. Returns the written path. */
