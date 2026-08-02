@@ -307,9 +307,13 @@ pub fn scribe_docs(store: &crate::scribe::ScribeStore) -> Vec<RawDoc> {
         let Some(nb) = store.load(&meta.id) else {
             continue;
         };
+        let mut handwritten: Vec<usize> = Vec::new();
         for (i, page) in nb.pages.iter().enumerate() {
             let body = crate::scribe::page_text(&page.strokes);
             if body.trim().is_empty() {
+                // Ink, not prose. Recorded rather than skipped — see the
+                // notebook card below.
+                handwritten.push(i + 1);
                 continue;
             }
             out.push(RawDoc {
@@ -321,6 +325,43 @@ pub fn scribe_docs(store: &crate::scribe::ScribeStore) -> Vec<RawDoc> {
                 body,
             });
         }
+
+        // One card per notebook, always — even when every page is ink.
+        //
+        // Without this a fully handwritten notebook produced *zero* documents,
+        // so asking about it got "the sources contain no information about a
+        // Convex Analysis notebook". Which was true of the corpus and utterly
+        // misleading about reality: the notebook was right there, its pages
+        // just hadn't been transcribed. Now the notebook itself is findable and
+        // says what state it's in, so the answer becomes "it exists, here's how
+        // to make it readable" instead of "it doesn't exist".
+        let mut body = format!("Scribe notebook: {}", nb.name);
+        if let Some(c) = nb.course.as_deref().filter(|c| !c.trim().is_empty()) {
+            body.push_str(&format!("\nCourse: {c}"));
+        }
+        body.push_str(&format!("\nPages: {}", nb.pages.len()));
+        if !handwritten.is_empty() {
+            body.push_str(&format!(
+                "\n{} of these pages are HANDWRITTEN and have not been transcribed, so their \
+                 contents are not searchable yet: page{} {}. To read them, open the page in \
+                 Scribe and use Transcribe (the local vision model writes the handwriting out \
+                 as text and LaTeX).",
+                handwritten.len(),
+                if handwritten.len() == 1 { "" } else { "s" },
+                handwritten
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        out.push(RawDoc {
+            doc_id: format!("{}#notebook", nb.id),
+            title: nb.name.clone(),
+            path: format!("flux://scribe#{}", nb.id),
+            mtime: nb.ts,
+            body,
+        });
     }
     out
 }
@@ -2129,6 +2170,82 @@ mod tests {
             "its chunks gone too"
         );
         drop(d);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ─── Scribe as a KB source ──────────────────────────────────────────────
+
+    #[test]
+    fn a_handwritten_notebook_is_still_findable() {
+        // The bug this fixes: every page was ink, page_text returned "", every
+        // page was skipped, and the notebook produced ZERO documents. Asking
+        // about it got "the sources contain no information about that notebook"
+        // - true of the corpus, and completely misleading about reality.
+        let dir = std::env::temp_dir().join(format!("flux-kb-scribe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::scribe::ScribeStore::restore(dir.clone());
+        let mut nb = store.create(
+            "Convex Analysis & Optimization".into(),
+            Some("MATH3512".into()),
+        );
+        nb.pages[0].strokes = r##"[{"t":"pen","color":"#fff","w":3,"pts":[[1,1],[2,2]]}]"##.into();
+        nb.pages.push(crate::scribe::Page {
+            id: "pg-ink2".into(),
+            template: "grid".into(),
+            strokes: r##"[{"t":"pen","color":"#fff","w":3,"pts":[]}]"##.into(),
+            ts: 2,
+        });
+        store.save(nb);
+
+        let docs = scribe_docs(&store);
+        assert_eq!(docs.len(), 1, "the notebook itself must be indexed");
+        let card = &docs[0];
+        assert_eq!(card.title, "Convex Analysis & Optimization");
+        assert!(card.body.contains("MATH3512"), "course: {}", card.body);
+        assert!(card.body.contains("Pages: 2"), "{}", card.body);
+        assert!(
+            card.body.to_lowercase().contains("handwritten"),
+            "must say why the contents aren't searchable: {}",
+            card.body
+        );
+        assert!(
+            card.body.contains("Transcribe"),
+            "and what to do about it: {}",
+            card.body
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn typed_scribe_pages_are_indexed_individually() {
+        let dir = std::env::temp_dir().join(format!("flux-kb-scribe2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::scribe::ScribeStore::restore(dir.clone());
+        let mut nb = store.create("Notes".into(), None);
+        nb.pages[0] =
+            crate::scribe::Page::document("Duality", "Slater's condition implies strong duality.");
+        store.save(nb);
+
+        let docs = scribe_docs(&store);
+        assert_eq!(docs.len(), 2, "one page + the notebook card");
+        assert!(
+            docs.iter().any(|d| d.body.contains("Slater")),
+            "the page's prose is indexed"
+        );
+        // A fully-typed notebook shouldn't be told it has handwriting.
+        let card = docs
+            .iter()
+            .find(|d| d.doc_id.ends_with("#notebook"))
+            .unwrap();
+        assert!(
+            !card.body.to_lowercase().contains("handwritten"),
+            "{}",
+            card.body
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

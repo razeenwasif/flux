@@ -190,6 +190,25 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   every chunk built so far.
 
 ### Fixed
+- **Flux's own pages were invisible to the agent.** A `flux://` page (Scribe, the Notebook, the
+  Trail…) is a Solid component in the chrome's DOM, not a native webview — so nothing injected the
+  capture script and **no internal page ever published its text**. "All tabs" skipped them, the
+  connections rail had no page to relate anything to, and `/note` had no context, in every case
+  silently: a missing snapshot looks exactly like a page that hasn't loaded yet.
+
+  They publish now. (`domPublish` existed and had never had a caller — it targets a `fluxtab`
+  plugin command, and the chrome window isn't granted `fluxtab:default`, so calling it would have
+  been denied. The new path is an app command.)
+- **"All tabs" quietly answered from *some* tabs.** Tabs with no captured text — asleep, or never
+  brought to the front — were dropped without a word, so the model answered from a subset while
+  believing it had everything, and would state a thing wasn't there when it simply hadn't been read.
+  They're now listed as unread, with an instruction to say so rather than deny.
+- **A handwritten Scribe notebook didn't exist as far as the KB was concerned.** Pages with no typed
+  text produce no searchable body, and each was skipped — so a fully handwritten notebook indexed to
+  **zero documents**, and asking about it got "the sources contain no information about that
+  notebook". True of the corpus, and badly misleading about reality. Every notebook now indexes a
+  card of its own: name, course, page count, and which pages are handwritten and untranscribed, so
+  the answer becomes "it exists, here's how to make it readable" rather than "it doesn't exist".
 - **The agent answered "My notes" from a stale index.** Indexing was manual — the ↻ button in the
   Notebook panel was the *only* caller of `kb_reindex` — so a page you'd just written in Scribe, or
   a note you'd just made in Onyx, simply wasn't there, and the agent answered from whatever that

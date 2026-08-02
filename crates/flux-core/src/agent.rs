@@ -255,8 +255,28 @@ pub fn agent_set_model(name: String) {
 fn combine_tab_context(state: &FluxState, tab_ids: &[TabId]) -> String {
     const PER_TAB: usize = 4 * 1024;
     let mut combined = String::new();
+    let mut unread: Vec<String> = Vec::new();
     for id in tab_ids {
         let Some(snap) = state.dom_cache.get(id) else {
+            // A tab with no snapshot was silently dropped, so the model answered
+            // from a subset of "all tabs" while believing it had all of them —
+            // and confidently said a thing wasn't there when it simply hadn't
+            // been read. Name them instead: hibernated and never-focused tabs
+            // have nothing captured yet.
+            unread.push(
+                state
+                    .tabs
+                    .get(id)
+                    .map(|t| {
+                        let label = if t.title.trim().is_empty() {
+                            t.url.clone()
+                        } else {
+                            t.title.clone()
+                        };
+                        label.replace(['\n', '\r'], " ")
+                    })
+                    .unwrap_or_else(|| format!("tab {id}")),
+            );
             continue;
         };
         let title = state
@@ -275,6 +295,15 @@ fn combine_tab_context(state: &FluxState, tab_ids: &[TabId]) -> String {
             PER_TAB,
         )));
         combined.push_str("\n\n");
+    }
+    if !unread.is_empty() {
+        combined.push_str(&format!(
+            "--- NOT READ ({}) ---\nThese tabs are open but have no captured text yet \
+             (asleep, or never brought to the front). Say so if the answer might be in \
+             one of them; do not claim the information does not exist.\n{}\n\n",
+            unread.len(),
+            unread.join("\n")
+        ));
     }
     combined
 }

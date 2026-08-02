@@ -531,6 +531,17 @@ export const tabsRecluster = () => invoke<void>("tabs_recluster");
 export function domPublish(tabId: number, url: string, html: string, text: string) {
   return invoke<void>("plugin:fluxtab|dom_publish", { tabId, url, html, text });
 }
+/** Publish a **Flux-owned** page's visible text (Scribe, Notebook, Trail…).
+ *
+ *  A `flux://` page is a Solid component in the chrome's DOM, not a webview, so
+ *  nothing injects the capture script and it published nothing — leaving every
+ *  internal page invisible to "All tabs", the connections rail and `/note`.
+ *
+ *  An app command, not `plugin:fluxtab|dom_publish`: the chrome window isn't
+ *  granted `fluxtab:default`, so that call would have been denied (which is why
+ *  `domPublish` above has never had a caller). */
+export const domPublishInternal = (tabId: number, url: string, text: string) =>
+  invoke<void>("dom_publish_internal", { tabId, url, text });
 
 // ─── Events (Rust → UI) ──────────────────────────────────────────────────
 

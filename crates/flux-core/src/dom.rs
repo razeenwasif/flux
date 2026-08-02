@@ -145,6 +145,47 @@ pub fn dom_publish(
         .map_err(|e| e.to_string())
 }
 
+/// Publish a **Flux-owned** page's visible text (Scribe, the Notebook, the Trail…).
+///
+/// A `flux://` page is a Solid component in the chrome's own DOM, not a native
+/// webview — so nothing injects `dom.js` into it and it never published a
+/// snapshot. That made every internal page invisible to the things that read
+/// snapshots: "All tabs" in the agent skipped them, the connections rail had no
+/// page to relate anything to, and `/note` had no context. Silently, in each
+/// case, because a missing snapshot is indistinguishable from a page that hasn't
+/// loaded yet.
+///
+/// A separate command from [`dom_publish`] rather than reusing it: that one is a
+/// `fluxtab` **plugin** command so remote pages may call it, and the chrome
+/// window isn't granted `fluxtab:default` — calling it from here would have been
+/// denied. This is an app command, callable only by the chrome, which is also
+/// the honest boundary: nothing here is untrusted content.
+///
+/// No history, no Trail, no Omni: browsing your own notes isn't browsing, and
+/// recording it would fill the provenance spine with `flux://` noise.
+#[tauri::command]
+pub fn dom_publish_internal(
+    state: State<'_, FluxState>,
+    tab_id: TabId,
+    url: String,
+    text: String,
+) -> Result<(), String> {
+    let text = cap_utf8(text, MAX_SNAPSHOT_TEXT);
+    state.dom_cache.insert(
+        tab_id,
+        std::sync::Arc::new(crate::state::DomSnapshot {
+            tab: tab_id,
+            url,
+            // Internal pages have no serialized HTML to keep; every consumer
+            // that matters reads `text`.
+            html: std::sync::Arc::from(""),
+            text: std::sync::Arc::from(text.as_str()),
+            captured_at_ms: now_ms(),
+        }),
+    );
+    Ok(())
+}
+
 /// App keyboard shortcuts forwarded from a focused tab webview (#18). A native
 /// child webview eats key events when focused, so the injected `shortcuts.js`
 /// detects Flux's chord set and calls this; we re-emit it to the chrome, which
