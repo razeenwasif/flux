@@ -13,7 +13,7 @@
  * past sighting — with a 💬 when a chat thread is attached (you may have solved
  * it there). Precision-gated backend-side; it's empty on almost every page.
  */
-import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, lazy, onCleanup, onMount, type Component } from "solid-js";
 
 import {
   fsOpen,
@@ -26,6 +26,13 @@ import {
   type KbHit,
 } from "./ipc";
 import { activeId, openTab } from "./store";
+
+/** Moved here from the sidebar (#110): both surfaces answer "what else relates
+ *  to what I'm looking at" — connections from your own notes, the Trail from
+ *  your own browsing — so they belong in one column rather than either side of
+ *  the window. It also buys back sidebar height and survives collapsing the
+ *  sidebar, which used to hide the Trail entirely. */
+const TrailMini = lazy(() => import("./TrailMini"));
 
 const SOURCE_ICON: Record<string, string> = {
   onyx: "📝",
@@ -235,6 +242,13 @@ const ConnectionsRail: Component = () => {
           </Show>
         </div>
       </Show>
+
+      {/* This workspace's browsing, pinned to the bottom: a dot-map that expands
+          into a searchable list. It sits below the connections rather than above
+          them because it answers a different question — "where have I been"
+          instead of "what do I already know" — and the rail's own results are
+          what changes on every navigation. */}
+      <TrailMini />
     </aside>
   );
 };

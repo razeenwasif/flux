@@ -51,6 +51,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   A separate lazy chunk (1.6 KB gzip); the eager chrome bundle moves 64.4 → 64.5 KB.
 
 ### Changed
+- **The Trail moved from the sidebar to the foot of the connections rail.** Both surfaces answer
+  "what else relates to what I'm looking at" — connections from your own notes, the Trail from your
+  own browsing — so they now share a column instead of sitting on opposite edges of the window.
+  It also buys back sidebar height, and the Trail survives collapsing the sidebar, which used to
+  hide it outright.
+
+  It sits *below* the connections rather than above: the rail's own results are what change on
+  every navigation, and the Trail answers "where have I been" rather than "what do I already know".
+  The map gives up height first when the column is short, since it was sized for a sidebar it had
+  to itself. Connection cards now fade at the scroll edge instead of being sliced mid-height, which
+  became obvious with the Trail directly beneath.
+
+  One consequence worth knowing: with the connections rail hidden, the Trail is no longer in the
+  chrome at all — `flux://trail` and the command palette are the ways back to it.
 - **The collapsed sidebar is a real rail.** It used to show pinned tiles and nothing else, which
   made collapsing a way to *lose* your open tabs rather than a way to reclaim width — switching
   tabs meant expanding again first. It now mirrors the expanded sidebar's order at 72px: pinned

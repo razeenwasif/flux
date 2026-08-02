@@ -3645,6 +3645,24 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-text-mute);
   line-height: 1.5;
   padding: 8px 6px;
+  /* Grows so the Trail stays pinned to the bottom of the rail when there are no
+     connections, instead of riding up under the empty message. */
+  flex: 1;
+  min-height: 0;
+}
+
+/* The Trail lives at the foot of this rail (#110). It already draws its own
+   card; here it only needs the sidebar's outer margins removed and a ceiling,
+   so a long browsing session can't crowd out the connections above it. */
+.connect-rail .trailmini {
+  margin: 0;
+  max-height: 42%;
+}
+/* The map was sized for the sidebar, where it had a column to itself. Here it
+   competes with the connections, which are what change on every navigation, so
+   it gives up height first. */
+.connect-rail .trailmini-map {
+  height: min(220px, 26vh);
 }
 .connect-list {
   flex: 1;
@@ -3654,6 +3672,11 @@ body.resizing .panel-edge-resize::after {
   flex-direction: column;
   gap: 6px;
   padding-right: 2px;
+  /* Cards were sliced mid-height at the scroll edge, which reads as a rendering
+     fault rather than "there's more". More noticeable now that the Trail sits
+     directly beneath (#110). Same treatment as the collapsed sidebar rail. */
+  mask-image: linear-gradient(#000 0, #000 calc(100% - 12px), #0000 100%);
+  -webkit-mask-image: linear-gradient(#000 0, #000 calc(100% - 12px), #0000 100%);
 }
 .connect-item {
   display: flex;
