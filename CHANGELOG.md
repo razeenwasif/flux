@@ -35,6 +35,25 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   handwriting.
 
 ### Changed
+- **KB embeddings are int8 in a binary sidecar, not JSON floats (5x smaller, 5x faster to load).**
+  Every embedding was persisted as decimal text inside the index — 3.5x the size of the raw bytes,
+  spent entirely on rendering numbers as strings — then re-parsed in full on every boot. Measured
+  at 60k chunks x 768 dimensions: a **623 MB** file taking **1.09 s** to parse and **1.16 s** to
+  write, against a retrieval scan of ~3 ms. Storage cost three orders of magnitude more than the
+  thing it existed to serve.
+
+  Vectors now live in a `kb-index.vec` sidecar, quantized to int8 with a per-row scale, as one
+  contiguous matrix. Same corpus: **125 MB**, **207 ms** to load, **209 ms** to write, and the
+  resident vectors drop from 176 MB to **44 MB**. Rows sit end to end at a fixed stride, so the
+  scan walks memory linearly instead of chasing a pointer per chunk — which is worth more than
+  hand-written SIMD would have been, since that loop is bandwidth-bound.
+
+  **Retrieval quality is measured, not assumed:** a test scores 2k vectors against exact f32 and
+  requires recall@8 of at least 99% with per-hit score drift under 0.01. Existing indexes migrate
+  on first load rather than re-embedding — for a model-embedded corpus that would mean re-running
+  every Ollama call. Rows are paired to chunks *by position*, so a sidecar that doesn't match the
+  index is refused outright and the Notebook panel is told a reindex is needed; serving it would
+  attribute every hit to the wrong document, and nothing about the results would look wrong.
 - **KB retrieval now uses the whole CPU (~8x faster).** `kb_query`/`kb_related` is the
   highest-frequency CPU loop in Flux — the connections rail re-runs it on every navigation — and
   it was a single-threaded linear scan that scored *every* chunk into a freshly allocated vector

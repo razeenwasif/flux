@@ -19,14 +19,18 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::embedding::{self, Embedder};
+use crate::vecstore::{self, VecStore};
 
 fn default_embedder() -> Embedder {
     Embedder::Hash
 }
 
-/// One embedded chunk of a source document. The embedding is persisted (model
-/// embeddings are network calls — don't recompute per load) and tagged with the
-/// embedder that produced it, so the corpus re-embeds if the embedder changes.
+/// One embedded chunk of a source document, tagged with the embedder that
+/// produced it so the corpus re-embeds if the embedder changes.
+///
+/// The vector itself lives in [`KbData::vecs`] at the same index, not here —
+/// see `vecstore.rs` for why (this field used to hold a `Vec<f32>` that was
+/// persisted as JSON decimal floats, which cost more than all of retrieval).
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KbChunk {
     pub source: String,
@@ -35,8 +39,12 @@ pub struct KbChunk {
     pub path: String,
     pub ord: usize,
     pub text: String,
-    #[serde(default)]
-    embedding: Vec<f32>,
+    /// Deserialize-only, for one-time migration of an index written before the
+    /// sidecar existed. Never written back, and dropped once migrated — an
+    /// index that had to re-embed instead would mean re-running every Ollama
+    /// call for the whole corpus.
+    #[serde(default, skip_serializing, rename = "embedding")]
+    legacy_embedding: Vec<f32>,
     #[serde(default = "default_embedder")]
     embedder: Embedder,
 }
@@ -63,6 +71,13 @@ struct KbData {
     embedder: Embedder,
     docs: Vec<KbDoc>,
     chunks: Vec<KbChunk>,
+    /// Quantized embeddings, one row per entry in `chunks` **at the same
+    /// index**. Persisted separately (binary sidecar), so it is skipped here.
+    /// Every mutation of `chunks` must go through the paired helpers below —
+    /// the two falling out of step attributes each hit to the wrong document,
+    /// and nothing about the results would look wrong.
+    #[serde(skip)]
+    vecs: VecStore,
     /// source → epoch-ms of its last reindex.
     last: HashMap<String, u64>,
     /// source → last reindex error (e.g. "vault not found"), so the UI can explain a 0.
@@ -80,10 +95,43 @@ impl Default for KbData {
             embedder: Embedder::Hash,
             docs: Vec::new(),
             chunks: Vec::new(),
+            vecs: VecStore::default(),
             last: HashMap::new(),
             errors: HashMap::new(),
             config: HashMap::new(),
         }
+    }
+}
+
+impl KbData {
+    /// Are the chunks and their vectors still paired? Cheap enough to assert on
+    /// every load and after every rebuild.
+    fn paired(&self) -> bool {
+        self.chunks.len() == self.vecs.len()
+    }
+
+    /// Drop the chunks that don't pass, and their vectors with them.
+    ///
+    /// The mask is materialised rather than calling `keep` twice: `Vec::retain`
+    /// and `VecStore::retain` visit in the same order, but a predicate that
+    /// answered differently on the second pass would desync them silently.
+    fn retain_chunks(&mut self, keep: impl Fn(&KbChunk) -> bool) {
+        let mask: Vec<bool> = self.chunks.iter().map(keep).collect();
+        let mut i = 0;
+        self.chunks.retain(|_| {
+            let k = mask[i];
+            i += 1;
+            k
+        });
+        self.vecs.retain(|r| mask[r]);
+    }
+
+    /// Empty the corpus (embedder change — vectors of a different width and
+    /// meaning can't be compared with the new ones).
+    fn clear_corpus(&mut self) {
+        self.docs.clear();
+        self.chunks.clear();
+        self.vecs.clear();
     }
 }
 
@@ -313,24 +361,112 @@ impl KbStore {
         }
     }
 
+    /// Where the quantized vectors live, alongside the JSON index.
+    fn vectors_path(index: &std::path::Path) -> PathBuf {
+        index.with_extension("vec")
+    }
+
     /// Load the persisted index from disk (idempotent).
     pub fn hydrate(&self) {
         if self.hydrated.swap(true, Ordering::AcqRel) {
             return;
         }
         let Some(path) = &self.path else { return };
-        if let Ok(json) = std::fs::read_to_string(path) {
-            if let Ok(data) = serde_json::from_str::<KbData>(&json) {
-                *self.data.write() = data;
+        let Ok(json) = std::fs::read_to_string(path) else {
+            return;
+        };
+        let Ok(mut data) = serde_json::from_str::<KbData>(&json) else {
+            return;
+        };
+
+        let sidecar = std::fs::read(Self::vectors_path(path))
+            .ok()
+            .and_then(|b| VecStore::from_bytes(&b));
+        let mut migrated = false;
+
+        match sidecar {
+            // Normal path. The count check is the guard on the pairing
+            // invariant: a sidecar that doesn't line up is refused outright,
+            // because using it would silently score each chunk with another
+            // document's vector.
+            Some(v) if v.len() == data.chunks.len() => data.vecs = v,
+            other => {
+                if other.is_some() {
+                    tracing::warn!(
+                        target: "flux::kb",
+                        chunks = data.chunks.len(),
+                        "vector sidecar doesn't match the index; rebuilding from the JSON"
+                    );
+                }
+                migrated = Self::migrate_inline_vectors(&mut data);
             }
         }
+
+        // Free the migration buffers either way — on the normal path they were
+        // never populated, and after a migration they're duplicated in `vecs`.
+        for c in &mut data.chunks {
+            c.legacy_embedding = Vec::new();
+        }
+        data.chunks.shrink_to_fit();
+
+        debug_assert!(data.paired());
+        *self.data.write() = data;
+        if migrated {
+            self.persist();
+        }
+    }
+
+    /// Rebuild the vector store from embeddings that were inlined in the JSON.
+    ///
+    /// Returns whether anything was written that should be persisted. If the
+    /// vectors aren't there either, the corpus is dropped and every source is
+    /// given an error the Notebook panel can show — a KB that silently answers
+    /// nothing is the failure mode this project keeps paying for, so an index
+    /// we can't score is reported rather than served.
+    fn migrate_inline_vectors(data: &mut KbData) -> bool {
+        if data.chunks.is_empty() {
+            data.vecs.clear();
+            return false;
+        }
+        let mut vecs = VecStore::default();
+        let ok = data
+            .chunks
+            .iter()
+            .all(|c| !c.legacy_embedding.is_empty() && vecs.push(&c.legacy_embedding));
+        if ok && vecs.len() == data.chunks.len() {
+            tracing::info!(
+                target: "flux::kb",
+                chunks = vecs.len(),
+                dim = vecs.dim(),
+                "migrated inline embeddings to the quantized sidecar"
+            );
+            data.vecs = vecs;
+            return true;
+        }
+        tracing::warn!(
+            target: "flux::kb",
+            chunks = data.chunks.len(),
+            "index has no usable embeddings; a reindex is needed"
+        );
+        let sources: Vec<String> = data.chunks.iter().map(|c| c.source.clone()).collect();
+        data.clear_corpus();
+        for s in sources {
+            data.errors
+                .entry(s)
+                .or_insert_with(|| "index needs rebuilding — hit ↻ Reindex".to_string());
+        }
+        true
     }
 
     fn persist(&self) {
         let Some(path) = &self.path else { return };
-        let json = { serde_json::to_string(&*self.data.read()).ok() };
+        let (json, vecs) = {
+            let d = self.data.read();
+            (serde_json::to_string(&*d).ok(), d.vecs.to_bytes())
+        };
         if let Some(json) = json {
             let _ = std::fs::write(path, json);
+            let _ = std::fs::write(Self::vectors_path(path), vecs);
         }
     }
 
@@ -440,8 +576,7 @@ impl KbStore {
             let (nd, nc) = (d.docs.len(), d.chunks.len());
             d.docs
                 .retain(|x| !(x.source == source && ids.contains(x.doc_id.as_str())));
-            d.chunks
-                .retain(|x| !(x.source == source && ids.contains(x.doc_id.as_str())));
+            d.retain_chunks(|x| !(x.source == source && ids.contains(x.doc_id.as_str())));
             d.docs.len() != nd || d.chunks.len() != nc
         };
         if changed {
@@ -482,8 +617,7 @@ impl KbStore {
         let embedder_changed = self.data.read().embedder != embedder;
         if embedder_changed {
             let mut d = self.data.write();
-            d.docs.clear();
-            d.chunks.clear();
+            d.clear_corpus();
             d.embedder = embedder;
         }
 
@@ -587,6 +721,9 @@ impl KbStore {
 
         let mut new_docs: Vec<KbDoc> = Vec::with_capacity(chunked.len());
         let mut new_chunks: Vec<KbChunk> = Vec::with_capacity(flat.len());
+        // Quantized outside the lock, so the write guard is held only for the
+        // splice below rather than for the whole conversion.
+        let mut new_vecs = VecStore::default();
         let mut texts = flat.into_iter();
         let mut vecs = vecs.into_iter();
         let indexed_at = now_ms();
@@ -597,6 +734,15 @@ impl KbStore {
                 let (Some(text), Some(embedding)) = (texts.next(), vecs.next()) else {
                     return Err("embedder returned the wrong number of vectors".into());
                 };
+                // A refused row would shift every later chunk onto its
+                // neighbour's vector, so this is an abort, not a skip.
+                if !new_vecs.push(&embedding) {
+                    return Err(format!(
+                        "embedding width changed mid-build (expected {}, got {})",
+                        new_vecs.dim(),
+                        embedding.len()
+                    ));
+                }
                 new_chunks.push(KbChunk {
                     source: src.into(),
                     doc_id: doc.doc_id.clone(),
@@ -604,7 +750,7 @@ impl KbStore {
                     path: doc.path.clone(),
                     ord,
                     text,
-                    embedding,
+                    legacy_embedding: Vec::new(),
                     embedder,
                 });
             }
@@ -630,11 +776,19 @@ impl KbStore {
         d.docs.retain(|x| {
             x.source != src || (present.contains(&x.doc_id) && !rebuilt.contains(&x.doc_id))
         });
-        d.chunks.retain(|x| {
+        d.retain_chunks(|x| {
             x.source != src || (present.contains(&x.doc_id) && !rebuilt.contains(&x.doc_id))
         });
         d.docs.extend(new_docs);
         d.chunks.extend(new_chunks);
+        if !d.vecs.append(&new_vecs) {
+            // Surviving chunks were embedded at a different width than the ones
+            // just built. Rather than serve a half-valid corpus, drop it and say
+            // so — the next reindex rebuilds cleanly.
+            d.clear_corpus();
+            return Err("embedding width changed; the index was reset — reindex to rebuild".into());
+        }
+        debug_assert!(d.paired());
         Ok(())
     }
 
@@ -663,15 +817,23 @@ impl KbStore {
                 .unwrap_or(true)
         };
 
+        // A corpus embedded at a different width than the query can't be scored
+        // — the old code reached the same outcome via `cosine`'s length check
+        // returning 0.0 for every chunk, which read as "nothing matches".
+        if d.vecs.is_empty() || d.vecs.dim() != qv.len() || !d.paired() {
+            return Ok(Vec::new());
+        }
+        let (q, q_scale) = vecstore::quantize_query(&qv);
+
         // NOTE: a read guard is held across the parallel section. That is only
         // safe because nothing runnable in the rayon pool ever takes this lock —
         // reindex does its parallel work *before* acquiring the write guard.
         // Keep it that way, or this becomes a pool-starvation deadlock.
         let scored = if d.chunks.len() < PAR_MIN_CHUNKS {
             let mut top = TopK::new(k);
-            for (i, c) in d.chunks.iter().enumerate() {
+            for (i, (c, (row, scale))) in d.chunks.iter().zip(d.vecs.rows()).enumerate() {
                 if keep(c) {
-                    top.push(embedding::cosine(&qv, &c.embedding), i, c);
+                    top.push(vecstore::score(row, scale, &q, q_scale), i, c);
                 }
             }
             top.into_ranked()
@@ -679,12 +841,13 @@ impl KbStore {
             use rayon::prelude::*;
             d.chunks
                 .par_iter()
+                .zip(d.vecs.par_rows())
                 .enumerate()
                 .fold(
                     || TopK::new(k),
-                    |mut top, (i, c)| {
+                    |mut top, (i, (c, (row, scale)))| {
                         if keep(c) {
-                            top.push(embedding::cosine(&qv, &c.embedding), i, c);
+                            top.push(vecstore::score(row, scale, &q, q_scale), i, c);
                         }
                         top
                     },
@@ -1918,6 +2081,165 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // ─── Vector storage: migration and the sidecar ──────────────────────────
+
+    /// An index written before the sidecar existed, with its vectors inline.
+    fn legacy_index_json(body: &str) -> String {
+        let v = embedding::embed_with(body, Embedder::Hash).unwrap();
+        serde_json::json!({
+            "embedder": "hash",
+            "docs": [{ "source": "onyx", "doc_id": "a.md", "title": "Rust",
+                       "path": "/a.md", "mtime": 1, "n_chunks": 1, "indexed_at": 0 }],
+            "chunks": [{ "source": "onyx", "doc_id": "a.md", "title": "Rust",
+                         "path": "/a.md", "ord": 0, "text": body,
+                         "embedding": v, "embedder": "hash" }],
+            "last": {}, "errors": {}, "config": {}
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn an_inline_index_migrates_instead_of_forcing_a_re_embed() {
+        // The upgrade path that matters: for a model-embedded corpus, throwing
+        // the vectors away would mean re-running every Ollama call.
+        let dir = std::env::temp_dir().join(format!("flux-kb-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let index = dir.join("kb-index.json");
+        let body = "memory safety in rust, the borrow checker and lifetimes";
+        std::fs::write(&index, legacy_index_json(body)).unwrap();
+        assert!(!KbStore::vectors_path(&index).exists(), "no sidecar yet");
+
+        let store = KbStore::empty(index.clone());
+        let hits = store
+            .query("rust ownership and borrowing", 5, None)
+            .unwrap();
+        assert_eq!(hits.len(), 1, "the migrated vector is still searchable");
+        assert_eq!(hits[0].doc_id, "a.md");
+
+        // And the migration is written through, so the next boot is a binary
+        // read rather than a float parse.
+        assert!(KbStore::vectors_path(&index).exists(), "sidecar written");
+        let rewritten = std::fs::read_to_string(&index).unwrap();
+        assert!(
+            !rewritten.contains("\"embedding\""),
+            "vectors must not be left inline in the JSON"
+        );
+
+        let next_boot = KbStore::empty(index);
+        assert_eq!(
+            next_boot
+                .query("rust ownership and borrowing", 5, None)
+                .unwrap()
+                .len(),
+            1,
+            "reading back from the sidecar finds the same chunk"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_mismatched_sidecar_is_refused_rather_than_misread() {
+        // The failure this guards: rows paired to chunks by position, so a
+        // sidecar of the wrong length attributes every hit to the wrong
+        // document — and the results would look entirely plausible.
+        let dir = std::env::temp_dir().join(format!("flux-kb-mismatch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let index = dir.join("kb-index.json");
+
+        let store = KbStore::empty(index.clone());
+        let raw: Vec<RawDoc> = (0..3)
+            .map(|i| RawDoc {
+                doc_id: format!("d{i}.md"),
+                title: format!("Doc {i}"),
+                path: format!("/d{i}.md"),
+                mtime: 1,
+                body: format!("document {i} about rust and borrowing"),
+            })
+            .collect();
+        store.reindex_source("onyx", Embedder::Hash, raw).unwrap();
+        store.data.write().embedder = Embedder::Hash;
+        store.persist();
+        assert_eq!(store.query("rust borrowing", 5, None).unwrap().len(), 3);
+
+        // Corrupt the pairing: a sidecar holding one row for a three-chunk index.
+        let mut short = VecStore::default();
+        short.push(&embedding::embed_with("anything", Embedder::Hash).unwrap());
+        std::fs::write(KbStore::vectors_path(&index), short.to_bytes()).unwrap();
+
+        let reopened = KbStore::empty(index);
+        assert!(
+            reopened
+                .query("rust borrowing", 5, None)
+                .unwrap()
+                .is_empty(),
+            "a corpus that can't be scored must return nothing, not guesses"
+        );
+        let d = reopened.data.read();
+        assert!(
+            d.paired(),
+            "chunks and vectors are consistent after the reset"
+        );
+        assert!(
+            d.errors.contains_key("onyx"),
+            "and the UI is told why it's empty rather than showing a bare 0"
+        );
+        drop(d);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn removing_docs_keeps_the_remaining_vectors_with_their_chunks() {
+        // `remove_docs` is the privacy cascade (trace_forget). It retains
+        // chunks, so it must retain rows in lockstep or every surviving hit
+        // shifts onto a neighbour's vector.
+        let dir = std::env::temp_dir().join(format!("flux-kb-forget-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+
+        let topics = [
+            "rust borrow checker",
+            "tomato basil pasta",
+            "tensor gradients",
+        ];
+        let raw: Vec<RawDoc> = topics
+            .iter()
+            .enumerate()
+            .map(|(i, t)| RawDoc {
+                doc_id: format!("d{i}.md"),
+                title: t.to_string(),
+                path: format!("/d{i}.md"),
+                mtime: 1,
+                body: format!("{t} explained at some length for the chunker"),
+            })
+            .collect();
+        store.reindex_source("onyx", Embedder::Hash, raw).unwrap();
+        store.data.write().embedder = Embedder::Hash;
+
+        let before = store.query("tensor gradients", 1, None).unwrap();
+        assert_eq!(before[0].title, "tensor gradients");
+
+        // Drop the *first* document, so everything after it shifts by one.
+        store.remove_docs("onyx", &["d0.md".to_string()]);
+        assert!(store.data.read().paired());
+
+        let after = store.query("tensor gradients", 1, None).unwrap();
+        assert_eq!(
+            after[0].title, "tensor gradients",
+            "the survivor kept its own vector"
+        );
+        assert!(
+            !store.data.read().chunks.iter().any(|c| c.doc_id == "d0.md"),
+            "the forgotten doc is gone"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // ─── Retrieval: top-k and the parallel scan ─────────────────────────────
 
     fn stub_chunk(id: &str) -> KbChunk {
@@ -1928,7 +2250,7 @@ mod tests {
             path: id.into(),
             ord: 0,
             text: id.into(),
-            embedding: Vec::new(),
+            legacy_embedding: Vec::new(),
             embedder: Embedder::Hash,
         }
     }
@@ -2027,14 +2349,18 @@ mod tests {
             .map(|h| (h.doc_id.clone(), h.score))
             .collect();
 
-        // The reference is the loop this replaced: score everything, stable-sort
-        // descending, take k.
+        // The reference is a plain serial scan with a full sort — the shape the
+        // parallel top-k replaced. That the *quantized* score tracks exact f32
+        // is a separate claim, owned by `vecstore`'s recall test; what's checked
+        // here is that splitting the same scan across cores changes nothing.
         let qv = embedding::embed_with(q, Embedder::Hash).unwrap();
         let d = store.data.read();
+        let (qq, qs) = vecstore::quantize_query(&qv);
         let mut scored: Vec<(f32, &KbChunk)> = d
             .chunks
             .iter()
-            .map(|c| (embedding::cosine(&qv, &c.embedding), c))
+            .zip(d.vecs.rows())
+            .map(|(c, (row, sc))| (vecstore::score(row, sc, &qq, qs), c))
             .filter(|(s, _)| *s > 0.0)
             .collect();
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));

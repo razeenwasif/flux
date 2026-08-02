@@ -81,6 +81,7 @@ pub mod tracking;
 pub mod tts;
 pub mod tui_apps;
 pub mod vault;
+pub mod vecstore;
 pub mod voice;
 pub mod watch;
 pub mod webview;
