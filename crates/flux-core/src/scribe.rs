@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
@@ -321,20 +322,38 @@ pub fn scribe_load(store: State<'_, ScribeStore>, id: String) -> Result<Notebook
 #[tauri::command]
 pub fn scribe_create(
     store: State<'_, ScribeStore>,
+    fresh: State<'_, Arc<crate::kbfresh::KbFreshness>>,
     name: String,
     course: Option<String>,
 ) -> Notebook {
-    store.create(name, course)
+    let nb = store.create(name, course);
+    fresh.touch("scribe");
+    nb
 }
 
+/// Debounced from the frontend at ~500 ms, so this runs constantly while you
+/// write. It only *marks* the source; the rebuild waits for the edits to stop
+/// (see `kbfresh`), and skips pages whose mtime hasn't moved.
 #[tauri::command]
-pub fn scribe_save(store: State<'_, ScribeStore>, notebook: Notebook) {
+pub fn scribe_save(
+    store: State<'_, ScribeStore>,
+    fresh: State<'_, Arc<crate::kbfresh::KbFreshness>>,
+    notebook: Notebook,
+) {
     store.save(notebook);
+    fresh.touch("scribe");
 }
 
 #[tauri::command]
-pub fn scribe_delete(store: State<'_, ScribeStore>, id: String) {
+pub fn scribe_delete(
+    store: State<'_, ScribeStore>,
+    fresh: State<'_, Arc<crate::kbfresh::KbFreshness>>,
+    id: String,
+) {
     store.delete(&id);
+    // A deleted notebook must leave the index too, or the agent keeps citing
+    // pages that no longer exist.
+    fresh.touch("scribe");
 }
 
 /// Publish one page to the Onyx vault: a `.md` (frontmatter + embedded PNG of
@@ -346,6 +365,7 @@ pub fn scribe_delete(store: State<'_, ScribeStore>, id: String) {
 pub async fn scribe_publish_page(
     scribe: State<'_, ScribeStore>,
     kb: State<'_, crate::kb::KbStore>,
+    fresh: State<'_, Arc<crate::kbfresh::KbFreshness>>,
     id: String,
     page_index: u32,
     note: PageNote,
@@ -354,7 +374,7 @@ pub async fn scribe_publish_page(
     let nb = scribe.load(&id).ok_or_else(|| "notebook not found".to_string())?;
     let course = nb.course.clone();
     let location = kb.source_location("onyx");
-    tauri::async_runtime::spawn_blocking(move || {
+    let out = tauri::async_runtime::spawn_blocking(move || {
         publish_page(
             location.as_deref(),
             course.as_deref(),
@@ -364,7 +384,12 @@ pub async fn scribe_publish_page(
         )
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    // A published page becomes an Onyx note, so the vault's index is stale. The
+    // watcher would catch this too, but only if a vault is configured *and*
+    // watchable — this path knows for certain that something was written.
+    fresh.touch("onyx");
+    out
 }
 
 /// Split a free-typed tag string ("kkt, duality  convexity" or "#kkt #duality")
@@ -565,10 +590,7 @@ mod tests {
     fn page_text_reads_documents_and_legacy_strokes() {
         // v2 document: prose out of the HTML, tags and entities gone.
         let doc = r#"{"v":2,"html":"<h1>KKT</h1><p>Stationarity &amp; slackness</p><ul><li>primal</li></ul>","objects":[]}"#;
-        assert_eq!(
-            page_text(doc),
-            "KKT\nStationarity & slackness\nprimal"
-        );
+        assert_eq!(page_text(doc), "KKT\nStationarity & slackness\nprimal");
         // Pre-document page: typed strokes still index.
         let legacy = r#"[{"t":"pen","pts":[]},{"t":"text","text":"duality gap"}]"#;
         assert_eq!(page_text(legacy), "duality gap\n");
@@ -817,6 +839,12 @@ pub async fn scribe_transcribe(
     };
     if let Some(ts) = app.try_state::<TranscriptStore>() {
         ts.put(t.clone());
+    }
+    // Transcribed handwriting is its own KB source, and it's the only way a
+    // handwritten page becomes answerable at all — so it must reach the index
+    // without a manual reindex too.
+    if let Some(fresh) = app.try_state::<Arc<crate::kbfresh::KbFreshness>>() {
+        fresh.touch("scribe-ocr");
     }
     Ok(t)
 }

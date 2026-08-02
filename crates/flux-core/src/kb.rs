@@ -1015,7 +1015,7 @@ fn collect(source: &str, location: Option<&str>) -> Result<Vec<RawDoc>, String> 
 /// Onyx vault root: `$FLUX_ONYX_VAULT` (so Flux can index a vault that lives
 /// elsewhere — e.g. a Windows build pointing at `\\wsl.localhost\…\OnyxVault`),
 /// else `~/.config/onyx/config.toml` `last_vault`, else `~/OnyxVault`.
-pub(crate) fn onyx_vault(location: Option<&str>) -> Option<PathBuf> {
+pub fn onyx_vault(location: Option<&str>) -> Option<PathBuf> {
     // In-app setting wins (the user just typed it), then the env var, then autodetect.
     let env_v = std::env::var("FLUX_ONYX_VAULT").ok();
     for cand in [location, env_v.as_deref()] {
@@ -1651,13 +1651,14 @@ pub async fn scroll_clip(
 #[tauri::command]
 pub async fn onyx_new_note(
     kb: State<'_, KbStore>,
+    fresh: State<'_, std::sync::Arc<crate::kbfresh::KbFreshness>>,
     title: String,
     content: String,
     folder: Option<String>,
     tags: Option<String>,
 ) -> Result<String, String> {
     let location = kb.source_location("onyx");
-    tauri::async_runtime::spawn_blocking(move || {
+    let out = tauri::async_runtime::spawn_blocking(move || {
         write_onyx_note(
             location.as_deref(),
             &title,
@@ -1667,7 +1668,11 @@ pub async fn onyx_new_note(
         )
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    // Flux just wrote into the vault: mark it rather than waiting for the
+    // watcher, which needs a configured *and* watchable vault to fire.
+    fresh.touch("onyx");
+    out
 }
 
 /// Shortest captured page we'll accept as a lecture/article capture. Below this
@@ -1686,6 +1691,7 @@ const MIN_CAPTURE_CHARS: usize = 400;
 #[tauri::command]
 pub async fn onyx_capture_page(
     kb: State<'_, KbStore>,
+    fresh: State<'_, std::sync::Arc<crate::kbfresh::KbFreshness>>,
     state: State<'_, crate::state::FluxState>,
     title: String,
     folder: Option<String>,
@@ -1704,7 +1710,7 @@ and scroll it into view, then try again.",
     }
     let url = snap.url.clone();
     let location = kb.source_location("onyx");
-    tauri::async_runtime::spawn_blocking(move || {
+    let out = tauri::async_runtime::spawn_blocking(move || {
         // Keep the source URL in the note so the KB citation can lead back to
         // the lecture itself.
         let body = format!("[source]({url})\n\n{text}");
@@ -1717,7 +1723,9 @@ and scroll it into view, then try again.",
         )
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    fresh.touch("onyx");
+    out
 }
 
 fn write_onyx_note(

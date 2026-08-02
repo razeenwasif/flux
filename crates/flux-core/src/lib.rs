@@ -33,6 +33,7 @@ pub mod hibernate;
 pub mod history;
 pub mod https;
 pub mod kb;
+pub mod kbfresh;
 pub mod leanmode;
 pub mod lens;
 pub mod macros;
@@ -451,6 +452,16 @@ fn init_knowledge(app: &tauri::App, boot_started: std::time::Instant) {
                 boot_phase("kb.hydrate", boot_started, || k.hydrate());
             }
         });
+    }
+    // Keep the index current with what you've just written (#108). Indexing was
+    // manual before this - the Notebook's reindex button was the only caller -
+    // so the agent answered "My notes" from whatever that button last captured,
+    // silently. The worker is started after the stores exist; it debounces, so
+    // it costs nothing until something is edited.
+    app.manage(std::sync::Arc::new(kbfresh::KbFreshness::default()));
+    {
+        let handle = app.handle().clone();
+        std::thread::spawn(move || kbfresh::start(&handle));
     }
     // Auto-start the user's local services (Omni / Scroll) if they're down,
     // off-thread so a slow probe never delays boot. Opt out: FLUX_NO_AUTOSTART=1.

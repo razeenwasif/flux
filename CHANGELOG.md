@@ -149,6 +149,21 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   every chunk built so far.
 
 ### Fixed
+- **The agent answered "My notes" from a stale index.** Indexing was manual — the ↻ button in the
+  Notebook panel was the *only* caller of `kb_reindex` — so a page you'd just written in Scribe, or
+  a note you'd just made in Onyx, simply wasn't there, and the agent answered from whatever that
+  button last captured without any sign that it was doing so. That's the actual reason "My notes"
+  came back empty.
+
+  Scribe, its transcripts, and Onyx now reindex themselves. Edits mark the source and a background
+  worker rebuilds it once the writing stops (3s), rather than on every save — `scribe_save` fires
+  about twice a second while you type, and rebuilding each time would re-embed the same page dozens
+  of times. Because the rebuild skips documents whose mtime hasn't moved, only the pages you
+  actually changed get re-embedded.
+
+  Onyx gets a real filesystem watch rather than a poll, since the whole point of that vault is that
+  it's edited outside Flux — notes written in the Onyx TUI become answerable without touching
+  Flux at all.
 - **The collapsed sidebar's workspace panel rendered under the page.** Native tab webviews are an
   OS layer above *all* chrome HTML, so no amount of z-index puts an overlay over them — the page
   has to be hidden while one is open. `store.ts` has a registry for exactly this, with a comment
