@@ -391,6 +391,33 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Inline rename (window.prompt is a no-op in the webview, so edit in place).
   const [editGroup, setEditGroup] = createSignal<number | null>(null);
   const [editWs, setEditWs] = createSignal<number | null>(null);
+  /** Collapsed rail only: the workspace list, which the expanded sidebar shows
+   *  as hover-popouts on the dot rail. */
+  const [wsPanelOpen, setWsPanelOpen] = createSignal(false);
+  const activeWs = () => workspaces().find((w) => w.id === activeWorkspace());
+  const activeWorkspaceName = () => activeWs()?.name ?? "Workspace";
+  const activeWorkspaceColor = () => {
+    const w = activeWs();
+    return w ? workspaceColor(w) : "transparent";
+  };
+  // Expanding the sidebar takes the button that opened this panel off screen,
+  // which would otherwise strand it with no way back.
+  createEffect(() => {
+    if (!props.collapsed) setWsPanelOpen(false);
+  });
+  createEffect(() => {
+    if (!wsPanelOpen()) return;
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setWsPanelOpen(false);
+      }
+    };
+    // Capture phase: the app's global shortcut handler also listens for Escape
+    // (stop loading), and dismissing the panel should win while it's open.
+    document.addEventListener("keydown", esc, true);
+    onCleanup(() => document.removeEventListener("keydown", esc, true));
+  });
   // The command palette can ask for a rename; the editor lives here, and the
   // `.ws-rail-pop:has(input)` rule means rendering the input reveals the popover
   // without needing hover.
@@ -805,7 +832,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
   };
 
   return (
-    <nav class="sidebar" classList={{ "with-apps": !props.collapsed && panels().length > 0 }}>
+    <nav
+      class="sidebar"
+      classList={{
+        "with-apps": !props.collapsed && panels().length > 0,
+        collapsed: props.collapsed,
+      }}
+    >
       {/* Left app rail (#48 launcher) — Opera-style: pinned web-app panels as
           icons on the sidebar's left edge; click toggles the slide-out panel. */}
       <Show when={!props.collapsed && panels().length > 0}>
@@ -1655,22 +1688,117 @@ const Sidebar: Component<SidebarProps> = (props) => {
         )}
       </Show>
 
-      {/* Collapsed rail: pinned tiles stack vertically, nothing else. */}
+      {/* Collapsed rail. Used to show pinned tiles and nothing else, which made
+          collapsing a way to *lose* your open tabs rather than a way to reclaim
+          width — you had to expand again to switch. Now it mirrors the expanded
+          sidebar's order: pinned, open, workspaces, footer, separated by hairline
+          rules so the groups read as groups at 36px wide. */}
       <Show when={props.collapsed}>
-        <div class="tab-list" style={{ "align-items": "center", gap: "6px" }}>
-          <For each={pinnedTabs()}>
-            {(tab) => (
-              <button
-                classList={{ "pin-tile": true, active: activeId() === tab.id }}
-                style={{ width: "36px" }}
-                title={tab.title || tab.url}
-                onClick={() => focusTab(tab.id)}
-              >
-                <Favicon tab={tab} />
-              </button>
-            )}
-          </For>
+        <div class="rail">
+          <Show when={pinnedTabs().length > 0}>
+            <div class="rail-group">
+              <For each={pinnedTabs()}>
+                {(tab) => (
+                  <button
+                    classList={{ "pin-tile": true, active: activeId() === tab.id }}
+                    title={tab.title || tab.url}
+                    onClick={() => focusTab(tab.id)}
+                  >
+                    <Favicon tab={tab} />
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+
+          {/* Only the open-tab group scrolls. Pinned tabs and the workspace
+              button stay put, so the two things you reach for by muscle memory
+              don't move when a page opens. */}
+          <Show when={unpinnedTabs().length > 0}>
+            <Show when={pinnedTabs().length > 0}>
+              <div class="rail-rule" />
+            </Show>
+            <div class="rail-group rail-scroll">
+              <For each={unpinnedTabs()}>
+                {(tab) => (
+                  <button
+                    classList={{ "pin-tile": true, active: activeId() === tab.id }}
+                    title={tab.title || tab.url}
+                    onClick={() => focusTab(tab.id)}
+                    onAuxClick={(e) => {
+                      if (e.button === 1) {
+                        e.preventDefault();
+                        void closeTab(tab.id);
+                      }
+                    }}
+                  >
+                    <Favicon tab={tab} />
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+
+          <div class="rail-rule" />
+          {/* Workspaces. The expanded sidebar has the hover-dot rail for this,
+              which needs room for a popout beside it; collapsed, one button
+              opens the whole list instead. */}
+          <div class="rail-group">
+            <button
+              classList={{ "icon-btn": true, "rail-ws": true, active: wsPanelOpen() }}
+              title={`Workspaces — ${activeWorkspaceName()}`}
+              onClick={(e) => {
+                // Anchor the panel to the button rather than to a guessed offset
+                // from the window bottom: the footer's height depends on how
+                // many toggles are enabled, so a fixed offset drifts.
+                const r = e.currentTarget.getBoundingClientRect();
+                document.documentElement.style.setProperty(
+                  "--rail-ws-bottom",
+                  `${Math.max(8, window.innerHeight - r.bottom)}px`,
+                );
+                setWsPanelOpen(!wsPanelOpen());
+              }}
+            >
+              ▤
+              <span class="rail-ws-dot" style={{ background: activeWorkspaceColor() }} />
+            </button>
+          </div>
         </div>
+      </Show>
+
+      {/* Portaled to <body>: a position:fixed panel inside the sidebar's glass
+          (backdrop-filter) card gets clipped to it. */}
+      <Show when={props.collapsed && wsPanelOpen()}>
+        <Portal>
+          <div class="rail-ws-scrim" onClick={() => setWsPanelOpen(false)} />
+          <div class="rail-ws-panel glass">
+            <div class="rail-ws-head">Workspaces</div>
+            <For each={workspaces()}>
+              {(w) => (
+                <button
+                  classList={{ "rail-ws-item": true, active: activeWorkspace() === w.id }}
+                  onClick={() => {
+                    props.onSwitchWorkspace(w.id);
+                    setWsPanelOpen(false);
+                  }}
+                >
+                  <span class="ws-dot" style={{ background: workspaceColor(w) }} />
+                  <span class="rail-ws-name">{w.name}</span>
+                </button>
+              )}
+            </For>
+            <button
+              class="rail-ws-item rail-ws-add"
+              onClick={() => {
+                props.onNewWorkspace();
+                setWsPanelOpen(false);
+              }}
+            >
+              <span class="ws-dot rail-ws-plus">+</span>
+              <span class="rail-ws-name">New workspace</span>
+            </button>
+          </div>
+        </Portal>
       </Show>
 
       {/* Workspace rail (#44) — a thin vertical strip of colored dots on the

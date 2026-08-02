@@ -35,6 +35,24 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   handwriting.
 
 ### Changed
+- **The collapsed sidebar is a real rail.** It used to show pinned tiles and nothing else, which
+  made collapsing a way to *lose* your open tabs rather than a way to reclaim width — switching
+  tabs meant expanding again first. It now mirrors the expanded sidebar's order at 72px: pinned
+  tabs, open tabs, a workspaces button, then the footer, separated by hairline rules so the groups
+  read as groups. Only the open-tab group scrolls, so the pinned tiles and the workspace button
+  hold the position your hand expects when a page opens.
+
+  Three things the layout needed once measured: the 22px right gutter (reserved for the workspace
+  dot rail, which collapsed doesn't render) was costing a third of the usable width and the 36px
+  tiles were overflowing a 25px box; the footer's dozen toggles stacked single-file ran ~440px
+  tall on a 720px screen and left almost nothing for the rail, so collapsed it goes two-up; and
+  tiles at the scroll boundary were sliced clean in half, which read as a rendering fault rather
+  than as "there's more below" — they fade now.
+
+  The workspace button carries the active workspace's colour (a collapsed sidebar otherwise gives
+  no clue which one you're in) and opens a panel listing all of them, anchored to the button's
+  measured position rather than a guessed offset from the window bottom, since the footer's height
+  depends on which toggles are on.
 - **KB embeddings are int8 in a binary sidecar, not JSON floats (5x smaller, 5x faster to load).**
   Every embedding was persisted as decimal text inside the index — 3.5x the size of the raw bytes,
   spent entirely on rendering numbers as strings — then re-parsed in full on every boot. Measured

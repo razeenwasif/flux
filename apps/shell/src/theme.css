@@ -2354,6 +2354,155 @@ body.resizing .panel-edge-resize::after {
   font-weight: 600;
 }
 
+/* The 22px right gutter exists for the workspace dot rail, which the collapsed
+   sidebar doesn't render — it was costing a third of the usable width, enough
+   that the 36px tiles overflowed their 25px container. */
+.sidebar.collapsed {
+  padding: 10px 8px 12px;
+  gap: 8px;
+}
+
+/* ── Collapsed rail (flux-plan1) ──────────────────────────────────────────────
+   Pinned tabs, open tabs, workspaces — in the expanded sidebar's order, at 36px
+   wide. `min-height: 0` on the flex child is what lets the open-tab group
+   actually scroll instead of pushing the workspace button off the bottom. */
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.rail-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.rail-group .pin-tile {
+  width: 36px;
+}
+/* Only the open tabs scroll; pinned tiles and the workspace button hold their
+   position so they stay where the hand expects them. */
+.rail-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  flex: 1;
+  scrollbar-width: none;
+  /* The tile glow is drawn outside the 36px box, so give it room rather than
+     letting overflow clip it into a hard edge. */
+  padding: 2px 0;
+  /* Tiles at the scroll boundary were sliced clean in half, which read as a
+     rendering fault rather than as "there's more below". Fade them instead. */
+  mask-image: linear-gradient(#0000 0, #000 10px, #000 calc(100% - 10px), #0000 100%);
+  -webkit-mask-image: linear-gradient(#0000 0, #000 10px, #000 calc(100% - 10px), #0000 100%);
+}
+.rail-scroll::-webkit-scrollbar {
+  display: none;
+}
+.rail-rule {
+  flex: none;
+  width: 20px;
+  height: 1px;
+  /* --glass-rim-soft is tuned for edges against a filled card; over the rail's
+     own background it disappeared entirely, and the groups it separates read as
+     one long undifferentiated column. */
+  background: var(--glass-rim);
+  opacity: 0.75;
+}
+.rail-ws {
+  position: relative;
+  width: 36px;
+  height: 30px;
+}
+/* The active workspace's colour, on the button that opens the list — otherwise
+   a collapsed sidebar gives no clue which workspace you're in. */
+.rail-ws-dot {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--flux-bg);
+}
+.rail-ws-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+/* `--rail-ws-bottom` is measured from the button that opened it, so the panel
+   tracks the rail instead of assuming a footer height. */
+.rail-ws-panel {
+  position: fixed;
+  left: 80px;
+  bottom: var(--rail-ws-bottom, 64px);
+  z-index: 61;
+  min-width: 190px;
+  /* Without a cap, one long workspace name stretched the panel across a third
+     of the window — the name has `text-overflow: ellipsis`, but nothing was
+     constraining it enough to trigger. */
+  max-width: 260px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 7px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-ws-head {
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 3px 7px 5px;
+}
+.rail-ws-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0; /* lets the name actually ellipsize inside the capped panel */
+  padding: 7px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--flux-text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-ws-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.rail-ws-item.active {
+  background: rgba(47, 243, 255, 0.1);
+  color: var(--flux-teal);
+}
+.rail-ws-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-ws-add {
+  color: var(--flux-text-dim);
+}
+.rail-ws-plus {
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px dashed var(--glass-rim-soft);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--flux-text-mute);
+}
+
 .sidebar-footer {
   display: flex;
   align-items: center;
@@ -2362,8 +2511,19 @@ body.resizing .panel-edge-resize::after {
   padding-top: 9px;
   border-top: 1px solid var(--glass-rim-soft);
 }
+/* Two columns, not one. The footer carries a dozen toggles; stacked single-file
+   they ran ~440px tall on a 720px screen and left the tab rail with almost
+   nothing — the rail is the reason the sidebar is open at all. */
 .sidebar-footer.collapsed {
+  display: grid;
+  grid-template-columns: repeat(2, 26px);
   justify-content: center;
+  gap: 4px;
+}
+.sidebar-footer.collapsed .icon-btn {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
 }
 .sidebar-footer code {
   font-size: 11px;
