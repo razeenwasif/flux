@@ -96,6 +96,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   every chunk built so far.
 
 ### Fixed
+- **OCR'd PDFs indexed to nothing.** `kb_reindex` passed an empty list for the `pdf-ocr` corpus, so
+  text that OCR had extracted, published and stored was dropped on the way to the index — the
+  connector existed and was never called. Anything read out of a scanned PDF was therefore
+  unfindable and uncitable, with no error to explain it.
+- **Transcribed handwriting was excluded from "my knowledge".** Rust's `OWN_SOURCES` omitted
+  `scribe-ocr` while the TypeScript mirror included it, so the two lists disagreed about whether
+  your own transcribed Scribe pages count as yours. They do — a machine only read them.
 - **`kb.rs` was invisible to code search.** A stray literal NUL byte inside a comment (which was
   itself describing NUL handling) made `grep` classify the 1777-line module as binary, so every
   text search of it silently returned nothing. It compiled fine, which is why it went unnoticed.

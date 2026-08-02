@@ -227,7 +227,18 @@ pub struct Corpora {
 /// visited, captured by the Trail. The connections rail draws from these only:
 /// the Trail has its own graph in the sidebar, so surfacing visited pages here
 /// too was showing the same browsing history twice.
-pub const OWN_SOURCES: &[&str] = &["onyx", "scroll", "council", "scribe", "pdf", "pdf-ocr"];
+pub const OWN_SOURCES: &[&str] = &[
+    "onyx",
+    "scroll",
+    "council",
+    "scribe",
+    "pdf",
+    // Transcribed handwriting is still your own writing — a machine only read
+    // it. Leaving it out meant Scribe pages you'd transcribed were invisible to
+    // anything scoped to "my knowledge", including the agent's "My notes".
+    "scribe-ocr",
+    "pdf-ocr",
+];
 
 /// A document yielded by a connector, before chunking/embedding.
 #[derive(Clone)]
@@ -1361,7 +1372,10 @@ pub async fn kb_reindex(
         scribe: scribe_docs(&scribe),
         pdf: pdf_docs(&pdf),
         scribe_ocr: scribe_ocr_docs(&transcripts),
-        pdf_ocr: Vec::new(),
+        // Was `Vec::new()`, which meant every OCR'd PDF reindexed to zero
+        // documents — the text was extracted, published and stored, and then
+        // silently dropped on the way to the index.
+        pdf_ocr: pdf_ocr_docs(&pdf),
     };
     tauri::async_runtime::spawn_blocking(move || kb.reindex(source, corpora))
         .await
