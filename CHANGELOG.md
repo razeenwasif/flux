@@ -190,6 +190,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   every chunk built so far.
 
 ### Fixed
+- **Inserting an equation did nothing.** The Σ Equation button and `Ctrl+M` went through
+  `window.prompt`, which is a **no-op in this webview** (a fact already documented in
+  `Sidebar.tsx`) — so only typing `$$…$$` inline ever worked. There's a proper editor now: a
+  monospace source field with a **live preview**, block/inline toggle, the parse error spelled out
+  when the LaTeX doesn't compile, `Ctrl+Enter` to insert, `Esc` to cancel. Clearing the source of an
+  existing equation deletes it, which is the only way to remove a block you can't select into.
+
+  The preview is the point rather than decoration: LaTeX you can't see rendered is LaTeX you're
+  writing blind. (Note for later: `window.prompt` is still used for renames in ScribePage,
+  WhiteboardPage and CalendarPop, and is equally dead there.)
 - **Flux's own pages were invisible to the agent.** A `flux://` page (Scribe, the Notebook, the
   Trail…) is a Solid component in the chrome's DOM, not a native webview — so nothing injected the
   capture script and **no internal page ever published its text**. "All tabs" skipped them, the

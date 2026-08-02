@@ -93,6 +93,34 @@ export const renderMath = async (root: ParentNode): Promise<void> => {
 };
 
 /**
+ * Render one snippet for a preview, reporting *why* it failed rather than
+ * throwing. The editor needs the error text to show you where the LaTeX is
+ * wrong; `renderMath` above only needs to not explode.
+ */
+export const previewTex = async (tex: string, display: boolean): Promise<{ html: string; error: string }> => {
+  if (!tex.trim()) return { html: "", error: "" };
+  const k = await loadKatex();
+  try {
+    // `throwOnError` ON here — an editor that silently rendered `\undefined` as
+    // red text would leave you guessing which token it disliked.
+    return {
+      html: k.renderToString(tex, { displayMode: display, throwOnError: true, strict: false }),
+      error: "",
+    };
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e).replace(/^KaTeX parse error:\s*/, "");
+    // Still show the best-effort render, so a half-typed formula previews.
+    let html = "";
+    try {
+      html = k.renderToString(tex, { displayMode: display, throwOnError: false, strict: false });
+    } catch {
+      html = "";
+    }
+    return { html, error: msg };
+  }
+};
+
+/**
  * Turn `$$…$$` / `$…$` in plain text into math nodes, leaving other text alone.
  *
  * This is the bridge for text that didn't come from the editor — pasted

@@ -18,9 +18,10 @@
  * one positioned image, so nothing is lost.
  */
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { Portal } from "solid-js/web";
 
 import InkCanvas, { renderStrokesScaled, type InkApi, type Stroke } from "./InkCanvas";
-import { MATH_SEL, mathNode, renderMath, texToNodes } from "./mathblock";
+import { MATH_SEL, mathNode, previewTex, renderMath, texToNodes } from "./mathblock";
 import { scribeProofread, type TextFix } from "./ipc";
 
 export type InkObject = { id: string; src: string; x: number; y: number; w: number; h: number };
@@ -242,24 +243,68 @@ const ScribeDoc: Component<Props> = (props) => {
     emit();
   };
 
+  // The editing surface for an equation is its source: rendered maths is not
+  // editable in place, which is the trade that makes it safe to type around.
+  //
+  // `window.prompt` is a **no-op in this webview** (see Sidebar.tsx) — the first
+  // version of this used one, so the toolbar button and Ctrl+M did precisely
+  // nothing and only inline `$$…$$` ever worked. This is an in-app editor with a
+  // live preview, which is what an equation needs anyway: LaTeX you can't see
+  // rendered is LaTeX you're writing blind.
+  const [mathEdit, setMathEdit] = createSignal<{ el: HTMLElement | null; display: boolean } | null>(null);
+  const [mathTex, setMathTex] = createSignal("");
+  const [mathHtml, setMathHtml] = createSignal("");
+  const [mathErr, setMathErr] = createSignal("");
+  let previewTimer: number | undefined;
+
   const promptForMath = (el?: HTMLElement) => {
-    // The editing surface for an equation is its source. Rendered maths is not
-    // editable in place — that's the trade that makes it safe to type around.
-    const current = el?.dataset.tex ?? "";
-    const next = window.prompt("LaTeX (e.g. \\int_0^1 x^2\\,dx)", current);
-    if (next == null) return;
-    const tex = next.trim();
-    if (el) {
-      if (!tex) el.remove();
+    setMathEdit({ el: el ?? null, display: el ? el.dataset.display === "1" : true });
+    setMathTex(el?.dataset.tex ?? "");
+    setMathHtml("");
+    setMathErr("");
+  };
+  const closeMath = () => {
+    clearTimeout(previewTimer);
+    setMathEdit(null);
+  };
+
+  // Preview, debounced — KaTeX on every keystroke of a long formula is wasted
+  // work, and a preview that flickers mid-token is harder to read than one that
+  // settles.
+  createEffect(() => {
+    const edit = mathEdit();
+    const tex = mathTex();
+    if (!edit) return;
+    clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      void previewTex(tex, edit.display).then(({ html, error }) => {
+        setMathHtml(html);
+        setMathErr(error);
+      });
+    }, 140);
+  });
+
+  const commitMath = () => {
+    const edit = mathEdit();
+    if (!edit) return;
+    const tex = mathTex().trim();
+    if (edit.el) {
+      // Clearing the source deletes the equation — the obvious meaning of
+      // emptying the box, and the only way to remove a block you can't select
+      // into.
+      if (!tex) edit.el.remove();
       else {
-        el.dataset.tex = tex;
-        delete el.dataset.rendered;
+        edit.el.dataset.tex = tex;
+        edit.el.dataset.display = edit.display ? "1" : "";
+        delete edit.el.dataset.rendered;
       }
+      closeMath();
       void renderMath(body).then(emit);
       emit();
       return;
     }
-    if (tex) insertMath(tex, true);
+    closeMath();
+    if (tex) insertMath(tex, edit.display);
   };
 
   /** Click a rendered equation to edit its source. */
@@ -619,6 +664,76 @@ const ScribeDoc: Component<Props> = (props) => {
             />
           </div>
         </div>
+      </Show>
+
+      {/* Equation editor. Portaled to <body>: a fixed overlay inside the page
+          card's backdrop-filter gets clipped to it. */}
+      <Show when={mathEdit()}>
+        {(edit) => (
+          <Portal>
+            <div class="mathed-scrim" onClick={closeMath} />
+            <div class="mathed glass">
+              <div class="mathed-head">
+                <span>{edit().el ? "Edit equation" : "Insert equation"}</span>
+                <div class="mathed-mode">
+                  <button
+                    classList={{ on: edit().display }}
+                    title="Its own centred line"
+                    onClick={() => setMathEdit({ ...edit(), display: true })}
+                  >
+                    Block
+                  </button>
+                  <button
+                    classList={{ on: !edit().display }}
+                    title="Inside the sentence"
+                    onClick={() => setMathEdit({ ...edit(), display: false })}
+                  >
+                    Inline
+                  </button>
+                </div>
+              </div>
+
+              <textarea
+                class="mathed-src"
+                autofocus
+                spellcheck={false}
+                placeholder="\\int_0^1 x^2\\,dx = \\frac{1}{3}"
+                value={mathTex()}
+                onInput={(e) => setMathTex(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation(); // the page's Tab-indent must not fire here
+                  if (e.key === "Escape") closeMath();
+                  else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) commitMath();
+                }}
+              />
+
+              {/* The preview is the point: LaTeX you can't see rendered is
+                  LaTeX you're writing blind. */}
+              <div class="mathed-preview" classList={{ bad: !!mathErr() }}>
+                <Show
+                  when={mathHtml()}
+                  fallback={<span class="mathed-hint">Preview appears as you type</span>}
+                >
+                  <span innerHTML={mathHtml()} />
+                </Show>
+              </div>
+              <Show when={mathErr()}>
+                <div class="mathed-err">{mathErr()}</div>
+              </Show>
+
+              <div class="mathed-foot">
+                <span class="mathed-keys">Ctrl+Enter to insert · Esc to cancel</span>
+                <span style={{ flex: 1 }} />
+                <button class="mathed-cancel" onClick={closeMath}>
+                  Cancel
+                </button>
+                <button class="mathed-ok" onClick={commitMath}>
+                  {edit().el ? (mathTex().trim() ? "Update" : "Delete") : "Insert"}
+                </button>
+              </div>
+            </div>
+          </Portal>
+        )}
       </Show>
     </div>
   );
