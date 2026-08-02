@@ -56,6 +56,24 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   A separate lazy chunk (1.6 KB gzip); the eager chrome bundle moves 64.4 → 64.5 KB.
 
 ### Changed
+- **Scrollbars match the rest of Flux, from one rule.** Every surface now draws the same rounded,
+  inset thumb with hover and drag states, defined once against theme tokens
+  (`--flux-scroll-*`) instead of being hand-rolled per component — five places had each written
+  their own version of the same thumb at 8 or 10px wide.
+
+  It uses `::-webkit-scrollbar` rather than the standard `scrollbar-width` / `scrollbar-color`
+  deliberately: Flux ships on WebView2 and WebKitGTK, both of which implement the pseudo-elements,
+  so the portability the standard properties buy is portability to browsers Flux never runs in —
+  and in exchange we get width, radius, insets and hover states instead of two flat colours.
+
+  **This fixed a live cross-platform bug.** Since Chromium 121, any non-`auto` `scrollbar-width`
+  discards *every* `::-webkit-scrollbar` rule on that element. The bookmark bar, pages bar, tab-UI
+  bar and folder strip each asked for `thin` *and* a hidden scrollbar — so Windows drew a bar the
+  design had removed while Linux hid it. A test now enforces that the two mechanisms are never
+  mixed, and that anything hiding a scrollbar hides it in both.
+
+  Scoped to Flux's own chrome. Pages inside a tab keep their own scrollbars: restyling those means
+  injecting CSS into every site, which breaks the ones that style their own.
 - **The Trail moved from the sidebar to the foot of the connections rail.** Both surfaces answer
   "what else relates to what I'm looking at" — connections from your own notes, the Trail from your
   own browsing — so they now share a column instead of sitting on opposite edges of the window.

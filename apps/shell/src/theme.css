@@ -79,6 +79,12 @@
   --glass-shadow: 0 16px 50px -12px rgba(0, 0, 0, 0.65);
   --glass-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.25);
 
+  /* ── Scrollbars ── */
+  --flux-scroll-w: 9px;
+  --flux-scroll-thumb: rgba(150, 160, 220, 0.18);
+  --flux-scroll-thumb-hover: rgba(150, 160, 220, 0.34);
+  --flux-scroll-thumb-active: rgba(47, 243, 255, 0.38);
+
   /* ── Shell metrics ── */
   --flux-titlebar-h: 34px;
   --flux-radius: 10px;
@@ -108,6 +114,57 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Scrollbars — one treatment for every surface Flux draws
+   ════════════════════════════════════════════════════════════════════════
+
+   This is `::-webkit-scrollbar` rather than the standard `scrollbar-width` /
+   `scrollbar-color` on purpose. Flux ships on exactly two engines — WebView2
+   (Chromium) and WebKitGTK — and both implement the -webkit- pseudo-elements,
+   so the portability the standard properties buy is portability to browsers
+   Flux never runs in. In exchange we get width, radius, insets and hover
+   states instead of two flat colours and "thin".
+
+   The two mechanisms MUST NOT be mixed on one element: since Chromium 121, any
+   non-`auto` `scrollbar-width`/`scrollbar-color` makes the engine discard every
+   `::-webkit-scrollbar` rule for that element. That had already bitten three
+   bars here (bookmark/pages/tui asked for `thin` *and* a hidden bar, so Windows
+   showed a scrollbar the design had removed while Linux hid it). The only
+   `scrollbar-width` left in the file is `none`, where the two agree.
+
+   Scoped to Flux's own chrome. Pages inside a tab keep their own scrollbars —
+   restyling those means injecting CSS into every site, which breaks the ones
+   that style their own and makes the browser visibly rewrite what it renders. */
+*::-webkit-scrollbar {
+  width: var(--flux-scroll-w);
+  height: var(--flux-scroll-w);
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--flux-scroll-thumb);
+  /* Fully round, and inset from the track by a transparent border so the thumb
+     floats in the gutter instead of butting against the content edge. */
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--flux-scroll-thumb-hover);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:active {
+  background: var(--flux-scroll-thumb-active);
+  background-clip: padding-box;
+}
+/* Arrow buttons: Chromium draws them by default and they belong to no era of
+   this design. */
+*::-webkit-scrollbar-button {
+  display: none;
 }
 
 body {
@@ -401,7 +458,6 @@ body.resizing .panel-edge-resize::after {
   position: absolute;
   inset: 34px 0 0;
   overflow: auto;
-  scrollbar-width: thin;
 }
 .panel-title {
   flex: 1;
@@ -1999,16 +2055,6 @@ body.resizing .panel-edge-resize::after {
      folders): the strip scrolls internally, but it has to stay usable. */
   min-height: 140px;
 }
-.tab-list::-webkit-scrollbar {
-  width: 8px;
-}
-.tab-list::-webkit-scrollbar-thumb {
-  background: rgba(150, 160, 220, 0.18);
-  border-radius: 4px;
-}
-.tab-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(150, 160, 220, 0.3);
-}
 
 .tab-row {
   display: flex;
@@ -2592,10 +2638,10 @@ body.resizing .panel-edge-resize::after {
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
-  scrollbar-width: thin;
+  scrollbar-width: none; /* paired with the ::-webkit- hide below */
 }
 .bookmark-bar::-webkit-scrollbar {
-  height: 0;
+  display: none;
 }
 
 /* Pages bar — quick-access native-page strip above the card (mirrors the bookmark
@@ -2729,10 +2775,10 @@ body.resizing .panel-edge-resize::after {
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
-  scrollbar-width: thin;
+  scrollbar-width: none; /* paired with the ::-webkit- hide below */
 }
 .pages-bar::-webkit-scrollbar {
-  height: 0;
+  display: none;
 }
 .pages-chip {
   flex: none;
@@ -2781,10 +2827,10 @@ body.resizing .panel-edge-resize::after {
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
   background: linear-gradient(160deg, rgba(47, 243, 255, 0.05), var(--velvet-800));
-  scrollbar-width: thin;
+  scrollbar-width: none; /* paired with the ::-webkit- hide below */
 }
 .tui-bar::-webkit-scrollbar {
-  height: 0;
+  display: none;
 }
 .tui-chip {
   flex: none;
@@ -3886,13 +3932,6 @@ body.resizing .panel-edge-resize::after {
   -webkit-user-select: text;
   cursor: text;
 }
-.agent-feed::-webkit-scrollbar {
-  width: 8px;
-}
-.agent-feed::-webkit-scrollbar-thumb {
-  background: rgba(150, 160, 220, 0.18);
-  border-radius: 4px;
-}
 .agent-empty {
   color: var(--flux-text-mute);
   line-height: 1.7;
@@ -4586,7 +4625,6 @@ body.resizing .panel-edge-resize::after {
   flex-direction: column;
   align-items: center;
   padding-bottom: 150px; /* last cards clear the wave */
-  scrollbar-width: thin;
 }
 
 /* Particle-liquid backdrop (#77): a WebGL canvas filling the page, behind the
@@ -4805,7 +4843,6 @@ body.busy .start-card {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 2px;
-  scrollbar-width: thin;
 }
 
 /* Scratchpad widget */
@@ -4921,7 +4958,6 @@ body.busy .start-card {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--glass-rim-soft);
-  scrollbar-width: thin;
 }
 .start-event-list-title {
   font-size: 10.5px;
@@ -6403,13 +6439,6 @@ body.busy .start-card {
   min-height: 0;
   border-right: 1px solid var(--glass-rim-soft);
 }
-.files-rail::-webkit-scrollbar {
-  width: 8px;
-}
-.files-rail::-webkit-scrollbar-thumb {
-  background: rgba(150, 160, 220, 0.18);
-  border-radius: 4px;
-}
 .files-rail-section {
   font-size: 10.5px;
   text-transform: uppercase;
@@ -6486,16 +6515,6 @@ body.busy .start-card {
   position: relative;
   overflow-y: auto;
   min-height: 0;
-}
-.files-list::-webkit-scrollbar {
-  width: 10px;
-}
-.files-list::-webkit-scrollbar-thumb {
-  background: rgba(150, 160, 220, 0.18);
-  border-radius: 5px;
-}
-.files-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(150, 160, 220, 0.3);
 }
 .files-spacer {
   position: relative;
@@ -7369,13 +7388,6 @@ body.busy .start-card {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.omni::-webkit-scrollbar {
-  width: 10px;
-}
-.omni::-webkit-scrollbar-thumb {
-  background: rgba(150, 160, 220, 0.18);
-  border-radius: 5px;
 }
 
 /* ── The Trail (flux://trail, ADR 0011) ── */
@@ -8925,7 +8937,6 @@ body.busy .start-card {
   width: 100%;
   margin: 0 auto;
   padding-bottom: 40px;
-  scrollbar-width: thin;
 }
 .set-section-head {
   display: flex;
@@ -9569,7 +9580,6 @@ body.busy .start-card {
      overflow was simply clipped, unreachable. Wide and tall it never triggers —
      the process list absorbs the slack and this stays inert. */
   overflow-y: auto;
-  scrollbar-width: thin;
   color: var(--flux-text);
   /* A *container* query, not a viewport one: pinned as a web panel this page is
      ~340px wide inside a 3440px window, and viewport media queries would leave
@@ -9886,7 +9896,6 @@ body.busy .start-card {
 @container tm (max-width: 720px) {
   .tm-page {
     overflow-y: auto;
-    scrollbar-width: thin;
   }
   .tm-proc {
     /* Grow to fit its rows rather than competing for a share of a fixed height. */
@@ -10659,10 +10668,10 @@ body.busy .start-card {
   border-top: 1px solid var(--flux-border);
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none; /* paired with the ::-webkit- hide below */
 }
 .folders::-webkit-scrollbar {
-  height: 0;
+  display: none;
 }
 .folder {
   flex: none;
@@ -10766,7 +10775,6 @@ body.busy .start-card {
   padding: 2px 0 1px 4px;
   max-height: 30vh;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 .folder-tab {
   display: flex;
@@ -13474,7 +13482,6 @@ input[type="radio"].pdf-fw {
   width: 296px;
   max-height: 300px;
   overflow-y: auto;
-  scrollbar-width: thin;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -14703,7 +14710,6 @@ input[type="radio"].pdf-fw {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  scrollbar-width: thin;
 }
 .cal-task {
   /* A column: the task line, plus the "move to…" row when expanded. */
@@ -14860,7 +14866,6 @@ input[type="radio"].pdf-fw {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-width: thin;
   padding-right: 4px;
 }
 .cal-pane.docked .cal-pane-cols {
@@ -15055,7 +15060,6 @@ input[type="radio"].pdf-fw {
   gap: 1px;
   max-height: min(268px, 30vh);
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 .trailmini-item {
   display: flex;
@@ -15116,7 +15120,6 @@ input[type="radio"].pdf-fw {
   gap: 8px;
   overflow-y: auto;
   padding: 2px 4px 2px 0;
-  scrollbar-width: thin;
 }
 .scribe-thumb {
   display: flex;
@@ -15316,7 +15319,6 @@ input[type="radio"].pdf-fw {
   flex-direction: column;
   gap: 5px;
   padding-right: 2px;
-  scrollbar-width: thin;
 }
 /* Each message is its own card. A borderless list runs together at this width,
    where sender and subject are both one truncated line — the box is what makes
@@ -15476,7 +15478,6 @@ input[type="radio"].pdf-fw {
   gap: 4px;
   max-height: 32vh;
   overflow-y: auto;
-  scrollbar-width: thin;
   padding: 8px 10px;
   border-radius: 10px;
   border: 1px solid rgba(157, 141, 241, 0.24);
@@ -15560,7 +15561,6 @@ input[type="radio"].pdf-fw {
   border: 1px solid var(--flux-border);
   background: linear-gradient(160deg, #14121f, #0d0b16);
   padding: 16px;
-  scrollbar-width: thin;
 }
 /* The sheet. Scaled by the host's zoom from its top-left so scrolling stays
    predictable. */

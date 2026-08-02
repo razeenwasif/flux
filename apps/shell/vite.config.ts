@@ -26,5 +26,11 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // Vitest stubs CSS imports to an empty string by default, which silently
+    // turns the stylesheet-invariant tests (theme.test.ts) into assertions
+    // about "". `?raw` alone doesn't escape that, so opt this one file's import
+    // back in — the pattern matches the `?raw` query, not CSS generally, so no
+    // real stylesheet processing is switched on.
+    css: { include: [/theme\.css/] },
   },
 });
