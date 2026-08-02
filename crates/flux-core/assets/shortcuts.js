@@ -34,6 +34,8 @@
       if (k === "t") return "reopen-tab"; // reopen last closed tab (mirror of shortcuts.ts)
       if (k === "a") return "toggle-agent";
       if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
+      if (k === "r") return "shell-history"; // Ctrl/Cmd+Shift+R → semantic shell-history search
+      if (k === "k") return "spotlight"; // Ctrl/Cmd+Shift+K → search spotlight
       if (k === "+") return "zoom-in";
       if (k === "f") return "focus-mode";
       if (e.key === "Tab") return "prev-tab";

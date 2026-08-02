@@ -92,6 +92,11 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   written: "append to `../../.bashrc`" would otherwise be a working instruction.
 
 ### Changed
+- **The toast matches the rest of Flux.** It was the one surface still styled inline in `App.tsx`,
+  so it inherited none of the app's glass or motion tokens. It now rises into place rather than
+  fading where it sits — a message that appears where nothing was is easy to miss at the bottom of a
+  large window — and comes in three kinds, so a failure doesn't look like a confirmation. Motion is
+  dropped under `prefers-reduced-motion`, and it never swallows a click on what it floats over.
 - **Scrollbars match the rest of Flux, from one rule.** Every surface now draws the same rounded,
   inset thumb with hover and drag states, defined once against theme tokens
   (`--flux-scroll-*`) instead of being hand-rolled per component — five places had each written

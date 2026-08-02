@@ -11909,6 +11909,83 @@ input[type="radio"].pdf-fw {
   padding-top: 12vh;
 }
 
+/* ── Toast ────────────────────────────────────────────────────────────────────
+   One transient notice, bottom-centre. Was inline-styled in App.tsx, so it was
+   the one surface that didn't inherit the app's glass and motion tokens.
+
+   It rises rather than fading in place: a message that appears where nothing was
+   is easy to miss at the bottom of a large window, and the motion is what draws
+   the eye. `pointer-events: none` because it's never interactive — it must not
+   swallow a click on whatever it's floating over. */
+.toast {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(520px, 76vw);
+  padding: 9px 16px 9px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-rim);
+  box-shadow: var(--glass-shadow);
+  font-size: 13px;
+  color: var(--flux-text);
+  pointer-events: none;
+  animation: toast-in 0.22s var(--ease-soft, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+/* Respect a reduced-motion preference: the toast still appears, it just doesn't
+   travel. */
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+    transform: translateX(-50%);
+  }
+}
+.toast-ico {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--velvet-900);
+  background: var(--flux-teal);
+}
+.toast-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toast-ok .toast-ico {
+  background: #7cf5b0;
+}
+/* A failure should not look like a confirmation — the icon and rim carry it, so
+   it reads as wrong before the text is read. */
+.toast-warn {
+  border-color: rgba(255, 159, 159, 0.5);
+}
+.toast-warn .toast-ico {
+  background: #ff9f9f;
+}
+.toast-warn .toast-text {
+  white-space: normal;
+}
+
 /* ── Search spotlight (flux-plan1) ────────────────────────────────────────────
    Web-facing sibling of the command palette: quick actions, the query field
    with home/split/search, and the engine's related searches. */

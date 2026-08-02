@@ -378,8 +378,7 @@ const App: Component = () => {
     const unPermAsk = await onPermissionAsk(pushPermAsk);
     // The password sentinel saved a sign-up credential (#61) — confirm it.
     const unVaultSaved = await onVaultSaved((host) => {
-      setOmniToast(`🔑 Password for ${host} saved to your vault`);
-      window.setTimeout(() => setOmniToast(null), 2800);
+      toast(`Password for ${host} saved to your vault`, "ok", 2800);
     });
     // Sentinel captured a manually-typed login (#61) — raise the save bar.
     const unSavePrompt = await onVaultSavePrompt(setSavePrompt);
@@ -499,8 +498,7 @@ const App: Component = () => {
     onCleanup(unReader);
     // Web capture (#54): a screenshot finished writing.
     const unShot = await onScreenshot(() => {
-      setOmniToast("📸 Screenshot saved");
-      window.setTimeout(() => setOmniToast(null), 2600);
+      toast("Screenshot saved", "ok");
     });
     onCleanup(unShot);
     // Tab hibernation (#45): every 30s, keep the active tab fresh and destroy
@@ -768,10 +766,7 @@ const App: Component = () => {
     const t = activeTab();
     const url = bookmarkableUrl();
     if (!t || !url) return;
-    const flash = (m: string) => {
-      setOmniToast(m);
-      window.setTimeout(() => setOmniToast(null), 1800);
-    };
+    const flash = (m: string) => toast(m, "ok", 1800);
     const existing = bookmarkedId();
     const notify = () => window.dispatchEvent(new Event("flux:bookmarks-changed"));
     if (existing != null) {
@@ -828,8 +823,10 @@ const App: Component = () => {
         n++;
       }
     }
-    setOmniToast(n ? `💤 Slept ${n} background tab${n === 1 ? "" : "s"}` : "No background tabs to sleep");
-    window.setTimeout(() => setOmniToast(null), 2600);
+    toast(
+      n ? `Slept ${n} background tab${n === 1 ? "" : "s"}` : "No background tabs to sleep",
+      n ? "ok" : "info",
+    );
   };
 
   // Translate page (#40): translate the active page's text with the local model
@@ -838,7 +835,7 @@ const App: Component = () => {
   const translatePage = async (lang: string) => {
     const t = activeTab();
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
-    setOmniToast(`🌐 Translating to ${lang}…`);
+    toast(`Translating to ${lang}…`, "info", 0);
     try {
       const text = await agentTranslate(lang);
       const blocks = text
@@ -851,10 +848,9 @@ const App: Component = () => {
         `Translated · ${lang}`,
         blocks.length ? blocks : [{ kind: "p", text, level: 0, src: "" }],
       );
-      setOmniToast(null);
+      clearToast();
     } catch (e) {
-      setOmniToast(`Translate: ${String(e)}`);
-      window.setTimeout(() => setOmniToast(null), 3000);
+      toast(`Translate: ${String(e)}`, "warn", 3000);
     }
   };
   // The user's own language name, for the one-click "Translate to <lang>" action.
@@ -872,8 +868,7 @@ const App: Component = () => {
     const t = activeTab();
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
     void webviewCapture(t.id).catch((e) => {
-      setOmniToast(`Capture: ${String(e)}`);
-      window.setTimeout(() => setOmniToast(null), 3000);
+      toast(`Capture: ${String(e)}`, "warn", 3000);
     });
   };
 
@@ -883,12 +878,10 @@ const App: Component = () => {
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
     void pwaInstall(t.url, t.title || t.url)
       .then(() => {
-        setOmniToast("🧩 Installed as app");
-        window.setTimeout(() => setOmniToast(null), 2400);
+        toast("Installed as app", "ok", 2400);
       })
       .catch((e) => {
-        setOmniToast(`Install: ${String(e)}`);
-        window.setTimeout(() => setOmniToast(null), 3000);
+        toast(`Install: ${String(e)}`, "warn", 3000);
       });
   };
 
@@ -898,8 +891,7 @@ const App: Component = () => {
     const t = activeTab();
     if (!t || t.kind !== "browser" || isStartUrl(t.url)) return;
     const flash = (m: string) => {
-      setOmniToast(m);
-      window.setTimeout(() => setOmniToast(null), 2400);
+      toast(m, "ok", 2400);
     };
     void archiveSave()
       .then((m) => flash(m ? `📚 Saved “${m.title || "page"}” for offline` : "Nothing to save"))
@@ -962,18 +954,32 @@ const App: Component = () => {
 
   // Save the active page into the Omni index (Ctrl/Cmd+Shift+O, or forwarded from
   // a focused page). Shows a brief toast with the result.
-  const [omniToast, setOmniToast] = createSignal<string | null>(null);
+  // One transient notice, shown bottom-centre. Every caller went through
+  // `setOmniToast` plus its *own* `setTimeout`, so a second toast inherited the
+  // first one's timer and could vanish early — screenshot after a save, and the
+  // save's 2.6s clock would clear the screenshot's message. The helper owns the
+  // timer, so showing a toast always cancels the previous one's.
+  type ToastKind = "info" | "ok" | "warn";
+  const [omniToast, setToastState] = createSignal<{ text: string; kind: ToastKind } | null>(null);
   let omniToastTimer: number | undefined;
+  /** `ms: 0` keeps it up until something replaces or clears it (progress). */
+  const toast = (text: string, kind: ToastKind = "info", ms = 2600) => {
+    clearTimeout(omniToastTimer);
+    setToastState({ text, kind });
+    if (ms > 0) omniToastTimer = window.setTimeout(() => setToastState(null), ms);
+  };
+  const clearToast = () => {
+    clearTimeout(omniToastTimer);
+    setToastState(null);
+  };
   const saveToOmni = async () => {
-    setOmniToast("Saving to Omni…");
+    toast("Saving to Omni…", "info", 0);
     try {
       const r = await omniIngestActive();
-      setOmniToast(r.added ? "✦ Saved to Omni" : r.skipped ? "Already in Omni" : "Saved");
+      toast(r.added ? "Saved to Omni" : r.skipped ? "Already in Omni" : "Saved", "ok");
     } catch (e) {
-      setOmniToast(`Omni: ${String(e)}`);
+      toast(`Omni: ${String(e)}`, "warn", 4000);
     }
-    clearTimeout(omniToastTimer);
-    omniToastTimer = window.setTimeout(() => setOmniToast(null), 2600);
   };
 
   // Workspaces (#44). Switching destroys the leaving workspace's webviews so
@@ -1468,8 +1474,7 @@ const App: Component = () => {
         const on = !focusMode();
         setFocusMode(on);
         if (on) {
-          setOmniToast("Focus mode — Esc or Ctrl+Shift+F to exit");
-          window.setTimeout(() => setOmniToast(null), 2600);
+          toast("Focus mode — Esc or Ctrl+Shift+F to exit");
         }
         return true;
       }
@@ -1686,8 +1691,7 @@ const App: Component = () => {
           onToggleAgent={() => setAgentOpen((v) => !v)}
           onSaveToOmni={saveToOmni}
           onToast={(m) => {
-            setOmniToast(m);
-            window.setTimeout(() => setOmniToast(null), 2800);
+            toast(m, "ok", 2800);
           }}
           onAiSearch={(q) => {
             if (aiAnswersOn()) {
@@ -1791,27 +1795,14 @@ const App: Component = () => {
         />
       </Show>
 
-      {/* Transient confirmation for "save page to Omni" (Ctrl/Cmd+Shift+O). */}
+      {/* One transient notice, bottom-centre. Styled in theme.css rather than
+          inline so it picks up the app's glass + motion tokens like everything
+          else, and so the three kinds are distinguishable at a glance. */}
       <Show when={omniToast()}>
-        {(msg) => (
-          <div
-            style={{
-              position: "fixed",
-              bottom: "22px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              "z-index": 9999,
-              padding: "8px 16px",
-              "border-radius": "999px",
-              "font-size": "13px",
-              color: "var(--flux-text, #eef0fb)",
-              background: "var(--glass-fill, rgba(26,22,64,0.85))",
-              "backdrop-filter": "blur(20px)",
-              border: "1px solid rgba(180,190,255,0.22)",
-              "box-shadow": "0 12px 40px -8px rgba(0,0,0,0.6)",
-            }}
-          >
-            {msg()}
+        {(t) => (
+          <div class="toast glass" classList={{ [`toast-${t().kind}`]: true }} role="status">
+            <span class="toast-ico">{t().kind === "ok" ? "✓" : t().kind === "warn" ? "!" : "✦"}</span>
+            <span class="toast-text">{t().text}</span>
           </div>
         )}
       </Show>
