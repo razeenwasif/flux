@@ -55,6 +55,25 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
   A separate lazy chunk (1.6 KB gzip); the eager chrome bundle moves 64.4 → 64.5 KB.
 
+- **LaTeX blocks in Scribe** (#109). Insert an equation with **Σ Equation**, `Ctrl+M`, or just by
+  typing `$$x^2$$` mid-sentence — it becomes a rendered block as soon as you close the delimiters.
+  Click a rendered equation to edit its source; the block itself is one atom to the caret, so you
+  can't land inside a fraction and corrupt it by typing, which is what makes Notion's equation
+  blocks usable.
+
+  The LaTeX lives in the node's `data-tex`, not in the rendering. That matters in three places: the
+  document round-trips through `innerHTML`, so anything not in an attribute is lost the moment
+  KaTeX re-renders; Rust recovers the equation by reading one attribute instead of parsing HTML;
+  and a page opened before KaTeX loads still knows what it says. **Equations are indexed as their
+  LaTeX** — a rendered equation's text content is KaTeX's glyph soup, which the KB would otherwise
+  happily index and cite back at you.
+
+  Half-typed LaTeX shows its source in red rather than blanking the block: an unfinished equation is
+  the normal state of one you're still writing. KaTeX loads lazily (77 KB gzip, its own chunk) —
+  nothing is fetched until a page actually has maths on it.
+- **Gemma writes LaTeX too.** Anything she adds via `/note` goes through the same `$…$` / `$$…$$`
+  convention and produces the *same* node as one you typed by hand, so her equations render as real
+  typeset maths rather than arriving as escaped dollar signs.
 - **Gemma can write to your notes — `/note <what to add>`** (#108). She drafts a new Onyx note, a new
   Scribe page, or an addition to an existing one, and you see **the exact text** before anything is
   written. Approving content rather than a description of content is the point: a card that said

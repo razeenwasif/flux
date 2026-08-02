@@ -836,7 +836,11 @@ impl AgentPlanner {
              Only ever append to a path or id that appears verbatim in EXISTING. \
              If the request is a question, or asks to change something already \
              written, use \"nothing\". Write the body the user asked for — not a \
-             description of it.\n\n\
+             description of it.\n\
+             Write mathematics as LaTeX between dollar signs: $x^2$ inline, \
+             $$\\\\int_0^1 x^2\\\\,dx$$ on its own line. It renders as real \
+             typeset maths, so use it for any formula rather than describing one \
+             in words or in plain ASCII.\n\n\
              EXISTING:\n{targets}\n\n{context}REQUEST: {request}"
         );
 

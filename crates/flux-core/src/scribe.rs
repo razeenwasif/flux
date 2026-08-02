@@ -83,12 +83,70 @@ pub fn append_prose(page: &mut Page, body: &str) -> Result<(), String> {
 /// Markdown-ish plain text → the minimal HTML the document editor round-trips.
 /// Blank-line-separated blocks become paragraphs; everything is escaped, since
 /// the body came from a model that was reading untrusted pages.
+///
+/// `$$…$$` and `$…$` become the editor's own maths nodes (#109), so an equation
+/// Gemma writes renders exactly like one you typed — same shape, same
+/// `data-tex`, same everything downstream. Without this her LaTeX would arrive
+/// as escaped literal dollar signs.
 fn prose_to_html(body: &str) -> String {
     body.split("\n\n")
         .map(str::trim)
         .filter(|p| !p.is_empty())
-        .map(|p| format!("<p>{}</p>", escape_html(p).replace('\n', "<br>")))
+        .map(|p| format!("<p>{}</p>", inline_to_html(p)))
         .collect()
+}
+
+/// One paragraph: escaped text with maths lifted out into nodes.
+fn inline_to_html(p: &str) -> String {
+    let mut out = String::new();
+    let mut rest = p;
+    while let Some(start) = rest.find('$') {
+        let display = rest[start..].starts_with("$$");
+        let open = if display { 2 } else { 1 };
+        let after = &rest[start + open..];
+        // An unmatched `$` is just a dollar sign - prices are commoner than
+        // maths in prose, and eating them would be worse than missing a formula.
+        let Some(end) = after.find(if display { "$$" } else { "$" }) else {
+            out.push_str(&escape_html(&rest[..start + open]).replace('\n', "<br>"));
+            rest = &rest[start + open..];
+            continue;
+        };
+        let tex = after[..end].trim();
+        if tex.is_empty() || (!display && tex.contains('\n')) {
+            out.push_str(&escape_html(&rest[..start + open]).replace('\n', "<br>"));
+            rest = &rest[start + open..];
+            continue;
+        }
+        out.push_str(&escape_html(&rest[..start]).replace('\n', "<br>"));
+        out.push_str(&math_node(tex, display));
+        rest = &after[end + open..];
+    }
+    out.push_str(&escape_html(rest).replace('\n', "<br>"));
+    out
+}
+
+/// The editor's maths node. `data-tex` is the source of truth; the text content
+/// is what shows until KaTeX renders it (and if it never loads).
+fn math_node(tex: &str, display: bool) -> String {
+    let esc = escape_attr(tex);
+    let fallback = escape_html(&if display {
+        format!("$${tex}$$")
+    } else {
+        format!("${tex}$")
+    });
+    if display {
+        format!(
+            "<div class=\"sdoc-math\" data-tex=\"{esc}\" data-display=\"1\" contenteditable=\"false\">{fallback}</div>"
+        )
+    } else {
+        format!(
+            "<span class=\"sdoc-math\" data-tex=\"{esc}\" contenteditable=\"false\">{fallback}</span>"
+        )
+    }
+}
+
+fn escape_attr(s: &str) -> String {
+    escape_html(s).replace('"', "&quot;")
 }
 
 fn escape_html(s: &str) -> String {
@@ -273,7 +331,7 @@ pub fn page_text(content_json: &str) -> String {
     };
     // Document pages (v2): the prose lives in `html`.
     if let Some(html) = v.get("html").and_then(|h| h.as_str()) {
-        return strip_html(html);
+        return strip_html(&lift_math(html));
     }
     // Pre-document pages: an array of ink strokes, some of them typed text.
     let Some(arr) = v.as_array() else {
@@ -296,6 +354,100 @@ pub fn page_text(content_json: &str) -> String {
 
 /// Tags out, block boundaries kept as newlines, the handful of entities an
 /// editor actually emits decoded. Enough to feed retrieval — not a parser.
+/// Replace each maths node with its LaTeX source before the tags are stripped.
+///
+/// Necessary because of what a rendered equation *is* in the saved HTML: once
+/// KaTeX has run, the element's text content is the glyph soup KaTeX emits
+/// (`∫`, `1`, `0`, `x`, `2`, each in its own span, plus a duplicate MathML
+/// copy). Stripping that yields nonsense the KB would happily index and cite.
+/// The source of truth is `data-tex`, so lift it out and drop the rendering.
+fn lift_math(html: &str) -> String {
+    const MARK: &str = "class=\"sdoc-math\"";
+    let mut out = String::new();
+    let mut rest = html;
+    loop {
+        let Some(hit) = rest.find(MARK) else {
+            out.push_str(rest);
+            return out;
+        };
+        // Back up to the `<` that opens this element.
+        let Some(open) = rest[..hit].rfind('<') else {
+            out.push_str(&rest[..hit + MARK.len()]);
+            rest = &rest[hit + MARK.len()..];
+            continue;
+        };
+        let tag = if rest[open..].starts_with("<div") {
+            "div"
+        } else {
+            "span"
+        };
+        let Some(gt) = rest[hit..].find('>').map(|i| hit + i + 1) else {
+            out.push_str(rest);
+            return out;
+        };
+        let tex = attr(&rest[open..gt], "data-tex").unwrap_or_default();
+        let display = rest[open..gt].contains("data-display");
+        out.push_str(&rest[..open]);
+        if !tex.is_empty() {
+            // Spaced so the equation doesn't fuse to the surrounding words.
+            out.push(' ');
+            out.push_str(&if display {
+                format!("$${tex}$$")
+            } else {
+                format!("${tex}$")
+            });
+            out.push(' ');
+        }
+        // KaTeX nests spans several deep, so the first closing tag is not ours.
+        match end_of_element(&rest[gt..], tag) {
+            Some(end) => rest = &rest[gt + end..],
+            None => return out,
+        }
+    }
+}
+
+/// Offset just past the close of an element already opened, counting nesting.
+fn end_of_element(s: &str, tag: &str) -> Option<usize> {
+    let open = format!("<{tag}");
+    let close = format!("</{tag}>");
+    let mut depth = 1usize;
+    let mut i = 0usize;
+    while i < s.len() {
+        let next_open = s[i..].find(&open).map(|x| i + x);
+        let next_close = s[i..].find(&close).map(|x| i + x);
+        match (next_open, next_close) {
+            (Some(o), Some(c)) if o < c => {
+                depth += 1;
+                i = o + open.len();
+            }
+            (_, Some(c)) => {
+                depth -= 1;
+                i = c + close.len();
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// One attribute out of an opening tag. Values here are written by Flux, so a
+/// plain double-quoted read is enough.
+fn attr(open_tag: &str, name: &str) -> Option<String> {
+    let key = format!("{name}=\"");
+    let start = open_tag.find(&key)? + key.len();
+    let end = open_tag[start..].find('"')? + start;
+    Some(
+        open_tag[start..end]
+            .replace("&quot;", "\"")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&"),
+    )
+}
+
 fn strip_html(html: &str) -> String {
     let mut out = String::new();
     let mut depth = 0u32;
@@ -541,6 +693,88 @@ fn publish_page(
 
 #[cfg(test)]
 mod tests {
+
+    // ─── LaTeX blocks (#109) ────────────────────────────────────────────────
+
+    #[test]
+    fn gemma_s_latex_becomes_a_real_equation_node() {
+        // The whole point: maths she writes must arrive as the same node the
+        // editor makes, not as escaped literal dollar signs.
+        let html = prose_to_html("The integral $$\\int_0^1 x^2\\,dx$$ evaluates to $1/3$.");
+        assert!(
+            html.contains(r#"class="sdoc-math""#),
+            "no maths node produced: {html}"
+        );
+        assert!(html.contains(r#"data-tex="\int_0^1 x^2\,dx""#), "{html}");
+        assert!(html.contains(r#"data-display="1""#), "$$ is a display block");
+        // The inline one is a span, and not a display block.
+        assert!(html.contains(r#"<span class="sdoc-math" data-tex="1/3""#), "{html}");
+        assert!(html.contains("The integral") && html.contains("evaluates to"));
+    }
+
+    #[test]
+    fn a_lone_dollar_stays_a_dollar() {
+        // Prices are commoner than maths in prose; silently eating them (or
+        // swallowing the rest of the paragraph into a formula) is worse than
+        // missing a formula.
+        let html = prose_to_html("It cost $5 and change.");
+        assert!(!html.contains("sdoc-math"), "{html}");
+        assert!(html.contains("$5 and change"), "{html}");
+        // An unterminated opener likewise.
+        let open = prose_to_html("Solve $x^2 + 1 = 0 for x");
+        assert!(!open.contains("sdoc-math"), "{open}");
+    }
+
+    #[test]
+    fn a_rendered_equation_is_indexed_as_its_latex() {
+        // What's actually on disk after KaTeX has run: the element's text is
+        // glyph soup, and the source survives only in data-tex. Indexing the
+        // glyphs would put nonsense in the KB and cite it back.
+        let rendered = concat!(
+            r#"<p>Recall <span class="sdoc-math" data-tex="e^{i\pi}+1=0" contenteditable="false">"#,
+            r#"<span class="katex"><span class="katex-mathml">e<span>i</span></span>"#,
+            r#"<span class="katex-html"><span class="mord">e</span><span class="mord">0</span></span>"#,
+            r#"</span></span> — Euler.</p>"#
+        );
+        let text = page_text(&serde_json::json!({ "html": rendered }).to_string());
+        assert!(text.contains(r"e^{i\pi}+1=0"), "latex not recovered: {text:?}");
+        assert!(text.contains("Recall") && text.contains("Euler"));
+        assert!(
+            !text.contains("katex"),
+            "rendering leaked into the indexed text: {text:?}"
+        );
+    }
+
+    #[test]
+    fn display_maths_survives_the_round_trip() {
+        // prose_to_html → page_text is the loop an agent-written page takes to
+        // the KB; the equation has to come back out.
+        let html = prose_to_html("Bound: $$\\|x\\|_2 \\le \\|x\\|_1$$");
+        let text = page_text(&serde_json::json!({ "html": html }).to_string());
+        assert!(text.contains("\\|x\\|_2"), "{text:?}");
+    }
+
+    #[test]
+    fn append_prose_only_touches_document_pages() {
+        let mut doc = Page::document("Notes", "First.");
+        let before = doc.strokes.clone();
+        append_prose(&mut doc, "Second, with $x^2$.").unwrap();
+        assert!(doc.strokes.len() > before.len());
+        let text = page_text(&doc.strokes);
+        assert!(text.contains("First.") && text.contains("Second"), "{text:?}");
+        assert!(text.contains("$x^2$"), "appended maths indexed: {text:?}");
+
+        // A handwritten page is refused rather than converted into something
+        // else - there's no honest way to add typed text to a stroke array.
+        let mut ink = Page {
+            id: "pg-1".into(),
+            template: "grid".into(),
+            strokes: r#"[{"t":"pen","pts":[]}]"#.into(),
+            ts: 1,
+        };
+        assert!(append_prose(&mut ink, "hello").is_err());
+        assert!(append_prose(&mut doc, "   ").is_err(), "empty append refused");
+    }
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {

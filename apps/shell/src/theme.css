@@ -15510,6 +15510,43 @@ input[type="radio"].pdf-fw {
   color: var(--flux-violet, #9d8df1) !important;
   border-color: rgba(157, 141, 241, 0.35) !important;
 }
+.sdoc-math-btn {
+  color: #ffd479 !important;
+  border-color: rgba(255, 212, 121, 0.35) !important;
+}
+
+/* ── Equation blocks (#109) ───────────────────────────────────────────────────
+   Rendered maths is one atom to the caret (contenteditable=false on the node),
+   so it gets a hover affordance instead: clicking opens its LaTeX source, which
+   is the only place an equation can actually be edited. */
+.sdoc-math {
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.12s var(--ease-soft, ease);
+}
+.sdoc-math:hover {
+  background: rgba(255, 212, 121, 0.16);
+}
+span.sdoc-math {
+  padding: 0 2px;
+}
+div.sdoc-math {
+  display: block;
+  margin: 10px 0;
+  padding: 6px 0;
+  text-align: center;
+}
+/* Half-typed LaTeX is the normal state of an equation you're still writing, so
+   a failure shows the source rather than blanking the block. */
+.sdoc-math-bad {
+  color: #ff9f9f;
+  font-family: var(--flux-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+}
+/* KaTeX ships its own colour; the page is dark. */
+.sdoc-body .katex {
+  color: inherit;
+}
 .sdoc-bar button:disabled {
   opacity: 0.55;
   cursor: default;

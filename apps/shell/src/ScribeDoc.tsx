@@ -20,6 +20,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
 import InkCanvas, { renderStrokesScaled, type InkApi, type Stroke } from "./InkCanvas";
+import { MATH_SEL, mathNode, renderMath, texToNodes } from "./mathblock";
 import { scribeProofread, type TextFix } from "./ipc";
 
 export type InkObject = { id: string; src: string; x: number; y: number; w: number; h: number };
@@ -146,6 +147,10 @@ const ScribeDoc: Component<Props> = (props) => {
 
   onMount(() => {
     body.innerHTML = initial.html;
+    // A page saved with maths on it arrives as unrendered nodes (the rendering
+    // is throwaway; `data-tex` is what's stored). KaTeX loads only if there's
+    // actually something to render.
+    void renderMath(body);
     props.api?.({
       pageToBlob: async () => {
         // The ink objects are already PNGs; publish the first as the page image.
@@ -209,7 +214,97 @@ const ScribeDoc: Component<Props> = (props) => {
     emit();
   };
 
+  // ── maths (#109) ──
+  //
+  // Insert at the caret. The block is one atom to the editor
+  // (contenteditable=false), so a trailing space is added after it — otherwise
+  // there is nowhere to put the caret when the equation ends the document, and
+  // it feels stuck.
+  const insertMath = (tex: string, display: boolean) => {
+    body.focus();
+    const sel = window.getSelection();
+    if (!sel?.rangeCount || !body.contains(sel.focusNode)) {
+      body.appendChild(mathNode(tex, display));
+      body.appendChild(document.createTextNode("\u00a0"));
+    } else {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const node = mathNode(tex, display);
+      const after = document.createTextNode("\u00a0");
+      range.insertNode(after);
+      range.insertNode(node);
+      range.setStartAfter(after);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    void renderMath(body).then(emit);
+    emit();
+  };
+
+  const promptForMath = (el?: HTMLElement) => {
+    // The editing surface for an equation is its source. Rendered maths is not
+    // editable in place — that's the trade that makes it safe to type around.
+    const current = el?.dataset.tex ?? "";
+    const next = window.prompt("LaTeX (e.g. \\int_0^1 x^2\\,dx)", current);
+    if (next == null) return;
+    const tex = next.trim();
+    if (el) {
+      if (!tex) el.remove();
+      else {
+        el.dataset.tex = tex;
+        delete el.dataset.rendered;
+      }
+      void renderMath(body).then(emit);
+      emit();
+      return;
+    }
+    if (tex) insertMath(tex, true);
+  };
+
+  /** Click a rendered equation to edit its source. */
+  const onBodyClick = (e: MouseEvent) => {
+    const el = (e.target as HTMLElement | null)?.closest<HTMLElement>(MATH_SEL);
+    if (el) {
+      e.preventDefault();
+      promptForMath(el);
+    }
+  };
+
+  /** `$$x^2$$` typed inline becomes a block when you close it — the Notion
+   *  reflex, and much faster than reaching for the toolbar mid-sentence. */
+  const onInput = () => {
+    const sel = window.getSelection();
+    const node = sel?.focusNode;
+    if (node && node.nodeType === Node.TEXT_NODE && /\$[^$\n]+\$/.test(node.textContent ?? "")) {
+      const parts = texToNodes(node.textContent ?? "");
+      if (parts.some((p) => typeof p !== "string")) {
+        const frag = document.createDocumentFragment();
+        for (const p of parts) {
+          frag.appendChild(typeof p === "string" ? document.createTextNode(p) : p);
+        }
+        const tail = document.createTextNode("\u00a0");
+        frag.appendChild(tail);
+        (node as ChildNode).replaceWith(frag);
+        const r = document.createRange();
+        r.setStartAfter(tail);
+        r.collapse(true);
+        sel?.removeAllRanges();
+        sel?.addRange(r);
+        void renderMath(body).then(emit);
+      }
+    }
+    emit();
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
+    // Ctrl/Cmd+M — next to the other formatting shortcuts, and it doesn't
+    // collide with anything the editor or the chrome already uses.
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "m") {
+      e.preventDefault();
+      promptForMath();
+      return;
+    }
     if (e.key !== "Tab") return;
     e.preventDefault();
     indent(e.shiftKey);
@@ -377,6 +472,13 @@ const ScribeDoc: Component<Props> = (props) => {
           {checking() ? "Checking…" : "✓ Proofread"}
         </button>
         <button
+          class="sdoc-math-btn"
+          title="Equation (Ctrl+M) — or just type $$x^2$$"
+          onClick={() => promptForMath()}
+        >
+          Σ Equation
+        </button>
+        <button
           class="sdoc-draw"
           title="Draw an equation or diagram to insert"
           onClick={() => {
@@ -451,9 +553,10 @@ const ScribeDoc: Component<Props> = (props) => {
               class="sdoc-body"
               contentEditable
               spellcheck={true}
-              onInput={emit}
+              onInput={onInput}
               onBlur={emit}
               onKeyDown={onKeyDown}
+              onClick={onBodyClick}
             />
             {/* Ink sits above the text as free-floating objects. */}
             <For each={objects()}>
