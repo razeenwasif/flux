@@ -104,6 +104,26 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   and `yellow` stay put**. Those are what programs *mean* by them — a compiler error is red because
   red means error, and repainting it rose because the theme is rose would make `cargo` output
   unreadable.
+- **Scribe notebooks sync through a shared folder.** Point Syncthing (or Dropbox, or anything) at
+  Flux's Scribe folder and notebooks now merge across devices instead of clobbering.
+
+  Three things had to change. `ScribeStore` read every notebook once at boot and never looked
+  again — fine for a folder only Flux writes to, wrong the moment it's shared, so a notebook from
+  another device was invisible until restart. It's watched now. Saving wrote the whole in-memory
+  notebook over the file, so editing the same notebook on two machines meant whoever saved second
+  won the lot; merging is **per page** — union by id, newer `ts` wins — so two devices adding
+  different pages to one notebook keep both. And a deleted page came back on the next merge from
+  the other device's older copy, so deletions leave tombstones inside the notebook file, which
+  travel with it.
+
+  Flux works out a page deletion by comparing what the editor sends back against what was stored —
+  the editor deletes a page by saving a notebook without it, so there's no "delete page" call to
+  hook. Re-adding a page with a newer timestamp beats its own tombstone; a tombstone isn't a
+  permanent ban on the id.
+
+  The folders, for Syncthing: `%APPDATA%\dev.flux.browser\scribe` on Windows,
+  `~/Library/Application Support/dev.flux.browser/scribe` on macOS. Plaintext, like your Onyx vault
+  — which also means block-level dedup works and only the changed part of a notebook transfers.
 - **Closing tabs in bulk.** There was no way to close more than one tab at a time — only the per-tab
   ✕, `Ctrl+W`, and "Close current tab" in the palette. That's fine until a restored session opens
   thirty tabs across four workspaces and the only way back is thirty clicks.

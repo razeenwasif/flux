@@ -166,6 +166,11 @@ pub struct Notebook {
     pub pages: Vec<Page>,
     pub created: u64,
     pub ts: u64,
+    /// Pages deleted here, and when — so a deletion survives a merge instead of
+    /// the page reappearing from another device's older copy of this notebook
+    /// (#62). Travels inside the notebook file, so it syncs with it.
+    #[serde(default)]
+    pub deleted_pages: HashMap<String, u64>,
 }
 
 /// The written half of a published page — what ends up as Markdown around the
@@ -291,6 +296,7 @@ impl ScribeStore {
             tint: None,
             created: now,
             ts: now,
+            deleted_pages: HashMap::new(),
         };
         self.books.write().insert(nb.id.clone(), nb.clone());
         self.write(&nb);
@@ -302,9 +308,117 @@ impl ScribeStore {
     /// `ts` so the shelf reorders to most-recently-touched.
     pub fn save(&self, mut nb: Notebook) {
         nb.ts = now_ms();
+        {
+            let books = self.books.read();
+            if let Some(prev) = books.get(&nb.id) {
+                // The editor deletes a page by sending back a notebook without
+                // it — Rust never sees a "delete page" call. Work it out here,
+                // or a merge would read the gap as "the other device added a
+                // page" and put it straight back.
+                let present: std::collections::HashSet<&str> =
+                    nb.pages.iter().map(|p| p.id.as_str()).collect();
+                for p in &prev.pages {
+                    if !present.contains(p.id.as_str()) {
+                        nb.deleted_pages.insert(p.id.clone(), nb.ts);
+                    }
+                }
+                for (k, v) in &prev.deleted_pages {
+                    nb.deleted_pages.entry(k.clone()).or_insert(*v);
+                }
+            }
+        }
         self.books.write().insert(nb.id.clone(), nb.clone());
         self.write(&nb);
         self.touch();
+    }
+
+    /// Fold a notebook read off disk into what's in memory.
+    ///
+    /// This is the sync path: the folder is shared between devices, so a file
+    /// can change underneath a running Flux. Replacing wholesale would lose
+    /// whichever side saved second — including pages the other device added, in
+    /// a notebook where both of you were working. So it merges **per page**:
+    /// union by page id, newer `ts` wins, tombstones remove.
+    ///
+    /// Returns whether anything changed, so the caller can skip the write and
+    /// the reindex when a file event was our own write coming back.
+    pub fn merge_notebook(&self, incoming: Notebook) -> bool {
+        let mut books = self.books.write();
+        let Some(local) = books.get(&incoming.id).cloned() else {
+            books.insert(incoming.id.clone(), incoming);
+            drop(books);
+            self.touch();
+            return true;
+        };
+
+        let mut merged = local.clone();
+        // Deletions from either side, newest wins.
+        for (k, v) in &incoming.deleted_pages {
+            let slot = merged.deleted_pages.entry(k.clone()).or_insert(0);
+            if *v > *slot {
+                *slot = *v;
+            }
+        }
+        // Pages: newer edit wins; a page only on one side is kept.
+        for rp in incoming.pages {
+            match merged.pages.iter_mut().find(|p| p.id == rp.id) {
+                Some(lp) => {
+                    if rp.ts > lp.ts {
+                        *lp = rp;
+                    }
+                }
+                None => merged.pages.push(rp),
+            }
+        }
+        // A tombstone at least as new as the page removes it. `>=` so a
+        // same-millisecond delete beats the edit: deleting is explicit.
+        merged
+            .pages
+            .retain(|p| merged.deleted_pages.get(&p.id).is_none_or(|&d| d < p.ts));
+        // Keep a stable reading order rather than merge order.
+        merged.pages.sort_by_key(|p| p.ts);
+        // Metadata follows whichever notebook was touched last.
+        if incoming.ts > merged.ts {
+            merged.name = incoming.name;
+            merged.course = incoming.course;
+            merged.tint = incoming.tint;
+            merged.ts = incoming.ts;
+        }
+
+        let changed = serde_json::to_string(&merged).ok() != serde_json::to_string(&local).ok();
+        if changed {
+            books.insert(merged.id.clone(), merged);
+            drop(books);
+            self.touch();
+        }
+        changed
+    }
+
+    /// Forget a notebook whose file has gone (deleted on another device).
+    pub fn forget(&self, id: &str) -> bool {
+        let removed = self.books.write().remove(id).is_some();
+        if removed {
+            self.touch();
+        }
+        removed
+    }
+
+    /// Re-read one notebook file and merge it. `None` when the file is gone.
+    pub fn reload_file(&self, path: &std::path::Path) -> Option<bool> {
+        let raw = std::fs::read_to_string(path).ok()?;
+        let nb: Notebook = serde_json::from_str(&raw).ok()?;
+        Some(self.merge_notebook(nb))
+    }
+
+    pub fn dir(&self) -> Option<PathBuf> {
+        self.dir.clone()
+    }
+
+    /// Write the merged state back, so the other device converges on it too.
+    pub fn rewrite(&self, id: &str) {
+        if let Some(nb) = self.books.read().get(id) {
+            self.write(nb);
+        }
     }
 
     pub fn delete(&self, id: &str) {
@@ -693,6 +807,135 @@ fn publish_page(
 
 #[cfg(test)]
 mod tests {
+
+    // ─── Folder sync: merging a notebook that changed underneath us ─────────
+
+    fn nb(id: &str, ts: u64, pages: Vec<Page>) -> Notebook {
+        Notebook {
+            id: id.into(),
+            name: "Convex".into(),
+            course: None,
+            tint: None,
+            pages,
+            created: 1,
+            ts,
+            deleted_pages: HashMap::new(),
+        }
+    }
+    fn pg(id: &str, ts: u64, body: &str) -> Page {
+        Page {
+            id: id.into(),
+            template: "plain".into(),
+            strokes: serde_json::json!({ "html": body }).to_string(),
+            ts,
+        }
+    }
+
+    #[test]
+    fn both_devices_keep_the_pages_they_added() {
+        // The case that loses work today: two machines add different pages to
+        // the same notebook, and whoever saves second overwrites the other.
+        let store = ScribeStore::default();
+        store.merge_notebook(nb(
+            "n1",
+            10,
+            vec![pg("a", 10, "A"), pg("mine", 20, "local")],
+        ));
+        store.merge_notebook(nb(
+            "n1",
+            15,
+            vec![pg("a", 10, "A"), pg("theirs", 25, "remote")],
+        ));
+
+        let got = store.load("n1").unwrap();
+        let ids: Vec<&str> = got.pages.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["a", "mine", "theirs"],
+            "both survive, in time order"
+        );
+    }
+
+    #[test]
+    fn the_newer_edit_of_a_page_wins() {
+        let store = ScribeStore::default();
+        store.merge_notebook(nb("n1", 10, vec![pg("a", 100, "old")]));
+        store.merge_notebook(nb("n1", 20, vec![pg("a", 200, "new")]));
+        assert!(store.load("n1").unwrap().pages[0].strokes.contains("new"));
+
+        // …and an older copy arriving later doesn't undo it.
+        store.merge_notebook(nb("n1", 5, vec![pg("a", 50, "ancient")]));
+        assert!(store.load("n1").unwrap().pages[0].strokes.contains("new"));
+    }
+
+    #[test]
+    fn a_deleted_page_does_not_come_back() {
+        // Without tombstones the other device's copy re-adds it on every merge.
+        let store = ScribeStore::default();
+        let full = nb("n1", 10, vec![pg("a", 10, "A"), pg("b", 10, "B")]);
+        store.merge_notebook(full.clone());
+        // The editor deletes page "b" by saving the notebook without it.
+        let mut without = store.load("n1").unwrap();
+        without.pages.retain(|p| p.id != "b");
+        store.save(without);
+        assert_eq!(store.load("n1").unwrap().pages.len(), 1);
+
+        // The other device's older copy still lists it.
+        store.merge_notebook(full);
+        let after = store.load("n1").unwrap();
+        assert_eq!(after.pages.len(), 1, "the deletion held");
+        assert!(after.deleted_pages.contains_key("b"));
+    }
+
+    #[test]
+    fn re_adding_a_page_after_deleting_it_wins() {
+        // A tombstone must not be a permanent ban on the id.
+        let store = ScribeStore::default();
+        store.merge_notebook(nb("n1", 10, vec![pg("a", 10, "A"), pg("b", 10, "B")]));
+        let mut without = store.load("n1").unwrap();
+        without.pages.retain(|p| p.id != "b");
+        store.save(without);
+        let stamp = store.load("n1").unwrap().deleted_pages["b"];
+
+        store.merge_notebook(nb("n1", 99, vec![pg("b", stamp + 1000, "back")]));
+        let after = store.load("n1").unwrap();
+        assert!(
+            after.pages.iter().any(|p| p.id == "b"),
+            "newer than the delete"
+        );
+    }
+
+    #[test]
+    fn merging_our_own_file_back_reports_no_change() {
+        // The watcher writes the merged notebook out, which fires another file
+        // event. That must terminate rather than ping-pong.
+        let store = ScribeStore::default();
+        let n = nb("n1", 10, vec![pg("a", 10, "A")]);
+        assert!(store.merge_notebook(n.clone()), "first arrival is a change");
+        assert!(!store.merge_notebook(n), "the same file again is not");
+    }
+
+    #[test]
+    fn notebook_metadata_follows_the_newer_save() {
+        let store = ScribeStore::default();
+        store.merge_notebook(nb("n1", 10, vec![]));
+        let mut renamed = nb("n1", 50, vec![]);
+        renamed.name = "Convex Analysis & Optimization".into();
+        store.merge_notebook(renamed);
+        assert_eq!(
+            store.load("n1").unwrap().name,
+            "Convex Analysis & Optimization"
+        );
+
+        let mut stale = nb("n1", 20, vec![]);
+        stale.name = "Old name".into();
+        store.merge_notebook(stale);
+        assert_eq!(
+            store.load("n1").unwrap().name,
+            "Convex Analysis & Optimization",
+            "an older file must not rename it back"
+        );
+    }
 
     // ─── LaTeX blocks (#109) ────────────────────────────────────────────────
 

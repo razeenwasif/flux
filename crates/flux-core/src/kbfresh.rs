@@ -114,6 +114,18 @@ fn reindex_one(app: &AppHandle, source: &str) {
 
 /// Start the debounce worker and the Onyx vault watch. Idempotent per app.
 pub fn start(app: &AppHandle) {
+    // The stores this watches are managed at different points in setup —
+    // `KbStore` before this is spawned, `ScribeStore` after. Rather than couple
+    // to that order (and break silently when it changes), wait for them to turn
+    // up. Bounded, because a store that never appears is a bug to log, not a
+    // thread to leak.
+    for _ in 0..50 {
+        if app.try_state::<crate::scribe::ScribeStore>().is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
     let handle = app.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(TICK);
@@ -125,6 +137,7 @@ pub fn start(app: &AppHandle) {
         }
     });
     watch_onyx(app);
+    watch_scribe(app);
 }
 
 /// Watch the Onyx vault so notes written in the Onyx TUI — outside Flux
@@ -187,6 +200,79 @@ fn watch_onyx(app: &AppHandle) {
 /// Keeps the vault watcher alive for the process's lifetime (dropping a
 /// `notify` watcher silently stops delivery).
 struct OnyxWatch(#[allow(dead_code)] Mutex<Option<notify::RecommendedWatcher>>);
+
+/// Same, for the Scribe folder.
+struct ScribeWatch(#[allow(dead_code)] Mutex<Option<notify::RecommendedWatcher>>);
+
+/// Watch the Scribe folder so notebooks synced from another device appear
+/// without restarting Flux (#62).
+///
+/// `ScribeStore` reads every notebook once at boot and never looks again, which
+/// is fine for a folder only Flux writes to — and wrong the moment it's shared.
+/// A notebook arriving from another machine was invisible until restart, and
+/// worse, the next local save wrote the in-memory copy straight over it.
+///
+/// Merging is per page (see `ScribeStore::merge_notebook`), so two devices
+/// adding different pages to the same notebook keep both.
+fn watch_scribe(app: &AppHandle) {
+    use notify::Watcher;
+
+    let Some(store) = app.try_state::<crate::scribe::ScribeStore>() else {
+        return;
+    };
+    let Some(dir) = store.dir() else { return };
+    let _ = std::fs::create_dir_all(&dir);
+
+    let handle = app.clone();
+    let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let Ok(ev) = res else { return };
+        let Some(store) = handle.try_state::<crate::scribe::ScribeStore>() else {
+            return;
+        };
+        for path in &ev.paths {
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if matches!(ev.kind, notify::EventKind::Remove(_)) || !path.exists() {
+                // Deleted on another device. The file is the record, so its
+                // absence is the deletion.
+                if store.forget(id) {
+                    tracing::info!(target: "flux::scribe", id, "notebook removed elsewhere");
+                }
+                continue;
+            }
+            match store.reload_file(path) {
+                // Changed by the merge, so write the merged state back — that's
+                // what makes the two devices converge rather than ping-pong.
+                Some(true) => {
+                    store.rewrite(id);
+                    tracing::info!(target: "flux::scribe", id, "merged a notebook from the folder");
+                    if let Some(fresh) = handle.try_state::<Arc<KbFreshness>>() {
+                        fresh.touch("scribe");
+                    }
+                }
+                // Our own write coming back, or an older copy: nothing to do.
+                Some(false) => {}
+                None => tracing::debug!(target: "flux::scribe", id, "unreadable notebook file"),
+            }
+        }
+    });
+
+    match watcher {
+        Ok(mut w) => {
+            if let Err(e) = w.watch(&dir, notify::RecursiveMode::NonRecursive) {
+                tracing::warn!(target: "flux::scribe", "couldn't watch the Scribe folder: {e}");
+                return;
+            }
+            tracing::info!(target: "flux::scribe", dir = %dir.display(), "watching the Scribe folder");
+            app.manage(ScribeWatch(Mutex::new(Some(w))));
+        }
+        Err(e) => tracing::warn!(target: "flux::scribe", "no Scribe watcher: {e}"),
+    }
+}
 
 #[cfg(test)]
 mod tests {

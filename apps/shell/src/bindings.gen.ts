@@ -320,7 +320,7 @@ export type Page = { id: string; template: string; strokes: string; ts: number }
 /**
  * A course notebook: an ordered list of fixed-size pages you flip through.
  */
-export type Notebook = { id: string; name: string; course: string | null; tint: string | null; pages: Page[]; created: number; ts: number }
+export type Notebook = { id: string; name: string; course: string | null; tint: string | null; pages: Page[]; created: number; ts: number; deleted_pages?: { [key: string]: number } }
 /**
  * Shelf-list view of a notebook — no strokes, so listing stays cheap.
  */
