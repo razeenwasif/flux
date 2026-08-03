@@ -11977,6 +11977,79 @@ input[type="radio"].pdf-fw {
   padding-top: 12vh;
 }
 
+/* ── Text prompt (ask.tsx) ────────────────────────────────────────────────────
+   Replaces window.prompt, which this webview silently no-ops. */
+.ask-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.45);
+}
+.ask {
+  position: fixed;
+  z-index: 91;
+  top: 22vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, 90vw);
+  padding: 14px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+}
+.ask-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--flux-text);
+}
+.ask-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--glass-rim-soft);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--flux-text);
+  font-size: 14px;
+  outline: 0;
+}
+.ask-input:focus {
+  border-color: rgba(var(--accent-rgb), 0.5);
+}
+.ask-hint {
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  line-height: 1.5;
+}
+.ask-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.ask-cancel,
+.ask-ok {
+  padding: 7px 15px;
+  border-radius: 8px;
+  border: 1px solid var(--flux-border);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.ask-cancel {
+  background: transparent;
+  color: var(--flux-text-dim);
+}
+.ask-ok {
+  border-color: transparent;
+  background: var(--flux-teal);
+  color: var(--velvet-900);
+  font-weight: 650;
+}
+.ask-ok:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ── Theme picker (Settings → Appearance) ─────────────────────────────────── */
 .theme-picker {
   display: flex;

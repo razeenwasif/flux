@@ -9,6 +9,7 @@
  * the same engine for paged, disk-backed course notebooks — `ScribePage`.)
  */
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { askText } from "./ask";
 
 import InkCanvas, { type Stroke } from "./InkCanvas";
 import { activeId, updateTabTitle } from "./store";
@@ -56,8 +57,8 @@ const WhiteboardPage: Component = () => {
     setBoardId(id);
     scheduleSave();
   };
-  const renameBoard = () => {
-    const name = window.prompt("Board name", board().name)?.trim();
+  const renameBoard = async () => {
+    const name = await askText({ title: "Board name", value: board().name, confirm: "Rename" });
     if (name) {
       setBoards((bs) => bs.map((b) => (b.id === boardId() ? { ...b, name } : b)));
       scheduleSave();
@@ -113,7 +114,7 @@ const WhiteboardPage: Component = () => {
           ＋
         </button>
         <span style={{ flex: 1 }} />
-        <button class="wb-board" title="Rename board" onClick={renameBoard}>
+        <button class="wb-board" title="Rename board" onClick={() => void renameBoard()}>
           ✎
         </button>
         <button class="wb-board" title="Delete board" onClick={deleteBoard}>

@@ -10,6 +10,7 @@
  * OS layer above all chrome HTML — the only way an overlay can cover a page).
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js";
+import { askText } from "./ask";
 import { Portal } from "solid-js/web";
 
 import {
@@ -124,8 +125,13 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     const b = mondayOf(d);
     return Math.round((b.getTime() - a.getTime()) / (7 * DAY_MS)) + 1;
   };
-  const setWeek1From = () => {
-    const v = window.prompt("Which date is in Week 1? (YYYY-MM-DD — its Monday starts the count)", week1());
+  const setWeek1From = async () => {
+    const v = await askText({
+      title: "Which date is in Week 1?",
+      value: week1(),
+      placeholder: "YYYY-MM-DD",
+      hint: "That date's Monday starts the count.",
+    });
     if (!v) return;
     const d = new Date(`${v.trim()}T00:00`);
     if (Number.isNaN(d.getTime())) return;
@@ -330,8 +336,12 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
       .then(refreshTodos)
       .catch(() => {});
   };
-  const addProfile = () => {
-    const name = window.prompt("New task list name (e.g. a course code)")?.trim();
+  const addProfile = async () => {
+    const name = await askText({
+      title: "New task list",
+      placeholder: "e.g. a course code",
+      confirm: "Create",
+    });
     if (!name || profiles().includes(name)) return;
     saveProfiles([...profiles(), name]);
     setProfile(name);
@@ -493,7 +503,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
         <button
           class="cal-weekno"
           title={`Teaching week — Week 1 starts ${week1()}. Click to change.`}
-          onClick={setWeek1From}
+          onClick={() => void setWeek1From()}
         >
           Wk {view() === "week" ? weekNo(weekStart()) : weekNo(new Date(`${selected()}T00:00`))}
         </button>
@@ -743,7 +753,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                 </button>
               )}
             </For>
-            <button class="cal-tasks-tab add" title="New task list" onClick={addProfile}>
+            <button class="cal-tasks-tab add" title="New task list" onClick={() => void addProfile()}>
               ＋
             </button>
             <Show when={profiles().length > 1}>

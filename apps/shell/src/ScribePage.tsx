@@ -9,6 +9,7 @@
  * durable course-notes surface. Same engine, different shell.
  */
 import { For, Show, createSignal, on, onCleanup, onMount, createEffect, type Component } from "solid-js";
+import { askText } from "./ask";
 
 import { renderStrokesScaled, type InkTemplate, type Stroke } from "./InkCanvas";
 import ScribeDoc, { DOC_H, DOC_W, parseDoc } from "./ScribeDoc";
@@ -295,10 +296,10 @@ const ScribePage: Component = () => {
     persist({ ...cur, pages: pages2 });
   };
 
-  const renameNotebook = () => {
+  const renameNotebook = async () => {
     const cur = notebook();
     if (!cur) return;
-    const name = window.prompt("Notebook name", cur.name)?.trim();
+    const name = await askText({ title: "Notebook name", value: cur.name, confirm: "Rename" });
     if (name) {
       persist({ ...cur, name });
       const at = activeId();
@@ -308,14 +309,15 @@ const ScribePage: Component = () => {
 
   /** The course IS the vault folder this notebook publishes into, so it's
    *  editable after creation (you rarely know the exact folder name up front). */
-  const editCourse = () => {
+  const editCourse = async () => {
     const cur = notebook();
     if (!cur) return;
-    const course = window.prompt(
-      "Course — the folder inside your Onyx vault that pages publish into.\n" +
-        "Use the folder's exact name (e.g. “06 - Mathematics”). Blank = “Flux Scribe”.",
-      cur.course ?? "",
-    );
+    const course = await askText({
+      title: "Course",
+      value: cur.course ?? "",
+      placeholder: "Flux Scribe",
+      hint: "The folder inside your Onyx vault that pages publish into — use its exact name (e.g. “06 - Mathematics”). Blank publishes to “Flux Scribe”.",
+    });
     if (course == null) return; // cancelled
     persist({ ...cur, course: course.trim() || null });
   };
@@ -456,7 +458,7 @@ const ScribePage: Component = () => {
           <button class="wb-btn" title="Back to shelf" onClick={() => void closeToShelf()}>
             ‹ Shelf
           </button>
-          <button class="scribe-title" title="Rename notebook" onClick={renameNotebook}>
+          <button class="scribe-title" title="Rename notebook" onClick={() => void renameNotebook()}>
             {notebook()!.name}
           </button>
           <button
@@ -467,7 +469,7 @@ const ScribePage: Component = () => {
                 ? `Publishes into “${notebook()!.course}” in your Onyx vault — click to change`
                 : "No course set — pages publish into “Flux Scribe”. Click to point this notebook at a vault folder."
             }
-            onClick={editCourse}
+            onClick={() => void editCourse()}
           >
             {notebook()!.course ?? "set course"}
           </button>

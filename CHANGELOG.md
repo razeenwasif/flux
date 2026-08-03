@@ -219,6 +219,14 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   every chunk built so far.
 
 ### Fixed
+- **Renaming things did nothing, everywhere.** `window.prompt` is a **no-op in this webview** — it
+  returns `null` without showing anything — so renaming a Scribe notebook, setting its course,
+  naming a whiteboard, setting the calendar's week 1, and creating a task list were all dead. They
+  looked implemented and silently weren't. Every one now uses a real dialog, and there are zero
+  `window.prompt` call sites left in the app.
+
+  Its replacement keeps `prompt()`'s shape — one `await`, resolves to the text or `null` — because
+  the more a fix costs at each call site, the more sites keep the broken version.
 - **Asking Gemma in plain words to write a note did nothing.** `/note` was the only route, so
   "save this into my Convex notebook" fell through to ordinary chat — and she'd answer as though
   she had written it. No approval card, no write, no indication that either was missing.
