@@ -83,6 +83,7 @@ import {
   type NextStep,
   type AgentStatus,
 } from "./ipc";
+import { looksLikeNoteWrite } from "./noteintent";
 import {
   activeId,
   activeWorkspace,
@@ -870,7 +871,7 @@ const AgentPanel: Component = () => {
     '- Chain several of the above in one request: join steps with "then" / "+" — e.g. "read src/foo.rs then fix the bug then run the tests" or "play my liked songs + shuffle on". Each step runs in order; edits/commands still ask for approval.\n' +
     '- Adaptive goal loop: "/fix <goal>" (e.g. "/fix make the tests in src/foo.rs pass") — you run one step, read the result, and re-plan: run → read the failure → edit a fix → re-run, until it\'s done or stuck. Each edit/command still asks for approval.\n' +
     '- Power Platform (Power Apps / Power Automate ALM): "/pac <request>" maps to ONE Power Platform CLI command — e.g. "/pac export my solution Contoso", "/pac unpack the solution zip", "/pac list my canvas apps". It runs the command via the approval card; environment-mutating ones (import/delete/publish) are flagged first.\n' +
-    '- Notes: "/note <what to add>" drafts something to ADD to the user\'s Onyx vault or a Scribe notebook — a new note/page, or an append to an existing one. They see the exact text and approve it before anything is written. You can never edit, rewrite or delete what is already there.\n' +
+    '- Notes: asking in plain words ("save this into my Convex notebook") or "/note <what to add>" drafts something to ADD to the user\'s Onyx vault or a Scribe notebook — a new note/page, or an append to an existing one. They see the exact text and approve it before anything is written. You can never edit, rewrite or delete what is already there.\n' +
     '- Voice: always-on "Hey Gemma" + push-to-talk; the user can interrupt you by talking or the Stop button.\n' +
     "When asked what you can do, summarize the above. Don't claim abilities not listed.";
 
@@ -1162,7 +1163,7 @@ const AgentPanel: Component = () => {
       "🔗 Chains — join steps with “then”/“+”, e.g. “read foo.rs then fix the bug then run the tests”\n" +
       "🛠 Fix loop — “/fix <goal>”, e.g. “/fix make the tests pass”; I run → read the failure → fix → re-run\n" +
       "⚡ Power Platform — “/pac <request>”, e.g. “/pac export my solution Contoso”; I map it to a pac CLI command you approve\n" +
-      "✎ Notes — “/note <what to add>” drafts a note or page; you see the exact text and approve before anything is written\n" +
+      "✎ Notes — just ask (“save this into my Convex notebook”), or “/note <what to add>”; you see the exact text and approve before anything is written\n" +
       "🎙 Voice — “Hey Gemma” always-on + push-to-talk; talk over me or tap ■ Stop to interrupt";
     setFeed((fd) => [...fd, { role: "assistant", text: card }]);
     return "I can handle reminders, memory, terminal commands, system stats, web search, music, page actions, and voice. What would you like to do?";
@@ -1845,7 +1846,12 @@ const AgentPanel: Component = () => {
     return false;
   };
 
-  const send = async (p: string) => {
+  const send = async (
+    p: string,
+    /** Set when re-entering after note detection declined: skip the detector
+     *  (or it loops) and don't echo the prompt a second time. */
+    opts?: { skipNoteDetect?: boolean; echoed?: boolean },
+  ) => {
     const att = attachment();
     if ((!p && !att) || working() || taskRunning()) return;
     // "/task <goal>" runs the multi-step agent loop (#A) — not with an attachment.
@@ -1864,7 +1870,21 @@ const AgentPanel: Component = () => {
       if (note?.[1]) {
         setPrompt("");
         setFeed((f) => [...f, { role: "user", text: p }]);
-        void planNote(note[1].trim());
+        void planNote(note[1].trim(), true);
+        return;
+      }
+      // Asking in plain words used to do nothing at all: `/note` was the only
+      // route, so "write a summary into my Convex notebook" fell through to
+      // ordinary chat and she'd answer as if she had. Silence was the wrong
+      // failure — the *approval card* is what protects your notes, and planning
+      // never writes, so detection can afford to be generous. A false positive
+      // costs one Discard; a false negative costs the feature.
+      if (!opts?.skipNoteDetect && looksLikeNoteWrite(p)) {
+        setPrompt("");
+        setFeed((f) => [...f, { role: "user", text: p }]);
+        if (await planNote(p, false)) return;
+        // Nothing to propose — it wasn't really a write request, so answer it.
+        void send(p, { skipNoteDetect: true, echoed: true });
         return;
       }
       // "/fix <goal>" runs the adaptive tool loop — run → read the failure → fix →
@@ -1878,7 +1898,12 @@ const AgentPanel: Component = () => {
       }
     }
     setPrompt("");
-    setFeed((f) => [...f, { role: "user", text: p, image: att?.kind === "image" ? att.dataUrl : undefined }]);
+    if (!opts?.echoed) {
+      setFeed((f) => [
+        ...f,
+        { role: "user", text: p, image: att?.kind === "image" ? att.dataUrl : undefined },
+      ]);
+    }
     setBusy(true);
     try {
       // An attachment routes to the vision model (image) or chat-with-file (text).
@@ -2305,19 +2330,25 @@ const AgentPanel: Component = () => {
   // tools (so edits/commands still ask for approval), and the result is fed back.
   const MAX_FIX_STEPS = 10;
   /** Draft a note write and put it up for confirmation. Never writes. */
-  const planNote = async (request: string): Promise<void> => {
+  /** Draft a write and put it up for confirmation. Returns false when there was
+   *  nothing to propose, so an auto-detected request can fall through to an
+   *  ordinary reply instead of dead-ending on "nothing to write". */
+  const planNote = async (request: string, explicit: boolean): Promise<boolean> => {
     setBusy(true);
     try {
       const proposal = await notePlan(request);
       if (!proposal.writes) {
-        // The model decided there was nothing to add — usually a question, or a
-        // request to change something already written, which it cannot do.
-        setFeed((f) => [...f, { role: "assistant", text: proposal.summary }]);
-        return;
+        // Explicit `/note` gets the reason — you asked for a write and deserve
+        // to know why there isn't one. An auto-detected request stays quiet and
+        // is answered normally; a wrong guess shouldn't cost you an answer.
+        if (explicit) setFeed((f) => [...f, { role: "assistant", text: proposal.summary }]);
+        return false;
       }
       setFeed((f) => [...f, { role: "note", text: proposal.summary, note: proposal }]);
+      return true;
     } catch (err) {
-      setFeed((f) => [...f, { role: "error", text: String(err) }]);
+      if (explicit) setFeed((f) => [...f, { role: "error", text: String(err) }]);
+      return false;
     } finally {
       setBusy(false);
     }

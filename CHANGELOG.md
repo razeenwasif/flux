@@ -206,6 +206,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   every chunk built so far.
 
 ### Fixed
+- **Asking Gemma in plain words to write a note did nothing.** `/note` was the only route, so
+  "save this into my Convex notebook" fell through to ordinary chat — and she'd answer as though
+  she had written it. No approval card, no write, no indication that either was missing.
+
+  The original reasoning was half right: writing is the one thing she does to your own files and
+  must never happen because a question was misread. But that conflated *"don't write without
+  asking"* with *"don't even offer"* — and the approval card is what protects your notes, while
+  planning never writes. So detection is generous now: a false positive costs one click on Discard,
+  a false negative costs the feature. Questions **about** your notes stay questions ("what did I
+  write about duality" is not a request to write), and if the model finds nothing to propose, the
+  message is answered normally rather than dead-ending. `/note` still works, and still gets told
+  *why* when there's nothing to write.
 - **Inserting an equation did nothing.** The Σ Equation button and `Ctrl+M` went through
   `window.prompt`, which is a **no-op in this webview** (a fact already documented in
   `Sidebar.tsx`) — so only typing `$$…$$` inline ever worked. There's a proper editor now: a
