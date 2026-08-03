@@ -209,7 +209,7 @@ export type WatchItem = { id: number; url: string; title: string; interval_secs:
 export type TrackerNode = { id: string; kind: string; requests: number; blocked: number; degree: number }
 export type TrackerEdge = { source: number; target: number; requests: number; blocked: number }
 export type TrackerGraph = { nodes: TrackerNode[]; edges: TrackerEdge[] }
-export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string; profile?: string }
+export type Todo = { id: number; title: string; done: boolean; created_ms: number; due?: string; profile?: string; updated_ms?: number }
 /**
  * One unified search result (BACKLOG #66): an open tab, a bookmark, or a
  * history entry, ranked together by embedding similarity to the query.
@@ -347,7 +347,7 @@ export type SpotifyState = { playing: boolean; track: string; artist: string; ar
  */
 export type SpotifyPlaylist = { name: string; uri: string; art: string }
 export type SyncStatus = { folder: string | null; unlocked: boolean; last_ms: number; auto: boolean }
-export type SyncReport = { bookmarks_added: number; sessions_added: number; history_added: number; had_remote: boolean; sent_bookmarks: number; sent_sessions: number; sent_history: number; pushed: boolean }
+export type SyncReport = { bookmarks_added: number; sessions_added: number; history_added: number; had_remote: boolean; sent_bookmarks: number; sent_sessions: number; sent_history: number; todos_added: number; events_added: number; calendars_added: number; pushed: boolean }
 /**
  * The wire shape of a full archived page (BACKLOG #12): the reader-facing fields
  * only. The persisted [`ArchiveEntry`] also carries the embedding vector +

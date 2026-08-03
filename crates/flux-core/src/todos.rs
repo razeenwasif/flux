@@ -24,13 +24,36 @@ pub struct Todo {
     /// profiles existed load as "", which the UI shows in the default list.
     #[serde(default)]
     pub profile: String,
+    /// Last time this task changed, for sync (#62). Without it, a completed box
+    /// ticked on one device would never reach the other: an additive union sees
+    /// the key already present and skips it, so `done` would be frozen at
+    /// whatever the first device to publish said. Defaults to `created_ms` for
+    /// tasks written before this existed.
+    #[serde(default)]
+    pub updated_ms: u64,
 }
 
 #[derive(Default)]
 pub struct TodoStore {
     items: RwLock<Vec<Todo>>,
+    tombstones: RwLock<crate::tombstone::Tombstones>,
     next_id: AtomicU64,
     path: Option<PathBuf>,
+}
+
+/// On-disk shape: items + deletion tombstones (#62), keyed by list + title.
+#[derive(Serialize, Deserialize, Default)]
+struct Persisted {
+    items: Vec<Todo>,
+    #[serde(default)]
+    tombstones: crate::tombstone::Tombstones,
+}
+
+/// Sync identity for a task. `id` is a per-device counter and means nothing
+/// across devices; the list plus the text is what a person would call "the same
+/// task".
+fn todo_key(profile: &str, title: &str) -> String {
+    format!("{}|{}", profile.trim(), title.trim())
 }
 
 fn now_ms() -> u64 {
@@ -42,16 +65,70 @@ fn now_ms() -> u64 {
 
 impl TodoStore {
     pub fn restore(path: PathBuf) -> Self {
-        let items: Vec<Todo> = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let raw = std::fs::read_to_string(&path).unwrap_or_default();
+        // Tolerate the pre-tombstone shape, which was a bare array.
+        let p: Persisted = serde_json::from_str(&raw).unwrap_or_else(|_| Persisted {
+            items: serde_json::from_str(&raw).unwrap_or_default(),
+            tombstones: Default::default(),
+        });
+        let mut items = p.items;
+        for t in &mut items {
+            if t.updated_ms == 0 {
+                t.updated_ms = t.created_ms;
+            }
+        }
         let next = items.iter().map(|t| t.id).max().unwrap_or(0) + 1;
         Self {
             items: RwLock::new(items),
+            tombstones: RwLock::new(p.tombstones),
             next_id: AtomicU64::new(next),
             path: Some(path),
         }
+    }
+
+    pub fn tombstones(&self) -> crate::tombstone::Tombstones {
+        self.tombstones.read().clone()
+    }
+
+    /// Merge remote tasks in. Deletions win by tombstone; for a task both
+    /// devices have, the **newer** `updated_ms` wins outright — that's what
+    /// carries a ticked box, a rename or a changed due date across.
+    pub fn merge(&self, remote: Vec<Todo>, remote_tombs: &crate::tombstone::Tombstones) -> usize {
+        use crate::tombstone::{merge_into, suppressed};
+        let mut tombs = self.tombstones.write();
+        merge_into(&mut tombs, remote_tombs);
+        let mut items = self.items.write();
+        items.retain(|t| !suppressed(&tombs, &todo_key(&t.profile, &t.title), t.updated_ms));
+        let mut added = 0;
+        for r in remote {
+            let key = todo_key(&r.profile, &r.title);
+            if suppressed(&tombs, &key, r.updated_ms) {
+                continue;
+            }
+            match items
+                .iter_mut()
+                .find(|t| todo_key(&t.profile, &t.title) == key)
+            {
+                Some(local) => {
+                    if r.updated_ms > local.updated_ms {
+                        local.done = r.done;
+                        local.due = r.due.clone();
+                        local.updated_ms = r.updated_ms;
+                    }
+                }
+                None => {
+                    items.push(Todo {
+                        id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                        ..r
+                    });
+                    added += 1;
+                }
+            }
+        }
+        drop(items);
+        drop(tombs);
+        self.save();
+        added
     }
 
     pub fn list(&self) -> Vec<Todo> {
@@ -63,11 +140,13 @@ impl TodoStore {
         if title.is_empty() {
             return None;
         }
+        let now = now_ms();
         let todo = Todo {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             title,
             done: false,
-            created_ms: now_ms(),
+            created_ms: now,
+            updated_ms: now,
             due: due.trim().to_string(),
             profile: profile.trim().to_string(),
         };
@@ -79,6 +158,9 @@ impl TodoStore {
     pub fn toggle(&self, id: u64) {
         if let Some(t) = self.items.write().iter_mut().find(|t| t.id == id) {
             t.done = !t.done;
+            // Every mutation stamps this, or the change loses the merge to a
+            // stale copy on another device.
+            t.updated_ms = now_ms();
         }
         self.save();
     }
@@ -100,6 +182,7 @@ impl TodoStore {
         if let Some(v) = due {
             t.due = v.trim().to_string();
         }
+        t.updated_ms = now_ms();
         drop(items);
         self.save();
         true
@@ -148,7 +231,16 @@ impl TodoStore {
     }
 
     pub fn remove(&self, id: u64) {
-        self.items.write().retain(|t| t.id != id);
+        let mut items = self.items.write();
+        if let Some(t) = items.iter().find(|t| t.id == id) {
+            // Record the deletion so it propagates instead of being re-added by
+            // the next additive merge.
+            self.tombstones
+                .write()
+                .insert(todo_key(&t.profile, &t.title), now_ms());
+        }
+        items.retain(|t| t.id != id);
+        drop(items);
         self.save();
     }
 
@@ -156,6 +248,13 @@ impl TodoStore {
     pub fn clear_done(&self) -> usize {
         let mut items = self.items.write();
         let before = items.len();
+        {
+            let mut tombs = self.tombstones.write();
+            let now = now_ms();
+            for t in items.iter().filter(|t| t.done) {
+                tombs.insert(todo_key(&t.profile, &t.title), now);
+            }
+        }
         items.retain(|t| !t.done);
         let removed = before - items.len();
         drop(items);
@@ -165,7 +264,13 @@ impl TodoStore {
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        crate::persist::save_json(path, &*self.items.read());
+        crate::persist::save_json(
+            path,
+            &Persisted {
+                items: self.items.read().clone(),
+                tombstones: self.tombstones.read().clone(),
+            },
+        );
     }
 }
 
@@ -226,6 +331,82 @@ pub fn todos_clear_done(store: State<'_, TodoStore>) -> usize {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn ticking_a_box_propagates() {
+        // The reason Todo needed `updated_ms` at all. An additive union sees the
+        // key already present and skips it, so without a timestamp `done` would
+        // be frozen at whatever the first device published.
+        let a = TodoStore::default();
+        let t = a
+            .add("write up duality".into(), String::new(), "Uni".into())
+            .unwrap();
+        a.toggle(t.id);
+        let b = TodoStore::default();
+        b.add("write up duality".into(), String::new(), "Uni".into());
+        assert!(!b.list()[0].done, "B has it open");
+
+        // A ticked it *after* B last touched its copy. Stamped explicitly
+        // because add-then-toggle lands inside one millisecond here, which no
+        // real pair of devices ever would.
+        a.items.write()[0].updated_ms = b.list()[0].updated_ms + 1000;
+        let done = a.list();
+        assert!(done[0].done);
+        b.merge(done, &Default::default());
+        assert!(b.list()[0].done, "B should now see it completed");
+        assert_eq!(b.list().len(), 1, "merged, not duplicated");
+    }
+
+    #[test]
+    fn an_older_edit_does_not_overwrite_a_newer_one() {
+        let a = TodoStore::default();
+        let t = a
+            .add("read chapter 3".into(), String::new(), "Uni".into())
+            .unwrap();
+        a.toggle(t.id); // done, newer
+        let newer = a.list();
+
+        let b = TodoStore::default();
+        let t2 = b
+            .add("read chapter 3".into(), String::new(), "Uni".into())
+            .unwrap();
+        // Force B's copy to look newer than A's.
+        b.items.write()[0].updated_ms = newer[0].updated_ms + 1000;
+        b.merge(newer, &Default::default());
+        assert!(!b.list()[0].done, "the newer local state wins");
+        let _ = t2;
+    }
+
+    #[test]
+    fn deleting_a_task_propagates_instead_of_resurrecting() {
+        // Without tombstones the next merge would helpfully add it straight back.
+        let a = TodoStore::default();
+        let t = a
+            .add("cancelled thing".into(), String::new(), "Uni".into())
+            .unwrap();
+        let published = a.list();
+        a.remove(t.id);
+
+        let b = TodoStore::default();
+        b.merge(published.clone(), &Default::default());
+        assert_eq!(b.list().len(), 1);
+        b.merge(a.list(), &a.tombstones());
+        assert!(b.list().is_empty(), "the deletion carried across");
+
+        // And it stays deleted through another round of the old payload.
+        b.merge(published, &Default::default());
+        assert!(b.list().is_empty(), "a stale copy must not resurrect it");
+    }
+
+    #[test]
+    fn tasks_in_different_lists_are_different_tasks() {
+        let a = TodoStore::default();
+        a.add("readings".into(), String::new(), "Uni".into());
+        let b = TodoStore::default();
+        b.add("readings".into(), String::new(), "Personal".into());
+        b.merge(a.list(), &Default::default());
+        assert_eq!(b.list().len(), 2);
+    }
     use super::*;
 
     #[test]

@@ -233,7 +233,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
   // with a string), so an empty profile still gets a tab.
   const DEFAULT_PROFILES = ["Uni", "Personal"];
   const [todos, setTodos] = createSignal<Todo[]>([]);
-  const [profiles, setProfiles] = createSignal<string[]>(
+  const [storedProfiles, setProfiles] = createSignal<string[]>(
     (() => {
       try {
         const v = JSON.parse(localStorage.getItem("flux.task.profiles") || "null");
@@ -243,6 +243,19 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
       }
     })(),
   );
+  /** The lists to show: the ones this device knows about, plus any that arrived
+   *  on a synced task. The list *names* live in localStorage and don't sync, but
+   *  each task carries its own — so without this a task synced from another
+   *  device would exist with nowhere to appear. */
+  const profiles = () => {
+    const seen = new Set(storedProfiles());
+    for (const t of todos()) {
+      const name = t.profile?.trim();
+      if (name) seen.add(name);
+    }
+    return [...seen];
+  };
+
   const [profile, setProfileSig] = createSignal(
     localStorage.getItem("flux.task.profile") || DEFAULT_PROFILES[0]!,
   );

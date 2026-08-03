@@ -85,22 +85,78 @@ pub struct LocalEvent {
 #[derive(Default)]
 pub struct CalStore {
     feeds: RwLock<Vec<CalFeed>>,
+    tombstones: RwLock<crate::tombstone::Tombstones>,
     next_id: AtomicU64,
     path: Option<PathBuf>,
 }
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// On-disk shape: feeds + deletion tombstones (#62).
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct Persisted {
+    feeds: Vec<CalFeed>,
+    #[serde(default)]
+    tombstones: crate::tombstone::Tombstones,
+}
+
 impl CalStore {
     pub fn restore(path: PathBuf) -> Self {
-        let feeds: Vec<CalFeed> = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        let next = feeds.iter().map(|f| f.id).max().unwrap_or(0) + 1;
+        let raw = std::fs::read_to_string(&path).unwrap_or_default();
+        // Tolerate the pre-tombstone shape (a bare array).
+        let p: Persisted = serde_json::from_str(&raw).unwrap_or_else(|_| Persisted {
+            feeds: serde_json::from_str(&raw).unwrap_or_default(),
+            tombstones: Default::default(),
+        });
+        let next = p.feeds.iter().map(|f| f.id).max().unwrap_or(0) + 1;
         Self {
-            feeds: RwLock::new(feeds),
+            feeds: RwLock::new(p.feeds),
+            tombstones: RwLock::new(p.tombstones),
             next_id: AtomicU64::new(next),
             path: Some(path),
         }
+    }
+
+    pub fn tombstones(&self) -> crate::tombstone::Tombstones {
+        self.tombstones.read().clone()
+    }
+
+    /// Merge remote subscriptions. Keyed by URL — the same calendar subscribed
+    /// on two devices is one subscription, whatever it's been renamed to.
+    /// Events themselves aren't synced: each device fetches them from the URL,
+    /// so shipping them would be duplicating a cache.
+    pub fn merge(
+        &self,
+        remote: Vec<CalFeed>,
+        remote_tombs: &crate::tombstone::Tombstones,
+    ) -> usize {
+        use crate::tombstone::{merge_into, suppressed};
+        let mut tombs = self.tombstones.write();
+        merge_into(&mut tombs, remote_tombs);
+        let mut feeds = self.feeds.write();
+        // A feed has no timestamp of its own; subscriptions are effectively
+        // timeless, so any tombstone for the URL removes it.
+        feeds.retain(|f| !suppressed(&tombs, &f.url, u64::MAX));
+        let mut added = 0;
+        for r in remote {
+            if suppressed(&tombs, &r.url, u64::MAX) || feeds.iter().any(|f| f.url == r.url) {
+                continue;
+            }
+            feeds.push(CalFeed {
+                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                ..r
+            });
+            added += 1;
+        }
+        drop(feeds);
+        drop(tombs);
+        self.save();
+        added
     }
 
     pub fn list(&self) -> Vec<CalFeed> {
@@ -122,13 +178,24 @@ impl CalStore {
     }
 
     pub fn remove(&self, id: u64) {
-        self.feeds.write().retain(|f| f.id != id);
+        let mut feeds = self.feeds.write();
+        if let Some(f) = feeds.iter().find(|f| f.id == id) {
+            self.tombstones.write().insert(f.url.clone(), now_ms());
+        }
+        feeds.retain(|f| f.id != id);
+        drop(feeds);
         self.save();
     }
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        crate::persist::save_json(path, &*self.feeds.read());
+        crate::persist::save_json(
+            path,
+            &Persisted {
+                feeds: self.feeds.read().clone(),
+                tombstones: self.tombstones.read().clone(),
+            },
+        );
     }
 }
 
@@ -137,22 +204,74 @@ impl CalStore {
 #[derive(Default)]
 pub struct LocalEventStore {
     items: RwLock<Vec<LocalEvent>>,
+    tombstones: RwLock<crate::tombstone::Tombstones>,
     next_id: AtomicU64,
     path: Option<PathBuf>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct PersistedEvents {
+    items: Vec<LocalEvent>,
+    #[serde(default)]
+    tombstones: crate::tombstone::Tombstones,
+}
+
+/// Sync identity for a local event: when it is and what it's called. `id` is a
+/// per-device counter and means nothing across devices.
+fn event_key(e: &LocalEvent) -> String {
+    format!("{}|{}|{}", e.date, e.start, e.title.trim())
+}
+
 impl LocalEventStore {
     pub fn restore(path: PathBuf) -> Self {
-        let items: Vec<LocalEvent> = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        let next = items.iter().map(|e| e.id).max().unwrap_or(0) + 1;
+        let raw = std::fs::read_to_string(&path).unwrap_or_default();
+        let p: PersistedEvents = serde_json::from_str(&raw).unwrap_or_else(|_| PersistedEvents {
+            items: serde_json::from_str(&raw).unwrap_or_default(),
+            tombstones: Default::default(),
+        });
+        let next = p.items.iter().map(|e| e.id).max().unwrap_or(0) + 1;
         Self {
-            items: RwLock::new(items),
+            items: RwLock::new(p.items),
+            tombstones: RwLock::new(p.tombstones),
             next_id: AtomicU64::new(next),
             path: Some(path),
         }
+    }
+
+    pub fn tombstones(&self) -> crate::tombstone::Tombstones {
+        self.tombstones.read().clone()
+    }
+
+    /// Merge remote events, keyed by date + start + title. An event both
+    /// devices have is left alone: there's no per-event timestamp to decide
+    /// which edit is newer, so the safe move is to keep what's here rather than
+    /// let whichever device synced last silently overwrite the other's wording.
+    pub fn merge(
+        &self,
+        remote: Vec<LocalEvent>,
+        remote_tombs: &crate::tombstone::Tombstones,
+    ) -> usize {
+        use crate::tombstone::{merge_into, suppressed};
+        let mut tombs = self.tombstones.write();
+        merge_into(&mut tombs, remote_tombs);
+        let mut items = self.items.write();
+        items.retain(|e| !suppressed(&tombs, &event_key(e), u64::MAX));
+        let mut added = 0;
+        for r in remote {
+            let key = event_key(&r);
+            if suppressed(&tombs, &key, u64::MAX) || items.iter().any(|e| event_key(e) == key) {
+                continue;
+            }
+            items.push(LocalEvent {
+                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                ..r
+            });
+            added += 1;
+        }
+        drop(items);
+        drop(tombs);
+        self.save();
+        added
     }
 
     pub fn list(&self) -> Vec<LocalEvent> {
@@ -229,13 +348,24 @@ impl LocalEventStore {
     }
 
     pub fn remove(&self, id: u64) {
-        self.items.write().retain(|e| e.id != id);
+        let mut items = self.items.write();
+        if let Some(e) = items.iter().find(|e| e.id == id) {
+            self.tombstones.write().insert(event_key(e), now_ms());
+        }
+        items.retain(|e| e.id != id);
+        drop(items);
         self.save();
     }
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        crate::persist::save_json(path, &*self.items.read());
+        crate::persist::save_json(
+            path,
+            &PersistedEvents {
+                items: self.items.read().clone(),
+                tombstones: self.tombstones.read().clone(),
+            },
+        );
     }
 }
 

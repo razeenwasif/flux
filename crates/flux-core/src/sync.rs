@@ -89,6 +89,22 @@ struct Payload {
     session_tombstones: crate::tombstone::Tombstones,
     #[serde(default)]
     history: Vec<crate::history::HistoryEntry>,
+    // Tasks and calendar (#62 follow-up). Both are small, user-authored and
+    // device-independent — exactly the shape sync is for. Calendar *events* from
+    // subscribed feeds are not here: each device fetches those from the URL, so
+    // shipping them would be syncing a cache.
+    #[serde(default)]
+    todos: Vec<crate::todos::Todo>,
+    #[serde(default)]
+    todo_tombstones: crate::tombstone::Tombstones,
+    #[serde(default)]
+    cal_feeds: Vec<crate::calendar::CalFeed>,
+    #[serde(default)]
+    cal_tombstones: crate::tombstone::Tombstones,
+    #[serde(default)]
+    events: Vec<crate::calendar::LocalEvent>,
+    #[serde(default)]
+    event_tombstones: crate::tombstone::Tombstones,
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -145,6 +161,9 @@ pub struct SyncReport {
     pub sent_bookmarks: usize,
     pub sent_sessions: usize,
     pub sent_history: usize,
+    pub todos_added: usize,
+    pub events_added: usize,
+    pub calendars_added: usize,
     /// Whether this run actually wrote the blob. False when the payload was
     /// byte-identical to the last one we pushed.
     pub pushed: bool,
@@ -305,6 +324,9 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     let bookmarks = app.state::<crate::bookmarks::BookmarkStore>();
     let sessions = app.state::<crate::sessions::SessionStore>();
     let history = app.state::<crate::history::HistoryStore>();
+    let todos = app.state::<crate::todos::TodoStore>();
+    let cal = app.state::<crate::calendar::CalStore>();
+    let events = app.state::<crate::calendar::LocalEventStore>();
 
     // ── Pull: merge any remote payload into the local stores (tombstones first). ──
     let mut report = SyncReport {
@@ -315,6 +337,9 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
         sent_bookmarks: 0,
         sent_sessions: 0,
         sent_history: 0,
+        todos_added: 0,
+        events_added: 0,
+        calendars_added: 0,
         pushed: true,
     };
     if let Ok(blob) = std::fs::read(&blob_path) {
@@ -325,6 +350,9 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
         report.bookmarks_added = bookmarks.merge(remote.bookmarks, &remote.bookmark_tombstones);
         report.sessions_added = sessions.merge(remote.sessions, &remote.session_tombstones);
         report.history_added = history.merge_remote(remote.history);
+        report.todos_added = todos.merge(remote.todos, &remote.todo_tombstones);
+        report.calendars_added = cal.merge(remote.cal_feeds, &remote.cal_tombstones);
+        report.events_added = events.merge(remote.events, &remote.event_tombstones);
     }
 
     // ── Push: write the merged local state back (items + tombstones), sealed. ──
@@ -334,6 +362,12 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
         sessions: sessions.list(),
         session_tombstones: sessions.tombstones(),
         history: history.export_for_sync(HISTORY_SYNC_CAP),
+        todos: todos.list(),
+        todo_tombstones: todos.tombstones(),
+        cal_feeds: cal.list(),
+        cal_tombstones: cal.tombstones(),
+        events: events.list(),
+        event_tombstones: events.tombstones(),
     };
     report.sent_bookmarks = payload.bookmarks.len();
     report.sent_sessions = payload.sessions.len();

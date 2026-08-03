@@ -104,6 +104,24 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   and `yellow` stay put**. Those are what programs *mean* by them — a compiler error is red because
   red means error, and repainting it rose because the theme is rose would make `cargo` output
   unreadable.
+- **Tasks and calendars sync too.** `flux-sync.enc` now carries your task lists, your Flux-local
+  calendar events, and your calendar subscriptions alongside bookmarks, sessions and history — all
+  with deletion tombstones, so removing a task on one device removes it on the other rather than
+  having it reappear at the next merge.
+
+  Tasks needed an `updated_ms` to work at all: an additive union sees a task it already has and
+  skips it, so **ticking a box would never have propagated** — `done` would freeze at whatever the
+  first device published. With the timestamp, the newer edit wins, which carries completion, renames
+  and due-date changes across. Local events merge by date + time + title and an existing one is left
+  alone: there's no per-event timestamp to say which wording is newer, so silently overwriting the
+  other device's would be worse than keeping both devices' own.
+
+  Calendar *events from subscribed feeds* are deliberately not synced — each device fetches those
+  from the URL, so shipping them would be syncing a cache. The subscriptions themselves do sync.
+
+  Task **list names** live in localStorage and don't sync, but each task carries its own list name,
+  so the picker now derives lists from your tasks as well — otherwise a task synced from another
+  device would exist with nowhere to appear.
 - **Themes, and a purplish-red one: Ember.** Settings → Appearance, applied immediately. Deep
   oxblood base with a warm rose interactive colour, magenta-red for the agent surfaces, and ember
   orange for highlights — the velvet's plum undertone pushed all the way round to red, keeping the

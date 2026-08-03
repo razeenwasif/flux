@@ -32,7 +32,26 @@ import { activeId, updateTabTitle } from "./store";
 const summary = (r: SyncReport) => {
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const sent = `${plural(r.sent_bookmarks, "bookmark")}, ${plural(r.sent_sessions, "session")} and ${plural(r.sent_history, "history entry").replace("entrys", "entries")}`;
-  const got = r.bookmarks_added + r.sessions_added + r.history_added;
+  const got =
+    r.bookmarks_added +
+    r.sessions_added +
+    r.history_added +
+    r.todos_added +
+    r.events_added +
+    r.calendars_added;
+  // Only name what actually arrived — a list of six zeroes is noise.
+  const parts = [
+    [r.bookmarks_added, "bookmark"],
+    [r.sessions_added, "session"],
+    [r.todos_added, "task"],
+    [r.events_added, "event"],
+    [r.calendars_added, "calendar"],
+    [r.history_added, "history entry"],
+  ] as const;
+  const received = parts
+    .filter(([n]) => n > 0)
+    .map(([n, w]) => plural(n, w).replace("entrys", "entries"))
+    .join(", ");
   if (!r.had_remote) {
     // First device into an empty folder: nothing to receive, everything to give.
     return `no data from other devices yet — published ${sent}. Set the same folder and passphrase on your other device.`;
@@ -42,7 +61,7 @@ const summary = (r: SyncReport) => {
       ? `already up to date — published ${sent}.`
       : `already up to date — nothing changed, so nothing was rewritten.`;
   }
-  return `received ${plural(r.bookmarks_added, "bookmark")}, ${plural(r.sessions_added, "session")} and ${plural(r.history_added, "history entry").replace("entrys", "entries")}; published ${sent}.`;
+  return `received ${received}; published ${sent}.`;
 };
 
 const SyncPage: Component = () => {
@@ -146,8 +165,8 @@ const SyncPage: Component = () => {
           End-to-end encrypted, no account. Point Flux at a folder your devices already sync (Dropbox,
           Syncthing, iCloud Drive, a USB stick…). Flux writes one encrypted file there; your passphrase never
           leaves this device, and the sync service only ever sees ciphertext.{" "}
-          <b>Bookmarks, saved sessions, and browsing history</b> merge across devices, and deletions
-          propagate.
+          <b>Bookmarks, saved sessions, tasks, calendars and browsing history</b> merge across devices, and
+          deletions propagate.
         </p>
 
         <label class="sync-label">Sync folder</label>
