@@ -91,6 +91,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   still just text, it's checked to resolve inside the vault and to already exist before a byte is
   written: "append to `../../.bashrc`" would otherwise be a working instruction.
 
+- **Themes, and a purplish-red one: Ember.** Settings → Appearance, applied immediately. Deep
+  oxblood base with a warm rose interactive colour, magenta-red for the agent surfaces, and ember
+  orange for highlights — the velvet's plum undertone pushed all the way round to red, keeping the
+  same near-black floor so the glass and shadows still read.
+
+  Getting there meant tokenising the palette first: ~300 accent literals were hardcoded across the
+  stylesheet, so *any* theme was a search-and-replace. They now resolve through six RGB channels
+  named by role rather than hue (`--accent-rgb` is "the primary interactive colour", which happens
+  to be teal in Velvet and isn't in Ember). A theme is now ~20 lines and nothing else.
+
+  Two details worth knowing. Status colours are **separate channels**, because a theme may need to
+  move them to stay legible but must never make "succeeded" and "failed" look alike — Ember's
+  warnings go amber, since a pink-red warning is invisible beside a rose accent. And the theme is
+  applied by an inline script **before first paint**: doing it from a Solid effect renders one frame
+  in the default palette and then snaps, which reads as a bug on every launch.
+
 ### Changed
 - **The toast matches the rest of Flux.** It was the one surface still styled inline in `App.tsx`,
   so it inherited none of the app's glass or motion tokens. It now rises into place rather than

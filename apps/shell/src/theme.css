@@ -44,21 +44,42 @@
   /* Brand identity (carried from ADR 0001) */
   --flux-bg: var(--velvet-800);
   --flux-bg-raise: var(--velvet-700);
-  --flux-surface: rgba(120, 130, 200, 0.08);
-  --flux-surface-2: rgba(140, 150, 220, 0.16);
-  --flux-border: rgba(150, 160, 220, 0.14);
+  --flux-surface: rgba(var(--neutral-rgb), 0.07);
+  --flux-surface-2: rgba(var(--neutral-rgb), 0.16);
+  --flux-border: rgba(var(--neutral-rgb), 0.14);
   --flux-text: #eef0fb;
   --flux-text-dim: #9aa0c4;
   --flux-text-mute: #6a6f96;
 
+  /* ── Palette channels ──────────────────────────────────────────────────────
+     Every accent in this file resolves through one of these RGB triplets, so a
+     theme is a handful of lines rather than a search-and-replace across 300
+     literals. They're named by ROLE, not by hue: `--accent-rgb` is "the primary
+     interactive colour", which happens to be teal in Velvet and won't be in
+     another theme. Kept as bare `R, G, B` so alpha can vary per use — the whole
+     reason the literals were scattered in the first place. */
+  --accent-rgb: 47, 243, 255; /* primary interactive: focus, active, links */
+  --accent-ai-rgb: 123, 97, 255; /* the agent / "Liquid AI" surfaces */
+  --accent-ai2-rgb: 157, 141, 241; /* its softer companion */
+  --accent-hot-rgb: 236, 75, 224; /* attention, highlights, the aurora */
+  --neutral-rgb: 150, 160, 220; /* borders, scrollbar thumbs — cool grey */
+  --rim-rgb: 180, 190, 255; /* glass specular edge */
+
+  /* Status colours are semantic, not decorative, so they're separate channels:
+     a theme may need to move them to stay legible against its own accent, but
+     it must not make "succeeded" and "failed" look alike. */
+  --flux-ok: #7cf5b0;
+  --flux-warn: #ff9f9f;
+
   /* ── Interaction (Tactile neon) ── */
-  --flux-teal: #2ff3ff;
-  --flux-teal-dim: rgba(47, 243, 255, 0.14);
+  --flux-teal: rgb(var(--accent-rgb));
+  --flux-teal-dim: rgba(var(--accent-rgb), 0.14);
 
   /* ── AI (Liquid) ── */
-  --flux-magenta: #ec4be0;
-  --flux-violet: #9d8df1;
-  --flux-royal: #7b61ff; /* royal amethyst, the velvet's signature */
+  --flux-magenta: rgb(var(--accent-hot-rgb));
+  --flux-violet: rgb(var(--accent-ai2-rgb));
+  --flux-violet-bright: rgb(var(--accent-ai-rgb));
+  --flux-royal: rgb(var(--accent-ai-rgb)); /* the velvet's signature */
   --flux-ai-gradient: linear-gradient(
     115deg,
     var(--flux-royal) 0%,
@@ -74,16 +95,16 @@
      where backdrop-blur can't sample the page (see .popover/.footer-pop). */
   --flux-popover-fill: #14102e;
   --glass-blur: saturate(180%) blur(40px);
-  --glass-rim: rgba(180, 190, 255, 0.22); /* specular edge */
-  --glass-rim-soft: rgba(180, 190, 255, 0.1);
+  --glass-rim: rgba(var(--rim-rgb), 0.22); /* specular edge */
+  --glass-rim-soft: rgba(var(--rim-rgb), 0.1);
   --glass-shadow: 0 16px 50px -12px rgba(0, 0, 0, 0.65);
   --glass-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.25);
 
   /* ── Scrollbars ── */
   --flux-scroll-w: 9px;
-  --flux-scroll-thumb: rgba(150, 160, 220, 0.18);
-  --flux-scroll-thumb-hover: rgba(150, 160, 220, 0.34);
-  --flux-scroll-thumb-active: rgba(47, 243, 255, 0.38);
+  --flux-scroll-thumb: rgba(var(--neutral-rgb), 0.18);
+  --flux-scroll-thumb-hover: rgba(var(--neutral-rgb), 0.34);
+  --flux-scroll-thumb-active: rgba(var(--accent-rgb), 0.38);
 
   /* ── Shell metrics ── */
   --flux-titlebar-h: 34px;
@@ -102,6 +123,49 @@
   font-family: "Inter", "SF Pro Display", "Segoe UI", system-ui, sans-serif;
   font-size: 13px;
   color-scheme: dark;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Themes
+   ════════════════════════════════════════════════════════════════════════
+
+   A theme is the five base tones plus the six palette channels — nothing else.
+   Everything downstream (300+ accent uses, every glass rim, the scrollbars)
+   resolves through those, so a new theme is this many lines and no more.
+
+   Set on <html> as `data-theme`; the default (Velvet) needs no attribute, so a
+   fresh install and an install that has never opened Settings render identically.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Ember — deep oxblood and hot magenta-red. The velvet's plum undertone pushed
+   all the way round to red, keeping the same near-black floor so the glass and
+   the shadows still read. The primary interactive colour is a warm rose rather
+   than a pure red: at 12% alpha over a dark surface a true red goes muddy
+   brown, and most of these tokens are used at low alpha. */
+:root[data-theme="ember"] {
+  --velvet-900: #0c0407; /* deepest, window corners */
+  --velvet-800: #16070f; /* base oxblood */
+  --velvet-700: #220b17; /* raised */
+  --velvet-600: #33101f; /* panels */
+  --velvet-500: #4a1630; /* hover */
+
+  --accent-rgb: 255, 90, 122; /* primary interactive — warm rose */
+  --accent-ai-rgb: 214, 51, 108; /* the agent — deep magenta-red */
+  --accent-ai2-rgb: 242, 139, 168; /* its softer companion */
+  --accent-hot-rgb: 255, 138, 76; /* attention — ember orange */
+  --neutral-rgb: 220, 160, 175; /* borders and thumbs, warmed */
+  --rim-rgb: 255, 200, 210; /* glass specular edge */
+
+  /* A pink-red warning is invisible next to a rose accent — the one thing a
+     status colour cannot be. Ember's failures go amber instead; success stays
+     green, which no dark theme has a reason to move. */
+  --flux-warn: #ffc14d;
+
+  /* Text carries a trace of the base so it doesn't read as pasted-on grey. */
+  --flux-text: #fbeef1;
+  --flux-text-dim: #c9a3ad;
+  --flux-text-mute: #966b78;
+  --flux-popover-fill: #2a0d18;
 }
 
 * {
@@ -173,8 +237,8 @@ body {
      invisible). Native Win11 rounded corners are BACKLOG #80. */
   background-color: var(--velvet-800);
   background-image:
-    radial-gradient(115% 85% at -5% -10%, rgba(47, 243, 255, 0.1), transparent 50%),
-    radial-gradient(120% 90% at 105% 110%, rgba(123, 97, 255, 0.18), transparent 55%),
+    radial-gradient(115% 85% at -5% -10%, rgba(var(--accent-rgb), 0.1), transparent 50%),
+    radial-gradient(120% 90% at 105% 110%, rgba(var(--accent-ai-rgb), 0.18), transparent 55%),
     linear-gradient(160deg, var(--velvet-700), var(--velvet-900));
   color: var(--flux-text);
   user-select: none;
@@ -224,10 +288,10 @@ input {
     background 0.22s var(--ease-soft);
 }
 input:focus {
-  border-color: rgba(47, 243, 255, 0.55);
+  border-color: rgba(var(--accent-rgb), 0.55);
   background: rgba(8, 6, 20, 0.6);
   box-shadow:
-    0 0 0 3px rgba(47, 243, 255, 0.12),
+    0 0 0 3px rgba(var(--accent-rgb), 0.12),
     var(--glass-inset);
   outline: none;
 }
@@ -280,9 +344,9 @@ input::placeholder {
   overflow: hidden;
   background-color: var(--velvet-800);
   background-image:
-    radial-gradient(115% 85% at -5% -10%, rgba(47, 243, 255, 0.12), transparent 50%),
-    radial-gradient(120% 90% at 105% 110%, rgba(123, 97, 255, 0.2), transparent 55%),
-    radial-gradient(90% 70% at 50% 120%, rgba(236, 75, 224, 0.1), transparent 60%),
+    radial-gradient(115% 85% at -5% -10%, rgba(var(--accent-rgb), 0.12), transparent 50%),
+    radial-gradient(120% 90% at 105% 110%, rgba(var(--accent-ai-rgb), 0.2), transparent 55%),
+    radial-gradient(90% 70% at 50% 120%, rgba(var(--accent-hot-rgb), 0.1), transparent 60%),
     linear-gradient(160deg, var(--velvet-700), var(--velvet-900));
 }
 
@@ -346,7 +410,7 @@ body.busy {
   transition: background 0.15s var(--ease-soft);
 }
 .pane-splitter:hover::after {
-  background: rgba(47, 243, 255, 0.35);
+  background: rgba(var(--accent-rgb), 0.35);
 }
 
 /* Web panel (#48): its own grid pane beside the main content card. */
@@ -380,8 +444,8 @@ body.busy {
   width: 4px;
   transform: translateX(-50%);
   border-radius: 3px;
-  background: rgba(47, 243, 255, 0.32);
-  box-shadow: 0 0 6px rgba(47, 243, 255, 0.18);
+  background: rgba(var(--accent-rgb), 0.32);
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.18);
   transition:
     background 0.15s var(--ease-soft),
     width 0.15s var(--ease-soft);
@@ -389,8 +453,8 @@ body.busy {
 .panel-edge-resize:hover::after,
 body.resizing .panel-edge-resize::after {
   width: 5px;
-  background: rgba(47, 243, 255, 0.7);
-  box-shadow: 0 0 12px rgba(47, 243, 255, 0.4);
+  background: rgba(var(--accent-rgb), 0.7);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.4);
 }
 .webpanel-surface {
   position: relative;
@@ -1356,9 +1420,9 @@ body.resizing .panel-edge-resize::after {
   flex-direction: row;
   align-items: stretch;
   gap: 1px;
-  border: 1px solid rgba(47, 243, 255, 0.28);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
   border-radius: 10px;
-  background: rgba(47, 243, 255, 0.05);
+  background: rgba(var(--accent-rgb), 0.05);
   padding: 2px;
 }
 .split-pair > .tab-row {
@@ -1386,7 +1450,7 @@ body.resizing .panel-edge-resize::after {
   cursor: pointer;
 }
 .split-pair-merge:hover {
-  background: rgba(47, 243, 255, 0.18);
+  background: rgba(var(--accent-rgb), 0.18);
 }
 
 /* ── Sidebar (liquid glass over velvet) ── */
@@ -1570,7 +1634,7 @@ body.resizing .panel-edge-resize::after {
 }
 .app-rail-icon.drop-into {
   border-color: var(--flux-teal);
-  box-shadow: 0 0 0 2px rgba(47, 243, 255, 0.4);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.4);
 }
 /* Unread badge bubble (#48) — phone-style red pip on the panel rail icon. */
 .app-rail-badge {
@@ -1593,7 +1657,7 @@ body.resizing .panel-edge-resize::after {
   pointer-events: none;
 }
 .app-rail-icon:hover {
-  border-color: rgba(47, 243, 255, 0.45);
+  border-color: rgba(var(--accent-rgb), 0.45);
 }
 .app-rail-icon.active {
   border-color: var(--flux-teal);
@@ -1696,8 +1760,8 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-teal);
   background: var(--flux-teal-dim);
   box-shadow:
-    inset 0 0 0 1px rgba(47, 243, 255, 0.3),
-    0 0 16px -4px rgba(47, 243, 255, 0.5);
+    inset 0 0 0 1px rgba(var(--accent-rgb), 0.3),
+    0 0 16px -4px rgba(var(--accent-rgb), 0.5);
 }
 
 .address {
@@ -1742,11 +1806,11 @@ body.resizing .panel-edge-resize::after {
   padding: 2px 7px;
   border-radius: 999px;
   color: var(--flux-teal);
-  border: 1px solid rgba(47, 243, 255, 0.3);
-  background: rgba(47, 243, 255, 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 .zoom-pill:hover {
-  background: rgba(47, 243, 255, 0.18);
+  background: rgba(var(--accent-rgb), 0.18);
 }
 .sec-secure {
   filter: grayscale(0.2);
@@ -1819,7 +1883,7 @@ body.resizing .panel-edge-resize::after {
 
 /* Omni AI answer card (grounded, streamed) — sits atop the suggestions dropdown. */
 .omni-ask .omni-sug-icon {
-  color: var(--flux-violet, #9d8df1);
+  color: var(--flux-violet, var(--flux-violet));
   opacity: 1;
 }
 .omni-answer {
@@ -1829,8 +1893,8 @@ body.resizing .panel-edge-resize::after {
   padding: 11px 12px;
   margin-bottom: 3px;
   border-radius: 10px;
-  background: linear-gradient(135deg, rgba(123, 97, 255, 0.14), rgba(123, 97, 255, 0.04));
-  border: 1px solid rgba(123, 97, 255, 0.32);
+  background: linear-gradient(135deg, rgba(var(--accent-ai-rgb), 0.14), rgba(var(--accent-ai-rgb), 0.04));
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.32);
 }
 .omni-answer-head {
   display: flex;
@@ -1840,7 +1904,7 @@ body.resizing .panel-edge-resize::after {
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: var(--flux-violet, #9d8df1);
+  color: var(--flux-violet, var(--flux-violet));
 }
 .omni-answer-head .spark {
   font-size: 11px;
@@ -1861,14 +1925,14 @@ body.resizing .panel-edge-resize::after {
 }
 .omni-answer-close:hover {
   color: var(--flux-text);
-  border-color: rgba(123, 97, 255, 0.35);
+  border-color: rgba(var(--accent-ai-rgb), 0.35);
   background: rgba(255, 255, 255, 0.06);
 }
 .omni-answer-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--flux-violet, #9d8df1);
+  background: var(--flux-violet, var(--flux-violet));
   animation: omni-pulse 1s var(--ease-soft, ease) infinite;
 }
 @keyframes omni-pulse {
@@ -1892,7 +1956,7 @@ body.resizing .panel-edge-resize::after {
 /* Inline footnote citation ([n]) rendered within the streamed answer prose. */
 .omni-cite {
   cursor: pointer;
-  color: var(--flux-violet, #9d8df1);
+  color: var(--flux-violet, var(--flux-violet));
   font-weight: 700;
   font-size: 0.7em;
   vertical-align: super;
@@ -1926,7 +1990,7 @@ body.resizing .panel-edge-resize::after {
 }
 .omni-answer-cite:hover {
   color: var(--flux-text);
-  border-color: rgba(123, 97, 255, 0.4);
+  border-color: rgba(var(--accent-ai-rgb), 0.4);
 }
 
 /* Indeterminate loading bar under the pill — the native webview can't cover it
@@ -2031,7 +2095,7 @@ body.resizing .panel-edge-resize::after {
   height: 16px;
 }
 .pin-tile:hover {
-  border-color: rgba(47, 243, 255, 0.4);
+  border-color: rgba(var(--accent-rgb), 0.4);
   transform: translateY(-2px);
   box-shadow:
     0 8px 20px -8px rgba(0, 0, 0, 0.6),
@@ -2040,7 +2104,7 @@ body.resizing .panel-edge-resize::after {
 .pin-tile.active {
   border-color: var(--flux-teal);
   box-shadow:
-    0 0 18px -4px rgba(47, 243, 255, 0.5),
+    0 0 18px -4px rgba(var(--accent-rgb), 0.5),
     var(--glass-inset);
 }
 
@@ -2316,7 +2380,7 @@ body.resizing .panel-edge-resize::after {
 /* Private/incognito tab (#59) — a violet rail + tint marks the ephemeral session. */
 .tab-row.private {
   border-left-color: var(--flux-violet) !important;
-  background: linear-gradient(90deg, rgba(123, 97, 255, 0.12), transparent 70%);
+  background: linear-gradient(90deg, rgba(var(--accent-ai-rgb), 0.12), transparent 70%);
 }
 .pin-tile.sleeping {
   opacity: 0.5;
@@ -2528,7 +2592,7 @@ body.resizing .panel-edge-resize::after {
   background: rgba(255, 255, 255, 0.06);
 }
 .rail-ws-item.active {
-  background: rgba(47, 243, 255, 0.1);
+  background: rgba(var(--accent-rgb), 0.1);
   color: var(--flux-teal);
 }
 .rail-ws-name {
@@ -2656,10 +2720,10 @@ body.resizing .panel-edge-resize::after {
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  border: 1px solid rgba(47, 243, 255, 0.28);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
   border-radius: 10px;
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
-  box-shadow: 0 0 14px rgba(47, 243, 255, 0.1) inset;
+  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.1) inset;
   font-size: 12.5px;
   color: var(--flux-text);
 }
@@ -2741,10 +2805,10 @@ body.resizing .panel-edge-resize::after {
 }
 .perm-btn.allow {
   background: var(--flux-teal-dim);
-  border-color: rgba(47, 243, 255, 0.4);
+  border-color: rgba(var(--accent-rgb), 0.4);
 }
 .perm-btn.allow:hover {
-  background: rgba(47, 243, 255, 0.28);
+  background: rgba(var(--accent-rgb), 0.28);
 }
 .perm-btn.deny:hover {
   background: #c0392b;
@@ -2826,7 +2890,7 @@ body.resizing .panel-edge-resize::after {
   overflow-y: hidden;
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
-  background: linear-gradient(160deg, rgba(47, 243, 255, 0.05), var(--velvet-800));
+  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.05), var(--velvet-800));
   scrollbar-width: none; /* paired with the ::-webkit- hide below */
 }
 .tui-bar::-webkit-scrollbar {
@@ -2849,7 +2913,7 @@ body.resizing .panel-edge-resize::after {
 .tui-chip:hover {
   background: var(--flux-surface);
   color: var(--flux-text);
-  border-color: rgba(47, 243, 255, 0.25);
+  border-color: rgba(var(--accent-rgb), 0.25);
 }
 .tui-chip-ico {
   flex: none;
@@ -2963,8 +3027,8 @@ body.resizing .panel-edge-resize::after {
   border-color: var(--flux-violet);
 }
 .tui-row-btn.danger:hover {
-  color: var(--flux-magenta, #ec4be0);
-  border-color: rgba(236, 75, 224, 0.5);
+  color: var(--flux-magenta, var(--flux-magenta));
+  border-color: rgba(var(--accent-hot-rgb), 0.5);
 }
 .tui-detected {
   display: flex;
@@ -2983,10 +3047,10 @@ body.resizing .panel-edge-resize::after {
   padding: 3px 8px;
   border-radius: 999px;
   background: none;
-  border: 1px solid rgba(47, 243, 255, 0.35);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
 }
 .tui-detected-chip:hover {
-  background: rgba(47, 243, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 .tui-modal-actions {
   display: flex;
@@ -3007,7 +3071,7 @@ body.resizing .panel-edge-resize::after {
 }
 .tui-act.primary {
   background: linear-gradient(135deg, var(--flux-teal), var(--flux-violet));
-  color: #0b0a1d;
+  color: var(--velvet-800);
   font-weight: 600;
   border: none;
 }
@@ -3140,7 +3204,7 @@ body.resizing .panel-edge-resize::after {
 }
 .term-seam:hover,
 .term-seam:active {
-  background: rgba(47, 243, 255, 0.3);
+  background: rgba(var(--accent-rgb), 0.3);
 }
 /* #121 agent-aware terminal: explain/fix a failed command */
 .term-fail {
@@ -3154,13 +3218,13 @@ body.resizing .panel-edge-resize::after {
   padding: 5px 8px;
   border-radius: 10px;
   background: rgba(26, 22, 64, 0.95);
-  border: 1px solid rgba(236, 75, 224, 0.45);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.45);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
   font-family: system-ui, sans-serif;
 }
 .term-fail-x {
   font-size: 11.5px;
-  color: #ec4be0;
+  color: var(--flux-magenta);
   font-weight: 600;
 }
 .term-fail-btn {
@@ -3169,11 +3233,11 @@ body.resizing .panel-edge-resize::after {
   cursor: pointer;
   padding: 3px 9px;
   border-radius: 7px;
-  background: rgba(123, 97, 255, 0.2);
-  border: 1px solid rgba(123, 97, 255, 0.4);
+  background: rgba(var(--accent-ai-rgb), 0.2);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.4);
 }
 .term-fail-btn:hover {
-  background: rgba(123, 97, 255, 0.35);
+  background: rgba(var(--accent-ai-rgb), 0.35);
 }
 .term-fail-dismiss {
   font-size: 11px;
@@ -3194,7 +3258,7 @@ body.resizing .panel-edge-resize::after {
   flex-direction: column;
   border-radius: 12px;
   background: rgba(16, 12, 40, 0.97);
-  border: 1px solid rgba(47, 243, 255, 0.3);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
   font-family: system-ui, sans-serif;
 }
@@ -3204,7 +3268,7 @@ body.resizing .panel-edge-resize::after {
   justify-content: space-between;
   padding: 6px 12px;
   font-size: 12px;
-  color: #2ff3ff;
+  color: var(--flux-teal);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .term-ai-close {
@@ -3224,11 +3288,11 @@ body.resizing .panel-edge-resize::after {
   word-break: break-word;
 }
 .term-pane.active .terminal-surface {
-  border-color: rgba(47, 243, 255, 0.55);
+  border-color: rgba(var(--accent-rgb), 0.55);
   box-shadow:
     var(--glass-shadow),
-    inset 0 1px 0 0 rgba(47, 243, 255, 0.12),
-    0 0 0 1px rgba(47, 243, 255, 0.25);
+    inset 0 1px 0 0 rgba(var(--accent-rgb), 0.12),
+    0 0 0 1px rgba(var(--accent-rgb), 0.25);
 }
 .term-col-bar {
   position: absolute;
@@ -3254,27 +3318,27 @@ body.resizing .panel-edge-resize::after {
   color: #c9cde8;
   border-radius: 6px;
   background: rgba(10, 8, 24, 0.82);
-  border: 1px solid rgba(47, 243, 255, 0.22);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
 }
 .term-col-btn:hover {
-  background: rgba(123, 97, 255, 0.28);
+  background: rgba(var(--accent-ai-rgb), 0.28);
   color: #eef0fb;
 }
 .term-col-btn.danger:hover {
-  background: rgba(236, 75, 224, 0.3);
-  border-color: rgba(236, 75, 224, 0.5);
+  background: rgba(var(--accent-hot-rgb), 0.3);
+  border-color: rgba(var(--accent-hot-rgb), 0.5);
 }
 .terminal-surface {
   width: 100%;
   height: 100%;
   position: relative;
   background: linear-gradient(160deg, rgba(10, 8, 24, 0.96), rgba(7, 5, 15, 0.98));
-  border: 1px solid rgba(47, 243, 255, 0.18);
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
   border-radius: var(--flux-radius-card);
   overflow: hidden;
   box-shadow:
     var(--glass-shadow),
-    inset 0 1px 0 0 rgba(47, 243, 255, 0.12);
+    inset 0 1px 0 0 rgba(var(--accent-rgb), 0.12);
 }
 
 /* ── Music bubble (#125) — floating right-edge VERTICAL mini-player ── */
@@ -3305,13 +3369,13 @@ body.resizing .panel-edge-resize::after {
   cursor: pointer;
   background: radial-gradient(
     125% 120% at 28% 18%,
-    rgba(236, 75, 224, 0.55),
-    rgba(123, 97, 255, 0.6) 46%,
+    rgba(var(--accent-hot-rgb), 0.55),
+    rgba(var(--accent-ai-rgb), 0.6) 46%,
     rgba(79, 70, 229, 0.66)
   );
-  border: 1px solid rgba(236, 75, 224, 0.4);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.4);
   box-shadow:
-    0 8px 30px rgba(123, 97, 255, 0.35),
+    0 8px 30px rgba(var(--accent-ai-rgb), 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.16);
   transition:
     width 0.3s var(--ease-soft, ease),
@@ -3327,7 +3391,7 @@ body.resizing .panel-edge-resize::after {
   cursor: default;
   box-shadow:
     0 18px 52px rgba(0, 0, 0, 0.5),
-    0 0 42px rgba(123, 97, 255, 0.32);
+    0 0 42px rgba(var(--accent-ai-rgb), 0.32);
 }
 .music.dormant:not(.expanded) {
   opacity: 0.5;
@@ -3408,8 +3472,8 @@ body.resizing .panel-edge-resize::after {
 } /* viz replaces the synthetic breathe */
 .music.viz:not(.expanded) {
   box-shadow:
-    0 8px 30px rgba(123, 97, 255, 0.35),
-    0 0 calc(8px + var(--viz-e, 0) * 30px) rgba(236, 75, 224, calc(0.18 + var(--viz-e, 0) * 0.55));
+    0 8px 30px rgba(var(--accent-ai-rgb), 0.35),
+    0 0 calc(8px + var(--viz-e, 0) * 30px) rgba(var(--accent-hot-rgb), calc(0.18 + var(--viz-e, 0) * 0.55));
 }
 .music.viz .music-orb {
   transform: scale(calc(1 + var(--viz-e, 0) * 0.16));
@@ -3493,7 +3557,7 @@ body.resizing .panel-edge-resize::after {
 .music-prog-fill {
   height: 100%;
   border-radius: 2px;
-  background: linear-gradient(90deg, #2ff3ff, #ec4be0);
+  background: linear-gradient(90deg, var(--flux-teal), var(--flux-magenta));
   transition: width 1s linear;
 }
 .music-times {
@@ -3519,7 +3583,7 @@ body.resizing .panel-edge-resize::after {
   background: rgba(255, 255, 255, 0.12);
 }
 .music-btn.on {
-  color: #2ff3ff;
+  color: var(--flux-teal);
 }
 .music-play {
   font-size: 22px;
@@ -3527,7 +3591,7 @@ body.resizing .panel-edge-resize::after {
 }
 .music-vol {
   width: 64px;
-  accent-color: #ec4be0;
+  accent-color: var(--flux-magenta);
   height: 3px;
 }
 .music-menu-btn {
@@ -3536,12 +3600,12 @@ body.resizing .panel-edge-resize::after {
 .music-launch {
   font-size: 11px;
   font-weight: 600;
-  color: #0b0a1d;
+  color: var(--velvet-800);
   cursor: pointer;
   padding: 4px 10px;
   border-radius: 999px;
   border: none;
-  background: linear-gradient(135deg, #2ff3ff, #ec4be0);
+  background: linear-gradient(135deg, var(--flux-teal), var(--flux-magenta));
 }
 
 .music-toast {
@@ -3559,7 +3623,7 @@ body.resizing .panel-edge-resize::after {
   padding: 6px 11px;
   border-radius: 999px;
   background: rgba(20, 14, 44, 0.95);
-  border: 1px solid rgba(236, 75, 224, 0.4);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.4);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
@@ -3579,7 +3643,7 @@ body.resizing .panel-edge-resize::after {
   overflow-y: auto;
   border-radius: 14px;
   background: rgba(16, 12, 36, 0.98);
-  border: 1px solid rgba(236, 75, 224, 0.35);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.35);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
 }
 .music-menu-title {
@@ -3602,7 +3666,7 @@ body.resizing .panel-edge-resize::after {
   color: #fff;
 }
 .music-menu-item:hover {
-  background: rgba(123, 97, 255, 0.28);
+  background: rgba(var(--accent-ai-rgb), 0.28);
 }
 .music-menu-art {
   flex: none;
@@ -3737,8 +3801,8 @@ body.resizing .panel-edge-resize::after {
   color: inherit;
 }
 .connect-item:hover {
-  border-color: rgba(123, 97, 255, 0.4);
-  background: rgba(123, 97, 255, 0.08);
+  border-color: rgba(var(--accent-ai-rgb), 0.4);
+  background: rgba(var(--accent-ai-rgb), 0.08);
 }
 .connect-item-top {
   display: flex;
@@ -3776,7 +3840,7 @@ body.resizing .panel-edge-resize::after {
   flex: none;
   font-size: 9.5px;
   color: var(--flux-teal);
-  border: 1px solid rgba(47, 243, 255, 0.3);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   border-radius: 999px;
   padding: 0 5px;
 }
@@ -3865,16 +3929,16 @@ body.resizing .panel-edge-resize::after {
   padding: 2px;
   background: conic-gradient(
     from var(--agent-angle),
-    rgba(47, 243, 255, 0) 0deg,
-    rgba(47, 243, 255, 0) 44deg,
-    rgba(47, 243, 255, 0.92) 68deg,
-    rgba(157, 141, 241, 0.78) 98deg,
-    rgba(236, 75, 224, 0) 126deg,
-    rgba(236, 75, 224, 0) 202deg,
-    rgba(236, 75, 224, 0.72) 228deg,
+    rgba(var(--accent-rgb), 0) 0deg,
+    rgba(var(--accent-rgb), 0) 44deg,
+    rgba(var(--accent-rgb), 0.92) 68deg,
+    rgba(var(--accent-ai2-rgb), 0.78) 98deg,
+    rgba(var(--accent-hot-rgb), 0) 126deg,
+    rgba(var(--accent-hot-rgb), 0) 202deg,
+    rgba(var(--accent-hot-rgb), 0.72) 228deg,
     rgba(99, 214, 255, 0.88) 258deg,
-    rgba(47, 243, 255, 0) 292deg,
-    rgba(47, 243, 255, 0) 360deg
+    rgba(var(--accent-rgb), 0) 292deg,
+    rgba(var(--accent-rgb), 0) 360deg
   );
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
@@ -3884,7 +3948,7 @@ body.resizing .panel-edge-resize::after {
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
   mask-composite: exclude;
-  filter: blur(0.7px) drop-shadow(0 0 11px rgba(47, 243, 255, 0.42));
+  filter: blur(0.7px) drop-shadow(0 0 11px rgba(var(--accent-rgb), 0.42));
   opacity: 0.9;
   animation: agent-orbit 3.2s cubic-bezier(0.42, 0, 0.18, 1) infinite;
 }
@@ -3915,7 +3979,7 @@ body.resizing .panel-edge-resize::after {
 .agent-dropping .agent-inner {
   outline: 2px dashed var(--flux-teal);
   outline-offset: -5px;
-  background: rgba(47, 243, 255, 0.05);
+  background: rgba(var(--accent-rgb), 0.05);
 }
 
 .agent-feed {
@@ -4048,8 +4112,8 @@ body.resizing .panel-edge-resize::after {
   padding: 2px 8px;
   border-radius: 999px;
   color: var(--flux-text);
-  background: rgba(47, 243, 255, 0.12);
-  border: 1px solid rgba(47, 243, 255, 0.22);
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
   max-width: 180px;
   white-space: nowrap;
   overflow: hidden;
@@ -4136,7 +4200,7 @@ body.resizing .panel-edge-resize::after {
 .agent-scope.on {
   border-color: var(--flux-violet);
   color: var(--flux-text);
-  background: linear-gradient(160deg, rgba(123, 97, 255, 0.18), var(--flux-surface));
+  background: linear-gradient(160deg, rgba(var(--accent-ai-rgb), 0.18), var(--flux-surface));
 }
 .agent-scope-n {
   font-size: 10px;
@@ -4177,7 +4241,7 @@ body.resizing .panel-edge-resize::after {
   place-items: center;
   font-size: 9px;
   font-weight: 700;
-  color: #0b0a1d;
+  color: var(--velvet-800);
   background: var(--flux-teal);
   border-radius: 50%;
 }
@@ -4213,8 +4277,8 @@ body.resizing .panel-edge-resize::after {
 .agent-plan {
   align-self: flex-start;
   color: var(--flux-magenta);
-  background: rgba(236, 75, 224, 0.1);
-  border: 1px solid rgba(236, 75, 224, 0.3);
+  background: rgba(var(--accent-hot-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.3);
 }
 /* Proposed note write (#108). The body is shown verbatim and monospaced: the
    user is approving the exact text that lands in their vault, not a summary of
@@ -4224,7 +4288,7 @@ body.resizing .panel-edge-resize::after {
   padding: 9px 10px;
   border-radius: 10px;
   border: 1px solid var(--glass-rim-soft);
-  background: rgba(123, 97, 255, 0.07);
+  background: rgba(var(--accent-ai-rgb), 0.07);
 }
 .agent-note-head {
   display: flex;
@@ -4281,7 +4345,7 @@ body.resizing .panel-edge-resize::after {
 }
 .agent-approve-yes {
   color: #062;
-  background: #7cf5b0;
+  background: var(--flux-ok);
   border-color: transparent;
   font-weight: 600;
 }
@@ -4304,9 +4368,9 @@ body.resizing .panel-edge-resize::after {
   gap: 8px;
   margin-bottom: 8px;
   padding: 9px 11px;
-  border: 1px solid var(--flux-violet, #9d8df1);
+  border: 1px solid var(--flux-violet, var(--flux-violet));
   border-radius: 10px;
-  background: color-mix(in srgb, var(--flux-violet, #9d8df1) 10%, transparent);
+  background: color-mix(in srgb, var(--flux-violet, var(--flux-violet)) 10%, transparent);
 }
 .agent-task-status {
   font-size: 12px;
@@ -4326,7 +4390,7 @@ body.resizing .panel-edge-resize::after {
   cursor: pointer;
 }
 .agent-task {
-  color: var(--flux-violet, #9d8df1);
+  color: var(--flux-violet, var(--flux-violet));
   font-weight: 600;
 }
 
@@ -4461,7 +4525,7 @@ body.resizing .panel-edge-resize::after {
 .agent-user {
   align-self: flex-end;
   background: var(--flux-teal-dim);
-  border: 1px solid rgba(47, 243, 255, 0.22);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
   color: var(--flux-text);
 }
 .agent-assistant {
@@ -4472,8 +4536,8 @@ body.resizing .panel-edge-resize::after {
 .agent-action {
   align-self: flex-start;
   color: var(--flux-magenta);
-  background: rgba(236, 75, 224, 0.1);
-  border: 1px solid rgba(236, 75, 224, 0.25);
+  background: rgba(var(--accent-hot-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.25);
 }
 .agent-shell {
   align-self: flex-start;
@@ -4662,8 +4726,8 @@ body.resizing .panel-edge-resize::after {
   padding: 7vh 24px 0;
   gap: 28px;
   background:
-    radial-gradient(80% 50% at 50% -8%, rgba(123, 97, 255, 0.22), transparent 60%),
-    radial-gradient(70% 50% at 90% 110%, rgba(47, 243, 255, 0.1), transparent 60%);
+    radial-gradient(80% 50% at 50% -8%, rgba(var(--accent-ai-rgb), 0.22), transparent 60%),
+    radial-gradient(70% 50% at 90% 110%, rgba(var(--accent-rgb), 0.1), transparent 60%);
 }
 /* The scrollable widgets box: fills the space under the hero, scrolls on its
    own so the wave stays pinned to the bottom of the page. */
@@ -4702,10 +4766,10 @@ body.resizing .panel-edge-resize::after {
   pointer-events: none;
 }
 .start-wave-1 {
-  fill: rgba(123, 97, 255, 0.1);
+  fill: rgba(var(--accent-ai-rgb), 0.1);
 }
 .start-wave-2 {
-  fill: rgba(47, 243, 255, 0.07);
+  fill: rgba(var(--accent-rgb), 0.07);
 }
 @media (prefers-reduced-motion: reduce) {
   .start-wave g animateTransform {
@@ -4751,9 +4815,9 @@ body.resizing .panel-edge-resize::after {
   margin-top: 6px;
 }
 .start-search:focus-within {
-  border-color: rgba(47, 243, 255, 0.5);
+  border-color: rgba(var(--accent-rgb), 0.5);
   box-shadow:
-    0 0 0 3px rgba(47, 243, 255, 0.12),
+    0 0 0 3px rgba(var(--accent-rgb), 0.12),
     var(--glass-shadow);
 }
 .start-search-icon {
@@ -4952,8 +5016,8 @@ body.busy .start-card {
   color: var(--flux-text);
 }
 .start-cal-day.selected {
-  border-color: rgba(123, 97, 255, 0.7);
-  background: rgba(123, 97, 255, 0.16);
+  border-color: rgba(var(--accent-ai-rgb), 0.7);
+  background: rgba(var(--accent-ai-rgb), 0.16);
   color: var(--flux-text);
 }
 .start-cal-day.today {
@@ -4963,7 +5027,7 @@ body.busy .start-card {
 }
 .start-cal-day.today.selected {
   border-color: rgba(255, 255, 255, 0.58);
-  box-shadow: 0 0 0 2px rgba(47, 243, 255, 0.16);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.16);
 }
 .start-cal-day.blank {
   visibility: hidden;
@@ -4977,7 +5041,7 @@ body.busy .start-card {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--flux-violet, #9d8df1);
+  background: var(--flux-violet, var(--flux-violet));
 }
 .start-cal-day.today.has-event::after {
   background: #06121b;
@@ -5357,11 +5421,11 @@ body.busy .start-card {
   flex-direction: column;
   /* Translucent glass rather than an opaque gradient — matches the timetable's
      blocks (.tt-ev) and lets the grid lines read through. */
-  background: rgba(123, 97, 255, 0.3);
-  border: 1px solid rgba(123, 97, 255, 0.45);
+  background: rgba(var(--accent-ai-rgb), 0.3);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.45);
   color: var(--flux-text);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-  border-left: 3px solid rgba(123, 97, 255, 0.75);
+  border-left: 3px solid rgba(var(--accent-ai-rgb), 0.75);
   z-index: 2;
 }
 .cal-evt:hover {
@@ -5391,9 +5455,9 @@ body.busy .start-card {
 /* Read-only feed events read cooler (teal), same cue the timetable uses. */
 .cal-evt.ics {
   cursor: pointer;
-  background: rgba(47, 243, 255, 0.16);
-  border-color: rgba(47, 243, 255, 0.4);
-  border-left-color: rgba(47, 243, 255, 0.7);
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  border-left-color: rgba(var(--accent-rgb), 0.7);
 }
 .cal-evt.ghosted {
   opacity: 0.32;
@@ -5885,8 +5949,8 @@ body.busy .start-card {
      the home widget and the pane read as one calendar. */
   padding: 4px 7px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.08);
-  border: 1px solid rgba(123, 97, 255, 0.14);
+  background: rgba(var(--accent-ai-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.14);
 }
 .start-event-when {
   flex: none;
@@ -6010,7 +6074,7 @@ body.busy .start-card {
   justify-content: center;
   align-items: flex-start;
   gap: 4px;
-  background: linear-gradient(150deg, rgba(123, 97, 255, 0.2), var(--glass-fill));
+  background: linear-gradient(150deg, rgba(var(--accent-ai-rgb), 0.2), var(--glass-fill));
 }
 .start-clock-time {
   font-size: 44px;
@@ -6100,15 +6164,15 @@ body.busy .start-card {
   cursor: pointer;
   padding: 8px 12px;
   border-radius: 9px;
-  background: rgba(123, 97, 255, 0.16);
-  border: 1px solid rgba(123, 97, 255, 0.34);
+  background: rgba(var(--accent-ai-rgb), 0.16);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.34);
   transition:
     background 0.15s,
     border-color 0.15s;
 }
 .start-brief-btn:hover {
-  background: rgba(123, 97, 255, 0.28);
-  border-color: rgba(47, 243, 255, 0.4);
+  background: rgba(var(--accent-ai-rgb), 0.28);
+  border-color: rgba(var(--accent-rgb), 0.4);
 }
 
 .start-dial {
@@ -6128,13 +6192,13 @@ body.busy .start-card {
   font-weight: 700;
   color: var(--flux-text);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--tint, #7b61ff) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tint, #7b61ff) 36%, transparent);
+  background: color-mix(in srgb, var(--tint, var(--flux-violet-bright)) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tint, var(--flux-violet-bright)) 36%, transparent);
 }
 .start-tile:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px -8px var(--tint, #7b61ff);
-  border-color: var(--tint, #7b61ff);
+  box-shadow: 0 8px 20px -8px var(--tint, var(--flux-violet-bright));
+  border-color: var(--tint, var(--flux-violet-bright));
 }
 .start-tile-x {
   position: absolute;
@@ -6234,7 +6298,7 @@ body.busy .start-card {
 }
 .start-action:hover {
   background: var(--flux-surface);
-  border-color: rgba(47, 243, 255, 0.3);
+  border-color: rgba(var(--accent-rgb), 0.3);
 }
 .start-action-icon {
   font-size: 15px;
@@ -6752,7 +6816,7 @@ body.busy .start-card {
   padding: 5px;
   border-radius: 11px;
   background: var(--glass-panel, rgba(22, 24, 38, 0.96));
-  border: 1px solid var(--glass-rim, rgba(150, 160, 220, 0.18));
+  border: 1px solid var(--glass-rim, rgba(var(--neutral-rgb), 0.18));
   box-shadow:
     0 18px 48px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -6828,7 +6892,7 @@ body.busy .start-card {
   padding: 20px;
   border-radius: 16px;
   background: var(--glass-panel, rgba(22, 24, 38, 0.97));
-  border: 1px solid var(--glass-rim, rgba(150, 160, 220, 0.18));
+  border: 1px solid var(--glass-rim, rgba(var(--neutral-rgb), 0.18));
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
 }
 .files-confirm-title {
@@ -6890,7 +6954,7 @@ body.busy .start-card {
   font-size: 12px;
   color: var(--flux-text);
   background: var(--glass-panel, rgba(22, 24, 38, 0.96));
-  border: 1px solid var(--glass-rim, rgba(150, 160, 220, 0.18));
+  border: 1px solid var(--glass-rim, rgba(var(--neutral-rgb), 0.18));
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
   animation: files-toast-in 0.16s ease-out;
 }
@@ -6927,7 +6991,7 @@ body.busy .start-card {
   background: var(--flux-ai-gradient);
   background-size: 300% 300%;
   animation: flux-kinetic 2.6s ease-in-out infinite;
-  box-shadow: 0 0 16px -2px rgba(157, 141, 241, 0.6);
+  box-shadow: 0 0 16px -2px rgba(var(--accent-ai2-rgb), 0.6);
 }
 .ai-thinking-border {
   position: relative;
@@ -6997,11 +7061,11 @@ body.busy .start-card {
   cursor: pointer;
   padding: 6px 12px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.16);
-  border: 1px solid rgba(123, 97, 255, 0.34);
+  background: rgba(var(--accent-ai-rgb), 0.16);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.34);
 }
 .nb-reindex:hover:not(:disabled) {
-  background: rgba(123, 97, 255, 0.3);
+  background: rgba(var(--accent-ai-rgb), 0.3);
 }
 .nb-reindex:disabled {
   opacity: 0.55;
@@ -7027,11 +7091,11 @@ body.busy .start-card {
 }
 .nb-source-chip.error {
   opacity: 1;
-  border-color: rgba(236, 75, 224, 0.45);
+  border-color: rgba(var(--accent-hot-rgb), 0.45);
 }
 .nb-source-err {
   font-size: 10.5px;
-  color: var(--flux-magenta, #ec4be0);
+  color: var(--flux-magenta, var(--flux-magenta));
   max-width: 360px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7060,14 +7124,14 @@ body.busy .start-card {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #7cf5b0;
+  background: var(--flux-ok);
   box-shadow: 0 0 6px rgba(124, 245, 176, 0.6);
 }
 .nb-svc.down {
   color: var(--flux-text-mute);
 }
 .nb-svc.down .nb-svc-dot {
-  background: #ec4be0;
+  background: var(--flux-magenta);
   box-shadow: none;
 }
 .nb-svc-start {
@@ -7075,12 +7139,12 @@ body.busy .start-card {
   color: var(--flux-teal);
   cursor: pointer;
   background: none;
-  border: 1px solid rgba(47, 243, 255, 0.35);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
   border-radius: 999px;
   padding: 1px 8px;
 }
 .nb-svc-start:hover {
-  background: rgba(47, 243, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 .nb-fix {
   display: flex;
@@ -7088,9 +7152,9 @@ body.busy .start-card {
   gap: 8px;
   margin-bottom: 10px;
   padding: 10px 12px;
-  border: 1px solid rgba(236, 75, 224, 0.35);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.35);
   border-radius: 10px;
-  background: rgba(236, 75, 224, 0.06);
+  background: rgba(var(--accent-hot-rgb), 0.06);
 }
 .nb-fix-label {
   font-size: 11.5px;
@@ -7119,11 +7183,11 @@ body.busy .start-card {
   cursor: pointer;
   padding: 7px 12px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.2);
-  border: 1px solid rgba(123, 97, 255, 0.4);
+  background: rgba(var(--accent-ai-rgb), 0.2);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.4);
 }
 .nb-fix-save:hover:not(:disabled) {
-  background: rgba(123, 97, 255, 0.34);
+  background: rgba(var(--accent-ai-rgb), 0.34);
 }
 .nb-fix-save:disabled {
   opacity: 0.55;
@@ -7235,7 +7299,7 @@ body.busy .start-card {
 .nb-go {
   white-space: nowrap;
   font-size: 13px;
-  color: #0b0a1d;
+  color: var(--velvet-800);
   font-weight: 600;
   cursor: pointer;
   padding: 11px 16px;
@@ -7249,9 +7313,9 @@ body.busy .start-card {
 }
 .nb-err {
   font-size: 12.5px;
-  color: var(--flux-magenta, #ec4be0);
+  color: var(--flux-magenta, var(--flux-magenta));
   padding: 10px 14px;
-  border: 1px solid rgba(236, 75, 224, 0.4);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.4);
   border-radius: 10px;
   margin-bottom: 14px;
 }
@@ -7279,9 +7343,9 @@ body.busy .start-card {
   gap: 4px;
   font-size: 10.5px;
   font-weight: 600;
-  color: #2ff3ff;
-  background: rgba(47, 243, 255, 0.1);
-  border: 1px solid rgba(47, 243, 255, 0.3);
+  color: var(--flux-teal);
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   border-radius: 999px;
   padding: 2px 9px;
   margin-bottom: 8px;
@@ -7315,8 +7379,8 @@ body.busy .start-card {
   color: inherit;
 }
 .nb-cite:hover {
-  background: rgba(123, 97, 255, 0.12);
-  border-color: rgba(123, 97, 255, 0.3);
+  background: rgba(var(--accent-ai-rgb), 0.12);
+  border-color: rgba(var(--accent-ai-rgb), 0.3);
 }
 .nb-cite-n {
   flex: 0 0 auto;
@@ -7327,7 +7391,7 @@ body.busy .start-card {
   font-size: 11px;
   font-weight: 700;
   color: var(--flux-teal);
-  border: 1px solid rgba(47, 243, 255, 0.4);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
   border-radius: 6px;
 }
 .nb-cite-body {
@@ -7383,7 +7447,7 @@ body.busy .start-card {
   border: none;
 }
 .omni-viewtoggle button.on {
-  color: #0b0a1d;
+  color: var(--velvet-800);
   background: linear-gradient(135deg, var(--flux-teal), var(--flux-violet));
   font-weight: 600;
 }
@@ -7422,7 +7486,7 @@ body.busy .start-card {
   pointer-events: auto;
 }
 .omni-graph-err {
-  color: var(--flux-magenta, #ec4be0);
+  color: var(--flux-magenta, var(--flux-magenta));
 }
 .omni-graph-tip {
   position: absolute;
@@ -7432,7 +7496,7 @@ body.busy .start-card {
   font-size: 12px;
   color: var(--flux-text);
   background: rgba(10, 8, 24, 0.82);
-  border: 1px solid rgba(47, 243, 255, 0.25);
+  border: 1px solid rgba(var(--accent-rgb), 0.25);
   padding: 6px 12px;
   border-radius: 8px;
   pointer-events: none;
@@ -7496,7 +7560,7 @@ body.busy .start-card {
   border: none;
 }
 .trail-win-btn.on {
-  background: rgba(123, 97, 255, 0.28);
+  background: rgba(var(--accent-ai-rgb), 0.28);
   color: var(--flux-text);
 }
 .trail-win-btn:hover:not(.on) {
@@ -7520,11 +7584,11 @@ body.busy .start-card {
   cursor: pointer;
   padding: 5px 10px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.16);
-  border: 1px solid rgba(123, 97, 255, 0.34);
+  background: rgba(var(--accent-ai-rgb), 0.16);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.34);
 }
 .trail-reload:hover {
-  background: rgba(123, 97, 255, 0.3);
+  background: rgba(var(--accent-ai-rgb), 0.3);
 }
 .trail-scrub {
   display: flex;
@@ -7539,15 +7603,15 @@ body.busy .start-card {
 }
 /* Archived rabbit-hole branches (#46 upgrade) */
 .arch-branch {
-  border-left: 2px solid rgba(123, 97, 255, 0.4);
+  border-left: 2px solid rgba(var(--accent-ai-rgb), 0.4);
   margin: 2px 4px 6px;
   padding-left: 2px;
 }
 .arch-branch-n {
   margin-left: 6px;
   font-size: 9.5px;
-  color: var(--flux-teal, #2ff3ff);
-  border: 1px solid rgba(47, 243, 255, 0.3);
+  color: var(--flux-teal, var(--flux-teal));
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   border-radius: 999px;
   padding: 0 5px;
 }
@@ -7560,8 +7624,8 @@ body.busy .start-card {
 .arch-branch-tab {
   font-size: 9.5px;
   color: var(--flux-text-mute);
-  background: rgba(123, 97, 255, 0.08);
-  border: 1px solid rgba(123, 97, 255, 0.16);
+  background: rgba(var(--accent-ai-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.16);
   border-radius: 999px;
   padding: 1px 7px;
   max-width: 140px;
@@ -7601,16 +7665,16 @@ body.busy .start-card {
   width: 5px;
   height: 30px;
   border-radius: 3px;
-  background: var(--flux-teal, #2ff3ff);
-  box-shadow: 0 0 8px rgba(47, 243, 255, 0.7);
+  background: var(--flux-teal, var(--flux-teal));
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.7);
 }
 .trail-scrub-slider::-moz-range-thumb {
   width: 5px;
   height: 30px;
   border: none;
   border-radius: 3px;
-  background: var(--flux-teal, #2ff3ff);
-  box-shadow: 0 0 8px rgba(47, 243, 255, 0.7);
+  background: var(--flux-teal, var(--flux-teal));
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.7);
 }
 .trail-scrub-label {
   flex: 0 0 auto;
@@ -7623,15 +7687,15 @@ body.busy .start-card {
 .trail-scrub-now {
   flex: 0 0 auto;
   font-size: 11.5px;
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
   cursor: pointer;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(47, 243, 255, 0.1);
-  border: 1px solid rgba(47, 243, 255, 0.28);
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
 }
 .trail-scrub-now:hover {
-  background: rgba(47, 243, 255, 0.2);
+  background: rgba(var(--accent-rgb), 0.2);
 }
 .trail-scrub-reopen {
   flex: 0 0 auto;
@@ -7640,11 +7704,11 @@ body.busy .start-card {
   cursor: pointer;
   padding: 4px 11px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.16);
-  border: 1px solid rgba(123, 97, 255, 0.34);
+  background: rgba(var(--accent-ai-rgb), 0.16);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.34);
 }
 .trail-scrub-reopen:hover:not(:disabled) {
-  background: rgba(123, 97, 255, 0.3);
+  background: rgba(var(--accent-ai-rgb), 0.3);
 }
 .trail-scrub-reopen:disabled {
   opacity: 0.5;
@@ -7686,10 +7750,10 @@ body.busy .start-card {
   border-radius: 999px;
 }
 .trail-hud-sem {
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
 }
 .trail-hud-cite {
-  color: var(--flux-magenta, #ec4be0);
+  color: var(--flux-magenta, var(--flux-magenta));
 }
 .trail-entities {
   display: flex;
@@ -7699,8 +7763,8 @@ body.busy .start-card {
 .trail-entity {
   font-size: 10.5px;
   color: var(--flux-text-mute);
-  background: rgba(236, 75, 224, 0.08);
-  border: 1px solid rgba(236, 75, 224, 0.2);
+  background: rgba(var(--accent-hot-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.2);
   border-radius: 999px;
   padding: 2px 8px;
   max-width: 100%;
@@ -7710,8 +7774,8 @@ body.busy .start-card {
 }
 .trail-entity.primary {
   color: var(--flux-text);
-  background: rgba(236, 75, 224, 0.16);
-  border-color: rgba(236, 75, 224, 0.4);
+  background: rgba(var(--accent-hot-rgb), 0.16);
+  border-color: rgba(var(--accent-hot-rgb), 0.4);
 }
 .trail-empty {
   position: absolute;
@@ -7874,8 +7938,8 @@ body.busy .start-card {
   font-size: 12px;
   line-height: 1.45;
   color: var(--flux-text);
-  background: rgba(123, 97, 255, 0.1);
-  border: 1px solid rgba(123, 97, 255, 0.18);
+  background: rgba(var(--accent-ai-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.18);
   border-radius: 10px;
   padding: 6px 10px;
   white-space: pre-wrap;
@@ -7884,8 +7948,8 @@ body.busy .start-card {
   max-width: 95%;
 }
 .trail-chat-msg.user {
-  background: rgba(47, 243, 255, 0.08);
-  border-color: rgba(47, 243, 255, 0.2);
+  background: rgba(var(--accent-rgb), 0.08);
+  border-color: rgba(var(--accent-rgb), 0.2);
   align-self: flex-end;
 }
 .trail-chat-msg.streaming {
@@ -7912,7 +7976,7 @@ body.busy .start-card {
   outline: none;
 }
 .trail-chat-input:focus {
-  border-color: rgba(123, 97, 255, 0.5);
+  border-color: rgba(var(--accent-ai-rgb), 0.5);
 }
 .trail-chat-input:disabled {
   opacity: 0.6;
@@ -7924,11 +7988,11 @@ body.busy .start-card {
   cursor: pointer;
   padding: 6px 12px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.2);
-  border: 1px solid rgba(123, 97, 255, 0.4);
+  background: rgba(var(--accent-ai-rgb), 0.2);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.4);
 }
 .trail-chat-send:hover:not(:disabled) {
-  background: rgba(123, 97, 255, 0.34);
+  background: rgba(var(--accent-ai-rgb), 0.34);
 }
 .trail-chat-send:disabled {
   opacity: 0.5;
@@ -7946,11 +8010,11 @@ body.busy .start-card {
   cursor: pointer;
   padding: 6px 12px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.16);
-  border: 1px solid rgba(123, 97, 255, 0.34);
+  background: rgba(var(--accent-ai-rgb), 0.16);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.34);
 }
 .trail-detail-open:hover {
-  background: rgba(123, 97, 255, 0.3);
+  background: rgba(var(--accent-ai-rgb), 0.3);
 }
 .trail-detail-forget {
   font-size: 12px;
@@ -8032,8 +8096,8 @@ body.busy .start-card {
   border: 1px solid var(--glass-rim-soft);
 }
 .omni-card.accent {
-  border-color: rgba(123, 97, 255, 0.4);
-  box-shadow: inset 0 0 0 1px rgba(123, 97, 255, 0.12);
+  border-color: rgba(var(--accent-ai-rgb), 0.4);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-ai-rgb), 0.12);
 }
 .omni-card-num {
   font-size: 28px;
@@ -8149,7 +8213,7 @@ body.busy .start-card {
 }
 .omni-site:hover {
   background: var(--flux-surface-2);
-  border-color: rgba(47, 243, 255, 0.3);
+  border-color: rgba(var(--accent-rgb), 0.3);
 }
 .omni-bang {
   grid-row: 1 / 3;
@@ -8513,7 +8577,10 @@ body.busy .start-card {
   position: absolute;
   inset: -2px;
   border-radius: 50%;
-  background: conic-gradient(var(--flux-teal) var(--dl-pct, 0%), rgba(47, 243, 255, 0.16) var(--dl-pct, 0%));
+  background: conic-gradient(
+    var(--flux-teal) var(--dl-pct, 0%),
+    rgba(var(--accent-rgb), 0.16) var(--dl-pct, 0%)
+  );
   /* Ring, not disc - punch the middle out so the icon stays readable. */
   -webkit-mask: radial-gradient(circle, transparent 0 60%, #000 61%);
   mask: radial-gradient(circle, transparent 0 60%, #000 61%);
@@ -8524,9 +8591,9 @@ body.busy .start-card {
    says "working" without claiming a progress it doesn't know. */
 .dl-btn.busy:not([style*="--dl-pct"])::before {
   background: conic-gradient(
-    rgba(47, 243, 255, 0.16) 0turn,
+    rgba(var(--accent-rgb), 0.16) 0turn,
     var(--flux-teal) 0.25turn,
-    rgba(47, 243, 255, 0.16) 0.5turn
+    rgba(var(--accent-rgb), 0.16) 0.5turn
   );
   animation: dl-spin 1.1s linear infinite;
 }
@@ -9088,11 +9155,11 @@ body.busy .start-card {
   border: 1px solid transparent;
 }
 .store-row:hover {
-  background: rgba(123, 97, 255, 0.1);
+  background: rgba(var(--accent-ai-rgb), 0.1);
 }
 .store-row.warn {
-  border-color: rgba(236, 75, 224, 0.35);
-  background: rgba(236, 75, 224, 0.07);
+  border-color: rgba(var(--accent-hot-rgb), 0.35);
+  background: rgba(var(--accent-hot-rgb), 0.07);
 }
 .store-label {
   flex: 1;
@@ -9103,7 +9170,7 @@ body.busy .start-card {
   color: var(--flux-text-dim);
 }
 .store-flag {
-  color: var(--flux-magenta, #ec4be0);
+  color: var(--flux-magenta, var(--flux-magenta));
 }
 .store-warn,
 .store-pending,
@@ -9114,7 +9181,7 @@ body.busy .start-card {
   color: var(--flux-text-dim);
 }
 .store-warn {
-  color: var(--flux-magenta, #ec4be0);
+  color: var(--flux-magenta, var(--flux-magenta));
 }
 .store-actions {
   display: flex;
@@ -9349,11 +9416,11 @@ body.busy .start-card {
   color: var(--flux-teal);
   padding: 2px 8px;
   border-radius: 7px;
-  border: 1px solid rgba(47, 243, 255, 0.28);
-  background: rgba(47, 243, 255, 0.07);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.07);
 }
 .bm-open-group:hover {
-  background: rgba(47, 243, 255, 0.16);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 .bm-import {
   display: flex;
@@ -9430,7 +9497,7 @@ body.busy .start-card {
   font-variant-numeric: tabular-nums;
 }
 .res-store.warn {
-  color: var(--flux-magenta, #ec4be0);
+  color: var(--flux-magenta, var(--flux-magenta));
 }
 .res-store-warn {
   margin: 0 0 10px;
@@ -9439,8 +9506,8 @@ body.busy .start-card {
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--flux-text);
-  background: rgba(236, 75, 224, 0.09);
-  border: 1px solid rgba(236, 75, 224, 0.32);
+  background: rgba(var(--accent-hot-rgb), 0.09);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.32);
 }
 .res-store-link {
   background: none;
@@ -9814,7 +9881,7 @@ body.busy .start-card {
      get right. */
   border: 1px solid transparent;
   background:
-    linear-gradient(160deg, rgba(154, 123, 255, 0.42), rgba(123, 97, 255, 0.2)) padding-box,
+    linear-gradient(160deg, rgba(154, 123, 255, 0.42), rgba(var(--accent-ai-rgb), 0.2)) padding-box,
     transparent border-box;
 }
 .tm-tile:hover {
@@ -9827,7 +9894,8 @@ body.busy .start-card {
 /* Flux's own footprint, in the browser's own colour — "lighter than Chrome" is
    a claim this project makes, so it should be visible next to everything else. */
 .tm-tile.flux {
-  background: linear-gradient(160deg, rgba(47, 243, 255, 0.42), rgba(47, 243, 255, 0.16)) padding-box;
+  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.42), rgba(var(--accent-rgb), 0.16))
+    padding-box;
 }
 .tm-tile-name {
   font-size: 11px;
@@ -10089,7 +10157,7 @@ body.busy .start-card {
   }
 }
 .tm-net-dn {
-  color: #7cf5b0;
+  color: var(--flux-ok);
 }
 .tm-net-up {
   color: #5bc0eb;
@@ -11750,8 +11818,8 @@ input[type="radio"].pdf-fw {
 /* Structural reading (#41 upgrade): type badge + section chips + outline rail. */
 .reader-type {
   font-size: 11px;
-  color: var(--flux-magenta, #ec4be0);
-  border: 1px solid rgba(236, 75, 224, 0.35);
+  color: var(--flux-magenta, var(--flux-magenta));
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.35);
   border-radius: 999px;
   padding: 2px 9px;
   text-transform: capitalize;
@@ -11770,11 +11838,11 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
   padding: 3px 11px;
   border-radius: 999px;
-  background: rgba(123, 97, 255, 0.14);
-  border: 1px solid rgba(123, 97, 255, 0.3);
+  background: rgba(var(--accent-ai-rgb), 0.14);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.3);
 }
 .reader-chip:hover {
-  background: rgba(123, 97, 255, 0.28);
+  background: rgba(var(--accent-ai-rgb), 0.28);
 }
 .reader-body {
   flex: 1;
@@ -11807,7 +11875,7 @@ input[type="radio"].pdf-fw {
 }
 .reader-outline-item:hover {
   color: var(--flux-text);
-  background: rgba(123, 97, 255, 0.12);
+  background: rgba(var(--accent-ai-rgb), 0.12);
 }
 .reader-outline-item.lv2 {
   padding-left: 16px;
@@ -11909,6 +11977,45 @@ input[type="radio"].pdf-fw {
   padding-top: 12vh;
 }
 
+/* ── Theme picker (Settings → Appearance) ─────────────────────────────────── */
+.theme-picker {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.theme-chip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px 7px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-rim-soft);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--flux-text-dim);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.theme-chip:hover {
+  color: var(--flux-text);
+}
+.theme-chip.on {
+  border-color: var(--flux-teal);
+  color: var(--flux-text);
+  box-shadow: 0 0 16px -6px rgba(var(--accent-rgb), 0.6);
+}
+/* The swatch shows each theme's *own* colours, so these are literals on purpose
+   — they must not follow the active theme or every option would look alike. */
+.theme-swatch {
+  display: flex;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+.theme-swatch i {
+  width: 13px;
+  height: 18px;
+}
+
 /* ── Toast ────────────────────────────────────────────────────────────────────
    One transient notice, bottom-centre. Was inline-styled in App.tsx, so it was
    the one surface that didn't inherit the app's glass and motion tokens.
@@ -11972,7 +12079,7 @@ input[type="radio"].pdf-fw {
   white-space: nowrap;
 }
 .toast-ok .toast-ico {
-  background: #7cf5b0;
+  background: var(--flux-ok);
 }
 /* A failure should not look like a confirmation — the icon and rim carry it, so
    it reads as wrong before the text is read. */
@@ -11980,7 +12087,7 @@ input[type="radio"].pdf-fw {
   border-color: rgba(255, 159, 159, 0.5);
 }
 .toast-warn .toast-ico {
-  background: #ff9f9f;
+  background: var(--flux-warn);
 }
 .toast-warn .toast-text {
   white-space: normal;
@@ -12041,8 +12148,8 @@ input[type="radio"].pdf-fw {
   border: 1px solid var(--glass-rim-soft);
 }
 .spot-field:focus-within {
-  border-color: rgba(47, 243, 255, 0.45);
-  box-shadow: 0 0 0 3px rgba(47, 243, 255, 0.08);
+  border-color: rgba(var(--accent-rgb), 0.45);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.08);
 }
 .spot-glyph {
   color: var(--flux-text-mute);
@@ -12118,7 +12225,7 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
 }
 .spot-related-item.sel {
-  background: rgba(47, 243, 255, 0.1);
+  background: rgba(var(--accent-rgb), 0.1);
 }
 .spot-related-glyph {
   flex: none;
@@ -12250,7 +12357,7 @@ input[type="radio"].pdf-fw {
   flex-direction: column;
   background:
     radial-gradient(120% 90% at 50% -10%, rgba(138, 125, 255, 0.16), transparent 60%),
-    radial-gradient(90% 70% at 100% 110%, rgba(47, 243, 255, 0.12), transparent 55%), #0a0812;
+    radial-gradient(90% 70% at 100% 110%, rgba(var(--accent-rgb), 0.12), transparent 55%), #0a0812;
   color: var(--flux-text);
 }
 
@@ -12273,7 +12380,7 @@ input[type="radio"].pdf-fw {
   letter-spacing: 0.08em;
   margin: 0 0 6px;
   text-transform: uppercase;
-  background: linear-gradient(90deg, #2ff3ff, #b07dff 55%, #ff4d9d);
+  background: linear-gradient(90deg, var(--flux-teal), #b07dff 55%, #ff4d9d);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -12551,7 +12658,7 @@ input[type="radio"].pdf-fw {
 .clock-progress > span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--flux-teal, #2ff3ff), var(--flux-violet, #8a7dff));
+  background: linear-gradient(90deg, var(--flux-teal, var(--flux-teal)), var(--flux-violet, #8a7dff));
   transition: width 0.2s linear;
 }
 .clock-presets {
@@ -12595,8 +12702,8 @@ input[type="radio"].pdf-fw {
   cursor: default;
 }
 .clock-btn.primary {
-  background: var(--flux-teal, #2ff3ff);
-  border-color: var(--flux-teal, #2ff3ff);
+  background: var(--flux-teal, var(--flux-teal));
+  border-color: var(--flux-teal, var(--flux-teal));
   color: #08121a;
 }
 .clock-custom,
@@ -12710,7 +12817,7 @@ input[type="radio"].pdf-fw {
 
 /* Ringing banner — reuses .perm-bar; accent it as an alert. */
 .clock-ring {
-  border-color: color-mix(in srgb, var(--flux-teal, #2ff3ff) 55%, transparent);
+  border-color: color-mix(in srgb, var(--flux-teal, var(--flux-teal)) 55%, transparent);
 }
 
 /* Google Maps popout — like the files popout but bigger. */
@@ -12873,8 +12980,8 @@ input[type="radio"].pdf-fw {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--flux-magenta, #ec4be0);
-  box-shadow: 0 0 6px rgba(236, 75, 224, 0.8);
+  background: var(--flux-magenta, var(--flux-magenta));
+  box-shadow: 0 0 6px rgba(var(--accent-hot-rgb), 0.8);
 }
 .cal-pop {
   display: flex;
@@ -12907,7 +13014,7 @@ input[type="radio"].pdf-fw {
 .cal-pop-nav:hover,
 .cal-pop-full:hover {
   color: var(--flux-text);
-  background: rgba(123, 97, 255, 0.14);
+  background: rgba(var(--accent-ai-rgb), 0.14);
 }
 .cal-pop-grid {
   display: grid;
@@ -12931,15 +13038,15 @@ input[type="radio"].pdf-fw {
   border-radius: 7px;
 }
 .cal-pop-day:hover {
-  background: rgba(123, 97, 255, 0.14);
+  background: rgba(var(--accent-ai-rgb), 0.14);
   color: var(--flux-text);
 }
 .cal-pop-day.today {
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
   font-weight: 700;
 }
 .cal-pop-day.sel {
-  background: rgba(123, 97, 255, 0.28);
+  background: rgba(var(--accent-ai-rgb), 0.28);
   color: var(--flux-text);
 }
 .cal-pop-day.has::after {
@@ -12951,7 +13058,7 @@ input[type="radio"].pdf-fw {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--flux-magenta, #ec4be0);
+  background: var(--flux-magenta, var(--flux-magenta));
 }
 .cal-pop-list {
   display: flex;
@@ -12968,12 +13075,12 @@ input[type="radio"].pdf-fw {
   gap: 1px;
   padding: 4px 7px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.08);
-  border: 1px solid rgba(123, 97, 255, 0.14);
+  background: rgba(var(--accent-ai-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.14);
 }
 .cal-pop-ev-when {
   font-size: 9.5px;
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
 }
 .cal-pop-ev-sum {
   font-size: 11.5px;
@@ -13028,16 +13135,16 @@ input[type="radio"].pdf-fw {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: var(--flux-teal, #2ff3ff);
-  background: rgba(47, 243, 255, 0.12);
-  border: 1px solid rgba(47, 243, 255, 0.3);
+  color: var(--flux-teal, var(--flux-teal));
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   border-radius: 999px;
   padding: 3px 9px;
   cursor: pointer;
   white-space: nowrap;
 }
 .cal-weekno:hover {
-  background: rgba(47, 243, 255, 0.22);
+  background: rgba(var(--accent-rgb), 0.22);
 }
 .cal-viewtoggle {
   display: flex;
@@ -13057,7 +13164,7 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
 }
 .cal-viewtoggle button.on {
-  background: rgba(123, 97, 255, 0.3);
+  background: rgba(var(--accent-ai-rgb), 0.3);
   color: var(--flux-text);
 }
 .cal-filter {
@@ -13093,7 +13200,7 @@ input[type="radio"].pdf-fw {
   color: var(--flux-text-mute);
 }
 .tt-dow.today {
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
   font-weight: 700;
 }
 .tt-gutter {
@@ -13118,7 +13225,7 @@ input[type="radio"].pdf-fw {
 .tt-chip {
   font-size: 10.5px;
   color: var(--flux-text);
-  background: rgba(123, 97, 255, 0.22);
+  background: rgba(var(--accent-ai-rgb), 0.22);
   border-radius: 5px;
   padding: 2px 5px;
   overflow: hidden;
@@ -13148,11 +13255,11 @@ input[type="radio"].pdf-fw {
   border-left: 1px solid var(--flux-border);
 }
 .tt-col.today {
-  background: rgba(47, 243, 255, 0.05);
+  background: rgba(var(--accent-rgb), 0.05);
 }
 .tt-slot {
   height: var(--hour-h);
-  border-top: 1px solid rgba(150, 160, 220, 0.1);
+  border-top: 1px solid rgba(var(--neutral-rgb), 0.1);
 }
 .tt-now {
   position: absolute;
@@ -13174,22 +13281,22 @@ input[type="radio"].pdf-fw {
   text-align: left;
   padding: 3px 5px;
   border-radius: 6px;
-  border: 1px solid rgba(123, 97, 255, 0.45);
-  background: rgba(123, 97, 255, 0.3);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.45);
+  background: rgba(var(--accent-ai-rgb), 0.3);
   color: var(--flux-text);
   cursor: pointer;
   z-index: 2;
 }
 .tt-ev:hover {
-  background: rgba(123, 97, 255, 0.45);
+  background: rgba(var(--accent-ai-rgb), 0.45);
 }
 /* Read-only (subscribed ICS) events read cooler than editable ones. */
 .tt-ev.ro {
-  border-color: rgba(47, 243, 255, 0.4);
-  background: rgba(47, 243, 255, 0.16);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 .tt-ev.ro:hover {
-  background: rgba(47, 243, 255, 0.26);
+  background: rgba(var(--accent-rgb), 0.26);
 }
 .tt-ev-t {
   font-size: 11px;
@@ -13306,7 +13413,7 @@ input[type="radio"].pdf-fw {
 }
 .cal-pane-ev-btn:hover {
   color: var(--flux-text);
-  background: rgba(123, 97, 255, 0.14);
+  background: rgba(var(--accent-ai-rgb), 0.14);
 }
 .cal-pane-ev-btn.danger:hover {
   color: #ffb0b0;
@@ -13319,8 +13426,8 @@ input[type="radio"].pdf-fw {
   gap: 6px;
   padding: 8px;
   border-radius: 10px;
-  background: rgba(123, 97, 255, 0.08);
-  border: 1px solid rgba(123, 97, 255, 0.22);
+  background: rgba(var(--accent-ai-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.22);
 }
 .cal-pane-form-row {
   display: flex;
@@ -13341,7 +13448,7 @@ input[type="radio"].pdf-fw {
   min-width: 0;
 }
 .cal-pane-in:focus {
-  border-color: rgba(123, 97, 255, 0.5);
+  border-color: rgba(var(--accent-ai-rgb), 0.5);
 }
 .cal-pane-in-time {
   flex: 0 0 auto;
@@ -13355,11 +13462,11 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
   padding: 5px 14px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.22);
-  border: 1px solid rgba(123, 97, 255, 0.45);
+  background: rgba(var(--accent-ai-rgb), 0.22);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.45);
 }
 .cal-pane-save:hover {
-  background: rgba(123, 97, 255, 0.36);
+  background: rgba(var(--accent-ai-rgb), 0.36);
 }
 .cal-pane-err {
   font-size: 11px;
@@ -13468,11 +13575,11 @@ input[type="radio"].pdf-fw {
   border-radius: 8px;
 }
 .wb-tool:hover {
-  background: rgba(123, 97, 255, 0.16);
+  background: rgba(var(--accent-ai-rgb), 0.16);
   color: var(--flux-text);
 }
 .wb-tool.on {
-  background: rgba(123, 97, 255, 0.32);
+  background: rgba(var(--accent-ai-rgb), 0.32);
   color: var(--flux-text);
 }
 .wb-colors {
@@ -13489,8 +13596,8 @@ input[type="radio"].pdf-fw {
   padding: 0;
 }
 .wb-color.on {
-  border-color: var(--flux-teal, #2ff3ff);
-  box-shadow: 0 0 6px rgba(47, 243, 255, 0.5);
+  border-color: var(--flux-teal, var(--flux-teal));
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.5);
 }
 .wb-color-custom {
   width: 22px;
@@ -13503,7 +13610,7 @@ input[type="radio"].pdf-fw {
 }
 .wb-width {
   width: 90px;
-  accent-color: #7b61ff;
+  accent-color: var(--flux-violet-bright);
 }
 .wb-btn {
   font-size: 12px;
@@ -13511,15 +13618,15 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
   padding: 5px 10px;
   border-radius: 8px;
-  background: rgba(123, 97, 255, 0.14);
-  border: 1px solid rgba(123, 97, 255, 0.3);
+  background: rgba(var(--accent-ai-rgb), 0.14);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.3);
 }
 .wb-btn:hover {
-  background: rgba(123, 97, 255, 0.28);
+  background: rgba(var(--accent-ai-rgb), 0.28);
 }
 .wb-btn.on {
-  background: rgba(123, 97, 255, 0.34);
-  border-color: rgba(123, 97, 255, 0.55);
+  background: rgba(var(--accent-ai-rgb), 0.34);
+  border-color: rgba(var(--accent-ai-rgb), 0.55);
   color: var(--flux-text);
 }
 .wb-btn.danger:hover {
@@ -13557,8 +13664,8 @@ input[type="radio"].pdf-fw {
 .wb-text-input {
   position: absolute;
   font-family: system-ui, sans-serif;
-  background: rgba(123, 97, 255, 0.1);
-  border: 1px solid rgba(123, 97, 255, 0.45);
+  background: rgba(var(--accent-ai-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.45);
   border-radius: 4px;
   padding: 0 2px;
   margin: 0;
@@ -13593,7 +13700,7 @@ input[type="radio"].pdf-fw {
   color: var(--flux-text);
 }
 .wb-style.on {
-  background: rgba(123, 97, 255, 0.3);
+  background: rgba(var(--accent-ai-rgb), 0.3);
   color: var(--flux-text);
 }
 /* Symbol palette. Anchored to its button and absolutely positioned — a fixed
@@ -13616,7 +13723,7 @@ input[type="radio"].pdf-fw {
   padding: 10px;
   border-radius: 12px;
   background: var(--glass-fill, rgba(20, 17, 32, 0.97));
-  border: 1px solid rgba(123, 97, 255, 0.32);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.32);
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
 }
 .wb-symgroup {
@@ -13646,7 +13753,7 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
 }
 .wb-sym:hover {
-  background: rgba(123, 97, 255, 0.28);
+  background: rgba(var(--accent-ai-rgb), 0.28);
 }
 .wb-ptsize {
   font-size: 11px;
@@ -13659,7 +13766,7 @@ input[type="radio"].pdf-fw {
 }
 .wb-ptsize:focus {
   outline: none;
-  border-color: rgba(123, 97, 255, 0.55);
+  border-color: rgba(var(--accent-ai-rgb), 0.55);
 }
 .wb-boards {
   flex: none;
@@ -13683,9 +13790,9 @@ input[type="radio"].pdf-fw {
   color: var(--flux-text);
 }
 .wb-board.on {
-  background: rgba(123, 97, 255, 0.24);
+  background: rgba(var(--accent-ai-rgb), 0.24);
   color: var(--flux-text);
-  border-color: rgba(123, 97, 255, 0.45);
+  border-color: rgba(var(--accent-ai-rgb), 0.45);
 }
 @media (pointer: coarse) {
   .wb-tool {
@@ -13771,7 +13878,7 @@ input[type="radio"].pdf-fw {
   min-width: 220px;
 }
 .scribe-input:focus {
-  border-color: rgba(123, 97, 255, 0.55);
+  border-color: rgba(var(--accent-ai-rgb), 0.55);
 }
 .scribe-err {
   font-size: 12px;
@@ -13788,8 +13895,8 @@ input[type="radio"].pdf-fw {
 .scribe-ocr {
   margin: 8px 0;
   border-radius: 12px;
-  border: 1px solid rgba(47, 243, 255, 0.28);
-  background: rgba(47, 243, 255, 0.05);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.05);
   padding: 10px 12px;
 }
 .scribe-ocr-head {
@@ -13845,7 +13952,7 @@ input[type="radio"].pdf-fw {
 }
 .scribe-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(123, 97, 255, 0.5);
+  border-color: rgba(var(--accent-ai-rgb), 0.5);
 }
 .scribe-card-spine {
   flex: none;
@@ -13868,7 +13975,7 @@ input[type="radio"].pdf-fw {
 }
 .scribe-card-course {
   font-size: 11.5px;
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
 }
 .scribe-card-meta {
   margin-top: auto;
@@ -13915,10 +14022,10 @@ input[type="radio"].pdf-fw {
   border-radius: 6px;
 }
 .scribe-title:hover {
-  background: rgba(123, 97, 255, 0.14);
+  background: rgba(var(--accent-ai-rgb), 0.14);
 }
 .scribe-title-course {
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
   font-weight: 400;
 }
 /* Save state: quiet when saved, accented while there's unwritten ink. */
@@ -13933,19 +14040,19 @@ input[type="radio"].pdf-fw {
 /* The course chip doubles as the "where does this publish to" control. */
 .scribe-course-btn {
   font-size: 11.5px;
-  color: var(--flux-teal, #2ff3ff);
-  background: rgba(47, 243, 255, 0.1);
-  border: 1px solid rgba(47, 243, 255, 0.28);
+  color: var(--flux-teal, var(--flux-teal));
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
   border-radius: 999px;
   padding: 3px 10px;
   cursor: pointer;
 }
 .scribe-course-btn:hover {
-  background: rgba(47, 243, 255, 0.2);
+  background: rgba(var(--accent-rgb), 0.2);
 }
 .scribe-course-btn.unset {
   color: var(--flux-text-mute);
-  background: rgba(150, 160, 220, 0.08);
+  background: rgba(var(--neutral-rgb), 0.08);
   border-color: var(--flux-border);
   border-style: dashed;
 }
@@ -13978,7 +14085,7 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
 }
 .scribe-addbtn:hover {
-  background: rgba(123, 97, 255, 0.2);
+  background: rgba(var(--accent-ai-rgb), 0.2);
   color: var(--flux-text);
 }
 .wb-btn:disabled {
@@ -14003,7 +14110,7 @@ input[type="radio"].pdf-fw {
   padding: 18px;
   border-radius: 14px;
   background: var(--flux-glass, rgba(20, 17, 32, 0.96));
-  border: 1px solid rgba(123, 97, 255, 0.32);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.32);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
 }
 .scribe-pub-head {
@@ -14024,7 +14131,7 @@ input[type="radio"].pdf-fw {
   outline: none;
 }
 .scribe-pub-body:focus {
-  border-color: rgba(123, 97, 255, 0.55);
+  border-color: rgba(var(--accent-ai-rgb), 0.55);
 }
 .scribe-pub-hint {
   font-size: 11.5px;
@@ -14715,7 +14822,7 @@ input[type="radio"].pdf-fw {
   display: block;
   margin-top: 3px;
   opacity: 0.75;
-  color: #2ff3ff;
+  color: var(--flux-teal);
 }
 /* Containerization offer (M4): green — an upgrade, not a threat. */
 .sentinel-banner.secure {
@@ -14807,8 +14914,8 @@ input[type="radio"].pdf-fw {
   color: var(--flux-text);
 }
 .cal-tasks-tab.on {
-  background: rgba(123, 97, 255, 0.28);
-  border-color: rgba(123, 97, 255, 0.45);
+  background: rgba(var(--accent-ai-rgb), 0.28);
+  border-color: rgba(var(--accent-ai-rgb), 0.45);
   color: var(--flux-text);
 }
 .cal-tasks-tab.add {
@@ -14829,7 +14936,7 @@ input[type="radio"].pdf-fw {
   outline: none;
 }
 .cal-tasks-add input:focus {
-  border-color: rgba(123, 97, 255, 0.55);
+  border-color: rgba(var(--accent-ai-rgb), 0.55);
 }
 .cal-tasks-list {
   flex: 1 1 auto;
@@ -14846,8 +14953,8 @@ input[type="radio"].pdf-fw {
   gap: 5px;
   padding: 4px 6px;
   border-radius: 7px;
-  background: rgba(123, 97, 255, 0.08);
-  border: 1px solid rgba(123, 97, 255, 0.14);
+  background: rgba(var(--accent-ai-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.14);
 }
 /* Drag to reorder. The card is the drag handle; the title keeps its own cursor
    so "click to rename" still reads as clickable. */
@@ -14918,7 +15025,7 @@ input[type="radio"].pdf-fw {
   cursor: text;
 }
 .cal-task-title:hover {
-  text-decoration: underline dotted rgba(150, 160, 220, 0.5);
+  text-decoration: underline dotted rgba(var(--neutral-rgb), 0.5);
 }
 /* Inline rename: the text field takes the row, the date sits beside it. */
 .cal-task-edit {
@@ -14932,7 +15039,7 @@ input[type="radio"].pdf-fw {
   font-size: 12px;
   color: var(--flux-text);
   background: rgba(10, 8, 24, 0.7);
-  border: 1px solid rgba(123, 97, 255, 0.5);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.5);
   border-radius: 5px;
   padding: 2px 5px;
   outline: none;
@@ -14949,7 +15056,7 @@ input[type="radio"].pdf-fw {
 .cal-task-due {
   flex: none;
   font-size: 10px;
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
 }
 
 /* ─── Calendar pane, docked in the web-panel column ──────────────────────── */
@@ -15095,7 +15202,7 @@ input[type="radio"].pdf-fw {
   color: var(--flux-text-mute);
 }
 .trailmini-toggle:hover {
-  background: rgba(123, 97, 255, 0.14);
+  background: rgba(var(--accent-ai-rgb), 0.14);
   color: var(--flux-text);
 }
 .trailmini-spark {
@@ -15111,7 +15218,7 @@ input[type="radio"].pdf-fw {
   margin-left: auto;
   font-size: 10px;
   color: var(--flux-text-mute);
-  background: rgba(150, 160, 220, 0.12);
+  background: rgba(var(--neutral-rgb), 0.12);
   border-radius: 999px;
   padding: 1px 6px;
 }
@@ -15126,7 +15233,7 @@ input[type="radio"].pdf-fw {
   border-radius: 6px;
 }
 .trailmini-expand:hover {
-  background: rgba(123, 97, 255, 0.18);
+  background: rgba(var(--accent-ai-rgb), 0.18);
   color: var(--flux-text);
 }
 /* Frozen dot-map: an affordance and a density cue, never something to read. */
@@ -15144,10 +15251,10 @@ input[type="radio"].pdf-fw {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  background: linear-gradient(160deg, rgba(123, 97, 255, 0.1), rgba(47, 243, 255, 0.05));
+  background: linear-gradient(160deg, rgba(var(--accent-ai-rgb), 0.1), rgba(var(--accent-rgb), 0.05));
 }
 .trailmini-map:hover {
-  background: linear-gradient(160deg, rgba(123, 97, 255, 0.18), rgba(47, 243, 255, 0.09));
+  background: linear-gradient(160deg, rgba(var(--accent-ai-rgb), 0.18), rgba(var(--accent-rgb), 0.09));
 }
 .trailmini-map canvas {
   width: 100%;
@@ -15180,7 +15287,7 @@ input[type="radio"].pdf-fw {
   outline: none;
 }
 .trailmini-q:focus {
-  border-color: rgba(123, 97, 255, 0.55);
+  border-color: rgba(var(--accent-ai-rgb), 0.55);
 }
 .trailmini-list {
   display: flex;
@@ -15202,7 +15309,7 @@ input[type="radio"].pdf-fw {
   min-width: 0;
 }
 .trailmini-item:hover {
-  background: rgba(123, 97, 255, 0.16);
+  background: rgba(var(--accent-ai-rgb), 0.16);
 }
 .trailmini-item-title {
   font-size: 11.5px;
@@ -15267,8 +15374,8 @@ input[type="radio"].pdf-fw {
   line-height: 0;
 }
 .scribe-thumb.on .scribe-thumb-btn {
-  border-color: rgba(123, 97, 255, 0.8);
-  box-shadow: 0 0 0 1px rgba(123, 97, 255, 0.45);
+  border-color: rgba(var(--accent-ai-rgb), 0.8);
+  box-shadow: 0 0 0 1px rgba(var(--accent-ai-rgb), 0.45);
 }
 .scribe-thumb-c {
   display: block;
@@ -15305,7 +15412,7 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
 }
 .scribe-thumb-ops button:hover:not(:disabled) {
-  background: rgba(123, 97, 255, 0.24);
+  background: rgba(var(--accent-ai-rgb), 0.24);
   color: var(--flux-text);
 }
 .scribe-thumb-ops button:disabled {
@@ -15330,12 +15437,12 @@ input[type="radio"].pdf-fw {
   min-width: 28px;
 }
 .scribe-zoom button.on {
-  background: rgba(123, 97, 255, 0.28);
-  border-color: rgba(123, 97, 255, 0.45);
+  background: rgba(var(--accent-ai-rgb), 0.28);
+  border-color: rgba(var(--accent-ai-rgb), 0.45);
   color: var(--flux-text);
 }
 .scribe-zoom button:hover {
-  background: rgba(123, 97, 255, 0.2);
+  background: rgba(var(--accent-ai-rgb), 0.2);
   color: var(--flux-text);
 }
 
@@ -15396,7 +15503,7 @@ input[type="radio"].pdf-fw {
 }
 .mail-btn:hover:not(:disabled) {
   color: var(--flux-text);
-  background: rgba(123, 97, 255, 0.2);
+  background: rgba(var(--accent-ai-rgb), 0.2);
 }
 .mail-btn:disabled {
   opacity: 0.5;
@@ -15410,7 +15517,7 @@ input[type="radio"].pdf-fw {
   margin: 0;
   font-size: 11.5px;
   line-height: 1.5;
-  color: var(--flux-magenta, #ec4be0);
+  color: var(--flux-magenta, var(--flux-magenta));
 }
 .mail-setup {
   display: flex;
@@ -15428,7 +15535,7 @@ input[type="radio"].pdf-fw {
 }
 .mail-setup input:focus {
   outline: none;
-  border-color: rgba(47, 243, 255, 0.45);
+  border-color: rgba(var(--accent-rgb), 0.45);
 }
 .mail-setup-row {
   display: flex;
@@ -15467,8 +15574,8 @@ input[type="radio"].pdf-fw {
     background 0.12s;
 }
 .mail-msg:hover {
-  background: rgba(123, 97, 255, 0.12);
-  border-color: rgba(123, 97, 255, 0.42);
+  background: rgba(var(--accent-ai-rgb), 0.12);
+  border-color: rgba(var(--accent-ai-rgb), 0.42);
 }
 .mail-msg-top {
   display: flex;
@@ -15507,14 +15614,14 @@ input[type="radio"].pdf-fw {
 /* Unread keeps the card but gains a lit edge and a warmer fill, so the two
    states differ by more than font weight alone. */
 .mail-msg.unread {
-  border-color: rgba(47, 243, 255, 0.28);
-  background: rgba(47, 243, 255, 0.06);
+  border-color: rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.06);
   border-left: 2px solid var(--flux-teal);
   border-radius: 4px 10px 10px 4px;
 }
 .mail-msg.unread:hover {
-  border-color: rgba(47, 243, 255, 0.55);
-  background: rgba(47, 243, 255, 0.11);
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.11);
 }
 .mail-dim {
   color: var(--flux-text-dim);
@@ -15547,7 +15654,7 @@ input[type="radio"].pdf-fw {
 }
 .rightstack-seam:hover::after {
   height: 2px;
-  background: rgba(123, 97, 255, 0.55);
+  background: rgba(var(--accent-ai-rgb), 0.55);
 }
 
 /* ─── Scribe document page (ADR 0014, second pass) ───────────────────────── */
@@ -15576,16 +15683,16 @@ input[type="radio"].pdf-fw {
   cursor: pointer;
 }
 .sdoc-bar button:hover {
-  background: rgba(123, 97, 255, 0.22);
+  background: rgba(var(--accent-ai-rgb), 0.22);
   color: var(--flux-text);
 }
 .sdoc-draw {
-  color: var(--flux-teal, #2ff3ff) !important;
-  border-color: rgba(47, 243, 255, 0.35) !important;
+  color: var(--flux-teal, var(--flux-teal)) !important;
+  border-color: rgba(var(--accent-rgb), 0.35) !important;
 }
 .sdoc-check {
-  color: var(--flux-violet, #9d8df1) !important;
-  border-color: rgba(157, 141, 241, 0.35) !important;
+  color: var(--flux-violet, var(--flux-violet)) !important;
+  border-color: rgba(var(--accent-ai2-rgb), 0.35) !important;
 }
 .sdoc-math-btn {
   color: #ffd479 !important;
@@ -15686,7 +15793,7 @@ input[type="radio"].pdf-fw {
 }
 .mathed-err {
   font-size: 11.5px;
-  color: #ff9f9f;
+  color: var(--flux-warn);
   font-family: var(--flux-mono, ui-monospace, monospace);
   word-break: break-word;
 }
@@ -15742,7 +15849,7 @@ div.sdoc-math {
 /* Half-typed LaTeX is the normal state of an equation you're still writing, so
    a failure shows the source rather than blanking the block. */
 .sdoc-math-bad {
-  color: #ff9f9f;
+  color: var(--flux-warn);
   font-family: var(--flux-mono, ui-monospace, monospace);
   font-size: 0.92em;
 }
@@ -15771,8 +15878,8 @@ div.sdoc-math {
   overflow-y: auto;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(157, 141, 241, 0.24);
-  background: rgba(157, 141, 241, 0.08);
+  border: 1px solid rgba(var(--accent-ai2-rgb), 0.24);
+  background: rgba(var(--accent-ai2-rgb), 0.08);
 }
 .sdoc-fixes-head {
   display: flex;
@@ -15794,7 +15901,7 @@ div.sdoc-math {
 }
 .sdoc-fixes-head button:hover {
   color: var(--flux-text);
-  background: rgba(123, 97, 255, 0.22);
+  background: rgba(var(--accent-ai-rgb), 0.22);
 }
 .sdoc-fixes-note,
 .sdoc-fixes-err {
@@ -15803,7 +15910,7 @@ div.sdoc-math {
   color: var(--flux-text-dim);
 }
 .sdoc-fixes-err {
-  color: var(--flux-magenta, #ec4be0);
+  color: var(--flux-magenta, var(--flux-magenta));
 }
 .sdoc-fix {
   display: flex;
@@ -15814,7 +15921,7 @@ div.sdoc-math {
   border-radius: 6px;
 }
 .sdoc-fix:hover {
-  background: rgba(123, 97, 255, 0.12);
+  background: rgba(var(--accent-ai-rgb), 0.12);
 }
 .sdoc-fix-before {
   color: var(--flux-text-dim);
@@ -15833,15 +15940,15 @@ div.sdoc-math {
 }
 .sdoc-fix button {
   font-size: 11px;
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
   background: none;
-  border: 1px solid rgba(47, 243, 255, 0.3);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   border-radius: 6px;
   padding: 2px 7px;
   cursor: pointer;
 }
 .sdoc-fix button:hover {
-  background: rgba(47, 243, 255, 0.16);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 /* The scrolling viewport the page sits in. */
 .sdoc-scroll {
@@ -15872,17 +15979,17 @@ div.sdoc-math {
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
 }
 .sdoc-page.tpl-grid {
-  background-image: radial-gradient(rgba(150, 160, 220, 0.13) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(var(--neutral-rgb), 0.13) 1px, transparent 1px);
   background-size: 32px 32px;
 }
 .sdoc-page.tpl-lined {
-  background-image: linear-gradient(rgba(150, 160, 220, 0.13) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(var(--neutral-rgb), 0.13) 1px, transparent 1px);
   background-size: 100% 48px;
 }
 .sdoc-page.tpl-squared {
   background-image:
-    linear-gradient(rgba(150, 160, 220, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(150, 160, 220, 0.1) 1px, transparent 1px);
+    linear-gradient(rgba(var(--neutral-rgb), 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--neutral-rgb), 0.1) 1px, transparent 1px);
   background-size: 32px 32px;
 }
 /* The editable document. Generous margins so it reads as a page. */
@@ -15895,7 +16002,7 @@ div.sdoc-math {
   color: var(--flux-text);
   font-size: 25px; /* ~12pt at the page's 150dpi */
   line-height: 1.55;
-  caret-color: var(--flux-teal, #2ff3ff);
+  caret-color: var(--flux-teal, var(--flux-teal));
 }
 .sdoc-body h1 {
   font-size: 50px;
@@ -15928,8 +16035,8 @@ div.sdoc-math {
   pointer-events: none;
 }
 .sdoc-obj.on {
-  border-color: rgba(47, 243, 255, 0.7);
-  box-shadow: 0 0 0 1px rgba(47, 243, 255, 0.35);
+  border-color: rgba(var(--accent-rgb), 0.7);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.35);
 }
 .sdoc-obj-del {
   position: absolute;
@@ -15952,7 +16059,7 @@ div.sdoc-math {
   width: 16px;
   height: 16px;
   border-radius: 3px;
-  background: rgba(47, 243, 255, 0.8);
+  background: rgba(var(--accent-rgb), 0.8);
   cursor: nwse-resize;
   z-index: 2; /* the corner wins where it overlaps the two edge handles */
 }
@@ -15962,11 +16069,11 @@ div.sdoc-math {
 .sdoc-obj-v {
   position: absolute;
   border-radius: 3px;
-  background: rgba(47, 243, 255, 0.55);
+  background: rgba(var(--accent-rgb), 0.55);
 }
 .sdoc-obj-h:hover,
 .sdoc-obj-v:hover {
-  background: rgba(47, 243, 255, 0.85);
+  background: rgba(var(--accent-rgb), 0.85);
 }
 .sdoc-obj-h {
   right: -6px;
@@ -16004,7 +16111,7 @@ div.sdoc-math {
   padding: 14px;
   border-radius: 14px;
   background: var(--glass-fill, rgba(20, 17, 32, 0.97));
-  border: 1px solid rgba(123, 97, 255, 0.32);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.32);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 }
 .sdoc-pad-head {
@@ -16046,8 +16153,8 @@ div.sdoc-math {
   color: var(--flux-text);
 }
 .split-layout.on {
-  background: rgba(123, 97, 255, 0.26);
-  border-color: rgba(123, 97, 255, 0.5);
+  background: rgba(var(--accent-ai-rgb), 0.26);
+  border-color: rgba(var(--accent-ai-rgb), 0.5);
   color: var(--flux-text);
 }
 /* Tiny diagrams of each arrangement, drawn with gradients so they need no
@@ -16129,11 +16236,11 @@ div.sdoc-math {
     0 0;
 }
 .split-picker-item.on {
-  background: rgba(123, 97, 255, 0.2);
+  background: rgba(var(--accent-ai-rgb), 0.2);
 }
 .split-picker-tick {
   margin-left: auto;
-  color: var(--flux-teal, #2ff3ff);
+  color: var(--flux-teal, var(--flux-teal));
   font-size: 12px;
 }
 /* A candidate that's already tiled in another group — picking it moves it here. */

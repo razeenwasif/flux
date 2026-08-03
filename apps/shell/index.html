@@ -10,6 +10,15 @@
     />
     <title>Flux</title>
     <link rel="stylesheet" href="/src/theme.css" />
+    <!-- Theme, before first paint. Applying it from a Solid effect renders one
+         frame in the default palette and then snaps, which reads as a bug on
+         every single launch. Inline and tiny so it can't be the slow thing. -->
+    <script>
+      try {
+        var t = localStorage.getItem("flux.theme");
+        if (t && t !== "velvet") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

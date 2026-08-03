@@ -9,6 +9,7 @@
 import { For, Show, createSignal, onMount, type Component, type JSX } from "solid-js";
 
 import { visibleInterval } from "./poll";
+import { THEMES, setTheme, theme } from "./themes";
 import {
   ARCHIVE_URL,
   BOOKMARKS_URL,
@@ -598,6 +599,26 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
       </header>
       <div class="set-body">
         <Section title="Appearance">
+          {/* Swatches rather than a dropdown: a colour theme is the one setting
+              you can't evaluate from its name. */}
+          <Row label="Theme" hint="Colours the whole of Flux. Applies immediately.">
+            <div class="theme-picker">
+              <For each={THEMES}>
+                {(t) => (
+                  <button
+                    classList={{ "theme-chip": true, on: theme() === t.id }}
+                    title={t.blurb}
+                    onClick={() => setTheme(t.id)}
+                  >
+                    <span class="theme-swatch">
+                      <For each={t.swatch}>{(c) => <i style={{ background: c }} />}</For>
+                    </span>
+                    <span class="theme-name">{t.name}</span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Row>
           <Row label="Dark mode (websites)" hint="Ask sites to render dark (prefers-color-scheme).">
             <Toggle on={darkMode()} onClick={() => setDarkMode(!darkMode())} />
           </Row>
