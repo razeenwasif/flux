@@ -148,7 +148,7 @@ export type Feed = { id: number; url: string; title: string }
 export type FeedItem = { feed_id: number; feed_title: string; title: string; link: string; summary: string; published: string }
 export type PwaApp = { id: number; name: string; url: string }
 export type HistoryEntry = { url: string; title: string; last_visit_ms: number; visits: number }
-export type SavedTab = { url: string; title: string; pinned: boolean }
+export type SavedTab = { url: string; title: string; pinned: boolean; workspace?: string }
 export type SavedSession = { id: number; name: string; created_ms: number; tabs: SavedTab[] }
 export type DaySnapshot = { day: number; captured_ms: number; tabs: SavedTab[] }
 /**

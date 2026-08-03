@@ -60,6 +60,7 @@ import {
   containerDelete,
   type Container,
   sessionRestore,
+  type SavedTab,
   snapshotRestore,
   type WebPanel,
   type ReaderBlock,
@@ -699,17 +700,71 @@ export async function renameTab(id: number, name: string): Promise<void> {
   await tabRename(id, name).catch(() => {});
   await refreshTabs();
 }
-/** Restore a named session (#47): open each of its tabs. Returns the count. */
+/**
+ * Restore a named session (#47), putting each tab back in its own workspace.
+ *
+ * A session spans every workspace, and it stores the workspace **name** — ids
+ * are per-device counters, so restoring by id on a second machine would land
+ * tabs wherever those numbers happened to point. Names are matched
+ * case-insensitively against what's here, and created when missing, so a
+ * session from another device rebuilds the layout rather than dumping thirty
+ * tabs into whatever you had open.
+ *
+ * Tabs with no workspace recorded (sessions saved before this existed) go to the
+ * active one, which is exactly what they did before.
+ */
 export async function restoreSession(id: number): Promise<number> {
-  const tabs = await sessionRestore(id).catch(() => []);
-  for (const t of tabs) await openTab("browser", t.url).catch(() => {});
-  return tabs.length;
+  return openSavedTabs(await sessionRestore(id).catch(() => []));
 }
-/** Reopen a daily auto-snapshot (#47): open each tab captured that day. */
+
+/** Shared by sessions and daily snapshots — both are `SavedTab[]` spanning
+ *  workspaces. */
+async function openSavedTabs(tabs: SavedTab[]): Promise<number> {
+  if (!tabs.length) return 0;
+
+  const startedIn = activeWorkspace();
+  // Resolve each distinct name once — creating a workspace is a round trip, and
+  // the same name recurs on every tab in it.
+  const target = new Map<string, number>();
+  for (const t of tabs) {
+    const name = t.workspace?.trim();
+    if (!name || target.has(name.toLowerCase())) continue;
+    const existing = workspaces().find((w) => w.name.trim().toLowerCase() === name.toLowerCase());
+    const wsId = existing ? existing.id : await createWorkspace(name, wsColorFor(name));
+    if (wsId) target.set(name.toLowerCase(), wsId);
+  }
+
+  let opened = 0;
+  for (const t of tabs) {
+    // Background: opening thirty tabs shouldn't yank focus thirty times, and
+    // the last one would otherwise decide which workspace you end up looking at.
+    const tab = await openTab("browser", t.url, false, true).catch(() => null);
+    if (!tab) continue;
+    opened++;
+    const ws = target.get((t.workspace ?? "").trim().toLowerCase());
+    if (ws && ws !== startedIn) await tabSetWorkspace(tab.id, ws).catch(() => {});
+    // Pinned was recorded from the first version of this and never applied.
+    if (t.pinned) await tabSetPinned(tab.id, true).catch(() => {});
+  }
+  await refreshTabs();
+  return opened;
+}
+
+/** A stable colour per workspace name, so the same session restores to the same
+ *  colours on every device instead of cycling by creation order. */
+function wsColorFor(name: string): number {
+  const palette = [0x5bc0eb, 0x9d8df1, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return palette[(h >>> 0) % palette.length]!;
+}
+/** Reopen a daily auto-snapshot (#47). Same shape as a session, so same
+ *  treatment — it spans workspaces too. */
 export async function restoreSnapshot(day: number): Promise<number> {
-  const tabs = await snapshotRestore(day).catch(() => []);
-  for (const t of tabs) await openTab("browser", t.url).catch(() => {});
-  return tabs.length;
+  return openSavedTabs(await snapshotRestore(day).catch(() => []));
 }
 /** Open a set of URLs as browser tabs and bundle them into a new tab group
  *  (#56). Capped so a big folder can't open hundreds of tabs at once. The

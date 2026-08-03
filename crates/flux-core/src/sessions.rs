@@ -24,6 +24,18 @@ pub struct SavedTab {
     pub url: String,
     pub title: String,
     pub pinned: bool,
+    /// Which workspace this tab was in, **by name**.
+    ///
+    /// The name, not the id: workspace ids are per-device counters, so an id
+    /// meaning "Coursework" on one machine means something else (or nothing) on
+    /// another — the same reason task and session ids can't cross either. A
+    /// session used to be a flat URL list, so restoring one collapsed every
+    /// workspace into whichever was active.
+    ///
+    /// `serde(default)` so sessions saved before this load as `""` and restore
+    /// into the current workspace, exactly as they did.
+    #[serde(default)]
+    pub workspace: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, specta::Type)]
@@ -168,6 +180,13 @@ impl SessionStore {
 
 /// Snapshot the current real web tabs (skips terminal/files + flux:// pages).
 pub(crate) fn snapshot(state: &FluxState) -> Vec<SavedTab> {
+    // id → name, resolved once: a session spans every workspace, so this would
+    // otherwise be a linear scan per tab.
+    let names: std::collections::HashMap<u32, String> = state
+        .workspaces_list()
+        .into_iter()
+        .map(|w| (w.id, w.name))
+        .collect();
     state
         .ordered_tabs()
         .into_iter()
@@ -176,6 +195,7 @@ pub(crate) fn snapshot(state: &FluxState) -> Vec<SavedTab> {
             url: t.url,
             title: t.title,
             pinned: t.pinned,
+            workspace: names.get(&t.workspace).cloned().unwrap_or_default(),
         })
         .collect()
 }
@@ -315,12 +335,29 @@ mod tests {
             url: "https://a.dev".into(),
             title: "A".into(),
             pinned: false,
+            workspace: "Uni".into(),
         }];
         let s = store.save("Work".into(), tabs);
         assert_eq!(store.list().len(), 1);
         assert_eq!(store.tabs_of(s.id).len(), 1);
+        assert_eq!(
+            store.tabs_of(s.id)[0].workspace,
+            "Uni",
+            "workspace round-trips"
+        );
         store.delete(s.id);
         assert!(store.list().is_empty());
+    }
+
+    #[test]
+    fn a_pre_workspace_session_still_loads() {
+        // Sessions saved before tabs carried a workspace must load as "" and
+        // restore into the active one, not fail to deserialize.
+        let old = r#"{"items":[{"id":1,"name":"Old","created_ms":1,
+            "tabs":[{"url":"https://a.dev","title":"A","pinned":true}]}],"tombstones":{}}"#;
+        let p: Persisted = serde_json::from_str(old).expect("old shape still parses");
+        assert_eq!(p.items[0].tabs[0].workspace, "");
+        assert!(p.items[0].tabs[0].pinned);
     }
 
     #[test]

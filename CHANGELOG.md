@@ -104,6 +104,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   and `yellow` stay put**. Those are what programs *mean* by them — a compiler error is red because
   red means error, and repainting it rose because the theme is rose would make `cargo` output
   unreadable.
+- **A restored session rebuilds your workspaces.** A session spans every workspace, but a saved tab
+  only recorded `{url, title, pinned}` — so restoring one collapsed all of them into whichever
+  workspace happened to be active, and did it on the same machine too, not just across devices.
+  Tabs now carry their workspace **by name** (ids are per-device counters, so an id meaning
+  "Coursework" here means something else there), and restoring matches names case-insensitively,
+  creating any that are missing. Daily auto-snapshots get the same treatment — same shape, same
+  problem.
+
+  `pinned` was being recorded faithfully and then ignored on restore; it's applied now. Tabs open in
+  the background, so restoring thirty of them doesn't yank focus thirty times and let the last one
+  decide which workspace you end up looking at. Sessions saved before this load as before and
+  restore into the current workspace.
 - **Tasks and calendars sync too.** `flux-sync.enc` now carries your task lists, your Flux-local
   calendar events, and your calendar subscriptions alongside bookmarks, sessions and history — all
   with deletion tombstones, so removing a task on one device removes it on the other rather than
