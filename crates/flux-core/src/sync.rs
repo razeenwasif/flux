@@ -126,6 +126,17 @@ pub struct SyncReport {
     pub bookmarks_added: usize,
     pub sessions_added: usize,
     pub history_added: usize,
+    /// Was there a remote blob to merge from at all?
+    ///
+    /// Without this, three zeros is ambiguous between "first device, nothing to
+    /// receive yet" and "already up to date" — and it reads as failure in both
+    /// cases, which is how a working first sync looks broken.
+    pub had_remote: bool,
+    /// What this device published. The pull can legitimately be empty; the push
+    /// never is, so the report always has something true to say.
+    pub sent_bookmarks: usize,
+    pub sent_sessions: usize,
+    pub sent_history: usize,
 }
 
 impl SyncState {
@@ -272,8 +283,13 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
         bookmarks_added: 0,
         sessions_added: 0,
         history_added: 0,
+        had_remote: false,
+        sent_bookmarks: 0,
+        sent_sessions: 0,
+        sent_history: 0,
     };
     if let Ok(blob) = std::fs::read(&blob_path) {
+        report.had_remote = true;
         let plain = open(&key, sealed_part(&blob))?;
         let remote: Payload =
             serde_json::from_slice(&plain).map_err(|e| format!("bad sync payload: {e}"))?;
@@ -290,6 +306,9 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
         session_tombstones: sessions.tombstones(),
         history: history.export_for_sync(HISTORY_SYNC_CAP),
     };
+    report.sent_bookmarks = payload.bookmarks.len();
+    report.sent_sessions = payload.sessions.len();
+    report.sent_history = payload.history.len();
     let plain = serde_json::to_vec(&payload).map_err(|e| e.to_string())?;
     let sealed = seal(&key, &plain)?;
     let mut out = Vec::with_capacity(MAGIC.len() + SALT_LEN + sealed.len());

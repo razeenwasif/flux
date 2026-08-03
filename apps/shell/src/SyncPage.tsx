@@ -21,9 +21,24 @@ import {
 } from "./ipc";
 import { activeId, updateTabTitle } from "./store";
 
+/**
+ * What actually happened, in words that distinguish the three outcomes.
+ *
+ * This used to say "merged 0 bookmarks, 0 sessions, 0 history entries" whenever
+ * nothing came *in* — which is the correct and expected result on the first
+ * device, and on any device that's already up to date. It read as failure in
+ * both cases. The report counts the pull; the push always happens, so say so.
+ */
 const summary = (r: SyncReport) => {
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-  return `merged ${plural(r.bookmarks_added, "bookmark")}, ${plural(r.sessions_added, "session")}, ${plural(r.history_added, "history entry").replace("entrys", "entries")}`;
+  const sent = `${plural(r.sent_bookmarks, "bookmark")}, ${plural(r.sent_sessions, "session")} and ${plural(r.sent_history, "history entry").replace("entrys", "entries")}`;
+  const got = r.bookmarks_added + r.sessions_added + r.history_added;
+  if (!r.had_remote) {
+    // First device into an empty folder: nothing to receive, everything to give.
+    return `no data from other devices yet — published ${sent}. Set the same folder and passphrase on your other device.`;
+  }
+  if (got === 0) return `already up to date — published ${sent}.`;
+  return `received ${plural(r.bookmarks_added, "bookmark")}, ${plural(r.sessions_added, "session")} and ${plural(r.history_added, "history entry").replace("entrys", "entries")}; published ${sent}.`;
 };
 
 const SyncPage: Component = () => {
@@ -48,7 +63,7 @@ const SyncPage: Component = () => {
     // Reflect background (auto) syncs live.
     const offDone = await onSyncDone((r) => {
       setErr(null);
-      setMsg(`Auto-synced — ${summary(r)}.`);
+      setMsg(`Auto-synced — ${summary(r)}`);
       refresh();
     });
     const offErr = await onSyncError((e) => setErr(`Auto-sync: ${e}`));
@@ -85,7 +100,7 @@ const SyncPage: Component = () => {
     setMsg(null);
     try {
       const r = await syncNow();
-      setMsg(`Synced — ${summary(r)}.`);
+      setMsg(`Synced — ${summary(r)}`);
       refresh();
     } catch (e) {
       setErr(String(e));

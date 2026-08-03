@@ -347,7 +347,7 @@ export type SpotifyState = { playing: boolean; track: string; artist: string; ar
  */
 export type SpotifyPlaylist = { name: string; uri: string; art: string }
 export type SyncStatus = { folder: string | null; unlocked: boolean; last_ms: number; auto: boolean }
-export type SyncReport = { bookmarks_added: number; sessions_added: number; history_added: number }
+export type SyncReport = { bookmarks_added: number; sessions_added: number; history_added: number; had_remote: boolean; sent_bookmarks: number; sent_sessions: number; sent_history: number }
 /**
  * The wire shape of a full archived page (BACKLOG #12): the reader-facing fields
  * only. The persisted [`ArchiveEntry`] also carries the embedding vector +

@@ -219,6 +219,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   every chunk built so far.
 
 ### Fixed
+- **A successful first sync reported itself as doing nothing.** `SyncReport` counts only the *pull*
+  side — items new to this device — so the first machine into an empty folder got "merged 0
+  bookmarks, 0 sessions, 0 history entries" despite having just published everything it had. Same
+  message when a device was simply already up to date. Correct, and it reads as failure in both
+  cases.
+
+  The report now carries whether a remote blob existed and what this device published, and the page
+  says which of the three things happened: *"no data from other devices yet — published 12
+  bookmarks…"*, *"already up to date — published …"*, or *"received … ; published …"*. The push
+  always happens, so there's always something true to say.
 - **Renaming things did nothing, everywhere.** `window.prompt` is a **no-op in this webview** — it
   returns `null` without showing anything — so renaming a Scribe notebook, setting its course,
   naming a whiteboard, setting the calendar's week 1, and creating a task list were all dead. They
