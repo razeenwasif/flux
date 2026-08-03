@@ -110,6 +110,14 @@ pub struct SyncState {
     salt: RwLock<Option<[u8; SALT_LEN]>>,
     last_ms: RwLock<u64>,
     auto: std::sync::atomic::AtomicBool,
+    /// Hash of the last payload we wrote, so an idle auto-sync doesn't rewrite
+    /// an identical blob. It matters more than it looks: `seal` draws a fresh
+    /// nonce every time, so identical plaintext produces *entirely* different
+    /// ciphertext — the file-sync tool underneath sees every block change and
+    /// re-transfers the whole thing. At a 3-minute tick and a half-megabyte
+    /// blob that's ~10 MB/hour of churn per device, plus a full copy in
+    /// versioning history each time, all for no change at all.
+    last_push: RwLock<Option<u64>>,
 }
 
 #[derive(Serialize, specta::Type)]
@@ -137,6 +145,9 @@ pub struct SyncReport {
     pub sent_bookmarks: usize,
     pub sent_sessions: usize,
     pub sent_history: usize,
+    /// Whether this run actually wrote the blob. False when the payload was
+    /// byte-identical to the last one we pushed.
+    pub pushed: bool,
 }
 
 impl SyncState {
@@ -152,6 +163,7 @@ impl SyncState {
             salt: RwLock::new(None),
             last_ms: RwLock::new(cfg.last_ms),
             auto: std::sync::atomic::AtomicBool::new(cfg.auto),
+            last_push: RwLock::new(None),
         }
     }
 
@@ -228,23 +240,39 @@ pub fn sync_lock(state: State<'_, SyncState>) {
     *state.salt.write() = None;
 }
 
-/// Derive + verify the key from the passphrase. Uses the existing blob's salt
-/// (so every device agrees) or a fresh one for a first device. Verifies by
-/// decrypting if a blob exists — a wrong passphrase fails here, not silently.
+/// Derive + verify the key from the passphrase, and say whether this created a
+/// **new sync identity**.
+///
+/// Uses the existing blob's salt (so every device agrees) or a fresh one for a
+/// first device, and verifies by decrypting when a blob exists — a wrong
+/// passphrase fails here rather than silently.
+///
+/// The distinction matters more than it sounds. The key is derived from your
+/// passphrase **and the salt in the blob header** — so a device that unlocks
+/// while the folder is still empty mints a fresh random salt and derives a
+/// different key from the same passphrase. It then publishes a blob the other
+/// device cannot open, and neither can read the other's.
+///
+/// That's the exact failure of unlocking a second device before the file-sync
+/// tool has delivered the first device's blob, and it is silent: same
+/// passphrase, no error, two incompatible sync identities. So this reports it
+/// and the UI warns, rather than leaving the user to work out why "0 merged"
+/// never becomes anything else.
 #[tauri::command]
 pub fn sync_unlock(
     app: AppHandle,
     state: State<'_, SyncState>,
     passphrase: String,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     if passphrase.is_empty() {
         return Err("enter a passphrase".into());
     }
     let blob_path = state.blob_path().ok_or("set a sync folder first")?;
     let existing = std::fs::read(&blob_path).ok();
+    let fresh_identity = existing.as_deref().and_then(read_salt).is_none();
     let salt: [u8; SALT_LEN] = match existing.as_deref().and_then(read_salt) {
         Some(s) => s,
-        None => rand::random(), // first device
+        None => rand::random(), // first device into this folder
     };
     let key = derive_key(&passphrase, &salt)?;
     // If there's an existing blob, the passphrase must open it.
@@ -259,7 +287,7 @@ pub fn sync_unlock(
         let app = app.clone();
         std::thread::spawn(move || emit_sync(&app, run_sync(&app)));
     }
-    Ok(())
+    Ok(fresh_identity)
 }
 
 /// Pull (decrypt + merge) then push (collect + encrypt + write). Returns how many
@@ -287,6 +315,7 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
         sent_bookmarks: 0,
         sent_sessions: 0,
         sent_history: 0,
+        pushed: true,
     };
     if let Ok(blob) = std::fs::read(&blob_path) {
         report.had_remote = true;
@@ -310,6 +339,16 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     report.sent_sessions = payload.sessions.len();
     report.sent_history = payload.history.len();
     let plain = serde_json::to_vec(&payload).map_err(|e| e.to_string())?;
+
+    // Nothing to say? Don't say it again. Compared on the *plaintext*, which is
+    // stable across runs — the ciphertext never is, by design.
+    let digest = fnv1a64(&plain);
+    if *state.last_push.read() == Some(digest) && blob_path.exists() {
+        report.pushed = false;
+        *state.last_ms.write() = now_ms();
+        state.persist_config();
+        return Ok(report);
+    }
     let sealed = seal(&key, &plain)?;
     let mut out = Vec::with_capacity(MAGIC.len() + SALT_LEN + sealed.len());
     out.extend_from_slice(MAGIC);
@@ -322,9 +361,21 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     std::fs::write(&tmp, &out).map_err(|e| format!("write: {e}"))?;
     std::fs::rename(&tmp, &blob_path).map_err(|e| format!("commit: {e}"))?;
 
+    *state.last_push.write() = Some(digest);
     *state.last_ms.write() = now_ms();
     state.persist_config();
     Ok(report)
+}
+
+/// Small, fast, non-cryptographic — this only answers "did the bytes change",
+/// and a collision costs one skipped push that the next real change repairs.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x1000_0000_01b3);
+    }
+    h
 }
 
 #[tauri::command]
@@ -409,6 +460,49 @@ mod tests {
         assert_eq!(read_salt(&blob), Some(salt));
         assert_eq!(sealed_part(&blob), b"sealed");
         assert_eq!(read_salt(b"nope"), None);
+    }
+
+    #[test]
+    fn identical_payloads_hash_identically() {
+        // The whole basis of skipping a push: the *plaintext* is stable across
+        // runs even though the ciphertext never is (fresh nonce per seal), so
+        // the digest has to be taken before sealing.
+        let a = serde_json::to_vec(&Payload::default()).unwrap();
+        let b = serde_json::to_vec(&Payload::default()).unwrap();
+        assert_eq!(fnv1a64(&a), fnv1a64(&b));
+
+        let key = derive_key("pw", b"salt-salt-salt16").unwrap();
+        assert_ne!(
+            seal(&key, &a).unwrap(),
+            seal(&key, &b).unwrap(),
+            "same plaintext must still seal differently — that's why the file \
+             re-transfers in full, and why the digest is taken on the plaintext"
+        );
+    }
+
+    #[test]
+    fn a_changed_payload_hashes_differently() {
+        let mut p = Payload::default();
+        let before = fnv1a64(&serde_json::to_vec(&p).unwrap());
+        p.bookmark_tombstones
+            .insert("https://example.com|".into(), 1);
+        assert_ne!(before, fnv1a64(&serde_json::to_vec(&p).unwrap()));
+    }
+
+    #[test]
+    fn a_fresh_salt_yields_a_different_key_from_the_same_passphrase() {
+        // The trap this now warns about: unlock a second device before the
+        // first device's blob has arrived, and it mints its own salt. Same
+        // passphrase, different key, two sync identities that can never read
+        // each other — and nothing errors at the time.
+        let k1 = derive_key("same passphrase", &[1u8; SALT_LEN]).unwrap();
+        let k2 = derive_key("same passphrase", &[2u8; SALT_LEN]).unwrap();
+        assert_ne!(k1, k2);
+        let sealed = seal(&k1, b"device A data").unwrap();
+        assert!(
+            open(&k2, &sealed).is_err(),
+            "device B must not be able to read device A's blob"
+        );
     }
 
     #[test]

@@ -219,6 +219,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   every chunk built so far.
 
 ### Fixed
+- **Unlocking a second device too early silently forked your sync.** The key comes from your
+  passphrase **and the salt in the blob header** — so a device that unlocks while the folder is
+  still empty mints a fresh random salt and derives a *different* key from the same passphrase. It
+  then publishes a blob the first device can't open, and can't open the first device's either. Same
+  passphrase, no error, two sync identities that never see each other. Unlock now reports when it
+  creates a new identity, and the page says what to do about it: lock, wait for `flux-sync.enc` to
+  arrive, unlock again.
+- **Auto-sync rewrote the whole blob every three minutes, unchanged.** `seal` draws a fresh nonce
+  each time, so identical data produces entirely different ciphertext — the file-sync tool
+  underneath sees every block change and re-transfers the lot. At a half-megabyte blob that's ~10 MB
+  an hour of pure churn per device, plus a full copy in versioning history each tick. The payload is
+  now hashed *before* sealing (the plaintext is stable; the ciphertext never is) and the push is
+  skipped when nothing changed.
 - **A successful first sync reported itself as doing nothing.** `SyncReport` counts only the *pull*
   side — items new to this device — so the first machine into an empty folder got "merged 0
   bookmarks, 0 sessions, 0 history entries" despite having just published everything it had. Same

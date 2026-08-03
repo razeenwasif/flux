@@ -1034,7 +1034,11 @@ export const SYNC_URL = "flux://sync";
 // SyncStatus / SyncReport are generated (bindings.gen) and aliased above.
 export const syncStatus = () => invoke<SyncStatus>("sync_status");
 export const syncSetFolder = (path: string) => invoke<void>("sync_set_folder", { path });
-export const syncUnlock = (passphrase: string) => invoke<void>("sync_unlock", { passphrase });
+/** Unlock sync. Resolves `true` when this device minted a **new** sync identity
+ *  — i.e. the folder had no blob yet, so the key was derived from a fresh salt.
+ *  If another device has already synced here, that means its file hadn't arrived
+ *  and the two will never see each other's data. */
+export const syncUnlock = (passphrase: string) => invoke<boolean>("sync_unlock", { passphrase });
 export const syncLock = () => invoke<void>("sync_lock");
 export const syncNow = () => invoke<SyncReport>("sync_now");
 /** Turn periodic background auto-sync on/off (#62). */

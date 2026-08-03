@@ -37,7 +37,11 @@ const summary = (r: SyncReport) => {
     // First device into an empty folder: nothing to receive, everything to give.
     return `no data from other devices yet — published ${sent}. Set the same folder and passphrase on your other device.`;
   }
-  if (got === 0) return `already up to date — published ${sent}.`;
+  if (got === 0) {
+    return r.pushed
+      ? `already up to date — published ${sent}.`
+      : `already up to date — nothing changed, so nothing was rewritten.`;
+  }
   return `received ${plural(r.bookmarks_added, "bookmark")}, ${plural(r.sessions_added, "session")} and ${plural(r.history_added, "history entry").replace("entrys", "entries")}; published ${sent}.`;
 };
 
@@ -83,8 +87,20 @@ const SyncPage: Component = () => {
     setErr(null);
     setMsg(null);
     try {
-      await syncUnlock(pass());
+      const fresh = await syncUnlock(pass());
       setPass("");
+      // A fresh identity is correct on the *first* device and a trap on the
+      // second: the key comes from the salt in the blob, so unlocking before
+      // the other device's file has arrived derives a different key from the
+      // same passphrase, and the two never see each other again. Silent
+      // otherwise — same passphrase, no error, no data.
+      if (fresh) {
+        setMsg(
+          "Started a new sync identity — this folder had no data yet. " +
+            "If another device has already synced here, its file hasn't arrived: " +
+            "Lock, wait for flux-sync.enc to appear, then unlock again.",
+        );
+      }
       refresh();
     } catch (e) {
       setErr(String(e));
