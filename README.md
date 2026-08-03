@@ -183,6 +183,14 @@ The shell follows an **Arc-style vertical layout** (ADR 0002) with a
 the terminal is a **vertical right-side column**, and the Flux Agent docks far
 right — all frosted-glass panels over a deep velvet gradient.
 
+**Themes** (Settings → Appearance, ADR 0015): **Velvet** (deep navy-plum, teal
+and amethyst) and **Ember** (oxblood, rose and ember orange). A theme is five
+base tones plus six role-named RGB channels in `theme.css` — `--accent-rgb` is
+"the primary interactive colour", whatever hue that is in a given theme — and
+everything downstream resolves through them, including the WebGL shaders, the
+Trail/Omni canvases and the terminal palette. Adding one is ~20 lines; adding a
+hardcoded colour anywhere is how you break the other theme silently.
+
 To iterate on the UI without a Rust runtime, run the mocked preview and open
 `http://localhost:8847`:
 
@@ -262,7 +270,14 @@ it **act on the page**, prefix with **`/act`** — e.g. *"/act find the
 unsubscribe link and click it"*: the agent reads the page DOM, the model returns
 a **JSON-Schema-constrained** structured action, and Flux compiles it to
 injection-safe JS run in the tab. (**`/task <goal>`** runs the multi-step loop:
-plan → approve → execute → re-plan across pages.) Config via env: `FLUX_MODEL`
+plan → approve → execute → re-plan across pages.)
+
+She can also **write to your notes** (ADR 0016) — ask in plain words (*"save
+this into my Convex notebook"*) or use **`/note <what to add>`**. You see the
+exact text on a card and approve it before anything is written. She can only
+**add**: the action vocabulary has no variant that replaces, rewrites or deletes,
+so a model that decides your notes would read better rewritten has no way to say
+so, and neither does a prompt injection buried in a page. Config via env: `FLUX_MODEL`
 (default `gemma4:12b-it-qat`),
 `FLUX_OLLAMA_URL` (default `http://localhost:11434`), or
 `FLUX_AGENT_BACKEND=mock` to run the pipeline without a model.
@@ -290,6 +305,48 @@ Capture is lazy — a cheap Visit on navigation, content snapshot + embed only
 after you actually *dwell* on a page, idle-scheduled so the browser never
 stalls. Everything stays local; the spine is never a network source. Vertical
 slice in progress — see `docs/adr/0011-browsing-provenance-spine.md`.
+
+## Scribe — handwritten course notebooks (ADR 0014)
+
+`flux://scribe`. Per-course notebooks of pages you write on: a real document
+editor with ink inserted as objects, not a drawing surface with text boxes.
+
+- **Equations** — `Σ Equation`, `Ctrl+M`, or just type `$$x^2$$` mid-sentence.
+  The LaTeX lives in the node's `data-tex`, so it survives editing, indexes as
+  LaTeX (not as KaTeX's rendered glyph soup), and Gemma writes the same node.
+- **Transcription** — handwritten pages are read by the local vision model into
+  text + LaTeX under their own `scribe-ocr` KB source, so a citation always
+  carries that a machine read it.
+- **Publish to Onyx** — a page becomes a markdown note with the ink embedded as
+  a PNG, in the course's vault folder.
+
+Notebooks live one JSON file per notebook, in `<app-data>/scribe/`.
+
+## Sync (ADR 0017)
+
+No server and no account: Flux syncs through **a folder you already replicate**
+(Syncthing, Dropbox, iCloud Drive, a USB stick). Two transports, chosen by what
+the content is:
+
+| What | How |
+|---|---|
+| Bookmarks, sessions, history, tasks, calendars | one AES-256-GCM blob (`flux-sync.enc`) in the folder |
+| Onyx vault, Scribe notebooks | plaintext files — point the sync tool at them directly |
+
+Set it up at **`flux://sync`**: choose the folder, set a passphrase (the same one
+on every device), unlock, turn on auto-sync. The key is derived with Argon2id
+from your passphrase *and a salt stored in the blob*, so every device deriving
+from the same passphrase gets the same key — and whatever replicates the folder
+only ever sees ciphertext. The **password vault is never synced.**
+
+Merges are additive with deletion tombstones, keyed by content rather than id
+(ids are per-device counters): a task by list+title, a session tab by workspace
+*name*, a Scribe page by page id. Restoring a session rebuilds its workspaces.
+
+> **Set up the second device only after the first device's `flux-sync.enc` has
+> arrived.** Unlocking into an empty folder mints a *new* salt, so the same
+> passphrase yields a different key and the two devices can never read each
+> other. Flux warns when it does this, but the fix is to wait for the file.
 
 ## Terminal
 
