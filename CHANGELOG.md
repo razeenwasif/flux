@@ -91,6 +91,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   still just text, it's checked to resolve inside the vault and to already exist before a byte is
   written: "append to `../../.bashrc`" would otherwise be a working instruction.
 
+- **The canvas and WebGL surfaces follow the theme too.** The Liquid background and the agent
+  Aurora had their palettes baked into GLSL, and the Trail graph, Omni graph and terminal had theirs
+  as colour literals — so under Ember they'd have stayed teal and violet while everything around
+  them turned red. They now read the theme's channels as numbers (`palette.ts` reads the *computed*
+  custom properties, so `theme.css` stays the single definition and the two can't drift apart) and
+  repaint on a theme change. The shaders take them as uniforms, refreshed only when the theme
+  actually changes — `getComputedStyle` inside a draw loop would force a style resolution every
+  frame.
+
+  The terminal is the exception worth stating: its accents follow the theme, but **`red`, `green`
+  and `yellow` stay put**. Those are what programs *mean* by them — a compiler error is red because
+  red means error, and repainting it rose because the theme is rose would make `cargo` output
+  unreadable.
 - **Themes, and a purplish-red one: Ember.** Settings → Appearance, applied immediately. Deep
   oxblood base with a warm rose interactive colour, magenta-red for the agent surfaces, and ember
   orange for highlights — the velvet's plum undertone pushed all the way round to red, keeping the

@@ -1,4 +1,5 @@
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
+import { palette as pal, paletteGeneration, unit } from "./palette";
 
 const QUAD_VS = `#version 300 es
 layout(location = 0) in vec2 p;
@@ -14,6 +15,12 @@ in vec2 v_uv; out vec4 o;
 uniform float u_time;
 uniform float u_aspect;
 uniform float u_busy;
+// Theme palette (see palette.ts). Baked-in constants are why this stayed teal
+// and violet regardless of the active theme.
+uniform vec3 u_c1;
+uniform vec3 u_c2;
+uniform vec3 u_c3;
+uniform vec3 u_c4;
 
 // Simplex 3D Noise from Ashima Arts
 vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
@@ -106,13 +113,9 @@ void main() {
     float sweep = 0.5 + 0.5 * sin(angle * 3.0 + t * (1.0 + busy * 3.0) + fi);
     float focus = mix(centerWash * 0.12 + edgeBand * 0.45, centerWash * 0.22 + edgeBand * 0.85, busy);
 
-    vec3 teal = vec3(0.10, 0.95, 0.86);
-    vec3 blue = vec3(0.22, 0.40, 1.00);
-    vec3 violet = vec3(0.58, 0.32, 1.00);
-    vec3 rose = vec3(1.00, 0.30, 0.72);
-    vec3 col = mix(teal, blue, smoothstep(-0.8, 0.8, n1));
-    col = mix(col, violet, smoothstep(-0.4, 1.0, n2 + radius));
-    col = mix(col, rose, pow(sweep, 2.4) * (0.18 + busy * 0.22));
+    vec3 col = mix(u_c1, u_c2, smoothstep(-0.8, 0.8, n1));
+    col = mix(col, u_c3, smoothstep(-0.4, 1.0, n2 + radius));
+    col = mix(col, u_c4, pow(sweep, 2.4) * (0.18 + busy * 0.22));
 
     auroraCol += col * ribbon * grain * focus * (0.18 + busy * 0.20);
   }
@@ -120,7 +123,7 @@ void main() {
   // A restrained inner rim makes the glass feel alive without washing out text.
   float innerRim = smoothstep(0.44, 0.58, radius) * smoothstep(0.66, 0.50, radius);
   float pulse = 0.55 + 0.45 * sin(t * (2.2 + busy * 3.2) + angle * 2.0);
-  auroraCol += vec3(0.18, 0.72, 1.0) * innerRim * pulse * (0.03 + busy * 0.05);
+  auroraCol += u_c1 * innerRim * pulse * (0.03 + busy * 0.05);
 
   float alpha = clamp(length(auroraCol) * mix(0.24, 0.34, busy), 0.0, 0.72);
   o = vec4(auroraCol, alpha);
@@ -184,6 +187,11 @@ const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = 
     const uTime = gl.getUniformLocation(prog, "u_time");
     const uAspect = gl.getUniformLocation(prog, "u_aspect");
     const uBusy = gl.getUniformLocation(prog, "u_busy");
+    const uC1 = gl.getUniformLocation(prog, "u_c1");
+    const uC2 = gl.getUniformLocation(prog, "u_c2");
+    const uC3 = gl.getUniformLocation(prog, "u_c3");
+    const uC4 = gl.getUniformLocation(prog, "u_c4");
+    let paintGen = -1;
 
     let time = 0;
     let busyVal = 0;
@@ -196,6 +204,16 @@ const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = 
       gl.uniform1f(uTime, time);
       gl.uniform1f(uAspect, aspect);
       gl.uniform1f(uBusy, busyVal);
+      // Only on a theme change — getComputedStyle per frame would force a style
+      // resolution inside the draw loop.
+      if (paintGen !== paletteGeneration()) {
+        paintGen = paletteGeneration();
+        const p = pal();
+        gl.uniform3fv(uC1, unit(p.accent));
+        gl.uniform3fv(uC2, unit(p.ai));
+        gl.uniform3fv(uC3, unit(p.ai2));
+        gl.uniform3fv(uC4, unit(p.hot));
+      }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 

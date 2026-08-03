@@ -25,31 +25,44 @@ import { registerTerminal, setActiveTerminal, takePendingCommand, unregisterTerm
 import { openTab } from "./store";
 import { speak, stopSpeaking } from "./speak";
 import LiquidBackground from "./LiquidBackground";
+import { hex, palette as pal, rgba } from "./palette";
 
-/** Velvet-matched 16-color palette + teal cursor (theme.css alignment). */
-const THEME = {
-  background: "#0b0a1d",
-  foreground: "#eef0fb",
-  cursor: "#2ff3ff",
-  cursorAccent: "#0b0a1d",
-  selectionBackground: "rgba(123, 97, 255, 0.35)",
-  black: "#1a1640",
-  red: "#ec4be0",
-  green: "#7CF5B0",
-  yellow: "#F5D76E",
-  blue: "#7b61ff",
-  magenta: "#ec4be0",
-  cyan: "#2ff3ff",
-  white: "#c9cde8",
-  brightBlack: "#6a6f96",
-  brightRed: "#ff79f0",
-  brightGreen: "#9affc9",
-  brightYellow: "#ffe9a3",
-  brightBlue: "#9d8df1",
-  brightMagenta: "#ff79f0",
-  brightCyan: "#7df9ff",
-  brightWhite: "#eef0fb",
-} as const;
+/**
+ * The terminal's 16 colours, derived from the active theme.
+ *
+ * Built from the palette rather than hardcoded, so a theme change carries into
+ * the terminal — but **only the Flux-flavoured slots**. `red`, `green` and
+ * `yellow` are what programs *mean* by them: a compiler error is red because
+ * red means error, and repainting it rose because the theme is rose would make
+ * `cargo` output unreadable. Those stay fixed; the accents follow the theme.
+ */
+const termTheme = () => {
+  const p = pal();
+  return {
+    background: hex(p.bg),
+    foreground: "#eef0fb",
+    cursor: hex(p.accent),
+    cursorAccent: hex(p.bg),
+    selectionBackground: rgba(p.ai, 0.35),
+    black: "#1a1640",
+    // Semantic ANSI colours — fixed on purpose (see above).
+    red: "#ff6b8a",
+    green: "#7cf5b0",
+    yellow: "#f5d76e",
+    blue: hex(p.ai),
+    magenta: hex(p.hot),
+    cyan: hex(p.accent),
+    white: "#c9cde8",
+    brightBlack: "#6a6f96",
+    brightRed: "#ff9fb0",
+    brightGreen: "#9affc9",
+    brightYellow: "#ffe9a3",
+    brightBlue: hex(p.ai2),
+    brightMagenta: hex(p.hot),
+    brightCyan: hex(p.accent),
+    brightWhite: "#eef0fb",
+  };
+};
 
 const TerminalView: Component<{
   session: number;
@@ -141,7 +154,7 @@ const TerminalView: Component<{
       macOptionIsMeta: true,
       scrollback: 10_000,
       allowTransparency: true,
-      theme: { ...THEME, background: "#00000000" },
+      theme: { ...termTheme(), background: "#00000000" },
     });
 
     const fit = new FitAddon();
@@ -412,7 +425,7 @@ const TerminalView: Component<{
         height: "100%",
         overflow: "hidden",
         "border-radius": "inherit",
-        background: THEME.background,
+        background: "var(--velvet-800)",
       }}
     >
       {/* The WebGL shader backdrop is decorative; skip it when the column is split

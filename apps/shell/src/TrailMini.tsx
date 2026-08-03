@@ -15,6 +15,7 @@
  * were stamped), so it only ever shows the research you're currently in.
  */
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js";
+import { palette as pal, rgba } from "./palette";
 
 import { TRAIL_URL, traceGraph, type Edge, type Visit } from "./ipc";
 import { activeWorkspace, activeWorkspaceName, openTab } from "./store";
@@ -105,7 +106,7 @@ const TrailMini: Component = () => {
     ctx.save();
     ctx.translate(W / 2 + view.x, H / 2 + view.y);
     ctx.scale(view.z, view.z);
-    ctx.strokeStyle = "rgba(150,140,240,0.28)";
+    ctx.strokeStyle = rgba(pal().ai2, 0.28);
     ctx.lineWidth = 1 / view.z;
     for (const l of links) {
       const a = nodes[l.a];
@@ -119,7 +120,7 @@ const TrailMini: Component = () => {
     for (const n of nodes) {
       ctx.beginPath();
       ctx.arc(n.x, n.y, n.hot ? 4.2 : 3, 0, Math.PI * 2);
-      ctx.fillStyle = n.hot ? "#2ff3ff" : "rgba(160,150,255,0.85)";
+      ctx.fillStyle = n.hot ? rgba(pal().accent, 1) : rgba(pal().ai2, 0.85);
       ctx.fill();
     }
     ctx.restore();

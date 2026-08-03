@@ -20,6 +20,7 @@ import {
   onMount,
   type Component,
 } from "solid-js";
+import { palette as pal, rgba } from "./palette";
 
 import {
   traceGraph,
@@ -216,13 +217,13 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       const lit = a === hoverNode || b === hoverNode || a === selNode || b === selNode;
       if (e.style === 1) {
         ctx.setLineDash([4 / cam.scale, 4 / cam.scale]);
-        ctx.strokeStyle = lit ? "rgba(47,243,255,0.7)" : "rgba(47,243,255,0.18)";
+        ctx.strokeStyle = rgba(pal().accent, lit ? 0.7 : 0.18);
       } else if (e.style === 2) {
         ctx.setLineDash([8 / cam.scale, 5 / cam.scale]);
-        ctx.strokeStyle = lit ? "rgba(236,75,224,0.75)" : "rgba(236,75,224,0.22)";
+        ctx.strokeStyle = rgba(pal().hot, lit ? 0.75 : 0.22);
       } else {
         ctx.setLineDash([]);
-        ctx.strokeStyle = lit ? "rgba(47,243,255,0.55)" : "rgba(123,97,255,0.14)";
+        ctx.strokeStyle = lit ? rgba(pal().accent, 0.55) : rgba(pal().ai, 0.14);
       }
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
@@ -240,7 +241,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
         ctx.fill();
       } else {
         // metadata-only → hollow ring
-        ctx.fillStyle = "rgba(10,12,24,0.6)";
+        ctx.fillStyle = rgba(pal().bg, 0.6);
         ctx.fill();
         ctx.lineWidth = 1.5 / cam.scale;
         ctx.strokeStyle = a.color;
@@ -248,7 +249,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       }
       if (a === selNode) {
         ctx.lineWidth = 2 / cam.scale;
-        ctx.strokeStyle = "#2ff3ff";
+        ctx.strokeStyle = rgba(pal().accent, 1);
         ctx.beginPath();
         ctx.arc(a.x, a.y, a.r + 3 / cam.scale, 0, Math.PI * 2);
         ctx.stroke();
@@ -257,7 +258,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     // labels only around the hovered/selected node
     const focus = hoverNode ?? selNode;
     if (focus) {
-      ctx.fillStyle = "#c9cde8";
+      ctx.fillStyle = rgba(pal().text, 1);
       ctx.font = `${12 / cam.scale}px system-ui, sans-serif`;
       const lit = new Set<GNode>([focus]);
       for (const e of edges) {
@@ -555,7 +556,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     if (h && h.counts.length > 0 && h.max_ms > h.min_ms) {
       const peak = Math.sqrt(Math.max(1, ...h.counts));
       const bw = ((h.max_ms - h.min_ms) / h.counts.length / (t1 - t0)) * w;
-      ctx.fillStyle = "rgba(123,97,255,0.45)";
+      ctx.fillStyle = rgba(pal().ai, 0.45);
       for (let i = 0; i < h.counts.length; i++) {
         const n = h.counts[i]!;
         if (n === 0) continue;
@@ -567,7 +568,7 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     // The viewed window [end − span, end], teal-tinted.
     const x0 = Math.max(0, toX(end - span));
     const x1 = Math.min(w, toX(end));
-    ctx.fillStyle = "rgba(47,243,255,0.14)";
+    ctx.fillStyle = rgba(pal().accent, 0.14);
     ctx.fillRect(x0, 0, Math.max(2, x1 - x0), ht);
     ctx.strokeStyle = "rgba(47,243,255,0.5)";
     ctx.strokeRect(x0 + 0.5, 0.5, Math.max(2, x1 - x0) - 1, ht - 1);

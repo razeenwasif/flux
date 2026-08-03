@@ -6,6 +6,7 @@
  * scroll to zoom; click a node to open it.
  */
 import { createSignal, onCleanup, onMount, Show, type Component } from "solid-js";
+import { palette as pal, rgba } from "./palette";
 import { omniGraph } from "./ipc";
 
 type GNode = {
@@ -146,7 +147,7 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
         b = nodes[e.t];
       if (!a || !b) continue;
       const lit = a === hoverNode || b === hoverNode;
-      ctx.strokeStyle = lit ? `rgba(47,243,255,${0.4 + e.w * 0.4})` : `rgba(123,97,255,${0.06 + e.w * 0.16})`;
+      ctx.strokeStyle = lit ? rgba(pal().accent, 0.4 + e.w * 0.4) : rgba(pal().ai, 0.06 + e.w * 0.16);
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -154,14 +155,14 @@ const OmniGraph: Component<{ onNavigate: (url: string) => void }> = (props) => {
     }
     // nodes
     for (const a of nodes) {
-      ctx.fillStyle = a === hoverNode ? "#2ff3ff" : "#7b61ff";
+      ctx.fillStyle = rgba(a === hoverNode ? pal().accent : pal().ai, 1);
       ctx.beginPath();
       ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2);
       ctx.fill();
     }
     // labels: off by default — only the hovered node (and its direct neighbours).
     if (hoverNode) {
-      ctx.fillStyle = "#c9cde8";
+      ctx.fillStyle = rgba(pal().text, 1);
       ctx.font = `${12 / cam.scale}px system-ui, sans-serif`;
       const lit = new Set<GNode>([hoverNode]);
       for (const e of edges) {

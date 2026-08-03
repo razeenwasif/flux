@@ -9,6 +9,7 @@
  * a static frame; any WebGL2 failure → `onFallback` so the page shows the wave.
  */
 import { createEffect, onCleanup, onMount, type Component } from "solid-js";
+import { palette as pal, paletteGeneration, unit } from "./palette";
 
 const QUAD_VS = `#version 300 es
 layout(location = 0) in vec2 p;
@@ -23,6 +24,12 @@ precision highp float;
 in vec2 v_uv; out vec4 o;
 uniform float u_time;
 uniform float u_aspect;
+// The theme's palette, fed in from palette.ts so a theme change repaints the
+// shader. Baking these in is how the WebGL surfaces stayed teal under Ember.
+uniform vec3 u_c1;
+uniform vec3 u_c2;
+uniform vec3 u_c3;
+uniform vec3 u_bg;
 
 // Simplex 3D Noise from Ashima Arts
 vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
@@ -102,9 +109,9 @@ void main() {
   float bgMix = smoothstep(-0.6, 0.6, bgRipple * 0.7 + bgRipple2 * 0.3);
   
   // Base dark purple night sky
-  vec3 bg = vec3(0.02, 0.005, 0.04) - uv.y * vec3(0.01, 0.005, 0.02);
+  vec3 bg = u_bg * 1.6 - uv.y * u_bg * 0.8;
   // Add the deep velvet ripples to the background
-  bg += vec3(0.015, 0.005, 0.025) * bgMix * (1.0 - uv.y * 0.5);
+  bg += u_bg * 1.2 * bgMix * (1.0 - uv.y * 0.5);
 
   vec3 auroraCol = vec3(0.0);
   
@@ -135,9 +142,9 @@ void main() {
     float heightFade = smoothstep(0.05, 0.5, uv.y) * smoothstep(0.95, 0.2, uv.y);
     
     // Colors based on layer and height (matching user's request to keep color scheme perfect)
-    vec3 c1 = vec3(0.1, 1.0, 0.5); // Neon green base
-    vec3 c2 = vec3(0.2, 0.5, 0.9); // Blue
-    vec3 c3 = vec3(0.8, 0.2, 0.9); // Purple top
+    vec3 c1 = u_c1;
+    vec3 c2 = u_c2;
+    vec3 c3 = u_c3;
     
     vec3 col = mix(c1, c2, uv.y + i * 0.1);
     col = mix(col, c3, n2 * 0.5 + 0.5);
@@ -220,6 +227,13 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
 
     const uTime = gl.getUniformLocation(prog, "u_time");
     const uAspect = gl.getUniformLocation(prog, "u_aspect");
+    const uC1 = gl.getUniformLocation(prog, "u_c1");
+    const uC2 = gl.getUniformLocation(prog, "u_c2");
+    const uC3 = gl.getUniformLocation(prog, "u_c3");
+    const uBg = gl.getUniformLocation(prog, "u_bg");
+    // Re-read only when the theme actually changes; getComputedStyle in a 40fps
+    // draw loop would force a style resolution every frame.
+    let paintGen = -1;
 
     let time = 0;
     const render = () => {
@@ -230,6 +244,16 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       gl.uniform1f(uTime, time);
       gl.uniform1f(uAspect, aspect);
+      if (paintGen !== paletteGeneration()) {
+        paintGen = paletteGeneration();
+        const p = pal();
+        gl.uniform3fv(uC1, unit(p.accent));
+        gl.uniform3fv(uC2, unit(p.ai));
+        gl.uniform3fv(uC3, unit(p.hot));
+        // Scaled right down: this is the ambient wash the curtains sit in, not
+        // the base colour itself.
+        gl.uniform3fv(uBg, unit(p.bg).map((v) => v * 0.9) as [number, number, number]);
+      }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 
