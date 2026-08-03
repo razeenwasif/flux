@@ -1317,6 +1317,32 @@ function pushClosedTab(url: string, title: string): void {
   if (closedTabs.length > CLOSED_CAP) closedTabs.length = CLOSED_CAP;
   localStorage.setItem(CLOSED_KEY, JSON.stringify(closedTabs));
 }
+/**
+ * Close many tabs at once, newest first.
+ *
+ * Sequential rather than parallel: `closeTab` reads the live tab list to decide
+ * whether it's closing the last start tab, so overlapping calls would each see a
+ * stale list and race that decision.
+ *
+ * Newest-first so the reopen stack ends up with the *oldest* tab on top, which
+ * is the order Ctrl+Shift+T puts them back in. The stack holds 25, so closing
+ * more than that is not fully undoable — which is why the callers confirm.
+ */
+export async function closeTabs(ids: number[]): Promise<number> {
+  let closed = 0;
+  for (const id of [...ids].reverse()) {
+    if (!tabs().some((t) => t.id === id)) continue; // already gone
+    await closeTab(id).catch(() => {});
+    closed++;
+  }
+  return closed;
+}
+
+/** Every browser tab in a workspace (all of them when `ws` is undefined). */
+export function browserTabsIn(ws?: number): TabMeta[] {
+  return tabs().filter((t) => t.kind === "browser" && (ws == null || t.workspace === ws));
+}
+
 /** Reopen the most recently closed browser tab (Ctrl+Shift+T). No-op if none. */
 export async function reopenClosedTab(): Promise<void> {
   const last = closedTabs.shift();

@@ -103,6 +103,7 @@ import {
   workspaceActive,
   workspaceDelete,
   workspaceSwitch,
+  type TabMeta,
 } from "./ipc";
 import { setTerminalOpener } from "./terminals";
 import Sidebar from "./Sidebar";
@@ -176,6 +177,8 @@ import {
   mapQuery,
   setMapQuery,
   closeTab,
+  closeTabs,
+  browserTabsIn,
   reopenClosedTab,
   createWorkspace,
   requestWorkspaceRename,
@@ -1391,7 +1394,43 @@ const App: Component = () => {
         if (id != null) void closeTab(id);
       },
     },
+    // Bulk closes confirm, and say the count: restoring a session opens dozens
+    // of tabs across workspaces, and the reopen stack only holds 25 — so past
+    // that this isn't fully undoable and shouldn't happen on a mis-click.
+    {
+      id: "close-workspace-tabs",
+      label: "Close all tabs in this workspace",
+      icon: "✕",
+      run: () => void closeMany(browserTabsIn(activeWorkspace()), "in this workspace"),
+    },
+    {
+      id: "close-all-tabs",
+      label: "Close every tab (all workspaces)",
+      icon: "✕",
+      run: () => void closeMany(browserTabsIn(), "across all workspaces"),
+    },
   ];
+
+  /** Confirm, close, and say what happened + how to undo. */
+  const closeMany = async (targets: TabMeta[], where: string) => {
+    const n = targets.length;
+    if (!n) {
+      toast(`No tabs open ${where}.`);
+      return;
+    }
+    const undoable = Math.min(n, 25);
+    if (
+      !window.confirm(
+        `Close ${n} tab${n === 1 ? "" : "s"} ${where}?\n\n` +
+          (n > undoable
+            ? `Ctrl+Shift+T can reopen the last ${undoable} of them, one at a time.`
+            : `Ctrl+Shift+T reopens them one at a time.`),
+      )
+    )
+      return;
+    const closed = await closeTabs(targets.map((t) => t.id));
+    toast(`Closed ${closed} tab${closed === 1 ? "" : "s"}`, "ok");
+  };
 
   // Run an app keyboard action — shared by the chrome's keydown listener and
   // the chords forwarded from a focused tab webview (#18).

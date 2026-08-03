@@ -104,6 +104,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   and `yellow` stay put**. Those are what programs *mean* by them — a compiler error is red because
   red means error, and repainting it rose because the theme is rose would make `cargo` output
   unreadable.
+- **Closing tabs in bulk.** There was no way to close more than one tab at a time — only the per-tab
+  ✕, `Ctrl+W`, and "Close current tab" in the palette. That's fine until a restored session opens
+  thirty tabs across four workspaces and the only way back is thirty clicks.
+
+  Three ways now: **✕ Close tabs** on each saved session (closes the tabs that session lists), and
+  **Close all tabs in this workspace** / **Close every tab** in the command palette. All confirm
+  first with the count, and say that `Ctrl+Shift+T` reopens them one at a time — and when you're
+  closing more than the reopen stack holds (25), the confirmation says how many are actually
+  recoverable rather than implying all of them are.
+
+  Closing a session's tabs matches by URL, because nothing records that a tab *came from* a session.
+  Tracking that would mean a tab carrying provenance it then has to keep correct through every move,
+  pin and workspace change — so the simpler thing is done, and described honestly: it closes what
+  the session lists, including a copy you happened to open yourself.
 - **A restored session rebuilds your workspaces.** A session spans every workspace, but a saved tab
   only recorded `{url, title, pinned}` — so restoring one collapsed all of them into whichever
   workspace happened to be active, and did it on the same machine too, not just across devices.

@@ -12,7 +12,7 @@ import {
   type DaySnapshot,
   type SavedSession,
 } from "./ipc";
-import { activeId, restoreSession, restoreSnapshot, updateTabTitle } from "./store";
+import { activeId, closeTabs, restoreSession, restoreSnapshot, tabs, updateTabTitle } from "./store";
 
 const when = (ms: number) =>
   new Date(ms).toLocaleString(undefined, {
@@ -60,6 +60,25 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
     if (s) setNote(`Saved “${s.name}” · ${s.tabs.length} tab${s.tabs.length === 1 ? "" : "s"}`);
     load();
   };
+  /** Close the tabs this session opened.
+   *
+   *  Matched by URL, because nothing records that a tab *came from* a session —
+   *  and tracking that would mean a tab carrying provenance it would then have
+   *  to keep correct through every move, pin and workspace change. Matching is
+   *  honest about what it does: it closes what the session lists, including a
+   *  copy you happened to open yourself. */
+  const closeSession = async (s: SavedSession) => {
+    const urls = new Set(s.tabs.map((t) => t.url));
+    const open = tabs().filter((t) => t.kind === "browser" && urls.has(t.url));
+    if (!open.length) {
+      setNote(`No tabs from “${s.name}” are open.`);
+      return;
+    }
+    if (!window.confirm(`Close ${open.length} tab${open.length === 1 ? "" : "s"} from “${s.name}”?`)) return;
+    const n = await closeTabs(open.map((t) => t.id));
+    setNote(`Closed ${n} tab${n === 1 ? "" : "s"} · Ctrl+Shift+T reopens them one at a time`);
+  };
+
   const restore = async (s: SavedSession) => {
     const n = await restoreSession(s.id);
     setNote(`Reopened ${n} tab${n === 1 ? "" : "s"} from “${s.name}”`);
@@ -127,6 +146,13 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
                   <span class="hist-day" style={{ "margin-left": "auto" }}>
                     {s.tabs.length} · {when(s.created_ms)}
                   </span>
+                  <button
+                    class="bm-open-group"
+                    title="Close this session's tabs"
+                    onClick={() => void closeSession(s)}
+                  >
+                    ✕ Close tabs
+                  </button>
                   <button class="bm-open-group" onClick={() => void restore(s)}>
                     ↺ Reopen
                   </button>
