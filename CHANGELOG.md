@@ -8,6 +8,35 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The agent acts on plain language instead of narrating.** Asking Gemma to go through a folder
+  of PDFs and summarise them into a notebook produced a confident plan, an offer to begin, and
+  then the same offer again — forever. The cause wasn't the model: the tools only ran behind
+  `/task` and `/fix`, plain chat had **none**, and nothing told her that. Narrating was the only
+  thing she could do. A request that asks for *work* now routes to the same adaptive loop those
+  slash commands use, so it lists, reads, and drafts one step at a time. Detection can be
+  generous because every side-effecting step still stops at its approval card — a false positive
+  costs a visible plan you can stop.
+
+  Three capability gaps went with it, each of which would have stalled that request even once
+  the loop started:
+  - **`list <dir>`** — a folder could only be seen through `run ls`, which spends an approval
+    card on a read-only look and then has to be parsed back out of terminal output. Listing is
+    not a side effect, so it doesn't ask.
+  - **PDFs read as text.** `read <path>` used the plain text reader, so a PDF came back as
+    `%PDF-1.7` and compressed streams — and the model summarised *that*, confidently. Extraction
+    now goes through the same PDF.js path the viewer and the KB already use, page-numbered so a
+    summary can cite "slide 12". A scan says so instead of yielding nothing.
+  - **`note <what>`** — the loop could read, run and edit but had no way to finish a job in your
+    own notes, so "summarise these into Onyx" ended as a chat message that looked like it had
+    been saved and hadn't. It now drafts through the same approval card, and the loop waits for
+    your answer rather than declaring success over an unanswered card.
+
+  Two limits that made long jobs quietly wrong: the step ceiling was 10 (sized for "fix the
+  failing test", about a third of what a folder of lectures needs, and it reported success on
+  stopping), now 28; and `note_plan` has always accepted a context argument that **nothing ever
+  passed**, so a note written at the end of a task was drafted from the request sentence rather
+  than from the documents just read. The files now reach it, with the budget raised from 6 KB to
+  24 KB to match.
 - **PDF viewer: page jump, bookmarks and comments.** A 300-page paper was navigable only by
   scrolling, which is not navigation. The toolbar now carries `⟨ 9 / 12 ⟩` — type a page number
   and press Enter, or step with the arrows — and a **Notes** panel holds bookmarks (click the

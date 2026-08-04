@@ -814,7 +814,15 @@ impl AgentPlanner {
         targets: &str,
         context: Option<&str>,
     ) -> Result<NoteAction, AgentError> {
-        const CONTEXT_BUDGET: usize = 6 * 1024;
+        // 6 KB was sized for "summarise this page into my notes". It is far too
+        // small for what this is now asked to do — a task loop that reads six
+        // lecture PDFs and then writes one note had 6 KB to summarise them from,
+        // so most of what it read never reached the draft. `ctx_for` grows
+        // `num_ctx` to fit the prompt (clamped at 16k tokens), so a bigger
+        // budget costs prompt-eval time on this one call, not correctness
+        // elsewhere. Still bounded: the note has to be *written* from the
+        // remaining context.
+        const CONTEXT_BUDGET: usize = 24 * 1024;
         const TARGET_BUDGET: usize = 4 * 1024;
         let targets = wrap_untrusted(truncate_utf8(targets, TARGET_BUDGET));
         let context = context
@@ -900,10 +908,12 @@ impl AgentPlanner {
         let prompt = format!(
             "Break the user's request into an ordered list of SINGLE-action steps for a \
              browser assistant, each written as a short command. Use these forms when they fit:\n\
-             - read <path>              (pull a file into context)\n\
+             - list <dir>               (list a folder's contents)\n\
+             - read <path>              (pull a file into context; PDFs come through as text)\n\
              - edit <path>: <change>    (propose a file edit)\n\
              - run <shell command>      (run in the terminal)\n\
              - search <query>\n\
+             - note <what to add>       (draft something for the user's notes; they approve it)\n\
              - play <song> / pause / skip / shuffle on    (music)\n\
              - remind me to <x> [in/at <time>]\n\
              - remember that <x>\n\
@@ -951,15 +961,32 @@ impl AgentPlanner {
         let prompt = format!(
             "You are working toward a GOAL by issuing ONE command at a time and reacting to its \
              result. Commands you can use, one per step:\n\
-             - read <path>            (load a file so you can see/edit it)\n\
+             - list <dir>             (list a folder's contents; use this FIRST when the goal \
+             names a folder — it is free and needs no approval)\n\
+             - read <path>            (load a file's contents. Handles PDFs: you get the real \
+             text, page by page, not the raw file)\n\
              - edit <path>: <change>  (propose an edit; the user approves a diff)\n\
-             - run <shell command>    (run in the terminal; you get the output back)\n\
+             - run <shell command>    (run in the terminal; the user must approve it first)\n\
              - search <query>\n\
+             - note <what to add>     (draft something for the user's Onyx vault or a Scribe \
+             notebook; they see the exact text and approve it. Say WHICH notebook and include the \
+             full text you want written — this is the only way to save anything)\n\
+             \n\
+             You are NOT talking to the user. Do not ask permission, do not announce what you are \
+             about to do, do not offer choices — every command already stops for approval where \
+             one is needed. Emit the command itself.\n\
+             \n\
              Look at the HISTORY and decide the SINGLE next command. REACT to results: if a command \
              failed or a test didn't pass, read the relevant file and edit it to fix the cause, then \
-             re-run. Don't repeat a step that already succeeded. When the goal is achieved (e.g. the \
-             tests pass) OR you can't make progress, set done=true and explain in summary. Reply with \
+             re-run. Don't repeat a step that already succeeded — if a file is already in the \
+             HISTORY, you have read it. Work through multiple files ONE AT A TIME: read the first, \
+             then the next, and so on. When the goal is achieved OR you can't make progress, set \
+             done=true and explain in summary. Reply with \
              EXACTLY ONE JSON object: {{\"command\":\"<next command, or empty if done>\",\"done\":<true|false>,\"summary\":\"<short status>\"}}.\n\n\
+             Example — GOAL \"summarise the PDFs in /docs/slides into my Optimization notebook\":\n\
+             step 1 -> {{\"command\":\"list /docs/slides\",\"done\":false,\"summary\":\"Seeing what's there\"}}\n\
+             step 2 -> {{\"command\":\"read /docs/slides/lecture1.pdf\",\"done\":false,\"summary\":\"Reading lecture 1\"}}\n\
+             (after every file is read) -> {{\"command\":\"note add to the Optimization notebook: <the summaries>\",\"done\":false,\"summary\":\"Drafting the note\"}}\n\n\
              GOAL: {goal}\n\n\
              HISTORY (oldest first):\n{hist}"
         );

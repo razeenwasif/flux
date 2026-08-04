@@ -310,6 +310,20 @@ a **JSON-Schema-constrained** structured action, and Flux compiles it to
 injection-safe JS run in the tab. (**`/task <goal>`** runs the multi-step loop:
 plan → approve → execute → re-plan across pages.)
 
+**Asking for work in plain words is enough** — you don't have to know a slash
+command exists. *"In `~/Courses/Optimization/slides/` you'll find some lecture
+PDFs; go through all of them and summarise them into my Optimization notebook"*
+runs as a multi-step task: it lists the folder, reads each PDF (real text, page
+by page — a scan needs OCR first), and drafts the note. One step at a time, each
+visible, and **every step that changes anything stops for approval**: commands
+get a Run card, edits get a diff, notes show the exact text. Questions stay
+questions — *"what's in that folder?"* is answered, not executed.
+
+The loop's tools are `list <dir>`, `read <path>`, `edit <path>: <change>`,
+`run <cmd>`, `search <query>` and `note <what to add>`. **`/fix <goal>`** is the
+same loop invoked explicitly (*"/fix make the tests in src/foo.rs pass"* → run →
+read the failure → edit → re-run).
+
 She can also **write to your notes** (ADR 0016) — ask in plain words (*"save
 this into my Convex notebook"*) or use **`/note <what to add>`**. You see the
 exact text on a card and approve it before anything is written. She can only

@@ -34,6 +34,7 @@ import {
   runShell,
   shellGuard,
   readTextFile,
+  fsList,
   writeTextFile,
   agentEditPlan,
   memoryRead,
@@ -84,6 +85,8 @@ import {
   type AgentStatus,
 } from "./ipc";
 import { looksLikeNoteWrite } from "./noteintent";
+import { looksAgentic } from "./agentintent";
+import { readPdfText } from "./pdftext";
 import {
   activeId,
   activeWorkspace,
@@ -860,7 +863,8 @@ const AgentPanel: Component = () => {
     '- Calendar: "what\'s on my calendar today / this week / friday" reads your schedule (your Google ICS feed + Flux-local events); "schedule lunch with Sam tomorrow at noon for 1h" / "add a dentist appointment friday 3pm" creates an event; "move my standup to 10am"; "cancel the dentist appointment". You can add/move/delete events you created in Flux (Google-feed events are read-only — say so if asked to change one).\n' +
     '- Long-term memory: "remember that <x>" saves a fact you\'ll recall in future chats; "what do you remember".\n' +
     '- Run commands in the user\'s live terminal (one-tap approval; rm/destructive blocked): "run <cmd>" / "execute <cmd>", or ask naturally ("list the files in my home directory") and you propose the command. On approval it runs in their real terminal session (their cwd/env) and you read the output back — so you can edit a file, run the tests, read the result, and fix it.\n' +
-    '- Read files into context: "read src/foo.rs" / "look at <path>" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); "forget the files" clears. You can also drag a file from the explorer onto the panel.\n' +
+    '- Read files into context: "read src/foo.rs" / "look at <path>" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); "forget the files" clears. You can also drag a file from the explorer onto the panel. PDFs come through as real text, page by page — except a scan, which has no text layer until the user runs OCR in the PDF viewer.\n' +
+    '- List a folder: "list <dir>" / "what\'s in <dir>" reads a directory directly — no terminal, no approval needed.\n' +
     '- Read the terminal: "read the terminal" / "what\'s in my terminal" pulls the active Terminal tab\'s recent output into context (great for debugging a failed command).\n' +
     '- Edit files (with approval): "edit src/foo.rs: rename X to Y" / (after reading a file) "change it to …" — you propose a diff; nothing is written until the user taps Apply. Make surgical edits.\n' +
     '- Inspect Flux\'s own UI (for debugging it): "app state" (UI snapshot), "css variables" / "what\'s --flux-teal", "inspect <css selector>" (computed style + visibility — e.g. why an element is hidden or a var isn\'t applying).\n' +
@@ -873,7 +877,21 @@ const AgentPanel: Component = () => {
     '- Power Platform (Power Apps / Power Automate ALM): "/pac <request>" maps to ONE Power Platform CLI command — e.g. "/pac export my solution Contoso", "/pac unpack the solution zip", "/pac list my canvas apps". It runs the command via the approval card; environment-mutating ones (import/delete/publish) are flagged first.\n' +
     '- Notes: asking in plain words ("save this into my Convex notebook") or "/note <what to add>" drafts something to ADD to the user\'s Onyx vault or a Scribe notebook — a new note/page, or an append to an existing one. They see the exact text and approve it before anything is written. You can never edit, rewrite or delete what is already there.\n' +
     '- Voice: always-on "Hey Gemma" + push-to-talk; the user can interrupt you by talking or the Stop button.\n' +
-    "When asked what you can do, summarize the above. Don't claim abilities not listed.";
+    "When asked what you can do, summarize the above. Don't claim abilities not listed.\n" +
+    "\n" +
+    "HOW TO ACT. Your tools fire from the user's message, not from anything you say. So:\n" +
+    '- NEVER announce an action in the future tense. "I will now list the files", "let me read those", ' +
+    '"listing them now" — none of these do anything. You will simply have said it, and the user waits ' +
+    'for a result that is never coming. If you catch yourself writing "I\'ll" or "I\'m about to", stop.\n' +
+    "- NEVER ask permission to look at something. Reading a file, listing a folder and reading the " +
+    "terminal have no side effects and need no approval. Anything that DOES — running a command, " +
+    "editing a file, writing a note — already stops at its own approval card, so asking first just " +
+    "adds a round trip.\n" +
+    "- A request that needs several steps over files ('go through these PDFs and summarise them') " +
+    "runs as a multi-step task automatically: it lists, reads each file, and drafts the note, one " +
+    "step at a time. You don't need to ask the user to start it, and you must not offer to.\n" +
+    "- If you genuinely can't do something, say so in one sentence and say what would work instead. " +
+    "Don't offer to do it and then not do it.";
 
   // Conversation memory: prepend persona + capabilities + the recent turns so the
   // model has context. The trailing "user" entry is the message we just pushed, so
@@ -881,7 +899,10 @@ const AgentPanel: Component = () => {
   const filesContext = (): string => {
     const fs = ctxFiles();
     if (!fs.length) return "";
-    let budget = 14000;
+    // Matches `plan_note`'s own 24 KB context budget — this is the only place
+    // the text of what was read reaches a note draft, and a tighter cap here
+    // just throws away material the backend was ready to accept.
+    let budget = 24000;
     const blocks: string[] = [];
     for (const f of fs) {
       const body = f.content.slice(0, Math.max(0, budget));
@@ -929,9 +950,48 @@ const AgentPanel: Component = () => {
   const [ctxFiles, setCtxFiles] = createSignal<{ path: string; name: string; content: string }[]>([]);
   const FILE_RE =
     /^(?:read|open|load|look at|show me|check out|cat|add)\s+(?:the\s+)?(?:file\s+|context\s+)?(~?\/?[\w. /\\@-]*?(?:\.[a-z0-9]{1,8}|\/[\w.-]+)|[~/][\w. /\\@.-]+)\s*$/i;
+  // "list <dir>" — the step that was missing. Without it the only way to see a
+  // folder was `run ls`, which costs an approval card for a read-only look and
+  // returns output the loop then has to parse out of a terminal. Reading a
+  // directory is not a side effect, so it doesn't ask.
+  const LIST_RE =
+    /^(?:list|ls|dir|show|what'?s in|contents of)\s+(?:the\s+)?(?:files?\s+in\s+|contents\s+of\s+)?["']?([~/][\w.\-/ \\@]*|[A-Za-z]:\\[\w.\-\\ ]*)["']?\s*$/i;
+  /** How many entries to hand the model. A media folder can hold thousands, and
+   *  the list is context it pays for on every subsequent step. */
+  const LIST_CAP = 60;
+  const runListDir = async (raw: string): Promise<string> => {
+    const path = raw.trim().replace(/^["']|["']$/g, "");
+    if (!path) return "";
+    try {
+      const listing = await fsList(path);
+      const all = listing.entries;
+      const dirs = all.filter((e) => e.is_dir).map((e) => `${e.name}/`);
+      const files = all.filter((e) => !e.is_dir).map((e) => e.name);
+      const shown = [...dirs, ...files].slice(0, LIST_CAP);
+      setFeed((f) => [
+        ...f,
+        {
+          role: "action",
+          text: `📁 ${listing.path} — ${dirs.length} folder${dirs.length === 1 ? "" : "s"}, ${files.length} file${files.length === 1 ? "" : "s"}`,
+        },
+      ]);
+      if (all.length === 0) return `${listing.path} is empty.`;
+      const more = all.length > LIST_CAP ? `\n…and ${all.length - LIST_CAP} more` : "";
+      return `Contents of ${listing.path}:\n${shown.join("\n")}${more}`;
+    } catch (e) {
+      const m = String(e);
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    }
+  };
+
   const runReadFile = async (raw: string): Promise<string> => {
     const path = raw.trim().replace(/^["']|["']$/g, "");
     if (!path) return "";
+    // A PDF read through `read_text_file` returns the container — "%PDF-1.7",
+    // object headers, compressed streams — and the model summarises *that*,
+    // confidently. Extract the real text instead (#158).
+    if (/\.pdf$/i.test(path)) return await runReadPdf(path);
     try {
       const content = await readTextFile(path);
       const name = path.split(/[/\\]/).pop() || path;
@@ -951,6 +1011,36 @@ const AgentPanel: Component = () => {
       return m;
     }
   };
+  /** Read a PDF as text and park it in context, like any other file. */
+  const runReadPdf = async (path: string): Promise<string> => {
+    const name = path.split(/[/\\]/).pop() || path;
+    try {
+      const { text, pages, pagesWithText, truncated } = await readPdfText(path);
+      if (!text.trim()) {
+        // A scan has no text layer. Say so plainly rather than parking an empty
+        // file in context and letting the model summarise nothing — that failure
+        // is invisible from the model's side.
+        const m = `${name} has ${pages} page${pages === 1 ? "" : "s"} but no selectable text — it's a scan. Open it in Flux's PDF viewer and use "Read with OCR" first.`;
+        setFeed((f) => [...f, { role: "error", text: m }]);
+        return m;
+      }
+      setCtxFiles((c) => [...c.filter((f) => f.path !== path), { path, name, content: text }].slice(-8));
+      const partial = pagesWithText < pages ? `, ${pagesWithText} with text` : "";
+      setFeed((f) => [
+        ...f,
+        {
+          role: "action",
+          text: `📕 Read ${name} (${pages} page${pages === 1 ? "" : "s"}${partial}${truncated ? ", truncated" : ""}) — it's in context now.`,
+        },
+      ]);
+      return `Read ${name} — ${pages} pages${partial}${truncated ? " (truncated)" : ""}.\n\n${text}`;
+    } catch (e) {
+      const m = `Couldn't read ${name}: ${String(e).replace(/^Error:\s*/, "")}`;
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    }
+  };
+
   const clearCtxFiles = () => setCtxFiles([]);
   const lastCtxFile = () =>
     [...ctxFiles()]
@@ -1873,6 +1963,18 @@ const AgentPanel: Component = () => {
         void planNote(note[1].trim(), true);
         return;
       }
+      // Plain language that asks for *work* goes to the same loop (#158). Ordinary
+      // chat has no tools, and the model doesn't know that — so "go through the
+      // PDFs in /x and summarise them into Onyx" produced a confident plan, an
+      // offer to start, and then the same offer again, forever. Nothing here
+      // writes or runs anything on its own: every side-effecting step still
+      // stops at its approval card, which is what lets detection be generous.
+      if (!opts?.skipNoteDetect && looksAgentic(p)) {
+        setPrompt("");
+        setFeed((f) => [...f, { role: "user", text: p }]);
+        void runAdaptiveTask(p);
+        return;
+      }
       // Asking in plain words used to do nothing at all: `/note` was the only
       // route, so "write a summary into my Convex notebook" fell through to
       // ordinary chat and she'd answer as if she had. Silence was the wrong
@@ -2227,11 +2329,16 @@ const AgentPanel: Component = () => {
 
   type StepOutcome = { ok: boolean; result: string };
 
+  /** A note step written by the loop. Deliberately narrow — the loop emits this
+   *  form because the planner prompt tells it to, so it doesn't need the
+   *  generous phrasing detection that a human's typing does. */
+  const NOTE_STEP_RE = /^(?:note|save to (?:onyx|scribe|notes?)|write note)\s*[:,-]?\s*([\s\S]+)/i;
+
   // If the previous step pushed an approval card, block until the user resolves it,
   // and surface the result (e.g. terminal output) so the loop can react to it.
   const awaitChainApproval = async (): Promise<StepOutcome> => {
     const last = feed()[feed().length - 1];
-    if (last?.pending && (last.role === "edit" || last.role === "shell")) {
+    if (last?.pending && (last.role === "edit" || last.role === "shell" || last.role === "note")) {
       return await new Promise<StepOutcome>((res) => {
         chainGate = res;
       });
@@ -2276,8 +2383,22 @@ const AgentPanel: Component = () => {
       }
     }
     if (TERM_RE.test(pc)) return { ok: true, result: runReadTerminal() };
+    // Before FILE_RE: "list /a/b" would otherwise fall through to the file
+    // reader, which would try to read a directory as text.
+    const ls = pc.match(LIST_RE);
+    if (ls?.[1]) return { ok: true, result: await runListDir(ls[1]) };
     const rf = pc.match(FILE_RE);
     if (rf?.[1]) return { ok: true, result: await runReadFile(rf[1]) };
+    // "note <what to add>" — the loop could read, run and edit, but had no way
+    // to finish a job in the user's own notes, so "summarise these into Onyx"
+    // ended as a chat message that looked like it had been saved and hadn't.
+    // Same approval card as everywhere else: this proposes, it never writes.
+    const nt = pc.match(NOTE_STEP_RE);
+    if (nt?.[1]) {
+      const drafted = await planNote(nt[1].trim(), true);
+      if (!drafted) return { ok: true, result: "Nothing to write — the note wasn't drafted." };
+      return await awaitChainApproval();
+    }
     const rem = pc.match(REMEMBER_RE);
     if (rem?.[1]) return { ok: true, result: await runRemember(rem[1]) };
     const rmd = pc.match(REMIND_RE);
@@ -2328,7 +2449,13 @@ const AgentPanel: Component = () => {
   // observe the result, re-plan: run → read the failure → fix → re-run, until the
   // model says it's done / stuck or the step cap. Each step routes through the same
   // tools (so edits/commands still ask for approval), and the result is fed back.
-  const MAX_FIX_STEPS = 10;
+  /** Step ceiling for the adaptive loop. Ten was sized for "fix the failing
+   *  test" — run, read, edit, re-run. A folder of lecture slides needs one list
+   *  plus one read per file plus a note, so ten stopped it a third of the way
+   *  through and reported success. The cap exists to bound a model that has lost
+   *  the plot, not to bound the work; every step is visible and each
+   *  side-effecting one still asks. */
+  const MAX_FIX_STEPS = 28;
   /** Draft a note write and put it up for confirmation. Never writes. */
   /** Draft a write and put it up for confirmation. Returns false when there was
    *  nothing to propose, so an auto-detected request can fall through to an
@@ -2336,7 +2463,13 @@ const AgentPanel: Component = () => {
   const planNote = async (request: string, explicit: boolean): Promise<boolean> => {
     setBusy(true);
     try {
-      const proposal = await notePlan(request);
+      // Hand it whatever has been read into context. `note_plan` has always
+      // taken a context argument and nothing ever passed one, so a note drafted
+      // at the end of a task was written from the *request text alone* — the
+      // agent would read six lecture PDFs and then summarise the sentence that
+      // asked it to. The loop's own history is capped far too small to carry a
+      // document; this is where the actual text lives.
+      const proposal = await notePlan(request, filesContext() || undefined);
       if (!proposal.writes) {
         // Explicit `/note` gets the reason — you asked for a write and deserve
         // to know why there isn't one. An auto-detected request stays quiet and
@@ -2344,7 +2477,10 @@ const AgentPanel: Component = () => {
         if (explicit) setFeed((f) => [...f, { role: "assistant", text: proposal.summary }]);
         return false;
       }
-      setFeed((f) => [...f, { role: "note", text: proposal.summary, note: proposal }]);
+      // `pending` so a chain step can block on it: without it the loop pushed a
+      // note card and immediately planned the next step, so a task could finish
+      // "successfully" while the write it was for sat unanswered.
+      setFeed((f) => [...f, { role: "note", text: proposal.summary, note: proposal, pending: true }]);
       return true;
     } catch (err) {
       if (explicit) setFeed((f) => [...f, { role: "error", text: String(err) }]);
@@ -2356,16 +2492,22 @@ const AgentPanel: Component = () => {
 
   /** Drop a proposal without writing. The card collapses to a plain line rather
    *  than vanishing, so the feed still records that something was offered. */
-  const discardNote = (idx: number) =>
+  const discardNote = (idx: number) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { role: "assistant", text: `Discarded: ${it.text}` } : it)));
+    // Discarding one note isn't cancelling the goal — the loop should carry on
+    // and can decide what to do about the refusal.
+    resolveChainGate(true, "The user discarded that note; nothing was written.");
+  };
 
   /** Apply a proposal the user approved. */
   const applyNote = async (idx: number, proposal: NoteProposal): Promise<void> => {
     try {
       const path = await noteApply(proposal.action);
-      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, noteDone: path } : it)));
+      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, noteDone: path, pending: false } : it)));
+      resolveChainGate(true, `Written to ${path}.`);
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
+      resolveChainGate(true, `Writing the note failed: ${String(err)}`);
     }
   };
 
