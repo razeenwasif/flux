@@ -72,26 +72,34 @@ pub(crate) fn is_wsl_path(p: &str) -> bool {
     p.starts_with('/') || p.starts_with('~')
 }
 
-/// The path as WSL's shell should see it, with `~` left for bash to expand.
+/// Shell prelude every script here starts with: take the path from `$1` and
+/// expand a leading `~` (which is the shell's job, and only happens for an
+/// unquoted literal — an argument never expands on its own).
 #[cfg(windows)]
-fn wsl_path(p: &str) -> String {
-    if let Some(rest) = p.strip_prefix("~/") {
-        format!("$HOME/{rest}")
-    } else if p == "~" {
-        "$HOME".to_string()
-    } else {
-        p.to_string()
-    }
-}
+const WSL_PRELUDE: &str = r#"p="$1"; case "$p" in "~") p="$HOME";; "~/"*) p="$HOME/${p#\~/}";; esac; [ -n "$p" ] || { echo 'empty path' >&2; exit 2; }; "#;
 
-/// Run one command inside WSL and return its raw stdout.
+/// Run one script inside WSL and return its raw stdout.
 ///
-/// `bash -lc` (login shell) so the user's own environment is in scope, matching
-/// what they'd get typing it themselves.
+/// **The path is passed as an argument, never interpolated into the script.**
+/// It used to be spliced in with hand-rolled quote escaping, and that is what
+/// listed the wrong directory: `std::process::Command` quotes arguments by
+/// MSVCRT rules, `wsl.exe` then re-parses the command line by its own, and the
+/// inner quotes did not survive the round trip. `d=""; cd -- "$d"` succeeds and
+/// stays exactly where it is — which is the Windows working directory, so the
+/// listing came back full of files, plausible, and completely wrong.
+///
+/// `bash -c script name arg` puts `arg` in `$1` with no parsing of the path at
+/// all. Nothing to escape means nothing to escape wrongly.
+///
+/// `-c`, not `-lc`: a login shell sources the user's profile, which is free to
+/// print a banner or an motd, and everything here parses stdout — so that
+/// output would become data. `$HOME` is set either way, and skipping profile
+/// startup makes each call cheaper (this runs once per file when the agent
+/// works through a folder).
 #[cfg(windows)]
-fn wsl_bash(cmd: &str, what: &str) -> Result<Vec<u8>, String> {
+fn wsl_bash(script: &str, path_arg: &str, what: &str) -> Result<Vec<u8>, String> {
     let out = std::process::Command::new("wsl.exe")
-        .args(["--", "bash", "-lc", cmd])
+        .args(["--", "bash", "-c", script, "flux", path_arg])
         .output()
         .map_err(|e| format!("couldn't reach {what} via WSL: {e}"))?;
     if !out.status.success() {
@@ -112,8 +120,8 @@ fn wsl_bash(cmd: &str, what: &str) -> Result<Vec<u8>, String> {
 /// `base64 -w0` is ASCII by construction, so there is nothing left to mangle.
 #[cfg(windows)]
 pub(crate) fn wsl_read_bytes(p: &str) -> Result<Vec<u8>, String> {
-    let cmd = format!("base64 -w0 -- \"{}\"", wsl_path(p).replace('"', "\\\""));
-    let b64 = wsl_bash(&cmd, p)?;
+    let script = format!("{WSL_PRELUDE}base64 -w0 -- \"$p\"");
+    let b64 = wsl_bash(&script, p, p)?;
     let b64: String = String::from_utf8_lossy(&b64).trim().to_string();
     base64_decode(&b64).ok_or_else(|| format!("can't read {p}: WSL returned malformed base64"))
 }
@@ -161,26 +169,53 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
 /// exactly the fields we want, tab-separated, and never tries to be readable.
 #[cfg(windows)]
 fn wsl_list_dir(p: &str) -> Result<DirListing, String> {
-    let lin = wsl_path(p).replace('"', "\\\"");
-    // `%y` type (d/f/l), `%s` size, `%T@` mtime seconds, `%f` basename. `-mindepth 1`
-    // excludes the directory itself; `-maxdepth 1` keeps it non-recursive.
-    let cmd = format!(
-        "d=\"{lin}\"; cd -- \"$d\" && pwd -P && find . -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\n'"
+    // `find "$dir"` directly — deliberately NOT `cd "$dir" && find .`.
+    //
+    // That is what this did first, and it listed the wrong folder: `cd` to an
+    // empty or unmoved target leaves the shell in whatever directory `wsl.exe`
+    // started in (the Windows cwd, translated), so `find .` returned *that*,
+    // with a zero exit status and a plausible-looking result. A listing of the
+    // wrong directory that reports success is worse than an error — the agent
+    // read it as the answer and kept going.
+    //
+    // Naming the directory in the command removes the cwd from the picture
+    // entirely: if it's missing or not a directory, `find` fails and we say so.
+    // Each check exits with its own status so a failure can't read as success.
+    //
+    // `%y` type (d/f/l), `%s` size, `%T@` mtime seconds, `%f` basename.
+    // `-mindepth 1` excludes the directory itself, `-maxdepth 1` keeps it flat.
+    let script = format!(
+        "{WSL_PRELUDE}\
+         r=$(realpath -- \"$p\") || exit 3; \
+         [ -d \"$r\" ] || {{ echo \"not a directory: $r\" >&2; exit 4; }}; \
+         printf 'FLUXDIR\\t%s\\n' \"$r\"; \
+         find \"$r\" -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\n'"
     );
-    let raw = wsl_bash(&cmd, p)?;
+    let raw = wsl_bash(&script, p, p)?;
     let text = String::from_utf8_lossy(&raw);
-    let mut lines = text.lines();
-    // First line is the resolved directory — `cd` + `pwd -P` is WSL's answer to
-    // canonicalize(), so `..` and symlinks resolve the same way they would here.
-    let canon = lines.next().unwrap_or(p).trim().to_string();
+
+    // Find the marked line rather than trusting the first one: a shell profile
+    // that prints a banner would otherwise become the directory path.
+    let canon = text
+        .lines()
+        .find_map(|l| l.strip_prefix("FLUXDIR\t"))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!("can't list {p}: WSL returned no directory path"))?
+        .to_string();
+
     let mut entries = Vec::new();
-    for line in lines {
+    for line in text.lines() {
         let mut f = line.split('\t');
         let (Some(ty), Some(size), Some(mtime), Some(name)) =
             (f.next(), f.next(), f.next(), f.next())
         else {
             continue;
         };
+        // A type field is exactly one character; anything else is stray output.
+        if ty.len() != 1 || f.next().is_some() {
+            continue;
+        }
         entries.push(FileEntry {
             name: name.to_string(),
             is_dir: ty == "d",
@@ -1310,17 +1345,15 @@ pub async fn write_text_file(path: String, content: String) -> Result<(), String
 #[cfg(windows)]
 fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
     use std::io::Write as _;
-    if p.starts_with('/') || p.starts_with('~') {
-        let lin = if let Some(rest) = p.strip_prefix("~/") {
-            format!("$HOME/{rest}")
-        } else if p == "~" {
-            "$HOME".to_string()
-        } else {
-            p.to_string()
-        };
-        let cmd = format!("cat > \"{}\"", lin.replace('"', "\\\""));
+    if is_wsl_path(p) {
+        // Same argument-not-interpolation rule as the readers, and for the same
+        // reason: a mangled quote here wouldn't list the wrong directory, it
+        // would write the user's file to the wrong place — or to a path that
+        // is empty, which `cat >` turns into an ambiguous-redirect failure at
+        // best. This runs on an approved edit, so it must land where promised.
+        let script = format!("{WSL_PRELUDE}cat > \"$p\"");
         let mut child = std::process::Command::new("wsl.exe")
-            .args(["--", "bash", "-lc", &cmd])
+            .args(["--", "bash", "-c", &script, "flux", p])
             .stdin(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| format!("couldn't write {p} via WSL: {e}"))?;

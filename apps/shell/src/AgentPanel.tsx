@@ -2516,6 +2516,8 @@ const AgentPanel: Component = () => {
     setTaskRunning(true);
     setFeed((f) => [...f, { role: "task", text: `▶ Goal: ${goal}` }]);
     const history: string[] = [];
+    /** How many times each command has been proposed, normalised. */
+    const repeats = new Map<string, number>();
     try {
       for (let i = 0; i < MAX_FIX_STEPS; i++) {
         setBusy(true);
@@ -2534,6 +2536,38 @@ const AgentPanel: Component = () => {
           setFeed((f) => [...f, { role: "task", text: `✓ ${step.summary?.trim() || "Done."}` }]);
           return;
         }
+        // A small model that doesn't like a step's result will re-issue it
+        // verbatim, forever — one goal burned 23 steps re-listing the same
+        // folder. "Don't repeat a step" is in the planner prompt, and a prompt
+        // is not a guarantee. Refuse to run it a second time and say so in the
+        // history, which is a fact the model can act on rather than an
+        // instruction it can ignore.
+        const key = command.trim().toLowerCase().replace(/\s+/g, " ");
+        const seen = (repeats.get(key) ?? 0) + 1;
+        repeats.set(key, seen);
+        if (seen > 1) {
+          setFeed((f) => [
+            ...f,
+            { role: "plan", text: `↻ step ${i + 1}: already ran “${command}” — skipping the repeat` },
+          ]);
+          history.push(
+            `STEP: ${command}\nRESULT: SKIPPED — you already ran this exact command earlier and its ` +
+              `result is above. Do not issue it again. Move on to the next part of the goal, or set done=true.`,
+          );
+          // Twice is a hiccup; three times is a loop it isn't getting out of.
+          if (seen >= 3) {
+            setFeed((f) => [
+              ...f,
+              {
+                role: "task",
+                text: `⏹ Stopped — stuck repeating “${command}”. ${history.length} steps done; what's above still stands.`,
+              },
+            ]);
+            return;
+          }
+          continue;
+        }
+
         setFeed((f) => [...f, { role: "plan", text: `→ step ${i + 1}: ${command}` }]);
         const { ok, result } = await routeChainStep(command);
         if (!ok) {

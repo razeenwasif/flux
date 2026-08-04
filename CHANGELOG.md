@@ -93,6 +93,30 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **The WSL bridge listed the wrong directory and called it success.** Asking the agent to list a
+  folder returned Flux's own repo — 13 folders, 14 files — with a zero exit status, so it read
+  that as the answer and kept going. Two mistakes stacked:
+
+  The path was spliced into the shell script with hand-rolled quote escaping. `Command` quotes
+  arguments by MSVCRT rules, `wsl.exe` re-parses the command line by its own, and the inner
+  quotes didn't survive the round trip — so `d=""`. And the script did `cd -- "$d" && find .`,
+  where `cd ""` **succeeds and stays put**: the working directory `wsl.exe` inherited, which is
+  wherever Flux was launched from. A wrong answer that reports success is worse than an error.
+
+  The path is now passed as an **argument** (`bash -c script name "$1"`), so nothing parses it and
+  there is nothing to escape wrongly — verified against paths containing spaces and a double
+  quote, which the old splicing mangled. `find` names the directory explicitly instead of relying
+  on the working directory, an empty path exits 2 rather than listing the cwd, and the resolved
+  path comes back behind a sentinel so a shell banner can't be mistaken for it. The same fix
+  applies to the write path, where a mangled quote would have written an approved edit somewhere
+  other than promised.
+
+- **The agent could burn a whole task repeating one step.** A model that doesn't like a result
+  will re-issue the same command verbatim; one goal spent 23 steps re-listing the same folder.
+  "Don't repeat a step" was in the planner prompt, and a prompt is not a guarantee. A repeat is
+  now refused and recorded in the history as a fact the model can act on; three strikes stops the
+  loop and keeps whatever was achieved.
+
 - **WSL paths worked in some commands and not others.** On the Windows build, a Unix path means
   the file lives in WSL — that's where a user who develops there keeps everything, and
   `/home/me/notes` is what they type and paste to the agent. `read_text_file` and
