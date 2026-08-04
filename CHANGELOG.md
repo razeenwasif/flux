@@ -93,6 +93,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **WSL paths worked in some commands and not others.** On the Windows build, a Unix path means
+  the file lives in WSL — that's where a user who develops there keeps everything, and
+  `/home/me/notes` is what they type and paste to the agent. `read_text_file` and
+  `write_text_file` each grew their own `wsl.exe` shell-out for this, which was fine while they
+  were the only two. The moment the agent gained `list <dir>` and PDF reading there were four
+  call sites and two of them didn't know, so asking it to look in `/home/…` returned *"The system
+  cannot find the path specified. (os error 3)"* — and reading the PDFs would have failed the
+  same way one step later.
+
+  The bridge now lives in one place and every filesystem entry point goes through it. Directory
+  listings resolve through WSL (`find -printf`, not parsed `ls`), and file bytes come back
+  base64-encoded in transit: a PDF is binary, and piping raw bytes through `wsl.exe` isn't
+  guaranteed to survive intact. The decoder is deliberately not `cfg`-gated to Windows — it's the
+  one piece of real logic here, and gating it would mean the only decoder in the tree that can
+  silently corrupt a PDF is also the only one the test suite never runs.
+
 - **Three surfaces you couldn't scroll — one root cause.** BACKLOG #140 settled a real
   Windows/Linux disagreement by hiding the scrollbars on Flux's chip strips, and in doing so
   removed the *only* way to scroll two of them: there was nothing left to drag, and a

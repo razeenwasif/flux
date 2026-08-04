@@ -50,6 +50,183 @@ pub fn home_dir() -> String {
         .unwrap_or_else(|_| ".".into())
 }
 
+// ─── WSL path bridge (Windows) ───────────────────────────────────────────────
+//
+// On the Windows build, a Unix-style path means the file lives in WSL — that is
+// where a user who develops in WSL keeps everything, and `/home/me/notes` is
+// what they type and what they paste to the agent. Windows' own filesystem APIs
+// answer that with "The system cannot find the path specified. (os error 3)".
+//
+// `read_text_file` and `write_text_file` each grew their own `wsl.exe` shell-out
+// for this. That was fine while they were the only two, and stopped being fine
+// the moment the agent gained `list <dir>` and PDF reading: two more call sites
+// meant two more copies, and the first one anybody forgot became this bug. So
+// the bridge lives here once and every filesystem entry point goes through it.
+//
+// Everything below is `#[cfg(windows)]`. On Linux and macOS a Unix path IS the
+// path, so there is nothing to bridge.
+
+/// Does this path name something inside WSL rather than on Windows?
+#[cfg(windows)]
+pub(crate) fn is_wsl_path(p: &str) -> bool {
+    p.starts_with('/') || p.starts_with('~')
+}
+
+/// The path as WSL's shell should see it, with `~` left for bash to expand.
+#[cfg(windows)]
+fn wsl_path(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix("~/") {
+        format!("$HOME/{rest}")
+    } else if p == "~" {
+        "$HOME".to_string()
+    } else {
+        p.to_string()
+    }
+}
+
+/// Run one command inside WSL and return its raw stdout.
+///
+/// `bash -lc` (login shell) so the user's own environment is in scope, matching
+/// what they'd get typing it themselves.
+#[cfg(windows)]
+fn wsl_bash(cmd: &str, what: &str) -> Result<Vec<u8>, String> {
+    let out = std::process::Command::new("wsl.exe")
+        .args(["--", "bash", "-lc", cmd])
+        .output()
+        .map_err(|e| format!("couldn't reach {what} via WSL: {e}"))?;
+    if !out.status.success() {
+        let err: String = String::from_utf8_lossy(&out.stderr)
+            .chars()
+            .take(160)
+            .collect();
+        return Err(format!("can't read {what}: {}", err.trim()));
+    }
+    Ok(out.stdout)
+}
+
+/// Read a file's **bytes** out of WSL.
+///
+/// Base64 in transit, deliberately: a PDF is binary, and piping raw bytes back
+/// through `wsl.exe` is not guaranteed to survive intact (interop has been known
+/// to translate line endings and, in some configurations, re-encode the stream).
+/// `base64 -w0` is ASCII by construction, so there is nothing left to mangle.
+#[cfg(windows)]
+pub(crate) fn wsl_read_bytes(p: &str) -> Result<Vec<u8>, String> {
+    let cmd = format!("base64 -w0 -- \"{}\"", wsl_path(p).replace('"', "\\\""));
+    let b64 = wsl_bash(&cmd, p)?;
+    let b64: String = String::from_utf8_lossy(&b64).trim().to_string();
+    base64_decode(&b64).ok_or_else(|| format!("can't read {p}: WSL returned malformed base64"))
+}
+
+/// Minimal standard-alphabet base64 decoder. Local to this bridge because the
+/// only producer is the `base64 -w0` above — no padding quirks, no URL-safe
+/// alphabet, no line wrapping to tolerate.
+///
+/// Deliberately **not** `#[cfg(windows)]` even though only Windows calls it:
+/// it's the one piece of real logic in the bridge, and gating it would mean the
+/// only decoder in the tree that could corrupt a PDF is also the only one the
+/// test suite never runs.
+fn base64_decode(s: &str) -> Option<Vec<u8>> {
+    let val = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => u32::from(c - b'A'),
+            b'a'..=b'z' => u32::from(c - b'a') + 26,
+            b'0'..=b'9' => u32::from(c - b'0') + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        })
+    };
+    let bytes: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    for chunk in bytes.chunks(4) {
+        // Padding marks the end; everything before it must be a full quad.
+        let pad = chunk.iter().filter(|&&c| c == b'=').count();
+        if chunk.len() < 4 && pad == 0 && !chunk.is_empty() {
+            return None;
+        }
+        let mut acc = 0u32;
+        for &c in chunk {
+            acc = (acc << 6) | if c == b'=' { 0 } else { val(c)? };
+        }
+        let n = 3usize.saturating_sub(pad);
+        for i in 0..n {
+            out.push(((acc >> (16 - 8 * i)) & 0xff) as u8);
+        }
+    }
+    Some(out)
+}
+
+/// List a WSL directory. `find -printf` rather than parsing `ls`: it emits
+/// exactly the fields we want, tab-separated, and never tries to be readable.
+#[cfg(windows)]
+fn wsl_list_dir(p: &str) -> Result<DirListing, String> {
+    let lin = wsl_path(p).replace('"', "\\\"");
+    // `%y` type (d/f/l), `%s` size, `%T@` mtime seconds, `%f` basename. `-mindepth 1`
+    // excludes the directory itself; `-maxdepth 1` keeps it non-recursive.
+    let cmd = format!(
+        "d=\"{lin}\"; cd -- \"$d\" && pwd -P && find . -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\n'"
+    );
+    let raw = wsl_bash(&cmd, p)?;
+    let text = String::from_utf8_lossy(&raw);
+    let mut lines = text.lines();
+    // First line is the resolved directory — `cd` + `pwd -P` is WSL's answer to
+    // canonicalize(), so `..` and symlinks resolve the same way they would here.
+    let canon = lines.next().unwrap_or(p).trim().to_string();
+    let mut entries = Vec::new();
+    for line in lines {
+        let mut f = line.split('\t');
+        let (Some(ty), Some(size), Some(mtime), Some(name)) =
+            (f.next(), f.next(), f.next(), f.next())
+        else {
+            continue;
+        };
+        entries.push(FileEntry {
+            name: name.to_string(),
+            is_dir: ty == "d",
+            symlink: ty == "l",
+            size: size.parse().ok(),
+            // `%T@` is float seconds; the wire format is epoch milliseconds.
+            modified: mtime.parse::<f64>().ok().map(|s| (s * 1000.0) as u64),
+        });
+    }
+    let parent = canon.rsplit_once('/').map(|(head, _)| {
+        if head.is_empty() {
+            "/".to_string()
+        } else {
+            head.to_string()
+        }
+    });
+    Ok(DirListing {
+        parent,
+        path: canon,
+        entries,
+    })
+}
+
+/// Read a file's bytes from wherever it actually lives.
+pub(crate) fn read_bytes_any(p: &str) -> Result<Vec<u8>, String> {
+    #[cfg(windows)]
+    if is_wsl_path(p) {
+        return wsl_read_bytes(p);
+    }
+    #[cfg(not(windows))]
+    let p = &expand_home(p);
+    std::fs::read(p).map_err(|e| format!("can't read {p}: {e}"))
+}
+
+/// `~/x` → `$HOME/x`. Windows has its own expansion inside the WSL bridge.
+#[cfg(not(windows))]
+fn expand_home(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix("~/") {
+        std::env::var("HOME")
+            .map(|h| format!("{h}/{rest}"))
+            .unwrap_or_else(|_| p.to_string())
+    } else {
+        p.to_string()
+    }
+}
+
 // ─── Live directory watch (#85) ───────────────────────────────────────────────
 //
 // One `notify` watcher per Files tab (keyed by tab id). The watcher emits
@@ -225,6 +402,13 @@ fn list_dir(path: &str) -> Result<DirListing, String> {
         path.to_string()
     };
     let path = path.as_str();
+    // A Unix path on Windows lives in WSL — listing it with Windows' own APIs
+    // gives "The system cannot find the path specified", which is exactly the
+    // wall the agent hit the first time it was asked to look in `/home/…`.
+    #[cfg(windows)]
+    if is_wsl_path(path) {
+        return wsl_list_dir(path);
+    }
     // Canonicalize → absolute, `..`-resolved, existing. (Errors if it doesn't
     // exist, which is the right behavior.)
     let canon = std::fs::canonicalize(path).map_err(|e| format!("{path}: {e}"))?;
@@ -1101,44 +1285,11 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
-#[cfg(windows)]
+/// Read a file as text from wherever it lives. Both platforms go through the one
+/// byte reader (which owns the WSL bridge on Windows); the only difference left
+/// is that text is lossy-decoded and bytes aren't.
 fn read_text_raw(p: &str) -> Result<String, String> {
-    // Unix-style path → it lives in WSL; read it there (expanding ~).
-    if p.starts_with('/') || p.starts_with('~') {
-        let lin = if let Some(rest) = p.strip_prefix("~/") {
-            format!("$HOME/{rest}")
-        } else if p == "~" {
-            "$HOME".to_string()
-        } else {
-            p.to_string()
-        };
-        let cmd = format!("cat -- \"{}\"", lin.replace('"', "\\\""));
-        let out = std::process::Command::new("wsl.exe")
-            .args(["--", "bash", "-lc", &cmd])
-            .output()
-            .map_err(|e| format!("couldn't read {p} via WSL: {e}"))?;
-        if !out.status.success() {
-            let err: String = String::from_utf8_lossy(&out.stderr)
-                .chars()
-                .take(160)
-                .collect();
-            return Err(format!("can't read {p}: {}", err.trim()));
-        }
-        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
-    }
-    std::fs::read_to_string(p).map_err(|e| format!("can't read {p}: {e}"))
-}
-
-#[cfg(not(windows))]
-fn read_text_raw(p: &str) -> Result<String, String> {
-    let expanded = if let Some(rest) = p.strip_prefix("~/") {
-        std::env::var("HOME")
-            .map(|h| format!("{h}/{rest}"))
-            .unwrap_or_else(|_| p.to_string())
-    } else {
-        p.to_string()
-    };
-    std::fs::read_to_string(&expanded).map_err(|e| format!("can't read {p}: {e}"))
+    Ok(String::from_utf8_lossy(&read_bytes_any(p)?).into_owned())
 }
 
 /// Write a text file (overwrites). WSL-aware on Windows for unix paths. Only called
@@ -1243,6 +1394,63 @@ mod search_tests {
         );
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod wsl_bridge_tests {
+    use super::base64_decode;
+
+    /// The bridge ships a PDF through `base64 -w0`, so a decoder bug is a
+    /// silently corrupted document rather than an error. These run on every
+    /// platform even though only Windows calls the decoder.
+    #[test]
+    fn decodes_the_three_padding_cases() {
+        // 3n bytes (no padding), 3n+1 ("=="), 3n+2 ("=") — the boundaries where
+        // a hand-rolled decoder gets the tail length wrong.
+        assert_eq!(base64_decode("YWJj").unwrap(), b"abc");
+        assert_eq!(base64_decode("YQ==").unwrap(), b"a");
+        assert_eq!(base64_decode("YWI=").unwrap(), b"ab");
+        assert_eq!(base64_decode("").unwrap(), b"");
+    }
+
+    #[test]
+    fn round_trips_arbitrary_bytes_including_a_pdf_header() {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let encode = |data: &[u8]| -> String {
+            let mut s = String::new();
+            for c in data.chunks(3) {
+                let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
+                let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+                for i in 0..4 {
+                    if i <= c.len() {
+                        s.push(ALPHABET[((n >> (18 - 6 * i)) & 0x3f) as usize] as char);
+                    } else {
+                        s.push('=');
+                    }
+                }
+            }
+            s
+        };
+        // Every byte value, so a sign-extension or lookup slip shows up.
+        let all: Vec<u8> = (0..=255u8).collect();
+        assert_eq!(base64_decode(&encode(&all)).unwrap(), all);
+        let pdf = b"%PDF-1.7\n\x01\x02\xff\xfe binary \x00 bytes";
+        assert_eq!(base64_decode(&encode(pdf)).unwrap(), pdf);
+    }
+
+    #[test]
+    fn rejects_garbage_rather_than_returning_half_a_file() {
+        assert!(base64_decode("not base64!").is_none());
+        assert!(base64_decode("YWJ").is_none()); // truncated quad, no padding
+    }
+
+    #[test]
+    fn tolerates_whitespace() {
+        // `-w0` shouldn't wrap, but a stray newline from the shell must not
+        // corrupt the payload.
+        assert_eq!(base64_decode("YWJj\n").unwrap(), b"abc");
+        assert_eq!(base64_decode("YWJj YWJj").unwrap(), b"abcabc");
     }
 }
 

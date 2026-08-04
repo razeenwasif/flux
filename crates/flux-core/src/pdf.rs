@@ -148,7 +148,11 @@ fn fetch_http(url: &str) -> FluxResult<Vec<u8>> {
 }
 
 fn fetch_file(url: &str) -> FluxResult<Vec<u8>> {
-    Ok(std::fs::read(file_url_to_path(url))?)
+    // Through the shared reader, not `std::fs::read`: on the Windows build a
+    // `/home/…` path is a WSL path, and reading it natively fails with "the
+    // system cannot find the path specified". That mattered the moment the agent
+    // could be handed a folder of PDFs to work through.
+    crate::files::read_bytes_any(&file_url_to_path(url)).map_err(FluxError::Invalid)
 }
 
 /// Best-effort `file://` URL (or bare path) → filesystem path. Handles
