@@ -1,12 +1,15 @@
 /**
- * Pages bar — a quick-access strip docked *above* the content card (mirroring the
- * bookmark bar below it) with one chip per Flux native page. Clicking a chip opens
- * that page in a NEW tab. A sibling of the card (not an overlay), so the card
- * shrinks and the native tab webview relayout follows — same trick as the
- * bookmark bar. Horizontal + horizontally scrollable so it never wraps.
+ * Pages bar — one icon per Flux native page, in the vertical launcher column
+ * (BarsColumn). Clicking one opens that page in a NEW tab.
+ *
+ * Icons only (#154): seventeen labels at 12px is a wall of text you read past
+ * rather than scan, and the names cost the column three times its width for
+ * information you need only while you're learning it. `RailTip` gives them back
+ * on hover and on keyboard focus.
  */
 import { For, type Component } from "solid-js";
 import { openTab } from "./store";
+import { hideTip, showTip } from "./RailTip";
 import {
   APPS_URL,
   ARCHIVE_URL,
@@ -55,9 +58,14 @@ const PagesBar: Component = () => (
           class="pages-chip"
           title={`Open ${p.label} in a new tab`}
           onClick={() => void openTab("browser", p.url)}
+          onMouseEnter={(e) => showTip(e.currentTarget, p.label)}
+          onMouseLeave={hideTip}
+          // Keyboard tabbing through the rail gets the same labels the mouse
+          // does — otherwise the column is unusable without a pointer.
+          onFocus={(e) => showTip(e.currentTarget, p.label)}
+          onBlur={hideTip}
         >
           <span class="pages-chip-ico">{p.icon}</span>
-          <span class="pages-chip-label">{p.label}</span>
         </button>
       )}
     </For>

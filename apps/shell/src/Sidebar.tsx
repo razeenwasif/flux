@@ -134,6 +134,10 @@ import {
   workspaces,
   wsPanelOpen,
   setWsPanelOpen,
+  toolbarOpen,
+  setToolbarOpen,
+  footerOpen,
+  setFooterOpen,
   zoomFor,
 } from "./store";
 import { visibleInterval } from "./poll";
@@ -416,13 +420,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
     document.addEventListener("keydown", esc, true);
     onCleanup(() => document.removeEventListener("keydown", esc, true));
   });
-  // The command palette can ask for a rename; the editor lives here, and the
-  // `.ws-rail-pop:has(input)` rule means rendering the input reveals the popover
-  // without needing hover.
+  // The command palette can ask for a rename. The editor lives inside the
+  // workspace panel now (#151), so the request has to open it as well — setting
+  // `editWs` alone would put the input somewhere nothing is rendering, and
+  // "Rename workspace" would silently do nothing.
   createEffect(() => {
     const id = wsRenameRequest();
     if (id == null) return;
     setEditWs(id);
+    setWsPanelOpen(true);
     clearWorkspaceRename();
   });
   const [editContainer, setEditContainer] = createSignal<number | null>(null);
@@ -893,7 +899,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <button class="icon-btn" title="Toggle sidebar (Ctrl+B)" onClick={props.onToggleSidebar}>
           {props.collapsed ? "»" : "«"}
         </button>
-        <Show when={!props.collapsed}>
+        {/* The nav tools fold away (#150). The sidebar-toggle above stays put in
+            both states — folding must never be a way to lose the control that
+            unfolds, and the caret at the end of the row is the other half of
+            that contract. */}
+        <Show when={!props.collapsed && toolbarOpen()}>
           <button class="icon-btn" title="Back (Alt+←)" onClick={() => navActive(webviewBack)}>
             ‹
           </button>
@@ -940,7 +950,18 @@ const Sidebar: Component<SidebarProps> = (props) => {
           >
             📓
           </button>
-          <span style={{ flex: 1 }} />
+        </Show>
+        {/* Directly after the tools, not pushed to the right end by a flex
+            spacer: the row wraps, and a spacer would strand the caret alone on
+            a line of its own. */}
+        <Show when={!props.collapsed}>
+          <button
+            class="icon-btn sidebar-fold"
+            title={toolbarOpen() ? "Hide the toolbar" : "Show the toolbar"}
+            onClick={() => setToolbarOpen(!toolbarOpen())}
+          >
+            {toolbarOpen() ? "▴" : "▾"}
+          </button>
         </Show>
       </div>
 
@@ -1737,97 +1758,45 @@ const Sidebar: Component<SidebarProps> = (props) => {
             </div>
           </Show>
 
-          <div class="rail-rule" />
-          {/* Workspaces. The expanded sidebar has the hover-dot rail for this,
-              which needs room for a popout beside it; collapsed, one button
-              opens the whole list instead. */}
-          <div class="rail-group">
-            <button
-              classList={{ "icon-btn": true, "rail-ws": true, active: wsPanelOpen() }}
-              title={`Workspaces — ${activeWorkspaceName()}`}
-              onClick={(e) => {
-                // Anchor the panel to the button rather than to a guessed offset
-                // from the window bottom: the footer's height depends on how
-                // many toggles are enabled, so a fixed offset drifts.
-                const r = e.currentTarget.getBoundingClientRect();
-                document.documentElement.style.setProperty(
-                  "--rail-ws-bottom",
-                  `${Math.max(8, window.innerHeight - r.bottom)}px`,
-                );
-                setWsPanelOpen(!wsPanelOpen());
-              }}
-            >
-              ▤
-              <span class="rail-ws-dot" style={{ background: activeWorkspaceColor() }} />
-            </button>
-          </div>
+          {/* Workspaces used to get their own button down here. They're in the
+              footer now, which renders in both sidebar states — two buttons for
+              one list, 30px apart, was just a way to make the rail taller. */}
         </div>
       </Show>
 
-      {/* Portaled to <body>: a position:fixed panel inside the sidebar's glass
-          (backdrop-filter) card gets clipped to it. */}
-      <Show when={props.collapsed && wsPanelOpen()}>
+      {/* The workspace panel (#151), opened by the footer button in either
+          sidebar state. Portaled to <body>: a position:fixed panel inside the
+          sidebar's glass (backdrop-filter) card gets clipped to it.
+          It carries every control the hover-dot rail used to — switch, recolour,
+          rename, delete — because it is now the only place they exist. */}
+      <Show when={wsPanelOpen()}>
         <Portal>
           <div class="rail-ws-scrim" onClick={() => setWsPanelOpen(false)} />
           <div class="rail-ws-panel glass">
             <div class="rail-ws-head">Workspaces</div>
             <For each={workspaces()}>
               {(w) => (
-                <button
-                  classList={{ "rail-ws-item": true, active: activeWorkspace() === w.id }}
-                  onClick={() => {
-                    props.onSwitchWorkspace(w.id);
-                    setWsPanelOpen(false);
-                  }}
-                >
-                  <span class="ws-dot" style={{ background: workspaceColor(w) }} />
-                  <span class="rail-ws-name">{w.name}</span>
-                </button>
-              )}
-            </For>
-            <button
-              class="rail-ws-item rail-ws-add"
-              onClick={() => {
-                props.onNewWorkspace();
-                setWsPanelOpen(false);
-              }}
-            >
-              <span class="ws-dot rail-ws-plus">+</span>
-              <span class="rail-ws-name">New workspace</span>
-            </button>
-          </div>
-        </Portal>
-      </Show>
-
-      {/* Workspace rail (#44) — a thin vertical strip of colored dots on the
-          sidebar's right edge; hover a dot to pop out its name + controls. */}
-      <Show when={!props.collapsed}>
-        <div class="ws-rail">
-          <For each={workspaces()}>
-            {(w) => (
-              <div classList={{ "ws-rail-item": true, active: activeWorkspace() === w.id }}>
-                <button
-                  class="ws-rail-dot"
-                  style={{ background: workspaceColor(w) }}
-                  title={w.name}
-                  onClick={() => props.onSwitchWorkspace(w.id)}
-                />
-                <div class="ws-rail-pop glass">
+                <div classList={{ "rail-ws-row": true, active: activeWorkspace() === w.id }}>
                   <span
-                    class="ws-dot"
+                    class="ws-dot rail-ws-swatch"
                     title="Recolor"
                     style={{ background: workspaceColor(w) }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      cycleWsColor(w);
-                    }}
+                    onClick={() => cycleWsColor(w)}
                   />
                   <Show
                     when={editWs() === w.id}
                     fallback={
-                      <span class="ws-name" title="Double-click to rename" onDblClick={() => setEditWs(w.id)}>
-                        {w.name}
-                      </span>
+                      <button
+                        classList={{ "rail-ws-item": true, active: activeWorkspace() === w.id }}
+                        title={`Switch to ${w.name}`}
+                        onDblClick={() => setEditWs(w.id)}
+                        onClick={() => {
+                          props.onSwitchWorkspace(w.id);
+                          setWsPanelOpen(false);
+                        }}
+                      >
+                        <span class="rail-ws-name">{w.name}</span>
+                      </button>
                     }
                   >
                     <input
@@ -1847,37 +1816,34 @@ const Sidebar: Component<SidebarProps> = (props) => {
                       }}
                     />
                   </Show>
-                  {/* Rename was double-click-only, which left the destructive
-                      action (✕) as the only visible control. Give the safe one
-                      an affordance too. */}
-                  <button
-                    class="ws-rail-edit"
-                    title="Rename workspace"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditWs(w.id);
-                    }}
-                  >
+                  {/* Rename was double-click-only on the old rail, which left the
+                      destructive action as the only visible control. Give the
+                      safe one an affordance too. */}
+                  <button class="rail-ws-edit" title="Rename workspace" onClick={() => setEditWs(w.id)}>
                     ✎
                   </button>
                   <button
-                    class="ws-rail-x"
+                    class="rail-ws-x"
                     title="Delete workspace"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      props.onDeleteWorkspace(w.id);
-                    }}
+                    onClick={() => props.onDeleteWorkspace(w.id)}
                   >
                     ✕
                   </button>
                 </div>
-              </div>
-            )}
-          </For>
-          <button class="ws-rail-add" title="New workspace" onClick={() => props.onNewWorkspace()}>
-            +
-          </button>
-        </div>
+              )}
+            </For>
+            <button
+              class="rail-ws-item rail-ws-add"
+              onClick={() => {
+                props.onNewWorkspace();
+                setWsPanelOpen(false);
+              }}
+            >
+              <span class="ws-dot rail-ws-plus">+</span>
+              <span class="rail-ws-name">New workspace</span>
+            </button>
+          </div>
+        </Portal>
       </Show>
 
       {/* Tab folders — collapsible parking buckets above the footer. Members are
@@ -1981,155 +1947,206 @@ const Sidebar: Component<SidebarProps> = (props) => {
       </Show>
 
       {/* Footer: tool toggles + bookmarks / extensions / settings (chrome
-          melts here — no status bar). */}
-      <div class="sidebar-footer" classList={{ collapsed: props.collapsed }} style={{ position: "relative" }}>
-        <button
-          classList={{ "icon-btn": true, active: props.terminalOpen }}
-          title="Terminal (Ctrl+`)"
-          onClick={props.onToggleTerminal}
-        >
-          ⌨
-        </button>
-        <button
-          classList={{ "icon-btn": true, active: props.agentOpen }}
-          title="Flux Agent (Ctrl+Shift+A)"
-          onClick={props.onToggleAgent}
-        >
-          ✦
-        </button>
-        {/* Calendar (#114 follow-up): glanceable agenda from anywhere. The dot
+          melts here — no status bar).
+          Folds to just the workspace + caret pair (#150), in BOTH sidebar
+          states: the collapsed rail drew all of these as a two-column icon grid,
+          which is exactly the height the rail was collapsed to reclaim. */}
+      <div
+        class="sidebar-footer"
+        classList={{ collapsed: props.collapsed, folded: !footerOpen() }}
+        style={{ position: "relative" }}
+      >
+        <Show when={footerOpen()}>
+          <button
+            classList={{ "icon-btn": true, active: props.terminalOpen }}
+            title="Terminal (Ctrl+`)"
+            onClick={props.onToggleTerminal}
+          >
+            ⌨
+          </button>
+          <button
+            classList={{ "icon-btn": true, active: props.agentOpen }}
+            title="Flux Agent (Ctrl+Shift+A)"
+            onClick={props.onToggleAgent}
+          >
+            ✦
+          </button>
+          {/* Calendar (#114 follow-up): glanceable agenda from anywhere. The dot
             marks an event starting within 30 minutes. Popover body is lazy. */}
-        <button
-          classList={{ "icon-btn": true, active: calendarPopOpen() }}
-          title="Calendar — today & upcoming (also in ⌘K)"
-          onClick={() => setCalendarPopOpen(!calendarPopOpen())}
-        >
-          📅
-          <Show when={calSoon()}>
-            <span class="cal-soon-dot" title="An event starts within 30 minutes" />
-          </Show>
-        </button>
-        {/* The calendar+mail column. Every other column has a button here; this
+          <button
+            classList={{ "icon-btn": true, active: calendarPopOpen() }}
+            title="Calendar — today & upcoming (also in ⌘K)"
+            onClick={() => setCalendarPopOpen(!calendarPopOpen())}
+          >
+            📅
+            <Show when={calSoon()}>
+              <span class="cal-soon-dot" title="An event starts within 30 minutes" />
+            </Show>
+          </button>
+          {/* The calendar+mail column. Every other column has a button here; this
             one had only a palette entry, which made it effectively invisible. */}
-        <button
-          classList={{ "icon-btn": true, active: dockOpen() }}
-          title={
-            dockOpen()
-              ? "Hide the calendar + mail column"
-              : "Calendar + mail in their own column (also in ⌘K)"
-          }
-          onClick={() => toggleDock()}
-        >
-          ✉
-        </button>
-        {/* Overlay mode only — the docked pane renders inside the web-panel
+          <button
+            classList={{ "icon-btn": true, active: dockOpen() }}
+            title={
+              dockOpen()
+                ? "Hide the calendar + mail column"
+                : "Calendar + mail in their own column (also in ⌘K)"
+            }
+            onClick={() => toggleDock()}
+          >
+            ✉
+          </button>
+          {/* Overlay mode only — the docked pane renders inside the web-panel
             column (WebPanelPane) so it sits beside the page, not over it. */}
-        <Show when={calendarOverlayOpen()}>
-          <CalendarPop />
-        </Show>
-        <Shields onNavigate={props.onNavigate} />
-        <Show
-          when={boostsLoaded()}
-          fallback={
-            <button
-              class="icon-btn"
-              title="Boosts — customize this site with AI"
-              onClick={() => setBoostsLoaded(true)}
-            >
-              ✨
-            </button>
-          }
-        >
-          <Suspense
+          <Show when={calendarOverlayOpen()}>
+            <CalendarPop />
+          </Show>
+          <Shields onNavigate={props.onNavigate} />
+          <Show
+            when={boostsLoaded()}
             fallback={
-              <button class="icon-btn active" title="Boosts — customize this site with AI">
+              <button
+                class="icon-btn"
+                title="Boosts — customize this site with AI"
+                onClick={() => setBoostsLoaded(true)}
+              >
                 ✨
               </button>
             }
           >
-            <Boosts initialOpen />
-          </Suspense>
-        </Show>
-        <Show
-          when={macrosLoaded()}
-          fallback={
-            <button
-              class="icon-btn"
-              title="Macros — record & replay flows"
-              onClick={() => setMacrosLoaded(true)}
+            <Suspense
+              fallback={
+                <button class="icon-btn active" title="Boosts — customize this site with AI">
+                  ✨
+                </button>
+              }
             >
-              ⏺
-            </button>
-          }
-        >
-          <Suspense
+              <Boosts initialOpen />
+            </Suspense>
+          </Show>
+          <Show
+            when={macrosLoaded()}
             fallback={
-              <button class="icon-btn active" title="Macros — record & replay flows">
+              <button
+                class="icon-btn"
+                title="Macros — record & replay flows"
+                onClick={() => setMacrosLoaded(true)}
+              >
                 ⏺
               </button>
             }
           >
-            <Macros initialOpen />
-          </Suspense>
-        </Show>
-        <Show
-          when={passwordsLoaded()}
-          fallback={
-            <button class="icon-btn" title="Passwords" onClick={() => setPasswordsLoaded(true)}>
-              🔑
-            </button>
-          }
-        >
-          <Suspense
+            <Suspense
+              fallback={
+                <button class="icon-btn active" title="Macros — record & replay flows">
+                  ⏺
+                </button>
+              }
+            >
+              <Macros initialOpen />
+            </Suspense>
+          </Show>
+          <Show
+            when={passwordsLoaded()}
             fallback={
-              <button class="icon-btn active" title="Passwords">
+              <button class="icon-btn" title="Passwords" onClick={() => setPasswordsLoaded(true)}>
                 🔑
               </button>
             }
           >
-            <Passwords initialOpen />
-          </Suspense>
-        </Show>
-        <Downloads />
-        <button
-          classList={{ "icon-btn": true, active: panel() === "notes" }}
-          title="Note for this page"
-          onClick={() => {
-            openPanel("notes");
-            loadNote();
-          }}
-        >
-          📝
-        </button>
-        <button
-          classList={{ "icon-btn": true, active: panel() === "webpanels" || activePanelId() != null }}
-          title="Web panels — pin a site beside your tabs"
-          onClick={() => openPanel("webpanels")}
-        >
-          ◨
-        </button>
-        <Show when={archivedTabs().length > 0 || archivedBranches().length > 0}>
+            <Suspense
+              fallback={
+                <button class="icon-btn active" title="Passwords">
+                  🔑
+                </button>
+              }
+            >
+              <Passwords initialOpen />
+            </Suspense>
+          </Show>
+          <Downloads />
           <button
-            classList={{ "icon-btn": true, active: panel() === "archived" }}
-            title="Archived tabs — auto-closed stale tabs & research branches you can reopen"
-            onClick={() => openPanel("archived")}
+            classList={{ "icon-btn": true, active: panel() === "notes" }}
+            title="Note for this page"
+            onClick={() => {
+              openPanel("notes");
+              loadNote();
+            }}
           >
-            🗄
+            📝
+          </button>
+          <button
+            classList={{ "icon-btn": true, active: panel() === "webpanels" || activePanelId() != null }}
+            title="Web panels — pin a site beside your tabs"
+            onClick={() => openPanel("webpanels")}
+          >
+            ◨
+          </button>
+          <Show when={archivedTabs().length > 0 || archivedBranches().length > 0}>
+            <button
+              classList={{ "icon-btn": true, active: panel() === "archived" }}
+              title="Archived tabs — auto-closed stale tabs & research branches you can reopen"
+              onClick={() => openPanel("archived")}
+            >
+              🗄
+            </button>
+          </Show>
+          <button
+            classList={{ "icon-btn": true, active: panel() === "extensions" }}
+            title="Extensions"
+            onClick={() => openPanel("extensions")}
+          >
+            🧩
+          </button>
+          <button
+            classList={{ "icon-btn": true, active: panel() === "settings" }}
+            title="Settings"
+            onClick={() => openPanel("settings")}
+          >
+            ⚙
           </button>
         </Show>
+
+        {/* Always shown, folded or not. Workspaces replaced the dot rail (#151):
+            a strip of colour-only dots said nothing about which workspace was
+            which until you hovered one, and it charged a 22px gutter down the
+            whole sidebar for the privilege. */}
         <button
-          classList={{ "icon-btn": true, active: panel() === "extensions" }}
-          title="Extensions"
-          onClick={() => openPanel("extensions")}
+          classList={{ "icon-btn": true, "ws-btn": true, active: wsPanelOpen() }}
+          title={`Workspaces — ${activeWorkspaceName()}`}
+          onClick={(e) => {
+            // Measure rather than guess: the footer's height depends on how many
+            // toggles are enabled and on whether it's folded, and the sidebar's
+            // width on whether it's collapsed — a fixed offset drifts on all
+            // four. Anchored to the footer's top edge and the sidebar's left,
+            // not to the button's own box: rising from the button alone put the
+            // panel over the rest of the footer's icons.
+            const r = e.currentTarget.getBoundingClientRect();
+            const side = e.currentTarget.closest(".sidebar")?.getBoundingClientRect();
+            const foot = e.currentTarget.closest(".sidebar-footer")?.getBoundingClientRect();
+            const root = document.documentElement.style;
+            root.setProperty(
+              "--rail-ws-bottom",
+              `${Math.max(8, window.innerHeight - (foot?.top ?? r.top) + 8)}px`,
+            );
+            root.setProperty("--rail-ws-left", `${Math.round((side?.left ?? r.left) + 10)}px`);
+            setWsPanelOpen(!wsPanelOpen());
+          }}
         >
-          🧩
+          ▤<span class="rail-ws-dot" style={{ background: activeWorkspaceColor() }} />
         </button>
         <button
-          classList={{ "icon-btn": true, active: panel() === "settings" }}
-          title="Settings"
-          onClick={() => openPanel("settings")}
+          class="icon-btn sidebar-fold"
+          title={footerOpen() ? "Hide the footer tools" : "Show the footer tools"}
+          onClick={() => {
+            const v = !footerOpen();
+            setFooterOpen(v);
+            // The popover anchors to buttons that are about to be unmounted —
+            // leaving it open would strand it over the page with no owner.
+            if (!v) setPanel(null);
+          }}
         >
-          ⚙
+          {footerOpen() ? "▾" : "▴"}
         </button>
 
         <Show when={panel()}>

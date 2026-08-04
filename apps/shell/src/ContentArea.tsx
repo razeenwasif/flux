@@ -40,7 +40,6 @@ import {
   setConsent,
   activeTab,
   bookmarkBarOpen,
-  pagesBarOpen,
   setPhish,
   setOAuth,
   readerOpen,
@@ -86,8 +85,6 @@ const TerminalView = lazy(() => import("./TerminalView"));
 import InternalPage from "./InternalPage";
 const ReaderView = lazy(() => import("./ReaderView"));
 const BookmarkBar = lazy(() => import("./BookmarkBar"));
-const PagesBar = lazy(() => import("./PagesBar"));
-const TuiAppsBar = lazy(() => import("./TuiAppsBar"));
 // ─── Content card ─────────────────────────────────────────────────────────
 
 /** The floating card. Holds, by active tab: a Terminal PTY, the start-page
@@ -189,16 +186,9 @@ const ContentArea: Component<{
   // by tab so split view can render BOTH panes' pages, not just the active one (#43).
   return (
     <main class="content">
-      {/* Pages bar: quick-access native-page chips docked above the card. A sibling
-        (not an overlay) so the card shrinks and the native webview follows it. */}
-      <Show when={pagesBarOpen()}>
-        <Suspense>
-          <PagesBar />
-        </Suspense>
-        <Suspense>
-          <TuiAppsBar />
-        </Suspense>
-      </Show>
+      {/* The pages + terminal-app launchers used to dock here, above the card.
+        They live in their own vertical column now (BarsColumn, rendered by App)
+        so the card keeps that height — see that file for why. */}
       {/* Permission bar (#38): answers a deferred engine permission Ask. Also a
         sibling — never an overlay over the native webview. */}
       <PermissionBar />

@@ -9,6 +9,7 @@ import { Portal } from "solid-js/web";
 
 import { tuiAppsDetect, tuiAppsList, tuiAppsSet, type TuiApp } from "./ipc";
 import { openTerminalApp, openTuiPane } from "./store";
+import { hideTip, showTip } from "./RailTip";
 
 const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -82,30 +83,56 @@ const TuiAppsBar: Component = () => {
   return (
     <>
       <div class="tui-bar">
-        <For
-          each={apps()}
-          fallback={
-            <button class="tui-edit tui-empty" onClick={openEditor}>
-              + Add your terminal apps
-            </button>
-          }
-        >
-          {(a) => (
-            <button
-              class="tui-chip"
-              title={`Run “${a.cmd}”${a.cwd ? ` in ${a.cwd}` : ""} in a floating pane — Ctrl/⌘ or Shift-click for a terminal tab`}
-              onClick={(e) => launch(a, e)}
-            >
-              <span class="tui-chip-ico">{a.icon}</span>
-              <span class="tui-chip-label">{a.name}</span>
-            </button>
-          )}
-        </For>
+        {/* Above the list, not after it. In the horizontal strip this sat at the
+            right end; in a scrolling column that put it below every app, where
+            you had to scroll to the bottom to find the way to edit the list. */}
         <Show when={apps().length > 0}>
-          <button class="tui-edit" title="Edit terminal apps" onClick={openEditor}>
+          <button
+            class="tui-edit"
+            title="Edit terminal apps"
+            onClick={openEditor}
+            onMouseEnter={(e) => showTip(e.currentTarget, "Edit terminal apps")}
+            onMouseLeave={hideTip}
+            onFocus={(e) => showTip(e.currentTarget, "Edit terminal apps")}
+            onBlur={hideTip}
+          >
             ✎
           </button>
         </Show>
+        <For
+          each={apps()}
+          fallback={
+            <button
+              class="tui-edit"
+              title="Add your terminal apps"
+              onClick={openEditor}
+              onMouseEnter={(e) => showTip(e.currentTarget, "Add your terminal apps")}
+              onMouseLeave={hideTip}
+              onFocus={(e) => showTip(e.currentTarget, "Add your terminal apps")}
+              onBlur={hideTip}
+            >
+              +
+            </button>
+          }
+        >
+          {(a) => {
+            const tip = () =>
+              `${a.name} — runs “${a.cmd}”${a.cwd ? ` in ${a.cwd}` : ""}. Ctrl/⌘ or Shift-click for a terminal tab.`;
+            return (
+              <button
+                class="tui-chip"
+                title={tip()}
+                onClick={(e) => launch(a, e)}
+                onMouseEnter={(e) => showTip(e.currentTarget, tip())}
+                onMouseLeave={hideTip}
+                onFocus={(e) => showTip(e.currentTarget, tip())}
+                onBlur={hideTip}
+              >
+                <span class="tui-chip-ico">{a.icon}</span>
+              </button>
+            );
+          }}
+        </For>
       </div>
 
       <Show when={editing()}>

@@ -8,6 +8,95 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **PDF viewer: page jump, bookmarks and comments.** A 300-page paper was navigable only by
+  scrolling, which is not navigation. The toolbar now carries `⟨ 9 / 12 ⟩` — type a page number
+  and press Enter, or step with the arrows — and a **Notes** panel holds bookmarks (click the
+  page number to go there; rename them, since "Page 47" is not why you bookmarked page 47) and
+  per-page comments.
+
+  Both are **sidecar, not burned into the file**. The Edit tools work the other way round —
+  their markup becomes part of the PDF when you hit Save — and the difference matters enough
+  that the panel says so in as many words. The trade is that they live on this machine, keyed to
+  the file's path: move the file and they don't follow.
+
+### Changed
+- **Launcher column: icons only, names on hover.** Seventeen labels at 12px is a wall of text
+  you read past rather than scan, and the names were costing the column three times its width
+  for information you need only while learning it. 154px → 54px, all of it back to the page. The
+  labels return on hover *and on keyboard focus* via a portaled tooltip — the native `title` is
+  a second late, unstyled, and lands in the wrong place on WebKitGTK, and a label inside the chip
+  would be clipped by the column's own scrolling.
+
+- **System monitor in the connections rail.** CPU, memory (and swap, when it's actually in use),
+  GPU, VRAM, mounted disks and network throughput as one dense card directly above the Trail —
+  the machine's load at a glance without opening the task-manager tab and losing the page you
+  were on. It's a second *view* of the data `flux://tasks` already collects, not a second
+  collector. Polling stops entirely while the card is collapsed and again while the window is
+  hidden. Disks get their own 30-second timer because enumerating volumes measured 30–53s on a
+  machine with a sleeping external drive, so the card fills in late rather than stalling the
+  rail. Hardware that isn't there is **omitted, not zeroed**: no NVIDIA driver means no GPU
+  group, because a row reading 0% claims the card is idle rather than unread.
+
+- **A vertical launcher column.** The Flux-pages strip and the terminal-apps strip used to dock
+  above the content card. Between them that cost the page ~76px of height on every tab,
+  permanently, for a launcher you reach for a few times an hour — and on a 16:9 window height is
+  the scarce axis, not width. Both are vertical now, in a 154px column immediately left of the
+  calendar/mail column, and the content card claims the height back. Width is fixed on purpose:
+  the contents are chips at one font size, so there's no second width that shows more of
+  anything. The ✎ editor moved to the top of the terminal-apps list — at the bottom of a
+  scrolling column you had to scroll past every app to find the way to edit them. Same toggle and
+  the same stored key as before, so an "off" preference didn't silently become "on".
+
+### Changed
+- **The sidebar's toolbar and footer fold away.** Both hold a dozen controls you use occasionally
+  and read past constantly; folding hands that height to the tab rail, which is the reason the
+  sidebar is open at all. The state persists, and — the point of the change — it **also applies
+  in the collapsed icon rail**, where the footer used to redraw as a two-column grid of icons,
+  i.e. exactly the height collapsing was meant to reclaim. The sidebar toggle and the fold caret
+  stay visible in every state: folding must never be a way to lose the control that unfolds.
+
+- **Workspaces moved from the dot rail to the footer.** The thin strip of coloured dots on the
+  sidebar's right edge said nothing about which workspace was which until you hovered one, and
+  charged a 22px gutter down the sidebar's entire height for the privilege. One footer button —
+  carrying the active workspace's colour, so there's finally something on screen that says where
+  you are — opens a panel with every control the rail had: switch, recolour, rename, delete, and
+  new. It renders in both sidebar states, so the collapsed rail's separate workspace button is
+  gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
+
+### Fixed
+- **A PDF tab forgot where you were the moment you left it.** Switching tabs unmounts the
+  viewer — ContentArea renders only the active tab's internal page — so coming back re-fetched
+  the file and dropped you on page 1. Page, zoom, bookmarks and comments are now recorded per
+  document and restored on open, so it also survives closing the tab and restarting Flux.
+  Keeping every PDF mounted (the terminal's keep-alive trick) would have cost a decoded document
+  per tab; remembering the position costs a few hundred bytes.
+
+- **Zoom was scaling Flux, not the document.** Nothing disables engine-level zoom on the chrome
+  window, so `Ctrl`+wheel and `Ctrl`+`=` were resizing the entire shell — sidebar, toolbar and
+  all — while the page underneath stayed exactly the same size. The viewer claims both gestures
+  and `preventDefault()`s them, so they do what you meant. Zoom now also **keeps your place**
+  instead of snapping to the top of the document, and clicking the percentage resets to 100%.
+
+- **The PDF viewer never fitted its own card.** The content card centres its grid items
+  (`place-items: center`), and a centred grid item is sized to its *content*, so it may legally
+  overflow its track. Any page zoomed past the card's width did exactly that: the viewer grew,
+  carrying the toolbar off the left edge — so the zoom controls became unreachable at the moment
+  you most needed them. It claims the track and clips to it now; the pages scroll in their own
+  box. Two related flex bugs went with it — a missing `min-width: 0` on the page scroller, and
+  the page being centred with `align-items: center`, which clips the *leading* edge of anything
+  wider than its container rather than letting it scroll.
+
+- **The sidebar toolbar was clipping its own buttons.** Eight tools never fit 252px and the
+  sidebar hides its overflow, so the last two (Playground, Notebook) were being silently cut off
+  the right edge at the default width. The row wraps now. Found by measuring the real layout in
+  the preview harness rather than by reading the CSS.
+- **The standalone UI preview (`npm run preview:ui`) was broken twice over.** It hadn't built
+  since `App.tsx` began importing `addPluginListener`, which the Tauri mock didn't export; and
+  once that was fixed it came up empty, because the mock had no `shell_snapshot` — so
+  `refreshTabs` threw on `.tabs`, store init aborted, and the preview rendered with no tabs, no
+  groups and no workspaces. Every surface that reads them looked broken for reasons that had
+  nothing to do with them. Both fixed, plus mocked system stats, so the preview is representative
+  enough to verify chrome changes in — which is the only way to look at them without a display.
 - **Connections rail: "Show more".** The rail asked for exactly 8 related notes and there was no
   way to see past them. It still shows 8 by default — hits come back ranked, so the tail is
   monotonically weaker and a longer rail isn't a more useful one — but **Show more** refetches up

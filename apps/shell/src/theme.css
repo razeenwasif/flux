@@ -1459,9 +1459,11 @@ body.resizing .panel-edge-resize::after {
   display: flex;
   flex-direction: column;
   gap: 11px;
-  /* extra right gutter for the workspace rail (#44); left gutter added by
-     .with-apps for the app rail (#48). */
-  padding: 10px 22px 12px 10px;
+  /* The 22px right gutter here used to be reserved for the workspace dot rail
+     (#44). That rail is gone (#151 — the footer button owns workspaces now), and
+     the gutter it charged down the sidebar's whole height went with it. Left
+     gutter is still added by .with-apps for the app rail (#48). */
+  padding: 10px 10px 12px;
   min-width: 0;
   overflow: hidden;
   position: relative;
@@ -1473,121 +1475,6 @@ body.resizing .panel-edge-resize::after {
 }
 .sidebar.with-apps {
   padding-left: 42px;
-}
-
-/* Workspace rail (#44) — vertical dots on the right edge; hover → name popout. */
-.ws-rail {
-  position: absolute;
-  right: 3px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 9px;
-}
-.ws-rail-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-.ws-rail-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  cursor: pointer;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
-  transition: transform 0.12s var(--ease-soft);
-}
-.ws-rail-item:hover .ws-rail-dot {
-  transform: scale(1.25);
-}
-.ws-rail-item.active .ws-rail-dot {
-  box-shadow:
-    0 0 0 2px var(--flux-bg, #0b0820),
-    0 0 0 3px currentColor;
-}
-.ws-rail-pop {
-  position: absolute;
-  right: calc(100% + 8px);
-  top: 50%;
-  transform: translateY(-50%);
-  display: none;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 9px;
-  border-radius: 9px;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--flux-text);
-  z-index: 20;
-}
-.ws-rail-item:hover .ws-rail-pop,
-.ws-rail-pop:has(input),
-/* Keep it up while the pointer is actually in it. The popover is a descendant of
-   .ws-rail-item, so hovering it already satisfies the rule above — this is here
-   so the intent survives someone moving the markup. */
-.ws-rail-pop:hover {
-  display: flex;
-}
-/* Hover bridge. The popover is positioned `right: calc(100% + 8px)`, so there's
-   an 8px dead gap between it and the dot where nothing is hovered — the popover
-   vanished the instant you moved toward it, which made its buttons (rename,
-   delete) effectively unreachable by mouse. This transparent strip spans the gap
-   so the hover path is continuous. */
-.ws-rail-pop::after {
-  content: "";
-  position: absolute;
-  left: 100%;
-  top: 0;
-  /* Exactly the gap (+1px for sub-pixel rounding). Wider would overlap the dot
-     and, since the popover stacks above it, steal clicks on the dot's edge. */
-  width: 9px;
-  height: 100%;
-}
-.ws-rail-pop .ws-name {
-  max-width: 160px;
-}
-.ws-rail-edit {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  color: var(--flux-text-mute);
-  font-size: 11px;
-  background: transparent;
-  border: none;
-}
-.ws-rail-edit:hover {
-  color: var(--flux-text);
-  background: rgba(255, 255, 255, 0.1);
-}
-.ws-rail-x {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  color: var(--flux-text-mute);
-  font-size: 11px;
-}
-.ws-rail-x:hover {
-  color: #fff;
-  background: #c0392b;
-}
-.ws-rail-add {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  color: var(--flux-text-mute);
-  border: 1px dashed var(--glass-rim-soft);
-}
-.ws-rail-add:hover {
-  color: var(--flux-teal);
-  border-color: var(--flux-teal);
 }
 
 /* App rail (#48) — Opera-style web-app launcher on the left edge, vertically
@@ -1679,11 +1566,17 @@ body.resizing .panel-edge-resize::after {
   border-color: var(--flux-teal);
 }
 
+/* Wraps. Eight tools + the fold caret don't fit 252px in a single row, and the
+   sidebar hides its overflow — so the last buttons were being silently clipped
+   off the right edge (the caret among them, which would have made folding a
+   one-way trip). A second row is the honest answer; `min-height` keeps the
+   single-row case exactly as tall as it was. */
 .sidebar-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 5px;
-  height: 34px;
+  min-height: 34px;
 }
 /* Collapsed rail: stack the traffic lights above the expand toggle. */
 .sidebar-controls.collapsed {
@@ -2524,13 +2417,13 @@ body.resizing .panel-edge-resize::after {
   background: var(--glass-rim);
   opacity: 0.75;
 }
-.rail-ws {
+/* The footer's workspace button (#151). Relative so the colour dot below can
+   corner itself inside it. */
+.ws-btn {
   position: relative;
-  width: 36px;
-  height: 30px;
 }
 /* The active workspace's colour, on the button that opens the list — otherwise
-   a collapsed sidebar gives no clue which workspace you're in. */
+   nothing on screen says which workspace you're in. */
 .rail-ws-dot {
   position: absolute;
   right: 4px;
@@ -2545,11 +2438,13 @@ body.resizing .panel-edge-resize::after {
   inset: 0;
   z-index: 60;
 }
-/* `--rail-ws-bottom` is measured from the button that opened it, so the panel
-   tracks the rail instead of assuming a footer height. */
+/* Both offsets are measured from the button that opened it, so the panel tracks
+   the footer instead of assuming a sidebar width or a footer height — either can
+   change with a fold, a resize, or a collapse. The fallbacks cover the one path
+   that never touches the button: a rename requested from the command palette. */
 .rail-ws-panel {
   position: fixed;
-  left: 80px;
+  left: var(--rail-ws-left, 80px);
   bottom: var(--rail-ws-bottom, 64px);
   z-index: 61;
   min-width: 190px;
@@ -2612,6 +2507,64 @@ body.resizing .panel-edge-resize::after {
   line-height: 1;
   color: var(--flux-text-mute);
 }
+/* One workspace: swatch, name, rename, delete. A row rather than one wide
+   button, because ✎ and ✕ are buttons and nesting them inside another button is
+   invalid — the old hover-popout got away with it by not having a button around
+   the name at all. */
+.rail-ws-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+  padding-right: 3px;
+}
+.rail-ws-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.rail-ws-row .rail-ws-item {
+  flex: 1;
+  width: auto;
+  padding: 6px 4px;
+}
+.rail-ws-row .inline-edit.ws {
+  flex: 1;
+  min-width: 0;
+}
+.rail-ws-swatch {
+  flex: none;
+  margin-left: 5px;
+  cursor: pointer;
+}
+.rail-ws-edit,
+.rail-ws-x {
+  flex: none;
+  width: 20px;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--flux-text-mute);
+  font-size: 10.5px;
+  line-height: 1;
+  cursor: pointer;
+  /* Hidden until the row is hovered: four workspaces × two controls is eight
+     glyphs competing with the four names you're actually reading. */
+  opacity: 0;
+}
+.rail-ws-row:hover .rail-ws-edit,
+.rail-ws-row:hover .rail-ws-x,
+.rail-ws-edit:focus-visible,
+.rail-ws-x:focus-visible {
+  opacity: 1;
+}
+.rail-ws-edit:hover {
+  color: var(--flux-text);
+  background: rgba(255, 255, 255, 0.07);
+}
+.rail-ws-x:hover {
+  color: var(--flux-warn);
+  background: rgba(255, 255, 255, 0.07);
+}
 
 .sidebar-footer {
   display: flex;
@@ -2634,6 +2587,23 @@ body.resizing .panel-edge-resize::after {
   width: 26px;
   height: 26px;
   font-size: 12px;
+}
+/* Folded (#150): only the workspace button and the caret remain, so the two-
+   column grid is wrong — it would leave one of them stranded on its own row. */
+.sidebar-footer.collapsed.folded {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+/* The fold caret. Deliberately quieter than the tools it hides: it's a layout
+   control, not another place to go. */
+.sidebar-fold {
+  color: var(--flux-text-mute);
+  font-size: 9px;
+}
+.sidebar-fold:hover {
+  color: var(--flux-text);
 }
 .sidebar-footer code {
   font-size: 11px;
@@ -2826,16 +2796,32 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-text);
 }
 
-.pages-bar {
-  flex: none;
-  height: 32px;
-  margin-bottom: 6px;
+/* ── Launcher column (#149) ───────────────────────────────────────────────────
+   Flux pages over terminal apps, vertical, left of the calendar/mail column.
+   Both were horizontal strips above the content card; together they cost ~76px
+   of page height on every tab, and height is the scarce axis. */
+.bars-col {
+  grid-area: bars;
+  min-width: 0;
+  min-height: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  padding: 0 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  padding: var(--flux-frame-pad);
+  padding-right: 0;
+}
+.pages-bar {
+  /* Takes the slack — the native-page list is fixed and long, so it is what
+     should get the leftover height rather than the app list below it. */
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
@@ -2846,17 +2832,14 @@ body.resizing .panel-edge-resize::after {
 }
 .pages-chip {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 7px;
-  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  height: 32px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 12px;
   color: var(--flux-text-dim);
   background: none;
   border: none;
-  white-space: nowrap;
 }
 .pages-chip:hover {
   background: var(--flux-surface);
@@ -2864,11 +2847,27 @@ body.resizing .panel-edge-resize::after {
 }
 .pages-chip-ico {
   flex: none;
-  font-size: 12.5px;
+  font-size: 15px;
+  line-height: 1;
 }
-.pages-chip-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+
+/* Hover label for the icon-only rails (#154). Fixed + portaled, so the bars'
+   own `overflow-y: auto` — which clips on both axes — can't cut it off. */
+.railtip {
+  position: fixed;
+  z-index: 70;
+  transform: translateY(-50%);
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--flux-text);
+  /* Capped, because a terminal app's label carries its whole command line. */
+  max-width: 260px;
+  /* The pointer is over the chip; a label that could take a hover would flicker
+     as it appeared under the cursor. */
+  pointer-events: none;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
 }
 .bookmark-bar-empty {
   font-size: 11.5px;
@@ -2879,15 +2878,18 @@ body.resizing .panel-edge-resize::after {
 
 /* ── TUI apps launcher bar (#117) ── */
 .tui-bar {
-  flex: none;
-  height: 32px;
-  margin-bottom: 6px;
+  /* Shrinkable with a ceiling: a user with twenty terminal apps mustn't be able
+     to push the native pages off the top of the column. */
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 44%;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
   background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.05), var(--velvet-800));
@@ -2898,17 +2900,14 @@ body.resizing .panel-edge-resize::after {
 }
 .tui-chip {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 7px;
-  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  height: 32px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 12px;
   color: var(--flux-text-dim);
   background: none;
   border: 1px solid transparent;
-  white-space: nowrap;
 }
 .tui-chip:hover {
   background: var(--flux-surface);
@@ -2917,29 +2916,27 @@ body.resizing .panel-edge-resize::after {
 }
 .tui-chip-ico {
   flex: none;
-  font-size: 12.5px;
+  font-size: 15px;
+  line-height: 1;
 }
-.tui-chip-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* Was `margin-left: auto` to sit at the right end of a horizontal strip; in a
+   column that pushed it to the bottom of a *scrolling* box, where it was only
+   reachable after scrolling past every app. */
 .tui-edit {
   flex: none;
-  margin-left: auto;
-  padding: 3px 9px;
-  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  height: 28px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--flux-text-mute);
   background: none;
-  border: 1px solid transparent;
+  border: 1px dashed var(--glass-rim-soft);
 }
 .tui-edit:hover {
   color: var(--flux-text);
   background: var(--flux-surface);
-}
-.tui-empty {
-  margin-left: 0;
 }
 
 /* editor modal */
@@ -3774,6 +3771,157 @@ body.resizing .panel-edge-resize::after {
 .connect-rail .trailmini-map {
   height: min(220px, 26vh);
 }
+
+/* ── System monitor (rail) ────────────────────────────────────────────────────
+   Same card treatment as the Trail directly below it, so the foot of the rail
+   reads as two widgets rather than as two unrelated designs. `flex: 0 1 auto`
+   with a ceiling: when the window is short this gives way before the
+   connections do — those are what change on every navigation. */
+.sysmon {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 6px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-rim-soft);
+  background: rgba(10, 8, 24, 0.35);
+  /* With the Trail's 42% below it, this leaves the connections a quarter of the
+     rail at worst. They're the only part that re-queries on navigation, so they
+     get the floor. */
+  max-height: 34%;
+}
+/* Collapsed it is one row; the ceiling would otherwise reserve rail height for
+   a card that isn't drawing anything. */
+.sysmon:not(.open) {
+  flex: none;
+  max-height: none;
+}
+.sysmon-head {
+  display: flex;
+  align-items: center;
+}
+.sysmon-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 7px;
+  color: var(--flux-text-mute);
+}
+.sysmon-toggle:hover {
+  background: rgba(var(--accent-ai-rgb), 0.14);
+  color: var(--flux-text);
+}
+.sysmon-spark {
+  font-size: 12px;
+  color: var(--flux-violet);
+}
+.sysmon-label-head {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sysmon-caret {
+  margin-left: auto;
+  font-size: 9px;
+}
+.sysmon-body {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 2px;
+  /* Rows sliced at the scroll edge read as a rendering fault; fade instead —
+     same treatment as the connections list and the collapsed rail. */
+  mask-image: linear-gradient(#000 0, #000 calc(100% - 10px), #0000 100%);
+  -webkit-mask-image: linear-gradient(#000 0, #000 calc(100% - 10px), #0000 100%);
+}
+.sysmon-cap {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--flux-text-mute);
+  padding: 5px 3px 1px;
+}
+.sysmon-cap:first-child {
+  padding-top: 1px;
+}
+.sysmon-row {
+  display: grid;
+  /* Fixed label and value columns so the meters line up down the card — ragged
+     bar starts make five groups look like five unrelated widgets. */
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--flux-text-dim);
+}
+.sysmon-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--flux-text-mute);
+}
+.sysmon-track {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(var(--neutral-rgb), 0.14);
+  overflow: hidden;
+}
+.sysmon-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s var(--ease-soft);
+}
+.sysmon-val {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--flux-text-dim);
+}
+.sysmon-empty {
+  font-size: 10px;
+  color: var(--flux-text-mute);
+  padding: 2px 3px;
+}
+.sysmon-net {
+  display: flex;
+  gap: 10px;
+  padding: 1px 3px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.sysmon-net-dn {
+  color: var(--flux-ok);
+}
+.sysmon-net-up {
+  color: rgb(var(--accent-hot-rgb));
+}
+.sysmon-iface {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  padding: 0 3px;
+  font-size: 9.5px;
+  color: var(--flux-text-mute);
+  font-variant-numeric: tabular-nums;
+}
+.sysmon-iface-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .connect-list {
   flex: 1;
   min-height: 0;
@@ -11238,17 +11386,31 @@ body.busy .start-card {
   flex-direction: column;
   color: var(--flux-text);
 }
+/* Wraps. The bar carries a filename, a page-jump group, a bookmark toggle, five
+   mode buttons, three zoom controls and two file actions — that does not fit a
+   content card in a window with three columns open, and without wrapping the
+   flex squeeze split the mode buttons' own labels across two lines. */
 .pdf-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--flux-border);
   background: var(--flux-bg-raise);
 }
+/* Nothing in the bar may be squeezed below its content — that squeeze is what
+   was breaking the labels. The title is the one thing that gives, and it
+   ellipsizes. */
+.pdf-toolbar > * {
+  flex: none;
+}
 .pdf-title {
   font-size: 13px;
   font-weight: 600;
+  /* The only shrinkable thing in the bar (see `.pdf-toolbar > *`). */
+  flex: 0 1 auto;
+  min-width: 60px;
   max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -11279,12 +11441,194 @@ body.busy .start-card {
   opacity: 0.4;
   cursor: default;
 }
+/* A button now, not a label: it reads as the zoom level and clicking it resets
+   to 100%, which is the one thing you always want after zooming around. */
 .pdf-zoom {
   font-size: 12px;
   color: var(--flux-text-dim);
-  min-width: 44px;
+  min-width: 46px;
+  height: 28px;
+  padding: 0 6px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  cursor: pointer;
+}
+.pdf-zoom:hover:not(:disabled) {
+  color: var(--flux-text);
+  border-color: var(--flux-border);
+  background: var(--flux-surface);
+}
+.pdf-zoom:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ── Page jump (#155) ── */
+.pdf-jump {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pdf-page-in {
+  width: 44px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 7px;
+  border: 1px solid var(--flux-border);
+  background: var(--flux-surface);
+  color: var(--flux-text);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.pdf-page-in:focus {
+  outline: none;
+  border-color: rgb(var(--accent-rgb));
+}
+.pdf-btn.active {
+  border-color: rgb(var(--accent-rgb));
+  color: rgb(var(--accent-rgb));
+}
+.pdf-notes-count {
+  margin-left: 5px;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.18);
+  color: rgb(var(--accent-rgb));
+}
+
+/* ── Bookmarks + comments panel (#155) ── */
+.pdf-notes-panel {
+  gap: 6px;
+}
+/* The panel's buttons carry words, not glyphs, so the toolbar's square icon
+   sizing would clip them. */
+.pdf-notes-panel .pdf-btn {
+  width: auto;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.pdf-notes-head2 {
+  margin-top: 14px;
+}
+.pdf-notes-empty {
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  padding: 2px 2px 6px;
+}
+.pdf-note-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The page number is the control: it's what you click to go there, and it's
+   what tells you where "there" is. */
+.pdf-note-page {
+  flex: none;
+  min-width: 30px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--flux-border);
+  background: var(--flux-surface);
+  color: rgb(var(--accent-rgb));
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.pdf-note-page:hover {
+  background: rgba(var(--accent-rgb), 0.16);
+}
+.pdf-note-label {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--flux-text);
+  font-size: 12px;
+}
+.pdf-note-label:hover,
+.pdf-note-label:focus {
+  border-color: var(--flux-border);
+  background: var(--flux-surface);
+  outline: none;
+}
+.pdf-note-x {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--flux-text-mute);
+  font-size: 11px;
+  cursor: pointer;
+}
+.pdf-note-x:hover {
+  color: var(--flux-warn);
+  background: var(--flux-surface);
+}
+.pdf-note-new {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.pdf-note-input {
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--flux-border);
+  background: var(--flux-surface);
+  color: var(--flux-text);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.pdf-note-input:focus {
+  outline: none;
+  border-color: rgb(var(--accent-rgb));
+}
+.pdf-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--flux-border);
+  background: var(--flux-surface);
+}
+.pdf-comment-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pdf-comment-when {
+  flex: 1;
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+}
+.pdf-comment-body {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--flux-text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.pdf-notes-note {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--flux-border);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--flux-text-mute);
 }
 /* Scanned-PDF notice. Sits above the pages rather than over them: the point is
    to explain why Gemma can't answer about this document, which the user is only
@@ -11341,12 +11685,24 @@ body.busy .start-card {
 }
 .pdf-pages-wrap {
   flex: 1;
+  /* Without this the flex item's automatic minimum is its *content* width — a
+     page at 200% zoom — so the whole viewer grew wider than the card and the
+     toolbar scrolled off the left instead of the page scrolling inside here. */
+  min-width: 0;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  /* NOT `align-items: center`. Centring a flex item that is wider than its
+     container clips the overflow on the leading side — so zooming past the
+     card's width cut the left edge of every page off, unreachable, instead of
+     letting it scroll. Auto margins centre exactly the same way and collapse to
+     zero when the item doesn't fit, which is the behaviour we want. */
+  align-items: stretch;
   gap: 12px;
   padding: 16px;
+}
+.pdf-pages-wrap > .pdf-page-wrap {
+  margin-inline: auto;
 }
 .pdf-pages-wrap.hidden {
   display: none;
@@ -11379,6 +11735,7 @@ body.busy .start-card {
   padding: 4px 9px;
   border-radius: 6px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .pdf-mode:hover {
   color: var(--flux-text);
@@ -11570,6 +11927,17 @@ body.busy .start-card {
 /* ── PDF form fill (#113) ── */
 .pdf-view {
   position: relative;
+  /* The content card centres its grid items (`place-items: center`), and a
+     centred grid item is sized to its CONTENT, not to its track — so it may
+     legally overflow. A page zoomed past the card's width did exactly that: the
+     whole viewer grew, carrying the toolbar off the left edge of the card with
+     it, and the zoom controls became unreachable at the moment you most needed
+     them. Claim the track and clip to it; the pages scroll inside their own
+     box, which is where the scrolling belongs. */
+  justify-self: stretch;
+  align-self: stretch;
+  width: 100%;
+  overflow: hidden;
 }
 .pdf-body {
   flex: 1;
@@ -11580,8 +11948,12 @@ body.busy .start-card {
   display: none;
 }
 .pdf-forms-panel {
-  width: 340px;
+  /* Proportional with a ceiling: a fixed 340px is over half the content card
+     once three chrome columns are open, which left the document itself with
+     less room than its own sidebar. */
+  width: clamp(210px, 38%, 340px);
   flex: none;
+  min-width: 0;
   overflow-y: auto;
   border-left: 1px solid var(--flux-border);
   background: var(--flux-bg-raise);
@@ -14234,7 +14606,7 @@ input[type="radio"].pdf-fw {
    the .mobile class the shell adds when navigator.userAgent is Android. */
 .shell.mobile .titlebar,
 .shell.mobile .resize-h,
-.shell.mobile .pages-bar,
+.shell.mobile .bars-col,
 .shell.mobile .bookmark-bar,
 .shell.mobile .terminal-col,
 .shell.mobile .connect-rail,

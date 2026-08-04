@@ -33,6 +33,11 @@ import { activeId, openTab } from "./store";
  *  the window. It also buys back sidebar height and survives collapsing the
  *  sidebar, which used to hide the Trail entirely. */
 const TrailMini = lazy(() => import("./TrailMini"));
+/** Machine load, at the head of the same column. It answers neither "what do I
+ *  know" nor "where have I been" — but it is the other thing you glance at
+ *  without wanting to leave the page, and it's the only rail with room for it.
+ *  It polls, so it stays lazy: a hidden rail never loads the chunk at all. */
+const SysMonitor = lazy(() => import("./SysMonitor"));
 
 const SOURCE_ICON: Record<string, string> = {
   onyx: "📝",
@@ -242,6 +247,11 @@ const ConnectionsRail: Component = () => {
           </Show>
         </div>
       </Show>
+
+      {/* Machine load, directly above the Trail. Both are pinned to the foot of
+          the rail because neither changes with the *page* — the connections
+          above them are what re-query on every navigation. */}
+      <SysMonitor />
 
       {/* This workspace's browsing, pinned to the bottom: a dot-map that expands
           into a searchable list. It sits below the connections rather than above

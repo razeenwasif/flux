@@ -955,15 +955,37 @@ export function setLiquidBg(on: boolean): void {
   localStorage.setItem("flux.liquidbg", on ? "1" : "0");
 }
 
-// Pages bar: a quick-access strip of Flux native pages above the content card.
-// Persisted, default ON (hidden only when explicitly turned off). Like the
-// bookmark bar, toggling resizes the card so the native webview relayout follows.
-// (Hidden on mobile regardless, via .shell.mobile CSS.)
+// Launcher column (#149): Flux's native pages over the user's terminal apps, in
+// a vertical column left of the dock. Persisted, default ON (hidden only when
+// explicitly turned off). Like the bookmark bar, toggling resizes the card so
+// the native webview relayout follows. (Hidden on mobile regardless, via
+// .shell.mobile CSS.) The key keeps its old name — the two horizontal strips
+// this replaced shared it, and renaming it would silently re-show the column for
+// everyone who had turned it off.
 const [pagesBarOpen, setPagesBarRaw] = createSignal(localStorage.getItem("flux.pagesbar") !== "0");
 export { pagesBarOpen };
 export function setPagesBarOpen(on: boolean): void {
   setPagesBarRaw(on);
   localStorage.setItem("flux.pagesbar", on ? "1" : "0");
+}
+
+// Sidebar toolbar + footer collapse (#150). Both hold a dozen controls you use
+// occasionally and read past constantly; folding them gives the height to the
+// tab rail, which is the reason the sidebar is open at all. Persisted, default
+// ON, and the SAME flag applies in the collapsed icon rail — a footer you folded
+// away should stay folded when the sidebar narrows, not reappear as a two-column
+// grid of icons.
+const [toolbarOpen, setToolbarRaw] = createSignal(localStorage.getItem("flux.sidebar.toolbar") !== "0");
+export { toolbarOpen };
+export function setToolbarOpen(on: boolean): void {
+  setToolbarRaw(on);
+  localStorage.setItem("flux.sidebar.toolbar", on ? "1" : "0");
+}
+const [footerOpen, setFooterRaw] = createSignal(localStorage.getItem("flux.sidebar.footer") !== "0");
+export { footerOpen };
+export function setFooterOpen(on: boolean): void {
+  setFooterRaw(on);
+  localStorage.setItem("flux.sidebar.footer", on ? "1" : "0");
 }
 
 // Files popout panel (#6 file explorer): a DOM file-explorer overlay toggled

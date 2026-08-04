@@ -9,6 +9,64 @@ export class Channel<T = unknown> {
   onmessage: (msg: T) => void = () => {};
 }
 
+/** Stand-in for the plugin event bridge. There is no `flux-webview` plugin in
+ *  the preview — no native webviews exist to emit nav events — so this resolves
+ *  to an unsubscribe that does nothing. Its absence broke the whole preview
+ *  build, which is worse than a listener that never fires. */
+export function addPluginListener<T = unknown>(
+  _plugin: string,
+  _event: string,
+  _handler: (payload: T) => void,
+): Promise<{ unregister: () => Promise<void> }> {
+  return Promise.resolve({ unregister: () => Promise.resolve() });
+}
+
+/**
+ * A real, valid multi-page PDF, built byte by byte.
+ *
+ * The viewer is the one surface that can't be checked with a stub: page jump,
+ * restore-where-you-were, bookmarks and zoom are all *scroll* behaviour, so
+ * they need a document tall enough to scroll. Hand-built rather than shipping a
+ * fixture file because the preview is a build artifact and a checked-in binary
+ * would have to be maintained alongside it.
+ */
+function mockPdf(pageCount = 12): Uint8Array {
+  const objs: string[] = [];
+  const fontObj = 3 + pageCount * 2;
+  const kids = Array.from({ length: pageCount }, (_, i) => `${3 + i * 2} 0 R`).join(" ");
+  objs[1] = "<</Type/Catalog/Pages 2 0 R>>";
+  objs[2] = `<</Type/Pages/Kids[${kids}]/Count ${pageCount}>>`;
+  for (let i = 0; i < pageCount; i++) {
+    const body =
+      `BT /F1 44 Tf 60 720 Td (Page ${i + 1} of ${pageCount}) Tj ET\n` +
+      `BT /F1 15 Tf 60 660 Td (Flux preview document — scroll, jump, bookmark, zoom.) Tj ET\n` +
+      `0.6 0.6 0.9 RG 3 w 60 80 m 535 80 l S\n` +
+      `BT /F1 11 Tf 60 55 Td (${i + 1}) Tj ET`;
+    objs[3 + i * 2] =
+      `<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]` +
+      `/Resources<</Font<</F1 ${fontObj} 0 R>>>>/Contents ${4 + i * 2} 0 R>>`;
+    objs[4 + i * 2] = `<</Length ${body.length}>>\nstream\n${body}\nendstream`;
+  }
+  objs[fontObj] = "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>";
+
+  // Offsets must be counted in BYTES, not characters — everything here is
+  // ASCII, so they coincide, but building the string first and measuring it is
+  // what keeps that true if the text ever isn't.
+  let out = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  for (let n = 1; n < objs.length; n++) {
+    offsets[n] = out.length;
+    out += `${n} 0 obj\n${objs[n]}\nendobj\n`;
+  }
+  const xref = out.length;
+  out += `xref\n0 ${objs.length}\n0000000000 65535 f \n`;
+  for (let n = 1; n < objs.length; n++) {
+    out += `${String(offsets[n]).padStart(10, "0")} 00000 n \n`;
+  }
+  out += `trailer\n<</Size ${objs.length}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`;
+  return new TextEncoder().encode(out);
+}
+
 let nextId = 9;
 
 const DAY = 86_400_000;
@@ -241,6 +299,79 @@ let mockContainers: { id: number; name: string; color: number }[] = [
 
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   switch (cmd) {
+    // The shell's whole startup payload. Missing, this returned `undefined` and
+    // `refreshTabs` threw on `.tabs` — which aborted store init, so the preview
+    // came up with no tabs, no groups and no workspaces and every surface that
+    // reads them looked broken for reasons that had nothing to do with them.
+    case "shell_snapshot":
+      return Promise.resolve({
+        tabs: structuredClone(tabs),
+        active_tab: tabs.at(-1)?.id ?? null,
+        groups: mockGroups,
+        folders: mockFolders,
+        workspaces: mockWorkspaces,
+        active_workspace: mockActiveWs,
+        panels: [],
+        containers: mockContainers,
+      } as T);
+    // System stats, for the task manager and the rail's system monitor. Values
+    // drift a little per call so the meters visibly move — a frozen number
+    // looks identical to a dead poll loop, which is the bug you most want the
+    // preview to be able to show you.
+    case "tasks_stats": {
+      const wob = (base: number, amp: number) => base + Math.sin(Date.now() / 3000) * amp;
+      return Promise.resolve({
+        cpu: Math.max(0, wob(34, 22)),
+        per_core: Array.from({ length: 8 }, (_, i) => Math.max(0, wob(30 + i * 3, 25))),
+        cpu_brand: "Mock CPU 9 7950X",
+        mem_used_mb: 9800,
+        mem_total_mb: 16256,
+        mem_pct: 60,
+        swap_used_mb: 0,
+        swap_total_mb: 8192,
+        cores: 8,
+        uptime_secs: 93_600,
+        nets: [
+          { name: "wlan0", rx_bps: 820_000, tx_bps: 74_000 },
+          { name: "docker0", rx_bps: 1200, tx_bps: 900 },
+        ],
+        net_rx_bps: 821_200,
+        net_tx_bps: 74_900,
+      } as T);
+    }
+    case "gpu_stats":
+      return Promise.resolve([
+        {
+          name: "Mock RTX 4070",
+          util_pct: 41,
+          mem_used_mb: 3900,
+          mem_total_mb: 12288,
+          temp_c: 58,
+          power_w: 96,
+        },
+      ] as T);
+    case "tasks_disks":
+      return Promise.resolve([
+        { name: "nvme0n1p2", mount: "/", fs: "ext4", total_mb: 953_000, avail_mb: 402_000, removable: false },
+        {
+          name: "Data",
+          mount: "/mnt/d",
+          fs: "ntfs",
+          total_mb: 1_907_000,
+          avail_mb: 121_000,
+          removable: false,
+        },
+      ] as T);
+    case "pdf_fetch": {
+      const b = mockPdf();
+      // A fresh ArrayBuffer, exactly as the Rust side hands one over.
+      return Promise.resolve(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as T);
+    }
+    case "pdf_publish_text":
+    case "pdf_save":
+      return Promise.resolve("~/Downloads/preview.pdf" as T);
+    case "ocr_available":
+      return Promise.resolve(false as T);
     case "tab_list":
       return Promise.resolve(structuredClone(tabs) as T);
     case "launch_intent":

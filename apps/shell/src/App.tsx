@@ -133,6 +133,7 @@ const Playground = lazy(() => import("./playground/Playground"));
 const NotebookPage = lazy(() => import("./NotebookPage"));
 const ConnectionsRail = lazy(() => import("./ConnectionsRail"));
 const DockColumn = lazy(() => import("./DockColumn"));
+const BarsColumn = lazy(() => import("./BarsColumn"));
 const MusicBubble = lazy(() => import("./MusicBubble"));
 const AgentPanel = lazy(() => import("./AgentPanel"));
 import {
@@ -1082,7 +1083,7 @@ const App: Component = () => {
     )
       wv(webviewShow(t.id));
   };
-  // The collapsed sidebar's workspace list is toggled from Sidebar, which has no
+  // The sidebar footer's workspace list is toggled from Sidebar, which has no
   // access to these helpers — so the native layer is driven from the flag here,
   // the same way the mobile drawer is below. Without this the panel rendered
   // *under* the page: it's in `pageOverlayActive`, but that registry only stops
@@ -1249,7 +1250,7 @@ const App: Component = () => {
     },
     {
       id: "pages-bar",
-      label: pagesBarOpen() ? "Hide pages bar" : "Show pages bar",
+      label: pagesBarOpen() ? "Hide launcher column" : "Show launcher column",
       icon: "🗂️",
       run: () => setPagesBarOpen(!pagesBarOpen()),
     },
@@ -1537,6 +1538,11 @@ const App: Component = () => {
   // intent is untouched (the signals stay set), only the rendered layout adapts.
   const SIDEBAR_RAIL = 72; // --flux-sidebar-w-min
   const MIN_CONTENT = 460; // narrowest content card we'll keep before shedding a pane
+  /** Launcher column width — fixed, not draggable. It holds one column of
+   *  icon-only buttons (names come back on hover, #154), so there is no second
+   *  width that shows more of anything; a splitter here would only be a way to
+   *  make it wrong. */
+  const BARS_W = 54;
   const responsive = createMemo(() => {
     if (focusMode())
       return {
@@ -1546,6 +1552,7 @@ const App: Component = () => {
         agent: false,
         connect: false,
         dock: false,
+        bars: false,
       };
     // What the user wants open (same conditions as the non-responsive layout used).
     const want = {
@@ -1561,6 +1568,8 @@ const App: Component = () => {
       // The dock column holds mail (always) plus the calendar when it's set to
       // that placement — so it's wanted whenever the user has it switched on.
       dock: dockOpen(),
+      // The pages + terminal-app launcher column (same toggle it had as a strip).
+      bars: pagesBarOpen(),
     };
     const out = {
       sidebar: false,
@@ -1569,6 +1578,7 @@ const App: Component = () => {
       terminal: false,
       connect: false,
       dock: false,
+      bars: false,
     };
     // Content card + the always-present sidebar rail are reserved first.
     let used = MIN_CONTENT + SIDEBAR_RAIL;
@@ -1576,12 +1586,15 @@ const App: Component = () => {
     // The agent and terminal SHARE one column, so their width is charged once —
     // wanting both now costs no more than wanting either. Allocate in PRIORITY
     // order (kept longest first): the sidebar's expansion, then that shared
-    // column, then the web panel, then the connections rail (shed first).
+    // column, then the web panel, then the launcher column, then the dock, then
+    // the connections rail (shed first). The launcher outranks the dock because
+    // it is the cheapest column on screen — shedding it buys back the least.
     const wantStack = want.agent || want.terminal;
     const order: [keyof typeof want | "stack", number][] = [
       ["sidebar", sidebarW() - SIDEBAR_RAIL], // extra beyond the rail it already has
       ["stack", wantStack ? stackW() : 0],
       ["panel", panelWidth()],
+      ["bars", BARS_W],
       ["dock", dockW()],
       ["connect", connectW()],
     ];
@@ -1611,16 +1624,19 @@ const App: Component = () => {
   /** The dock column is up whenever anything wants to live in it. Mail is always
    *  a reason; the calendar only when it's set to this placement. */
   const dockColVisible = () => responsive().dock;
+  /** The pages + terminal-app launcher column (#149). */
+  const barsColVisible = () => responsive().bars;
   /** The shared right-hand column is up whenever either pane in it is. */
   const stackVisible = () => agentColVisible() || termColVisible();
 
   const columns = () =>
     focusMode()
-      ? "0px 1fr 0px 0px 0px 0px" // focus/compact mode (#55): content only
+      ? "0px 1fr 0px 0px 0px 0px 0px" // focus/compact mode (#55): content only
       : [
           responsive().sidebar ? `${sidebarW()}px` : "var(--flux-sidebar-w-min)",
           "1fr",
           panelColVisible() ? `${panelWidth()}px` : "0px",
+          barsColVisible() ? `${BARS_W}px` : "0px",
           dockColVisible() ? `${dockW()}px` : "0px",
           stackVisible() ? `${stackW()}px` : "0px",
           connectColVisible() ? `${connectW()}px` : "0px",
@@ -1693,7 +1709,7 @@ const App: Component = () => {
           : {
               "grid-template-columns": columns(),
               "grid-template-rows": "var(--flux-titlebar-h) 1fr",
-              "grid-template-areas": `"title title title title title title" "side content webpanel dock stack connect"`,
+              "grid-template-areas": `"title title title title title title title" "side content webpanel bars dock stack connect"`,
             }
       }
     >
@@ -1764,6 +1780,13 @@ const App: Component = () => {
       />
       <Show when={panelColVisible()}>
         <WebPanelPane onNavigate={go} />
+      </Show>
+      {/* Flux pages + terminal apps, vertical, immediately left of the dock —
+          they cost width here instead of the card's height (see BarsColumn). */}
+      <Show when={barsColVisible()}>
+        <Suspense>
+          <BarsColumn />
+        </Suspense>
       </Show>
       {/* Calendar + mail in a column of their own, so the web panel stays free
           for a pinned site. */}

@@ -191,6 +191,15 @@ everything downstream resolves through them, including the WebGL shaders, the
 Trail/Omni canvases and the terminal palette. Adding one is ~20 lines; adding a
 hardcoded colour anywhere is how you break the other theme silently.
 
+**Columns.** Left to right: sidebar, content card, web panel, the **launcher
+column** (Flux's own pages over your terminal apps — icon-only, names on hover),
+calendar + mail, the shared agent/terminal stack, and the connections rail
+(related notes, a system monitor, and the Trail). Each is independently
+toggleable, and when the window gets narrow they're shed in priority order
+rather than squeezing the page. The sidebar's toolbar and footer fold away when
+you want the height for tabs, and stay folded when the sidebar collapses to its
+icon rail; workspaces live behind the footer's ▤ button.
+
 To iterate on the UI without a Rust runtime, run the mocked preview and open
 `http://localhost:8847`:
 
@@ -214,6 +223,35 @@ forward / reload work. Omnibox suggestions, loading/security state, and a
 pluggable search backend are on the roadmap (BACKLOG #31/#32/#68). DOM capture
 for the agent/terminal (#5) is wired client-side but gated by a Tauri remote-
 content security boundary — see BACKLOG #5.
+
+## PDFs (`flux://pdf`)
+
+PDFs open in Flux's own viewer rather than a download, so they render the same
+on both engines and the agent can read them. Bytes come from the Rust core, so
+there's no CORS to fight.
+
+**Reading.** `⟨ n / N ⟩` in the toolbar jumps to a page — type a number and press
+Enter, or step with the arrows. `Ctrl`+wheel and `Ctrl`+`=`/`-`/`0` zoom the
+**document** (they're intercepted, so they never scale the Flux window), and
+zooming keeps your place instead of snapping to the top. Where you were, how far
+you'd zoomed, your bookmarks and your comments are remembered per file — leaving
+the tab, closing it, or restarting Flux all bring you back to the same page.
+
+**Notes** (🔖 tab) holds **bookmarks** and per-page **comments**. These are kept
+by Flux and are *never* written into the PDF — nothing there dirties the file or
+changes what you'd hand to someone else. They're stored on this machine and keyed
+to the file's path, so moving the file loses them.
+
+**Editing** (✎ Edit) is the other half and behaves the opposite way: highlight,
+pen, text, shapes and arrows are **burned into the bytes** by `Save`, which
+writes an edited copy to Downloads. ▦ Pages reorders, rotates, deletes, extracts
+and merges; 🖊 Forms fills AcroForm fields in place, with an optional flatten on
+save.
+
+**Scanned PDFs** have no text layer, so the agent would otherwise see an empty
+document. The viewer detects that, says so, and offers **Read with OCR** if a
+local `tesseract` binary is installed — recognised text is indexed under its own
+`pdf-ocr` source so every citation carries that a machine read it off an image.
 
 ## Search
 

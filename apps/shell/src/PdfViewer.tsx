@@ -14,9 +14,20 @@
  *    writes the result to Downloads (`pdf_save`). Page-ops always burn the
  *    current annotations first, so annotation→page indices never drift.
  */
-import { For, Match, Show, Switch, createEffect, createSignal, onMount, type Component } from "solid-js";
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+  type Component,
+} from "solid-js";
 import { ocrAvailable, ocrImage, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
 import { tabs, updateTabTitle } from "./store";
+import { DEFAULT_SCALE, loadDocState, saveDocState, type PdfBookmark, type PdfComment } from "./pdfstate";
 
 // ─── Annotation model (all geometry in PDF points, origin top-left, y-down) ──
 type Tool = "pan" | "highlight" | "pen" | "text" | "rect" | "arrow" | "erase";
@@ -121,14 +132,29 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [ready, setReady] = createSignal(false);
-  const [scale, setScale] = createSignal(1.2);
+  const [scale, setScale] = createSignal(DEFAULT_SCALE);
   const [numPages, setNumPages] = createSignal(0);
   const [pages, setPages] = createSignal<number[]>([]);
   const [dims, setDims] = createSignal<Dims[]>([]);
   const [src, setSrc] = createSignal("");
   const [docVersion, setDocVersion] = createSignal(0); // bump → re-render pages
 
-  const [mode, setMode] = createSignal<"view" | "edit" | "pages" | "forms">("view");
+  // ── Reading position, bookmarks, comments (#155) ───────────────────────────
+  /** The page currently under the top of the viewport, 1-based. */
+  const [curPage, setCurPage] = createSignal(1);
+  /** What the page box shows while you're typing in it — kept separate from
+   *  `curPage` so scrolling doesn't yank the digits out from under the cursor. */
+  const [pageInput, setPageInput] = createSignal("");
+  const [bookmarks, setBookmarks] = createSignal<PdfBookmark[]>([]);
+  const [comments, setComments] = createSignal<PdfComment[]>([]);
+  const [noteDraft, setNoteDraft] = createSignal("");
+  /** Where to scroll once the pages have their real heights. Set from stored
+   *  state on load and consumed by the first render pass. */
+  let pendingPage = 0;
+  let wrapEl: HTMLDivElement | undefined;
+  const pageEls: (HTMLDivElement | undefined)[] = [];
+
+  const [mode, setMode] = createSignal<"view" | "edit" | "pages" | "forms" | "notes">("view");
   const [tool, setTool] = createSignal<Tool>("pan");
   const [color, setColor] = createSignal(PALETTE[0]!);
   const [annots, setAnnots] = createSignal<Annot[]>([]);
@@ -350,6 +376,15 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     const s = parseSrc();
     setSrc(s);
     updateTabTitle(props.tabId, "PDF");
+    // Restore before the document loads, so the first render already uses the
+    // stored zoom and the restore scroll happens once rather than after a
+    // visible jump from the default.
+    const st = loadDocState(s);
+    setScale(st.scale);
+    setBookmarks(st.bookmarks);
+    setComments(st.comments);
+    setCurPage(st.page);
+    pendingPage = st.page;
     if (!s) {
       setError("No PDF source.");
       setLoading(false);
@@ -387,10 +422,148 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
         if (token !== renderToken) return;
         await renderPage(p, token);
       }
+      if (token !== renderToken) return;
+      // The page wrappers are sized from `dims × scale`, so they have their
+      // final heights as soon as the effect runs — but only after the DOM has
+      // taken the new style. One frame is enough, and doing it here (rather
+      // than in `zoom`) covers restore-on-open and zoom with one path.
+      requestAnimationFrame(() => {
+        const want = pendingPage || curPage();
+        pendingPage = 0;
+        if (want > 1 || anchorOnRerender) scrollToPage(want, "auto");
+        anchorOnRerender = false;
+      });
     })();
   });
 
-  const zoom = (d: number) => setScale((v) => Math.min(4, Math.max(0.4, +(v + d).toFixed(2))));
+  // ── Scroll position ────────────────────────────────────────────────────────
+  /** Set when a re-render must re-anchor even on page 1 (i.e. a zoom change),
+   *  so zooming doesn't silently throw you back to the top of the document. */
+  let anchorOnRerender = false;
+
+  /** Scroll so `n`'s top edge sits just under the viewport top. */
+  const scrollToPage = (n: number, behavior: ScrollBehavior = "smooth") => {
+    const el = pageEls[Math.min(Math.max(1, n), Math.max(1, numPages())) - 1];
+    if (!el || !wrapEl) return;
+    const delta = el.getBoundingClientRect().top - wrapEl.getBoundingClientRect().top;
+    wrapEl.scrollTo({ top: wrapEl.scrollTop + delta - 8, behavior });
+    setCurPage(n);
+  };
+
+  /** Which page is under the top of the viewport — the last one that has
+   *  started. Ties to the *incoming* page rather than the outgoing one, which
+   *  is what "what am I reading" means while scrolling down. */
+  const pageFromScroll = () => {
+    if (!wrapEl) return 1;
+    const top = wrapEl.getBoundingClientRect().top;
+    let best = 1;
+    for (let i = 0; i < pageEls.length; i++) {
+      const el = pageEls[i];
+      if (el && el.getBoundingClientRect().top - top <= 80) best = i + 1;
+    }
+    return best;
+  };
+
+  let scrollTimer: number | undefined;
+  const onScroll = () => {
+    // Cheap on every frame, so the readout tracks the scroll; the persist below
+    // is what gets debounced.
+    setCurPage(pageFromScroll());
+    clearTimeout(scrollTimer);
+    scrollTimer = window.setTimeout(persist, 400);
+  };
+
+  // ── Persistence ────────────────────────────────────────────────────────────
+  const persist = () => {
+    if (!ready()) return;
+    saveDocState(src(), {
+      page: curPage(),
+      scale: scale(),
+      bookmarks: bookmarks(),
+      comments: comments(),
+    });
+  };
+  // Bookmarks, comments and zoom are all low-frequency, so they persist the
+  // moment they change; only scrolling needs the debounce above.
+  createEffect(() => {
+    bookmarks();
+    comments();
+    scale();
+    persist();
+  });
+  onCleanup(() => {
+    clearTimeout(scrollTimer);
+    persist();
+  });
+
+  const zoom = (d: number) => {
+    anchorOnRerender = true;
+    setScale((v) => Math.min(4, Math.max(0.4, +(v + d).toFixed(2))));
+  };
+  const resetZoom = () => {
+    anchorOnRerender = true;
+    setScale(DEFAULT_SCALE);
+  };
+
+  /**
+   * Zoom belongs to the document, not to Flux.
+   *
+   * Nothing disables engine-level zoom on the chrome window, so Ctrl+wheel and
+   * Ctrl+`=` were scaling the *entire shell* — sidebar, toolbar and all — while
+   * the page underneath stayed the same size. These handlers claim both
+   * gestures for the viewer and `preventDefault()` them, so they do the thing
+   * you meant: resize the page.
+   */
+  const onZoomWheel = (e: WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    zoom(e.deltaY < 0 ? 0.1 : -0.1);
+  };
+  const onZoomKey = (e: KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    // Ignore while typing in the page box or a comment field.
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+    if (e.key === "=" || e.key === "+") zoom(0.1);
+    else if (e.key === "-" || e.key === "_") zoom(-0.1);
+    else if (e.key === "0") resetZoom();
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  onMount(() => {
+    // Non-passive, and on the window: a passive listener can't preventDefault,
+    // and Solid's delegated handlers are registered passive for wheel.
+    window.addEventListener("keydown", onZoomKey, true);
+    onCleanup(() => window.removeEventListener("keydown", onZoomKey, true));
+  });
+
+  // ── Bookmarks + comments ───────────────────────────────────────────────────
+  const nextNoteId = () => Date.now();
+  const addBookmark = () => {
+    const p = curPage();
+    setBookmarks((b) =>
+      [...b, { id: nextNoteId(), page: p, label: `Page ${p}`, ms: Date.now() }].sort(
+        (x, y) => x.page - y.page,
+      ),
+    );
+    setMode("notes");
+    flash(`Bookmarked page ${p}.`);
+  };
+  const renameBookmark = (id: number, label: string) =>
+    setBookmarks((b) => b.map((x) => (x.id === id ? { ...x, label: label || `Page ${x.page}` } : x)));
+  const removeBookmark = (id: number) => setBookmarks((b) => b.filter((x) => x.id !== id));
+  const bookmarkOn = (p: number) => bookmarks().some((b) => b.page === p);
+
+  const addComment = () => {
+    const text = noteDraft().trim();
+    if (!text) return;
+    setComments((c) =>
+      [...c, { id: nextNoteId(), page: curPage(), text, ms: Date.now() }].sort((x, y) => x.page - y.page),
+    );
+    setNoteDraft("");
+  };
+  const removeComment = (id: number) => setComments((c) => c.filter((x) => x.id !== id));
   const flash = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(""), 3200);
@@ -867,10 +1040,63 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
           {filename()}
           {dirty() ? " •" : ""}
         </span>
+        {/* Page jump. The document was navigable only by scrolling, which on a
+            300-page paper is not navigation. Typing a number and pressing Enter
+            goes there; ⟨ / ⟩ step. */}
         <Show when={numPages() > 0}>
-          <span class="pdf-pages">
-            {numPages()} page{numPages() === 1 ? "" : "s"}
-          </span>
+          <div class="pdf-jump">
+            <button
+              class="pdf-btn"
+              title="Previous page"
+              disabled={curPage() <= 1}
+              onClick={() => scrollToPage(curPage() - 1)}
+            >
+              ⟨
+            </button>
+            <input
+              class="pdf-page-in"
+              value={pageInput() || String(curPage())}
+              title="Go to page"
+              inputmode="numeric"
+              aria-label="Page number"
+              onFocus={(e) => {
+                setPageInput(String(curPage()));
+                e.currentTarget.select();
+              }}
+              onInput={(e) => setPageInput(e.currentTarget.value)}
+              onBlur={() => setPageInput("")}
+              onKeyDown={(e) => {
+                // The viewer sits inside the chrome, which has its own global
+                // shortcuts — a bare digit here must not reach them.
+                e.stopPropagation();
+                if (e.key === "Enter") {
+                  const n = parseInt(pageInput(), 10);
+                  if (Number.isFinite(n)) scrollToPage(Math.min(Math.max(1, n), numPages()));
+                  setPageInput("");
+                  e.currentTarget.blur();
+                } else if (e.key === "Escape") {
+                  setPageInput("");
+                  e.currentTarget.blur();
+                }
+              }}
+            />
+            <span class="pdf-pages">/ {numPages()}</span>
+            <button
+              class="pdf-btn"
+              title="Next page"
+              disabled={curPage() >= numPages()}
+              onClick={() => scrollToPage(curPage() + 1)}
+            >
+              ⟩
+            </button>
+          </div>
+          <button
+            classList={{ "pdf-btn": true, active: bookmarkOn(curPage()) }}
+            title={bookmarkOn(curPage()) ? `Page ${curPage()} is bookmarked` : "Bookmark this page"}
+            onClick={addBookmark}
+          >
+            {bookmarkOn(curPage()) ? "🔖" : "🏷"}
+          </button>
         </Show>
         <span style={{ flex: 1 }} />
         <div class="pdf-modes">
@@ -902,12 +1128,25 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
           >
             🖊 Forms
           </button>
+          <button
+            classList={{ "pdf-mode": true, active: mode() === "notes" }}
+            onClick={() => setMode("notes")}
+            disabled={!ready()}
+            title="Bookmarks & comments — kept in Flux, never written into the file"
+          >
+            🔖 Notes
+            <Show when={bookmarks().length + comments().length > 0}>
+              <span class="pdf-notes-count">{bookmarks().length + comments().length}</span>
+            </Show>
+          </button>
         </div>
-        <button class="pdf-btn" onClick={() => zoom(-0.2)} title="Zoom out" disabled={!ready()}>
+        <button class="pdf-btn" onClick={() => zoom(-0.2)} title="Zoom out (Ctrl+−)" disabled={!ready()}>
           −
         </button>
-        <span class="pdf-zoom">{Math.round(scale() * 100)}%</span>
-        <button class="pdf-btn" onClick={() => zoom(0.2)} title="Zoom in" disabled={!ready()}>
+        <button class="pdf-zoom" title="Reset zoom (Ctrl+0)" disabled={!ready()} onClick={resetZoom}>
+          {Math.round(scale() * 100)}%
+        </button>
+        <button class="pdf-btn" onClick={() => zoom(0.2)} title="Zoom in (Ctrl+=)" disabled={!ready()}>
           +
         </button>
         <button
@@ -1052,14 +1291,30 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
 
       {/* Page render + annotation overlay (+ Forms side panel) */}
       <div class="pdf-body" classList={{ hidden: mode() === "pages" }}>
-        <div class="pdf-pages-wrap" classList={{ "mode-edit": mode() === "edit" }}>
+        <div
+          class="pdf-pages-wrap"
+          classList={{ "mode-edit": mode() === "edit" }}
+          onScroll={onScroll}
+          ref={(el) => {
+            wrapEl = el;
+            // Registered by hand and non-passive: a passive listener cannot
+            // preventDefault, and without that the engine zooms the whole
+            // chrome out from under the document.
+            el.addEventListener("wheel", onZoomWheel, { passive: false });
+            onCleanup(() => el.removeEventListener("wheel", onZoomWheel));
+          }}
+        >
           <For each={pages()}>
             {(p) => {
               const d = () => dims()[p - 1] ?? { w: 600, h: 800 };
               const cssW = () => d().w * scale();
               const cssH = () => d().h * scale();
               return (
-                <div class="pdf-page-wrap" style={{ width: `${cssW()}px`, height: `${cssH()}px` }}>
+                <div
+                  class="pdf-page-wrap"
+                  ref={(el) => (pageEls[p - 1] = el)}
+                  style={{ width: `${cssW()}px`, height: `${cssH()}px` }}
+                >
                   <canvas class="pdf-page" ref={(el) => (canvases[p - 1] = el)} />
                   <Show when={mode() === "forms"}>
                     <For each={widgetsForPage(p)}>{(wd) => fieldWidget(wd)}</For>
@@ -1190,6 +1445,104 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
             }}
           </For>
         </div>
+
+        {/* Bookmarks + comments (#155). Deliberately a side panel over the live
+            document rather than a separate view: both are page references, and
+            you want to click one and still be reading. */}
+        <Show when={mode() === "notes"}>
+          <div class="pdf-forms-panel pdf-notes-panel">
+            <div class="pdf-forms-head">
+              <span class="pdf-forms-title">Bookmarks</span>
+              <button class="pdf-btn" title={`Bookmark page ${curPage()}`} onClick={addBookmark}>
+                + Page {curPage()}
+              </button>
+            </div>
+            <Show
+              when={bookmarks().length > 0}
+              fallback={<div class="pdf-notes-empty">No bookmarks yet.</div>}
+            >
+              <For each={bookmarks()}>
+                {(b) => (
+                  <div class="pdf-note-row">
+                    <button
+                      class="pdf-note-page"
+                      title={`Go to page ${b.page}`}
+                      onClick={() => scrollToPage(b.page)}
+                    >
+                      {b.page}
+                    </button>
+                    <input
+                      class="pdf-note-label"
+                      value={b.label}
+                      title="Rename this bookmark"
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter") e.currentTarget.blur();
+                      }}
+                      onChange={(e) => renameBookmark(b.id, e.currentTarget.value.trim())}
+                    />
+                    <button class="pdf-note-x" title="Remove bookmark" onClick={() => removeBookmark(b.id)}>
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </For>
+            </Show>
+
+            <div class="pdf-forms-head pdf-notes-head2">
+              <span class="pdf-forms-title">Comments</span>
+            </div>
+            <div class="pdf-note-new">
+              <textarea
+                class="pdf-note-input"
+                placeholder={`Comment on page ${curPage()}…`}
+                value={noteDraft()}
+                rows={3}
+                onInput={(e) => setNoteDraft(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  // Enter adds; Shift+Enter is a newline. A comment is usually
+                  // one line, and reaching for a button breaks the reading flow.
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    addComment();
+                  }
+                }}
+              />
+              <button class="pdf-btn" disabled={!noteDraft().trim()} onClick={addComment}>
+                Add to page {curPage()}
+              </button>
+            </div>
+            <Show when={comments().length > 0} fallback={<div class="pdf-notes-empty">No comments yet.</div>}>
+              <For each={comments()}>
+                {(c) => (
+                  <div class="pdf-comment">
+                    <div class="pdf-comment-top">
+                      <button
+                        class="pdf-note-page"
+                        title={`Go to page ${c.page}`}
+                        onClick={() => scrollToPage(c.page)}
+                      >
+                        {c.page}
+                      </button>
+                      <span class="pdf-comment-when">{new Date(c.ms).toLocaleDateString()}</span>
+                      <button class="pdf-note-x" title="Delete comment" onClick={() => removeComment(c.id)}>
+                        ✕
+                      </button>
+                    </div>
+                    <div class="pdf-comment-body">{c.text}</div>
+                  </div>
+                )}
+              </For>
+            </Show>
+            {/* Said plainly, because the Edit tools next door behave the other
+                way round and the difference matters when you hit Save. */}
+            <div class="pdf-notes-note">
+              Kept in Flux for this file — never written into the PDF, so nothing here changes the document or
+              marks it unsaved.
+            </div>
+          </div>
+        </Show>
 
         {/* Forms panel */}
         <Show when={mode() === "forms"}>
