@@ -141,6 +141,7 @@ import {
   zoomFor,
 } from "./store";
 import { visibleInterval } from "./poll";
+import { attachHScroll } from "./hscroll";
 import { Favicon, PanelIcon, clusterColor } from "./tabvisual";
 import { LAYOUT_LABEL, MAX_PANES, layoutsFor, stripRows, type StripRow } from "./tiles";
 import {
@@ -1849,7 +1850,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
       {/* Tab folders — collapsible parking buckets above the footer. Members are
           kept hibernated (≈0 RAM); click one to wake + view it. */}
       <Show when={!props.collapsed && folders().length > 0}>
-        <div class="folders">
+        {/* Horizontal strip of 164px cards: past two or three it scrolls, and
+            until #157 there was no way to reach the rest. */}
+        <div class="folders hscroll" ref={(el) => onCleanup(attachHScroll(el))}>
           <For each={folders()}>
             {(f) => {
               const members = () => folderTabs(f.id);

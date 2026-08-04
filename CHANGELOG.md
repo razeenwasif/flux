@@ -64,6 +64,25 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **Three surfaces you couldn't scroll — one root cause.** BACKLOG #140 settled a real
+  Windows/Linux disagreement by hiding the scrollbars on Flux's chip strips, and in doing so
+  removed the *only* way to scroll two of them: there was nothing left to drag, and a
+  horizontal-only scroller is not obliged to translate a vertical wheel. Past the first
+  screenful, **bookmarks** and **tab folders** were unreachable. Both have their scrollbars
+  back — drawn by the one global treatment, not re-styled per component — and a vertical wheel
+  now scrolls them, so a plain mouse works.
+
+  The **system monitor** was a different mistake of mine: an inner scroll region capped at 34%
+  of the rail. A ~280px card squeezed into ~200px hid a third of the readings, and nesting a
+  third scroll box in a column that already had two meant working out which one the pointer was
+  over before the wheel did anything. Its rows are fixed-size and bounded, so it now simply
+  draws all of them; the *column* scrolls if the window is too short. The fade at its bottom
+  edge is gone too — in a box you couldn't reach the bottom of, "there is more below" read as
+  "this is cut off".
+
+  A scrollbar is now only hidden where the wheel already does the job **and** the gutter is a
+  large fraction of the element — two narrow vertical rails. Anything horizontal keeps its bar.
+
 - **A PDF tab forgot where you were the moment you left it.** Switching tabs unmounts the
   viewer — ContentArea renders only the active tab's internal page — so coming back re-fetched
   the file and dropped you on page 1. Page, zoom, bookmarks and comments are now recorded per

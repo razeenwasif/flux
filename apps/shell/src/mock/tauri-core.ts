@@ -632,12 +632,31 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "history_delete":
     case "history_clear":
       return Promise.resolve(undefined as T);
+    // Enough to overflow the bar at any window width — the bar's scrolling
+    // behaviour is only testable when there is something to scroll past.
     case "bookmarks_list":
-      return Promise.resolve([
-        { id: 1, title: "Rust", url: "https://rust-lang.org", folder: "Imported", added_ms: T0 },
-        { id: 2, title: "CI", url: "https://ci.example.com", folder: "Imported/Work", added_ms: T0 },
-        { id: 3, title: "Docs", url: "https://docs.example.com", folder: "Imported/Work", added_ms: T0 },
-      ] as T);
+      return Promise.resolve(
+        [
+          ["Rust", "https://rust-lang.org"],
+          ["CI", "https://ci.example.com"],
+          ["Docs", "https://docs.example.com"],
+          ["Hacker News", "https://news.ycombinator.com"],
+          ["GitHub", "https://github.com"],
+          ["arXiv", "https://arxiv.org"],
+          ["MDN", "https://developer.mozilla.org"],
+          ["Tauri", "https://tauri.app"],
+          ["SolidJS", "https://solidjs.com"],
+          ["crates.io", "https://crates.io"],
+          ["Ollama", "https://ollama.com"],
+          ["Syncthing", "https://syncthing.net"],
+        ].map(([title, url], i) => ({
+          id: i + 1,
+          title,
+          url,
+          folder: i % 2 ? "Imported/Work" : "Imported",
+          added_ms: T0,
+        })) as T,
+      );
     case "bookmark_folders":
       return Promise.resolve(["Imported", "Imported/Work"] as T);
     case "bookmark_add":

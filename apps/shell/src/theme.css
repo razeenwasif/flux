@@ -198,6 +198,14 @@ body,
    showed a scrollbar the design had removed while Linux hid it). The only
    `scrollbar-width` left in the file is `none`, where the two agree.
 
+   **Hiding a scrollbar hides the only way to scroll.** #140 resolved that
+   platform split by hiding those bars everywhere, and the result was strips
+   whose content simply could not be reached — see #157. A scrollbar is only
+   safe to hide where the wheel already does the job *and* the gutter is a
+   significant fraction of the element: the two survivors are `.app-rail` and
+   `.rail-scroll`, both vertical (so the wheel works) and both ~30px wide (so
+   9px of bar is a quarter of them). Anything horizontal keeps its bar.
+
    Scoped to Flux's own chrome. Pages inside a tab keep their own scrollbars —
    restyling those means injecting CSS into every site, which breaks the ones
    that style their own and makes the browser visibly rewrite what it renders. */
@@ -231,6 +239,18 @@ body,
   display: none;
 }
 
+/* Horizontal chip strips — the bookmark bar and the tab folders (#157).
+   These used to hide their scrollbars. #140 standardised that on
+   `scrollbar-width: none`, which fixed a genuine Windows/Linux disagreement and
+   simultaneously removed the ONLY way to scroll them: nothing to drag, and a
+   vertical wheel that a horizontal-only scroller need not translate. Everything
+   past the first screenful became unreachable.
+   So the bars are back — drawn by the global treatment above, deliberately NOT
+   re-styled here: a per-component thumb rule is exactly the drift #140 was
+   about, and `theme.test.ts` fails the build for it. The strips are sized to
+   accommodate the gutter instead. `hscroll.ts` adds the other missing half: a
+   vertical wheel scrolls these, which a horizontal-only scroller does not
+   otherwise guarantee. */
 body {
   /* Opaque velvet fill. The window is NOT transparent on Windows — WebView2
      can't composite per-tab child webviews on a transparent host (pages went
@@ -2661,7 +2681,9 @@ body.resizing .panel-edge-resize::after {
 /* ── Bookmark bar (#22): chip row docked under the card ── */
 .bookmark-bar {
   flex: none;
-  height: 32px;
+  /* 32px + the scrollbar gutter it now reserves — without the extra the chips
+     lost their breathing room to the bar. */
+  height: 41px;
   margin-top: 6px;
   display: flex;
   align-items: center;
@@ -2672,10 +2694,6 @@ body.resizing .panel-edge-resize::after {
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
-  scrollbar-width: none; /* paired with the ::-webkit- hide below */
-}
-.bookmark-bar::-webkit-scrollbar {
-  display: none;
 }
 
 /* Pages bar — quick-access native-page strip above the card (mirrors the bookmark
@@ -2825,10 +2843,6 @@ body.resizing .panel-edge-resize::after {
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
-  scrollbar-width: none; /* paired with the ::-webkit- hide below */
-}
-.pages-bar::-webkit-scrollbar {
-  display: none;
 }
 .pages-chip {
   flex: none;
@@ -2893,10 +2907,6 @@ body.resizing .panel-edge-resize::after {
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
   background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.05), var(--velvet-800));
-  scrollbar-width: none; /* paired with the ::-webkit- hide below */
-}
-.tui-bar::-webkit-scrollbar {
-  display: none;
 }
 .tui-chip {
   flex: none;
@@ -3702,6 +3712,12 @@ body.resizing .panel-edge-resize::after {
   padding: var(--flux-frame-pad);
   padding-left: 0;
   gap: 8px;
+  /* The column's own scrollbar, and the reason the widgets inside it don't each
+     need one. It only engages when the fixed-size blocks (monitor, Trail) can't
+     fit the window — on a short screen that is exactly when content would
+     otherwise be silently clipped off the bottom with no way to reach it. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .connect-head {
   display: flex;
@@ -3777,9 +3793,17 @@ body.resizing .panel-edge-resize::after {
    reads as two widgets rather than as two unrelated designs. `flex: 0 1 auto`
    with a ceiling: when the window is short this gives way before the
    connections do — those are what change on every navigation. */
+/* Sizes to its content — deliberately NOT an inner scroll region.
+   It was one, capped at 34% of the rail, and that was wrong twice over: a
+   ~280px card squeezed into ~200px hid a third of the readings behind a
+   scrollbar most people never found, and nesting a third scroll box in a column
+   that already has two means you have to work out which one the pointer is
+   over before the wheel does anything. The rows are fixed-size and bounded
+   (a handful per group), unlike the connections list — so there is nothing here
+   that needs to scroll independently. If the whole column runs out of room, the
+   column scrolls. */
 .sysmon {
-  flex: 0 1 auto;
-  min-height: 0;
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -3787,16 +3811,6 @@ body.resizing .panel-edge-resize::after {
   border-radius: 12px;
   border: 1px solid var(--glass-rim-soft);
   background: rgba(10, 8, 24, 0.35);
-  /* With the Trail's 42% below it, this leaves the connections a quarter of the
-     rail at worst. They're the only part that re-queries on navigation, so they
-     get the floor. */
-  max-height: 34%;
-}
-/* Collapsed it is one row; the ceiling would otherwise reserve rail height for
-   a card that isn't drawing anything. */
-.sysmon:not(.open) {
-  flex: none;
-  max-height: none;
 }
 .sysmon-head {
   display: flex;
@@ -3833,17 +3847,13 @@ body.resizing .panel-edge-resize::after {
   margin-left: auto;
   font-size: 9px;
 }
+/* No scroll and no fade mask: every row is drawn. The mask this used to carry
+   said "there is more below" — which, in a box you couldn't reach the bottom of,
+   read as "this is cut off". */
 .sysmon-body {
-  min-height: 0;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding-right: 2px;
-  /* Rows sliced at the scroll edge read as a rendering fault; fade instead —
-     same treatment as the connections list and the collapsed rail. */
-  mask-image: linear-gradient(#000 0, #000 calc(100% - 10px), #0000 100%);
-  -webkit-mask-image: linear-gradient(#000 0, #000 calc(100% - 10px), #0000 100%);
 }
 .sysmon-cap {
   font-size: 8.5px;
@@ -10935,10 +10945,6 @@ body.busy .start-card {
   border-top: 1px solid var(--flux-border);
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: none; /* paired with the ::-webkit- hide below */
-}
-.folders::-webkit-scrollbar {
-  display: none;
 }
 .folder {
   flex: none;

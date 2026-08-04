@@ -7,6 +7,7 @@
  */
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import { bookmarkRemove, bookmarkRename, bookmarksList, type Bookmark } from "./ipc";
+import { attachHScroll } from "./hscroll";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
@@ -25,6 +26,7 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
   const [bookmarks, setBookmarks] = createSignal<Bookmark[]>([]);
   const [editing, setEditing] = createSignal<number | null>(null);
   const [draft, setDraft] = createSignal("");
+
   const refresh = () =>
     void bookmarksList()
       .then((b) => setBookmarks(b ?? []))
@@ -66,8 +68,10 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
       .catch(() => {});
   };
 
+  // `hscroll`: a vertical wheel scrolls the strip. The scrollbar itself is back
+  // in CSS — between them, the bar is reachable with a mouse again.
   return (
-    <div class="bookmark-bar">
+    <div class="bookmark-bar hscroll" ref={(el) => onCleanup(attachHScroll(el))}>
       <Show
         when={bookmarks().length > 0}
         fallback={
