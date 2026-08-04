@@ -93,6 +93,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **The agent couldn't read the PDFs it had just listed.** `list` returned bare filenames, and
+  the next step is written by a model reading that output — so it came back as
+  `read 01-lecture.pdf`, a relative path, resolved against whatever directory Flux was launched
+  from. Never where the file is. From the model's side a relative-path failure looks identical to
+  a missing file, so it had nothing useful to react to.
+
+  The shape of what a tool returns decides what the next command looks like, so `list` now hands
+  back **full paths, ready to use**. As belt and braces a bare name also resolves against the last
+  directory listed, because a small model will shorten a long path back to its basename however
+  it was given them. With no directory listed yet the name is left alone — guessing one would
+  turn "not found" into "read the wrong file". A failed read now names the exact path it tried,
+  since nearly every failure here is the path rather than the PDF.
+
 - **The WSL bridge listed the wrong directory and called it success.** Asking the agent to list a
   folder returned Flux's own repo — 13 folders, 14 files — with a zero exit status, so it read
   that as the answer and kept going. Two mistakes stacked:

@@ -86,6 +86,7 @@ import {
 } from "./ipc";
 import { looksLikeNoteWrite } from "./noteintent";
 import { looksAgentic } from "./agentintent";
+import { joinPath, resolveAgentPath } from "./agentpaths";
 import { readPdfText } from "./pdftext";
 import {
   activeId,
@@ -959,11 +960,17 @@ const AgentPanel: Component = () => {
   /** How many entries to hand the model. A media folder can hold thousands, and
    *  the list is context it pays for on every subsequent step. */
   const LIST_CAP = 60;
+  /** The last directory the agent listed — what a bare filename resolves
+   *  against. See `agentpaths.ts` for why that's needed. */
+  let lastListedDir = "";
+  const resolvePath = (raw: string): string => resolveAgentPath(raw, lastListedDir);
+
   const runListDir = async (raw: string): Promise<string> => {
-    const path = raw.trim().replace(/^["']|["']$/g, "");
+    const path = resolvePath(raw);
     if (!path) return "";
     try {
       const listing = await fsList(path);
+      lastListedDir = listing.path;
       const all = listing.entries;
       const dirs = all.filter((e) => e.is_dir).map((e) => `${e.name}/`);
       const files = all.filter((e) => !e.is_dir).map((e) => e.name);
@@ -977,7 +984,15 @@ const AgentPanel: Component = () => {
       ]);
       if (all.length === 0) return `${listing.path} is empty.`;
       const more = all.length > LIST_CAP ? `\n…and ${all.length - LIST_CAP} more` : "";
-      return `Contents of ${listing.path}:\n${shown.join("\n")}${more}`;
+      // FULL paths, not bare names. The next step is written from this text, so
+      // a listing of basenames produced `read 01-lecture.pdf` — a relative path,
+      // resolved against whatever directory Flux was launched from, which is
+      // never where the file is. Handing back paths that are already usable is
+      // cheaper than teaching the model to reassemble them.
+      return (
+        `Contents of ${listing.path} (full paths, use them as-is):\n` +
+        `${shown.map((n) => joinPath(listing.path, n)).join("\n")}${more}`
+      );
     } catch (e) {
       const m = String(e);
       setFeed((f) => [...f, { role: "error", text: m }]);
@@ -986,7 +1001,7 @@ const AgentPanel: Component = () => {
   };
 
   const runReadFile = async (raw: string): Promise<string> => {
-    const path = raw.trim().replace(/^["']|["']$/g, "");
+    const path = resolvePath(raw);
     if (!path) return "";
     // A PDF read through `read_text_file` returns the container — "%PDF-1.7",
     // object headers, compressed streams — and the model summarises *that*,
@@ -1035,7 +1050,10 @@ const AgentPanel: Component = () => {
       ]);
       return `Read ${name} — ${pages} pages${partial}${truncated ? " (truncated)" : ""}.\n\n${text}`;
     } catch (e) {
-      const m = `Couldn't read ${name}: ${String(e).replace(/^Error:\s*/, "")}`;
+      // Name the exact path tried, not just the file. Nearly every failure here
+      // is the path being wrong rather than the PDF being unreadable, and
+      // "couldn't read lecture1.pdf" hides which of those it was.
+      const m = `Couldn't read ${path}: ${String(e).replace(/^Error:\s*/, "")}`;
       setFeed((f) => [...f, { role: "error", text: m }]);
       return m;
     }
