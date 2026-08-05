@@ -1027,10 +1027,22 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   return (
     <div class="pdf-view">
       <div class="pdf-toolbar">
-        <span class="pdf-title" title={src()}>
+        {/* Click to copy the absolute path. The path was only ever a tooltip,
+            which can't be selected — so there was no way to get it out of here
+            and into a message, a terminal, or the agent. */}
+        <button
+          class="pdf-title"
+          title={`${src()}\n(click to copy the path)`}
+          onClick={() => {
+            void navigator.clipboard
+              .writeText(src())
+              .then(() => flash(`Copied ${src()}`))
+              .catch(() => flash(src()));
+          }}
+        >
           {filename()}
           {dirty() ? " •" : ""}
-        </span>
+        </button>
         {/* Page jump. The document was navigable only by scrolling, which on a
             300-page paper is not navigation. Typing a number and pressing Enter
             goes there; ⟨ / ⟩ step. */}

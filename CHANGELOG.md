@@ -121,6 +121,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **The PDF viewer's own toolbar was overwriting the document's text.** Asked about an open PDF,
+  Gemma reported she could see "only the interface elements of your PDF viewer, like the page
+  count and zoom level" — and she was describing exactly what she'd been given. `InternalPage`
+  publishes every Flux page's rendered DOM as that tab's snapshot, which for the viewer is the
+  filename, `3 / 35`, `140%` and the mode buttons. It landed on top of the real snapshot written
+  by `pdf_publish_text`.
+
+  It became constant with this cycle's page-jump readout: the publisher is driven by a
+  MutationObserver, and the page number now changes on every scroll, so the document's text was
+  clobbered again and again rather than losing one race at startup. A page that publishes a better
+  snapshot than its own DOM now opts out, rather than hoping to win a timing fight.
+
+  The snapshot also names the file's **absolute path** now — the viewer only ever had it as a
+  tooltip, which can't be selected, so neither the user nor the agent could get at it. The
+  filename in the toolbar is a button that copies the full path.
+
 - **A wordier model no longer breaks every structured feature.** Switching to a 26B made calls
   fail with *"output truncated at the token cap… raise it with `FLUX_OLLAMA_OPTIONS`"* — a
   correct diagnosis, handed to the user as homework for a request the machine could simply have

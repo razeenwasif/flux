@@ -11411,7 +11411,20 @@ body.busy .start-card {
 .pdf-toolbar > * {
   flex: none;
 }
+/* A button now (click copies the absolute path), but it must still read as the
+   document's name, not as a control. */
+.pdf-title:hover {
+  border-color: var(--flux-border);
+  background: var(--flux-surface);
+}
 .pdf-title {
+  border: 1px solid transparent;
+  background: none;
+  border-radius: 6px;
+  padding: 2px 6px;
+  cursor: pointer;
+  color: var(--flux-text);
+  text-align: left;
   font-size: 13px;
   font-weight: 600;
   /* The only shrinkable thing in the bar (see `.pdf-toolbar > *`). */

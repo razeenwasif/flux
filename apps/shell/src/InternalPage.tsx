@@ -100,6 +100,17 @@ const InternalPage: Component<InternalPageProps> = (props) => {
   const publish = () => {
     const t = tab();
     if (!t || !host) return;
+    // The PDF viewer publishes the DOCUMENT's text itself (`pdf_publish_text`),
+    // and this would publish the *chrome* on top of it — filename, "3 / 35",
+    // "140%", the mode buttons. That is exactly what the agent then reported it
+    // could see: "only the interface elements of your PDF viewer, like the page
+    // count and zoom level". And because this is driven by a MutationObserver,
+    // and the page readout changes on every scroll, it overwrote the real
+    // snapshot again and again rather than losing one race at startup.
+    //
+    // A page that publishes a better snapshot than its own DOM must opt out
+    // here, not hope to win a timing fight.
+    if (t.url.startsWith(PDF_URL)) return;
     const text = Array.from(host.children)
       .map((c) => (c as HTMLElement).innerText ?? "")
       .join("\n")

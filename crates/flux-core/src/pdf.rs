@@ -419,15 +419,22 @@ pub fn pdf_publish_text(
     // would answer about "the document" while holding two slides of a
     // thirty-five slide lecture — and had no way to know it. The KB doc stays
     // clean (a note there would pollute citations); the snapshot says it.
-    let snapshot_text = match (pages, pages_with_text) {
+    // Always name the file and its absolute path. The user can't copy a path out
+    // of the viewer, so without this the agent could neither cite the document
+    // nor be asked to re-read it — and "read <path>" is the one route that runs
+    // OCR. The partial case adds which pages are missing.
+    let partial = match (pages, pages_with_text) {
         (Some(total), Some(with)) if total > with && total > 0 => format!(
-            "[Flux] \"{title}\": only {with} of {total} pages contain selectable text — the rest \
-             are images. What follows is everything readable in this document; if the user asks \
-             about something that isn't here, say it's on a page with no text layer and point at \
-             \"Read with OCR\" in the viewer.\n\n{text}"
+            " Only {with} of {total} pages contain selectable text — the rest are images, so what \
+             follows is everything readable here. If the user asks about something that isn't in \
+             it, say so and offer to read the file again (that runs OCR on the image pages)."
         ),
-        _ => text.clone(),
+        _ => String::new(),
     };
+    let snapshot_text = format!(
+        "[Flux] The user is viewing \"{title}\" in the PDF viewer. Its file path is {src} — use \
+         that verbatim if you need to read it again or tell them where it is.{partial}\n\n{text}"
+    );
 
     // The live snapshot is what `agent_chat` and chat-with-tabs read. Built here
     // rather than routed through `dom_publish`: that also writes history, the
