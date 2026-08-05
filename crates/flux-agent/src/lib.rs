@@ -590,6 +590,87 @@ struct PolicyFlagList {
 /// success. String- and escape-aware, so a `{`/`}` inside a JSON string can't
 /// unbalance it. Falls back to the trimmed input when there's no object at all,
 /// leaving the original parse error to surface.
+/// Escape a stray backslash that JSON doesn't recognise, inside string literals.
+///
+/// The note prompt asks for LaTeX — `$$\int_0^1 x^2\,dx$$` — and a model that
+/// writes that into a JSON string has to emit `\\int`. Small ones routinely
+/// don't, and `\i` / `\,` are not valid JSON escapes, so the whole reply is
+/// rejected with "invalid escape at line 1 column 2411" and the user loses a
+/// note that was otherwise fine. It shows up wherever mathematics or Windows
+/// paths appear, which is to say exactly where this agent is most useful.
+///
+/// Only the eight escapes JSON defines are left alone (`" \ / b f n r t`), plus
+/// `\u` with four hex digits after it. Everything else becomes a literal
+/// backslash — which is what the model meant.
+///
+/// Deliberately applied ONLY after a strict parse has already failed: valid
+/// output is never rewritten, so this can add a success but never change one.
+fn repair_json_escapes(raw: &str) -> String {
+    let chars: Vec<char> = raw.chars().collect();
+    let mut out = String::with_capacity(raw.len() + 32);
+    let mut i = 0;
+    let mut in_str = false;
+    while i < chars.len() {
+        let c = chars[i];
+        if !in_str {
+            if c == '"' {
+                in_str = true;
+            }
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' => {
+                in_str = false;
+                out.push(c);
+                i += 1;
+            }
+            '\\' => {
+                let next = chars.get(i + 1).copied();
+                let valid_simple = matches!(next, Some('"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't'));
+                // `\u` is only an escape when four hex digits follow; a bare
+                // `\underline{x}` is LaTeX and must be escaped like anything else.
+                let valid_u = next == Some('u')
+                    && chars
+                        .get(i + 2..i + 6)
+                        .is_some_and(|d| d.iter().all(|c| c.is_ascii_hexdigit()));
+                if valid_simple || valid_u {
+                    out.push('\\');
+                    out.push(chars[i + 1]);
+                    i += 2;
+                } else {
+                    // Includes a trailing lone backslash, where `next` is None.
+                    out.push('\\');
+                    out.push('\\');
+                    i += 1;
+                }
+            }
+            _ => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Extract the first JSON object and deserialize it, repairing invalid escapes
+/// if — and only if — the strict parse fails. Every structured call goes through
+/// here so a model's LaTeX can't take out one feature and not another.
+fn parse_first_json<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T, AgentError> {
+    let obj = first_json_object(raw);
+    match serde_json::from_str::<T>(obj) {
+        Ok(v) => Ok(v),
+        Err(first) => {
+            let repaired = repair_json_escapes(obj);
+            // Report the ORIGINAL error if the repair didn't help: the second
+            // error would describe text the model never produced.
+            serde_json::from_str::<T>(&repaired).map_err(|_| AgentError::from(first))
+        }
+    }
+}
+
 fn first_json_object(raw: &str) -> &str {
     let s = raw.trim();
     let Some(start) = s.find('{') else { return s };
@@ -806,7 +887,7 @@ impl AgentPlanner {
         let raw = self
             .backend
             .complete(&prompt, Some(&action_schema(false)))?;
-        let action: AgentAction = serde_json::from_str(first_json_object(&raw))?;
+        let action: AgentAction = parse_first_json(&raw)?;
         policy_check(&action)?;
         tracing::info!(target: "flux::agent", action = %action.describe(), "planned");
         Ok(action)
@@ -876,7 +957,7 @@ impl AgentPlanner {
         let raw = self
             .backend
             .complete(&prompt, Some(&note_action_schema()))?;
-        let action: NoteAction = serde_json::from_str(first_json_object(&raw))?;
+        let action: NoteAction = parse_first_json(&raw)?;
         tracing::info!(target: "flux::agent", action = %action.describe(), "planned note write");
         Ok(action)
     }
@@ -910,7 +991,7 @@ impl AgentPlanner {
             "required": ["command"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let v: serde_json::Value = serde_json::from_str(first_json_object(&raw))?;
+        let v: serde_json::Value = parse_first_json(&raw)?;
         let cmd = v
             .get("command")
             .and_then(|c| c.as_str())
@@ -954,7 +1035,7 @@ impl AgentPlanner {
             "required": ["steps"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let v: serde_json::Value = serde_json::from_str(first_json_object(&raw))?;
+        let v: serde_json::Value = parse_first_json(&raw)?;
         let steps = v
             .get("steps")
             .and_then(|s| s.as_array())
@@ -1021,7 +1102,7 @@ impl AgentPlanner {
             "required": ["command", "done", "summary"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let step: NextStep = serde_json::from_str(first_json_object(&raw))?;
+        let step: NextStep = parse_first_json(&raw)?;
         Ok(step)
     }
 
@@ -1064,7 +1145,7 @@ impl AgentPlanner {
             "required": ["summary", "edits"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        Ok(serde_json::from_str(first_json_object(&raw))?)
+        Ok(parse_first_json(&raw)?)
     }
 
     /// Plan the **single next step** of a multi-step task (BACKLOG #A). The agent
@@ -1083,7 +1164,7 @@ impl AgentPlanner {
         let prompt = Self::step_prompt(goal, page_text, history, url);
         // Multi-step: `finish` is allowed so the loop can declare the goal met.
         let raw = self.backend.complete(&prompt, Some(&action_schema(true)))?;
-        let action: AgentAction = serde_json::from_str(first_json_object(&raw))?;
+        let action: AgentAction = parse_first_json(&raw)?;
         policy_check(&action)?;
         tracing::info!(target: "flux::agent", step = %action.describe(), "task step planned");
         Ok(action)
@@ -1173,7 +1254,7 @@ impl AgentPlanner {
             "required": ["doc_type", "sections"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let parsed: ReadingStructure = serde_json::from_str(first_json_object(&raw))?;
+        let parsed: ReadingStructure = parse_first_json(&raw)?;
         Ok(validate_reading_structure(parsed, headings.len()))
     }
 
@@ -1223,7 +1304,7 @@ impl AgentPlanner {
             "required": ["flags"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let parsed: PolicyFlagList = serde_json::from_str(first_json_object(&raw))?;
+        let parsed: PolicyFlagList = parse_first_json(&raw)?;
         // Rust owns the limits: at most 3, no empties, no layout-breaking lengths.
         Ok(parsed
             .flags
@@ -1261,7 +1342,7 @@ impl AgentPlanner {
             "required": ["insight"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let v: serde_json::Value = serde_json::from_str(first_json_object(&raw))?;
+        let v: serde_json::Value = parse_first_json(&raw)?;
         let mut s = v
             .get("insight")
             .and_then(|i| i.as_str())
@@ -1312,7 +1393,7 @@ impl AgentPlanner {
             "required": ["expected", "note"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let mut j: PermissionJudgment = serde_json::from_str(first_json_object(&raw))?;
+        let mut j: PermissionJudgment = parse_first_json(&raw)?;
         // Keep it to one line in a 38px bar; a rambling model can't break layout.
         j.note = j.note.replace(['\n', '\r'], " ").trim().to_string();
         if j.note.chars().count() > 140 {
@@ -1371,7 +1452,7 @@ impl AgentPlanner {
             "required": ["verdict", "brand", "reasons"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let mut j: PhishingJudgment = serde_json::from_str(first_json_object(&raw))?;
+        let mut j: PhishingJudgment = parse_first_json(&raw)?;
         // Never silently trust an off-vocabulary verdict — fold it to the safe
         // middle so a confused/poisoned model can't emit "legitimate" by accident.
         j.verdict = match j.verdict.to_ascii_lowercase().as_str() {
@@ -1487,7 +1568,7 @@ impl AgentPlanner {
             "required": ["fixes"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let parsed: TextFixList = serde_json::from_str(first_json_object(&raw))?;
+        let parsed: TextFixList = parse_first_json(&raw)?;
         // Validated against `body`, not `text`: if the page was truncated to the
         // budget, a fix in the part the model never saw is not ours to offer.
         Ok(validate_fixes(parsed.fixes, &body))
@@ -1683,6 +1764,64 @@ impl Inference for MockBackend {
 
 #[cfg(test)]
 mod tests {
+    /// The reported failure: "invalid escape at line 1 column 2411". The note
+    /// prompt asks for LaTeX, and a model that writes `\int` rather than
+    /// `\\int` into a JSON string produces text serde rejects outright — so a
+    /// perfectly good note is lost to a quoting slip.
+    #[test]
+    fn latex_backslashes_are_repaired_not_rejected() {
+        let raw = r#"{"action":"new_note","title":"Duality","body":"The dual is $$\int_0^1 x^2\,dx$$ and \alpha > 0"}"#;
+        // Strict parsing fails, which is the bug being fixed.
+        assert!(serde_json::from_str::<serde_json::Value>(raw).is_err());
+
+        let v: serde_json::Value = super::parse_first_json(raw).expect("repaired");
+        assert_eq!(v["title"], "Duality");
+        // The backslashes survive as LITERAL backslashes — the LaTeX has to
+        // reach the note intact, or the repair has merely traded one silent
+        // corruption for another.
+        let body = v["body"].as_str().unwrap();
+        assert!(body.contains(r"\int_0^1"), "{body}");
+        assert!(body.contains(r"\,dx"), "{body}");
+        assert!(body.contains(r"\alpha"), "{body}");
+    }
+
+    #[test]
+    fn valid_json_is_never_rewritten() {
+        // Every real escape must survive untouched: a repair that "fixes" valid
+        // output would corrupt newlines and quotes in every note.
+        let raw = r#"{"a":"line\nbreak \"quoted\" back\\slash tab\there é"}"#;
+        let strict: serde_json::Value = serde_json::from_str(raw).expect("already valid");
+        let via: serde_json::Value = super::parse_first_json(raw).expect("unchanged");
+        assert_eq!(strict, via);
+        assert_eq!(via["a"].as_str().unwrap(), "line\nbreak \"quoted\" back\\slash tab\there é");
+    }
+
+    #[test]
+    fn repair_leaves_structure_alone_and_handles_edge_cases() {
+        use super::repair_json_escapes;
+        // A backslash outside a string is not ours to touch.
+        assert_eq!(repair_json_escapes(r"{\ }"), r"{\ }");
+        // `\u` with four hex digits is an escape; `\underline` is not.
+        assert_eq!(repair_json_escapes(r#""é""#), r#""é""#);
+        assert_eq!(repair_json_escapes(r#""\underline{x}""#), r#""\\underline{x}""#);
+        // A lone trailing backslash inside a string must not run off the end.
+        assert_eq!(repair_json_escapes(r#""ends with \"#), r#""ends with \\"#);
+        // An escaped quote still closes nothing — the string continues.
+        let s = r#"{"a":"say \"hi\" \& go","b":"x"}"#;
+        let v: serde_json::Value = serde_json::from_str(&repair_json_escapes(s)).unwrap();
+        assert_eq!(v["a"], r#"say "hi" \& go"#);
+        assert_eq!(v["b"], "x");
+    }
+
+    #[test]
+    fn an_unrepairable_reply_reports_the_original_error() {
+        // Truncated JSON isn't an escape problem, and the escape repair must not
+        // bury the real cause under a second, more confusing message.
+        let err = super::parse_first_json::<serde_json::Value>(r#"{"a":"unterminated"#).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("EOF") || msg.contains("control"), "{msg}");
+    }
+
     /// A note is a summary. Unbounded, a 26B handed a folder of lecture PDFs
     /// tried to write all of them back out and blew past 8192 output tokens,
     /// failing with nothing usable. Every body field must carry the ceiling —

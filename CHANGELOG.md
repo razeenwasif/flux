@@ -132,6 +132,21 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **LaTeX no longer throws away the reply that contains it.** *"model returned malformed action:
+  invalid escape at line 1 column 2411"* was the note prompt getting what it asked for. It
+  requests LaTeX — `$$\int_0^1 x^2\,dx$$` — and a model writing that into a JSON string has to
+  emit `\\int`. Small models routinely don't, and `\i` / `\,` aren't valid JSON escapes, so
+  serde rejected the whole object and a perfectly good note was lost to a quoting slip. It showed
+  up wherever mathematics or Windows paths appear — which is exactly where the agent is most
+  useful.
+
+  A stray backslash inside a string is now repaired to a literal one, and the LaTeX reaches the
+  note intact. Applied **only after a strict parse has already failed**, so valid output is never
+  rewritten — the repair can add a success but can't change one. If it doesn't help, the original
+  error surfaces rather than a second one describing text the model never produced. All thirteen
+  structured call sites go through one parse helper, so a model's maths can't take out one
+  feature and spare another.
+
 - **A note is a summary, not a transcript.** Asked to summarise a folder of lecture PDFs, a 26B
   ran past **8192 output tokens** — roughly 32 KB of "note" — and failed with nothing usable,
   even after the automatic retry. Nothing had ever told it how long a note should be: the prompt
