@@ -352,6 +352,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       ] as T);
     // Named places (#166) — the preview needs a vault with folders to show that
     // "onyx / 00 - Optimization" resolves without a path.
+    case "agent_unload":
+      return Promise.resolve((args?.model || "gemma4:12b-it-qat") as T);
     case "agent_places":
       return Promise.resolve([
         {

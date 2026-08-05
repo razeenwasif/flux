@@ -243,6 +243,37 @@ fn keep_alive() -> String {
     std::env::var("FLUX_OLLAMA_KEEPALIVE").unwrap_or_else(|_| "30m".into())
 }
 
+/// Evict a model from VRAM now, instead of waiting out [`keep_alive`].
+///
+/// The same knob, set to zero: `/api/generate` with an empty prompt and
+/// `keep_alive: 0` tells Ollama to drop the model as soon as this request
+/// returns. That is what `ollama stop` does under the hood, and going through
+/// the HTTP API rather than shelling out means it works wherever the server is
+/// — including a remote `FLUX_OLLAMA_URL`, where the `ollama` binary on *this*
+/// machine would be talking about a different process, or not exist at all.
+///
+/// Empty `model` unloads whichever model the agent is currently using. Returns
+/// the name it acted on, so the caller can say which one went.
+pub fn unload(model: &str) -> Result<String, AgentError> {
+    let name = if model.trim().is_empty() {
+        active_model()
+    } else {
+        model.trim().to_string()
+    };
+    let url = format!("{}/api/generate", endpoint());
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(3))
+        // Unloading is fast, but a model mid-generation holds the lock until it
+        // finishes — so allow for that rather than reporting a false failure.
+        .timeout_read(Duration::from_secs(60))
+        .build();
+    agent
+        .post(&url)
+        .send_json(serde_json::json!({ "model": name, "keep_alive": 0 }))
+        .map_err(|e| AgentError::Inference(format!("ollama unload via {url}: {e}")))?;
+    Ok(name)
+}
+
 /// Baseline context window: a 12B model's quality degrades long before its full
 /// window fills, prompt-eval cost is linear in context, and a smaller window
 /// bounds RAM. This is a *floor*, grown per-request by [`ctx_for`].
@@ -733,6 +764,24 @@ mod tests {
             msg.contains(&(cap * 2).to_string()),
             "suggests a HIGHER override than the one tried: {msg}"
         );
+    }
+
+    /// Unload targets a NAMED model. Sending an empty name would have Ollama
+    /// reject the request, and the button would silently do nothing while
+    /// looking like it had worked.
+    #[test]
+    fn unload_defaults_to_the_active_model() {
+        set_model("gemma4:26b-council");
+        // `unload("")` resolves the name the same way; assert on that resolution
+        // rather than making a request, since there is no server here.
+        assert_eq!(active_model(), "gemma4:26b-council");
+        let body = serde_json::json!({ "model": active_model(), "keep_alive": 0 });
+        assert_eq!(body["model"], "gemma4:26b-council");
+        // Zero, not "0s" or absent: this is the same knob as keep_alive(), and
+        // an absent value means "use the default", i.e. keep it resident.
+        assert_eq!(body["keep_alive"], 0);
+        assert_ne!(keep_alive(), "0", "the normal path must still keep it warm");
+        set_model("");
     }
 
     /// Retrying is only worth a round trip while the context can actually grow

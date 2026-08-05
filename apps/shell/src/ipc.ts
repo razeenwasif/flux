@@ -1238,6 +1238,11 @@ export const tasksDisks = () => invoke<DiskInfo[]>("tasks_disks");
  *  directory. */
 export type Place = GenPlace;
 export const agentPlaces = () => invoke<Place[]>("agent_places");
+
+/** Drop the agent's model from VRAM now instead of waiting out the 30-minute
+ *  keep-alive (#169). Resolves to the model that was unloaded; it reloads by
+ *  itself on the next request. Empty/omitted → whichever model is active. */
+export const agentUnload = (model?: string) => invoke<string>("agent_unload", { model });
 export const tasksKill = (pid: number) => invoke<boolean>("tasks_kill", { pid });
 export const tasksStats = () => invoke<SysStats>("tasks_stats");
 /** Live GPU stats via nvidia-smi (empty on non-NVIDIA / no driver). */

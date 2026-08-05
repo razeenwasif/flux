@@ -1138,6 +1138,7 @@ pub fn run(intent: cli::LaunchIntent) {
             agent::agent_models,
             agent::agent_model,
             agent::agent_set_model,
+            agent::agent_unload,
             agent::omni_search,
             commands::tabs_recluster,
             terminal::terminal_spawn,

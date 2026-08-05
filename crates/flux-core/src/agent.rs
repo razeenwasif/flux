@@ -243,6 +243,20 @@ pub fn agent_set_model(name: String) {
     flux_agent::ollama::set_model(&name);
 }
 
+/// Drop the agent's model from VRAM now (#169), rather than waiting out the
+/// 30-minute keep-alive. A 12B sits on several GB, and the whole point of Flux
+/// keeping it warm is latency between *your* turns — which is worth nothing
+/// while you're doing something else that wants the GPU. Returns the model that
+/// was unloaded; it reloads by itself on the next request.
+#[tauri::command]
+pub async fn agent_unload(model: Option<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        flux_agent::ollama::unload(model.as_deref().unwrap_or_default()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Chat grounded in the captured text of several tabs (chat-with-tabs). Gathers
 /// each tab's cached DOM text (capped per tab), labels it, and asks the local
 /// model. Tabs without a snapshot yet are skipped.

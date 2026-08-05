@@ -4238,6 +4238,25 @@ body.resizing .panel-edge-resize::after {
 .agent-model-item.on {
   color: var(--flux-teal);
 }
+/* Separates the list of models from the action below it — without a rule, the
+   unload button reads as one more model you could switch to. */
+.agent-model-sep {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--glass-rim-soft);
+}
+.agent-model-unload {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: var(--flux-text-dim);
+  font: inherit;
+  font-size: 12px;
+}
+.agent-model-unload:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .agent-chat-del {
   opacity: 0.5;
   padding: 0 2px;

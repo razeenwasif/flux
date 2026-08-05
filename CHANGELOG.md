@@ -8,6 +8,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Unload the model from VRAM.** A 12B sits on several GB, and Flux deliberately keeps it warm
+  for 30 minutes so your next question doesn't pay a cold model load. That trade is worth nothing
+  the moment you want the GPU for something else, and the only ways out were waiting or
+  `ollama stop` in a terminal. The model picker now has **⏏ Unload from VRAM**; it reloads by
+  itself on your next message, so nothing is lost but the warm start.
+
+  Done through Ollama's HTTP API (`keep_alive: 0` — the same knob that keeps it warm, set to
+  zero) rather than shelling out to `ollama stop`, so it works wherever the server actually is:
+  with a remote `FLUX_OLLAMA_URL` the local `ollama` binary would be talking about a different
+  process, or not be installed at all.
+
 - **The agent runs OCR itself.** A scan has no text layer, so reading one used to end with Gemma
   telling you to open the PDF viewer and click **Read with OCR** — asking you to do by hand the
   one thing you'd asked her to do. She runs it now, with per-page progress in the feed, and says

@@ -37,6 +37,7 @@ import {
   fsList,
   ocrAvailable,
   agentPlaces,
+  agentUnload,
   type Place,
   writeTextFile,
   agentEditPlan,
@@ -959,6 +960,28 @@ const AgentPanel: Component = () => {
       "expand to the path when a tool needs one:\n" +
       `${lines.join("\n")}\n\n`
     );
+  };
+
+  /** Drop the model from VRAM now rather than waiting out the keep-alive (#169).
+   *  A 12B sits on several GB, and keeping it warm buys latency between *your*
+   *  turns — worth nothing while you're doing something else that wants the GPU.
+   *  Not destructive: the next message loads it again. */
+  const [unloading, setUnloading] = createSignal(false);
+  const unloadModel = async () => {
+    if (unloading()) return;
+    setUnloading(true);
+    try {
+      const name = await agentUnload();
+      setModelMenu(false);
+      setFeed((f) => [
+        ...f,
+        { role: "action", text: `⏏ Unloaded ${name} from VRAM — it'll reload on your next message.` },
+      ]);
+    } catch (e) {
+      setFeed((f) => [...f, { role: "error", text: `Couldn't unload: ${String(e)}` }]);
+    } finally {
+      setUnloading(false);
+    }
   };
 
   const convoPrompt = (current: string): string => {
@@ -2837,6 +2860,18 @@ const AgentPanel: Component = () => {
                       )}
                     </For>
                   </Show>
+                  {/* Free the VRAM without waiting out the keep-alive. Lives in
+                      the model menu because it is a model action, and the header
+                      is already carrying four controls. */}
+                  <div class="agent-model-sep" />
+                  <button
+                    class="agent-model-item agent-model-unload"
+                    disabled={unloading()}
+                    title={`Tell Ollama to drop ${agentModelName() || "the model"} from VRAM now. It reloads automatically next time you ask her something.`}
+                    onClick={() => void unloadModel()}
+                  >
+                    {unloading() ? "Unloading…" : `⏏ Unload from VRAM`}
+                  </button>
                 </div>
               </Portal>
             </Show>
