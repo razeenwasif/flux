@@ -249,8 +249,10 @@ and merges; 🖊 Forms fills AcroForm fields in place, with an optional flatten 
 save.
 
 **Scanned PDFs** have no text layer, so the agent would otherwise see an empty
-document. The viewer detects that, says so, and offers **Read with OCR** if a
-local `tesseract` binary is installed — recognised text is indexed under its own
+document. Ask her to read one and she runs OCR herself (up to 40 pages; longer
+scans stay a deliberate act you start from the viewer). The viewer detects the
+same thing, says so, and offers **Read with OCR** if a local `tesseract` binary
+is installed — recognised text is indexed under its own
 `pdf-ocr` source so every citation carries that a machine read it off an image.
 
 ## Search

@@ -379,8 +379,9 @@ pub fn pdf_publish_text(
             "[Flux] The PDF \"{title}\" is open in the viewer: {} page(s), NONE of which contain \
              selectable text. It is a scan or an image-only export, so there is genuinely no text \
              to read — this is a fact about the document, not about what you were given. Tell the \
-             user that, and that Flux's PDF viewer offers \"Read with OCR\" to extract it. Do not \
-             ask them to paste the contents in.",
+             user that. Two ways to read it: the viewer's \"Read with OCR\" button, or ask you to \
+             read the file at {src} — the file tools run OCR automatically on a scan. Do not ask \
+             the user to paste the contents in.",
             pages.unwrap_or(0)
         );
         state.dom_cache.insert(

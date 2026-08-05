@@ -35,6 +35,7 @@ import {
   shellGuard,
   readTextFile,
   fsList,
+  ocrAvailable,
   agentPlaces,
   type Place,
   writeTextFile,
@@ -866,7 +867,7 @@ const AgentPanel: Component = () => {
     '- Calendar: "what\'s on my calendar today / this week / friday" reads your schedule (your Google ICS feed + Flux-local events); "schedule lunch with Sam tomorrow at noon for 1h" / "add a dentist appointment friday 3pm" creates an event; "move my standup to 10am"; "cancel the dentist appointment". You can add/move/delete events you created in Flux (Google-feed events are read-only — say so if asked to change one).\n' +
     '- Long-term memory: "remember that <x>" saves a fact you\'ll recall in future chats; "what do you remember".\n' +
     '- Run commands in the user\'s live terminal (one-tap approval; rm/destructive blocked): "run <cmd>" / "execute <cmd>", or ask naturally ("list the files in my home directory") and you propose the command. On approval it runs in their real terminal session (their cwd/env) and you read the output back — so you can edit a file, run the tests, read the result, and fix it.\n' +
-    '- Read files into context: "read src/foo.rs" / "look at <path>" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); "forget the files" clears. You can also drag a file from the explorer onto the panel. PDFs come through as real text, page by page — except a scan, which has no text layer until the user runs OCR in the PDF viewer.\n' +
+    '- Read files into context: "read src/foo.rs" / "look at <path>" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); "forget the files" clears. You can also drag a file from the explorer onto the panel. PDFs come through as real text, page by page. A scan has no text layer, so you run OCR on it yourself and say the text was machine-read.\n' +
     '- List a folder: "list <dir>" / "what\'s in <dir>" reads a directory directly — no terminal, no approval needed.\n' +
     '- Read the terminal: "read the terminal" / "what\'s in my terminal" pulls the active Terminal tab\'s recent output into context (great for debugging a failed command).\n' +
     '- Edit files (with approval): "edit src/foo.rs: rename X to Y" / (after reading a file) "change it to …" — you propose a diff; nothing is written until the user taps Apply. Make surgical edits.\n' +
@@ -1063,18 +1064,54 @@ const AgentPanel: Component = () => {
       return m;
     }
   };
+  /** Is a `tesseract` binary installed? Probed once — the answer can't change
+   *  mid-session in any way worth a round trip per PDF. */
+  let ocrReady: boolean | null = null;
+  const ocrAvailableOnce = async (): Promise<boolean> => {
+    if (ocrReady === null) ocrReady = await ocrAvailable().catch(() => false);
+    return ocrReady ?? false;
+  };
+
   /** Read a PDF as text and park it in context, like any other file. */
   const runReadPdf = async (path: string): Promise<string> => {
     const name = path.split(/[/\\]/).pop() || path;
     try {
-      const { text, pages, pagesWithText, truncated } = await readPdfText(path);
+      // A scan has no text layer, and asking the user to go and click "Read with
+      // OCR" is asking them to do by hand the one thing they asked for. Run it —
+      // it's read-only, and the only real cost is time, which the progress line
+      // accounts for.
+      const canOcr = await ocrAvailableOnce();
+      let ocrIdx = -1;
+      const onOcr = (page: number, total: number) => {
+        const line = `🔍 No text layer in ${name} — reading it with OCR, page ${page} of ${total}…`;
+        if (ocrIdx < 0) {
+          ocrIdx = feed().length;
+          setFeed((f) => [...f, { role: "action", text: line }]);
+        } else {
+          setFeed((f) => f.map((it, i) => (i === ocrIdx ? { ...it, text: line } : it)));
+        }
+      };
+      const { text, pages, pagesWithText, truncated, ocr } = await readPdfText(path, onOcr, canOcr);
       if (!text.trim()) {
-        // A scan has no text layer. Say so plainly rather than parking an empty
-        // file in context and letting the model summarise nothing — that failure
-        // is invisible from the model's side.
-        const m = `${name} has ${pages} page${pages === 1 ? "" : "s"} but no selectable text — it's a scan. Open it in Flux's PDF viewer and use "Read with OCR" first.`;
+        // Either OCR isn't installed, or it ran and found nothing legible. Those
+        // want different answers from the user, so don't blur them together.
+        const m = canOcr
+          ? `${name} has ${pages} page${pages === 1 ? "" : "s"} and nothing legible on them — OCR ran and came back empty.`
+          : `${name} has ${pages} page${pages === 1 ? "" : "s"} but no selectable text — it's a scan, and there's no \`tesseract\` binary installed to read it. Install tesseract and try again.`;
         setFeed((f) => [...f, { role: "error", text: m }]);
         return m;
+      }
+      if (ocr) {
+        // Flag it every time it's used. A vision model read this off an image and
+        // may not have got it right, and a summary built on it inherits that.
+        const done = `🔍 Read ${name} with OCR — ${pagesWithText} of ${pages} page${pages === 1 ? "" : "s"}${truncated ? `, stopped at the first ${pagesWithText}` : ""}. Machine-read, so it may not match the page exactly.`;
+        setFeed((f) =>
+          ocrIdx >= 0
+            ? f.map((it, i) => (i === ocrIdx ? { ...it, text: done } : it))
+            : [...f, { role: "action", text: done }],
+        );
+        setCtxFiles((c) => [...c.filter((f) => f.path !== path), { path, name, content: text }].slice(-8));
+        return `Read ${name} with OCR (machine-read from images; may contain recognition errors) — ${pagesWithText} of ${pages} pages.\n\n${text}`;
       }
       setCtxFiles((c) => [...c.filter((f) => f.path !== path), { path, name, content: text }].slice(-8));
       const partial = pagesWithText < pages ? `, ${pagesWithText} with text` : "";

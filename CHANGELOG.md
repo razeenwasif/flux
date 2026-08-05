@@ -8,6 +8,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The agent runs OCR itself.** A scan has no text layer, so reading one used to end with Gemma
+  telling you to open the PDF viewer and click **Read with OCR** — asking you to do by hand the
+  one thing you'd asked her to do. She runs it now, with per-page progress in the feed, and says
+  the text was machine-read so a summary built on it carries that caveat.
+
+  Capped at 40 pages unprompted: OCR is a subprocess per page, so a 300-page scan is five minutes
+  of a task loop that looks hung. Anything longer stays a deliberate act you start from the
+  viewer, where it's visible and interruptible. "No tesseract installed" and "OCR ran and found
+  nothing legible" are reported as the different problems they are. The page loop is now shared
+  with the viewer's own button rather than copied — the render scale and the free-the-canvas step
+  are exactly the details that drift once they exist twice.
+
 - **Named places — say "onyx", not a path.** *"Save this to Onyx under 00 - Optimization"* is how
   people actually ask, and it used to fail two ways at once. The note planner was shown a flat
   list of existing note *files* and never the vault's **folders**, so it had nothing to match

@@ -25,7 +25,8 @@ import {
   onMount,
   type Component,
 } from "solid-js";
-import { ocrAvailable, ocrImage, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
+import { ocrAvailable, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
+import { ocrDocument } from "./pdftext";
 import { tabs, updateTabTitle } from "./store";
 import { DEFAULT_SCALE, loadDocState, saveDocState, type PdfBookmark, type PdfComment } from "./pdfstate";
 
@@ -276,31 +277,11 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   const runOcr = async () => {
     if (!pdfDoc || ocrPage()) return;
     setOcrErr("");
-    const parts: string[] = [];
     try {
-      for (let i = 1; i <= pdfDoc.numPages; i++) {
-        setOcrPage(i);
-        const page = await pdfDoc.getPage(i);
-        const vp = page.getViewport({ scale: 2 });
-        const c = document.createElement("canvas");
-        c.width = vp.width;
-        c.height = vp.height;
-        const ctx = c.getContext("2d");
-        if (!ctx) break;
-        await page.render({ canvasContext: ctx, viewport: vp }).promise;
-        const b64 = c.toDataURL("image/png").split(",")[1] ?? "";
-        // Free the bitmap before the next page: a 2x A4 canvas is ~30MB and
-        // holding one per page would be a hundreds-of-MB spike on a long scan.
-        c.width = 0;
-        c.height = 0;
-        const text = await ocrImage(b64).catch((e) => {
-          // One unreadable page shouldn't lose the other forty.
-          console.warn("[flux ocr] page", i, e);
-          return "";
-        });
-        if (text.trim()) parts.push(text.trim());
-      }
-      const joined = parts.join("\n\n");
+      // The page loop lives in `pdftext.ts`, shared with the agent's automatic
+      // pass — the render scale and the free-the-canvas step are exactly the
+      // kind of detail that drifts once it exists twice.
+      const { text: joined, pagesRead } = await ocrDocument(pdfDoc, (page) => setOcrPage(page));
       if (!joined.trim()) {
         setOcrErr("Nothing legible was found on these pages.");
         return;
@@ -311,7 +292,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
         filename(),
         joined,
         pdfDoc.numPages,
-        parts.length,
+        pagesRead,
         true, // machine-read: lands in `pdf-ocr`, not `pdf`
       );
       setScanned(false); // it has text now
