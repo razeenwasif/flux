@@ -84,7 +84,13 @@ const WORLD_ZONES: { label: string; tz: string }[] = [
   { label: "London", tz: "Europe/London" },
   { label: "Tokyo", tz: "Asia/Tokyo" },
 ];
-const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+/** Monday-first, matching the calendar popover and everywhere else Flux shows
+ *  a week. `Date.getDay()` counts from Sunday, so every use of it here goes
+ *  through `mondayIndex` rather than being shifted at each call site — the two
+ *  grids and the week view drifting apart is exactly how this got inconsistent. */
+const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
+/** 0 = Monday … 6 = Sunday. */
+const mondayIndex = (d: Date): number => (d.getDay() + 6) % 7;
 
 interface Shortcut {
   label: string;
@@ -404,7 +410,7 @@ const StartPage: Component<{
   const monthLabel = () => now().toLocaleDateString([], { month: "long", year: "numeric" });
   const monthCells = (): (number | null)[] => {
     const d = now();
-    const first = new Date(d.getFullYear(), d.getMonth(), 1).getDay();
+    const first = mondayIndex(new Date(d.getFullYear(), d.getMonth(), 1));
     const days = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     const cells: (number | null)[] = Array.from({ length: first }, () => null);
     for (let day = 1; day <= days; day++) cells.push(day);
@@ -555,7 +561,7 @@ const StartPage: Component<{
     d.setDate(d.getDate() + n);
     return dateStrOf(d);
   };
-  const startOfWeekStr = (date: string) => addDaysStr(date, -new Date(`${date}T00:00`).getDay());
+  const startOfWeekStr = (date: string) => addDaysStr(date, -mondayIndex(new Date(`${date}T00:00`)));
   const calDays = () =>
     calView() === "week"
       ? Array.from({ length: 7 }, (_, i) => addDaysStr(startOfWeekStr(calAnchor()), i))

@@ -64,10 +64,17 @@ const NotebookPage: Component = () => {
   type Digest = { state: "idle" | "loading" | "ok" | "empty" | "error"; text?: string; error?: string };
   const [digest, setDigest] = createSignal<Digest>({ state: "idle" });
   const DIGEST_KEY = "flux.kb.digest";
+  /** Which week's digest is cached. Monday-based, like every other week in
+   *  Flux — so the digest rolls over on Monday morning rather than mid-weekend,
+   *  which is when a "week in review" is actually worth reading. */
   const weekKey = () => {
     const d = new Date();
     const onejan = new Date(d.getFullYear(), 0, 1);
-    const week = Math.ceil(((d.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7);
+    // Days since Jan 1, offset by Jan 1's own Monday-based weekday, so each
+    // bucket boundary falls on a Monday.
+    const mondayIdx = (x: Date) => (x.getDay() + 6) % 7;
+    const days = (d.getTime() - onejan.getTime()) / 86400000;
+    const week = Math.floor((days + mondayIdx(onejan)) / 7) + 1;
     return `${d.getFullYear()}-W${week}`;
   };
   const generateDigest = async () => {

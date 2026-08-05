@@ -146,6 +146,17 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **The start page's calendar started the week on Sunday.** The calendar popover had been
+  Monday-first for a while; the start page's month grid and its week view hadn't, so the two
+  disagreed about which day a week begins. Both are Monday now, along with the weekly digest's
+  cache key — so the digest rolls over on Monday morning rather than mid-weekend, which is when a
+  week in review is worth reading. The Sunday-based `getDay()` now goes through one `mondayIndex`
+  helper rather than being shifted at each call site, since three call sites drifting apart is how
+  this happened.
+
+  *(Unchanged on purpose: "what's on my calendar this week" still means the next seven days.
+  Asked on a Saturday, a Monday–Sunday reading would answer with two.)*
+
 - **The retry now uses the room that exists, not just the room it asked for.** Doubling the token
   cap is a heuristic; the context window is a fact. When the doubled value didn't fit, the retry
   gave up and reported "no room to grow" — while several thousand tokens of usable room sat
