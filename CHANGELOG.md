@@ -132,6 +132,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **The retry now uses the room that exists, not just the room it asked for.** Doubling the token
+  cap is a heuristic; the context window is a fact. When the doubled value didn't fit, the retry
+  gave up and reported "no room to grow" — while several thousand tokens of usable room sat
+  unused. It clamps to what fits now, and only errors when nothing larger fits at all.
+
+  The note prompt was also sized without reference to the window it has to share with its own
+  answer: a fixed 24 KB of context, plus targets and instructions, left a 10,000-token prompt in a
+  16,384-token window. It's now sized from the window with the answer's space reserved first. And
+  when it genuinely can't fit, the message says what actually helps, in order — ask for less in
+  one request, clear the loaded files, then raise `num_ctx` — rather than leading with the setting
+  most likely to cost VRAM you may not have.
+
 - **LaTeX no longer throws away the reply that contains it.** *"model returned malformed action:
   invalid escape at line 1 column 2411"* was the note prompt getting what it asked for. It
   requests LaTeX — `$$\int_0^1 x^2\,dx$$` — and a model writing that into a JSON string has to

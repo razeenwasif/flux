@@ -290,6 +290,14 @@ fn num_ctx_override() -> Option<u32> {
         .and_then(|s| s.parse().ok())
 }
 
+/// The context window a request will get: the user's override, else the ceiling
+/// `ctx_for` can grow to. Callers use it to size a prompt that has to leave room
+/// for its own answer — the two share one window, and a prompt built without
+/// that in mind produces a reply with nowhere to go.
+pub(crate) fn context_window() -> u32 {
+    num_ctx_override().unwrap_or(MAX_AUTO_CTX)
+}
+
 /// Rough token count, for sizing only. ~3 chars/token deliberately *over*-counts
 /// for English prose: under-counting is the failure that hurts, because it
 /// silently truncates the prompt.
@@ -560,18 +568,29 @@ impl OllamaBackend {
                 // other, which are equal both when the window is full and when
                 // the 4096 floor already covers both (the common case, where
                 // there is plenty of room and the retry must go ahead).
+                // Use the room that IS there rather than only the room asked
+                // for. Doubling is a heuristic; the window is a fact. Clamping
+                // to what fits turns "6144 doesn't fit, give up" into "take the
+                // 5978 that does" — which is often the difference between an
+                // answer and an error, and costs nothing when there's room to
+                // spare.
                 let granted = ctx_for(prompt, next);
-                let needed = estimate_tokens(prompt)
-                    .saturating_add(next.max(0) as u32)
-                    .saturating_add(256);
-                if needed > granted {
+                let room = granted
+                    .saturating_sub(estimate_tokens(prompt))
+                    .saturating_sub(256);
+                let next = next.min(i32::try_from(room).unwrap_or(i32::MAX));
+                if next <= cap {
                     return Err(AgentError::Inference(format!(
-                        "ollama: the reply was cut off and there is no room to grow — the prompt \
-                         ({} tokens) already fills this model's context window, so a longer answer \
-                         has nowhere to go. Shorten what's being sent (fewer files or tabs in \
-                         context), or raise the window with \
-                         FLUX_OLLAMA_OPTIONS='{{\"num_ctx\":32768}}' if the machine has the memory.",
-                        estimate_tokens(prompt)
+                        "ollama: the reply was cut off and the context window has no room left to \
+                         grow it — the prompt is {p} tokens of a {granted}-token window, leaving \
+                         about {room} for the answer, which wasn't enough.\n\
+                         What helps, in order: ask for less in one request (one document at a time \
+                         rather than a folder); clear what's loaded into context (\"forget the \
+                         files\"); or, if the machine has the VRAM, give the model a bigger window \
+                         with FLUX_OLLAMA_OPTIONS='{{\"num_ctx\":32768}}'. A smaller model with a \
+                         larger window will also do better here than a big one that can't fit the \
+                         question.",
+                        p = estimate_tokens(prompt)
                     )));
                 }
                 tracing::info!(
@@ -817,6 +836,38 @@ mod tests {
         let huge = "x".repeat(MAX_AUTO_CTX as usize * 8);
         assert_eq!(ctx_for(&huge, STRUCTURED_PREDICT_CAP), MAX_AUTO_CTX);
         assert!(!has_room(&huge, STRUCTURED_PREDICT_MAX));
+    }
+
+    /// The retry must take the room that exists, not only the room it asked
+    /// for. Doubling is a heuristic; the window is a fact.
+    #[test]
+    fn the_retry_uses_the_room_available_rather_than_giving_up() {
+        // A prompt like the reported one: 10150 tokens, so ~30 KB of text.
+        let prompt = "x".repeat(10_150 * 3);
+        let cap = 3072;
+        let want = 6144;
+
+        let granted = ctx_for(&prompt, want);
+        let room = granted
+            .saturating_sub(estimate_tokens(&prompt))
+            .saturating_sub(256);
+        let next = want.min(i32::try_from(room).unwrap_or(i32::MAX));
+
+        // The old behaviour: 10150 + 6144 + 256 > 16384, so it errored — while
+        // several thousand tokens of room sat unused.
+        assert!(estimate_tokens(&prompt) + want as u32 + 256 > granted);
+        assert!(next < want, "clamped to what fits");
+        assert!(next > cap, "and that is still progress, so it must retry");
+
+        // Only when nothing larger fits at all is an error the honest answer.
+        let huge = "x".repeat((MAX_AUTO_CTX as usize - 100) * 3);
+        let room2 = ctx_for(&huge, want)
+            .saturating_sub(estimate_tokens(&huge))
+            .saturating_sub(256);
+        assert!(
+            i32::try_from(room2).unwrap_or(i32::MAX) <= cap,
+            "no growth left"
+        );
     }
 
     /// The whole point of the cap being per-call: an override only applies to

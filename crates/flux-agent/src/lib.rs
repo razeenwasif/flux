@@ -909,19 +909,28 @@ impl AgentPlanner {
         targets: &str,
         context: Option<&str>,
     ) -> Result<NoteAction, AgentError> {
-        // 6 KB was sized for "summarise this page into my notes". It is far too
-        // small for what this is now asked to do — a task loop that reads six
-        // lecture PDFs and then writes one note had 6 KB to summarise them from,
-        // so most of what it read never reached the draft. `ctx_for` grows
-        // `num_ctx` to fit the prompt (clamped at 16k tokens), so a bigger
-        // budget costs prompt-eval time on this one call, not correctness
-        // elsewhere. Still bounded: the note has to be *written* from the
-        // remaining context.
-        const CONTEXT_BUDGET: usize = 24 * 1024;
+        // 6 KB was sized for "summarise this page into my notes" and is far too
+        // small for a task loop that reads six lecture PDFs and then writes one
+        // note — most of what it read never reached the draft. But a fixed 24 KB
+        // was too greedy in the other direction: the prompt and the reply share
+        // ONE context window, so a prompt sized without reference to it produces
+        // an answer with nowhere to go ("no room to grow").
+        //
+        // So: as much context as fits once the answer's own space is reserved.
+        const CONTEXT_BUDGET_CAP: usize = 24 * 1024;
         const TARGET_BUDGET: usize = 4 * 1024;
+        /// Room set aside for the instructions above plus JSON scaffolding.
+        const INSTRUCTIONS_RESERVE: usize = 4 * 1024;
+        // `estimate_tokens` counts ~3 chars/token, so convert the window the
+        // same way it does — an optimistic conversion here would reintroduce
+        // exactly the overflow this exists to prevent.
+        let window_chars = crate::ollama::context_window() as usize * 3;
+        let context_budget = window_chars
+            .saturating_sub(NOTE_BODY_MAX + INSTRUCTIONS_RESERVE + TARGET_BUDGET)
+            .min(CONTEXT_BUDGET_CAP);
         let targets = wrap_untrusted(truncate_utf8(targets, TARGET_BUDGET));
         let context = context
-            .map(|c| wrap_untrusted(truncate_utf8(c, CONTEXT_BUDGET)))
+            .map(|c| wrap_untrusted(truncate_utf8(c, context_budget)))
             .unwrap_or_default();
 
         let prompt = format!(
