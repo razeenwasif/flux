@@ -8,6 +8,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Summarise a folder one document at a time.** Reading every file and writing one note at the
+  end doesn't scale, and each of the last few failures was a symptom of that: the prompt grew with
+  every document until it filled the context window, the answer had nowhere to go, and a failure
+  at the end lost all six summaries at once.
+
+  The loop has a `summarise <path> into <where>` step now, used once per file. Each note is
+  drafted from **one** document, so the prompt and the answer are bounded by the largest single
+  file rather than the folder — and each summary is approved and written before the next file is
+  read, so stopping halfway leaves you with the summaries you'd already got. The second and later
+  documents append to the note the first one created, so a folder of lectures becomes one note
+  with a section each, not six notes.
+
+  `read` is still there for pulling a document in to answer a question about it; `summarise` is
+  for filing one.
 - **Unload the model from VRAM.** A 12B sits on several GB, and Flux deliberately keeps it warm
   for 30 minutes so your next question doesn't pay a cold model load. That trade is worth nothing
   the moment you want the GPU for something else, and the only ways out were waiting or

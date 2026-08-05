@@ -322,7 +322,12 @@ get a Run card, edits get a diff, notes show the exact text. Questions stay
 questions — *"what's in that folder?"* is answered, not executed.
 
 The loop's tools are `list <dir>`, `read <path>`, `edit <path>: <change>`,
-`run <cmd>`, `search <query>` and `note <what to add>`. **`/fix <goal>`** is the
+`run <cmd>`, `search <query>`, `note <what to add>` and
+`summarise <path> into <where>` — the last one reads a single document and
+drafts its note in one step, used once per file, so a folder of lectures is
+summarised one at a time rather than accumulated into a single request that
+outgrows the model's context window. Each summary is approved and written
+before the next file is read, so stopping halfway keeps what you have. **`/fix <goal>`** is the
 same loop invoked explicitly (*"/fix make the tests in src/foo.rs pass"* → run →
 read the failure → edit → re-run).
 

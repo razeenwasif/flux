@@ -91,6 +91,7 @@ import {
 import { looksLikeNoteWrite } from "./noteintent";
 import { looksAgentic } from "./agentintent";
 import { joinPath, resolveAgentPath } from "./agentpaths";
+import { parseSummarise, summariseRequest } from "./agentsteps";
 import { readPdfText } from "./pdftext";
 import {
   activeId,
@@ -1093,6 +1094,26 @@ const AgentPanel: Component = () => {
   const ocrAvailableOnce = async (): Promise<boolean> => {
     if (ocrReady === null) ocrReady = await ocrAvailable().catch(() => false);
     return ocrReady ?? false;
+  };
+
+  /**
+   * The text of one document, for a per-document summary (#159).
+   *
+   * Deliberately returns the text instead of reading it into the shared file
+   * context: the point of summarising per document is that each note is drafted
+   * from ONE file. Routing this through `filesContext()` would put every
+   * document read so far back into the prompt and undo the whole thing.
+   */
+  const readForSummary = async (path: string): Promise<string | null> => {
+    const name = path.split(/[/\\]/).pop() || path;
+    setFeed((f) => [...f, { role: "action", text: `📖 Reading ${name} to summarise it…` }]);
+    const text = await runReadFile(path);
+    // `runReadFile` reports its own failures to the feed and returns the message
+    // rather than throwing; an unreadable file has no document text in it.
+    const file = ctxFiles().find((f) => f.path === path);
+    if (!file || !file.content.trim()) return null;
+    void text;
+    return `--- ${name} ---\n${file.content}`;
   };
 
   /** Read a PDF as text and park it in context, like any other file. */
@@ -2504,6 +2525,25 @@ const AgentPanel: Component = () => {
     if (ls?.[1]) return { ok: true, result: await runListDir(ls[1]) };
     const rf = pc.match(FILE_RE);
     if (rf?.[1]) return { ok: true, result: await runReadFile(rf[1]) };
+    // "summarise <path> into <where>" — read ONE document and draft its note
+    // (#159). Reading a folder and writing one note at the end doesn't scale:
+    // the prompt grows with every file until it fills the context window and
+    // the answer has nowhere to go, and a failure at the end loses all of it.
+    // Per document, both sides are bounded by one file, and each summary is
+    // approved and written before the next is read.
+    const sm = parseSummarise(pc);
+    if (sm) {
+      const path = resolvePath(sm.path);
+      const name = path.split(/[/\\]/).pop() || path;
+      const read = await readForSummary(path);
+      if (!read) return { ok: true, result: `Couldn't read ${path}, so there's nothing to summarise.` };
+      const drafted = await planNote(summariseRequest(name, sm.dest), true, read);
+      if (!drafted) return { ok: true, result: `Nothing to write for ${name}.` };
+      const outcome = await awaitChainApproval();
+      // Report the document by name so the loop's history shows which are done
+      // — that is what stops it re-summarising one it has already handled.
+      return { ok: outcome.ok, result: `${name}: ${outcome.result}` };
+    }
     // "note <what to add>" — the loop could read, run and edit, but had no way
     // to finish a job in the user's own notes, so "summarise these into Onyx"
     // ended as a chat message that looked like it had been saved and hadn't.
@@ -2575,7 +2615,14 @@ const AgentPanel: Component = () => {
   /** Draft a write and put it up for confirmation. Returns false when there was
    *  nothing to propose, so an auto-detected request can fall through to an
    *  ordinary reply instead of dead-ending on "nothing to write". */
-  const planNote = async (request: string, explicit: boolean): Promise<boolean> => {
+  const planNote = async (
+    request: string,
+    explicit: boolean,
+    /** Source text for this note. Defaults to everything in context — but a
+     *  per-document summary passes just that document, which is what keeps the
+     *  prompt (and the answer) bounded by one file instead of a folder. */
+    context?: string,
+  ): Promise<boolean> => {
     setBusy(true);
     try {
       // Hand it whatever has been read into context. `note_plan` has always
@@ -2584,7 +2631,7 @@ const AgentPanel: Component = () => {
       // agent would read six lecture PDFs and then summarise the sentence that
       // asked it to. The loop's own history is capped far too small to carry a
       // document; this is where the actual text lives.
-      const proposal = await notePlan(request, filesContext() || undefined);
+      const proposal = await notePlan(request, context ?? filesContext() ?? undefined);
       if (!proposal.writes) {
         // Explicit `/note` gets the reason — you asked for a write and deserve
         // to know why there isn't one. An auto-detected request stays quiet and

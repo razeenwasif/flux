@@ -1025,6 +1025,7 @@ impl AgentPlanner {
              - run <shell command>      (run in the terminal)\n\
              - search <query>\n\
              - note <what to add>       (draft something for the user's notes; they approve it)\n\
+             - summarise <path> into <where>  (read one document and note it — one step per file)\n\
              - play <song> / pause / skip / shuffle on    (music)\n\
              - remind me to <x> [in/at <time>]\n\
              - remember that <x>\n\
@@ -1082,6 +1083,12 @@ impl AgentPlanner {
              - note <what to add>     (draft something for the user's Onyx vault or a Scribe \
              notebook; they see the exact text and approve it. Say WHICH notebook and include the \
              full text you want written — this is the only way to save anything)\n\
+             - summarise <path> into <where>  (read ONE document and draft a note for it in one \
+             step. Use this — once per file — whenever the goal is to summarise several documents \
+             into notes. Do NOT read them all and write one note at the end: the sources pile up \
+             until they fill the context window, the answer has nowhere to go, and a failure at \
+             the end loses every summary. One file at a time is written and safe before the next \
+             is read)\n\
              \n\
              You are NOT talking to the user. Do not ask permission, do not announce what you are \
              about to do, do not offer choices — every command already stops for approval where \
@@ -1096,8 +1103,10 @@ impl AgentPlanner {
              EXACTLY ONE JSON object: {{\"command\":\"<next command, or empty if done>\",\"done\":<true|false>,\"summary\":\"<short status>\"}}.\n\n\
              Example — GOAL \"summarise the PDFs in /docs/slides into my Optimization notebook\":\n\
              step 1 -> {{\"command\":\"list /docs/slides\",\"done\":false,\"summary\":\"Seeing what's there\"}}\n\
-             step 2 -> {{\"command\":\"read /docs/slides/lecture1.pdf\",\"done\":false,\"summary\":\"Reading lecture 1\"}}\n\
-             (after every file is read) -> {{\"command\":\"note add to the Optimization notebook: <the summaries>\",\"done\":false,\"summary\":\"Drafting the note\"}}\n\n\
+             step 2 -> {{\"command\":\"summarise /docs/slides/lecture1.pdf into my Optimization notebook\",\"done\":false,\"summary\":\"Lecture 1 of 6\"}}\n\
+             step 3 -> {{\"command\":\"summarise /docs/slides/lecture2.pdf into my Optimization notebook\",\"done\":false,\"summary\":\"Lecture 2 of 6\"}}\n\
+             …one per file, then done=true. Use `read` only when you need a document to answer a \
+             question rather than to file it.\n\n\
              GOAL: {goal}\n\n\
              HISTORY (oldest first):\n{hist}"
         );
