@@ -192,9 +192,23 @@ impl NoteAction {
 }
 
 /// JSON schema pinning generation to [`NoteAction`].
+/// Ceiling on a generated note body, in characters.
+///
+/// A note is a summary. Given a folder of lecture PDFs and no bound, a 26B will
+/// try to write all of them back out: one request ran past 8192 output tokens
+/// (~32 KB) and failed, having produced nothing usable. `maxLength` is part of
+/// the JSON Schema the model is grammar-constrained against, so where the
+/// backend honours it this is a hard stop rather than a request — and where it
+/// doesn't, the prompt says the same thing in words.
+///
+/// 12 KB is a long note (roughly 2000 words) and still leaves room inside the
+/// context window for the sources it was written from.
+const NOTE_BODY_MAX: usize = 12 * 1024;
+
 pub fn note_action_schema() -> serde_json::Value {
     use serde_json::json;
     let s = || json!({ "type": "string" });
+    let body = || json!({ "type": "string", "maxLength": NOTE_BODY_MAX });
     let opt = || json!({ "type": ["string", "null"] });
     let variant = |props: serde_json::Value, required: &[&str]| {
         json!({
@@ -207,19 +221,19 @@ pub fn note_action_schema() -> serde_json::Value {
     json!({
         "oneOf": [
             variant(
-                json!({ "action": { "const": "new_note" }, "title": s(), "body": s(), "folder": opt(), "tags": opt() }),
+                json!({ "action": { "const": "new_note" }, "title": s(), "body": body(), "folder": opt(), "tags": opt() }),
                 &["action", "title", "body"],
             ),
             variant(
-                json!({ "action": { "const": "append_note" }, "path": s(), "body": s() }),
+                json!({ "action": { "const": "append_note" }, "path": s(), "body": body() }),
                 &["action", "path", "body"],
             ),
             variant(
-                json!({ "action": { "const": "new_page" }, "notebook": s(), "title": s(), "body": s() }),
+                json!({ "action": { "const": "new_page" }, "notebook": s(), "title": s(), "body": body() }),
                 &["action", "notebook", "title", "body"],
             ),
             variant(
-                json!({ "action": { "const": "append_page" }, "notebook": s(), "page": s(), "body": s() }),
+                json!({ "action": { "const": "append_page" }, "notebook": s(), "page": s(), "body": body() }),
                 &["action", "notebook", "page", "body"],
             ),
             variant(
@@ -849,6 +863,13 @@ impl AgentPlanner {
              $$\\\\int_0^1 x^2\\\\,dx$$ on its own line. It renders as real \
              typeset maths, so use it for any formula rather than describing one \
              in words or in plain ASCII.\n\n\
+             LENGTH. A note is a SUMMARY, not a transcript. Aim for 300-800 words; \
+             hard limit about 2000. Do not reproduce the sources — pull out the \
+             definitions, results and worked ideas that are worth keeping and drop \
+             the rest. When several documents are covered, give each a short \
+             section rather than expanding all of them. Never restate a point you \
+             have already made: if you find yourself repeating, you are finished — \
+             close the JSON object.\n\n\
              EXISTING:\n{targets}\n\n{context}REQUEST: {request}"
         );
 
@@ -1662,6 +1683,32 @@ impl Inference for MockBackend {
 
 #[cfg(test)]
 mod tests {
+    /// A note is a summary. Unbounded, a 26B handed a folder of lecture PDFs
+    /// tried to write all of them back out and blew past 8192 output tokens,
+    /// failing with nothing usable. Every body field must carry the ceiling —
+    /// `new_note` is not the only one that can run away.
+    #[test]
+    fn every_note_body_is_length_bounded() {
+        let schema = super::note_action_schema();
+        let variants = schema["oneOf"].as_array().expect("oneOf");
+        let mut bodies = 0;
+        for v in variants {
+            let Some(body) = v["properties"].get("body") else {
+                continue;
+            };
+            assert_eq!(
+                body["maxLength"], super::NOTE_BODY_MAX,
+                "body without the length bound in {v}"
+            );
+            bodies += 1;
+        }
+        assert_eq!(bodies, 4, "all four writing variants have a body");
+        // A title or a path must NOT be bounded by the body's ceiling — they are
+        // short by nature, and a stray maxLength there would be a silent trap.
+        let new_note = &variants[0];
+        assert!(new_note["properties"]["title"].get("maxLength").is_none());
+    }
+
     use super::*;
 
     /// A backend that always returns one canned completion — for testing the

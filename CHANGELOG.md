@@ -132,6 +132,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **A note is a summary, not a transcript.** Asked to summarise a folder of lecture PDFs, a 26B
+  ran past **8192 output tokens** — roughly 32 KB of "note" — and failed with nothing usable,
+  even after the automatic retry. Nothing had ever told it how long a note should be: the prompt
+  said "write the body the user asked for", and with 24 KB of source material in context it tried
+  to write all of it back out.
+
+  The schema now carries a `maxLength` on every body field, which the model is grammar-constrained
+  against, and the prompt asks for 300–800 words, one short section per document, and to stop
+  rather than restate. Raising the token cap further wouldn't have helped: `num_ctx` covers prompt
+  *and* output together and is capped, so at that size there is no room for both. The error says
+  that now — ask for less in one go, rather than leading with an environment variable that can't
+  fit.
+
 - **The PDF viewer's own toolbar was overwriting the document's text.** Asked about an open PDF,
   Gemma reported she could see "only the interface elements of your PDF viewer, like the page
   count and zoom level" — and she was describing exactly what she'd been given. `InternalPage`

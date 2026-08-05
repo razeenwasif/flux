@@ -486,13 +486,20 @@ fn read_generate_response_capped(
     cap: i32,
 ) -> Result<String, AgentError> {
     if hit_token_cap(value) {
-        // Only reached once the retries above have run out, so the advice is
-        // about a genuinely enormous reply — name the ceiling actually tried,
-        // not the starting one, or the suggested override looks already-applied.
+        // Only reached once the retries have run out. At this ceiling the reply
+        // is past ~32 KB, which for anything Flux asks for structurally is a
+        // model that has stopped converging rather than one being thorough — so
+        // don't lead with "raise the limit". Raising it usually can't work
+        // anyway: `num_ctx` covers prompt AND output and is capped, so the room
+        // suggested here may not exist.
         return Err(AgentError::Inference(format!(
-            "ollama: output truncated at the token cap (model `{model}` is more verbose \
-             than num_predict={cap} allows, and retrying with more didn't finish it either) \
-             — raise it with FLUX_OLLAMA_OPTIONS='{{\"num_predict\":{}}}' or use a terser model",
+            "ollama: `{model}` didn't finish its reply within {cap} tokens (~{}KB), even after \
+             retrying with more room — that's long enough to suggest it's repeating itself \
+             rather than being thorough. Ask for less in one go (summarise one document at a \
+             time rather than a whole folder), or use a smaller/terser model. Raising the cap \
+             with FLUX_OLLAMA_OPTIONS='{{\"num_predict\":{}}}' only helps if the context window \
+             has room for prompt AND answer together.",
+            cap / 256,
             cap.saturating_mul(2)
         )));
     }
@@ -878,9 +885,22 @@ mod tests {
         });
         let err = read_generate_response(&truncated, "gemma4:26b-council").unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("truncated"), "{msg}");
         assert!(msg.contains("gemma4:26b-council"), "names the model: {msg}");
-        assert!(msg.contains("num_predict"), "says how to fix it: {msg}");
+        assert!(
+            msg.contains("didn't finish") && msg.contains("tokens"),
+            "says the reply ran out of room, not that the JSON was malformed: {msg}"
+        );
+        // At this ceiling the likeliest cause is a model that has stopped
+        // converging, so the first suggestion must be to ask for less — raising
+        // the cap may not even fit in the context window.
+        assert!(
+            msg.contains("Ask for less"),
+            "leads with the actionable fix: {msg}"
+        );
+        assert!(
+            msg.contains("num_predict"),
+            "still says where the knob is: {msg}"
+        );
 
         // A normal reply is unaffected.
         let ok = serde_json::json!({ "response": "{\"a\":1}", "done_reason": "stop" });
