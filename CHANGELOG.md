@@ -8,6 +8,23 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **A permanent nvim column beside the page (#174).** Editing something while reading something
+  meant a tab switch, and a tab switch means losing the page you were reading from. The content
+  area now splits: the page keeps the left half, `nvim` runs in the right, booted from `~` when
+  Flux starts and always there. Drag the seam to re-balance (double-click for an even split); the
+  width and whether it's open both survive a restart, and the palette has **Show/Hide editor
+  column**.
+
+  The reason this can sit next to a page at all: a tab's page is a native webview — an OS layer
+  above all HTML, which nothing DOM can be drawn over — but Flux's terminal is xterm.js, and the
+  column is a *sibling* of the content card rather than an overlay. Shrinking the card is the
+  whole mechanism; its `ResizeObserver` re-tiles the webview to the smaller rect, exactly the way
+  the bookmark bar already worked.
+
+  Quitting the editor hands back a fresh one, because a column that stays dead after a `:q` isn't
+  permanent. An editor that dies *immediately* is reported instead of relaunched — that case is
+  `nvim` missing from the shell's PATH, and relaunching it would spin forever rather than fix
+  anything.
 - **Summarise a folder one document at a time.** Reading every file and writing one note at the
   end doesn't scale, and each of the last few failures was a symptom of that: the prompt grew with
   every document until it filled the context window, the answer had nowhere to go, and a failure

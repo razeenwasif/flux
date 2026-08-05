@@ -40,6 +40,9 @@ import {
   setConsent,
   activeTab,
   bookmarkBarOpen,
+  editorColOpen,
+  editorColRatio,
+  setEditorColRatio,
   setPhish,
   setOAuth,
   readerOpen,
@@ -82,6 +85,7 @@ const ConsentBanner = lazy(() => import("./ConsentBanner")); // shown only when 
 // pay for xterm's host component in the eager chrome bundle. Once loaded it stays
 // resident, so the keep-alive contract (#73) is unaffected.
 const TerminalView = lazy(() => import("./TerminalView"));
+const EditorColumn = lazy(() => import("./EditorColumn")); // the permanent nvim split (#174)
 import InternalPage from "./InternalPage";
 const ReaderView = lazy(() => import("./ReaderView"));
 const BookmarkBar = lazy(() => import("./BookmarkBar"));
@@ -97,6 +101,42 @@ const ContentArea: Component<{
   onOpenMap: () => void;
   onSleepBackground: () => void;
 }> = (props) => {
+  // The row holding the page card + the nvim column (#174); measured live so the
+  // seam converts pointer position into a ratio.
+  let rowEl!: HTMLDivElement;
+
+  /** Smallest either half of the row may be dragged to, in px. */
+  const EDITOR_MIN_PX = 220;
+  /** Width of `.editor-seam`; it sits between the halves, so the card ends one
+   *  seam short of where the pointer is. Kept in sync with the CSS. */
+  const EDITOR_SEAM_PX = 8;
+
+  /** Drag the seam between the page and the editor. Sets `splitDragging` for the
+   *  duration: a native webview is an OS layer that would otherwise swallow the
+   *  pointer, so the tiling engine hides the page while the seam tracks it. */
+  const startEditorDrag = (e: PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSplitDragging(true);
+    const move = (ev: PointerEvent) => {
+      const r = rowEl.getBoundingClientRect();
+      if (r.width <= 0) return;
+      // Clamp in px, not ratio: on a narrow window a "10%" floor is still too
+      // small to use, and both halves have to stay usable. The card's left
+      // clamp carries the seam, since the card ends where the seam begins.
+      const min = Math.min(EDITOR_MIN_PX, r.width / 3);
+      const x = Math.min(r.right - min, Math.max(r.left + min + EDITOR_SEAM_PX, ev.clientX));
+      setEditorColRatio((r.right - x) / r.width);
+    };
+    const up = () => {
+      setSplitDragging(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   // Dismissal is keyed to the URL, so it resets on navigation rather than
   // silencing the explainer for the rest of the session.
   const [policyDismissed, setPolicyDismissed] = createSignal("");
@@ -246,107 +286,127 @@ const ContentArea: Component<{
           </Suspense>
         )}
       </Show>
-      <div class="card" id="flux-web-area">
-        {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
-        <Show when={readerOpen()}>
-          <ReaderView />
-        </Show>
-        {/* Split-view seams (#43): each sits in a gutter between tiled panes —
+      {/* The page and the nvim column share one row (#174). The card keeps its own
+        id and box, so the native webview still tiles to exactly the page half —
+        shrinking the card is all the editor column has to do. */}
+      <div class="content-row" ref={rowEl}>
+        <div class="card" id="flux-web-area">
+          {/* Reader mode (#41): a decluttered DOM view over the (hidden) webview. */}
+          <Show when={readerOpen()}>
+            <ReaderView />
+          </Show>
+          {/* Split-view seams (#43): each sits in a gutter between tiled panes —
           the one strip of card the OS webview layers don't cover, so it's
           visible and grabbable. Dragging hides the panes (setSplitDragging) so
           the chrome can see the pointer, then re-tiles on release. Positions
           come from tiles.ts, the same geometry the webviews are placed with. */}
-        <Index each={domSeams()}>
-          {(sm) => (
-            <div
-              classList={{ "pane-splitter": true, horiz: sm().axis === "y" }}
-              style={
-                sm().axis === "x"
-                  ? { left: `${sm().x}%`, top: `${sm().y}%`, height: `${sm().length}%` }
-                  : { top: `${sm().y}%`, left: `${sm().x}%`, width: `${sm().length}%` }
-              }
-              title="Drag to resize · double-click to even out"
-              onDblClick={() => setTileRatio(sm().key, 0.5)}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                const card = document.getElementById("flux-web-area");
-                if (!card) return;
-                const rect = card.getBoundingClientRect();
-                setSplitDragging(true);
-                const move = (ev: PointerEvent) =>
-                  setTileRatio(
-                    sm().key,
-                    sm().axis === "x"
-                      ? (ev.clientX - rect.left) / rect.width
-                      : (ev.clientY - rect.top) / rect.height,
-                  );
-                const up = () => {
-                  setSplitDragging(false);
-                  window.removeEventListener("pointermove", move);
-                  window.removeEventListener("pointerup", up);
-                };
-                window.addEventListener("pointermove", move);
-                window.addEventListener("pointerup", up);
-              }}
-            />
-          )}
-        </Index>
-        {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
+          <Index each={domSeams()}>
+            {(sm) => (
+              <div
+                classList={{ "pane-splitter": true, horiz: sm().axis === "y" }}
+                style={
+                  sm().axis === "x"
+                    ? { left: `${sm().x}%`, top: `${sm().y}%`, height: `${sm().length}%` }
+                    : { top: `${sm().y}%`, left: `${sm().x}%`, width: `${sm().length}%` }
+                }
+                title="Drag to resize · double-click to even out"
+                onDblClick={() => setTileRatio(sm().key, 0.5)}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  const card = document.getElementById("flux-web-area");
+                  if (!card) return;
+                  const rect = card.getBoundingClientRect();
+                  setSplitDragging(true);
+                  const move = (ev: PointerEvent) =>
+                    setTileRatio(
+                      sm().key,
+                      sm().axis === "x"
+                        ? (ev.clientX - rect.left) / rect.width
+                        : (ev.clientY - rect.top) / rect.height,
+                    );
+                  const up = () => {
+                    setSplitDragging(false);
+                    window.removeEventListener("pointermove", move);
+                    window.removeEventListener("pointerup", up);
+                  };
+                  window.addEventListener("pointermove", move);
+                  window.addEventListener("pointerup", up);
+                }}
+              />
+            )}
+          </Index>
+          {/* Keep-alive terminal layer (#73): every Terminal tab stays mounted, so
           its PTY + scrollback survive tab switches; only the active one shows.
           (TerminalView only unmounts — and kills its PTY — when the tab closes,
           which removes it from this list.) */}
-        <For each={terminalIds()}>
-          {(id) => (
-            <div class="term-layer" style={termSlot(id) ?? { display: "none" }}>
-              {/* Only the *active* terminal draws the WebGL backdrop, even when
+          <For each={terminalIds()}>
+            {(id) => (
+              <div class="term-layer" style={termSlot(id) ?? { display: "none" }}>
+                {/* Only the *active* terminal draws the WebGL backdrop, even when
                 several are tiled — each context costs, and too many white out
                 other GPU-composited glass surfaces (#75). */}
-              <TerminalView
-                session={id}
-                active={activeTab()?.id === id}
-                visible={termSlot(id) != null}
-                background={activeTab()?.id === id && panes() == null}
-              />
-            </div>
-          )}
-        </For>
-        {/* A terminal renders in the layer above, not here — but when one is
+                <TerminalView
+                  session={id}
+                  active={activeTab()?.id === id}
+                  visible={termSlot(id) != null}
+                  background={activeTab()?.id === id && panes() == null}
+                />
+              </div>
+            )}
+          </For>
+          {/* A terminal renders in the layer above, not here — but when one is
             *tiled*, the other panes still have to draw, so this can't skip the
             whole block just because the active tab is a terminal. */}
-        <Show when={panes() != null || activeTab()?.kind !== "terminal"}>
-          <Suspense>
-            {/* Split view (#43): two DOM halves, each rendering its tab's internal page
+          <Show when={panes() != null || activeTab()?.kind !== "terminal"}>
+            <Suspense>
+              {/* Split view (#43): two DOM halves, each rendering its tab's internal page
             (a real web page falls through to the placeholder its tiled webview
             overlays). Accessors keep navigation reactive without remounting. */}
-            <Show when={panes()} fallback={<Page tab={activeTab} />}>
-              {/* <Index>, not <For>: tileRects() returns fresh objects on every
+              <Show when={panes()} fallback={<Page tab={activeTab} />}>
+                {/* <Index>, not <For>: tileRects() returns fresh objects on every
                   seam move, and For keys by reference — it would tear down and
                   remount each pane's whole page on every pointer move. Index
                   keys by position, so the elements persist and only their
                   geometry updates. */}
-              <Index each={domRects()}>
-                {(r, i) => (
-                  <Show when={panes()?.[i]?.kind !== "terminal"}>
-                    {/* No DOM pane for a terminal: its keep-alive layer already
+                <Index each={domRects()}>
+                  {(r, i) => (
+                    <Show when={panes()?.[i]?.kind !== "terminal"}>
+                      {/* No DOM pane for a terminal: its keep-alive layer already
                         occupies this slot, and an empty pane rendered here would
                         sit *above* that layer (it comes later in the document)
                         and swallow every click meant for the shell. */}
-                    <div
-                      class="split-dom-pane"
-                      style={{
-                        left: `${r().x}%`,
-                        top: `${r().y}%`,
-                        width: `${r().width}%`,
-                        height: `${r().height}%`,
-                      }}
-                    >
-                      <Page tab={() => panes()?.[i]} />
-                    </div>
-                  </Show>
-                )}
-              </Index>
-            </Show>
-          </Suspense>
+                      <div
+                        class="split-dom-pane"
+                        style={{
+                          left: `${r().x}%`,
+                          top: `${r().y}%`,
+                          width: `${r().width}%`,
+                          height: `${r().height}%`,
+                        }}
+                      >
+                        <Page tab={() => panes()?.[i]} />
+                      </div>
+                    </Show>
+                  )}
+                </Index>
+              </Show>
+            </Suspense>
+          </Show>
+        </div>
+        {/* The nvim column and its seam. Both live in the row, after the card, so
+          the page occupies the remaining width and re-tiles itself. */}
+        <Show when={editorColOpen()}>
+          <div
+            class="editor-seam"
+            title="Drag to resize · double-click for an even split"
+            onDblClick={() => setEditorColRatio(0.5)}
+            onPointerDown={startEditorDrag}
+          />
+          <div class="editor-col-slot" style={{ "flex-basis": `${editorColRatio() * 100}%` }}>
+            <Suspense>
+              <EditorColumn />
+            </Suspense>
+          </div>
         </Show>
       </div>
       {/* Bookmark bar (#22): docked under the card. A sibling (not an overlay), so

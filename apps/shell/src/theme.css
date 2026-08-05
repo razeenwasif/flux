@@ -2645,6 +2645,97 @@ body.resizing .panel-edge-resize::after {
   display: flex;
   flex-direction: column;
 }
+/* #174 — the page card and the nvim column share one row. The row owns the
+   horizontal space; the card keeps `flex: 1` so it simply takes what the editor
+   column leaves, and the native webview re-tiles to the card's new rect. */
+.content-row {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+/* Inside the row the card must take *the remainder*, not its own width. Basis 0
+   + grow 1 means the editor's flex-basis is the only fixed size in the row, so
+   the ratio it's given is the width it actually gets. Scoped to the row so the
+   card's own rule (width:100%) is untouched everywhere else it's used. */
+.content-row > .card {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+}
+/* The editor's width is driven by flex-basis (set inline from the persisted
+   ratio); no grow/shrink, so it keeps exactly that share. */
+.editor-col-slot {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.editor-col {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.editor-col-surface {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--glass-rim-soft);
+  border-radius: var(--flux-radius-card);
+  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+}
+/* Grab strip between the page and the editor. It is a real gap in the row, so
+   no native webview covers it — the same trick the split seams use. */
+.editor-seam {
+  flex: 0 0 8px;
+  align-self: stretch;
+  cursor: col-resize;
+  border-radius: 4px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.editor-seam:hover,
+.editor-seam:active {
+  background: rgba(var(--accent-rgb), 0.3);
+}
+/* Shown only when the editor died on startup (not on PATH, config error). */
+.editor-col-dead {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--glass-rim-soft);
+  border-radius: var(--flux-radius-card);
+  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+}
+.editor-col-msg {
+  margin: 0;
+  max-width: 30ch;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--flux-text-dim);
+}
+.editor-col-retry {
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--flux-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.editor-col-retry:hover {
+  background: rgba(var(--accent-rgb), 0.24);
+}
+
 .card {
   position: relative; /* anchor for the absolute keep-alive terminal layer */
   width: 100%;

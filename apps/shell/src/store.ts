@@ -936,6 +936,37 @@ export function setBookmarkBarOpen(on: boolean): void {
   localStorage.setItem("flux.bookmarkbar", on ? "1" : "0");
 }
 
+// Editor column (#174): a permanent nvim split beside the page, booted from ~ at
+// startup. Persisted and default ON — it's meant to be always there, but hiding
+// it has to survive a restart or "permanent" becomes "unavoidable".
+//
+// Like the bookmark bar, it's a DOM *sibling* of the content card rather than an
+// overlay, so shrinking the card is all it takes: the card's ResizeObserver
+// re-tiles the native page webview to match (tiling.ts). That's the whole reason
+// this can sit next to a native webview at all.
+const [editorColOpen, setEditorColRaw] = createSignal(localStorage.getItem("flux.editorcol") !== "0");
+export { editorColOpen };
+export function setEditorColOpen(on: boolean): void {
+  setEditorColRaw(on);
+  localStorage.setItem("flux.editorcol", on ? "1" : "0");
+}
+
+/** The editor's share of the content row, 0–1. Half the page section by default. */
+const EDITOR_RATIO_KEY = "flux.editorcol.ratio";
+const readEditorRatio = (): number => {
+  const n = Number.parseFloat(localStorage.getItem(EDITOR_RATIO_KEY) ?? "");
+  // A NaN here (missing/corrupt key) must fall back, not propagate into a style.
+  return Number.isFinite(n) && n > 0.05 && n < 0.95 ? n : 0.5;
+};
+const [editorColRatio, setEditorColRatioRaw] = createSignal(readEditorRatio());
+export { editorColRatio };
+export function setEditorColRatio(r: number): void {
+  if (!Number.isFinite(r)) return;
+  const clamped = Math.min(0.9, Math.max(0.1, r));
+  setEditorColRatioRaw(clamped);
+  localStorage.setItem(EDITOR_RATIO_KEY, String(clamped));
+}
+
 // Web panel unread badges (#48): panel id → last-reported unread count from its
 // title. A fine-grained store so updating one panel's badge only re-renders that
 // rail icon. Set by a `flux://panel-badge` listener.

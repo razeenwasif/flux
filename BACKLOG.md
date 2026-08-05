@@ -328,3 +328,14 @@ only remaining pieces are engine-gated (noted per item).
   **whisper.cpp** (`whisper-small`/`base`, still fully local) for the command
   utterance. Keep the privacy invariants ([[voice-privacy-invariants]]): all local,
   pre-wake audio discarded, nothing persisted.
+- **Editor column follow-ups (#174).** The nvim column ships as one fixed pane on
+  the right, which covers the "always have an editor open" case but leaves a few
+  obvious gaps: (a) the boot command is hardcoded to `nvim` — it should be a
+  setting, so `hx`/`kak`/`emacs -nw` work without a code change; (b) there's no
+  way to open the file a page links to (or the current tab's URL) *in* that
+  column, which is the natural next step now that the editor is always there;
+  (c) the column can't move to the left of the page or split into two editors;
+  (d) `persist="off"` is pinned, so the editor doesn't survive a Flux restart
+  even when the broker is installed — reattaching would need the boot command to
+  be skipped on an already-running session, which the pending-command mechanism
+  can't currently express.

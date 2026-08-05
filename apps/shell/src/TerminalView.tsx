@@ -20,6 +20,8 @@ import {
   terminalResize,
   terminalSpawn,
   terminalWrite,
+  termPersist,
+  type TermPersist,
 } from "./ipc";
 import { registerTerminal, setActiveTerminal, takePendingCommand, unregisterTerminal } from "./terminals";
 import { openTab } from "./store";
@@ -72,6 +74,15 @@ const TerminalView: Component<{
    *  still has to re-fit when it appears. Defaults to `active`. */
   visible?: boolean;
   background?: boolean;
+  /** Override the session's persistence mode. The editor column pins this to
+   *  "off": a reattached broker session would already be running its program,
+   *  and the queued start command would then be typed *into* that program
+   *  instead of a shell. Defaults to the user's global `termPersist()`. */
+  persist?: TermPersist;
+  /** Take the caret on mount. True for a terminal the user just opened; the
+   *  editor column sets it false, because a pane that mounts at *startup* would
+   *  otherwise swallow the first thing typed into the URL bar. */
+  autoFocus?: boolean;
 }> = (props) => {
   let host!: HTMLDivElement;
   let termRef: XTerm | undefined;
@@ -381,7 +392,7 @@ const TerminalView: Component<{
     const channel = new Channel<number[]>();
     channel.onmessage = (bytes) => term.write(new Uint8Array(bytes));
     try {
-      await terminalSpawn(props.session, term.cols, term.rows, channel);
+      await terminalSpawn(props.session, term.cols, term.rows, channel, props.persist ?? termPersist());
       // TUI app launcher (#117): run the queued command now the PTY is live.
       const initCmd = takePendingCommand(props.session);
       if (initCmd) void terminalWrite(props.session, new TextEncoder().encode(initCmd + "\r"));
@@ -403,7 +414,7 @@ const TerminalView: Component<{
       void terminalResize(props.session, term.cols, term.rows);
     });
     ro.observe(host);
-    term.focus();
+    if (props.autoFocus ?? true) term.focus();
 
     onCleanup(() => {
       ro.disconnect();

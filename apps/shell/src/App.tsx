@@ -147,6 +147,8 @@ import {
   applyAudiopulseDir,
   bookmarkBarOpen,
   setBookmarkBarOpen,
+  editorColOpen,
+  setEditorColOpen,
   pagesBarOpen,
   setPagesBarOpen,
   filesPanelOpen,
@@ -1253,6 +1255,12 @@ const App: Component = () => {
       label: pagesBarOpen() ? "Hide launcher column" : "Show launcher column",
       icon: "🗂️",
       run: () => setPagesBarOpen(!pagesBarOpen()),
+    },
+    {
+      id: "editor-col",
+      label: editorColOpen() ? "Hide editor column" : "Show editor column",
+      icon: "📝",
+      run: () => setEditorColOpen(!editorColOpen()),
     },
     {
       id: "connect-rail",
