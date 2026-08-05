@@ -259,6 +259,8 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   const [canOcr, setCanOcr] = createSignal(false);
   const [ocrPage, setOcrPage] = createSignal(0); // 0 = not running
   const [ocrErr, setOcrErr] = createSignal("");
+  /** Set when some pages extracted and others didn't. */
+  const [partialText, setPartialText] = createSignal<{ withText: number; total: number } | null>(null);
 
   /**
    * Read a scanned document with OCR, one page at a time.
@@ -353,6 +355,14 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
         void ocrAvailable().then(setCanOcr);
         return; // no text layer at all
       }
+      // Partly-image decks are the quiet case: enough text extracts that nothing
+      // looks broken, while most of the document is missing. Tell the user which
+      // it is — the backend tells the model the same thing.
+      const partial = withText < pdfDoc.numPages;
+      setPartialText(partial ? { withText, total: pdfDoc.numPages } : null);
+      // Probe for a tesseract binary here too, not only on a fully-scanned
+      // document — otherwise the partial bar can never offer the fix it names.
+      if (partial) void ocrAvailable().then(setCanOcr);
       await pdfPublishText(props.tabId, src() || filename(), filename(), text, pdfDoc.numPages, withText);
     } catch {
       /* never let text extraction break the viewer */
@@ -1208,6 +1218,22 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       {/* A scanned document: nothing selects, so Gemma and the KB see an empty
           page. Say so plainly and offer the one thing that helps, rather than
           leaving the user to wonder why asking about this PDF returns nothing. */}
+      {/* Some pages have text, some don't — Gemma has a fraction of the deck. */}
+      <Show when={!scanned() && partialText()}>
+        {(p) => (
+          <div class="pdf-ocr-bar">
+            <span class="pdf-ocr-msg">
+              Only {p().withText} of {p().total} pages have selectable text — the rest are images, so Gemma
+              can only read those {p().withText}.
+            </span>
+            <Show when={canOcr()}>
+              <button class="pdf-btn pdf-ocr-run" disabled={!!ocrPage()} onClick={() => void runOcr()}>
+                {ocrPage() ? `Reading page ${ocrPage()}…` : "Read with OCR"}
+              </button>
+            </Show>
+          </div>
+        )}
+      </Show>
       <Show when={scanned()}>
         <div class="pdf-ocr-bar">
           <span class="pdf-ocr-msg">

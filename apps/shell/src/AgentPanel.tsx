@@ -892,7 +892,13 @@ const AgentPanel: Component = () => {
     "runs as a multi-step task automatically: it lists, reads each file, and drafts the note, one " +
     "step at a time. You don't need to ask the user to start it, and you must not offer to.\n" +
     "- If you genuinely can't do something, say so in one sentence and say what would work instead. " +
-    "Don't offer to do it and then not do it.";
+    "Don't offer to do it and then not do it.\n" +
+    "- NEVER speculate about Flux's own plumbing. \"It depends on whether the text is being captured " +
+    'and sent to me" tells the user nothing they can act on and is usually wrong. Either the page ' +
+    "text is in your context or it isn't: if it is, use it; if it isn't, say what you can see (the " +
+    "title, the file) and ask for the one thing you need. When a document IS in context but says it " +
+    "has no readable text, that is a fact about the document — say so and point at the fix, don't " +
+    "ask the user to paste it in.";
 
   // Conversation memory: prepend persona + capabilities + the recent turns so the
   // model has context. The trailing "user" entry is the message we just pushed, so

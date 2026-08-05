@@ -356,16 +356,49 @@ pub fn pdf_publish_text(
         ocr = ocr.unwrap_or(false),
         "extracted PDF text"
     );
-    if text.trim().is_empty() {
-        // A scanned PDF has no text layer. Storing an empty doc would make the
-        // KB claim to know a paper it can't quote a word of.
-        return Ok(());
-    }
     let title = if title.trim().is_empty() {
         src.rsplit(['/', '\\']).next().unwrap_or("PDF").to_string()
     } else {
         title
     };
+
+    if text.trim().is_empty() {
+        // No text layer — a scan, or slides exported as images.
+        //
+        // This still must not reach the KB: an empty doc would make the KB claim
+        // to know a paper it can't quote a word of. But returning here published
+        // *nothing at all*, and an absent snapshot is not a neutral state — it
+        // is indistinguishable, from the model's side, from a page it simply
+        // wasn't given. Asked about the open document it would then speculate
+        // about Flux's own plumbing ("depends on whether the text is being
+        // captured and sent to me") and ask the user to paste the slides in,
+        // when the true and useful answer was one it had no way to reach.
+        //
+        // So: say it, in the one place the model actually reads.
+        let note = format!(
+            "[Flux] The PDF \"{title}\" is open in the viewer: {} page(s), NONE of which contain \
+             selectable text. It is a scan or an image-only export, so there is genuinely no text \
+             to read — this is a fact about the document, not about what you were given. Tell the \
+             user that, and that Flux's PDF viewer offers \"Read with OCR\" to extract it. Do not \
+             ask them to paste the contents in.",
+            pages.unwrap_or(0)
+        );
+        state.dom_cache.insert(
+            tab_id,
+            std::sync::Arc::new(crate::state::DomSnapshot {
+                tab: tab_id,
+                url: src.clone(),
+                html: std::sync::Arc::from(""),
+                text: std::sync::Arc::from(note.as_str()),
+                captured_at_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0),
+            }),
+        );
+        let _ = tauri::Emitter::emit(&app, "flux://dom-updated", tab_id);
+        return Ok(());
+    }
 
     if let Some(store) = app.try_state::<PdfStore>() {
         store.put(PdfDoc {
@@ -380,6 +413,21 @@ pub fn pdf_publish_text(
         });
     }
 
+    // A deck whose later slides are images extracts fine for the first few and
+    // then yields nothing. That was logged and never told to the model, which
+    // would answer about "the document" while holding two slides of a
+    // thirty-five slide lecture — and had no way to know it. The KB doc stays
+    // clean (a note there would pollute citations); the snapshot says it.
+    let snapshot_text = match (pages, pages_with_text) {
+        (Some(total), Some(with)) if total > with && total > 0 => format!(
+            "[Flux] \"{title}\": only {with} of {total} pages contain selectable text — the rest \
+             are images. What follows is everything readable in this document; if the user asks \
+             about something that isn't here, say it's on a page with no text layer and point at \
+             \"Read with OCR\" in the viewer.\n\n{text}"
+        ),
+        _ => text.clone(),
+    };
+
     // The live snapshot is what `agent_chat` and chat-with-tabs read. Built here
     // rather than routed through `dom_publish`: that also writes history, the
     // Trail and Omni, none of which should record an internal viewer page.
@@ -389,7 +437,7 @@ pub fn pdf_publish_text(
             tab: tab_id,
             url: src.clone(),
             html: std::sync::Arc::from(""),
-            text: std::sync::Arc::from(text.as_str()),
+            text: std::sync::Arc::from(snapshot_text.as_str()),
             captured_at_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)

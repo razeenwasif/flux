@@ -93,6 +93,23 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **A PDF with no text layer told the agent nothing, so it guessed.** When extraction found no
+  selectable text, `pdf_publish_text` published *nothing at all* — right for the knowledge base
+  (an empty doc would make it claim to know a paper it can't quote a word of) and wrong for the
+  live snapshot. An absent snapshot isn't a neutral state: from the model's side it's
+  indistinguishable from a page it simply wasn't handed. Asked about the open document it would
+  speculate about Flux's own plumbing — *"my ability to read it depends on whether the text is
+  being captured and sent to me"* — and ask you to paste the slides in, when the true answer
+  ("this is a scan, run OCR") was one it had no way to reach.
+
+  The snapshot now says so, in the one place the model reads. Same for the quieter case: a deck
+  whose later slides are images extracts fine for the first few and then yields nothing, which
+  used to be logged and never mentioned — so it would answer about "the document" while holding
+  two slides of thirty-five. Both the model and the viewer now say **which** pages are readable,
+  and the viewer offers OCR for a partly-image deck instead of only a fully scanned one. The
+  agent is also told, in general, never to theorise about Flux's internals: either the page text
+  is in its context or it isn't, and both cases have a useful thing to say.
+
 - **The agent couldn't read the PDFs it had just listed.** `list` returned bare filenames, and
   the next step is written by a model reading that output — so it came back as
   `read 01-lecture.pdf`, a relative path, resolved against whatever directory Flux was launched
