@@ -219,7 +219,17 @@ fn append_to_file(path: &Path, body: &str) -> Result<(), String> {
 
 /// A compact listing of what exists, so the model appends to real targets.
 fn existing_targets(app: &tauri::AppHandle, vault: Option<&str>) -> String {
-    let mut out = String::new();
+    // The vault's own folders, first. Without them the model saw a flat list of
+    // note *files* and had nothing to match "save it under 00 - Optimization"
+    // against, so `new_note`'s folder came back null and the note landed at the
+    // vault root — or it invented a folder name close to but not the user's.
+    let mut out = crate::places::describe(&crate::places::places(app, vault));
+    if !out.is_empty() {
+        out.push_str(
+            "Use a folder name from the list verbatim when the user names one. Do not invent \
+             folders that aren't listed.\n\n",
+        );
+    }
     if let Some(root) = crate::kb::onyx_vault(vault) {
         out.push_str("Onyx notes (path — append_note uses these):\n");
         let mut n = 0;

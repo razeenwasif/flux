@@ -34,6 +34,7 @@ use crate::macros::{Macro, MacroStatus, Step};
 use crate::mem::MemInfo;
 use crate::netspeed::SpeedResult;
 use crate::permissions::{PermAsk, PermDecision, PermKind, SitePerm};
+use crate::places::Place;
 use crate::prefetch::PrefetchHint;
 use crate::pwa::PwaApp;
 use crate::reminders::Reminder;
@@ -124,6 +125,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<SysStats>(&c),
         specta::ts::export::<NetIface>(&c),
         specta::ts::export::<DiskInfo>(&c),
+        specta::ts::export::<Place>(&c),
         specta::ts::export::<GpuInfo>(&c),
         specta::ts::export::<SpeedResult>(&c),
         specta::ts::export::<ArchiveMeta>(&c),

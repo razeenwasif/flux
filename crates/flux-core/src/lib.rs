@@ -48,6 +48,7 @@ pub mod notewrite;
 pub mod ocr;
 pub mod omni;
 pub mod pdf;
+pub mod places;
 pub mod peek;
 pub mod permissions;
 pub mod persist;
@@ -1441,6 +1442,7 @@ pub fn run(intent: cli::LaunchIntent) {
             kb::kb_reindex,
             notewrite::note_plan,
             notewrite::note_apply,
+            places::agent_places,
             kb::kb_set_source,
             kb::kb_query,
             kb::kb_related,

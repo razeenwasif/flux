@@ -35,6 +35,8 @@ import {
   shellGuard,
   readTextFile,
   fsList,
+  agentPlaces,
+  type Place,
   writeTextFile,
   agentEditPlan,
   memoryRead,
@@ -876,6 +878,7 @@ const AgentPanel: Component = () => {
     '- Chain several of the above in one request: join steps with "then" / "+" — e.g. "read src/foo.rs then fix the bug then run the tests" or "play my liked songs + shuffle on". Each step runs in order; edits/commands still ask for approval.\n' +
     '- Adaptive goal loop: "/fix <goal>" (e.g. "/fix make the tests in src/foo.rs pass") — you run one step, read the result, and re-plan: run → read the failure → edit a fix → re-run, until it\'s done or stuck. Each edit/command still asks for approval.\n' +
     '- Power Platform (Power Apps / Power Automate ALM): "/pac <request>" maps to ONE Power Platform CLI command — e.g. "/pac export my solution Contoso", "/pac unpack the solution zip", "/pac list my canvas apps". It runs the command via the approval card; environment-mutating ones (import/delete/publish) are flagged first.\n' +
+    '- Named places: the user can say "onyx", "scribe", "downloads" or "home" instead of a path, and name a vault folder ("save it to onyx under 00 - Optimization"). The paths and the vault\'s folder names are listed below — use them verbatim; never ask for a path you have been given, and never invent a folder that isn\'t listed.\n' +
     '- Notes: asking in plain words ("save this into my Convex notebook") or "/note <what to add>" drafts something to ADD to the user\'s Onyx vault or a Scribe notebook — a new note/page, or an append to an existing one. They see the exact text and approve it before anything is written. You can never edit, rewrite or delete what is already there.\n' +
     '- Voice: always-on "Hey Gemma" + push-to-talk; the user can interrupt you by talking or the Stop button.\n' +
     "When asked what you can do, summarize the above. Don't claim abilities not listed.\n" +
@@ -930,11 +933,39 @@ const AgentPanel: Component = () => {
     return `The user is currently using **${app.name}** (${app.url}), one of their pinned apps. Here's how it works — use it to assist them:\n${app.guide}\n\n`;
   };
 
+  /** Named folders the agent can be pointed at without a path (#166): the Onyx
+   *  vault and its folders, Scribe, Downloads, home. Loaded once per panel —
+   *  the vault is a setting that rarely changes within a session, and the note
+   *  planner resolves its own copy server-side on every call anyway. */
+  const [places, setPlaces] = createSignal<Place[]>([]);
+  onMount(
+    () =>
+      void agentPlaces()
+        .then(setPlaces)
+        .catch(() => {}),
+  );
+
+  /** The places block, as the model reads it. Mirrors `places::describe`. */
+  const placesContext = (): string => {
+    const ps = places();
+    if (!ps.length) return "";
+    const lines = ps.map((p) => {
+      const folders = p.folders.length ? `\n    folders: ${p.folders.join(", ")}` : "";
+      return `  ${p.name} = ${p.path}  — ${p.what}${folders}`;
+    });
+    return (
+      "Named places you can use instead of asking the user for a path — say the name, " +
+      "expand to the path when a tool needs one:\n" +
+      `${lines.join("\n")}\n\n`
+    );
+  };
+
   const convoPrompt = (current: string): string => {
     const mem = memText().trim();
     const p0 = persona() ? `${persona()}\n\n` : "";
     const preamble =
       `${p0}${CAPABILITIES}\n\n` +
+      placesContext() +
       appContext() +
       filesContext() +
       (mem ? `What you remember about the user (your saved memory):\n${mem.slice(0, 4000)}\n\n` : "");
@@ -969,7 +1000,7 @@ const AgentPanel: Component = () => {
   /** The last directory the agent listed — what a bare filename resolves
    *  against. See `agentpaths.ts` for why that's needed. */
   let lastListedDir = "";
-  const resolvePath = (raw: string): string => resolveAgentPath(raw, lastListedDir);
+  const resolvePath = (raw: string): string => resolveAgentPath(raw, lastListedDir, places());
 
   const runListDir = async (raw: string): Promise<string> => {
     const path = resolvePath(raw);

@@ -38,15 +38,47 @@ export function joinPath(dir: string, name: string): string {
   return `${dir.replace(/[/\\]+$/, "")}${sep}${name.replace(/[/\\]+$/, "")}`;
 }
 
+/** A named location — see `places.rs`. Only the two fields used here. */
+export interface NamedPlace {
+  name: string;
+  path: string;
+}
+
+/**
+ * Expand a leading place name: `onyx/00 - Optimization` → the vault path.
+ *
+ * The names are the user's own vocabulary ("save it to onyx"), and without this
+ * they only worked in the note planner's prompt — the file tools took paths and
+ * nothing else, so `list onyx` meant nothing. Matched case-insensitively and
+ * only as a whole leading segment, so a real folder called `onyxdata/` is never
+ * mistaken for the vault.
+ */
+export function expandPlace(p: string, places: readonly NamedPlace[]): string | null {
+  const m = /^([\w.-]+)(?:[/\\](.*))?$/.exec(p);
+  if (!m) return null;
+  const head = m[1]!.toLowerCase();
+  const place = places.find((x) => x.name.toLowerCase() === head);
+  if (!place) return null;
+  const rest = m[2];
+  return rest ? joinPath(place.path, rest) : place.path;
+}
+
 /**
  * Turn whatever the model wrote into a path a file tool can open. Strips the
- * quotes it likes to add, and resolves a bare name against `lastDir`.
+ * quotes it likes to add, expands a leading place name, and otherwise resolves
+ * a bare name against `lastDir`.
  *
- * With no `lastDir` the input is returned unchanged: guessing a directory would
- * turn "file not found" into "read the wrong file", which is far worse.
+ * With no `lastDir` and no matching place the input is returned unchanged:
+ * guessing a directory would turn "file not found" into "read the wrong file",
+ * which is far worse.
  */
-export function resolveAgentPath(raw: string, lastDir: string): string {
+export function resolveAgentPath(raw: string, lastDir: string, places: readonly NamedPlace[] = []): string {
   const p = raw.trim().replace(/^["']|["']$/g, "");
-  if (!p || isAbsolutePath(p) || !lastDir) return p;
+  if (!p || isAbsolutePath(p)) return p;
+  // A place name wins over the last-listed directory: it's what the user
+  // actually said, where `lastDir` is only ever an inference.
+  const viaPlace = expandPlace(p, places);
+  if (viaPlace) return viaPlace;
+  if (!lastDir) return p;
   return joinPath(lastDir, p);
 }

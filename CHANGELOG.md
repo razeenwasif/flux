@@ -8,6 +8,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Named places — say "onyx", not a path.** *"Save this to Onyx under 00 - Optimization"* is how
+  people actually ask, and it used to fail two ways at once. The note planner was shown a flat
+  list of existing note *files* and never the vault's **folders**, so it had nothing to match
+  "00 - Optimization" against — the folder came back null and the note landed at the vault root,
+  or it invented a name close to but not yours. And the agent's file tools took paths and nothing
+  else, so `list onyx` meant nothing at all.
+
+  `onyx`, `scribe`, `downloads` and `home` now resolve to real absolute paths, and the vault's
+  top-level folders are listed by name. One definition in Rust feeds all three consumers — the
+  note planner's prompt, the agent's system prompt, and path resolution in the file tools — so
+  they can't describe the same vault differently. `onyx/00 - Optimization` expands anywhere a
+  path is taken, matched case-insensitively but only as a whole leading segment, so a real folder
+  called `onyxdata/` is never mistaken for the vault. Places are resolved fresh on each call
+  rather than cached: the vault path is a setting, and a stale answer files a note in the wrong
+  directory. Only directories that actually exist are offered — naming one that doesn't would
+  have the model confidently write to it.
 - **The agent acts on plain language instead of narrating.** Asking Gemma to go through a folder
   of PDFs and summarise them into a notebook produced a confident plan, an offer to begin, and
   then the same offer again — forever. The cause wasn't the model: the tools only ran behind

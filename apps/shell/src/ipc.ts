@@ -118,6 +118,7 @@ import type {
   GpuInfo as GenGpuInfo,
   NetIface as GenNetIface,
   DiskInfo as GenDiskInfo,
+  Place as GenPlace,
   TabFolder as GenTabFolder,
   TabGroup as GenTabGroup,
   TabKind as GenTabKind,
@@ -1230,6 +1231,13 @@ export type NetIface = GenNetIface;
 export type DiskInfo = GenDiskInfo;
 /** Mounted filesystems, for the task manager's disk card. */
 export const tasksDisks = () => invoke<DiskInfo[]>("tasks_disks");
+
+/** Named folders the agent can be pointed at without a path (#166) — the Onyx
+ *  vault and its folders, Scribe, Downloads, home. Resolved fresh on each call:
+ *  the vault path is a setting, and a stale answer files a note in the wrong
+ *  directory. */
+export type Place = GenPlace;
+export const agentPlaces = () => invoke<Place[]>("agent_places");
 export const tasksKill = (pid: number) => invoke<boolean>("tasks_kill", { pid });
 export const tasksStats = () => invoke<SysStats>("tasks_stats");
 /** Live GPU stats via nvidia-smi (empty on non-NVIDIA / no driver). */

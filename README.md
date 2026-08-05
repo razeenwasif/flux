@@ -324,6 +324,13 @@ The loop's tools are `list <dir>`, `read <path>`, `edit <path>: <change>`,
 same loop invoked explicitly (*"/fix make the tests in src/foo.rs pass"* → run →
 read the failure → edit → re-run).
 
+**Named places.** You don't have to give her paths. `onyx`, `scribe`,
+`downloads` and `home` resolve to the real directories, and your Onyx vault's
+folders are known by name — so *"summarise these into onyx under
+00 - Optimization"* is enough, in chat and in the agent's file tools alike
+(`list onyx`, `read onyx/00 - Optimization/duality.md`). They're resolved fresh
+each time, so changing your vault path in Settings takes effect immediately.
+
 She can also **write to your notes** (ADR 0016) — ask in plain words (*"save
 this into my Convex notebook"*) or use **`/note <what to add>`**. You see the
 exact text on a card and approve it before anything is written. She can only

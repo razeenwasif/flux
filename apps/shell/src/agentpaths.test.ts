@@ -48,6 +48,37 @@ describe("agent path resolution", () => {
     expect(joinPath("/home/me", "a.pdf")).toBe("/home/me/a.pdf");
   });
 
+  describe("named places", () => {
+    const PLACES = [
+      { name: "onyx", path: "/home/amaterasu/OnyxVault" },
+      { name: "downloads", path: "/home/amaterasu/Downloads" },
+    ];
+
+    it("expands the name the user actually says", () => {
+      expect(resolveAgentPath("onyx", "", PLACES)).toBe("/home/amaterasu/OnyxVault");
+      expect(resolveAgentPath("onyx/00 - Optimization", "", PLACES)).toBe(
+        "/home/amaterasu/OnyxVault/00 - Optimization",
+      );
+      expect(resolveAgentPath("Onyx/notes.md", "", PLACES)).toBe("/home/amaterasu/OnyxVault/notes.md");
+    });
+
+    it("only matches a whole leading segment", () => {
+      // A real folder that merely starts with a place name must not be
+      // swallowed — that would read the wrong directory entirely.
+      expect(resolveAgentPath("onyxdata/x.md", SLIDES, PLACES)).toBe(`${SLIDES}/onyxdata/x.md`);
+    });
+
+    it("prefers a place over the last listed directory", () => {
+      // The place is what the user said; lastDir is only ever an inference.
+      expect(resolveAgentPath("downloads", SLIDES, PLACES)).toBe("/home/amaterasu/Downloads");
+    });
+
+    it("leaves absolute paths and unknown names alone", () => {
+      expect(resolveAgentPath("/etc/hosts", "", PLACES)).toBe("/etc/hosts");
+      expect(resolveAgentPath("scribbles/x.md", "", PLACES)).toBe("scribbles/x.md");
+    });
+  });
+
   it("treats an empty input as empty rather than as the directory", () => {
     expect(resolveAgentPath("", SLIDES)).toBe("");
     expect(resolveAgentPath("   ", SLIDES)).toBe("");

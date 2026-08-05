@@ -171,6 +171,10 @@ export type NetIface = { name: string; rx_bps: number; tx_bps: number }
  */
 export type DiskInfo = { name: string; mount: string; fs: string; total_mb: number; avail_mb: number; removable: boolean }
 /**
+ * A folder worth knowing by name.
+ */
+export type Place = { name: string; path: string; what: string; folders: string[] }
+/**
  * One GPU's live stats (NVIDIA via `nvidia-smi`).
  */
 export type GpuInfo = { name: string; util_pct: number; mem_used_mb: number; mem_total_mb: number; temp_c: number; power_w: number }

@@ -350,6 +350,29 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
           power_w: 96,
         },
       ] as T);
+    // Named places (#166) — the preview needs a vault with folders to show that
+    // "onyx / 00 - Optimization" resolves without a path.
+    case "agent_places":
+      return Promise.resolve([
+        {
+          name: "onyx",
+          path: "/home/amaterasu/OnyxVault",
+          what: "the user's Onyx markdown vault — where notes are written",
+          folders: ["00 - Optimization", "01 - Convex Analysis", "Inbox", "Papers"],
+        },
+        {
+          name: "scribe",
+          path: "/home/amaterasu/.local/share/flux/scribe",
+          what: "handwritten Scribe notebooks (one file per notebook)",
+          folders: [],
+        },
+        {
+          name: "downloads",
+          path: "/home/amaterasu/Downloads",
+          what: "where Flux saves downloads and edited PDFs",
+          folders: [],
+        },
+      ] as T);
     case "tasks_disks":
       return Promise.resolve([
         { name: "nvme0n1p2", mount: "/", fs: "ext4", total_mb: 953_000, avail_mb: 402_000, removable: false },
