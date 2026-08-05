@@ -158,6 +158,18 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   one request, clear the loaded files, then raise `num_ctx` — rather than leading with the setting
   most likely to cost VRAM you may not have.
 
+- **An unescaped quote in prose no longer throws away the note.** *"expected `,` or `}` at line
+  1 column 1983"* is what a model writing `The "strong duality" theorem` into a JSON string
+  produces: the inner quote ends the string early, and everything after it is nonsense to the
+  parser. One character in the middle of a sentence, and the whole note is lost.
+
+  The repair added for LaTeX now covers this and raw newlines too — the three ways a model breaks
+  JSON it otherwise got right, all of them quoting slips inside string literals, all commonest in
+  prose, mathematics and paths. A `"` is read as closing the string when the next non-space
+  character is one that can legally follow a string, and as literal text otherwise; a raw newline
+  or tab is never ambiguous at all. Still only ever after a strict parse has failed, so valid
+  output is untouched.
+
 - **LaTeX no longer throws away the reply that contains it.** *"model returned malformed action:
   invalid escape at line 1 column 2411"* was the note prompt getting what it asked for. It
   requests LaTeX — `$$\int_0^1 x^2\,dx$$` — and a model writing that into a JSON string has to

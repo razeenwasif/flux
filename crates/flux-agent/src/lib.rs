@@ -590,22 +590,28 @@ struct PolicyFlagList {
 /// success. String- and escape-aware, so a `{`/`}` inside a JSON string can't
 /// unbalance it. Falls back to the trimmed input when there's no object at all,
 /// leaving the original parse error to surface.
-/// Escape a stray backslash that JSON doesn't recognise, inside string literals.
+/// Repair the three ways a model breaks JSON that it otherwise got right.
 ///
-/// The note prompt asks for LaTeX — `$$\int_0^1 x^2\,dx$$` — and a model that
-/// writes that into a JSON string has to emit `\\int`. Small ones routinely
-/// don't, and `\i` / `\,` are not valid JSON escapes, so the whole reply is
-/// rejected with "invalid escape at line 1 column 2411" and the user loses a
-/// note that was otherwise fine. It shows up wherever mathematics or Windows
-/// paths appear, which is to say exactly where this agent is most useful.
+/// All three are quoting slips inside string literals, all three reject the
+/// *entire* reply, and all three are commonest in exactly the content this
+/// agent is for — prose, mathematics and paths:
 ///
-/// Only the eight escapes JSON defines are left alone (`" \ / b f n r t`), plus
-/// `\u` with four hex digits after it. Everything else becomes a literal
-/// backslash — which is what the model meant.
+/// 1. **A stray backslash.** The note prompt asks for LaTeX, and `$$\int x\,dx$$`
+///    in a JSON string has to be written `\\int`. `\i` and `\,` are not valid
+///    escapes → "invalid escape at line 1 column 2411".
+/// 2. **An unescaped `"` inside a string.** `"He said "hello" there"` ends the
+///    string early, and the parser then finds a word where it wanted a comma →
+///    "expected `,` or `}` at line 1 column 1983".
+/// 3. **A raw newline or tab inside a string.** Always invalid in JSON, never
+///    ambiguous → "control character in string".
 ///
-/// Deliberately applied ONLY after a strict parse has already failed: valid
-/// output is never rewritten, so this can add a success but never change one.
-fn repair_json_escapes(raw: &str) -> String {
+/// (2) is the only one needing a judgement call: a `"` is treated as closing
+/// the string when the next non-space character is one that can legally follow
+/// a string (`,` `}` `]` `:` or the end), and as literal text otherwise. That is
+/// a heuristic, and it is allowed to be, because this runs **only after a strict
+/// parse has already failed** — valid output is never rewritten, so a repair can
+/// turn a failure into a success but can never change a success into anything.
+fn repair_model_json(raw: &str) -> String {
     let chars: Vec<char> = raw.chars().collect();
     let mut out = String::with_capacity(raw.len() + 32);
     let mut i = 0;
@@ -622,13 +628,21 @@ fn repair_json_escapes(raw: &str) -> String {
         }
         match c {
             '"' => {
-                in_str = false;
-                out.push(c);
+                // Closing quote, or a quote the model forgot to escape?
+                let next = chars[i + 1..].iter().find(|c| !c.is_whitespace()).copied();
+                if matches!(next, Some(',' | '}' | ']' | ':') | None) {
+                    in_str = false;
+                    out.push('"');
+                } else {
+                    out.push('\\');
+                    out.push('"');
+                }
                 i += 1;
             }
             '\\' => {
                 let next = chars.get(i + 1).copied();
-                let valid_simple = matches!(next, Some('"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't'));
+                let valid_simple =
+                    matches!(next, Some('"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't'));
                 // `\u` is only an escape when four hex digits follow; a bare
                 // `\underline{x}` is LaTeX and must be escaped like anything else.
                 let valid_u = next == Some('u')
@@ -646,6 +660,24 @@ fn repair_json_escapes(raw: &str) -> String {
                     i += 1;
                 }
             }
+            // A literal control character is never legal in a JSON string, so
+            // there is nothing to weigh up — escape it and keep the content.
+            '\n' => {
+                out.push_str("\\n");
+                i += 1;
+            }
+            '\r' => {
+                out.push_str("\\r");
+                i += 1;
+            }
+            '\t' => {
+                out.push_str("\\t");
+                i += 1;
+            }
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+                i += 1;
+            }
             _ => {
                 out.push(c);
                 i += 1;
@@ -655,15 +687,16 @@ fn repair_json_escapes(raw: &str) -> String {
     out
 }
 
-/// Extract the first JSON object and deserialize it, repairing invalid escapes
-/// if — and only if — the strict parse fails. Every structured call goes through
-/// here so a model's LaTeX can't take out one feature and not another.
+/// Extract the first JSON object and deserialize it, repairing a model's
+/// quoting slips if — and only if — the strict parse fails. Every structured
+/// call goes through here, so a model's prose can't take out one feature and
+/// spare another.
 fn parse_first_json<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T, AgentError> {
     let obj = first_json_object(raw);
     match serde_json::from_str::<T>(obj) {
         Ok(v) => Ok(v),
         Err(first) => {
-            let repaired = repair_json_escapes(obj);
+            let repaired = repair_model_json(obj);
             // Report the ORIGINAL error if the repair didn't help: the second
             // error would describe text the model never produced.
             serde_json::from_str::<T>(&repaired).map_err(|_| AgentError::from(first))
@@ -1816,19 +1849,69 @@ mod tests {
 
     #[test]
     fn repair_leaves_structure_alone_and_handles_edge_cases() {
-        use super::repair_json_escapes;
+        use super::repair_model_json;
         // A backslash outside a string is not ours to touch.
-        assert_eq!(repair_json_escapes(r"{\ }"), r"{\ }");
+        assert_eq!(repair_model_json(r"{\ }"), r"{\ }");
         // `\u` with four hex digits is an escape; `\underline` is not.
-        assert_eq!(repair_json_escapes(r#""é""#), r#""é""#);
-        assert_eq!(repair_json_escapes(r#""\underline{x}""#), r#""\\underline{x}""#);
+        assert_eq!(repair_model_json(r#""é""#), r#""é""#);
+        assert_eq!(repair_model_json(r#""\underline{x}""#), r#""\\underline{x}""#);
         // A lone trailing backslash inside a string must not run off the end.
-        assert_eq!(repair_json_escapes(r#""ends with \"#), r#""ends with \\"#);
+        assert_eq!(repair_model_json(r#""ends with \"#), r#""ends with \\"#);
         // An escaped quote still closes nothing — the string continues.
         let s = r#"{"a":"say \"hi\" \& go","b":"x"}"#;
-        let v: serde_json::Value = serde_json::from_str(&repair_json_escapes(s)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&repair_model_json(s)).unwrap();
         assert_eq!(v["a"], r#"say "hi" \& go"#);
         assert_eq!(v["b"], "x");
+    }
+
+    /// The second reported failure: "expected `,` or `}` at line 1 column 1983".
+    /// A quote the model forgot to escape ends the string early, and everything
+    /// after it is nonsense to the parser — so a whole note is lost to one
+    /// character in the middle of a sentence.
+    #[test]
+    fn an_unescaped_quote_inside_prose_is_repaired() {
+        let raw = r#"{"action":"new_note","title":"Duality","body":"The "strong duality" theorem holds here."}"#;
+        let err = serde_json::from_str::<serde_json::Value>(raw).unwrap_err();
+        assert!(err.to_string().contains("expected"), "{err}");
+
+        let v: serde_json::Value = super::parse_first_json(raw).expect("repaired");
+        assert_eq!(v["title"], "Duality");
+        assert_eq!(v["body"], r#"The "strong duality" theorem holds here."#);
+    }
+
+    /// A quote that really does end the string must still end it — otherwise the
+    /// repair would swallow the rest of the object into one giant value.
+    #[test]
+    fn a_closing_quote_is_not_mistaken_for_prose() {
+        let raw = r#"{"a":"one","b":"two","c":["x","y"],"d":{"e":"f"}}"#;
+        let strict: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let repaired: serde_json::Value =
+            serde_json::from_str(&super::repair_model_json(raw)).unwrap();
+        assert_eq!(strict, repaired);
+        assert_eq!(repaired["c"][1], "y");
+        assert_eq!(repaired["d"]["e"], "f");
+    }
+
+    /// A raw newline in a string is always invalid and never ambiguous, so the
+    /// content is kept rather than the reply thrown away.
+    #[test]
+    fn raw_control_characters_are_escaped_not_dropped() {
+        let raw = "{\"body\":\"line one\nline two\ttabbed\"}";
+        assert!(serde_json::from_str::<serde_json::Value>(raw).is_err());
+        let v: serde_json::Value = super::parse_first_json(raw).expect("repaired");
+        assert_eq!(v["body"], "line one\nline two\ttabbed");
+    }
+
+    /// The realistic worst case: a note body with LaTeX, quoted prose and a
+    /// newline all at once — each of which alone used to lose the whole reply.
+    #[test]
+    fn all_three_slips_together_still_parse() {
+        let raw = "{\"action\":\"new_note\",\"title\":\"Lecture 1\",\"body\":\"The \"primal\" problem:\n$$\\min_x f(x)\\,dx$$\"}";
+        let v: serde_json::Value = super::parse_first_json(raw).expect("repaired");
+        let body = v["body"].as_str().unwrap();
+        assert!(body.contains(r#""primal""#), "{body}");
+        assert!(body.contains(r"\min_x"), "{body}");
+        assert!(body.contains('\n'), "{body}");
     }
 
     #[test]
