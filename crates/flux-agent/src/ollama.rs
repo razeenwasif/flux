@@ -339,6 +339,22 @@ fn merge_options(
 /// clauses (~1400 chars before Rust clamps them), so leave real headroom.
 const STRUCTURED_PREDICT_CAP: i32 = 1536;
 
+/// How far a truncated structured call will climb on retry.
+///
+/// The cap is a safety ceiling, and the paragraph above is the reason a retry is
+/// safe: with `format` set, generation is grammar-constrained and stops when the
+/// object closes, so a larger ceiling changes nothing for a reply that was going
+/// to fit. It only rescues the one that wasn't.
+///
+/// Which made failing the whole call the wrong response. The user swaps a 12B
+/// for a 26B, every structured feature starts erroring, and the fix is an
+/// environment variable they have to be told about — for a request the machine
+/// could simply have made again. Worse, the ceiling was one number for every
+/// structured call: a phishing verdict needs a few hundred tokens, while
+/// `plan_note` is generating *the note the user asked for*, which can legitimately
+/// be thousands. Those have no business sharing a limit.
+const STRUCTURED_PREDICT_MAX: i32 = 8192;
+
 /// Build a `/api/generate` body. A `format` (a JSON Schema, or the bare string
 /// `"json"`) constrains structured output for DOM actions and gets the cooler
 /// temperature; `None` is free-text chat with a warmer one. `stream` toggles
@@ -350,9 +366,21 @@ fn generate_body(
     format: Option<serde_json::Value>,
     stream: bool,
 ) -> serde_json::Value {
+    generate_body_capped(model, prompt, format, stream, None)
+}
+
+/// `generate_body` with the structured output ceiling overridden — used by the
+/// retry path, which raises it after a truncation. `None` means the default.
+fn generate_body_capped(
+    model: &str,
+    prompt: &str,
+    format: Option<serde_json::Value>,
+    stream: bool,
+    structured_cap: Option<i32>,
+) -> serde_json::Value {
     let structured = format.is_some();
     let out_cap = if structured {
-        STRUCTURED_PREDICT_CAP
+        structured_cap.unwrap_or(STRUCTURED_PREDICT_CAP)
     } else {
         num_predict()
     };
@@ -412,15 +440,29 @@ fn generate_body(
 /// and silently disable the feature. Naming the real cause (and the fix) is the
 /// difference between a five-minute config change and an afternoon of hunting
 /// imagined model weakness. Pure, so both paths are testable without a server.
-fn read_generate_response(
+fn read_generate_response(value: &serde_json::Value, model: &str) -> Result<String, AgentError> {
+    read_generate_response_capped(value, model, STRUCTURED_PREDICT_CAP)
+}
+
+/// True when the reply stopped because it ran out of tokens rather than finishing.
+fn hit_token_cap(value: &serde_json::Value) -> bool {
+    value.get("done_reason").and_then(|v| v.as_str()) == Some("length")
+}
+
+fn read_generate_response_capped(
     value: &serde_json::Value,
     model: &str,
+    cap: i32,
 ) -> Result<String, AgentError> {
-    if value.get("done_reason").and_then(|v| v.as_str()) == Some("length") {
+    if hit_token_cap(value) {
+        // Only reached once the retries above have run out, so the advice is
+        // about a genuinely enormous reply — name the ceiling actually tried,
+        // not the starting one, or the suggested override looks already-applied.
         return Err(AgentError::Inference(format!(
             "ollama: output truncated at the token cap (model `{model}` is more verbose \
-             than num_predict={STRUCTURED_PREDICT_CAP} allows) — raise it with \
-             FLUX_OLLAMA_OPTIONS='{{\"num_predict\":3072}}' or use a terser model"
+             than num_predict={cap} allows, and retrying with more didn't finish it either) \
+             — raise it with FLUX_OLLAMA_OPTIONS='{{\"num_predict\":{}}}' or use a terser model",
+            cap.saturating_mul(2)
         )));
     }
     value
@@ -431,23 +473,81 @@ fn read_generate_response(
 }
 
 impl OllamaBackend {
+    /// One structured/free-text completion, retrying a **truncated** structured
+    /// reply with a larger token ceiling.
+    ///
+    /// A schema-constrained reply that hits the cap is cut off mid-token: the
+    /// JSON never closes and the caller gets a parse error, so the whole feature
+    /// looks broken on a wordier model. Since a bigger ceiling is free for a
+    /// reply that would have fitted (grammar-constrained generation stops when
+    /// the object closes), the honest response to truncation is to ask again
+    /// with more room rather than to hand the user an environment variable.
+    ///
+    /// Doubling, not one big jump: `num_ctx` grows to cover prompt + output, so
+    /// an unconditional 8k ceiling would inflate the context — and the KV cache
+    /// with it — on every structured call, most of which need a few hundred
+    /// tokens. Pay for the headroom only where it turns out to be needed.
     fn generate(
         &self,
         prompt: &str,
         format: Option<serde_json::Value>,
     ) -> Result<String, AgentError> {
         let url = format!("{}/api/generate", self.endpoint);
-        let resp = self
-            .agent
-            .post(&url)
-            .send_json(generate_body(&active_model(), prompt, format, false))
-            .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
+        let structured = format.is_some();
+        let mut cap = STRUCTURED_PREDICT_CAP;
+        loop {
+            let body = generate_body_capped(
+                &active_model(),
+                prompt,
+                format.clone(),
+                false,
+                structured.then_some(cap),
+            );
+            let resp = self
+                .agent
+                .post(&url)
+                .send_json(body)
+                .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
+            let value: serde_json::Value = resp
+                .into_json()
+                .map_err(|e| AgentError::Inference(format!("ollama response decode: {e}")))?;
 
-        let value: serde_json::Value = resp
-            .into_json()
-            .map_err(|e| AgentError::Inference(format!("ollama response decode: {e}")))?;
-
-        read_generate_response(&value, &active_model())
+            // Free-text replies are streamed elsewhere and aren't grammar-bound,
+            // so a cap hit there is a genuine stop, not a broken payload.
+            if structured && hit_token_cap(&value) && cap < STRUCTURED_PREDICT_MAX {
+                let next = (cap.saturating_mul(2)).min(STRUCTURED_PREDICT_MAX);
+                // Raising the cap only helps if the window can actually hold the
+                // bigger answer. Compare what the next attempt NEEDS against
+                // what `ctx_for` will grant — not the two grants against each
+                // other, which are equal both when the window is full and when
+                // the 4096 floor already covers both (the common case, where
+                // there is plenty of room and the retry must go ahead).
+                let granted = ctx_for(prompt, next);
+                let needed = estimate_tokens(prompt)
+                    .saturating_add(next.max(0) as u32)
+                    .saturating_add(256);
+                if needed > granted {
+                    return Err(AgentError::Inference(format!(
+                        "ollama: the reply was cut off and there is no room to grow — the prompt \
+                         ({} tokens) already fills this model's context window, so a longer answer \
+                         has nowhere to go. Shorten what's being sent (fewer files or tabs in \
+                         context), or raise the window with \
+                         FLUX_OLLAMA_OPTIONS='{{\"num_ctx\":32768}}' if the machine has the memory.",
+                        estimate_tokens(prompt)
+                    )));
+                }
+                tracing::info!(
+                    target: "flux::agent",
+                    model = %active_model(),
+                    from = cap,
+                    to = next,
+                    "structured reply hit the token cap; retrying with more room"
+                );
+                cap = next;
+                continue;
+            }
+            return read_generate_response_capped(&value, &active_model(), cap);
+        }
     }
 
     /// Stream a free-text completion: `/api/generate` with `stream:true` returns
@@ -578,6 +678,112 @@ mod tests {
         );
         assert_eq!(structured["options"]["num_predict"], STRUCTURED_PREDICT_CAP);
         const { assert!(STRUCTURED_PREDICT_CAP >= 1536) }; // headroom for flag_policy's 3 clauses
+    }
+
+    /// Swapping a 12B for a wordier 26B made every structured feature fail with
+    /// an environment variable to set. The retry is what turns that back into a
+    /// request the machine simply makes again.
+    #[test]
+    fn a_truncated_structured_reply_is_retried_with_more_room() {
+        let truncated = serde_json::json!({ "response": "{\"a\":", "done_reason": "length" });
+        let finished = serde_json::json!({ "response": "{\"a\":1}", "done_reason": "stop" });
+
+        // The retry decision, as `generate` makes it: keep going while the reply
+        // was cut off AND there is headroom left.
+        let mut cap = STRUCTURED_PREDICT_CAP;
+        let mut attempts = 1;
+        while hit_token_cap(&truncated) && cap < STRUCTURED_PREDICT_MAX {
+            cap = (cap.saturating_mul(2)).min(STRUCTURED_PREDICT_MAX);
+            attempts += 1;
+        }
+        assert!(
+            attempts > 1,
+            "a truncated reply must be retried, not surfaced"
+        );
+        assert_eq!(
+            cap, STRUCTURED_PREDICT_MAX,
+            "climbs to the ceiling and stops"
+        );
+        assert!(
+            STRUCTURED_PREDICT_MAX > STRUCTURED_PREDICT_CAP * 2,
+            "enough headroom to be worth the round trips"
+        );
+
+        // A reply that finished is never retried, whatever the cap.
+        assert!(!hit_token_cap(&finished));
+        assert_eq!(
+            read_generate_response_capped(&finished, "m", STRUCTURED_PREDICT_CAP).unwrap(),
+            "{\"a\":1}"
+        );
+
+        // Only once the ceiling is exhausted does the user see an error — and it
+        // must name the ceiling actually tried, or the override it suggests
+        // looks like the one already in effect.
+        let err = read_generate_response_capped(&truncated, "gemma4:26b-council", cap).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains(&cap.to_string()),
+            "names the cap it reached: {msg}"
+        );
+        assert!(
+            msg.contains("retrying"),
+            "says a retry was already tried: {msg}"
+        );
+        assert!(
+            msg.contains(&(cap * 2).to_string()),
+            "suggests a HIGHER override than the one tried: {msg}"
+        );
+    }
+
+    /// Retrying is only worth a round trip while the context can actually grow
+    /// to hold the bigger answer.
+    #[test]
+    fn stops_retrying_only_once_the_context_window_is_actually_full() {
+        // `generate`'s predicate: does the window grant what the next attempt needs?
+        let has_room = |prompt: &str, next: i32| {
+            let needed = estimate_tokens(prompt)
+                .saturating_add(next.max(0) as u32)
+                .saturating_add(256);
+            needed <= ctx_for(prompt, next)
+        };
+
+        // The common case, and the one an earlier version of this got wrong:
+        // with a short prompt both caps clamp to the 4096 FLOOR, so comparing
+        // the two grants says "no headroom" when there is plenty. The retry
+        // must go ahead here.
+        assert!(has_room("hi", STRUCTURED_PREDICT_CAP * 2));
+        assert!(has_room("hi", STRUCTURED_PREDICT_MAX));
+
+        // A prompt that already fills the window genuinely has nowhere to put a
+        // longer answer — Ollama would drop the oldest prompt tokens instead —
+        // so climbing further is pure waste, and "use a terser model" would be
+        // the wrong diagnosis entirely.
+        let huge = "x".repeat(MAX_AUTO_CTX as usize * 8);
+        assert_eq!(ctx_for(&huge, STRUCTURED_PREDICT_CAP), MAX_AUTO_CTX);
+        assert!(!has_room(&huge, STRUCTURED_PREDICT_MAX));
+    }
+
+    /// The whole point of the cap being per-call: an override only applies to
+    /// the structured path, and free-text keeps its own budget.
+    #[test]
+    fn the_raised_cap_reaches_the_request_body() {
+        let raised = generate_body_capped(
+            "m",
+            "write a long note",
+            Some(serde_json::json!({ "type": "object" })),
+            false,
+            Some(STRUCTURED_PREDICT_MAX),
+        );
+        assert_eq!(raised["options"]["num_predict"], STRUCTURED_PREDICT_MAX);
+        // num_ctx covers prompt + output together, so it must have grown to fit
+        // the bigger answer — otherwise the retry buys nothing.
+        assert!(
+            raised["options"]["num_ctx"].as_i64().unwrap() >= i64::from(STRUCTURED_PREDICT_MAX),
+            "context grew to cover the raised output cap"
+        );
+        // Free text ignores the structured cap entirely.
+        let chat = generate_body_capped("m", "hi", None, true, Some(STRUCTURED_PREDICT_MAX));
+        assert_eq!(chat["options"]["num_predict"], num_predict());
     }
 
     #[test]

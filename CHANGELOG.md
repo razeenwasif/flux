@@ -93,6 +93,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   gone as well; two buttons 30px apart for one list was only ever a way to make the rail taller.
 
 ### Fixed
+- **A wordier model no longer breaks every structured feature.** Switching to a 26B made calls
+  fail with *"output truncated at the token cap… raise it with `FLUX_OLLAMA_OPTIONS`"* — a
+  correct diagnosis, handed to the user as homework for a request the machine could simply have
+  made again. Schema-constrained generation stops when the object closes, so a larger ceiling
+  costs nothing on a reply that was going to fit; it only rescues the one that wasn't. A
+  truncated structured reply is now retried with double the room, up to 8192 tokens.
+
+  The ceiling was also one number for every structured call, which stopped making sense once the
+  agent could write notes: a phishing verdict needs a few hundred tokens, while drafting the note
+  you asked for can legitimately need thousands. Doubling on demand rather than raising the
+  default keeps the context (and the KV cache) small for the calls that don't need it.
+
+  And when the prompt itself already fills the window, retrying can't help — the extra output
+  tokens have nowhere to live. That case now says so, and points at trimming what's in context or
+  raising `num_ctx`, instead of blaming the model's verbosity.
+
 - **A PDF with no text layer told the agent nothing, so it guessed.** When extraction found no
   selectable text, `pdf_publish_text` published *nothing at all* — right for the knowledge base
   (an empty doc would make it claim to know a paper it can't quote a word of) and wrong for the
