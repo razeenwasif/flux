@@ -20,6 +20,9 @@ import {
   elevenlabsHasKey,
   elevenlabsImportVoice,
   elevenlabsSetKey,
+  geminiSetKey,
+  geminiHasKey,
+  geminiVerifyKey,
   elevenlabsVerifyKey,
   elevenlabsVerifyKeyValue,
   elevenlabsVoices,
@@ -364,6 +367,38 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
       setTesting(false);
     }
   };
+  // Gemini cloud escalation for the agent (#175). Storing a key does NOT route
+  // anything: it only makes the per-session switch in the agent panel available.
+  const [gemKeyInput, setGemKeyInput] = createSignal("");
+  const [gemKeySet, setGemKeySet] = createSignal(false);
+  const [gemFlash, setGemFlash] = createSignal("");
+  const refreshGemKey = () =>
+    void geminiHasKey()
+      .then(setGemKeySet)
+      .catch(() => {});
+  const saveGemKey = async () => {
+    try {
+      const raw = gemKeyInput().trim();
+      if (!raw) {
+        await geminiSetKey("");
+        setGemKeyInput("");
+        setGemKeySet(false);
+        setGemFlash("Key removed — the agent is local only");
+        return;
+      }
+      await geminiSetKey(raw);
+      // Verify *after* storing so the message reflects what was actually saved,
+      // and a bad key is reported rather than sitting there until first use.
+      const msg = await geminiVerifyKey();
+      setGemKeyInput("");
+      setGemKeySet(true);
+      setGemFlash(msg);
+    } catch (e) {
+      setGemFlash(String(e));
+      refreshGemKey();
+    }
+  };
+
   // ElevenLabs (cloud) voice.
   const [elKeyInput, setElKeyInput] = createSignal("");
   const [elKeySet, setElKeySet] = createSignal(false);
@@ -517,6 +552,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     }
     refreshElKey();
     if (ttsEngine() === "elevenlabs") loadElVoices();
+    refreshGemKey();
     refreshPcKey();
     refreshMem();
     refreshMics();
@@ -971,6 +1007,31 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               value={audiopulseDir()}
               onChange={(e) => setAudiopulseDir(e.currentTarget.value.trim())}
             />
+          </Row>
+          <Row
+            label="Gemini API key (cloud escalation)"
+            hint="Optional. Lets you escalate a single session to Gemini from the agent panel's model menu, for jobs a local model can't do — a folder of lecture PDFs, prompts past the local context window. Storing a key routes nothing on its own, and escalation resets to local every time Flux restarts. While it's on, the agent's prompts — page text, PDFs, vault notes, terminal output — are sent to Google. Note a Gemini app subscription is NOT an API key: get one from Google AI Studio (aistudio.google.com), and check whether your tier is excluded from training. Stored in your OS keyring. Leave blank and save to remove."
+          >
+            <div class="set-stack-control">
+              <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                <input
+                  class="map-search-input"
+                  type="password"
+                  style={{ "max-width": "260px" }}
+                  placeholder={gemKeySet() ? "•••••••• (key set)" : "AIza…"}
+                  value={gemKeyInput()}
+                  onInput={(e) => setGemKeyInput(e.currentTarget.value)}
+                />
+                <button class="set-link-btn" onClick={() => void saveGemKey()}>
+                  Save
+                </button>
+              </div>
+              <Show when={gemFlash()}>
+                <div class="set-status-line" title={gemFlash()}>
+                  {gemFlash()}
+                </div>
+              </Show>
+            </div>
           </Row>
           <Row
             label="Hey Gemma (always-on voice)"

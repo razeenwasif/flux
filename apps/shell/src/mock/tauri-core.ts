@@ -1016,6 +1016,18 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve("gemma4:12b-it-qat" as T);
     case "agent_set_model":
       return Promise.resolve(undefined as T);
+    // Cloud escalation (#175). The preview has no keyring, so it reports the
+    // real default state: local, with no key — which is also what the UI must
+    // look like on a fresh machine.
+    case "agent_cloud_status":
+    case "agent_cloud_set":
+      return Promise.resolve({ requested: false, available: false, active: false } as T);
+    case "gemini_has_key":
+      return Promise.resolve(false as T);
+    case "gemini_default_model":
+      return Promise.resolve("gemini-2.5-flash" as T);
+    case "gemini_models":
+      return Promise.resolve([] as T);
     case "omni_search": {
       const q = String(args?.query ?? "");
       return Promise.resolve([

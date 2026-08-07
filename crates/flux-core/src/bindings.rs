@@ -81,6 +81,8 @@ pub fn generate_ts() -> String {
         specta::ts::export::<Container>(&c),
         specta::ts::export::<WebPanel>(&c),
         specta::ts::export::<AgentStatus>(&c),
+        // Where the agent's next request goes — local, or the opt-in cloud (#175).
+        specta::ts::export::<flux_agent::RouteStatus>(&c),
         // Sentinel security layer (ADR 0013): phishing verdicts.
         specta::ts::export::<crate::sentinel::phishing::Confidence>(&c),
         specta::ts::export::<crate::sentinel::phishing::Verdict>(&c),

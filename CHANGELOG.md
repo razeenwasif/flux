@@ -8,6 +8,32 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Opt-in cloud escalation for the agent (#175, ADR 0018).** A local 12–26B in a 16k window has a
+  ceiling, and a run of recent failures — `output truncated at the token cap`, `no room to grow`,
+  the whole `num_ctx` retry ladder — were all the same thing: the job was bigger than the window.
+  Summarising a folder of lecture PDFs still doesn't fit.
+
+  You can now escalate **one session** to Gemini from the agent panel's model menu. The switch is
+  built to be hard to leave on by accident: it is **off on every launch** (the flag lives in memory,
+  never on disk), it checks the key actually works before flipping rather than failing on your first
+  question — so a refused switch means nothing was sent — clearing the key revokes it, and the
+  agent header reads `☁ … · cloud` in the whole time it's live — the word, not just the colour, so
+  it survives a screenshot. Local is the default *and* the fallback: no key, a failed switch, a
+  removed key all run locally. Nothing in the router can fail toward the network.
+
+  Be clear about what it costs. Agent prompts carry page text, PDFs, vault notes and terminal
+  output, so escalating is a disclosure, not a speed setting. That is why it's per-session, while
+  the ElevenLabs voice — which sends only Gemma's reply *text* — is a persisted preference.
+
+  The API key goes in your OS keyring (Settings → Integrations), never localStorage, and is never
+  read back into the UI. Note a **Gemini app subscription is not an API key** — you need one from
+  Google AI Studio, and it's worth checking whether your tier is excluded from training.
+
+  Under the hood the schemas needed translating: Gemini's `responseSchema` rejects the `oneOf`,
+  `const` and `additionalProperties` that Flux's action schemas are built from, and treats
+  `maxLength` as advisory where Ollama enforces it in the grammar. Both are handled, and a test
+  asserts the *real* schemas translate cleanly so a new construct fails in CI rather than as a 400
+  in front of you.
 - **A permanent nvim column beside the page (#174).** Editing something while reading something
   meant a tab switch, and a tab switch means losing the page you were reading from. The content
   area now splits: the page keeps the left half, `nvim` runs in the right, booted from `~` when

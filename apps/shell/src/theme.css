@@ -4287,6 +4287,39 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-text);
   border-color: var(--flux-border);
 }
+/* Cloud escalation (#175). Deliberately the loudest thing in the header while
+   it's on: this is the state where what you type leaves the machine, and it
+   should be impossible to have forgotten. Colour alone doesn't carry it — the
+   label itself changes to "cloud", so it reads correctly without colour vision
+   and in a screenshot. */
+.agent-model-btn.cloud {
+  color: var(--flux-text);
+  background: rgba(var(--accent-hot-rgb), 0.16);
+  border-color: rgba(var(--accent-hot-rgb), 0.55);
+}
+.agent-model-btn.cloud:hover {
+  background: rgba(var(--accent-hot-rgb), 0.24);
+  border-color: rgba(var(--accent-hot-rgb), 0.75);
+}
+.agent-model-cloud {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: var(--flux-text-dim);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+.agent-model-cloud:hover {
+  color: var(--flux-text);
+}
+.agent-model-cloud.on {
+  color: rgb(var(--accent-hot-rgb));
+}
+.agent-model-cloud:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .agent-model-menu {
   position: absolute;
   right: 0;

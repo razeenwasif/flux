@@ -47,6 +47,12 @@ import {
   systemStats,
   searchResolve,
   agentModels,
+  agentCloudSet,
+  agentCloudStatus,
+  geminiHasKey,
+  geminiModels,
+  geminiDefaultModel,
+  type RouteStatus,
   spotifyNext,
   spotifyNowPlaying,
   spotifyPause,
@@ -128,6 +134,7 @@ import {
   activeTerminalLinesFrom,
   runInActiveTerminal,
 } from "./terminals";
+import { LOCAL, routeLabel } from "./cloudroute";
 import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
@@ -324,6 +331,73 @@ const AgentPanel: Component = () => {
   const shortModel = () => {
     const m = agentModelName();
     return m ? m.split(":")[0]! : "gemma";
+  };
+
+  // ── Cloud escalation (#175) ────────────────────────────────────────────────
+  // Off every launch by design: the Rust side keeps the flag in an atomic, never
+  // on disk, so a session where you escalated for one folder of PDFs can't
+  // silently still be routing next week. `route` is what's *actually* happening,
+  // read back from Rust rather than assumed from the click.
+  const [route, setRoute] = createSignal<RouteStatus>(LOCAL);
+  const [cloudModels, setCloudModels] = createSignal<string[]>([]);
+  const [cloudBusy, setCloudBusy] = createSignal(false);
+  // Which cloud model to use. Persisted — it's a preference, not a permission,
+  // and remembering it doesn't route anything anywhere on its own.
+  const CLOUD_MODEL_KEY = "flux.agent.cloudModel";
+  const [cloudModel, setCloudModelRaw] = createSignal(localStorage.getItem(CLOUD_MODEL_KEY) ?? "");
+  const setCloudModel = (m: string) => {
+    setCloudModelRaw(m);
+    localStorage.setItem(CLOUD_MODEL_KEY, m);
+  };
+
+  onMount(() => {
+    void agentCloudStatus()
+      .then(setRoute)
+      .catch(() => {});
+    void geminiHasKey()
+      .then((has) => has && geminiDefaultModel().then((d) => !cloudModel() && setCloudModel(d)))
+      .catch(() => {});
+  });
+
+  /** Flip escalation. Rust refuses without a stored key, so the returned status
+   *  is the source of truth — never the optimistic local guess. */
+  const toggleCloud = async () => {
+    if (cloudBusy()) return;
+    setCloudBusy(true);
+    const want = !route().active;
+    try {
+      const st = await agentCloudSet(want, cloudModel());
+      setRoute(st);
+      setModelMenu(false);
+      setFeed((f) => [
+        ...f,
+        {
+          role: "action",
+          text: st.active
+            ? `☁ Cloud escalation ON — ${cloudModel() || "Gemini"} will answer, and prompts (page text, notes, terminal output) now leave this machine. Off again when you restart Flux.`
+            : `🔒 Back to local — nothing leaves this machine.`,
+        },
+      ]);
+      if (st.active && cloudModels().length === 0) {
+        void geminiModels()
+          .then(setCloudModels)
+          .catch(() => {});
+      }
+    } catch (e) {
+      setFeed((f) => [
+        ...f,
+        {
+          role: "error",
+          text: `Couldn't switch to the cloud: ${String(e)}`,
+        },
+      ]);
+      // Re-read rather than assume the failure left it local.
+      void agentCloudStatus()
+        .then(setRoute)
+        .catch(() => {});
+    } finally {
+      setCloudBusy(false);
+    }
   };
   let feedEl: HTMLDivElement | undefined;
 
@@ -2877,13 +2951,22 @@ const AgentPanel: Component = () => {
           />
           <strong>Flux Agent</strong>
           <div class="agent-model">
+            {/* The one place that says where your words are going. It reads
+                "local" or "cloud" from the route Rust reports, never from what
+                was clicked — an escalation that silently failed must not look
+                like it worked, and vice versa. */}
             <button
               ref={modelBtn}
               class="agent-model-btn"
-              title="Pick the local model (Ollama)"
+              classList={{ cloud: route().active }}
+              title={
+                route().active
+                  ? `Sending to ${cloudModel() || "Gemini"} — page text, notes and terminal output leave this machine. Resets to local when you restart Flux.`
+                  : "Pick the local model (Ollama). Nothing leaves this machine."
+              }
               onClick={toggleModelMenu}
             >
-              {shortModel()} · local ▾
+              {routeLabel(route(), shortModel(), cloudModel())} ▾
             </button>
             <Show when={modelMenu()}>
               <Portal>
@@ -2919,6 +3002,55 @@ const AgentPanel: Component = () => {
                   >
                     {unloading() ? "Unloading…" : `⏏ Unload from VRAM`}
                   </button>
+                  {/* Cloud escalation (#175). Last in the menu, behind a
+                      separator, worded as a disclosure rather than a speed
+                      setting — because that is what it is. */}
+                  <div class="agent-model-sep" />
+                  <Show
+                    when={route().available}
+                    fallback={
+                      <div class="agent-model-empty">
+                        Cloud escalation needs a Gemini API key — Settings → Integrations. (A Gemini app
+                        subscription isn't an API key; get one from Google AI Studio.)
+                      </div>
+                    }
+                  >
+                    <button
+                      classList={{ "agent-model-item": true, "agent-model-cloud": true, on: route().active }}
+                      disabled={cloudBusy()}
+                      title={
+                        route().active
+                          ? "Go back to the local model."
+                          : "Send prompts to Gemini instead — page text, notes and terminal output will leave this machine. Resets to local on restart."
+                      }
+                      onClick={() => void toggleCloud()}
+                    >
+                      {cloudBusy()
+                        ? "Switching…"
+                        : route().active
+                          ? "🔒 Back to local"
+                          : "☁ Escalate to Gemini…"}
+                    </button>
+                    <Show when={route().active && cloudModels().length > 0}>
+                      <For each={cloudModels()}>
+                        {(m) => (
+                          <button
+                            classList={{ "agent-model-item": true, on: cloudModel() === m }}
+                            onClick={() => {
+                              setCloudModel(m);
+                              // Rebuild the backend so the change takes now.
+                              void agentCloudSet(true, m)
+                                .then(setRoute)
+                                .catch(() => {});
+                              setModelMenu(false);
+                            }}
+                          >
+                            ☁ {m}
+                          </button>
+                        )}
+                      </For>
+                    </Show>
+                  </Show>
                 </div>
               </Portal>
             </Show>

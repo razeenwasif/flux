@@ -4,6 +4,7 @@
  * specta is issue #12).
  */
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { asRoute } from "./cloudroute";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -42,6 +43,7 @@ export const isStartUrl = (url: string) => url === START_URL || url.startsWith("
 // `FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`.
 import type {
   AgentStatus as GenAgentStatus,
+  RouteStatus as GenRouteStatus,
   ArchiveEntryWire as GenArchiveEntryWire,
   ArchiveMeta as GenArchiveMeta,
   Bookmark as GenBookmark,
@@ -185,6 +187,8 @@ export type TabKind = GenTabKind;
 export type Workspace = GenWorkspace;
 export type Container = GenContainer;
 export type AgentStatus = GenAgentStatus;
+/** Where the agent's next request goes: local, or the opt-in cloud (#175). */
+export type RouteStatus = GenRouteStatus;
 export type ShellSnapshot = GenShellSnapshot;
 export type TabMeta = GenTabMeta;
 export type TabGroup = GenTabGroup;
@@ -445,6 +449,26 @@ export const elevenlabsImportVoice = (voiceId: string, publicOwnerId = "", name 
 /** Cloud TTS via ElevenLabs: returns a base64 MP3 (sends the text to ElevenLabs). */
 export const elevenlabsSpeak = (text: string, voiceId: string, modelId: string) =>
   invoke<string>("elevenlabs_speak", { text, voiceId, modelId });
+
+// ─── Gemini cloud escalation (#175) ─────────────────────────────────────────
+// The agent is local by default. These are the only calls that can change that,
+// and the switch resets to local on every launch — see crates/flux-core/gemini.rs.
+// Replies go through `asRoute`, which fails toward local; see cloudroute.ts.
+
+/** Store (or clear, with "") the Gemini API key in the OS keyring. */
+export const geminiSetKey = (key: string) => invoke<void>("gemini_set_key", { key });
+/** Whether a key is stored. The key itself never reaches the renderer. */
+export const geminiHasKey = () => invoke<boolean>("gemini_has_key");
+export const geminiVerifyKey = () => invoke<string>("gemini_verify_key");
+/** Models the stored key can reach (asked, not hardcoded). */
+export const geminiModels = () => invoke<string[]>("gemini_models");
+export const geminiDefaultModel = () => invoke<string>("gemini_default_model");
+/** Escalate to (or back from) the cloud for THIS session. Returns what will
+ *  actually happen, which is not always what was asked — escalating without a
+ *  stored key fails, and the agent stays local. */
+export const agentCloudSet = (on: boolean, model: string) =>
+  invoke<RouteStatus>("agent_cloud_set", { on, model }).then(asRoute);
+export const agentCloudStatus = () => invoke<RouteStatus>("agent_cloud_status").then(asRoute);
 
 // ─── AudioPulse / Spotify control (Path A: reuse AudioPulse's token) ──────────
 /** Override AudioPulse's config-dir (e.g. a \\wsl.localhost\<distro>\… path). */

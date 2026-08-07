@@ -339,3 +339,14 @@ only remaining pieces are engine-gated (noted per item).
   even when the broker is installed — reattaching would need the boot command to
   be skipped on an already-running session, which the pending-command mechanism
   can't currently express.
+- **Cloud escalation follow-ups (#175, ADR 0018).** Shipped as one provider behind
+  a session switch. Known gaps: (a) no token/cost accounting — an escalated
+  session can run up a bill with nothing in the UI saying how much; (b) the
+  escalation is all-or-nothing for the session, where the natural unit is often
+  *one task* ("summarise this folder with Gemini, then go back"); (c) nothing
+  redacts the prompt before it leaves — vault notes and terminal output go as-is,
+  and a "strip secrets first" pass would make escalation far less costly to
+  choose; (d) Gemini's safety filters can refuse a page the local model handles
+  fine, and the failure is currently just reported, not retried locally — an
+  automatic fall-back-to-local on a safety block would be strictly better;
+  (e) `gemini_models()` is fetched per menu-open with no cache.

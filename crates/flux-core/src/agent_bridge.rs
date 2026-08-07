@@ -1,15 +1,21 @@
 //! Process-wide Flux Agent planner.
 //!
-//! Backend is chosen at first use and reused for every request:
+//! The *local* backend is chosen at first use and reused for every request:
 //!   * default      → Ollama (local server, the user's Gemma models)
 //!   * FLUX_AGENT_BACKEND=mock → deterministic heuristic (dev/CI, no model)
 //!   * feature `llama` + FLUX_AGENT_BACKEND=llama → in-process llama.cpp
+//!
+//! That backend is then wrapped in a [`RoutingBackend`] (#175), which keeps a
+//! second, optional *cloud* backend beside it. The router is local-first and
+//! stays local unless the user explicitly escalates for the session — see
+//! `flux_agent::route` for the rules, and `crate::gemini` for the commands that
+//! install a key.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-use flux_agent::{AgentPlanner, Inference, MockBackend, OllamaBackend};
+use flux_agent::{AgentPlanner, Inference, MockBackend, OllamaBackend, RoutingBackend};
 
-fn make_backend() -> Box<dyn Inference> {
+fn make_local() -> Box<dyn Inference> {
     match std::env::var("FLUX_AGENT_BACKEND").as_deref() {
         Ok("mock") => Box::new(MockBackend),
         #[cfg(feature = "llama")]
@@ -35,7 +41,14 @@ fn make_backend() -> Box<dyn Inference> {
     }
 }
 
+/// The router, reachable after the planner is built so a key entered later can
+/// install the cloud backend without rebuilding anything.
+pub fn router() -> &'static Arc<RoutingBackend> {
+    static ROUTER: OnceLock<Arc<RoutingBackend>> = OnceLock::new();
+    ROUTER.get_or_init(|| Arc::new(RoutingBackend::new(make_local())))
+}
+
 pub fn planner() -> &'static AgentPlanner {
     static PLANNER: OnceLock<AgentPlanner> = OnceLock::new();
-    PLANNER.get_or_init(|| AgentPlanner::new(make_backend()))
+    PLANNER.get_or_init(|| AgentPlanner::new(Box::new(Arc::clone(router()))))
 }

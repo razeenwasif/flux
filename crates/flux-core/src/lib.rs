@@ -29,6 +29,7 @@ pub mod extensions;
 pub mod favicon;
 pub mod feeds;
 pub mod files;
+pub mod gemini;
 pub mod hibernate;
 pub mod history;
 pub mod https;
@@ -1366,6 +1367,14 @@ pub fn run(intent: cli::LaunchIntent) {
             tts::elevenlabs_voices,
             tts::elevenlabs_import_voice,
             tts::elevenlabs_speak,
+            // Opt-in cloud escalation for the agent (#175). Local stays default.
+            gemini::gemini_set_key,
+            gemini::gemini_has_key,
+            gemini::gemini_verify_key,
+            gemini::gemini_models,
+            gemini::gemini_default_model,
+            gemini::agent_cloud_set,
+            gemini::agent_cloud_status,
             spotify::spotify_set_dir,
             spotify::spotify_play,
             spotify::spotify_pause,

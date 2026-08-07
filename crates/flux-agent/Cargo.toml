@@ -17,8 +17,11 @@ thiserror.workspace = true
 tracing.workspace = true
 
 # Primary backend: HTTP to a local Ollama server. Blocking client (the planner
-# runs on a blocking thread); http+json only — no TLS, Ollama is localhost.
-ureq = { version = "2", default-features = false, features = ["json"] }
+# runs on a blocking thread). Ollama itself is localhost and needs no TLS, but
+# the opt-in Gemini backend (#175) talks to a public HTTPS endpoint — so `tls`
+# is required here rather than inherited by chance from flux-core's copy through
+# feature unification, which would break the moment this crate is built alone.
+ureq = { version = "2", default-features = false, features = ["json", "tls"] }
 
 # Alternative in-process backend (off by default): llama.cpp via FFI.
 llama-cpp-2 = { version = "0.1", optional = true }
