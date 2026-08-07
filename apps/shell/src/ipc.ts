@@ -470,6 +470,28 @@ export const agentCloudSet = (on: boolean, model: string) =>
   invoke<RouteStatus>("agent_cloud_set", { on, model }).then(asRoute);
 export const agentCloudStatus = () => invoke<RouteStatus>("agent_cloud_status").then(asRoute);
 
+// ─── Agent file access (#176) ───────────────────────────────────────────────
+// The agent reads through its own commands so the allowance can't be bypassed
+// by calling the ungated ones. The Files tab and PDF viewer keep using those —
+// the user opening their own files was never the thing in question.
+
+/** Which folders the agent may read inside. `enabled: false` = unrestricted. */
+export interface AgentRoots {
+  enabled: boolean;
+  roots: string[];
+}
+export const agentRootsGet = () => invoke<AgentRoots>("agent_roots_get");
+export const agentRootsSet = (roots: AgentRoots) => invoke<void>("agent_roots_set", { roots });
+/** Named places worth pre-filling the allowance with (drives excluded). */
+export const agentRootsSuggested = () => invoke<string[]>("agent_roots_suggested");
+
+/** Gated equivalents of `fsList` / `readTextFile` / `pdfFetch`. */
+export const agentFsList = (path: string) => invoke<DirListing>("agent_fs_list", { path });
+export const agentReadTextFile = (path: string) => invoke<string>("agent_read_text_file", { path });
+export const agentPdfFetch = (url: string) => invoke<ArrayBuffer>("agent_pdf_fetch", { url });
+export const agentWriteTextFile = (path: string, content: string) =>
+  invoke<void>("agent_write_text_file", { path, content });
+
 // ─── AudioPulse / Spotify control (Path A: reuse AudioPulse's token) ──────────
 /** Override AudioPulse's config-dir (e.g. a \\wsl.localhost\<distro>\… path). */
 export const spotifySetDir = (path: string) => invoke<void>("spotify_set_dir", { path });

@@ -29,6 +29,7 @@ pub mod extensions;
 pub mod favicon;
 pub mod feeds;
 pub mod files;
+pub mod fsroots;
 pub mod gemini;
 pub mod hibernate;
 pub mod history;
@@ -436,6 +437,14 @@ fn init_knowledge(app: &tauri::App, boot_started: std::time::Instant) {
         let _ = std::fs::create_dir_all(parent);
     }
     app.manage(tui_apps::TuiAppsStore::empty(tui_apps_path));
+    // Where the agent may read (#176). Off by default: an allowance that turned
+    // itself on would break reads people already rely on.
+    let roots_path = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("agent-roots.json"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("flux-agent-roots.json"));
+    app.manage(fsroots::RootsStore::empty(roots_path));
     // Knowledge Base — local RAG over the user's corpora (ADR 0010).
     let kb_path = app
         .path()
@@ -1375,6 +1384,14 @@ pub fn run(intent: cli::LaunchIntent) {
             gemini::gemini_default_model,
             gemini::agent_cloud_set,
             gemini::agent_cloud_status,
+            // Where the agent may read (#176). Opt-in; off = historical behaviour.
+            fsroots::agent_roots_get,
+            fsroots::agent_roots_set,
+            fsroots::agent_roots_suggested,
+            fsroots::agent_fs_list,
+            fsroots::agent_read_text_file,
+            fsroots::agent_write_text_file,
+            fsroots::agent_pdf_fetch,
             spotify::spotify_set_dir,
             spotify::spotify_play,
             spotify::spotify_pause,

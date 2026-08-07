@@ -21,6 +21,10 @@ import {
   elevenlabsImportVoice,
   elevenlabsSetKey,
   geminiSetKey,
+  agentRootsGet,
+  agentRootsSet,
+  agentRootsSuggested,
+  type AgentRoots,
   geminiHasKey,
   geminiVerifyKey,
   elevenlabsVerifyKey,
@@ -367,6 +371,37 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
       setTesting(false);
     }
   };
+  // Agent file access (#176). Off = the historical behaviour (the agent can read
+  // anything this process can). On, its list/read/edit tools are confined.
+  const [roots, setRoots] = createSignal<AgentRoots>({ enabled: false, roots: [] });
+  const [rootInput, setRootInput] = createSignal("");
+  const refreshRoots = () =>
+    void agentRootsGet()
+      .then(setRoots)
+      .catch(() => {});
+  const saveRoots = (next: AgentRoots) => {
+    setRoots(next);
+    void agentRootsSet(next).catch(() => refreshRoots());
+  };
+  const toggleRoots = async () => {
+    const on = !roots().enabled;
+    // Turning it on with nothing allowed would block every read, which reads as
+    // "the feature is broken". Pre-fill with the named places (not the drives —
+    // naming a drive is a convenience, reading it is a decision).
+    let list = roots().roots;
+    if (on && list.length === 0) {
+      list = await agentRootsSuggested().catch(() => [] as string[]);
+    }
+    saveRoots({ enabled: on, roots: list });
+  };
+  const addRoot = () => {
+    const p = rootInput().trim();
+    if (!p || roots().roots.includes(p)) return;
+    saveRoots({ ...roots(), roots: [...roots().roots, p] });
+    setRootInput("");
+  };
+  const removeRoot = (p: string) => saveRoots({ ...roots(), roots: roots().roots.filter((x) => x !== p) });
+
   // Gemini cloud escalation for the agent (#175). Storing a key does NOT route
   // anything: it only makes the per-session switch in the agent panel available.
   const [gemKeyInput, setGemKeyInput] = createSignal("");
@@ -396,6 +431,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     } catch (e) {
       setGemFlash(String(e));
       refreshGemKey();
+      refreshRoots();
     }
   };
 
@@ -1008,6 +1044,55 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               onChange={(e) => setAudiopulseDir(e.currentTarget.value.trim())}
             />
           </Row>
+          <Row
+            label="Agent file access"
+            hint="Off (default): Gemma's list/read/edit tools can open anything this app can — your whole disk, including mounted Windows drives. On: they're confined to the folders below, and everything else is refused with a message saying so. Your own Files tab and PDF viewer are unaffected; this is about what the agent may reach on its own. Worth turning on if you use cloud escalation, since a file the agent reads while escalated is a file Google receives."
+          >
+            <Toggle on={roots().enabled} onClick={() => void toggleRoots()} />
+          </Row>
+          <Show when={roots().enabled}>
+            <Row
+              label="Folders the agent may read"
+              hint="Applies to subfolders too. Paths that resolve outside these (including via .. or a symlink) are refused. On a WSL build, a Windows drive is /mnt/c/…"
+            >
+              <div class="set-stack-control">
+                <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                  <input
+                    class="map-search-input"
+                    style={{ "max-width": "340px" }}
+                    placeholder="/home/you/Courses  or  /mnt/c/Users/you/Documents"
+                    value={rootInput()}
+                    onInput={(e) => setRootInput(e.currentTarget.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addRoot()}
+                  />
+                  <button class="set-link-btn" onClick={addRoot}>
+                    Add
+                  </button>
+                </div>
+                <Show
+                  when={roots().roots.length > 0}
+                  fallback={
+                    <div class="set-status-line">
+                      No folders allowed yet — the agent can't read anything until you add one.
+                    </div>
+                  }
+                >
+                  <For each={roots().roots}>
+                    {(p) => (
+                      <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                        <span class="set-row-hint" style={{ "word-break": "break-all" }}>
+                          {p}
+                        </span>
+                        <button class="set-link-btn" onClick={() => removeRoot(p)}>
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </Row>
+          </Show>
           <Row
             label="Gemini API key (cloud escalation)"
             hint="Optional. Lets you escalate a single session to Gemini from the agent panel's model menu, for jobs a local model can't do — a folder of lecture PDFs, prompts past the local context window. Storing a key routes nothing on its own, and escalation resets to local every time Flux restarts. While it's on, the agent's prompts — page text, PDFs, vault notes, terminal output — are sent to Google. Note a Gemini app subscription is NOT an API key: get one from Google AI Studio (aistudio.google.com), and check whether your tier is excluded from training. Stored in your OS keyring. Leave blank and save to remove."

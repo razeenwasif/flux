@@ -105,6 +105,14 @@ upstream fails here rather than as a 400 in front of a user.
 - `flux-agent` gains TLS (`ureq` `tls` feature). Previously it was http-only on
   the stated grounds that Ollama is localhost.
 
+**Follow-on**
+- This ADR is what motivated **agent file-access roots** (#176). "The agent can
+  read anything this process can" was a defensible default while every byte
+  stayed on the machine; it is a different sentence once a read can be forwarded
+  to Google. The allowance is opt-in and lives in `fsroots.rs`, gating the
+  agent's own list/read/write/PDF commands while leaving the Files tab and the
+  PDF viewer — the user opening their own files — untouched.
+
 **Explicitly not decided**
 - No other providers. The `Inference` trait would take an OpenAI or Anthropic
   backend in the same shape, but each one is another disclosure surface, and

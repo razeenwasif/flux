@@ -8,6 +8,36 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The agent can find your Windows files, and you can decide how much of them it sees (#176).**
+  Three related changes.
+
+  **Drives are named places.** Your Windows drives now show up alongside `onyx` and `home`, so
+  `list c` and `summarise c/Users/you/Documents/notes.pdf` work instead of you typing
+  `/mnt/c/Users/...` every time. Detected from what's actually mounted and readable, so an empty
+  card reader never shows up. Drive *roots* aren't listed as folders — `$Recycle.Bin` and
+  `System Volume Information` are noise that would crowd the prompt.
+
+  **Windows-dialect paths resolve on the WSL build.** Gemma can tell she's on a Windows machine
+  and writes `C:\Users\you\notes.pdf`; Linux has no notion of that, so it reached the filesystem
+  verbatim and failed as "no such file" — indistinguishable from a file that isn't there. It now
+  becomes `/mnt/c/Users/you/notes.pdf`. Only where the drive is genuinely mounted: on a plain
+  Linux box a file really could be named `C:\weird`, and silently redirecting it would be worse
+  than failing. This is the mirror of the `os error 3` fix, pointing the other way.
+
+  **And you can confine the agent's file tools.** Off by default, so nothing changes unless you
+  ask. Turned on (Settings → Agent file access), its list/read/edit tools are limited to folders
+  you name, and anything else is refused with a message saying which folders are allowed. Your own
+  Files tab and PDF viewer are untouched — this is about what the agent reaches on its own, not
+  about you opening your files.
+
+  Worth turning on if you use cloud escalation: while that's live, a file the agent reads is a
+  file Google receives. Enabling it pre-fills with your vault, Scribe, Downloads and home —
+  deliberately *not* the drives, because naming a drive is a convenience and reading it is a
+  decision.
+
+  The containment check compares path components rather than string prefixes (so `/home/me` never
+  admits `/home/melissa`) and canonicalises first, so `..` can't climb out and a symlink pointing
+  out of an allowed folder is caught as the escape it is.
 - **Opt-in cloud escalation for the agent (#175, ADR 0018).** A local 12–26B in a 16k window has a
   ceiling, and a run of recent failures — `output truncated at the token cap`, `no room to grow`,
   the whole `num_ctx` retry ladder — were all the same thing: the job was bigger than the window.

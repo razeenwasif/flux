@@ -1028,6 +1028,24 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve("gemini-2.5-flash" as T);
     case "gemini_models":
       return Promise.resolve([] as T);
+    // Agent file access (#176). The preview reports the shipped default: off,
+    // i.e. unrestricted — which is also what a fresh install looks like.
+    case "agent_roots_get":
+      return Promise.resolve({ enabled: false, roots: [] } as T);
+    case "agent_roots_set":
+      return Promise.resolve(undefined as T);
+    case "agent_roots_suggested":
+      return Promise.resolve(["/home/you/OnyxVault", "/home/you/Downloads"] as T);
+    // The gated reads delegate to the ungated ones once the check passes, so in
+    // the preview (where nothing is gated) they behave identically.
+    case "agent_fs_list":
+      return invoke<T>("fs_list", args);
+    case "agent_read_text_file":
+      return invoke<T>("read_text_file", args);
+    case "agent_write_text_file":
+      return invoke<T>("write_text_file", args);
+    case "agent_pdf_fetch":
+      return invoke<T>("pdf_fetch", args);
     case "omni_search": {
       const q = String(args?.query ?? "");
       return Promise.resolve([

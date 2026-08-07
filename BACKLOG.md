@@ -350,3 +350,16 @@ only remaining pieces are engine-gated (noted per item).
   fine, and the failure is currently just reported, not retried locally — an
   automatic fall-back-to-local on a safety block would be strictly better;
   (e) `gemini_models()` is fetched per menu-open with no cache.
+- **Agent file access follow-ups (#176).** The allowance ships **off** by default:
+  turning it on by fiat would have silently broken reads people rely on, and a
+  security control that surprises you is one you disable. The obvious follow-up
+  is flipping that — but it needs care, because "home" is not one place on the
+  Windows build (the agent reads WSL paths while `USERPROFILE` is on C:), so a
+  naive home-only default would break the WSL bridge. Also open: (a) no per-read
+  prompt — it's allow-or-refuse, where "the agent wants to read X, allow once?"
+  is often what you'd want; (b) writes are gated by the same list as reads,
+  though a read-only root would be a reasonable thing to want; (c) the refusal
+  is surfaced in the agent feed but the model isn't told *why* in a way it can
+  act on, so it may retry the same path; (d) drives are named but not readable
+  by default when the allowance is on, which is deliberate but worth revisiting
+  once there's a per-read prompt.

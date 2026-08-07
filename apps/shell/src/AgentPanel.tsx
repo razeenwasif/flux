@@ -33,13 +33,10 @@ import {
   pacStatus,
   runShell,
   shellGuard,
-  readTextFile,
-  fsList,
   ocrAvailable,
   agentPlaces,
   agentUnload,
   type Place,
-  writeTextFile,
   agentEditPlan,
   memoryRead,
   memoryAppend,
@@ -47,6 +44,13 @@ import {
   systemStats,
   searchResolve,
   agentModels,
+  // Gated equivalents of fsList/readTextFile/writeTextFile/pdfFetch (#176).
+  // The ungated ones are deliberately NOT imported here: the agent must not be
+  // able to reach around its own allowance.
+  agentFsList,
+  agentReadTextFile,
+  agentPdfFetch,
+  agentWriteTextFile,
   agentCloudSet,
   agentCloudStatus,
   geminiHasKey,
@@ -1112,7 +1116,7 @@ const AgentPanel: Component = () => {
     const path = resolvePath(raw);
     if (!path) return "";
     try {
-      const listing = await fsList(path);
+      const listing = await agentFsList(path);
       lastListedDir = listing.path;
       const all = listing.entries;
       const dirs = all.filter((e) => e.is_dir).map((e) => `${e.name}/`);
@@ -1151,7 +1155,7 @@ const AgentPanel: Component = () => {
     // confidently. Extract the real text instead (#158).
     if (/\.pdf$/i.test(path)) return await runReadPdf(path);
     try {
-      const content = await readTextFile(path);
+      const content = await agentReadTextFile(path);
       const name = path.split(/[/\\]/).pop() || path;
       setCtxFiles((c) => [...c.filter((f) => f.path !== path), { path, name, content }].slice(-8));
       const lines = content.split("\n").length;
@@ -1216,7 +1220,12 @@ const AgentPanel: Component = () => {
           setFeed((f) => f.map((it, i) => (i === ocrIdx ? { ...it, text: line } : it)));
         }
       };
-      const { text, pages, pagesWithText, truncated, ocr } = await readPdfText(path, onOcr, canOcr);
+      const { text, pages, pagesWithText, truncated, ocr } = await readPdfText(
+        path,
+        onOcr,
+        canOcr,
+        agentPdfFetch,
+      );
       if (!text.trim()) {
         // Either OCR isn't installed, or it ran and found nothing legible. Those
         // want different answers from the user, so don't blur them together.
@@ -1311,7 +1320,7 @@ const AgentPanel: Component = () => {
     setBusy(true);
     try {
       const inCtx = ctxFiles().find((f) => f.path === path);
-      const content = inCtx ? inCtx.content : await readTextFile(path);
+      const content = inCtx ? inCtx.content : await agentReadTextFile(path);
       const plan = await agentEditPlan(path, content, instruction.trim());
       if (!plan.edits.length) {
         setFeed((f) => [...f, { role: "assistant", text: `I couldn't make that edit: ${plan.summary}` }]);
@@ -1354,7 +1363,7 @@ const AgentPanel: Component = () => {
   const approveEdit = async (idx: number, path: string, content: string) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
     try {
-      await writeTextFile(path, content);
+      await agentWriteTextFile(path, content);
       setCtxFiles((c) => c.map((f) => (f.path === path ? { ...f, content } : f)));
       setFeed((f) => [...f, { role: "action", text: `✓ Wrote ${path.split(/[/\\]/).pop()}.` }]);
       resolveChainGate(true, `applied the edit to ${path.split(/[/\\]/).pop()}`);

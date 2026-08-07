@@ -107,6 +107,68 @@ pub fn places(app: &tauri::AppHandle, vault_setting: Option<&str>) -> Vec<Place>
         });
     }
 
+    out.extend(drives());
+    out
+}
+
+/// Windows drives, named by their letter (#176).
+///
+/// Without these the agent has no idea the Windows side of the machine exists:
+/// it is told about the vault and home and nothing else, so "look in my
+/// Documents" on a WSL build means typing `/mnt/c/Users/<you>/Documents` by
+/// hand every time. Named, `c/Users/you/Documents` resolves through
+/// `expandPlace` like any other place.
+///
+/// Folders are deliberately **not** listed. A drive root is `$Recycle.Bin`,
+/// `Program Files`, `Windows`, `System Volume Information` — noise that would
+/// crowd the prompt and invite the model to pick one of them.
+///
+/// Being named is not the same as being readable: `fsroots` still governs what
+/// the agent may open, and drives are outside the default allowance.
+fn drives() -> Vec<Place> {
+    let mut out = Vec::new();
+
+    // WSL: Windows drives are mounted at /mnt/<letter>. Only ones that are
+    // really there and really readable — an empty mount point for a card reader
+    // with no card is worse than useless in a prompt.
+    #[cfg(not(windows))]
+    if crate::files::under_wsl() {
+        let Ok(read) = std::fs::read_dir("/mnt") else {
+            return out;
+        };
+        let mut names: Vec<String> = read
+            .flatten()
+            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            // A drive letter is one ASCII character. `wsl`, `wslg` and any
+            // hand-made mount (`ubuntu_ssd`) are not drives.
+            .filter(|n| n.len() == 1 && n.chars().all(|c| c.is_ascii_alphabetic()))
+            .filter(|n| std::fs::read_dir(format!("/mnt/{n}")).is_ok())
+            .collect();
+        names.sort();
+        for n in names {
+            out.push(Place {
+                what: format!("the Windows {} drive", n.to_uppercase()),
+                path: format!("/mnt/{n}"),
+                name: n,
+                folders: Vec::new(),
+            });
+        }
+    }
+
+    // Native Windows: the drive letters are the paths.
+    #[cfg(windows)]
+    for q in crate::files::quick_locations_drives() {
+        if let Some(letter) = q.path.chars().next().filter(|c| c.is_ascii_alphabetic()) {
+            out.push(Place {
+                name: letter.to_ascii_lowercase().to_string(),
+                what: format!("the Windows {} drive", letter.to_ascii_uppercase()),
+                path: q.path,
+                folders: Vec::new(),
+            });
+        }
+    }
+
     out
 }
 

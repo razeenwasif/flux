@@ -117,8 +117,12 @@ export async function readPdfText(
   onOcr?: (page: number, total: number) => void,
   /** Whether OCR is worth attempting — the caller checks for a tesseract binary. */
   canOcr = false,
+  /** How to fetch the bytes. The agent passes the gated `agentPdfFetch` so its
+   *  reads honour the allowance (#176); the viewer keeps the ungated one, since
+   *  that is the user opening a file themselves. */
+  fetch: (path: string) => Promise<ArrayBuffer> = pdfFetch,
 ): Promise<PdfText> {
-  const buf = await pdfFetch(path);
+  const buf = await fetch(path);
   if (!buf || buf.byteLength === 0) throw new Error(`Couldn't read ${path}`);
   const lib = await ensurePdfjs();
   const doc = await lib.getDocument({ data: new Uint8Array(buf) }).promise;

@@ -72,6 +72,85 @@ pub(crate) fn is_wsl_path(p: &str) -> bool {
     p.starts_with('/') || p.starts_with('~')
 }
 
+// ─── The other direction: a Windows path on the Linux build (#176) ───────────
+//
+// The bridge above carries a Unix path on the Windows build *into* WSL. Running
+// Flux the other way round — the Linux build, inside WSL, which is how it's
+// developed — leaves the mirror-image gap: the model can see it's on a Windows
+// machine and writes `C:\Users\me\notes.pdf`, which Linux has no notion of. It
+// reaches `std::fs::read` verbatim and fails as "No such file or directory",
+// indistinguishable from a file that genuinely isn't there. Same class of bug as
+// the `os error 3` this module was written to fix, just pointing the other way.
+//
+// WSL already mounts the drives, so this is a rename, not a bridge.
+
+/// Whether this Linux build is running inside WSL, where `/mnt/<letter>` is a
+/// Windows drive. Checked once — the kernel doesn't change under us.
+///
+/// `WSL_DISTRO_NAME` alone isn't enough: it's inherited by anything launched
+/// from a WSL shell, including, on some setups, Windows processes. The kernel
+/// release string is the thing that's actually true.
+#[cfg(not(windows))]
+pub(crate) fn under_wsl() -> bool {
+    static WSL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WSL.get_or_init(|| {
+        std::fs::read_to_string("/proc/sys/kernel/osrelease")
+            .or_else(|_| std::fs::read_to_string("/proc/version"))
+            .map(|s| {
+                let s = s.to_ascii_lowercase();
+                s.contains("microsoft") || s.contains("wsl")
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// Rewrite a Windows-dialect path into one this build can actually open.
+///
+/// `C:\Users\me\x` → `/mnt/c/Users/me/x`, under WSL only. On a plain Linux box a
+/// file really could be named `C:\weird`, and silently redirecting it would turn
+/// a readable file into a mystery — so the translation is gated on the mount
+/// existing, not merely on the shape of the string.
+///
+/// Everywhere else this is the identity: on Windows those paths are already
+/// native, and Unix paths are handled by the WSL bridge above.
+pub(crate) fn native_path(p: &str) -> String {
+    #[cfg(not(windows))]
+    {
+        if under_wsl() {
+            if let Some(t) = wsl_mount_for(p) {
+                return t;
+            }
+        }
+    }
+    p.to_string()
+}
+
+/// `C:\x` / `C:/x` / `C:` → `/mnt/c/x`, if that drive is actually mounted.
+#[cfg(not(windows))]
+fn wsl_mount_for(p: &str) -> Option<String> {
+    let mut ch = p.chars();
+    let letter = ch.next().filter(|c| c.is_ascii_alphabetic())?;
+    if ch.next() != Some(':') {
+        return None;
+    }
+    let rest = &p[2..];
+    // `C:rel\path` (a drive-relative path) means "relative to the CWD *on that
+    // drive*", which nothing here can resolve. Refusing beats guessing.
+    if !rest.is_empty() && !rest.starts_with('\\') && !rest.starts_with('/') {
+        return None;
+    }
+    let root = format!("/mnt/{}", letter.to_ascii_lowercase());
+    if !std::path::Path::new(&root).is_dir() {
+        return None; // drive not mounted — leave it alone and let the read fail honestly
+    }
+    let tail = rest.trim_start_matches(['\\', '/']).replace('\\', "/");
+    Some(if tail.is_empty() {
+        root
+    } else {
+        format!("{root}/{tail}")
+    })
+}
+
 /// Shell prelude every script here starts with: take the path from `$1` and
 /// expand a leading `~` (which is the shell's job, and only happens for an
 /// unquoted literal — an argument never expands on its own).
@@ -246,7 +325,7 @@ pub(crate) fn read_bytes_any(p: &str) -> Result<Vec<u8>, String> {
         return wsl_read_bytes(p);
     }
     #[cfg(not(windows))]
-    let p = &expand_home(p);
+    let p = &expand_home(&native_path(p));
     std::fs::read(p).map_err(|e| format!("can't read {p}: {e}"))
 }
 
@@ -434,7 +513,8 @@ fn list_dir(path: &str) -> Result<DirListing, String> {
     let path = if path.is_empty() || path == "~" {
         home_dir()
     } else {
-        path.to_string()
+        // …and a Windows path on the Linux build is a mounted drive (#176).
+        native_path(path)
     };
     let path = path.as_str();
     // A Unix path on Windows lives in WSL — listing it with Windows' own APIs
@@ -519,7 +599,7 @@ fn stream_dir(path: &str, on_msg: &Channel<ListMsg>) -> Result<(), String> {
     let path = if path.is_empty() || path == "~" {
         home_dir()
     } else {
-        path.to_string()
+        native_path(path)
     };
     let canon = std::fs::canonicalize(&path).map_err(|e| format!("{path}: {e}"))?;
     let read = std::fs::read_dir(&canon).map_err(|e| format!("{}: {e}", clean(&canon)))?;
@@ -777,6 +857,14 @@ fn quick_locations() -> Vec<QuickLocation> {
         });
     }
     out
+}
+
+/// Mounted Windows drive letters, for `places.rs` to name (#176). Same list the
+/// Files rail shows — one enumerator, so the two can't disagree about what
+/// exists.
+#[cfg(windows)]
+pub(crate) fn quick_locations_drives() -> Vec<QuickLocation> {
+    windows_drives()
 }
 
 /// Mounted Windows drive letters. Uses Win32's logical-drive bitmask rather than
@@ -1484,6 +1572,41 @@ mod wsl_bridge_tests {
         // corrupt the payload.
         assert_eq!(base64_decode("YWJj\n").unwrap(), b"abc");
         assert_eq!(base64_decode("YWJj YWJj").unwrap(), b"abcabc");
+    }
+}
+
+#[cfg(all(test, not(windows)))]
+mod winpath_tests {
+    use super::*;
+
+    #[test]
+    fn maps_a_drive_path_onto_its_wsl_mount() {
+        // Only meaningful where the drive is actually mounted; on a plain Linux
+        // CI box there is nothing to map onto and the identity is correct.
+        if !under_wsl() || !std::path::Path::new("/mnt/c").is_dir() {
+            return;
+        }
+        assert_eq!(native_path(r"C:\Users\me\notes.pdf"), "/mnt/c/Users/me/notes.pdf");
+        assert_eq!(native_path("C:/Users/me"), "/mnt/c/Users/me");
+        assert_eq!(native_path(r"c:\Users"), "/mnt/c/Users");
+        // Bare drive → the mount root, not a trailing slash.
+        assert_eq!(native_path(r"C:\"), "/mnt/c");
+        assert_eq!(native_path("C:"), "/mnt/c");
+    }
+
+    #[test]
+    fn leaves_alone_what_it_cannot_honestly_translate() {
+        // A real Unix path is already native.
+        assert_eq!(native_path("/home/me/x"), "/home/me/x");
+        assert_eq!(native_path("~/x"), "~/x");
+        // A drive-relative path ("relative to the CWD *on that drive*") has no
+        // meaning here; guessing would read the wrong file.
+        assert_eq!(native_path(r"C:notes.pdf"), r"C:notes.pdf");
+        // An unmounted drive letter must fail as itself, not silently redirect.
+        assert_eq!(native_path(r"Q:\nope"), r"Q:\nope");
+        // Not a drive spec at all.
+        assert_eq!(native_path("http://x/y"), "http://x/y");
+        assert_eq!(native_path("relative/path"), "relative/path");
     }
 }
 
