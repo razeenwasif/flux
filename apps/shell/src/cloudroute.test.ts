@@ -11,12 +11,26 @@ describe("agent route", () => {
     }
   });
 
-  it("recomputes `active` instead of trusting it", () => {
-    // The wire claiming active-without-a-backend is exactly the bug that would
-    // put prompts somewhere the indicator doesn't admit to.
-    expect(asRoute({ requested: true, available: false, active: true }).active).toBe(false);
-    // …and the reverse: a reply that under-reports must not hide a live route.
-    expect(asRoute({ requested: true, available: true, active: false }).active).toBe(true);
+  it("never shows cloud without a request behind it", () => {
+    // Only Rust knows whether a backend is live, so `active` is trusted — but it
+    // is gated on `requested`, so no reply can flip the indicator on its own.
+    expect(asRoute({ requested: false, available: true, active: true }).active).toBe(false);
+    expect(asRoute({ requested: true, available: true, active: true }).active).toBe(true);
+  });
+
+  it("believes Rust when it says a request isn't routing", () => {
+    // `available` means "a key exists", not "a backend is live" — so deriving
+    // `active` from it would claim escalation that hasn't happened.
+    expect(asRoute({ requested: true, available: true, active: false }).active).toBe(false);
+  });
+
+  it("offers escalation from a stored key alone", () => {
+    // Regression: `available` used to mean "a backend is installed", which only
+    // becomes true *after* escalating — so the escalate button never appeared and
+    // a freshly saved key was reported as missing.
+    const keyed = asRoute({ requested: false, available: true, active: false });
+    expect(keyed.available).toBe(true);
+    expect(keyed.active).toBe(false);
   });
 
   it("passes through the one state that means cloud", () => {
@@ -25,14 +39,6 @@ describe("agent route", () => {
       available: true,
       active: true,
     });
-  });
-
-  it("distinguishes 'key stored' from 'actually escalated'", () => {
-    // Storing a key must not by itself route anything — it only makes the
-    // switch available.
-    const keyed = asRoute({ requested: false, available: true, active: false });
-    expect(keyed.available).toBe(true);
-    expect(keyed.active).toBe(false);
   });
 
   it("says which side it's on in words, not just colour", () => {

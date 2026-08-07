@@ -141,7 +141,7 @@ pub async fn agent_cloud_set(on: bool, model: String) -> Result<RouteStatus, Str
     let router = crate::agent_bridge::router();
     if !on {
         route::request_cloud(false);
-        return Ok(route::status(router.has_cloud()));
+        return Ok(route::status(gemini_has_key(), router.has_cloud()));
     }
     let key = stored_key()
         .ok_or("no Gemini API key set — add one in Settings → Integrations before escalating")?;
@@ -158,13 +158,18 @@ pub async fn agent_cloud_set(on: bool, model: String) -> Result<RouteStatus, Str
         model = %if model.trim().is_empty() { flux_agent::gemini::default_model() } else { model },
         "cloud escalation ON — agent prompts (page text, notes, terminal output) now leave this machine"
     );
-    Ok(route::status(router.has_cloud()))
+    Ok(route::status(gemini_has_key(), router.has_cloud()))
 }
 
 /// What the next agent request will actually do.
+///
+/// `available` comes from the **keyring**, not from whether a backend happens to
+/// be built: the backend is only constructed when the user escalates, so
+/// reporting that here would tell a user who had just saved a key that they
+/// still need one — and hide the control that would have built it.
 #[tauri::command]
 pub fn agent_cloud_status() -> RouteStatus {
-    route::status(crate::agent_bridge::router().has_cloud())
+    route::status(gemini_has_key(), crate::agent_bridge::router().has_cloud())
 }
 
 #[cfg(test)]

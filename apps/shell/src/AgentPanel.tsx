@@ -323,10 +323,17 @@ const AgentPanel: Component = () => {
   const toggleModelMenu = () => {
     const open = !modelMenu();
     setModelMenu(open);
-    if (open)
+    if (open) {
       void agentModels()
         .then(setModels)
         .catch(() => setModels([]));
+      // Re-read the route every time the menu opens. Reading it once at mount
+      // meant a key added in Settings *afterwards* stayed invisible, so the menu
+      // kept saying escalation needed a key that was already there.
+      void agentCloudStatus()
+        .then(setRoute)
+        .catch(() => {});
+    }
   };
   const shortModel = () => {
     const m = agentModelName();

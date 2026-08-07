@@ -36,9 +36,12 @@ static CLOUD_ON: AtomicBool = AtomicBool::new(false);
 pub struct RouteStatus {
     /// The user asked for cloud.
     pub requested: bool,
-    /// A cloud backend is configured and usable.
+    /// Escalation is *possible* — a credential exists. Note this is deliberately
+    /// **not** "a backend is installed": the backend is only built when the user
+    /// escalates, so gating the offer on that would be a deadlock (you could
+    /// never turn on the thing that installs the backend).
     pub available: bool,
-    /// The next request will leave this machine. `requested && available`.
+    /// The next request will leave this machine.
     pub active: bool,
 }
 
@@ -153,13 +156,20 @@ pub fn request_cloud(on: bool) {
     CLOUD_ON.store(on, Ordering::SeqCst);
 }
 
-/// What the next request will do, given both the request and reality.
-pub fn status(has_cloud: bool) -> RouteStatus {
+/// What the next request will do, given the request and reality.
+///
+/// Two different facts, and conflating them was a bug: `can_escalate` is whether
+/// a credential exists (this crate has no keyring, so the caller supplies it) and
+/// decides whether escalation is *offered*; `has_backend` is whether a cloud
+/// backend is installed right now and decides whether it is *happening*. Gating
+/// the offer on `has_backend` deadlocks, because the backend is only built when
+/// the user escalates.
+pub fn status(can_escalate: bool, has_backend: bool) -> RouteStatus {
     let requested = CLOUD_ON.load(Ordering::SeqCst);
     RouteStatus {
         requested,
-        available: has_cloud,
-        active: requested && has_cloud,
+        available: can_escalate,
+        active: requested && has_backend,
     }
 }
 
@@ -196,7 +206,7 @@ mod tests {
         request_cloud(true);
         assert_eq!(r.chat("x").unwrap(), "local", "must fall back, not error");
         assert_eq!(
-            status(r.has_cloud()),
+            status(false, r.has_cloud()),
             RouteStatus {
                 requested: true,
                 available: false,
@@ -217,12 +227,30 @@ mod tests {
         // Configured but not requested ⇒ still local. Installing a key is not
         // consent to use it.
         assert_eq!(r.chat("x").unwrap(), "local");
-        assert!(!status(r.has_cloud()).active);
+        assert!(!status(true, r.has_cloud()).active);
 
         request_cloud(true);
         assert_eq!(r.chat("x").unwrap(), "cloud");
-        assert!(status(r.has_cloud()).active);
+        assert!(status(true, r.has_cloud()).active);
         request_cloud(false);
+    }
+
+    /// Regression: `available` once meant "a backend is installed", which is only
+    /// true *after* escalating — and the UI gates the escalate button on
+    /// `available`. So the button never appeared, and a user who had just pasted a
+    /// valid key was told escalation "needs an API key". The offer must depend on
+    /// the credential existing, not on the backend the offer would create.
+    #[test]
+    fn offers_escalation_from_a_stored_key_alone() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        request_cloud(false);
+        let r = router();
+        // Key stored, nothing escalated yet: exactly the state after saving a key
+        // in Settings.
+        assert!(!r.has_cloud(), "no backend built until escalation");
+        let st = status(true, r.has_cloud());
+        assert!(st.available, "a stored key must make escalation available");
+        assert!(!st.active, "…without routing anything anywhere yet");
     }
 
     #[test]
@@ -238,7 +266,7 @@ mod tests {
         // The flag must be down too: otherwise entering a key later would
         // silently resume sending prompts off-device.
         assert!(
-            !status(true).requested,
+            !status(true, false).requested,
             "removing the backend must revoke the request, not just park it"
         );
         request_cloud(false);

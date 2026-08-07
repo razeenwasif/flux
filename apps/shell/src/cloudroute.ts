@@ -12,7 +12,9 @@
 export interface Route {
   /** The user asked for cloud. */
   requested: boolean;
-  /** A cloud backend is configured and usable. */
+  /** Escalation is *possible* — a key is stored. Deliberately not "a backend is
+   *  live": the backend is only built when you escalate, so gating the offer on
+   *  it deadlocks (you could never turn on the thing that builds it). */
   available: boolean;
   /** The next request will leave this machine. */
   active: boolean;
@@ -25,17 +27,20 @@ export const LOCAL: Route = { requested: false, available: false, active: false 
  * Coerce an untrusted value (an IPC reply, a mock, `undefined` from a command
  * the backend doesn't have) into a `Route`.
  *
- * `active` is **recomputed** rather than trusted: it is the field the UI acts
- * on, and deriving it from the other two means a reply can't claim traffic is
- * local while asking for cloud, or vice versa. Anything unrecognised reads as
- * [`LOCAL`] — if the call didn't work, nothing escalated, so local is both the
- * safe answer and the true one.
+ * `active` is taken from the reply, because only Rust knows whether a cloud
+ * backend is actually installed — but it is **and-ed with `requested`**, so no
+ * reply can put the UI into "your words are leaving" without the user having
+ * asked. Deriving it from `available` instead would be wrong now that
+ * `available` only means a key exists.
+ *
+ * Anything unrecognised reads as [`LOCAL`]: if the reply is garbage, nothing was
+ * escalated, so local is both the safe answer and the true one.
  */
 export function asRoute(v: unknown): Route {
   const r = v as Partial<Route> | null | undefined;
   const available = r?.available === true;
   const requested = r?.requested === true;
-  return { requested, available, active: requested && available };
+  return { requested, available, active: requested && r?.active === true };
 }
 
 /**
