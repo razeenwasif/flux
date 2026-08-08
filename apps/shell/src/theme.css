@@ -754,6 +754,74 @@ body.resizing .panel-edge-resize::after {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* Bottom-anchored so collapsing folds the stack *down* into the handle, which
+     stays put. Growing from a moving anchor makes the handle jump away from the
+     cursor that just clicked it. */
+  align-items: flex-end;
+}
+/* #177 — the collapsible stack. Animated by max-height rather than unmounted, so
+   an open app's `.on` ring survives a collapse and nothing re-measures on
+   reopen. 400px clears five 44px buttons plus their gaps with room to spare;
+   it's a bound for the transition, not a layout value. */
+.appdock-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  max-height: 400px;
+  opacity: 1;
+  overflow: hidden;
+  transition:
+    max-height 0.26s var(--ease-soft),
+    opacity 0.18s ease,
+    transform 0.26s var(--ease-soft);
+}
+.appdock.collapsed .appdock-items {
+  max-height: 0;
+  opacity: 0;
+  /* Slide into the handle rather than fading in place — it reads as folding
+     away, and makes where it went obvious. */
+  transform: translateY(10px) scale(0.94);
+  pointer-events: none;
+}
+/* The handle. Rotates to point the way it will move things. */
+.appdock-toggle .appdock-glyph {
+  display: inline-block;
+  transition: transform 0.26s var(--ease-soft);
+  transform: rotate(90deg);
+  font-size: 18px;
+  line-height: 1;
+}
+.appdock.collapsed .appdock-toggle .appdock-glyph {
+  transform: rotate(0deg);
+  font-size: 15px;
+}
+/* How many apps are running, while the per-button rings are hidden. */
+.appdock-count {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--flux-teal);
+  color: #06121a;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--velvet-800);
+}
+/* Reduced motion: still collapses, just without the slide. */
+@media (prefers-reduced-motion: reduce) {
+  .appdock-items,
+  .appdock-toggle .appdock-glyph {
+    transition: none;
+  }
+  .appdock.collapsed .appdock-items {
+    transform: none;
+  }
 }
 .appdock-btn {
   width: 44px;

@@ -8,6 +8,19 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **The app dock collapses (#177).** Nexus, Prism, Vector, Oracle and the timetable were a
+  permanent 250px stripe down the right edge for something you open a few times a day — and
+  because the dock is pinned over the connections rail, that stripe was sitting on top of your
+  Trail box. It now folds into a single handle and unfolds when you want it. Persisted, default
+  open, and in the palette as **Collapse/Expand app dock**.
+
+  The collapsed handle shows **how many apps are open**. Expanded, a running app is marked by the
+  ring on its own button; collapsing would have thrown that away, and a control that hides live
+  state is worse than the 250px it saved.
+
+  The buttons aren't unmounted, just animated out — so an open app's state is intact the moment
+  you reopen, and nothing re-measures. They're `inert` while hidden, so they stay out of tab order
+  rather than being merely invisible.
 - **The agent can find your Windows files, and you can decide how much of them it sees (#176).**
   Three related changes.
 

@@ -149,6 +149,8 @@ import {
   setBookmarkBarOpen,
   editorColOpen,
   setEditorColOpen,
+  appDockOpen,
+  setAppDockOpen,
   pagesBarOpen,
   setPagesBarOpen,
   filesPanelOpen,
@@ -1261,6 +1263,12 @@ const App: Component = () => {
       label: editorColOpen() ? "Hide editor column" : "Show editor column",
       icon: "📝",
       run: () => setEditorColOpen(!editorColOpen()),
+    },
+    {
+      id: "app-dock",
+      label: appDockOpen() ? "Collapse app dock" : "Expand app dock",
+      icon: "⌘",
+      run: () => setAppDockOpen(!appDockOpen()),
     },
     {
       id: "connect-rail",

@@ -936,6 +936,20 @@ export function setBookmarkBarOpen(on: boolean): void {
   localStorage.setItem("flux.bookmarkbar", on ? "1" : "0");
 }
 
+// App dock (#177): the bottom-right rail of the user's own web apps. Persisted,
+// default open so nothing moves for anyone who liked it as a rail.
+//
+// It's `position: fixed` over the chrome, so unlike the bookmark bar or the
+// editor column this reclaims *screen*, not layout — nothing re-tiles when it
+// collapses. That also means collapsing hides which apps are running, which is
+// why the collapsed handle carries the count.
+const [appDockOpen, setAppDockRaw] = createSignal(localStorage.getItem("flux.appdock") !== "0");
+export { appDockOpen };
+export function setAppDockOpen(on: boolean): void {
+  setAppDockRaw(on);
+  localStorage.setItem("flux.appdock", on ? "1" : "0");
+}
+
 // Editor column (#174): a permanent nvim split beside the page, booted from ~ at
 // startup. Persisted and default ON — it's meant to be always there, but hiding
 // it has to survive a restart or "permanent" becomes "unavoidable".
