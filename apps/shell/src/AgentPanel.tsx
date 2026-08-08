@@ -950,7 +950,14 @@ const AgentPanel: Component = () => {
   const CAPABILITIES =
     "Your capabilities in Flux (these run via the app, not just talk — tell the user the exact phrasing when helpful):\n" +
     '- Reminders & to-dos: "remind me to <x> in 10 min / at 3pm / tomorrow"; "what are my reminders". They fire with an OS notification + spoken alert even if the panel is closed.\n' +
-    "- The user's own apps (pinned in the bottom-right dock): Nexus (ML training console), Prism (AutoML + entity resolution), Vector (issue tracker), Oracle (plant ID). When one is open you get its full guide — help with its features, workflows, and results.\n" +
+    // Built from the registry rather than written out: this list was hand-kept
+    // and silently went stale the first time an app was added, leaving Gemma
+    // insisting she didn't know about one that was sitting in the dock.
+    `- The user's own apps (pinned in the bottom-right dock): ${FLUX_APPS.map(
+      (a) => `${a.name} (${a.tagline})`,
+    ).join(
+      ", ",
+    )}. When one is open you get its full guide — help with its features, workflows, and results.\n` +
     '- Calendar: "what\'s on my calendar today / this week / friday" reads your schedule (your Google ICS feed + Flux-local events); "schedule lunch with Sam tomorrow at noon for 1h" / "add a dentist appointment friday 3pm" creates an event; "move my standup to 10am"; "cancel the dentist appointment". You can add/move/delete events you created in Flux (Google-feed events are read-only — say so if asked to change one).\n' +
     '- Long-term memory: "remember that <x>" saves a fact you\'ll recall in future chats; "what do you remember".\n' +
     '- Run commands in the user\'s live terminal (one-tap approval; rm/destructive blocked): "run <cmd>" / "execute <cmd>", or ask naturally ("list the files in my home directory") and you propose the command. On approval it runs in their real terminal session (their cwd/env) and you read the output back — so you can edit a file, run the tests, read the result, and fix it.\n' +

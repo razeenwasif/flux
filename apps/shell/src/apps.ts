@@ -135,6 +135,40 @@ const DESKTOP_APPS: FluxApp[] = [
 - Help developers authenticate + call \`/identify\`.
 **Glossary:** Identify (upload→inference→results) · Journal/Library (saved IDs) · Heatmap (Grad-CAM attention) · AC-3 (constraint-pruning by habitat/geography/phenology) · Pro tier · API key.`,
   },
+  {
+    id: "codevisualizer",
+    name: "Code Visualizer",
+    url: "https://codevisualizer-app.web.app",
+    host: "codevisualizer-app.web.app",
+    tagline: "Step through code and watch the stack, heap and struct layout",
+    tint: "#6aa3ff",
+    iconAsset: "/app-codevisualizer.svg",
+    // Sends `X-Frame-Options: SAMEORIGIN` (Firebase Hosting's default — the
+    // other four apps override it), so it can't render in the pane's iframe and
+    // opens in the web-panel rail instead. Drop this flag once the header is
+    // overridden in that project's firebase.json.
+    noFrame: true,
+    guide: `# Code Visualizer — step-through execution with a live memory view
+**What it is:** Paste a program, press Visualize, and it compiles/runs the code server-side and returns a step-by-step trace you can scrub through. The left pane is the source plus its stdout; the right pane shows program state at the current step. The trace is a language-neutral JSON format, so it can be saved and reopened later. This instance is password-gated because it executes code.
+**Key features / workflows:**
+- Pick a **Language** and optionally an **Example** from the header, or paste your own source; **Visualize** (\`Ctrl+Enter\`) runs it.
+- **Memory tab:** Stack and Heap side by side, with arrows drawn from pointers to what they reference; freed blocks are marked, and the gutter marks which source lines have steps.
+- **Structure tab:** reads the *shape* of what the heap graph built (list, tree, cycle…) rather than just the raw boxes.
+- **Calls tab:** the call tree for the run. **Layout tab:** struct field layout with **real padding gaps**, computed from each field's address and the struct's total size — measured, not inferred from ABI rules.
+- **Narration:** a plain-language line describing what changed at this step.
+- **Inspector:** click a value to track it — prev/next change buttons plus a sparkline of its history.
+- **Transport:** first / prev / play / next / **step over** / **step out** / last, a scrubber with tick marks, and 0.5× – 8× speed.
+- **Leaks** and **diagnostics** panels surface what the backend reported (unfreed blocks, compiler messages).
+- **Save** downloads the trace as JSON; **Open** reloads one — no re-run needed.
+**Keyboard:** \`Ctrl+Enter\` visualize · \`Space\` play/pause · \`←\`/\`→\` step · \`↓\` step over · \`↑\` step out · \`Home\`/\`End\` first/last · drag the splitter (double-click resets, \`←\`/\`→\` when focused).
+**How Gemma can help:**
+- Read the current step's stack/heap and explain what the program just did.
+- Explain a pointer arrow, a freed block, or why a leak was reported.
+- Explain the padding gaps in the Layout tab and how field order changes struct size.
+- Suggest where to set up a step-over/step-out to skip noise and reach the interesting frame.
+- Help interpret a compiler diagnostic, or rewrite the source to test a hypothesis.
+**Glossary:** Step (one traced execution point) · Stack/Heap columns · Freed block · Leak (allocated, never freed) · Padding gap (unused bytes between fields, from real addresses) · Narration · Inspector (a tracked value's change history) · Trace (the saved JSON run).`,
+  },
 ];
 
 /** Pinned apps for this platform: desktop shows them, mobile is barebone. */

@@ -8,6 +8,20 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Code Visualizer joins the app dock.** Your step-through execution visualiser
+  (`codevisualizer-app.web.app`) is pinned alongside Nexus, Prism, Vector and Oracle, with its
+  favicon bundled so it doesn't depend on a remote fetch, and a guide so Gemma can read the
+  current step's stack and heap and explain what the program just did.
+
+  It's marked `noFrame`, so it opens in the web-panel rail rather than a floating pane — unlike
+  your other four, it still sends Firebase Hosting's default `X-Frame-Options: SAMEORIGIN`, and an
+  iframe would have come up blank. Overriding that header in its `firebase.json` is enough to drop
+  the flag and let it float like the rest.
+
+### Fixed
+- **Gemma's list of your apps is generated, not typed out.** It was a hand-maintained sentence
+  naming four apps, so adding a fifth left her insisting she didn't know about one that was
+  sitting in the dock. It now comes from the same registry the dock renders from.
 - **The app dock collapses (#177).** Nexus, Prism, Vector, Oracle and the timetable were a
   permanent 250px stripe down the right edge for something you open a few times a day — and
   because the dock is pinned over the connections rail, that stripe was sitting on top of your
