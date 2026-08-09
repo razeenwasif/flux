@@ -1397,6 +1397,7 @@ pub fn run(intent: cli::LaunchIntent) {
             // Live editor state from the nvim column (#179).
             nvim::nvim_state,
             nvim::nvim_buffer,
+            nvim::nvim_selection,
             nvim::nvim_socket,
             // Can a site be embedded in a floating pane? (#180)
             framing::frame_policy,

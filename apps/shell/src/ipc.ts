@@ -45,6 +45,7 @@ import type {
   AgentStatus as GenAgentStatus,
   RouteStatus as GenRouteStatus,
   NvimState as GenNvimState,
+  NvimSelection as GenNvimSelection,
   FramePolicy as GenFramePolicy,
   ArchiveEntryWire as GenArchiveEntryWire,
   ArchiveMeta as GenArchiveMeta,
@@ -509,6 +510,9 @@ export const framePolicy = (url: string) => invoke<FramePolicy>("frame_policy", 
 export type NvimState = GenNvimState;
 /** Never rejects: "no editor" is an ordinary state, not an error. */
 export const nvimState = (session: number) => invoke<NvimState>("nvim_state", { session });
+/** The last visual selection — what "explain this" points at. */
+export type NvimSelection = GenNvimSelection;
+export const nvimSelection = (session: number) => invoke<NvimSelection>("nvim_selection", { session });
 /** The current buffer's text, including unwritten changes. */
 export const nvimBuffer = (session: number) => invoke<string>("nvim_buffer", { session });
 

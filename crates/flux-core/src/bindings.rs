@@ -85,6 +85,7 @@ pub fn generate_ts() -> String {
         specta::ts::export::<crate::framing::FramePolicy>(&c),
         // What the nvim column's editor is doing right now (#179).
         specta::ts::export::<crate::nvim::NvimState>(&c),
+        specta::ts::export::<crate::nvim::NvimSelection>(&c),
         // Where the agent's next request goes — local, or the opt-in cloud (#175).
         specta::ts::export::<flux_agent::RouteStatus>(&c),
         // Sentinel security layer (ADR 0013): phishing verdicts.

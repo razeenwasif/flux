@@ -74,6 +74,19 @@ pub struct NvimState {
 mod expr {
     /// The whole current buffer, including unwritten changes.
     pub const BUFFER_TEXT: &str = r#"join(getline(1, "$"), "\n")"#;
+    /// The last visual selection: `mode ⟼ file ⟼ start ⟼ end ⟼ text`, or empty
+    /// when nothing has ever been selected.
+    ///
+    /// `'<` / `'>` are the marks nvim leaves *after* visual mode ends, which is
+    /// exactly the state "explain this" is asked in — the user selects, presses
+    /// Esc, and types. Reading them live would require the selection still to be
+    /// active while the agent panel has focus, which it can't be.
+    ///
+    /// The text comes from `getregion()` rather than from the line range and
+    /// columns: it already handles charwise vs linewise vs blockwise, and
+    /// `col()` is a *byte* index, so slicing it here would be one multi-byte
+    /// character away from a panic.
+    pub const SELECTION: &str = r#"visualmode()=="" ? "" : join([visualmode(), expand("%:p"), getpos("'<")[1], getpos("'<")[2], getpos("'>")[1], getpos("'>")[2], join(getregion(getpos("'<"), getpos("'>"), {"type": visualmode()}), "\n")], "\x1f")"#;
     /// `file ⟼ line ⟼ col ⟼ modified ⟼ line-count ⟼ buffers` (tab-separated).
     pub const STATE: &str = r#"join([expand("%:p"), line("."), col("."), &modified, line("$"), join(map(getbufinfo({"buflisted":1}), {_, b -> b.name}), "\t")], "\x1f")"#;
 }
@@ -151,6 +164,65 @@ fn spawn_client(sock: &str, expression: &str) -> Result<std::process::Output, St
     cmd.args(["--", "nvim", "--server", sock, "--remote-expr", expression])
         .creation_flags(CREATE_NO_WINDOW);
     run_bounded(cmd)
+}
+
+/// The last visual selection — what "explain this" points at.
+#[derive(Serialize, Debug, Clone, Default, PartialEq, specta::Type)]
+pub struct NvimSelection {
+    /// Something has been selected. False means the user hasn't selected
+    /// anything in this session, which is a different answer from "empty".
+    pub has: bool,
+    /// `v` charwise, `V` linewise, `\x16` blockwise.
+    pub mode: String,
+    /// File the selection is in.
+    pub file: String,
+    pub start_line: u32,
+    pub end_line: u32,
+    /// The selected text exactly as nvim resolves it.
+    pub text: String,
+}
+
+/// Parse the packed `SELECTION` reply.
+///
+/// `splitn` with the text last, so a selection that itself contains the unit
+/// separator — unlikely in source, but free to get right — stays intact instead
+/// of being truncated at its first occurrence.
+pub(crate) fn parse_selection(raw: &str) -> NvimSelection {
+    if raw.trim().is_empty() {
+        return NvimSelection::default();
+    }
+    let mut p = raw.splitn(7, '\u{1f}');
+    let mode = p.next().unwrap_or("").trim().to_string();
+    let file = p.next().unwrap_or("").trim().to_string();
+    let start_line = p.next().unwrap_or("").trim().parse().unwrap_or(0);
+    let _start_col = p.next();
+    let end_line = p.next().unwrap_or("").trim().parse().unwrap_or(0);
+    let _end_col = p.next();
+    let text = p.next().unwrap_or("").to_string();
+    // A mark of line 0 is nvim's "never set", which the guard above usually
+    // catches — but a malformed reply must not present as a real selection.
+    if start_line == 0 || text.is_empty() {
+        return NvimSelection::default();
+    }
+    NvimSelection {
+        has: true,
+        mode,
+        file,
+        start_line,
+        end_line,
+        text,
+    }
+}
+
+/// The last visual selection, for "explain this".
+#[tauri::command]
+pub async fn nvim_selection(session: u64) -> NvimSelection {
+    tauri::async_runtime::spawn_blocking(move || match query(session, expr::SELECTION) {
+        Ok(raw) => parse_selection(&raw),
+        Err(_) => NvimSelection::default(),
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// Parse the packed `STATE` reply. Split out so the wire format is testable
@@ -277,6 +349,56 @@ mod tests {
         fast.arg("hi");
         let out = run_bounded_for(fast, Duration::from_secs(5)).expect("echo should succeed");
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hi");
+    }
+
+    #[test]
+    fn parses_a_linewise_selection() {
+        // Exactly what a real nvim returned for `6GV8G<Esc>`: linewise, so the
+        // end column is v_max rather than a real column.
+        let raw = "V\u{1f}/home/me/demo.rs\u{1f}6\u{1f}1\u{1f}8\u{1f}2147483647\u{1f}fn helper(n: i32) {\n    println!(\"{}\", n + 1);\n}";
+        let s = parse_selection(raw);
+        assert!(s.has);
+        assert_eq!(s.mode, "V");
+        assert_eq!((s.start_line, s.end_line), (6, 8));
+        assert!(s.text.starts_with("fn helper"));
+        assert!(s.text.ends_with('}'));
+    }
+
+    #[test]
+    fn parses_a_charwise_selection() {
+        // getregion() resolves the columns for us, so the text is the exact
+        // characters — this is why the parser ignores the column fields rather
+        // than slicing by them (col() is a *byte* index).
+        let raw = "v\u{1f}/home/me/demo.rs\u{1f}3\u{1f}11\u{1f}3\u{1f}14\u{1f}(x);";
+        let s = parse_selection(raw);
+        assert!(s.has);
+        assert_eq!(s.mode, "v");
+        assert_eq!(s.text, "(x);");
+        assert_eq!((s.start_line, s.end_line), (3, 3));
+    }
+
+    #[test]
+    fn nothing_selected_is_reported_as_such_not_as_an_empty_selection() {
+        // `visualmode()` is "" before the first selection, and the expression
+        // short-circuits to an empty reply. Presenting that as a real but empty
+        // selection would have the agent explain nothing, confidently.
+        for raw in ["", "   ", "\n"] {
+            assert!(!parse_selection(raw).has, "{raw:?}");
+        }
+        // A mark of line 0 is nvim's "never set".
+        assert!(!parse_selection("V\u{1f}/f\u{1f}0\u{1f}0\u{1f}0\u{1f}0\u{1f}x").has);
+        // Text that came back empty is not something to explain either.
+        assert!(!parse_selection("V\u{1f}/f\u{1f}1\u{1f}1\u{1f}2\u{1f}9\u{1f}").has);
+    }
+
+    #[test]
+    fn a_selection_containing_the_separator_survives() {
+        // The text is last and split with a limit, so source that happens to
+        // contain \x1f arrives whole rather than truncated at it.
+        let raw = "v\u{1f}/f\u{1f}1\u{1f}1\u{1f}1\u{1f}9\u{1f}let sep = '\u{1f}'; // odd but legal";
+        let s = parse_selection(raw);
+        assert!(s.has);
+        assert!(s.text.contains("odd but legal"), "{}", s.text);
     }
 
     #[test]

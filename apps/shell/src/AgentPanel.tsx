@@ -53,6 +53,7 @@ import {
   agentWriteTextFile,
   nvimState,
   nvimBuffer,
+  nvimSelection,
   agentCloudSet,
   agentCloudStatus,
   geminiHasKey,
@@ -967,6 +968,7 @@ const AgentPanel: Component = () => {
     '- Read files into context: "read src/foo.rs" / "look at <path>" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); "forget the files" clears. You can also drag a file from the explorer onto the panel. PDFs come through as real text, page by page. A scan has no text layer, so you run OCR on it yourself and say the text was machine-read.\n' +
     '- List a folder: "list <dir>" / "what\'s in <dir>" reads a directory directly — no terminal, no approval needed.\n' +
     '- Read the terminal: "read the terminal" / "what\'s in my terminal" pulls the active Terminal tab\'s recent output into context (great for debugging a failed command).\n' +
+    '- Explain a selection: "explain this" / "what does this do" reads whatever the user has selected in the nvim column and answers about *that*. Say which lines you are looking at.\n' +
     '- Read the editor: "read my editor" / "what am I editing" pulls the nvim column\'s **live buffer** — including unsaved changes, which reading the file from disk would miss. Say so when the buffer differs from the file on disk, and prefer this over `read <path>` when the user asks about what they are working on right now.\n' +
     '- Edit files (with approval): "edit src/foo.rs: rename X to Y" / (after reading a file) "change it to …" — you propose a diff; nothing is written until the user taps Apply. Make surgical edits.\n' +
     '- Inspect Flux\'s own UI (for debugging it): "app state" (UI snapshot), "css variables" / "what\'s --flux-teal", "inspect <css selector>" (computed style + visibility — e.g. why an element is hidden or a var isn\'t applying).\n' +
@@ -1461,6 +1463,30 @@ const AgentPanel: Component = () => {
     return `Got ${name} as it is in your editor${st.modified ? ", including your unsaved changes" : ""} — what would you like to know?`;
   };
 
+  // "explain this" → whatever is selected in nvim (#181).
+  //
+  // Deliberately *additive*: it loads the selection into context and lets the
+  // normal chat answer, rather than intercepting the turn. "Explain this" is
+  // also a fair thing to say about a file already in context or the page on
+  // screen, so a version that hard-failed without a selection would break more
+  // than it fixed.
+  const EXPLAIN_RE =
+    /^(?:explain|describe|what(?:'?s| does| is)?)\s+(?:this|that|these|the\s+(?:selection|selected\s+(?:code|text|lines?)|highlighted\s+\w+)|my\s+selection)\b/i;
+
+  /** Pull the editor's last visual selection into context. `false` = nothing to add. */
+  const loadSelection = async (): Promise<boolean> => {
+    const session = editorSession();
+    if (session == null) return false;
+    const sel = await nvimSelection(session).catch(() => null);
+    if (!sel?.has || !sel.text.trim()) return false;
+    const name = sel.file ? sel.file.split(/[/\\]/).pop()! : "selection";
+    const where =
+      sel.start_line === sel.end_line ? `line ${sel.start_line}` : `lines ${sel.start_line}–${sel.end_line}`;
+    addContext("selection", `${name} ${where} (selected)`, sel.text);
+    setFeed((f) => [...f, { role: "action", text: `👁 Reading what you selected — ${name}, ${where}.` }]);
+    return true;
+  };
+
   // #4 UI introspection — inspect an element's computed style/visibility, dump the
   // CSS theme variables, or snapshot the app state. Results go into context too.
   const addContext = (path: string, name: string, content: string) =>
@@ -1490,7 +1516,10 @@ const AgentPanel: Component = () => {
   };
   const refreshMemory = () =>
     void memoryRead()
-      .then(setMemText)
+      // `?? ""` because a command that resolves to nothing would otherwise make
+      // `memText()` undefined, and convoPrompt's `.trim()` takes down the whole
+      // chat path — a large failure for a small absence.
+      .then((t) => setMemText(t ?? ""))
       .catch(() => {});
   const REMEMBER_RE =
     /^(?:\/remember|remember|note|make a note|keep in mind|save (?:to memory|this))\b[:,]?\s+(?:that\s+|to\s+)?(.+)/i;
@@ -2520,6 +2549,11 @@ const AgentPanel: Component = () => {
         // Stream the reply token-by-token into one assistant bubble (#82) so the
         // answer renders live. Nothing else appends to the feed during the await,
         // so the captured index stays valid.
+        // "explain this" points at the editor selection (#181). Loaded before
+        // the prompt is built so it's part of the context the model sees, and
+        // silently skipped when there's nothing selected — "this" may well mean
+        // a file already in context or the page on screen.
+        if (EXPLAIN_RE.test(p.trim())) await loadSelection();
         const cp = convoPrompt(p); // build memory before pushing the empty reply bubble
         const gen = ++replyGen; // Stop button bumps replyGen to abandon this stream
         const idx = feed().length;

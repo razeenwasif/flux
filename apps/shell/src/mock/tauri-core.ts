@@ -1002,10 +1002,36 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         { id: "ddg", name: "DuckDuckGo", keyword: "ddg", search_template: "", suggest_template: null },
         { id: "google", name: "Google", keyword: "g", search_template: "", suggest_template: null },
       ] as T);
+    // Unmocked, this resolved to undefined and `memText().trim()` threw inside
+    // convoPrompt — which broke *every* chat in the preview and looked like a
+    // bug in whatever feature was being tested.
+    case "memory_read":
+      return Promise.resolve("- Prefers concise answers.\n- Uses nvim." as T);
+    case "memory_write":
+      return Promise.resolve(undefined as T);
     case "agent_chat":
       return Promise.resolve(
         "I'm Flux, your local assistant. Ask me anything — or use /act to control the page." as T,
       );
+    // The streaming chat had no mock, so *every* ordinary message in the preview
+    // ended as "TypeError: … reading 'trim'" — which made the whole chat path
+    // unverifiable and looked like a bug in whatever feature was being tested.
+    // Echoes back what it was given so a test can tell the context reached it.
+    case "agent_chat_stream":
+    case "agent_chat_tabs_stream": {
+      const ch = args?.onToken as Channel<string> | undefined;
+      const prompt = String(args?.prompt ?? "");
+      // Quote the tail of the prompt: that's where convoPrompt puts the current
+      // message, after the preamble and any file context.
+      const tail = prompt.slice(-160).replace(/\s+/g, " ").trim();
+      const reply = `(mock reply) I received ${prompt.length} chars of prompt ending: …${tail}`;
+      if (ch) {
+        // Two chunks, so a caller that assumes one message still gets exercised.
+        setTimeout(() => ch.onmessage(reply.slice(0, 30)), 40);
+        setTimeout(() => ch.onmessage(reply.slice(30)), 90);
+      }
+      return new Promise<T>((resolve) => setTimeout(() => resolve(undefined as T), 140));
+    }
     case "agent_chat_tabs":
       return Promise.resolve(
         `(mock) Answering "${String(args?.prompt ?? "")}" across ${(args?.tabIds as number[] | undefined)?.length ?? 0} tabs.` as T,
@@ -1063,6 +1089,15 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         modified: true,
         lines: 118,
         buffers: ["/home/you/Flux/crates/flux-core/src/nvim.rs"],
+      } as T);
+    case "nvim_selection":
+      return Promise.resolve({
+        has: true,
+        mode: "V",
+        file: "/home/you/Flux/crates/flux-core/src/nvim.rs",
+        start_line: 6,
+        end_line: 8,
+        text: 'fn helper(n: i32) {\n    println!("{}", n + 1);\n}',
       } as T);
     case "nvim_buffer":
       return Promise.resolve(

@@ -8,6 +8,30 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **"Explain this" points at your nvim selection (#181).** Select something in the editor column,
+  press Esc, ask "explain this" — Gemma reads exactly what you highlighted and answers about that,
+  naming the file and line range she's looking at. Works for charwise and linewise selections.
+
+  Deliberately additive: it loads the selection into context and lets the normal answer happen,
+  rather than taking over the turn. "Explain this" is a fair thing to say about a file already in
+  context or the page on screen, so a version that failed without a selection would break more than
+  it fixed.
+
+  Flux reads the `'<` / `'>` marks, which are what nvim leaves *after* visual mode ends — exactly
+  the state you're in when you press Esc and start typing. The text comes from `getregion()` rather
+  than from slicing the line range, because nvim already resolves charwise vs linewise vs
+  blockwise, and `col()` is a byte index: slicing it here would be one multi-byte character away
+  from a panic.
+
+### Fixed
+- **Every chat in the UI preview was failing.** `memory_read` had no mock, so it resolved to
+  `undefined`, `memText()` became `undefined`, and `convoPrompt`'s `.trim()` threw before any
+  message could be sent. It presented as a `TypeError` attributed to whatever feature was being
+  tested. Mocked, and the real call site now coerces an empty reply rather than poisoning the
+  signal — a large failure for a small absence. The streaming chat had no mock either; it does now,
+  and echoes the prompt back so a test can confirm what actually reached the model.
+
+### Added
 - **Code Visualizer opens as a floating pane**, alongside Nexus, Prism, Vector and Oracle.
 
   It still sends Firebase Hosting's default `X-Frame-Options: SAMEORIGIN`, so until that's

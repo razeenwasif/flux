@@ -366,8 +366,7 @@ only remaining pieces are engine-gated (noted per item).
 - **Editor RPC follow-ups (#179).** The agent can read the live nvim buffer, and
   that opens the obvious next steps: (a) read only the function under the cursor
   rather than the whole buffer — `nvim` can give the fold/treesitter range, and a
-  4000-line file currently arrives whole; (b) the visual selection ("explain
-  this") is not wired, though `getpos("'<")`/`getpos("'>")` would do it; (c) no
+  4000-line file currently arrives whole; (b) ~~the visual selection~~ — done in #181; (c) no
   *write* path — she can read your buffer but must still edit through the
   filesystem, so an edit lands on disk and nvim then reports the file changed;
   (d) the state is fetched on demand, so nothing shows the current file in the
