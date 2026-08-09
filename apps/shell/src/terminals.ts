@@ -29,9 +29,20 @@ export function takePendingCommand(session: number): string | null {
   return cmd;
 }
 
-export function registerTerminal(session: number, term: XTerm): void {
+/**
+ * Add a terminal to the registry.
+ *
+ * `claimActive` decides whether mounting also makes this the agent's "read the
+ * terminal" target. It used to be unconditional, which quietly broke once a
+ * terminal could mount without the user opening it: the editor column (#174)
+ * boots with the window and remounts on every `:q`, so each relaunch stole the
+ * read target from whatever shell the user was actually debugging in. Focus
+ * still switches it — see `setActiveTerminal` — so an editor you click into
+ * becomes readable, which is the part that should depend on you.
+ */
+export function registerTerminal(session: number, term: XTerm, claimActive = true): void {
   registry.set(session, term);
-  activeSession = session;
+  if (claimActive) activeSession = session;
 }
 export function unregisterTerminal(session: number): void {
   registry.delete(session);

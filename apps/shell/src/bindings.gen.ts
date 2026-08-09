@@ -55,6 +55,10 @@ export type WebPanel = { id: number; url: string; title: string }
  */
 export type AgentStatus = { state: "idle" } | { state: "thinking"; prompt: string } | { state: "acting"; description: string; selector: string } | { state: "error"; message: string }
 /**
+ * What the editor is doing right now.
+ */
+export type NvimState = { connected: boolean; file: string; line: number; col: number; modified: boolean; lines: number; buffers: string[] }
+/**
  * What the router will actually do with the next request.
  */
 export type RouteStatus = { requested: boolean; available: boolean; active: boolean }

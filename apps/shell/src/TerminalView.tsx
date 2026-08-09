@@ -186,7 +186,9 @@ const TerminalView: Component<{
     fit.fit();
     termRef = term; // expose to the active-tab effect (keep-alive re-fit/focus)
     fitRef = fit;
-    registerTerminal(props.session, term); // let the agent read this terminal's buffer
+    // Readable by the agent, but only *the* read target if it mounted active —
+    // a pane that appears without the user asking must not hijack that (#178).
+    registerTerminal(props.session, term, props.active ?? true);
 
     // ── Shell integration (#16): OSC 133 prompt marks ───────────────────────
     // When the shell sources Flux's integration snippet it emits OSC 133 around

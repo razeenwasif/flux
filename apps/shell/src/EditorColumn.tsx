@@ -21,7 +21,7 @@
  */
 import { type Component, Show, createSignal, createEffect, onCleanup, lazy, Suspense } from "solid-js";
 
-import { BOOT_CMD, exitAction, sessionFor } from "./editorboot";
+import { BOOT_CMD, bootCommand, exitAction, sessionFor, setEditorSession, socketPath } from "./editorboot";
 import { onTermExit } from "./ipc";
 import { setPendingCommand } from "./terminals";
 
@@ -54,7 +54,14 @@ const EditorColumn: Component = () => {
   const boot = (gen: number) => {
     // Queue before the view mounts — TerminalView consumes this the moment its
     // PTY is live, which closes the race against the shell being ready.
-    setPendingCommand(sessionFor(gen), BOOT_CMD);
+    //
+    // Booted with `--listen` so the agent can read the live buffer over RPC
+    // (#179). The socket path is a pure function of the session on both sides,
+    // so no handshake is needed — and computing it rather than fetching it is
+    // what keeps this synchronous, since an `await` here would race the mount
+    // and usually lose, booting an editor the agent can't read.
+    const session = sessionFor(gen);
+    setPendingCommand(session, bootCommand(socketPath(session)));
   };
   boot(0);
 
@@ -66,6 +73,12 @@ const EditorColumn: Component = () => {
     setGrabCaret(takeCaret);
     setGeneration(next);
   };
+
+  // Publish which session is live, so the agent can reach this editor — and
+  // clear it on unmount, so a closed column reads as "you don't have one open"
+  // rather than as a silent RPC timeout against a dead socket.
+  createEffect(() => setEditorSession(session()));
+  onCleanup(() => setEditorSession(null));
 
   createEffect(() => {
     const mine = session();

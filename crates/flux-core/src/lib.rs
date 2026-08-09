@@ -46,6 +46,7 @@ pub mod nav;
 pub mod netfilter;
 pub mod netspeed;
 pub mod notes;
+pub mod nvim;
 pub mod notewrite;
 pub mod ocr;
 pub mod omni;
@@ -1392,6 +1393,10 @@ pub fn run(intent: cli::LaunchIntent) {
             fsroots::agent_read_text_file,
             fsroots::agent_write_text_file,
             fsroots::agent_pdf_fetch,
+            // Live editor state from the nvim column (#179).
+            nvim::nvim_state,
+            nvim::nvim_buffer,
+            nvim::nvim_socket,
             spotify::spotify_set_dir,
             spotify::spotify_play,
             spotify::spotify_pause,

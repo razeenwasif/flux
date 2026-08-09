@@ -19,6 +19,40 @@ export const EDITOR_SESSION_BASE = 0xd000_0000;
 export const BOOT_CMD = "nvim";
 
 /**
+ * The editor's RPC socket for a PTY session.
+ *
+ * Computed here rather than fetched, because the boot command is queued the
+ * moment the column mounts and an `await` would race that — losing the race
+ * means booting a plain `nvim` the agent can't read, silently and most of the
+ * time.
+ *
+ * Mirrors `flux_core::nvim::socket_path`. Two languages, one format: both sides
+ * pin the literal in a test, so changing either without the other fails rather
+ * than quietly breaking RPC. `/tmp` because on the Windows build these two sides
+ * are different operating systems and it needs no environment lookup to agree.
+ */
+export function socketPath(session: number): string {
+  return `/tmp/flux-nvim-${session}.sock`;
+}
+
+/**
+ * Boot the editor with an RPC socket so the agent can read the live buffer
+ * (#179) — unsaved edits included, which reading the file from disk can't give.
+ *
+ * `rm -f` first because the socket outlives a crash: nvim refuses to listen on a
+ * path that already exists, so a hard exit would leave the column permanently
+ * unable to start. Removing it runs in the same shell the socket lives in, which
+ * is what makes this correct on the Windows build too — there the shell is WSL,
+ * and so is the socket.
+ *
+ * The path is quoted but also `/tmp/flux-nvim-<n>.sock` by construction — digits
+ * and dashes, nothing a shell would look at twice.
+ */
+export function bootCommand(socket: string): string {
+  return `rm -f '${socket}' && ${BOOT_CMD} --listen '${socket}'`;
+}
+
+/**
  * A session that exits sooner than this never really started — the editor isn't
  * on PATH, or it died on a config error. Relaunching *that* spins forever, so it
  * is reported instead.
@@ -28,6 +62,23 @@ export const MIN_HEALTHY_MS = 2_000;
 /** The PTY session id for a given relaunch generation. */
 export function sessionFor(generation: number): number {
   return EDITOR_SESSION_BASE + generation;
+}
+
+/**
+ * The editor session that is live right now, or `null` when the column is
+ * closed — so the agent can tell "your editor says X" from "you don't have one
+ * open", which are different answers to the same question.
+ *
+ * Plain module state rather than a signal: the only reader checks it on demand
+ * inside an agent turn, so nothing needs to re-render when it changes. The
+ * column sets it as generations come and go, and clears it on unmount.
+ */
+let liveSession: number | null = null;
+export function setEditorSession(session: number | null): void {
+  liveSession = session;
+}
+export function editorSession(): number | null {
+  return liveSession;
 }
 
 /**

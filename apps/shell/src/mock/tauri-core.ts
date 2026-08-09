@@ -1046,6 +1046,24 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return invoke<T>("write_text_file", args);
     case "agent_pdf_fetch":
       return invoke<T>("pdf_fetch", args);
+    // Live editor state (#179). The preview has no PTY, so it stands in for a
+    // connected nvim with an unsaved edit — the state worth being able to see.
+    case "nvim_socket":
+      return Promise.resolve(`/tmp/flux-nvim-${String(args?.session ?? 0)}.sock` as T);
+    case "nvim_state":
+      return Promise.resolve({
+        connected: true,
+        file: "/home/you/Flux/crates/flux-core/src/nvim.rs",
+        line: 42,
+        col: 7,
+        modified: true,
+        lines: 118,
+        buffers: ["/home/you/Flux/crates/flux-core/src/nvim.rs"],
+      } as T);
+    case "nvim_buffer":
+      return Promise.resolve(
+        '//! Reading the editor\'s live state.\n\npub fn socket_path(session: u64) -> String {\n    format!("/tmp/flux-nvim-{session}.sock") // unsaved edit\n}\n' as T,
+      );
     case "omni_search": {
       const q = String(args?.query ?? "");
       return Promise.resolve([

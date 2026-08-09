@@ -51,6 +51,8 @@ import {
   agentReadTextFile,
   agentPdfFetch,
   agentWriteTextFile,
+  nvimState,
+  nvimBuffer,
   agentCloudSet,
   agentCloudStatus,
   geminiHasKey,
@@ -139,6 +141,7 @@ import {
   runInActiveTerminal,
 } from "./terminals";
 import { LOCAL, routeLabel } from "./cloudroute";
+import { editorSession } from "./editorboot";
 import { inspectElement, themeVarsDump } from "./debug";
 import { speak, speaking, stopSpeaking } from "./speak";
 import { addReminder, migrateReminders, parseWhen, pendingReminders, whenLabel } from "./reminders";
@@ -964,6 +967,7 @@ const AgentPanel: Component = () => {
     '- Read files into context: "read src/foo.rs" / "look at <path>" pulls a file in so you can answer about it without copy-paste (it stays for follow-ups); "forget the files" clears. You can also drag a file from the explorer onto the panel. PDFs come through as real text, page by page. A scan has no text layer, so you run OCR on it yourself and say the text was machine-read.\n' +
     '- List a folder: "list <dir>" / "what\'s in <dir>" reads a directory directly — no terminal, no approval needed.\n' +
     '- Read the terminal: "read the terminal" / "what\'s in my terminal" pulls the active Terminal tab\'s recent output into context (great for debugging a failed command).\n' +
+    '- Read the editor: "read my editor" / "what am I editing" pulls the nvim column\'s **live buffer** — including unsaved changes, which reading the file from disk would miss. Say so when the buffer differs from the file on disk, and prefer this over `read <path>` when the user asks about what they are working on right now.\n' +
     '- Edit files (with approval): "edit src/foo.rs: rename X to Y" / (after reading a file) "change it to …" — you propose a diff; nothing is written until the user taps Apply. Make surgical edits.\n' +
     '- Inspect Flux\'s own UI (for debugging it): "app state" (UI snapshot), "css variables" / "what\'s --flux-teal", "inspect <css selector>" (computed style + visibility — e.g. why an element is hidden or a var isn\'t applying).\n' +
     '- System awareness: "system status" / "how\'s my CPU" / "what\'s using memory" → CPU%, RAM, top processes.\n' +
@@ -1412,6 +1416,51 @@ const AgentPanel: Component = () => {
     return "Got your terminal output — what's up with it?";
   };
 
+  // "read my editor" → the nvim column's live buffer (#179).
+  //
+  // Distinct from reading the file: this is what's in the buffer *now*, unsaved
+  // edits included. Reading the path from disk after ten minutes of unwritten
+  // work answers about a version the user isn't looking at, and nothing in the
+  // reply would reveal that — which is the failure worth avoiding.
+  const EDITOR_RE =
+    /^(?:read|look at|show me|check|grab|see|open)\s+(?:the\s+|my\s+)?(?:editor|buffer|nvim|vim)(?:\s+(?:buffer|contents?|window))?\s*$|^what(?:'?s| am i| is)?\s*(?:in|on|editing|open in)?\s*(?:the\s+|my\s+)?(?:editor|buffer|nvim|vim)\s*\??$|^what\s+am\s+i\s+(?:editing|working\s+on)\s*\??$/i;
+
+  const runReadEditor = async (): Promise<string> => {
+    const session = editorSession();
+    if (session == null) {
+      const m =
+        "You don't have the editor column open — open it and I can read the buffer you're working in.";
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    }
+    const st = await nvimState(session).catch(() => null);
+    if (!st?.connected) {
+      const m =
+        "I can't reach your editor — the nvim column isn't open, or it wasn't started with an RPC socket (reopen it to fix that).";
+      setFeed((f) => [...f, { role: "error", text: m }]);
+      return m;
+    }
+    const text = await nvimBuffer(session).catch(() => "");
+    if (!text.trim()) {
+      const m = "Your editor is open but the buffer is empty.";
+      setFeed((f) => [...f, { role: "action", text: m }]);
+      return m;
+    }
+    const name = st.file ? st.file.split(/[/\\]/).pop()! : "buffer";
+    addContext("editor", `${name} (editor buffer)`, text);
+    setFeed((f) => [
+      ...f,
+      {
+        role: "action",
+        text:
+          `📝 Read ${name} from your editor — ${st.lines} lines, cursor at ${st.line}:${st.col}` +
+          // Say it plainly when what she read differs from the file on disk.
+          `${st.modified ? " · unsaved changes included (this differs from the file on disk)" : ""}.`,
+      },
+    ]);
+    return `Got ${name} as it is in your editor${st.modified ? ", including your unsaved changes" : ""} — what would you like to know?`;
+  };
+
   // #4 UI introspection — inspect an element's computed style/visibility, dump the
   // CSS theme variables, or snapshot the app state. Results go into context too.
   const addContext = (path: string, name: string, content: string) =>
@@ -1631,6 +1680,7 @@ const AgentPanel: Component = () => {
       }
     }
     if (TERM_RE.test(stripped)) return runReadTerminal();
+    if (EDITOR_RE.test(stripped)) return await runReadEditor();
     const vrf = stripped.match(FILE_RE);
     if (vrf?.[1]) return await runReadFile(vrf[1]);
     const rm = stripped.match(REMEMBER_RE);
@@ -2324,6 +2374,12 @@ const AgentPanel: Component = () => {
         runReadTerminal();
         return;
       }
+      // "read my editor" → the live nvim buffer. Before FILE_RE, or "read my
+      // buffer" would be taken as a filename.
+      if (EDITOR_RE.test(pc)) {
+        await runReadEditor();
+        return;
+      }
       // "read <file>" → pull a file into Gemma's context; "forget the files" clears.
       const rf = pc.match(FILE_RE);
       if (rf?.[1]) {
@@ -2555,6 +2611,7 @@ const AgentPanel: Component = () => {
     SEARCH_RE.test(s) ||
     FILE_RE.test(s) ||
     TERM_RE.test(s) ||
+    EDITOR_RE.test(s) ||
     REMEMBER_RE.test(s) ||
     REMIND_RE.test(s) ||
     SYS_RE.test(s) ||
@@ -2616,6 +2673,7 @@ const AgentPanel: Component = () => {
       }
     }
     if (TERM_RE.test(pc)) return { ok: true, result: runReadTerminal() };
+    if (EDITOR_RE.test(pc)) return { ok: true, result: await runReadEditor() };
     // Before FILE_RE: "list /a/b" would otherwise fall through to the file
     // reader, which would try to read a directory as text.
     const ls = pc.match(LIST_RE);

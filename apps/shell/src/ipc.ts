@@ -44,6 +44,7 @@ export const isStartUrl = (url: string) => url === START_URL || url.startsWith("
 import type {
   AgentStatus as GenAgentStatus,
   RouteStatus as GenRouteStatus,
+  NvimState as GenNvimState,
   ArchiveEntryWire as GenArchiveEntryWire,
   ArchiveMeta as GenArchiveMeta,
   Bookmark as GenBookmark,
@@ -491,6 +492,18 @@ export const agentReadTextFile = (path: string) => invoke<string>("agent_read_te
 export const agentPdfFetch = (url: string) => invoke<ArrayBuffer>("agent_pdf_fetch", { url });
 export const agentWriteTextFile = (path: string, content: string) =>
   invoke<void>("agent_write_text_file", { path, content });
+
+// ─── Live editor state (#179) ───────────────────────────────────────────────
+// The nvim column boots with `--listen`, so the agent can read the buffer the
+// user is actually looking at — unsaved edits included, which a disk read can't
+// give. See crates/flux-core/src/nvim.rs.
+
+/** What the editor is doing. `connected: false` = no editor answering. */
+export type NvimState = GenNvimState;
+/** Never rejects: "no editor" is an ordinary state, not an error. */
+export const nvimState = (session: number) => invoke<NvimState>("nvim_state", { session });
+/** The current buffer's text, including unwritten changes. */
+export const nvimBuffer = (session: number) => invoke<string>("nvim_buffer", { session });
 
 // ─── AudioPulse / Spotify control (Path A: reuse AudioPulse's token) ──────────
 /** Override AudioPulse's config-dir (e.g. a \\wsl.localhost\<distro>\… path). */

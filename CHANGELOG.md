@@ -8,6 +8,33 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Gemma can read your editor — including unsaved changes (#179).** "What am I editing" / "read my
+  editor" now pulls the **live nvim buffer**, not the file on disk. If you've been editing for ten
+  minutes without `:w`, that difference is the whole answer, and she says so explicitly when the
+  buffer and the file disagree.
+
+  Previously she could only see the editor the way a camera does: `read the terminal` returned
+  xterm's rendered screen — your lines tangled with nvim's line numbers, `~` fillers and statusline,
+  viewport only — and `read <path>` silently answered about a stale version of the file.
+
+  The column now boots as `nvim --listen <socket>`, and Flux queries it with `nvim --server …
+  --remote-expr`. Using nvim's own binary as the client means no msgpack implementation to get
+  wrong, no new dependency, and it crosses the WSL boundary for free on the Windows build. She gets
+  the file path, cursor position, line count, the modified flag and the buffer list along with the
+  text.
+
+  **The expressions are compile-time constants, never the model's.** `--remote-expr` evaluates
+  arbitrary Vimscript, so a model-chosen expression would be remote code execution — `system('…')`
+  is one call away, and page text reaches the model. Same rule the action compiler already runs on:
+  the model picks *which* question from a fixed menu, Rust decides how it's asked.
+
+### Fixed
+- **The editor column no longer hijacks "read the terminal" (#178).** Registering a terminal claimed
+  the agent's read target unconditionally, which was fine until a terminal could appear without you
+  opening one. The nvim column boots with the window and remounts on **every `:q`** — so each
+  relaunch quietly redirected "read the terminal" to nvim's screen, even mid-debug in the shell
+  where you'd just run something. Mounting now claims the slot only if the pane mounted focused;
+  clicking into a pane still switches it, because that part should depend on you.
 - **Code Visualizer joins the app dock.** Your step-through execution visualiser
   (`codevisualizer-app.web.app`) is pinned alongside Nexus, Prism, Vector and Oracle, with its
   favicon bundled so it doesn't depend on a remote fetch, and a guide so Gemma can read the
