@@ -929,6 +929,50 @@ body.resizing .panel-edge-resize::after {
 .apppane-frame.noevents {
   pointer-events: none;
 }
+/* #180 — shown instead of the blank rectangle a framing refusal would leave. */
+.apppane-blocked {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 28px;
+  text-align: center;
+}
+.apppane-blocked-msg {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--flux-text-dim);
+}
+.apppane-blocked-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.apppane-blocked-btn {
+  padding: 7px 14px;
+  border-radius: 9px;
+  border: 1px solid var(--glass-rim-soft);
+  background: transparent;
+  color: var(--flux-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.apppane-blocked-btn:hover {
+  border-color: var(--flux-violet);
+}
+.apppane-blocked-btn.primary {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.14);
+}
+.apppane-blocked-btn.primary:hover {
+  background: rgba(var(--accent-rgb), 0.24);
+}
 /* TUI pane (#117): same window chrome as .apppane, but the body is a live
    terminal (xterm.js) rather than an iframe. */
 .tuipane-icon {

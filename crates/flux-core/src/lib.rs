@@ -29,6 +29,7 @@ pub mod extensions;
 pub mod favicon;
 pub mod feeds;
 pub mod files;
+pub mod framing;
 pub mod fsroots;
 pub mod gemini;
 pub mod hibernate;
@@ -1397,6 +1398,8 @@ pub fn run(intent: cli::LaunchIntent) {
             nvim::nvim_state,
             nvim::nvim_buffer,
             nvim::nvim_socket,
+            // Can a site be embedded in a floating pane? (#180)
+            framing::frame_policy,
             spotify::spotify_set_dir,
             spotify::spotify_play,
             spotify::spotify_pause,

@@ -45,6 +45,7 @@ import type {
   AgentStatus as GenAgentStatus,
   RouteStatus as GenRouteStatus,
   NvimState as GenNvimState,
+  FramePolicy as GenFramePolicy,
   ArchiveEntryWire as GenArchiveEntryWire,
   ArchiveMeta as GenArchiveMeta,
   Bookmark as GenBookmark,
@@ -497,6 +498,12 @@ export const agentWriteTextFile = (path: string, content: string) =>
 // The nvim column boots with `--listen`, so the agent can read the buffer the
 // user is actually looking at — unsaved edits included, which a disk read can't
 // give. See crates/flux-core/src/nvim.rs.
+
+/** Whether a site can render in a floating pane, and which header refused (#180).
+ *  Asked over HEAD before the pane opens — inferring it from the DOM does not
+ *  work; see framecheck.ts. */
+export type FramePolicy = GenFramePolicy;
+export const framePolicy = (url: string) => invoke<FramePolicy>("frame_policy", { url });
 
 /** What the editor is doing. `connected: false` = no editor answering. */
 export type NvimState = GenNvimState;

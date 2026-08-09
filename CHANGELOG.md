@@ -8,6 +8,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Code Visualizer opens as a floating pane**, alongside Nexus, Prism, Vector and Oracle.
+
+  It still sends Firebase Hosting's default `X-Frame-Options: SAMEORIGIN`, so until that's
+  overridden in its `firebase.json` the pane can't actually frame it — and rather than the blank
+  rectangle a framing refusal normally produces, the pane now **says so and offers a way forward**
+  (#180): it names the header, and gives you one click to the side panel or a tab. Once the header
+  is overridden it floats like the rest, with no Flux change needed.
+
+  Flux asks the site over `HEAD` before creating the frame, so a refusal shows immediately instead
+  of flashing an empty window. That replaces the tempting frontend shortcut, which **does not
+  work**: a blocked frame supposedly stays on a readable same-origin `about:blank`, but measured
+  against Chromium it reports as cross-origin exactly like a loaded one — the check called a
+  plainly-refused site "loaded". A site Flux can't reach is treated as framable, so a flaky network
+  shows the app's own error rather than a refusal we invented.
+
+### Added
 - **Gemma can read your editor — including unsaved changes (#179).** "What am I editing" / "read my
   editor" now pulls the **live nvim buffer**, not the file on disk. If you've been editing for ten
   minutes without `:w`, that difference is the whole answer, and she says so explicitly when the

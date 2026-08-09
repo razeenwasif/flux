@@ -81,6 +81,8 @@ pub fn generate_ts() -> String {
         specta::ts::export::<Container>(&c),
         specta::ts::export::<WebPanel>(&c),
         specta::ts::export::<AgentStatus>(&c),
+        // Whether a pinned app can render in a floating pane (#180).
+        specta::ts::export::<crate::framing::FramePolicy>(&c),
         // What the nvim column's editor is doing right now (#179).
         specta::ts::export::<crate::nvim::NvimState>(&c),
         // Where the agent's next request goes — local, or the opt-in cloud (#175).

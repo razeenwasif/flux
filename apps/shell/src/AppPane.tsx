@@ -4,18 +4,25 @@
  * focused one sits on top and is the app Gemma assists with. Rendered while open;
  * App hides the tab webview so the (HTML) pane is visible above it.
  */
-import { For, createSignal, onMount, type Component } from "solid-js";
+import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import type { FluxApp } from "./apps";
 import { AppIcon } from "./AppDock";
 import { RESIZE_HANDLES, startPaneDrag, startPaneResize } from "./paneGeometry";
-import { focusedAppId, setFocusedAppId, setOpenAppIds, openTab } from "./store";
+import { blockedMessage } from "./framecheck";
+import { framePolicy } from "./ipc";
+import { focusedAppId, setFocusedAppId, setOpenAppIds, openSitePanel, openTab } from "./store";
 
 const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
   const [pos, setPos] = createSignal({ x: 120, y: 90 });
   const [size, setSize] = createSignal({ w: 920, h: 640 });
   const [dragging, setDragging] = createSignal(false); // disables iframe pointer-events mid-gesture
+  // Why the site refuses framing, or "" while it's fine. Asked before the frame
+  // is created, so a refusal shows the fallback rather than flashing an empty
+  // window first (#180).
+  const [blockedWhy, setBlockedWhy] = createSignal<string | null>(null);
+  const blocked = () => blockedWhy() !== null;
 
   onMount(() => {
     const w = Math.min(920, window.innerWidth - 120);
@@ -23,6 +30,11 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
     setSize({ w, h });
     const cx = Math.max(60, (window.innerWidth - w) / 2);
     setPos({ x: cx + props.index * 34, y: 70 + props.index * 34 });
+    // Unreachable sites report framable, so a flaky network shows the app's own
+    // error rather than a refusal message we invented.
+    void framePolicy(props.app.url)
+      .then((p) => !p.framable && setBlockedWhy(p.reason))
+      .catch(() => {});
   });
 
   const focus = () => setFocusedAppId(props.app.id);
@@ -73,13 +85,49 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
             ✕
           </button>
         </div>
-        <iframe
-          class="apppane-frame"
-          classList={{ noevents: dragging() }}
-          src={props.app.url}
-          title={props.app.name}
-          allow="clipboard-read; clipboard-write; camera; microphone; geolocation"
-        />
+        {/* A site that refuses framing fires `load` and leaves a blank rectangle
+            — no error, no console the user reads. Detect it and say so, with the
+            two ways forward, rather than shipping an empty window (#180). */}
+        <Show
+          when={!blocked()}
+          fallback={
+            <div class="apppane-blocked">
+              <p class="apppane-blocked-msg">{blockedMessage(props.app.host, blockedWhy() ?? "")}</p>
+              <div class="apppane-blocked-actions">
+                <button
+                  class="apppane-blocked-btn primary"
+                  onClick={() => {
+                    close();
+                    void openSitePanel({
+                      url: props.app.url,
+                      host: props.app.host,
+                      title: props.app.name,
+                    }).catch(() => {});
+                  }}
+                >
+                  Open in the side panel
+                </button>
+                <button
+                  class="apppane-blocked-btn"
+                  onClick={() => {
+                    close();
+                    void openTab("browser", props.app.url);
+                  }}
+                >
+                  Open in a tab
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <iframe
+            class="apppane-frame"
+            classList={{ noevents: dragging() }}
+            src={props.app.url}
+            title={props.app.name}
+            allow="clipboard-read; clipboard-write; camera; microphone; geolocation"
+          />
+        </Show>
         <For each={RESIZE_HANDLES}>
           {(h) => (
             <div

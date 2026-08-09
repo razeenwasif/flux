@@ -1048,6 +1048,10 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return invoke<T>("pdf_fetch", args);
     // Live editor state (#179). The preview has no PTY, so it stands in for a
     // connected nvim with an unsaved edit — the state worth being able to see.
+    // Framing policy (#180). The preview reports framable so panes render; the
+    // real check reads the site's headers over HEAD.
+    case "frame_policy":
+      return Promise.resolve({ framable: true, reason: "" } as T);
     case "nvim_socket":
       return Promise.resolve(`/tmp/flux-nvim-${String(args?.session ?? 0)}.sock` as T);
     case "nvim_state":

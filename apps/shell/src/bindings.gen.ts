@@ -55,6 +55,10 @@ export type WebPanel = { id: number; url: string; title: string }
  */
 export type AgentStatus = { state: "idle" } | { state: "thinking"; prompt: string } | { state: "acting"; description: string; selector: string } | { state: "error"; message: string }
 /**
+ * Whether `url` may be framed by Flux, and why not when it may not.
+ */
+export type FramePolicy = { framable: boolean; reason: string }
+/**
  * What the editor is doing right now.
  */
 export type NvimState = { connected: boolean; file: string; line: number; col: number; modified: boolean; lines: number; buffers: string[] }

@@ -143,11 +143,10 @@ const DESKTOP_APPS: FluxApp[] = [
     tagline: "Step through code and watch the stack, heap and struct layout",
     tint: "#6aa3ff",
     iconAsset: "/app-codevisualizer.svg",
-    // Sends `X-Frame-Options: SAMEORIGIN` (Firebase Hosting's default — the
-    // other four apps override it), so it can't render in the pane's iframe and
-    // opens in the web-panel rail instead. Drop this flag once the header is
-    // overridden in that project's firebase.json.
-    noFrame: true,
+    // Floats like the other four. Note it still sends Firebase Hosting's default
+    // `X-Frame-Options: SAMEORIGIN` — until that's overridden in its
+    // firebase.json, the pane detects the refusal and offers the side panel
+    // rather than showing an empty window (#180).
     guide: `# Code Visualizer — step-through execution with a live memory view
 **What it is:** Paste a program, press Visualize, and it compiles/runs the code server-side and returns a step-by-step trace you can scrub through. The left pane is the source plus its stdout; the right pane shows program state at the current step. The trace is a language-neutral JSON format, so it can be saved and reopened later. This instance is password-gated because it executes code.
 **Key features / workflows:**
