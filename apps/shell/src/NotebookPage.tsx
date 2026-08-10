@@ -39,7 +39,7 @@ const SOURCE_LABEL: Record<string, string> = {
   "pdf-ocr": "PDF (machine-read)",
 };
 const SOURCE_HINT: Record<string, string> = {
-  onyx: "Vault path — e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault",
+  onyx: "Vault path — C:\\Users\\you\\OnyxVault or \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\OnyxVault",
   scroll: "Scroll base URL — e.g. http://localhost:3131",
   council: "Briefs dir — e.g. \\\\wsl.localhost\\Ubuntu-24.04\\home\\you\\Research\\debates",
 };
@@ -136,6 +136,15 @@ const NotebookPage: Component = () => {
     }
     setTimeout(refreshServices, 1500); // give it a moment to come up
   };
+
+  // Sources that take a location at all (a vault path / a server URL); the rest
+  // are captured by Flux itself and have nowhere to point.
+  const configurable = () => (status()?.sources ?? []).filter((s) => !!SOURCE_HINT[s.source]);
+  const anyBroken = () => (status()?.sources ?? []).some((s) => !!s.error);
+  const [showLocations, setShowLocations] = createSignal(false);
+  // Open on demand, and always when something is broken — a source that can't be
+  // found is the one case where the fix must not be behind a disclosure.
+  const locationsOpen = () => showLocations() || anyBroken();
 
   // Save a source's location, then reindex just that source so the user sees it work.
   const saveLocation = async (source: string) => {
@@ -261,10 +270,22 @@ const NotebookPage: Component = () => {
         </div>
       </Show>
 
-      {/* Fix a source that can't be located (vault path / server URL). */}
-      <For each={(status()?.sources ?? []).filter((s) => !!s.error)}>
+      {/* Where each configurable source lives (vault path / server URL).
+        Shown automatically when something is broken — that was the only way in
+        before, which meant a path that *worked* but pointed at the wrong vault
+        could not be changed at all. Available on demand for exactly that case. */}
+      <Show when={configurable().length > 0}>
+        <button
+          class="nb-loc-toggle"
+          aria-expanded={locationsOpen()}
+          onClick={() => setShowLocations((v) => !v)}
+        >
+          {locationsOpen() ? "▾" : "▸"} Source locations
+        </button>
+      </Show>
+      <For each={locationsOpen() ? configurable() : []}>
         {(s) => (
-          <div class="nb-fix">
+          <div classList={{ "nb-fix": true, broken: !!s.error }}>
             <label class="nb-fix-label">{SOURCE_LABEL[s.source] ?? s.source} location</label>
             <input
               class="nb-fix-input"

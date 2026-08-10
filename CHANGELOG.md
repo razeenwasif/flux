@@ -8,6 +8,15 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **You can now change a source's location without breaking it first.** The Notebook's vault-path /
+  server-URL field only rendered for sources reporting an **error**, so a path that worked but
+  pointed at the *wrong* vault couldn't be changed at all — the only way to repoint Onyx was to make
+  it fail. There's a **Source locations** disclosure now, listing every configurable source with its
+  current value. It still opens by itself when something is broken, and only the broken row keeps
+  the alarm colouring — three hot-bordered boxes for a healthy vault would read as three problems.
+  The Onyx hint also names both path dialects, since either now resolves.
+
+### Fixed
 - **A Windows vault path now resolves on the WSL build too.** `C:\Users\you\OnyxVault` is a real
   path on the Windows build and meaningless on the Linux one, where the same directory is
   `/mnt/c/Users/you/OnyxVault`. Typing the Windows form used to fail the directory check, and

@@ -1005,6 +1005,35 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // Unmocked, this resolved to undefined and `memText().trim()` threw inside
     // convoPrompt — which broke *every* chat in the preview and looked like a
     // bug in whatever feature was being tested.
+    // The Notebook page had no mocks at all, so it rendered empty in the preview
+    // and nothing on it could be checked. One healthy source, one broken, so both
+    // states of the location editor are visible.
+    case "kb_status":
+    case "kb_reindex":
+    case "kb_set_source":
+      return Promise.resolve({
+        embedder: "model",
+        indexing: false,
+        sources: [
+          {
+            source: "onyx",
+            docs: 1090,
+            chunks: 8421,
+            last_ms: 60_000,
+            error: null,
+            location: "C:/Users/you/OnyxVault",
+          },
+          {
+            source: "scroll",
+            docs: 0,
+            chunks: 0,
+            last_ms: 0,
+            error: "can't reach http://localhost:3131",
+            location: null,
+          },
+          { source: "web", docs: 42, chunks: 310, last_ms: 900_000, error: null, location: null },
+        ],
+      } as T);
     case "memory_read":
       return Promise.resolve("- Prefers concise answers.\n- Uses nvim." as T);
     case "memory_write":
