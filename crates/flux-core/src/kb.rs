@@ -1061,7 +1061,18 @@ pub fn onyx_vault(location: Option<&str>) -> Option<PathBuf> {
     let env_v = std::env::var("FLUX_ONYX_VAULT").ok();
     for cand in [location, env_v.as_deref()] {
         if let Some(v) = cand.map(str::trim).filter(|v| !v.is_empty()) {
-            if is_dir(Path::new(v)) {
+            // A vault path is typed once and used on whichever build is running,
+            // and the two speak different dialects: `C:\Users\me\OnyxVault` is a
+            // real path on the Windows build and meaningless on the WSL one,
+            // where the same directory is `/mnt/c/Users/me/OnyxVault`.
+            //
+            // Translating here matters more than it looks. `is_dir` on an
+            // untranslated Windows path simply fails under Linux, and the loop
+            // then falls through to autodetect — which happily finds a
+            // *different* vault in $HOME and indexes it. The user gets a working
+            // Flux pointed at the wrong notes, with nothing to indicate it.
+            let v = crate::files::native_path(v);
+            if is_dir(Path::new(&v)) {
                 return Some(PathBuf::from(v));
             }
         }
@@ -1879,6 +1890,30 @@ pub(crate) fn sanitize_note_name(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A vault path is typed once and used on whichever build is running. On the
+    /// WSL build an untranslated `C:\…` fails `is_dir`, and `onyx_vault` then
+    /// falls through to autodetect — quietly indexing a *different* vault out of
+    /// $HOME. A working Flux pointed at the wrong notes is the worst shape this
+    /// bug can take, so the translation is asserted rather than assumed.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_windows_vault_path_resolves_on_the_wsl_build() {
+        if !crate::files::under_wsl() || !std::path::Path::new("/mnt/c").is_dir() {
+            return; // nothing to translate onto
+        }
+        // Built from a directory that certainly exists on C:.
+        assert_eq!(
+            onyx_vault(Some("C:\\Users")).as_deref(),
+            Some(std::path::Path::new("/mnt/c/Users")),
+            "a Windows-dialect vault path must resolve, not fall through to autodetect"
+        );
+        // Forward slashes are just as likely out of a settings field.
+        assert_eq!(
+            onyx_vault(Some("C:/Users")).as_deref(),
+            Some(std::path::Path::new("/mnt/c/Users"))
+        );
+    }
 
     #[test]
     fn strips_frontmatter_and_chunks_paragraphs() {

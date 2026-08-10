@@ -8,6 +8,16 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Fixed
+- **A Windows vault path now resolves on the WSL build too.** `C:\Users\you\OnyxVault` is a real
+  path on the Windows build and meaningless on the Linux one, where the same directory is
+  `/mnt/c/Users/you/OnyxVault`. Typing the Windows form used to fail the directory check, and
+  `onyx_vault` would then fall through to **autodetect** — which happily finds a different vault in
+  `$HOME` and indexes that instead. Flux kept working, pointed at the wrong notes, with nothing to
+  indicate it. Both dialects now resolve to the same directory, so one setting is correct on either
+  build. Reads, writes, named places and Scribe publish all funnel through the same resolver, so
+  they move together.
+
+### Fixed
 - **The agent could get stuck describing a page as "loading…" (#182).** Two causes, both fixed.
 
   The capture script watched the DOM for `childList` and `characterData` changes but **not
