@@ -7,6 +7,23 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Fixed
+- **The agent could get stuck describing a page as "loading…" (#182).** Two causes, both fixed.
+
+  The capture script watched the DOM for `childList` and `characterData` changes but **not
+  attributes** — so a page that renders a placeholder and then *reveals* its content by flipping a
+  class produced no mutation it was looking for. `innerText` deliberately respects CSS visibility
+  (the agent should read what you see), which means the text genuinely changed while nothing the
+  observer watched had. Measured in a real engine: content-replacement and text-rewrite both fire,
+  a class flip fires nothing. The observer now also watches `class`, `style`, `hidden` and
+  `aria-hidden` — filtered rather than blanket, because every attribute would let an SPA's hover
+  classes restart the debounce continuously.
+
+  And more fundamentally, the agent read a **cache**. Even a perfect observer loses the race where
+  a page finishes rendering a moment after its last mutation. Flux now asks the page to
+  re-snapshot itself and waits for the answer before reading it — bounded at 500 ms, and falling
+  back to the cached snapshot rather than failing, since a stale answer beats no answer.
+
 ### Added
 - **"Explain this" points at your nvim selection (#181).** Select something in the editor column,
   press Esc, ask "explain this" — Gemma reads exactly what you highlighted and answers about that,

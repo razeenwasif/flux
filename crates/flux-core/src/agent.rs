@@ -24,9 +24,18 @@ pub fn agent_status(state: State<'_, FluxState>) -> AgentStatus {
 /// its visible text is passed as context so you can ask *about* the page.
 /// Returns the model's text reply.
 #[tauri::command]
-pub async fn agent_chat(state: State<'_, FluxState>, prompt: String) -> Result<String, String> {
-    // Clone the page text out (if any) so the blocking task owns it.
-    let page = state.active_snapshot().map(|s| Arc::clone(&s.text));
+pub async fn agent_chat(
+    app: AppHandle,
+    state: State<'_, FluxState>,
+    prompt: String,
+) -> Result<String, String> {
+    // Ask the page to re-snapshot first (#182). The cache is maintained by a
+    // MutationObserver, and a page that renders "loading…" then reveals its
+    // content produces no mutation it watches — so the agent was answering
+    // about a placeholder. Clone the text out so the blocking task owns it.
+    let page = crate::dom::active_fresh(&app, &state)
+        .await
+        .map(|s| Arc::clone(&s.text));
     tauri::async_runtime::spawn_blocking(move || {
         crate::agent_bridge::planner().chat(&prompt, page.as_deref())
     })
@@ -185,11 +194,16 @@ pub async fn reader_structure(
 /// the reply live. Resolves when the completion ends.
 #[tauri::command]
 pub async fn agent_chat_stream(
+    app: AppHandle,
     state: State<'_, FluxState>,
     prompt: String,
     on_token: Channel<String>,
 ) -> Result<(), String> {
-    let page = state.active_snapshot().map(|s| Arc::clone(&s.text));
+    // Same freshening as `agent_chat` — this is the path the panel actually
+    // uses, so it is the one that was showing the user a stale page (#182).
+    let page = crate::dom::active_fresh(&app, &state)
+        .await
+        .map(|s| Arc::clone(&s.text));
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let mut sink = |tok: &str| {
             let _ = on_token.send(tok.to_string()); // ignore if the frontend dropped it

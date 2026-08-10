@@ -374,3 +374,14 @@ only remaining pieces are engine-gated (noted per item).
   (e) each query is a process spawn (~30 ms), fine at this cadence but the wrong
   shape if anything ever polls it hard, at which point a persistent msgpack
   connection is the answer.
+- **Snapshot freshness follow-ups (#182).** The agent now asks the page to
+  re-snapshot before reading it, which covers the observer's blind spots and the
+  render-completion race. Still open: (a) only the two chat commands refresh —
+  `agent_plan`, the KB, the archiver and Omni ingest all still read the cache
+  directly, and each is a place the same staleness can surface; (b) the wait is
+  a fixed 500 ms poll rather than a signal, so a slow page can still be read
+  early and a fast one costs 20 ms it didn't need; (c) nothing tells the model
+  the snapshot *looked* like a placeholder — "loading…" with 40 characters of
+  body text is a detectable shape, and saying "the page hasn't rendered yet"
+  beats confidently describing the placeholder; (d) a page that never finishes
+  loading still yields a placeholder snapshot with no indication it's stale.

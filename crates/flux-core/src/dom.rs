@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -49,6 +49,59 @@ pub(crate) fn cap_utf8(mut s: String, max: usize) -> String {
         s.truncate(end);
     }
     s
+}
+
+/// Longest we'll wait for a page to answer a refresh request.
+///
+/// A page that doesn't answer isn't broken — it may have no capture script
+/// (flux:// pages), be hibernated, or simply have nothing new — so this bounds
+/// the wait rather than reporting a failure. Half a second is well past a
+/// same-process eval-and-publish round trip and short enough not to be felt in
+/// front of an agent turn.
+const REFRESH_WAIT: Duration = Duration::from_millis(500);
+const REFRESH_POLL: Duration = Duration::from_millis(20);
+
+/// Ask a tab to snapshot itself *now*, and wait for the result to land.
+///
+/// The capture script publishes on load, on history navigation, and on DOM
+/// mutations — but the agent reads a cache, and a cache can be stale for
+/// reasons the observer can't see. The case that prompted this: a page showing
+/// "loading…" that reveals its content by flipping a class. `innerText`
+/// respects CSS visibility, so the text genuinely changes, while the mutation
+/// the observer was watching for never happens. Widening the observer fixes
+/// that specific shape; asking the page directly fixes the whole class of them,
+/// including the plain race where rendering finishes a moment after the last
+/// mutation.
+///
+/// Returns the freshest snapshot available — the new one if it arrived, the old
+/// one if it didn't. Never an error: a stale answer beats no answer.
+pub async fn refresh(app: &AppHandle, state: &FluxState, tab: TabId) -> Option<Arc<DomSnapshot>> {
+    let before = state.dom_cache.get(&tab).map(|s| s.captured_at_ms);
+    // `__FLUX__` is absent on internal pages and on a webview that hasn't run
+    // the init script yet; the guard makes that a no-op rather than an error in
+    // the page console.
+    let _ = crate::webview::eval(
+        app,
+        tab,
+        "window.__FLUX__&&window.__FLUX__.recapture&&window.__FLUX__.recapture()",
+    );
+    let deadline = std::time::Instant::now() + REFRESH_WAIT;
+    while std::time::Instant::now() < deadline {
+        tokio::time::sleep(REFRESH_POLL).await;
+        let now = state.dom_cache.get(&tab).map(|s| s.captured_at_ms);
+        // A *newer* timestamp, not merely a present one: a tab whose first
+        // capture never arrives would otherwise return on its own absence.
+        if now != before && now.is_some() {
+            break;
+        }
+    }
+    state.dom_cache.get(&tab).map(|e| Arc::clone(e.value()))
+}
+
+/// The active tab's snapshot, refreshed first. What every agent read should use.
+pub async fn active_fresh(app: &AppHandle, state: &FluxState) -> Option<Arc<DomSnapshot>> {
+    let tab = state.active_tab()?;
+    refresh(app, state, tab).await
 }
 
 #[tauri::command]
