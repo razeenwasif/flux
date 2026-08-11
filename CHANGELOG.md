@@ -7,6 +7,23 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Changed
+- **Flux draws its own icons (#183).** The launcher rail and the sidebar footer used emoji, which
+  were never really icons: they render in the *system's* font, so they arrived multicoloured, at
+  inconsistent optical weights, sized differently per glyph, and looking like a different product
+  on Windows than on Linux. A rail of seventeen read as a row of stickers rather than a set of
+  controls.
+
+  Thirty line icons now cover both surfaces, drawn on one 24×24 grid at one stroke weight. They're
+  painted in `currentColor`, which is the part emoji could never do — the button already encodes
+  its state in `color`, so the icons finally dim, brighten on hover and turn teal when active
+  along with everything else. Resting tone moved to white: the old dim value was tuned for emoji,
+  which carry their own colour and needed holding back, and a line icon at that tone just looks
+  switched off.
+
+  The eager chrome budget moves 70 → 72 KB to pay for it (~1.8 KB). Both rails paint on the first
+  frame, so lazy-loading them would flash blank chips.
+
 ### Fixed
 - **You can now change a source's location without breaking it first.** The Notebook's vault-path /
   server-URL field only rendered for sources reporting an **error**, so a path that worked but

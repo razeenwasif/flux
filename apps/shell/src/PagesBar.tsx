@@ -8,6 +8,8 @@
  * on hover and on keyboard focus.
  */
 import { For, type Component } from "solid-js";
+
+import Icon, { type IconName } from "./Icon";
 import { openTab } from "./store";
 import { hideTip, showTip } from "./RailTip";
 import {
@@ -30,24 +32,24 @@ import {
   VAULT_URL,
 } from "./ipc";
 
-const PAGES: { icon: string; label: string; url: string }[] = [
-  { icon: "✦", label: "Notebook", url: NOTEBOOK_URL },
-  { icon: "🧭", label: "Trail", url: TRAIL_URL },
-  { icon: "🎨", label: "Whiteboard", url: WHITEBOARD_URL },
-  { icon: "✍️", label: "Scribe", url: SCRIBE_URL },
-  { icon: "🗃", label: "Sessions", url: SESSIONS_URL },
-  { icon: "📚", label: "Saved pages", url: ARCHIVE_URL },
-  { icon: "📰", label: "Feeds", url: FEEDS_URL },
-  { icon: "🕘", label: "History", url: HISTORY_URL },
-  { icon: "🔖", label: "Bookmarks", url: BOOKMARKS_URL },
-  { icon: "🗂️", label: "Task manager", url: TASKS_URL },
-  { icon: "📊", label: "Resources", url: RESOURCES_URL },
-  { icon: "⚡", label: "Speed test", url: SPEEDTEST_URL },
-  { icon: "✦", label: "Omni", url: OMNI_URL },
-  { icon: "🧩", label: "Apps", url: APPS_URL },
-  { icon: "🔑", label: "Passwords", url: VAULT_URL },
-  { icon: "🔄", label: "Sync", url: SYNC_URL },
-  { icon: "⚙", label: "Settings", url: SETTINGS_URL },
+const PAGES: { icon: IconName; label: string; url: string }[] = [
+  { icon: "notebook", label: "Notebook", url: NOTEBOOK_URL },
+  { icon: "trail", label: "Trail", url: TRAIL_URL },
+  { icon: "whiteboard", label: "Whiteboard", url: WHITEBOARD_URL },
+  { icon: "scribe", label: "Scribe", url: SCRIBE_URL },
+  { icon: "sessions", label: "Sessions", url: SESSIONS_URL },
+  { icon: "archive", label: "Saved pages", url: ARCHIVE_URL },
+  { icon: "feeds", label: "Feeds", url: FEEDS_URL },
+  { icon: "history", label: "History", url: HISTORY_URL },
+  { icon: "bookmarks", label: "Bookmarks", url: BOOKMARKS_URL },
+  { icon: "tasks", label: "Task manager", url: TASKS_URL },
+  { icon: "resources", label: "Resources", url: RESOURCES_URL },
+  { icon: "speedtest", label: "Speed test", url: SPEEDTEST_URL },
+  { icon: "omni", label: "Omni", url: OMNI_URL },
+  { icon: "apps", label: "Apps", url: APPS_URL },
+  { icon: "passwords", label: "Passwords", url: VAULT_URL },
+  { icon: "sync", label: "Sync", url: SYNC_URL },
+  { icon: "settings", label: "Settings", url: SETTINGS_URL },
 ];
 
 const PagesBar: Component = () => (
@@ -65,7 +67,7 @@ const PagesBar: Component = () => (
           onFocus={(e) => showTip(e.currentTarget, p.label)}
           onBlur={hideTip}
         >
-          <span class="pages-chip-ico">{p.icon}</span>
+          <Icon name={p.icon} size={17} class="pages-chip-ico" />
         </button>
       )}
     </For>

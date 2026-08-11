@@ -3064,8 +3064,24 @@ body.resizing .panel-edge-resize::after {
 }
 .pages-chip-ico {
   flex: none;
-  font-size: 15px;
-  line-height: 1;
+}
+/* #183 — Flux's own icons. `display: block` kills the inline baseline gap that
+   would otherwise push every icon a pixel or two off-centre inside its button,
+   which reads as a wobbly rail once there are seventeen of them in a column. */
+.flux-icon {
+  display: block;
+  flex: none;
+  /* Emoji ignored `color`; these inherit it, so the button's dim/hover/active
+     states finally reach the glyph. */
+  color: inherit;
+}
+/* Icon-only controls read white at rest. The dim tone was tuned for emoji,
+   which carry their own colour and needed holding back; a line icon at
+   `--flux-text-dim` just looks switched off. Hover still lifts and lights the
+   surface, and `.active` still turns teal — only the resting tone moves. */
+.pages-chip,
+.sidebar-footer .icon-btn {
+  color: var(--flux-text);
 }
 
 /* Hover label for the icon-only rails (#154). Fixed + portaled, so the bars'

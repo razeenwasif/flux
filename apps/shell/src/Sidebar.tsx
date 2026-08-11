@@ -140,6 +140,7 @@ import {
   setFooterOpen,
   zoomFor,
 } from "./store";
+import Icon from "./Icon";
 import { visibleInterval } from "./poll";
 import { attachHScroll } from "./hscroll";
 import { Favicon, PanelIcon, clusterColor } from "./tabvisual";
@@ -1965,14 +1966,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
             title="Terminal (Ctrl+`)"
             onClick={props.onToggleTerminal}
           >
-            ⌨
+            <Icon name="terminal" />
           </button>
           <button
             classList={{ "icon-btn": true, active: props.agentOpen }}
             title="Flux Agent (Ctrl+Shift+A)"
             onClick={props.onToggleAgent}
           >
-            ✦
+            <Icon name="agent" />
           </button>
           {/* Calendar (#114 follow-up): glanceable agenda from anywhere. The dot
             marks an event starting within 30 minutes. Popover body is lazy. */}
@@ -1981,7 +1982,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             title="Calendar — today & upcoming (also in ⌘K)"
             onClick={() => setCalendarPopOpen(!calendarPopOpen())}
           >
-            📅
+            <Icon name="calendar" />
             <Show when={calSoon()}>
               <span class="cal-soon-dot" title="An event starts within 30 minutes" />
             </Show>
@@ -1997,7 +1998,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             }
             onClick={() => toggleDock()}
           >
-            ✉
+            <Icon name="mail" />
           </button>
           {/* Overlay mode only — the docked pane renders inside the web-panel
             column (WebPanelPane) so it sits beside the page, not over it. */}
@@ -2013,14 +2014,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 title="Boosts — customize this site with AI"
                 onClick={() => setBoostsLoaded(true)}
               >
-                ✨
+                <Icon name="boosts" />
               </button>
             }
           >
             <Suspense
               fallback={
                 <button class="icon-btn active" title="Boosts — customize this site with AI">
-                  ✨
+                  <Icon name="boosts" />
                 </button>
               }
             >
@@ -2035,14 +2036,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 title="Macros — record & replay flows"
                 onClick={() => setMacrosLoaded(true)}
               >
-                ⏺
+                <Icon name="macros" />
               </button>
             }
           >
             <Suspense
               fallback={
                 <button class="icon-btn active" title="Macros — record & replay flows">
-                  ⏺
+                  <Icon name="macros" />
                 </button>
               }
             >
@@ -2053,14 +2054,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
             when={passwordsLoaded()}
             fallback={
               <button class="icon-btn" title="Passwords" onClick={() => setPasswordsLoaded(true)}>
-                🔑
+                <Icon name="passwords" />
               </button>
             }
           >
             <Suspense
               fallback={
                 <button class="icon-btn active" title="Passwords">
-                  🔑
+                  <Icon name="passwords" />
                 </button>
               }
             >
@@ -2076,14 +2077,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
               loadNote();
             }}
           >
-            📝
+            <Icon name="note" />
           </button>
           <button
             classList={{ "icon-btn": true, active: panel() === "webpanels" || activePanelId() != null }}
             title="Web panels — pin a site beside your tabs"
             onClick={() => openPanel("webpanels")}
           >
-            ◨
+            <Icon name="panels" />
           </button>
           <Show when={archivedTabs().length > 0 || archivedBranches().length > 0}>
             <button
@@ -2091,7 +2092,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               title="Archived tabs — auto-closed stale tabs & research branches you can reopen"
               onClick={() => openPanel("archived")}
             >
-              🗄
+              <Icon name="archived" />
             </button>
           </Show>
           <button
@@ -2099,14 +2100,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
             title="Extensions"
             onClick={() => openPanel("extensions")}
           >
-            🧩
+            <Icon name="extensions" />
           </button>
           <button
             classList={{ "icon-btn": true, active: panel() === "settings" }}
             title="Settings"
             onClick={() => openPanel("settings")}
           >
-            ⚙
+            <Icon name="settings" />
           </button>
         </Show>
 
@@ -2136,7 +2137,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
             setWsPanelOpen(!wsPanelOpen());
           }}
         >
-          ▤<span class="rail-ws-dot" style={{ background: activeWorkspaceColor() }} />
+          <Icon name="workspaces" />
+          <span class="rail-ws-dot" style={{ background: activeWorkspaceColor() }} />
         </button>
         <button
           class="icon-btn sidebar-fold"

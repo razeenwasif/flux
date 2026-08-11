@@ -46,7 +46,13 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // too tight to land M5 honestly. This is deliberate headroom, NOT a licence to
 // stop trimming: the eager floor is still ~66 KB, so a jump toward 70 means
 // something eager crept in and should be justified or made lazy.
-const CHROME_JS_GZIP_BUDGET = 70 * 1024; // bytes
+// Re-baselined 70 → 72 KB on 2026-08-11 (owner-approved): Flux's own icon set
+// (#183) replaces the system emoji across the pages rail and the sidebar footer
+// — 30 icons, ~1.8 KB gzipped of path data plus the component. Eager by
+// necessity: both rails paint on first frame, so lazy-loading them would flash
+// blank chips. The eager floor above still stands — this bought icons, not
+// slack, and the next jump toward 72 wants the same justification.
+const CHROME_JS_GZIP_BUDGET = 72 * 1024; // bytes
 const BINARY_BUDGET = 25 * 1024 * 1024; // bytes
 
 // ── args ─────────────────────────────────────────────────────────────────────

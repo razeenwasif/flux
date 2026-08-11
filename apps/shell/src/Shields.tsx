@@ -6,6 +6,7 @@
 import { Show, createEffect, createSignal, lazy, type Component } from "solid-js";
 
 import { shieldsStatus, type ShieldsStatus } from "./ipc";
+import Icon from "./Icon";
 import { activeTab } from "./store";
 
 const ShieldsPop = lazy(() => import("./ShieldsPop"));
@@ -33,7 +34,7 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
         title="Shields — content blocker"
         onClick={() => setOpen((v) => !v)}
       >
-        🛡
+        <Icon name="shields" />
         <Show when={(status()?.blocked ?? 0) > 0}>
           <span class="shield-badge">{status()!.blocked > 999 ? "999+" : status()!.blocked}</span>
         </Show>
