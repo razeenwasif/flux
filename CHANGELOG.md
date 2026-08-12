@@ -8,6 +8,22 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Changed
+- **Drawn icons for the TUI launcher, the arcade, and the page tools (#183, batch 2).** Fifty-two
+  more icons: the twelve seeded terminal apps, all twenty-three Playground games, and the sidebar
+  tools (reader, screenshot, translate, save-for-offline, watch, split, files, playground).
+
+  The TUI icons are **user data** — that field is a free-text box — so the bar resolves a known
+  icon name to the drawing and renders anything else verbatim. Type `lazygit` and you get the
+  drawing; type an emoji and you keep the emoji. A one-time migration upgrades a seeded app that
+  still carries its original emoji and leaves a chosen one alone, because a migration that
+  overwrites a preference is a bug wearing an upgrade's clothes.
+
+  The game icons live in the Playground's own chunk rather than the shared set. That set is eager
+  chrome, paid for at boot by every session; twenty-three cabinet icons only matter to someone who
+  opened the arcade, so they ride along with it and cost every other launch nothing. Eager chrome
+  lands at 71.3 KB against the 72 KB budget.
+
+### Changed
 - **Flux draws its own icons (#183).** The launcher rail and the sidebar footer used emoji, which
   were never really icons: they render in the *system's* font, so they arrived multicoloured, at
   inconsistent optical weights, sized differently per glyph, and looking like a different product

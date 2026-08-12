@@ -15,6 +15,7 @@ import { For, createSignal, onMount, type Component, lazy, Suspense } from "soli
 import { Portal } from "solid-js/web";
 
 import { RESIZE_HANDLES, startPaneDrag, startPaneResize } from "./paneGeometry";
+import { IconOrGlyph } from "./Icon";
 import {
   closeTuiPane,
   focusedTuiPane,
@@ -63,7 +64,7 @@ const TuiPane: Component<{ pane: TuiPaneRec; index: number }> = (props) => {
         onPointerDown={focus}
       >
         <div class="apppane-head" onPointerDown={(e) => startPaneDrag(ctl, e)}>
-          <span class="tuipane-icon">{props.pane.icon}</span>
+          <IconOrGlyph icon={props.pane.icon} size={15} class="tuipane-icon" />
           <span class="apppane-name">{props.pane.name}</span>
           <span class="apppane-host">{props.pane.cmd}</span>
           <span class="apppane-sp" />

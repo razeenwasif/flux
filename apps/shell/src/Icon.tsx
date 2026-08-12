@@ -100,6 +100,78 @@ export const ICONS = {
   archived: {
     d: ["M3 4h18v4H3z", "M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8", "M12 11v5", "m9.5 13.5 2.5 2.5 2.5-2.5"],
   },
+
+  // ── Page tools (sidebar toolbar) ─────────────────────────────────────────
+  split: { d: ["M3 5h18v14H3z", "M12 5v14"] },
+  reader: { d: ["M4 5h16v14H4z", "M7.5 9.5h9M7.5 12.5h9M7.5 15.5h5"] },
+  screenshot: { d: ["M3 7h4l1.6-2h6.8L17 7h4v12H3z"], c: [[12, 13, 3.6]] },
+  translate: {
+    d: ["M3.2 12h17.6", "M12 3.2c2.6 2.6 2.6 14.2 0 17.6-2.6-3.4-2.6-15 0-17.6Z"],
+    c: [[12, 12, 8.8]],
+  },
+  offline: { d: ["M6 3h9l4 4v9", "M4 21h16", "M12 9v8", "m8.5 13.5 3.5 3.5 3.5-3.5"] },
+  watch: { d: ["M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"], c: [[12, 12, 3]] },
+  files: { d: ["M3 6h6l2 2.5h10V19H3z"] },
+  playground: {
+    d: [
+      "M8 10.5h4M10 8.5v4",
+      "M6.5 7h11a4.5 4.5 0 0 1 4.5 4.5v1A4.5 4.5 0 0 1 17.5 17c-1.7 0-2.6-1-3.4-2h-4.2C9.1 16 8.2 17 6.5 17A4.5 4.5 0 0 1 2 12.5v-1A4.5 4.5 0 0 1 6.5 7Z",
+    ],
+    dot: [
+      [16, 11, 1],
+      [18.4, 13.3, 1],
+    ],
+  },
+
+  // ── TUI apps ─────────────────────────────────────────────────────────────
+  onyx: { d: ["m12 3 7 5.5-2.7 10.5H7.7L5 8.5 12 3Z", "M5 8.5h14M12 3l-4.3 5.5L12 21l4.3-12.5L12 3Z"] },
+  scroll: {
+    d: [
+      "M6.5 4.5h11v13a2.5 2.5 0 0 0 2.5 2.5H7a2.5 2.5 0 0 1-2.5-2.5V7",
+      "M4.5 7a2 2 0 1 1 4 0",
+      "M9.5 9h5M9.5 12.5h5",
+    ],
+  },
+  council: {
+    d: [
+      "M12 4.5v15",
+      "M6 19.5h12",
+      "M4 8.5h16",
+      "m4 8.5-2.2 5a3 3 0 0 0 4.4 0L4 8.5Z",
+      "m20 8.5-2.2 5a3 3 0 0 0 4.4 0L20 8.5Z",
+    ],
+    dot: [[12, 4.2, 1.4]],
+  },
+  audiopulse: { d: ["M3 12v0M6.5 8.5v7M10 5v14M13.5 8v8M17 10.5v3M20.5 9v6"] },
+  boxtube: { d: ["M3 7.5h18V20H3z", "m8 3.5 4 4 4-4"], dot: [[12, 13.7, 2.6]] },
+  kata: {
+    d: ["M12 3.2v17.6M3.2 12h17.6"],
+    c: [
+      [12, 12, 8.8],
+      [12, 12, 4.2],
+    ],
+  },
+  mamba: { d: ["M7.5 19.5h6.5a3.6 3.6 0 0 0 0-7.2H9a3.6 3.6 0 0 1 0-7.2h3.6"], dot: [[14.4, 5.1, 1.5]] },
+  forge: { d: ["m13.5 9-8 8a2.1 2.1 0 0 0 3 3l8-8", "M11.5 4.5 20 13l1.5-1.5a3.5 3.5 0 0 0-5-5L11.5 4.5Z"] },
+  lazygit: {
+    d: ["M7 8v8", "M17 11.5v.5a4 4 0 0 1-4 4H8"],
+    c: [
+      [7, 5.5, 2.4],
+      [7, 18.5, 2.4],
+      [17, 9, 2.4],
+    ],
+  },
+  conduit: { d: ["M9 3.5v5M15 3.5v5", "M6 8.5h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6v-3Z", "M12 17.5v3"] },
+  mirage: {
+    d: [
+      "M3 8c2.5-1.8 4.5 1.8 7 0s4.5 1.8 7 0",
+      "M3 13c2.5-1.8 4.5 1.8 7 0s4.5 1.8 7 0",
+      "M3 18c2.5-1.8 4.5 1.8 7 0s4.5 1.8 7 0",
+    ],
+  },
+  tuxedo: {
+    d: ["m10.8 12-6.3-4.4v8.8L10.8 12Z", "m13.2 12 6.3-4.4v8.8L13.2 12Z", "M10.3 9.8h3.4v4.4h-3.4z"],
+  },
   workspaces: { d: ["M3.5 8.5h11v11h-11z", "M8.5 3.5h11v11h-11z"] },
   extensions: { d: ["M4.8 4.8h5.4a1.8 1.8 0 1 1 3.6 0h5.4v5.4a1.8 1.8 0 1 0 0 3.6v5.4H4.8V4.8Z"] },
 } satisfies Record<string, Art>;
@@ -140,5 +212,22 @@ const Icon: Component<{ name: IconName; size?: number; class?: string }> = (prop
     </svg>
   );
 };
+
+/** Is this string one of the drawn icons? */
+export const isIconName = (s: string): s is IconName => s in ICONS;
+
+/**
+ * An icon that came from *user data* — the TUI app registry, where the field is
+ * a free-text box.
+ *
+ * Resolves a known name to the drawn icon and renders anything else verbatim,
+ * so a user who typed an emoji keeps it and one who typed `lazygit` gets the
+ * drawing. Without the fallback, every custom entry would render as blank.
+ */
+export const IconOrGlyph: Component<{ icon: string; size?: number; class?: string }> = (props) => (
+  <Show when={isIconName(props.icon)} fallback={<span class={props.class}>{props.icon}</span>}>
+    <Icon name={props.icon as IconName} size={props.size} class={props.class} />
+  </Show>
+);
 
 export default Icon;

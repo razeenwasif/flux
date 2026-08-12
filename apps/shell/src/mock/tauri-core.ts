@@ -1008,6 +1008,20 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // The Notebook page had no mocks at all, so it rendered empty in the preview
     // and nothing on it could be checked. One healthy source, one broken, so both
     // states of the location editor are visible.
+    // The TUI launcher had no mock, so its rail was empty in the preview. Two
+    // entries on icon *names* and one on a literal emoji, so both halves of
+    // IconOrGlyph are exercised.
+    case "tui_apps_list":
+      return Promise.resolve([
+        { id: "onyx", name: "Onyx", icon: "onyx", cmd: "onyx", cwd: "" },
+        { id: "lazygit", name: "LazyGit", icon: "lazygit", cmd: "lazygit", cwd: "" },
+        { id: "tuxedo", name: "Tuxedo", icon: "tuxedo", cmd: "tuxedo", cwd: "" },
+        { id: "custom-1", name: "Canopy", icon: "🌳", cmd: "canopy", cwd: "" },
+      ] as T);
+    case "tui_apps_set":
+      return Promise.resolve(undefined as T);
+    case "tui_apps_detect":
+      return Promise.resolve([] as T);
     case "kb_status":
     case "kb_reindex":
     case "kb_set_source":

@@ -3,6 +3,7 @@
 // High scores are local (localStorage) — online leaderboards are a later layer.
 import { type Component, For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { type GameEngine, type GameHandle, W, H, highScore, saveHighScore } from "./engine";
+import GameIcon, { type GameIconName } from "./GameIcon";
 import snake from "./games/snake";
 import tetris from "./games/tetris";
 import breakout from "./games/breakout";
@@ -30,7 +31,6 @@ import reversi from "./games/reversi";
 interface Meta {
   id: string;
   name: string;
-  glyph: string;
   tagline: string;
   controls: string;
   accent: string;
@@ -41,7 +41,6 @@ const GAMES: Meta[] = [
   {
     id: "snake",
     name: "Snake",
-    glyph: "🐍",
     tagline: "Eat, grow, don't bite yourself.",
     controls: "Arrows / WASD to steer",
     accent: "#2ff3ff",
@@ -50,7 +49,6 @@ const GAMES: Meta[] = [
   {
     id: "tetris",
     name: "Tetris",
-    glyph: "🟪",
     tagline: "Stack the falling blocks, clear lines.",
     controls: "← → move · ↑ rotate · ↓ soft · Space drop",
     accent: "#b07dff",
@@ -59,7 +57,6 @@ const GAMES: Meta[] = [
   {
     id: "breakout",
     name: "Breakout",
-    glyph: "🧱",
     tagline: "Smash every brick, don't drop the ball.",
     controls: "Mouse / ← → · Space to launch",
     accent: "#ff8a3d",
@@ -68,7 +65,6 @@ const GAMES: Meta[] = [
   {
     id: "pong",
     name: "Pong",
-    glyph: "🏓",
     tagline: "Rally against the machine, endlessly.",
     controls: "Mouse / ↑ ↓ · W S",
     accent: "#5dff8f",
@@ -77,7 +73,6 @@ const GAMES: Meta[] = [
   {
     id: "invaders",
     name: "Invaders",
-    glyph: "👾",
     tagline: "Hold the line against the fleet.",
     controls: "← → move · Space to fire",
     accent: "#ff4d9d",
@@ -86,7 +81,6 @@ const GAMES: Meta[] = [
   {
     id: "flappy",
     name: "Flappy",
-    glyph: "🐤",
     tagline: "Flap through the gaps, don't touch.",
     controls: "Space / ↑ / click to flap",
     accent: "#ffe14d",
@@ -95,7 +89,6 @@ const GAMES: Meta[] = [
   {
     id: "asteroids",
     name: "Asteroids",
-    glyph: "🚀",
     tagline: "Blast the rocks, mind the split.",
     controls: "← → rotate · ↑ thrust · Space fire",
     accent: "#c8c2ff",
@@ -104,7 +97,6 @@ const GAMES: Meta[] = [
   {
     id: "2048",
     name: "2048",
-    glyph: "🔢",
     tagline: "Slide and merge to the big tile.",
     controls: "Arrows / WASD to slide",
     accent: "#5dff8f",
@@ -113,7 +105,6 @@ const GAMES: Meta[] = [
   {
     id: "minesweeper",
     name: "Minesweeper",
-    glyph: "💣",
     tagline: "Clear the field, flag the mines.",
     controls: "Left reveal · Right flag",
     accent: "#ff6f6f",
@@ -122,7 +113,6 @@ const GAMES: Meta[] = [
   {
     id: "pacman",
     name: "Pac-Man",
-    glyph: "🟡",
     tagline: "Eat the dots, outrun the ghosts.",
     controls: "Arrows to steer",
     accent: "#ffe14d",
@@ -131,7 +121,6 @@ const GAMES: Meta[] = [
   {
     id: "dino",
     name: "Dino Run",
-    glyph: "🦖",
     tagline: "Jump the cacti, duck the birds.",
     controls: "Space / ↑ jump · ↓ duck",
     accent: "#aefcff",
@@ -140,7 +129,6 @@ const GAMES: Meta[] = [
   {
     id: "stack",
     name: "Stack",
-    glyph: "🧊",
     tagline: "Time the drop, build the tower.",
     controls: "Space / click to drop",
     accent: "#2ff3ff",
@@ -149,7 +137,6 @@ const GAMES: Meta[] = [
   {
     id: "frogger",
     name: "Frogger",
-    glyph: "🐸",
     tagline: "Cross the road and the river.",
     controls: "Arrows to hop",
     accent: "#7dff9d",
@@ -158,7 +145,6 @@ const GAMES: Meta[] = [
   {
     id: "whack",
     name: "Whack-a-Mole",
-    glyph: "🔨",
     tagline: "Bonk the moles, dodge the bombs.",
     controls: "Click the moles",
     accent: "#ff8a3d",
@@ -167,7 +153,6 @@ const GAMES: Meta[] = [
   {
     id: "doodle",
     name: "Doodle Jump",
-    glyph: "🦘",
     tagline: "Bounce up, don't fall off.",
     controls: "← → to steer (auto-jump)",
     accent: "#5dff8f",
@@ -176,7 +161,6 @@ const GAMES: Meta[] = [
   {
     id: "simon",
     name: "Simon",
-    glyph: "🎵",
     tagline: "Repeat the growing pattern.",
     controls: "Click the pads",
     accent: "#b07dff",
@@ -185,7 +169,6 @@ const GAMES: Meta[] = [
   {
     id: "columns",
     name: "Columns",
-    glyph: "💎",
     tagline: "Match 3+ gems any direction.",
     controls: "← → move · ↑ cycle · Space drop",
     accent: "#ff4d9d",
@@ -194,7 +177,6 @@ const GAMES: Meta[] = [
   {
     id: "missile",
     name: "Missile Command",
-    glyph: "🚀",
     tagline: "Intercept the barrage, save the cities.",
     controls: "Click to fire",
     accent: "#ff6f6f",
@@ -203,7 +185,6 @@ const GAMES: Meta[] = [
   {
     id: "bubble",
     name: "Bubble Shooter",
-    glyph: "🫧",
     tagline: "Match 3+ bubbles to pop them.",
     controls: "Aim mouse · click to shoot",
     accent: "#2ff3ff",
@@ -212,7 +193,6 @@ const GAMES: Meta[] = [
   {
     id: "bejeweled",
     name: "Bejeweled",
-    glyph: "💠",
     tagline: "Swap gems to line up 3+.",
     controls: "Click two adjacent gems",
     accent: "#b07dff",
@@ -221,7 +201,6 @@ const GAMES: Meta[] = [
   {
     id: "centipede",
     name: "Centipede",
-    glyph: "🐛",
     tagline: "Blast the splitting centipede.",
     controls: "Arrows move · Space fire",
     accent: "#ff4d9d",
@@ -230,7 +209,6 @@ const GAMES: Meta[] = [
   {
     id: "connect4",
     name: "Connect Four",
-    glyph: "🔴",
     tagline: "Four in a row vs the AI — win-streak.",
     controls: "Click a column",
     accent: "#ffe14d",
@@ -239,7 +217,6 @@ const GAMES: Meta[] = [
   {
     id: "reversi",
     name: "Reversi",
-    glyph: "⚫",
     tagline: "Flank to flip, outscore the AI — win-streak.",
     controls: "Click a square",
     accent: "#5dff8f",
@@ -329,7 +306,7 @@ const Playground: Component<{ onClose: () => void }> = (props) => {
               <For each={GAMES}>
                 {(m) => (
                   <button class="pg-card" style={{ "--accent": m.accent }} onClick={() => play(m)}>
-                    <span class="pg-card-glyph">{m.glyph}</span>
+                    <GameIcon name={m.id as GameIconName} size={26} class="pg-card-glyph" />
                     <span class="pg-card-name">{m.name}</span>
                     <span class="pg-card-tag">{m.tagline}</span>
                     <span class="pg-card-hi">{highScore(m.id) > 0 ? `HI ${highScore(m.id)}` : "NEW"}</span>
@@ -346,7 +323,7 @@ const Playground: Component<{ onClose: () => void }> = (props) => {
               ← Arcade
             </button>
             <span class="pg-hud-name">
-              {game()!.glyph} {game()!.name}
+              <GameIcon name={game()!.id as GameIconName} size={18} /> {game()!.name}
             </span>
             <span class="pg-hud-stat">
               SCORE <b>{score()}</b>

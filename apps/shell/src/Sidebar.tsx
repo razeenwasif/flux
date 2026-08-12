@@ -936,21 +936,21 @@ const Sidebar: Component<SidebarProps> = (props) => {
             title="File explorer"
             onClick={props.onToggleFilesPanel}
           >
-            🗁
+            <Icon name="files" />
           </button>
           <button
             classList={{ "icon-btn": true, active: playgroundOpen() }}
             title="Playground — offline arcade"
             onClick={props.onOpenPlayground}
           >
-            🎮
+            <Icon name="playground" />
           </button>
           <button
             classList={{ "icon-btn": true, active: kbPanelOpen() }}
             title="Notebook — your knowledge base (Onyx + Scroll)"
             onClick={props.onOpenNotebook}
           >
-            📓
+            <Icon name="notebook" />
           </button>
         </Show>
         {/* Directly after the tools, not pushed to the right end by a flex
@@ -1159,7 +1159,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               }
               onClick={() => setSplitPicker(true)}
             >
-              ◫
+              <Icon name="split" />
             </button>
             <Show when={isWebPage()}>
               <button
@@ -1168,7 +1168,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 title="Reader mode"
                 onClick={() => props.onToggleReader()}
               >
-                📖
+                <Icon name="reader" />
               </button>
               <button
                 type="button"
@@ -1176,7 +1176,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 title="Capture page (screenshot)"
                 onClick={() => props.onCapture()}
               >
-                📸
+                <Icon name="screenshot" />
               </button>
               <button
                 type="button"
@@ -1184,7 +1184,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 title="Translate this page"
                 onClick={() => props.onTranslate()}
               >
-                🌐
+                <Icon name="translate" />
               </button>
               <button
                 type="button"
@@ -1192,7 +1192,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 title="Save for offline (read later)"
                 onClick={() => props.onArchive()}
               >
-                📚
+                <Icon name="offline" />
               </button>
               <button
                 type="button"
@@ -1200,7 +1200,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 title={watched() ? "Watching for changes — click to manage" : "Watch this page for changes"}
                 onClick={toggleWatch}
               >
-                👁
+                <Icon name="watch" />
               </button>
               <button
                 type="button"
@@ -1268,7 +1268,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                             class="split-picker-elsewhere"
                             title="Already in another split — adding it here moves it"
                           >
-                            ◫
+                            <Icon name="split" />
                           </span>
                         </Show>
                         <Show when={tileSel().includes(t.id)}>

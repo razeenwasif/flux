@@ -28,24 +28,48 @@ pub struct TuiApp {
 
 /// Bump when adding new default apps; existing users get the new ones merged in
 /// once (by id, without clobbering their edits/order) via `hydrate`.
-const SEED_VERSION: u32 = 2;
+const SEED_VERSION: u32 = 3;
+
+/// What each seed used before Flux drew its own icons (#183), keyed by id.
+///
+/// Kept so the v3 migration can tell an untouched default from a deliberate
+/// choice: an entry still carrying its original emoji gets the drawn icon, and
+/// one the user changed keeps whatever they set.
+const LEGACY_ICONS: &[(&str, &str)] = &[
+    ("onyx", "📝"),
+    ("scroll", "📜"),
+    ("council", "⚖"),
+    ("audiopulse", "🎵"),
+    ("boxtube", "📺"),
+    ("kata", "🥋"),
+    ("mamba", "🐍"),
+    ("forge", "🔨"),
+    ("lazygit", "🌿"),
+    ("conduit", "🔌"),
+    ("mirage", "🌫"),
+    ("tuxedo", "🐧"),
+];
 
 /// Default TUI apps (all launch by binary name on the terminal shell's PATH).
 /// Users add/remove/reorder freely afterwards.
+///
+/// The icon is an *icon name* from the frontend's set, not a glyph. The bar
+/// falls back to rendering the string as-is when it isn't a known name, so a
+/// user-typed emoji still works.
 fn seed_defaults() -> Vec<TuiApp> {
     [
-        ("onyx", "Onyx", "📝"),
-        ("scroll", "Scroll", "📜"),
-        ("council", "Council", "⚖"),
-        ("audiopulse", "AudioPulse", "🎵"),
-        ("boxtube", "BoxTube", "📺"),
-        ("kata", "Kata", "🥋"),
-        ("mamba", "Mamba", "🐍"),
-        ("forge", "Forge", "🔨"),
-        ("lazygit", "LazyGit", "🌿"),
-        ("conduit", "Conduit", "🔌"),
-        ("mirage", "Mirage", "🌫"),
-        ("tuxedo", "Tuxedo", "🐧"),
+        ("onyx", "Onyx", "onyx"),
+        ("scroll", "Scroll", "scroll"),
+        ("council", "Council", "council"),
+        ("audiopulse", "AudioPulse", "audiopulse"),
+        ("boxtube", "BoxTube", "boxtube"),
+        ("kata", "Kata", "kata"),
+        ("mamba", "Mamba", "mamba"),
+        ("forge", "Forge", "forge"),
+        ("lazygit", "LazyGit", "lazygit"),
+        ("conduit", "Conduit", "conduit"),
+        ("mirage", "Mirage", "mirage"),
+        ("tuxedo", "Tuxedo", "tuxedo"),
     ]
     .into_iter()
     .map(|(cmd, name, icon)| TuiApp {
@@ -131,6 +155,16 @@ impl TuiAppsStore {
             if !add.is_empty() {
                 apps.extend(add);
             }
+            // v3: emoji → drawn icons (#183). Only where the entry still carries
+            // the emoji it was seeded with — an icon the user picked is a choice,
+            // and a migration that overwrites choices is a bug, not an upgrade.
+            for app in apps.iter_mut() {
+                if let Some((_, legacy)) = LEGACY_ICONS.iter().find(|(id, _)| *id == app.id) {
+                    if app.icon == *legacy {
+                        app.icon = app.id.clone();
+                    }
+                }
+            }
             version = SEED_VERSION;
             changed = true;
         }
@@ -188,6 +222,52 @@ mod tests {
         let apps = store.list();
         assert_eq!(apps.len(), seed_defaults().len());
         assert!(apps.iter().any(|a| a.id == "lazygit" && a.cmd == "lazygit"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The migration must upgrade an untouched default and leave a chosen icon
+    /// alone. Overwriting a user's pick would be a bug wearing an upgrade's
+    /// clothes — and it's silent, because the app still launches either way.
+    #[test]
+    fn v3_upgrades_untouched_icons_but_never_a_chosen_one() {
+        let dir = std::env::temp_dir().join(format!("flux-tuiapps-v3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tui-apps.json");
+        // A v2 file: onyx still on its seeded emoji, forge deliberately changed,
+        // and a user-added app that was never a seed.
+        std::fs::write(
+            &path,
+            r#"{"seed_version":2,"apps":[
+                {"id":"onyx","name":"Onyx","icon":"📝","cmd":"onyx","cwd":""},
+                {"id":"forge","name":"Forge","icon":"🔥","cmd":"forge","cwd":""},
+                {"id":"abc-123","name":"Canopy","icon":"▸","cmd":"canopy","cwd":""}
+            ]}"#,
+        )
+        .unwrap();
+
+        let apps = TuiAppsStore::empty(path.clone()).list();
+        let get = |id: &str| apps.iter().find(|a| a.id == id).unwrap().clone();
+
+        assert_eq!(
+            get("onyx").icon,
+            "onyx",
+            "an untouched seed gets the drawn icon"
+        );
+        assert_eq!(
+            get("forge").icon,
+            "🔥",
+            "a chosen icon must survive the migration"
+        );
+        assert_eq!(
+            get("abc-123").icon,
+            "▸",
+            "a user-added app is not a seed and is left alone"
+        );
+        // The upgrade is persisted, so it happens once rather than on every boot.
+        let again = TuiAppsStore::empty(path).list();
+        assert_eq!(again.iter().find(|a| a.id == "onyx").unwrap().icon, "onyx");
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

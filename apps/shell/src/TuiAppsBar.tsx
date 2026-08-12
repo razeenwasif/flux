@@ -10,6 +10,7 @@ import { Portal } from "solid-js/web";
 import { tuiAppsDetect, tuiAppsList, tuiAppsSet, type TuiApp } from "./ipc";
 import { openTerminalApp, openTuiPane } from "./store";
 import { hideTip, showTip } from "./RailTip";
+import { IconOrGlyph } from "./Icon";
 
 const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -128,7 +129,7 @@ const TuiAppsBar: Component = () => {
                 onFocus={(e) => showTip(e.currentTarget, tip())}
                 onBlur={hideTip}
               >
-                <span class="tui-chip-ico">{a.icon}</span>
+                <IconOrGlyph icon={a.icon} size={17} class="tui-chip-ico" />
               </button>
             );
           }}
@@ -150,8 +151,11 @@ const TuiAppsBar: Component = () => {
                       <input
                         class="tui-in tui-in-ico"
                         value={a.icon}
-                        maxLength={2}
-                        title="Icon"
+                        // Was 2, for a single emoji. An icon name is longer, and
+                        // the field takes either — see IconOrGlyph.
+                        maxLength={16}
+                        title="Icon — a Flux icon name (e.g. lazygit) or any emoji"
+                        placeholder="icon"
                         onInput={(e) => upd(a.id, "icon", e.currentTarget.value)}
                       />
                       <input
