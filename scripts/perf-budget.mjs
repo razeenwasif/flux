@@ -52,7 +52,14 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // necessity: both rails paint on first frame, so lazy-loading them would flash
 // blank chips. The eager floor above still stands — this bought icons, not
 // slack, and the next jump toward 72 wants the same justification.
-const CHROME_JS_GZIP_BUDGET = 72 * 1024; // bytes
+// Ratcheted 72 → 56 KB on 2026-08-14 (a tightening, so no approval needed): the
+// mobile pass split the desktop-only chrome — Sidebar, AppDock, WebPanelPane,
+// TerminalColumn — out of the eager path, taking it from 71.3 to 51.9 KB. Those
+// still render on first paint on desktop; they're preloaded at module-eval time
+// rather than left to load when their <Show> flips. The phone renders none of
+// them and now never fetches them at all. Budget set just above the new number
+// so the win can't quietly erode; the eager floor is ~52 KB.
+const CHROME_JS_GZIP_BUDGET = 56 * 1024; // bytes
 const BINARY_BUDGET = 25 * 1024 * 1024; // bytes
 
 // ── args ─────────────────────────────────────────────────────────────────────

@@ -92,6 +92,43 @@ DOM capture (`evaluateJavascript`) are follow-ons. (3) polish — Android back
 gesture, notifications, and the optional on-device agent on **llama.cpp** (Ollama
 has no Android runtime; a 2–4B quantized Gemma is the realistic phone model).
 
+## The mobile cost model (added 2026-08-14)
+
+Rung C shipped the phone build by *hiding* desktop surfaces. That was the right
+first move, but hiding is a CSS-level answer to a cost that is not only CSS, and
+the APK ended up paying desktop prices four ways. The rule this establishes:
+
+**a surface the phone doesn't render, it shouldn't load, paint, or schedule.**
+
+1. **Load.** `display: none` still costs the parse. Desktop-only chrome (Sidebar,
+   AppDock, WebPanelPane, TerminalColumn) was statically imported — 67 KB of JS
+   parsed at every Android launch for components that never render. Now lazy, and
+   preloaded at module-eval time on desktop so first paint is unchanged (measured:
+   chunk in at 90 ms, first paint at 476 ms). Eager chrome: 71.3 → 51.9 KB gzip.
+2. **Paint.** `--glass-blur` is `saturate(180%) blur(40px)`. On a phone each
+   blurred element becomes a compositing layer whose backdrop is re-sampled and
+   re-blurred on any frame that touches it — and the top bar is always on screen.
+   The phone build sets `--glass-blur: none` (on `html.mobile` as well as
+   `.shell.mobile`, so Portal'd overlays inherit it). Little is lost: those
+   surfaces sit above a static gradient, not above page content, because each tab
+   is a native WebView over the HTML and can't be blurred through anyway.
+3. **Schedule.** Boot awaited fourteen `listen()` registrations in sequence —
+   fourteen serialized IPC latencies over the JNI bridge for independent calls.
+   And the clock driver ran a 500 ms interval for the whole session regardless of
+   whether any alarm or timer existed. Both fixed.
+4. **Occupy.** The nvim editor column (#174) defaults to open and takes half the
+   content row. On a phone that left the page less than half a 390px screen and
+   booted a PTY nobody could type into. Off on mobile at the store level.
+
+The page is also full-bleed on mobile now — no frame padding, border, radius or
+shadow on the content card. Since that card *is* `#flux-web-area`, whose rect the
+native WebView is positioned from, this is what actually hands the page the
+pixels; the existing ResizeObserver re-tiles on its own.
+
+Guarded by a stylesheet test (a new glass surface that hardcodes a blur the mobile
+override can't reach fails the build) and by unit tests on the clock driver's
+arming, whose failure mode — an alarm that never rings — is otherwise invisible.
+
 ## Consequences
 
 - **Positive:** rung A ships mobile Flux *now* with zero architecture forks —

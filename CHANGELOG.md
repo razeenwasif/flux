@@ -7,6 +7,61 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- **Nvim editor column toggle shortcut, footer button, and setting (#174).** Added `Ctrl+Shift+E` / `Cmd+Shift+E` keyboard shortcut (also forwarded from page webviews and terminal), a dedicated sidebar footer icon button, and an Appearance setting toggle to easily show or hide the persistent editor column.
+
+### Changed
+- **Mobile performance pass (ADR 0012).** Flux felt slow on the phone. Four things were paying
+  desktop prices on hardware that can't afford them.
+
+  **Eager chrome JS: 71.3 → 51.9 KB gzipped.** The Sidebar (2,626 lines), AppDock, WebPanelPane
+  and TerminalColumn were statically imported, so every launch parsed them — including the Android
+  build, which renders none of them (this ADR hides the whole column set). They're lazy now and
+  preloaded at module-eval time on desktop, so the chunk is in flight long before Solid renders:
+  measured in the mock preview, the Sidebar chunk completes at 90 ms against a first paint at
+  476 ms, i.e. no blank-sidebar frame. The phone never fetches them at all. The budget is
+  ratcheted 72 → 56 KB to keep the win.
+
+  **No backdrop blur on the phone.** `--glass-blur` is `saturate(180%) blur(40px)`, and a phone GPU
+  pays for that very differently from a desktop one: each blurred element becomes its own
+  compositing layer whose backdrop is re-sampled and re-blurred on any frame that touches it. The
+  top bar is on screen permanently. Almost nothing is lost visually, because those surfaces sit
+  above the shell's static gradient rather than above page content — each tab is a native WebView
+  layered over the HTML and can't be blurred through anyway, so the blur was resampling a fixed
+  gradient every frame. Same trade `body.busy` already makes during a desktop resize (#79); the
+  phone is simply always in that state. The shell's four stacked radial gradients collapse to one
+  for the same reason, and the grid transition (plus its permanent `will-change`) goes, since the
+  mobile grid is a fixed `1fr` that nothing animates.
+
+  **Boot no longer serializes a dozen IPC round trips.** `onMount` awaited fourteen `listen()`
+  registrations one after another — independent calls, no result anyone reads — so startup paid
+  fourteen latencies back to back. Invisible on desktop, a visible chunk of startup over Android's
+  JNI bridge. They now all go out at once. As a side effect the cleanup is registered correctly:
+  it used to be wired *after* an await, where there is no owner left to attach it to.
+
+  **The clock driver idles.** A 500 ms interval started at boot and never stopped — two CPU wakeups
+  a second for the whole session, scanning for timers and alarms that usually aren't there. It now
+  arms when something is scheduled and stands down when the last of it clears.
+
+  **The page is full-bleed.** The desktop chrome frames the page — 12px of velvet around a rounded,
+  bordered card — which reads as craft on a 27" display and as wasted screen on a 6" one. Phone
+  browsers don't frame the page. Squaring the corners is worth having for its own sake: a rounded,
+  overflow-hidden card makes the compositor clip its contents against a rounded mask every frame.
+
+  Doing that surfaced the real reason the phone felt cramped: **the nvim editor column (#174) was
+  open on mobile**, taking half the width by default and booting a PTY, on a 390px screen with no
+  keyboard. The page card was the other half. It's now off on mobile at the store level, so nothing
+  downstream believes it's on.
+
+  Guarded by a stylesheet test that fails if a new glass surface hardcodes a blur the mobile
+  override can't reach, and by unit tests on the driver's arming — its failure mode is an alarm
+  that never rings, which is invisible until the moment you needed it.
+
+### Fixed
+- **Two alarms created in the same millisecond shared an id.** Ids were `a${Date.now()}`, and
+  `removeAlarm`/`toggleAlarm` match by id — so the collision deleted or toggled both. Unreachable
+  by hand, reachable by anything scripted; found by the new driver tests.
+
 ### Changed
 - **Drawn icons for the TUI launcher, the arcade, and the page tools (#183, batch 2).** Fifty-two
   more icons: the twelve seeded terminal apps, all twenty-three Playground games, and the sidebar

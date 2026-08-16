@@ -6,6 +6,7 @@
 import { createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { setPendingCommand } from "./terminals";
+import { isMobile } from "./platform";
 import { MAX_PANES, claimTabs, clampFrac, dropTabFromGroups, prunedGroups, type TileLayout } from "./tiles";
 import {
   type PhishVerdict,
@@ -958,7 +959,13 @@ export function setAppDockOpen(on: boolean): void {
 // overlay, so shrinking the card is all it takes: the card's ResizeObserver
 // re-tiles the native page webview to match (tiling.ts). That's the whole reason
 // this can sit next to a native webview at all.
-const [editorColOpen, setEditorColRaw] = createSignal(localStorage.getItem("flux.editorcol") !== "0");
+// Never on the phone. It defaults to open, so an Android launch was handing half
+// the screen — and a booted nvim PTY — to a column you can't practically use on a
+// 390px-wide display with no keyboard. That is also why the page looked cramped
+// there: the card is the other half of this row.
+const [editorColOpen, setEditorColRaw] = createSignal(
+  !isMobile && localStorage.getItem("flux.editorcol") !== "0",
+);
 export { editorColOpen };
 export function setEditorColOpen(on: boolean): void {
   setEditorColRaw(on);

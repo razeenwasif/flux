@@ -106,7 +106,8 @@ import {
   type TabMeta,
 } from "./ipc";
 import { setTerminalOpener } from "./terminals";
-import Sidebar from "./Sidebar";
+import { isMobile } from "./platform";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import ContentArea from "./ContentArea";
 import { installDwellCapture } from "./trail";
 import { keyToAction } from "./shortcuts";
@@ -114,13 +115,28 @@ import { keyToAction } from "./shortcuts";
 // store-gated <Show>, so their code loads on first open — not at boot.
 const MobileChrome = lazy(() => import("./MobileChrome")); // Android-only chrome (ADR 0012); kept out of the desktop bundle
 const MobileMenu = lazy(() => import("./MobileMenu")); // mobile drawer (replaces the desktop sidebar on the phone)
+// Desktop-only chrome. Unlike the cold chrome above, these DO render on a fresh
+// desktop window — they're split because the phone renders none of them (ADR
+// 0012 hides the whole column set) and was still parsing 67 KB of them at every
+// boot. Splitting them costs the desktop nothing as long as the chunk is in
+// flight before Solid renders, which is what the preload below is for: the
+// import starts at module-eval time rather than when the <Show> flips.
+const Sidebar = lazy(() => import("./Sidebar"));
+const AppDock = lazy(() => import("./AppDock"));
+const WebPanelPane = lazy(() => import("./WebPanelPane"));
+const TerminalColumn = lazy(() => import("./TerminalColumn"));
+if (!isMobile) {
+  void Sidebar.preload();
+  void AppDock.preload();
+  void WebPanelPane.preload();
+  void TerminalColumn.preload();
+}
 const ShellHistory = lazy(() => import("./ShellHistory"));
 const SemanticFind = lazy(() => import("./SemanticFind"));
 const WatchPanel = lazy(() => import("./WatchPanel"));
 const TrackerGraph = lazy(() => import("./TrackerGraph"));
 const AppPane = lazy(() => import("./AppPane"));
 const TuiPane = lazy(() => import("./TuiPane"));
-import AppDock from "./AppDock";
 import { FLUX_APPS } from "./apps";
 import type { PaletteAction } from "./CommandPalette";
 import { LinkMenu } from "./linkMenu";
@@ -201,9 +217,6 @@ import { createWebviewTiling } from "./tiling";
 import { startClockDriver } from "./clocks";
 import { addPluginListener } from "@tauri-apps/api/core";
 import { TitleBar, ResizeHandles } from "./Chrome";
-import { isMobile } from "./platform";
-import WebPanelPane from "./WebPanelPane";
-import TerminalColumn from "./TerminalColumn";
 import {
   setPanelBadge,
   findOpen,
@@ -361,6 +374,28 @@ const App: Component = () => {
   // Materialize CLI launch intent exactly once (`flux <url> -t`).
   onMount(async () => {
     startClockDriver(); // #134: timers/alarms fire regardless of the active tab
+
+    // Event listeners are registered but NOT awaited. Each `listen()` is an IPC
+    // round trip, and these used to be awaited one after another — a dozen
+    // serialized latencies during boot, for registrations that have no ordering
+    // between them and no result anyone reads. Desktop absorbs that; over
+    // Android's JNI bridge it is a visible chunk of startup. Issuing them all
+    // and settling later makes the batch cost roughly one round trip, and
+    // registers each listener sooner rather than later, so it can only narrow
+    // the window where an early event is missed.
+    //
+    // The cleanup is wired here, before the first await, because that is the
+    // only part of this callback that still runs under the component's owner —
+    // an onCleanup after an await has no owner to attach to.
+    const listeners: Promise<UnlistenFn>[] = [];
+    const holdListener = (p: Promise<UnlistenFn>): void => {
+      listeners.push(p);
+      void p.catch(() => {});
+    };
+    onCleanup(() => {
+      for (const p of listeners) void p.then((un) => un()).catch(() => {});
+    });
+
     await refreshTabs();
     restoreTile(); // #43: re-tile the split group saved from the last session
     const intent = await launchIntent().catch(() => null);
@@ -377,25 +412,27 @@ const App: Component = () => {
     applyNav(); // re-apply vim-hints / mouse-gestures toggles (#51/#52)
     applyAgentModel(); // re-apply the chosen agent model (#81)
     applyAudiopulseDir(); // push the persisted AudioPulse config-dir override (#115)
-    const unClusters = await onClustersUpdated(refreshTabs);
+    holdListener(onClustersUpdated(refreshTabs));
     // An extension called flux.tabs.open (#94) — the shell owns webview
     // geometry, so the broker emits an intent and we open the tab here.
-    const unExtOpen = await onExtOpenTab((url) => void openTab("browser", url));
+    holdListener(onExtOpenTab((url) => void openTab("browser", url)));
     // A page hit a permission Ask (#38) — queue it for the permission bar,
     // which answers the deferred engine request.
-    const unPermAsk = await onPermissionAsk(pushPermAsk);
+    holdListener(onPermissionAsk(pushPermAsk));
     // The password sentinel saved a sign-up credential (#61) — confirm it.
-    const unVaultSaved = await onVaultSaved((host) => {
-      toast(`Password for ${host} saved to your vault`, "ok", 2800);
-    });
+    holdListener(
+      onVaultSaved((host) => {
+        toast(`Password for ${host} saved to your vault`, "ok", 2800);
+      }),
+    );
     // Sentinel captured a manually-typed login (#61) — raise the save bar.
-    const unSavePrompt = await onVaultSavePrompt(setSavePrompt);
+    holdListener(onVaultSavePrompt(setSavePrompt));
     // A password field took focus on an impersonating site (ADR 0013, Pillar 1).
     // Raise the existing chrome-layer phishing banner — it already names the
     // brand and offers a safe exit — but now BEFORE the first keystroke. This
     // catches the case the navigation check can't: a lookalike whose own label
     // is in your known-good set because you were phished there once.
-    const unInputWarn = await onSentinelInputWarning((tabId, _host, verdict) => setPhish(tabId, verdict));
+    holdListener(onSentinelInputWarning((tabId, _host, verdict) => setPhish(tabId, verdict)));
     // App keyboard shortcuts (#18). Capture phase so we win over child widgets
     // (e.g. xterm's own key handler) when the chrome/terminal is focused; the
     // injected shortcuts.js handles the case where a page webview has focus and
@@ -407,6 +444,7 @@ const App: Component = () => {
     const terminalSafe = new Set([
       "toggle-terminal",
       "toggle-agent",
+      "toggle-editor",
       "new-terminal",
       "next-tab",
       "prev-tab",
@@ -487,20 +525,24 @@ const App: Component = () => {
       clearTimeout(busyTimer);
     });
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
-    const unShortcut = await onShortcut((a) => dispatch(a));
+    holdListener(onShortcut((a) => dispatch(a)));
     // A page left HTML5 fullscreen (video): wry restored the webview to fill the
     // window, covering the chrome. Re-tile to put it back in the content card —
     // twice, since wry's restore can land just after the event fires.
-    const unFullscreen = await onFullscreenChanged(() => {
-      forceRelayout();
-      setTimeout(forceRelayout, 120);
-      setTimeout(forceRelayout, 400);
-    });
+    holdListener(
+      onFullscreenChanged(() => {
+        forceRelayout();
+        setTimeout(forceRelayout, 120);
+        setTimeout(forceRelayout, 400);
+      }),
+    );
     // Page-initiated new windows (window.open / target="_blank" / modified
     // click) → open as a Flux tab; background tabs don't steal focus.
-    const unOpenUrl = await onOpenUrl((url, background) => {
-      void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {});
-    });
+    holdListener(
+      onOpenUrl((url, background) => {
+        void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {});
+      }),
+    );
     // Reader mode (#41): the injected extractor posts blocks back here.
     const unReader = await onReader((tabId, title, blocks) => openReader(tabId, title, blocks));
     onCleanup(unReader);
@@ -593,88 +635,78 @@ const App: Component = () => {
     }, 60_000);
     onCleanup(() => clearInterval(hibTimer));
     // Find-in-page match count from the active page (#33).
-    const unFind = await onFindResult((tabId, count) => {
-      if (tabId === activeId()) setFindMatches(count);
-    });
+    holdListener(
+      onFindResult((tabId, count) => {
+        if (tabId === activeId()) setFindMatches(count);
+      }),
+    );
     // Keep the address bar fresh as pages navigate, and re-apply the active
     // tab's bounds once it finishes loading (defensive: ensures the page sits
     // in the content card even if the initial position didn't stick).
-    const unLoaded = await onTabLoaded((tabId, url, phase) => {
-      updateTabUrl(tabId, url);
-      setTabLoading(tabId, phase === "started"); // stop/reload swap + progress (#31)
-      if (phase === "started") {
-        setPhish(tabId, null); // clear stale phishing verdict while navigating
-        setOAuth(tabId, null); // …and any prior OAuth consent review
-        setSensitive(tabId, null); // …and any containerization offer
-        setConsent(tabId, null); // …and any cookie-consent decode
-      }
-      if (phase === "finished") {
-        // Sync the live url to the backend so the persisted session (#19)
-        // reflects where the tab actually is, not its creation url.
-        void tabSetUrl(tabId, url).catch(() => {});
-        // Re-apply the pane layout once loaded (defensive: ensures the page sits
-        // in its pane even if the initial position didn't stick). Pane-aware so a
-        // split pane lands in its half, not the full card.
-        if (paneLayout().some((p) => p.tab.id === tabId)) scheduleRelayout();
-        // Re-apply this host's saved zoom (#36).
-        const z = zoomFor(hostOfUrl(url));
-        if (z !== 1) void webviewZoom(tabId, z).catch(() => {});
-        // Predictive prefetch (#103): learn this navigation transition, then
-        // preconnect to the hosts the model expects you to visit next from here.
-        if (url.startsWith("http")) {
-          // Sentinel (ADR 0013), in two passes. First: every deterministic
-          // check in one round trip — instant, no model, no page content.
-          void sentinelOnNavigate(url)
-            .then((a) => {
-              setPhish(tabId, a.phishing);
-              setOAuth(tabId, a.oauth);
-              setSensitive(tabId, a.sensitive, url);
-            })
-            .catch(() => {});
-          // Then, once capture.js has delivered the page text, the model-backed
-          // pass: refine/clear the phishing verdict and decode a consent banner.
-          // Dropped if the tab has since navigated away (stale-banner race).
-          setTimeout(() => {
-            const still = () => tabs().find((t) => t.id === tabId)?.url === url;
-            if (!still()) return;
-            void sentinelAfterLoad(url, tabs().find((t) => t.id === tabId)?.title ?? "")
+    holdListener(
+      onTabLoaded((tabId, url, phase) => {
+        updateTabUrl(tabId, url);
+        setTabLoading(tabId, phase === "started"); // stop/reload swap + progress (#31)
+        if (phase === "started") {
+          setPhish(tabId, null); // clear stale phishing verdict while navigating
+          setOAuth(tabId, null); // …and any prior OAuth consent review
+          setSensitive(tabId, null); // …and any containerization offer
+          setConsent(tabId, null); // …and any cookie-consent decode
+        }
+        if (phase === "finished") {
+          // Sync the live url to the backend so the persisted session (#19)
+          // reflects where the tab actually is, not its creation url.
+          void tabSetUrl(tabId, url).catch(() => {});
+          // Re-apply the pane layout once loaded (defensive: ensures the page sits
+          // in its pane even if the initial position didn't stick). Pane-aware so a
+          // split pane lands in its half, not the full card.
+          if (paneLayout().some((p) => p.tab.id === tabId)) scheduleRelayout();
+          // Re-apply this host's saved zoom (#36).
+          const z = zoomFor(hostOfUrl(url));
+          if (z !== 1) void webviewZoom(tabId, z).catch(() => {});
+          // Predictive prefetch (#103): learn this navigation transition, then
+          // preconnect to the hosts the model expects you to visit next from here.
+          if (url.startsWith("http")) {
+            // Sentinel (ADR 0013), in two passes. First: every deterministic
+            // check in one round trip — instant, no model, no page content.
+            void sentinelOnNavigate(url)
               .then((a) => {
-                if (!still()) return;
                 setPhish(tabId, a.phishing);
-                setConsent(tabId, a.consent);
+                setOAuth(tabId, a.oauth);
+                setSensitive(tabId, a.sensitive, url);
               })
               .catch(() => {});
-          }, 1500);
-          const prev = prevUrlByTab.get(tabId);
-          if (prev && prev !== url && prev.startsWith("http")) {
-            void prefetchRecord(prev, url).catch(() => {});
+            // Then, once capture.js has delivered the page text, the model-backed
+            // pass: refine/clear the phishing verdict and decode a consent banner.
+            // Dropped if the tab has since navigated away (stale-banner race).
+            setTimeout(() => {
+              const still = () => tabs().find((t) => t.id === tabId)?.url === url;
+              if (!still()) return;
+              void sentinelAfterLoad(url, tabs().find((t) => t.id === tabId)?.title ?? "")
+                .then((a) => {
+                  if (!still()) return;
+                  setPhish(tabId, a.phishing);
+                  setConsent(tabId, a.consent);
+                })
+                .catch(() => {});
+            }, 1500);
+            const prev = prevUrlByTab.get(tabId);
+            if (prev && prev !== url && prev.startsWith("http")) {
+              void prefetchRecord(prev, url).catch(() => {});
+            }
+            prevUrlByTab.set(tabId, url);
+            void prefetchHints(url, 4)
+              .then((hints) => {
+                const hosts = (hints ?? []).map((h) => h.host);
+                if (hosts.length) void webviewPreconnect(tabId, hosts).catch(() => {});
+              })
+              .catch(() => {});
           }
-          prevUrlByTab.set(tabId, url);
-          void prefetchHints(url, 4)
-            .then((hints) => {
-              const hosts = (hints ?? []).map((h) => h.host);
-              if (hosts.length) void webviewPreconnect(tabId, hosts).catch(() => {});
-            })
-            .catch(() => {});
         }
-      }
-    });
+      }),
+    );
     // Web panel unread badges (#48): a panel reports its title's (N) count.
-    const unBadge = await onPanelBadge((id, count) => setPanelBadge(id, count));
-    onCleanup(() => {
-      unClusters();
-      unExtOpen();
-      unPermAsk();
-      unVaultSaved();
-      unSavePrompt();
-      unInputWarn();
-      unShortcut();
-      unFullscreen();
-      unOpenUrl();
-      unFind();
-      unLoaded();
-      unBadge();
-    });
+    holdListener(onPanelBadge((id, count) => setPanelBadge(id, count)));
   });
 
   // Capture a tab's scroll/form state the moment you switch away from it (#45),
@@ -1479,6 +1511,9 @@ const App: Component = () => {
       case "toggle-agent":
         setAgentOpen((v) => !v);
         return true;
+      case "toggle-editor":
+        setEditorColOpen(!editorColOpen());
+        return true;
       case "toggle-sidebar":
         setSidebarOpen((v) => !v);
         return true;
@@ -1752,40 +1787,42 @@ const App: Component = () => {
           </Suspense>
         }
       >
-        <Sidebar
-          collapsed={!responsive().sidebar}
-          terminalOpen={terminalOpen()}
-          agentOpen={agentOpen()}
-          onNavigate={go}
-          onToggleSidebar={() => setSidebarOpen((v) => !v)}
-          onToggleTerminal={() => setTerminalOpen((v) => !v)}
-          onToggleAgent={() => setAgentOpen((v) => !v)}
-          onSaveToOmni={saveToOmni}
-          onToast={(m) => {
-            toast(m, "ok", 2800);
-          }}
-          onAiSearch={(q) => {
-            if (aiAnswersOn()) {
-              setAgentOpen(true);
-              setPendingAsk(q);
-            }
-          }}
-          onSwitchWorkspace={switchWorkspace}
-          onNewWorkspace={newWorkspace}
-          onDeleteWorkspace={removeWorkspace}
-          onSendTabToWorkspace={sendTabToWs}
-          onSendGroupToWorkspace={sendGroupToWs}
-          onZoomReset={() => zoom("reset")}
-          onToggleReader={toggleReader}
-          onCapture={capturePage}
-          onArchive={saveToArchive}
-          onTranslate={() => void translatePage(myLang)}
-          onToggleBookmark={toggleBookmark}
-          isBookmarked={() => bookmarkedId() != null}
-          onToggleFilesPanel={() => (filesPanelOpen() ? closeFilesPanel() : openFilesPanel())}
-          onOpenPlayground={() => (playgroundOpen() ? closePlayground() : openPlayground())}
-          onOpenNotebook={() => (kbPanelOpen() ? closeKbPanel() : openKbPanel())}
-        />
+        <Suspense>
+          <Sidebar
+            collapsed={!responsive().sidebar}
+            terminalOpen={terminalOpen()}
+            agentOpen={agentOpen()}
+            onNavigate={go}
+            onToggleSidebar={() => setSidebarOpen((v) => !v)}
+            onToggleTerminal={() => setTerminalOpen((v) => !v)}
+            onToggleAgent={() => setAgentOpen((v) => !v)}
+            onSaveToOmni={saveToOmni}
+            onToast={(m) => {
+              toast(m, "ok", 2800);
+            }}
+            onAiSearch={(q) => {
+              if (aiAnswersOn()) {
+                setAgentOpen(true);
+                setPendingAsk(q);
+              }
+            }}
+            onSwitchWorkspace={switchWorkspace}
+            onNewWorkspace={newWorkspace}
+            onDeleteWorkspace={removeWorkspace}
+            onSendTabToWorkspace={sendTabToWs}
+            onSendGroupToWorkspace={sendGroupToWs}
+            onZoomReset={() => zoom("reset")}
+            onToggleReader={toggleReader}
+            onCapture={capturePage}
+            onArchive={saveToArchive}
+            onTranslate={() => void translatePage(myLang)}
+            onToggleBookmark={toggleBookmark}
+            isBookmarked={() => bookmarkedId() != null}
+            onToggleFilesPanel={() => (filesPanelOpen() ? closeFilesPanel() : openFilesPanel())}
+            onOpenPlayground={() => (playgroundOpen() ? closePlayground() : openPlayground())}
+            onOpenNotebook={() => (kbPanelOpen() ? closeKbPanel() : openKbPanel())}
+          />
+        </Suspense>
       </Show>
       <ContentArea
         onNavigate={go}
@@ -1795,7 +1832,9 @@ const App: Component = () => {
         onSleepBackground={sleepBackgroundTabs}
       />
       <Show when={panelColVisible()}>
-        <WebPanelPane onNavigate={go} />
+        <Suspense>
+          <WebPanelPane onNavigate={go} />
+        </Suspense>
       </Show>
       {/* Flux pages + terminal apps, vertical, immediately left of the dock —
           they cost width here instead of the card's height (see BarsColumn). */}
@@ -1831,7 +1870,9 @@ const App: Component = () => {
               class="rightstack-slot"
               style={{ "flex-grow": String(agentColVisible() ? 1 - stackRatio() : 1) }}
             >
-              <TerminalColumn />
+              <Suspense>
+                <TerminalColumn />
+              </Suspense>
             </div>
           </Show>
         </div>
@@ -1937,8 +1978,15 @@ const App: Component = () => {
       <Show when={trackerGraphOpen()}>
         <TrackerGraph />
       </Show>
-      {/* Pinned apps (#131): bottom-right launcher + a floating pane per open app. */}
-      <AppDock />
+      {/* Pinned apps (#131): bottom-right launcher + a floating pane per open app.
+          FLUX_APPS is empty on the phone (apps.ts), so the dock has nothing to
+          show there — skip it outright rather than mount an empty rail, which
+          also keeps its chunk off the mobile boot path. */}
+      <Show when={!isMobile}>
+        <Suspense>
+          <AppDock />
+        </Suspense>
+      </Show>
       <For each={openAppIds()}>
         {(id, i) => {
           const app = FLUX_APPS.find((a) => a.id === id);

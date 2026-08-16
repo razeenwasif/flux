@@ -1,8 +1,9 @@
 // Timer / stopwatch / alarm state + firing (BACKLOG #134). Module-level so it
 // survives leaving the start page — the widget is only the control surface. A
-// single always-on driver (started from App) checks for elapsed timers/alarms
-// and rings; timings are stored as absolute targets (endsAt / epoch) so they're
-// immune to interval throttling when the window is backgrounded.
+// single driver (started from App) checks for elapsed timers/alarms and rings;
+// it runs only while something is actually scheduled, see `syncDriver` below.
+// Timings are stored as absolute targets (endsAt / epoch) so they're immune to
+// interval throttling when the window is backgrounded.
 import { createSignal } from "solid-js";
 import { osNotify } from "./ipc";
 
@@ -65,11 +66,13 @@ export function timerStartPause(): void {
     setTimerEndsAt(Date.now() + rem);
     setTimerRunning(true);
   }
+  syncDriver();
 }
 export function timerReset(): void {
   setTimerRunning(false);
   setTimerEndsAt(null);
   timerPaused = timerTotal();
+  syncDriver();
 }
 export function timerBump(ms: number): void {
   if (timerRunning() && timerEndsAt() != null) setTimerEndsAt(Math.max(Date.now(), timerEndsAt()! + ms));
@@ -93,10 +96,16 @@ export interface Alarm {
 const [alarms, setAlarms] = createSignal<Alarm[]>([]);
 export { alarms };
 
+// Alarm ids were `a${Date.now()}`, which collides for two alarms created in the
+// same millisecond — and since removeAlarm/toggleAlarm match by id, the collision
+// deletes or toggles both. Unreachable by hand, reachable by anything scripted.
+let alarmSeq = 0;
+
 export function addAlarm(time: string, label: string): void {
   if (!/^\d{2}:\d{2}$/.test(time)) return;
+  const id = `a${Date.now()}-${alarmSeq++}`;
   setAlarms((a) =>
-    [...a, { id: `a${Date.now()}`, time, label: label.trim(), enabled: true, lastMin: 0 }].sort((x, y) =>
+    [...a, { id, time, label: label.trim(), enabled: true, lastMin: 0 }].sort((x, y) =>
       x.time.localeCompare(y.time),
     ),
   );
@@ -134,6 +143,7 @@ export function snoozeRing(min = 5): void {
   const r = ringing();
   dismissRing();
   if (r) setSnoozeUntil({ at: Date.now() + min * 60_000, label: r.label });
+  syncDriver();
 }
 
 let actx: AudioContext | null = null;
@@ -175,11 +185,41 @@ function stopBeeping(): void {
 }
 
 // ── Driver ───────────────────────────────────────────────────────────────────
+// The driver runs only while something can actually fire. It used to be a 500 ms
+// interval started at boot and never stopped — two CPU wakeups a second for the
+// whole session, running a scan that finds nothing unless you have a running
+// timer, a pending snooze, or an enabled alarm. Free enough on a plugged-in
+// desktop; not free on a phone.
+//
+// Arming is driven by `syncDriver()` rather than a reactive effect, because this
+// module is evaluated outside any Solid root and an effect here would have no
+// owner. Every mutator calls it, and so does the end of each tick — so the timer
+// stands itself down as soon as the last piece of work clears.
 let driver = 0;
+let booted = false;
+
+/** True while a timer, a snooze, or an enabled alarm could still fire. */
+function hasPendingWork(): boolean {
+  return timerRunning() || snoozeUntil() != null || alarms().some((a) => a.enabled);
+}
+
+function syncDriver(): void {
+  // Before startClockDriver() the persisted state isn't loaded yet, so any
+  // answer here would be about an empty store.
+  if (!booted) return;
+  const want = hasPendingWork();
+  if (want && !driver) driver = window.setInterval(clockTick, 500);
+  else if (!want && driver) {
+    clearInterval(driver);
+    driver = 0;
+  }
+}
+
 export function startClockDriver(): void {
-  if (driver) return;
+  if (booted) return;
+  booted = true;
   loadPersisted();
-  driver = window.setInterval(clockTick, 500);
+  syncDriver();
 }
 function clockTick(): void {
   if (timerRunning() && timerRemaining() <= 0) fireTimer();
@@ -200,10 +240,17 @@ function clockTick(): void {
       ring("alarm", a.label || `Alarm · ${a.time}`);
     }
   }
+
+  // A timer that just fired, or a snooze that just elapsed, may have been the
+  // only thing keeping the driver alive.
+  syncDriver();
 }
 
 // ── Persistence (alarms + configured timer length) ───────────────────────────
 function persist(): void {
+  // Every alarm mutation and the timer-length setter funnel through here, so
+  // this is the one place that has to notice an alarm being added or disabled.
+  syncDriver();
   try {
     localStorage.setItem("flux.clocks", JSON.stringify({ alarms: alarms(), timerTotal: timerTotal() }));
   } catch {

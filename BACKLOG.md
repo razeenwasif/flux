@@ -385,3 +385,10 @@ only remaining pieces are engine-gated (noted per item).
   body text is a detectable shape, and saying "the page hasn't rendered yet"
   beats confidently describing the placeholder; (d) a page that never finishes
   loading still yields a placeholder snapshot with no indication it's stale.
+
+## Epic: Mobile (ADR 0012)
+
+| # | P | Item |
+|---|---|---|
+| 184 | P2 | **The stylesheet is the last unbudgeted eager cost.** `theme.css` is 17k lines → 251 KB raw / 41.5 KB gzipped, render-blocking in `<head>`, and shipped whole to every platform. The perf gate (`scripts/perf-budget.mjs`) measures eager **JS** only, so this has never been held to a number — and after the mobile pass took eager JS to 51.9 KB, the stylesheet is the larger of the two. Two separable pieces: **(a)** add a `chrome-css-gzip` budget so it stops being invisible; **(b)** split it — a large fraction is per-page styling (Files, Playground, Scribe, Trail, Settings…) for surfaces that are already lazy chunks, so those rules could ride with their chunk instead of blocking first paint everywhere. (b) is the real win and the bigger job; (a) is an afternoon and should come first, since a budget on a number nobody measures is how it got here. |
+| 185 | P2 | **Mobile layouts for the desktop-shaped internal pages.** The phone build now strips the desktop chrome and goes full-bleed, but the pages *inside* the card are still laid out for a wide window — the Files view keeps its sidebar + table two-pane split at 390px, and Settings/Notebook/Trail are similarly wide-first. Nothing is broken, it's just cramped. Wants a pass per page, not a global rule; the `.shell.mobile` hook and `html.mobile` root class are already there to hang it on. |

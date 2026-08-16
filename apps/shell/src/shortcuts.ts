@@ -17,6 +17,7 @@ export type ShortcutAction =
   | "prev-tab"
   | "toggle-terminal"
   | "toggle-agent"
+  | "toggle-editor"
   | "toggle-sidebar"
   | "focus-address"
   | "palette"
@@ -74,6 +75,7 @@ export function keyToAction(e: KeyboardEvent): ShortcutAction | null {
     if (k === "t") return "reopen-tab"; // Ctrl/Cmd+Shift+T → reopen last closed tab
     // (terminal: Ctrl+` toggles the column; sidebar has a Terminal-tab button)
     if (k === "a") return "toggle-agent";
+    if (k === "e") return "toggle-editor"; // Ctrl/Cmd+Shift+E → toggle nvim / editor column
     if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
     if (k === "r") return "shell-history"; // Ctrl/Cmd+Shift+R → semantic shell-history search
     // Ctrl/Cmd+Shift+K → search spotlight. Deliberately next to the palette's

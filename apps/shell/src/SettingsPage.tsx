@@ -102,6 +102,7 @@ import {
   audiopulseDir,
   setAudiopulseDir,
   bookmarkBarOpen,
+  editorColOpen,
   darkMode,
   autoArchiveDays,
   setAutoArchiveDays,
@@ -115,6 +116,7 @@ import {
   searchSuggestOn,
   setAiAnswersOn,
   setBookmarkBarOpen,
+  setEditorColOpen,
   setDarkMode,
   setHibernateEnabled,
   setHibernateMins,
@@ -696,6 +698,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Row>
           <Row label="Bookmark bar" hint="A chip row docked under the page for one-click bookmarks.">
             <Toggle on={bookmarkBarOpen()} onClick={() => setBookmarkBarOpen(!bookmarkBarOpen())} />
+          </Row>
+          <Row
+            label="Editor column (nvim)"
+            hint="A persistent editor column (nvim) pinned beside the main page (Ctrl+Shift+E)."
+          >
+            <Toggle on={editorColOpen()} onClick={() => setEditorColOpen(!editorColOpen())} />
           </Row>
           <Row
             label="Pages bar"

@@ -14929,9 +14929,80 @@ input[type="radio"].pdf-fw {
   display: none !important;
 }
 
-/* The content card fills the single grid cell. */
+/* No backdrop blur on the phone. `--glass-blur` is `saturate(180%) blur(40px)`,
+   and a phone GPU pays for that very differently from a desktop one: every
+   blurred element becomes its own compositing layer whose backdrop is re-sampled
+   and re-blurred on any frame that touches it. Desktop absorbs it; a mid-range
+   Android does not, and it is the top bar — permanently on screen — that pays
+   the most.
+
+   Almost nothing is lost visually. The mobile blur surfaces sit above the shell
+   background (a static gradient) rather than above page content, because each
+   tab is a native WebView layered over the HTML and can't be blurred through
+   anyway. So the blur was resampling a fixed gradient every frame. Keeping the
+   fill, rim and shadow keeps the material reading as Flux.
+
+   This is the same trade `body.busy` already makes during a desktop resize
+   (#79); the phone is simply always in that state.
+
+   Set on <html> as well as the shell so Portal'd overlays — which live outside
+   `.shell` on purpose — inherit it too (platform.ts adds the root class). */
+html.mobile {
+  --glass-blur: none;
+}
+
+/* The handful of surfaces that hardcode a blur instead of using the token, so
+   the override above can't reach them. Listed explicitly rather than swept up
+   with `html.mobile *`, which would make every element in the tree a selector
+   match and trade one cost for another. */
+html.mobile .files-menu,
+html.mobile .files-confirm-backdrop,
+html.mobile .pg-over,
+/* The dock doesn't render on mobile at all (App gates it), so this one is
+   belt-and-braces — but an invariant with an exception list isn't one. */
+html.mobile .appdock-btn {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.shell.mobile {
+  --glass-blur: none;
+
+  /* Same reasoning for the shell's own backdrop: four stacked radial gradients
+     get painted and then hidden behind the page's WebView. One linear gradient
+     keeps the velvet visible behind the drawer and the start page. */
+  background-image: linear-gradient(160deg, var(--velvet-700), var(--velvet-900));
+
+  /* The mobile grid is a fixed `1fr` — nothing animates it, so the desktop
+     column transition (and its `will-change`, which permanently promotes a
+     layer) is pure cost here. */
+  transition: none;
+  will-change: auto;
+}
+
+/* The content card fills the single grid cell — full-bleed, edge to edge.
+   The desktop chrome frames the page: 12px of velvet around a rounded, bordered
+   card. That framing reads as craft on a 27" display and as wasted screen on a
+   6" one, where those margins are a visible band of nothing down all four sides.
+   Phone browsers don't frame the page, and neither should this one.
+
+   `.card` is `#flux-web-area` — the element whose rect the native WebView is
+   positioned from (tiling.ts) — so dropping the inset here doesn't just restyle
+   a box, it hands the page the extra pixels. The ResizeObserver already watches
+   this element, so the re-tile happens on its own.
+
+   Squaring the corners is worth having on its own: a rounded, overflow-hidden
+   card forces the compositor to clip its contents against a rounded mask every
+   frame. Nothing to clip against once the radius is zero. */
 .shell.mobile .content {
   grid-area: content;
+  padding: 0;
+}
+.shell.mobile .content > .card,
+.shell.mobile .content-row > .card {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* The mobile menu drawer (replaces the desktop sidebar on the phone). */

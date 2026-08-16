@@ -33,6 +33,7 @@
     if (mod && e.shiftKey && !e.altKey) {
       if (k === "t") return "reopen-tab"; // reopen last closed tab (mirror of shortcuts.ts)
       if (k === "a") return "toggle-agent";
+      if (k === "e") return "toggle-editor";
       if (k === "o") return "save-to-omni"; // Ctrl/Cmd+Shift+O → save page to Omni
       if (k === "r") return "shell-history"; // Ctrl/Cmd+Shift+R → semantic shell-history search
       if (k === "k") return "spotlight"; // Ctrl/Cmd+Shift+K → search spotlight

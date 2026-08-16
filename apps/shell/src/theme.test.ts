@@ -90,3 +90,65 @@ describe("scrollbar styling", () => {
     }
   });
 });
+
+/**
+ * Mobile GPU cost. `--glass-blur` is `saturate(180%) blur(40px)`, and a phone
+ * pays for that very differently from a desktop: each blurred element becomes
+ * its own compositing layer whose backdrop is re-sampled and re-blurred on any
+ * frame that touches it. The phone build therefore sets `--glass-blur: none`.
+ *
+ * That override only reaches surfaces that go through the token. A new glass
+ * panel that hardcodes its own `blur(...)` would opt straight back into the
+ * cost, on a platform nobody tests on, with no symptom other than the UI
+ * feeling slow — which is exactly how this got expensive in the first place.
+ */
+describe("mobile backdrop blur", () => {
+  /** Selector → value for every `backdrop-filter` declaration in the sheet. */
+  const backdropRules = (): { selector: string; value: string }[] => {
+    const out: { selector: string; value: string }[] = [];
+    for (const m of css.matchAll(/backdrop-filter:\s*([^;]+);/g)) {
+      // Walk back to the `{` that opens this block, then to the end of the
+      // previous block/comment — what's between them is the selector list.
+      const open = css.lastIndexOf("{", m.index);
+      if (open < 0) continue;
+      const prev = Math.max(
+        css.lastIndexOf("}", open),
+        css.lastIndexOf("{", open - 1),
+        css.lastIndexOf("*/", open),
+      );
+      out.push({
+        selector: css
+          .slice(prev + 1, open)
+          .replace(/\s+/g, " ")
+          .trim(),
+        value: m[1]!.trim(),
+      });
+    }
+    return out;
+  };
+
+  it("routes every blur through the token, or neutralises it for mobile", () => {
+    const rules = backdropRules();
+    expect(rules.length).toBeGreaterThan(10); // the sheet really was scanned
+
+    // Selectors the mobile block explicitly resets. Kept as literals so adding a
+    // hardcoded blur forces a deliberate choice here rather than passing quietly.
+    const neutralised = ["files-menu", "files-confirm-backdrop", "pg-over", "appdock-btn"];
+
+    const offenders = rules
+      .filter((r) => !r.value.includes("var(--glass-blur)") && r.value !== "none")
+      .filter((r) => !r.selector.startsWith("html.mobile"))
+      .filter((r) => !neutralised.some((n) => r.selector.includes(n)))
+      .map((r) => `${r.selector} → ${r.value}`);
+
+    expect(offenders, "hardcoded backdrop-filter with no mobile escape").toEqual([]);
+  });
+
+  it("turns the token off on the phone, at both roots", () => {
+    // `.shell.mobile` covers the shell tree; `html.mobile` covers overlays that
+    // are Portal'd to <body> to escape a backdrop-filtered ancestor, which puts
+    // them outside `.shell` entirely.
+    expect(ruleBody("html.mobile") ?? "").toContain("--glass-blur: none");
+    expect(ruleBody(".shell.mobile") ?? "").toContain("--glass-blur: none");
+  });
+});

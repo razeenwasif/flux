@@ -60,6 +60,8 @@ import {
   deleteContainer,
   deleteFolder,
   deleteGroup,
+  editorColOpen,
+  setEditorColOpen,
   filesPanelOpen,
   focusTab,
   folderTabs,
@@ -1967,6 +1969,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
             onClick={props.onToggleTerminal}
           >
             <Icon name="terminal" />
+          </button>
+          <button
+            classList={{ "icon-btn": true, active: editorColOpen() }}
+            title="Editor / Nvim Column (Ctrl+Shift+E)"
+            onClick={() => setEditorColOpen(!editorColOpen())}
+          >
+            <Icon name="editor" />
           </button>
           <button
             classList={{ "icon-btn": true, active: props.agentOpen }}

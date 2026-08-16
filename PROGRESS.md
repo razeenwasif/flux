@@ -1,5 +1,28 @@
 # Flux Progress
 
+## 2026-08-16: Add toggles and shortcuts for the nvim workspace / editor column
+
+### Problem
+Users needed convenient ways to toggle on/off the persistent nvim workspace / editor column beside the main page. While a command existed in the Command Palette, there was no keyboard shortcut, no dedicated sidebar footer button, and no entry in the Settings page.
+
+### Fix
+1. **Sidebar Footer Toggle:** Added a dedicated `<Icon name="editor" />` button to the sidebar footer (between Terminal and Agent buttons) that reflects active state and toggles `editorColOpen`.
+2. **Keyboard Shortcut (`Ctrl+Shift+E` / `Cmd+Shift+E`):**
+   - Added `"toggle-editor"` to `ShortcutAction` in `apps/shell/src/shortcuts.ts`.
+   - Mirrored the chord in `crates/flux-core/assets/shortcuts.js` for native webviews.
+   - Added `"toggle-editor"` to `terminalSafe` in `App.tsx` and handled the action in the `dispatch` loop.
+3. **Settings Page:** Added a toggle row under the Appearance section in `SettingsPage.tsx`.
+4. **Icons:** Added SVG geometry for `editor` icon adhering to the 24x24 grid in `Icon.tsx`.
+
+### Files Changed
+- `apps/shell/src/shortcuts.ts`
+- `crates/flux-core/assets/shortcuts.js`
+- `apps/shell/src/Icon.tsx`
+- `apps/shell/src/Sidebar.tsx`
+- `apps/shell/src/App.tsx`
+- `apps/shell/src/SettingsPage.tsx`
+- `PROGRESS.md`
+
 ## 2026-06-19: Fix file explorer hangs from blocking filesystem work
 
 ### Problem
