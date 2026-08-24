@@ -88,6 +88,7 @@ import {
   webviewPreconnect,
   webviewCaptureState,
   webviewHibernate,
+  webviewMemoryLow,
   webviewHide,
   webviewNavigate,
   webviewReload,
@@ -111,6 +112,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import ContentArea from "./ContentArea";
 import { installDwellCapture } from "./trail";
 import { keyToAction } from "./shortcuts";
+import { planTrim } from "./memtrim";
 // Cold chrome (ADR 0001 budget): overlays/panes that render only behind a
 // store-gated <Show>, so their code loads on first open — not at boot.
 const MobileChrome = lazy(() => import("./MobileChrome")); // Android-only chrome (ADR 0012); kept out of the desktop bundle
@@ -556,7 +558,11 @@ const App: Component = () => {
     // genuine memory pressure, the least-recently-used ones. Freed tabs stay in
     // the strip and reload when re-activated (the effect above re-opens any tab
     // not in `openedWebviews`).
+    // Tabs we've asked the engine to trim, so the 60 s timer issues the call once
+    // per background stint rather than every tick.
+    const trimmed = new Set<number>();
     const hibernateTab = (id: number) => {
+      trimmed.delete(id); // the webview is about to be destroyed outright
       forgetWebview(id);
       setHibernated(id, true);
       wv(webviewHibernate(id));
@@ -593,9 +599,25 @@ const App: Component = () => {
       // list. Runs BEFORE the live-bg bail (stale tabs are usually hibernated).
       // Lazily imported — sweep logic stays out of the boot bundle.
       void import("./staleSweep").then((m) => m.runStaleSweep(now));
+      const bg = liveBackground(act);
+      // Memory trim — the cheap half of hibernation. WebView2 will GC a tab and
+      // drop its decoded image/font caches without unloading it, so unlike
+      // sleeping there is nothing to restore and nothing to reload: coming back
+      // is a repaint. That earns it a far shorter fuse than `hibernateMins`, and
+      // it applies to tabs hibernation would never touch — sleeping is gated on
+      // the user's setting, this isn't, because it costs the user nothing.
+      // Runs before the empty-bg bail so a tab returning to view is un-noted.
+      const plan = planTrim(
+        bg.map((t) => ({ id: t.id, idleMs: now - (lastActive.get(t.id) ?? now) })),
+        trimmed,
+      );
+      for (const id of plan.forget) trimmed.delete(id);
+      for (const id of plan.trim) {
+        trimmed.add(id);
+        void webviewMemoryLow(id).catch(() => {});
+      }
       // Nothing live in the background → no idle-sleep candidates and no reason
       // to scan system memory. Bail before the sysinfo IPC (the periodic cost).
-      const bg = liveBackground(act);
       if (bg.length === 0) return;
       // Idle-timeout sleep.
       if (hibernateEnabled()) {

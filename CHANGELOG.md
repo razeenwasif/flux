@@ -10,6 +10,29 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ### Added
 - **Nvim editor column toggle shortcut, footer button, and setting (#174).** Added `Ctrl+Shift+E` / `Cmd+Shift+E` keyboard shortcut (also forwarded from page webviews and terminal), a dedicated sidebar footer icon button, and an Appearance setting toggle to easily show or hide the persistent editor column.
 
+### Added
+- **Background tabs are trimmed without being unloaded (#186).** WebView2 exposes
+  `ICoreWebView2_19::SetMemoryUsageTargetLevel`, which at `LOW` runs V8's GC and drops a tab's
+  decoded image and font caches and unrendered GPU textures — **without unloading the page**. The
+  DOM, JS heap, scroll position and form contents all survive, so coming back is a repaint, not a
+  reload.
+
+  That makes it the cheap half of hibernation, and it earns a much shorter fuse: a tab is trimmed
+  after **60 s** in the background, against a 30-minute default for sleeping. It also applies to
+  tabs hibernation would never touch, because sleeping is gated on the user's setting and this
+  isn't — there is nothing for them to lose. The two compose: trim on background, sleep if idle.
+
+  Deliberately **not** wired into `webview_hide`, which is the obvious-looking seam and the wrong
+  one: hide also fires mid-splitter-drag and whenever an overlay opens, so hanging the trim there
+  would force a GC and an image-cache flush on the tab you are actively looking at, once per drag.
+  Instead the chrome decides *which* tabs, reusing the hibernation sweep that already owns that
+  policy; Rust restores the normal budget in `webview_show`.
+
+  Windows-only — WebKitGTK has no equivalent knob, so it's a documented no-op on Linux, the same
+  shape as `enable_http3`. The trim/forget policy is a pure function (`memtrim.ts`) with tests,
+  because both failure modes are silent: forget too eagerly and you re-trim on a loop; forget too
+  late and a tab that came back is never trimmed again.
+
 ### Changed
 - **Mobile performance pass (ADR 0012).** Flux felt slow on the phone. Four things were paying
   desktop prices on hardware that can't afford them.

@@ -616,6 +616,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "webview_stop":
     case "webview_find":
     case "webview_hibernate":
+    case "webview_memory_low":
     case "webview_capture_state":
       return Promise.resolve(undefined as T);
     case "mem_status":

@@ -19,7 +19,7 @@
 
 #[cfg(desktop)]
 mod real {
-    use tauri::webview::{PageLoadEvent, WebviewBuilder};
+    use tauri::webview::{PageLoadEvent, Webview, WebviewBuilder};
     use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
     use crate::state::TabId;
@@ -336,10 +336,89 @@ mod real {
     #[tauri::command]
     pub async fn webview_show(app: AppHandle, tab_id: TabId) -> Result<(), String> {
         if let Some(wv) = app.get_webview(&label(tab_id)) {
+            // Undo any background trim *before* the page is on screen, so it
+            // re-decodes into a normal budget rather than a starved one. Cheap and
+            // idempotent when the tab was never trimmed, which is the common case
+            // (show also fires at the end of a splitter drag).
+            set_memory_target(&wv, false);
             wv.show().map_err(|e| e.to_string())?;
             let _ = wv.set_focus();
         }
         Ok(())
+    }
+
+    /// Trim a backgrounded tab's memory without unloading it (idea 1 of the memory
+    /// pass). See `set_memory_target`; the chrome decides *which* tabs, because it
+    /// already owns that policy for hibernation.
+    #[tauri::command]
+    pub async fn webview_memory_low(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+        if let Some(wv) = app.get_webview(&label(tab_id)) {
+            set_memory_target(&wv, true);
+        }
+        Ok(())
+    }
+
+    /// Ask the engine to trim (or restore) a tab's memory in place.
+    ///
+    /// WebView2 exposes exactly the knob a browser wants for a tab whose state you
+    /// still need: at `LOW` it runs V8's GC, drops decoded image and font caches and
+    /// releases unrendered GPU textures — **without unloading the page**. Nothing is
+    /// lost but the caches; the DOM, JS heap, scroll position and form contents all
+    /// survive, so coming back is a repaint rather than a reload.
+    ///
+    /// That is what distinguishes it from `webview_hibernate`, which frees far more
+    /// by destroying the webview outright and pays for it with a reload plus a
+    /// scroll/form restore. The two are meant to compose: trim a tab when it goes
+    /// background, hibernate it if it stays idle long enough.
+    ///
+    /// Deliberately **not** wired into `webview_hide`. Hide also fires for transient
+    /// reasons — mid-splitter-drag, and whenever an overlay opens (`tiling.ts`) —
+    /// and forcing a GC plus an image-cache flush on the tab you are actively
+    /// looking at, once per drag, would cost more than it saves.
+    fn set_memory_target(wv: &Webview, low: bool) {
+        mem_target::apply(wv, low);
+    }
+
+    /// WebView2 (`ICoreWebView2_19::SetMemoryUsageTargetLevel`), Edge 114+.
+    #[cfg(windows)]
+    mod mem_target {
+        use tauri::webview::Webview;
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+        };
+        use windows::core::Interface;
+
+        pub fn apply(webview: &Webview, low: bool) {
+            let _ = webview.with_webview(move |platform| unsafe {
+                let core = match platform.controller().CoreWebView2() {
+                    Ok(c) => c,
+                    Err(_) => return,
+                };
+                // `_19` is Edge 114+. On an older runtime the cast simply fails,
+                // which means "no trimming available" — not an error worth raising
+                // at a user who cannot act on it.
+                let core19 = match core.cast::<ICoreWebView2_19>() {
+                    Ok(c) => c,
+                    Err(_) => return,
+                };
+                let level = if low {
+                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+                } else {
+                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+                };
+                let _ = core19.SetMemoryUsageTargetLevel(level);
+            });
+        }
+    }
+
+    /// WebKitGTK has no equivalent knob, so this is a documented no-op rather than
+    /// a silent one — the same shape as `enable_http3` on Linux.
+    #[cfg(not(windows))]
+    mod mem_target {
+        use tauri::webview::Webview;
+
+        pub fn apply(_webview: &Webview, _low: bool) {}
     }
 
     #[tauri::command]
@@ -1175,6 +1254,7 @@ mod stub {
     noop_cmd!(webview_preconnect(tab_id: TabId, hosts: Vec<String>));
     noop_cmd!(webview_devtools(tab_id: TabId));
     noop_cmd!(webview_hibernate(tab_id: TabId));
+    noop_cmd!(webview_memory_low(tab_id: TabId));
     noop_cmd!(webview_capture_state(tab_id: TabId));
     noop_cmd!(webview_stop(tab_id: TabId));
     noop_cmd!(webview_find(tab_id: TabId, query: String, forward: bool));

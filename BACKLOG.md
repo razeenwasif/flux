@@ -386,6 +386,20 @@ only remaining pieces are engine-gated (noted per item).
   beats confidently describing the placeholder; (d) a page that never finishes
   loading still yields a placeholder snapshot with no indication it's stale.
 
+## Epic: Memory footprint
+
+Reviewed as a batch (2026-08-24). #186 (WebView2 `MemoryUsageTargetLevel`) shipped;
+what's left is recorded here with the reasoning, including the two ideas that were
+examined and **rejected** — so they don't get re-proposed.
+
+| # | P | Item |
+|---|---|---|
+| 187 | P2 | **Hard cap on live webviews.** Hibernation today is *reactive*: a tab sleeps after `hibernateMins` idle (default 30) or when `mem_status` reports genuine pressure, ranked Belady-style by `hibernate_rank` (#106). A cap — "never more than N live, whatever the clock says" — is *preventative*, and is the one piece of the tab-pool idea not already shipped (`webview_hibernate` already destroys the webview and drops the DOM cache; `hibernate_capture`/`take_for_restore` already carry scroll+form across the wake). Small delta on the existing sweep in App.tsx. Measure with `docs/perf/memory-benchmark.md` rather than quoting a target. |
+| 188 | P2 | **`--renderer-process-limit=N`, as an explicit isolation trade.** Real and effective for WebView2, but it consolidates renderers that Chromium would otherwise keep in separate processes — so it buys RAM with site isolation, in a browser that also ships a password vault and the Sentinel layer (ADR 0013). Wants a deliberate decision and a measurement, not a perf-flag drive-by. Add it to `compose_browser_args` (`lib.rs`), which already owns `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and dedups — never via a second `set_var`, which would clobber the QUIC flag. |
+| 189 | P3 | **mimalloc as the global allocator.** Cheap and low-risk, but the ceiling is low and worth naming: on Windows the memory is overwhelmingly in `msedgewebview2.exe`, which no Rust allocator can touch. mimalloc also tends to *raise* reported RSS (it reserves segments eagerly), so it can look worse on the benchmark while behaving better. Profile `dom_publish` allocation churn first; if it isn't hot this is unprovable. Note the glibc per-thread-arena fragmentation seen in Omni is a **Linux** pathology — it does not transfer to the Windows MSVC allocator. |
+| — | ✗ | **`EmptyWorkingSet` — rejected, do not implement.** It does not free memory; it evicts pages to the standby list / pagefile. Task Manager's number drops, the commit does not, and the next touch of that tab pays a storm of hard faults — converting "memory we're using" into "memory we're using, plus latency". Since `docs/perf/memory-benchmark.md` measures RSS across the process tree, adding this would move Flux's "lighter than Chrome" number without moving the truth. Windows already reclaims clean pages under pressure. |
+| — | ✗ | **`--disable-features=CalculateNativeWinOcclusion` — rejected.** Occlusion calculation is *how* Chromium learns a window is hidden so it can throttle and free renderers. Disabling it is a workaround for white-flash rendering bugs that costs memory and CPU — the opposite of the intent. |
+
 ## Epic: Mobile (ADR 0012)
 
 | # | P | Item |

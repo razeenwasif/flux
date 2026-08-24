@@ -1383,6 +1383,9 @@ export const webviewReload = (tabId: number) => invoke<void>("webview_reload", {
 export const webviewStop = (tabId: number) => invoke<void>("webview_stop", { tabId });
 /** Hibernate a tab: destroy its webview to free RAM (no clear-on-close). #45 */
 export const webviewHibernate = (tabId: number) => invoke<void>("webview_hibernate", { tabId });
+/** Trim a backgrounded tab's memory in place — GC + drop decoded image/font
+ *  caches — without unloading it. Windows/WebView2 only; a no-op elsewhere. */
+export const webviewMemoryLow = (tabId: number) => invoke<void>("webview_memory_low", { tabId });
 /** Snapshot a tab's scroll/form state before it sleeps, to restore on wake. #45 */
 export const webviewCaptureState = (tabId: number) => invoke<void>("webview_capture_state", { tabId });
 /** Mobile: a tab's cached cover snapshot (base64 data URL), "" if none. Pulled over

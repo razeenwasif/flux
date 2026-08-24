@@ -1164,6 +1164,7 @@ pub fn run(intent: cli::LaunchIntent) {
             webview::webview_preconnect,
             webview::webview_devtools,
             webview::webview_hibernate,
+            webview::webview_memory_low,
             webview::webview_capture_state,
             webview::webview_thumbnail,
             sentinel::sentinel_audit_list,
