@@ -1,12 +1,13 @@
 //! Browser-context bridge for the embedded terminal (BACKLOG #65/#4).
 //!
 //! A `flux` CLI run *inside* the terminal needs the active page's content, but
-//! it's a separate process. On Windows the terminal is usually WSL, whose own
-//! network namespace can't reach a Windows-side loopback socket — so the bridge
-//! is a plain file: Flux writes the active tab's context to
-//! `<app_data>/rpc/active.json`, and the CLI reads it. The path reaches the
-//! shell via `FLUX_RPC_DIR` (+ `WSLENV` `/p`, so WSL sees the translated `/mnt`
-//! path). The CLI side lives in `cli.rs`.
+//! it's a separate process — and it was once a process in another OS entirely
+//! (the terminal used to be WSL, whose network namespace can't reach a
+//! Windows-side loopback socket). So the bridge is a plain file: Flux writes the
+//! active tab's context to `<app_data>/rpc/active.json`, and the CLI reads it.
+//! The path reaches the shell as `FLUX_RPC_DIR` — inherited like any other
+//! variable now that the Windows shell is MSYS2 bash, a native child process.
+//! The CLI side lives in `cli.rs`.
 //!
 //! Only *browser* tabs produce context; switching to a terminal/files tab keeps
 //! the last page's context (you usually want the page you were just looking at).

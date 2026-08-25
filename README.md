@@ -422,7 +422,8 @@ Merges are additive with deletion tombstones, keyed by content rather than id
 ## Terminal
 
 A real, usable dev terminal (ADR 0003): a Rust PTY (`portable-pty`) running your
-`$SHELL` (WSL by default on Windows; `FLUX_SHELL` overrides) with the
+`$SHELL` (on Windows, MSYS2 — or Git-Bash — `bash`, auto-detected; `FLUX_SHELL`
+overrides, and `FLUX_MSYS_ROOT` / `FLUX_MSYSTEM` steer the detection) with the
 `FLUX_TAB_*` context env, rendered by xterm.js. Open it as the **vertical
 column** (the persistent dev shell, ⌨ in the sidebar footer) or as a **Terminal
 tab** (the new-tab picker). xterm is lazy-loaded so it never weighs down the
@@ -442,16 +443,17 @@ different things and neither covers the other:
 Why the pair: a broker keeps your `npm run dev` alive but **dtach restores no
 earlier output** — it asks the program to redraw, so a shell comes back with a
 bare prompt. And a broker dies with the machine, so neither tmux nor dtach
-survives `wsl --shutdown` or a reboot. Scrollback needs nothing installed, works
-on native Windows, and survives a crash *and* a reboot — but the processes are
+survives a reboot. Scrollback needs nothing installed, works even when no POSIX
+shell is present, and survives a crash *and* a reboot — but the processes are
 gone. Together you get the running work and the history.
 
 `dtach` is preferred over `tmux` because it does only this one thing (~50 KB, no
 config, no prefix key) and, since xterm.js is already the terminal emulator,
 avoids running the screen through tmux's emulation a second time. Install either
-in your WSL distro / on Unix (`apt install dtach`); with neither present the live
-half falls back to a plain shell and the scrollback half still works. Force one
-with `FLUX_TERM_ENGINE=dtach|tmux`.
+where your shell lives (`apt install dtach`, `pacman -S tmux` in MSYS2 — which
+has no `dtach` package); with neither present the live half falls back to a plain
+shell and the scrollback half still works. Force one with
+`FLUX_TERM_ENGINE=dtach|tmux`.
 
 `FLUX_TERM_PERSIST` still works as an override for scripted runs and accepts
 `off` / `live` / `transcript` / `both` (`1` remains a synonym for `live`).

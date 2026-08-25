@@ -8,6 +8,18 @@
 export const isMobile: boolean = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
 
 /**
+ * Windows, from the same UA signal (WebView2 always says "Windows NT";
+ * WebKitGTK and the Android WebView never do).
+ *
+ * Also frontend-only and for the same reason: the editor column computes its RPC
+ * address the moment it mounts, and an `await` on a platform IPC would race the
+ * boot command it has to queue. The address differs by platform — a named pipe
+ * on Windows, a Unix socket elsewhere — so this flag has to be readable
+ * synchronously (`editorboot.socketPath`).
+ */
+export const isWindows: boolean = typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent);
+
+/**
  * Mirror the flag onto <html> so CSS can reach surfaces the `.shell.mobile`
  * class can't. Overlays that would be clipped by a backdrop-filtered ancestor
  * are Portal'd to <body>, which puts them outside `.shell` entirely — so a

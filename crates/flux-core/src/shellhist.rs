@@ -2,8 +2,8 @@
 //! ("that ffmpeg command from last week"), not substring.
 //!
 //! Reads the user's real shell history (`~/.bash_history`, `~/.zsh_history`) via
-//! the same exec bridge the embedded terminal uses (so it works across the WSL
-//! boundary on Windows), embeds each unique command with the local hashing
+//! the same exec bridge the embedded terminal uses (so on Windows it reads the
+//! MSYS2 home, where those files are), embeds each unique command with the local hashing
 //! embedder (`flux-embed` — instant, fully on-device, no model needed), and ranks
 //! by cosine similarity to the query. A substring boost keeps literal lookups
 //! exact while the embedding handles fuzzier matches. The corpus lives in memory
@@ -108,7 +108,8 @@ fn cosine(a: &[f32; EMBED_DIM], b: &[f32; EMBED_DIM]) -> f32 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
-/// Read the raw history files through the terminal's shell (handles WSL on Windows).
+/// Read the raw history files through the terminal's shell (MSYS2 on Windows, so
+/// `$HOME` is the same one the terminal writes its history to).
 fn read_history_raw() -> String {
     let script = "echo '@@FLUXBASH@@'; cat \"$HOME/.bash_history\" 2>/dev/null; \
                   echo '@@FLUXZSH@@'; cat \"$HOME/.zsh_history\" 2>/dev/null; \

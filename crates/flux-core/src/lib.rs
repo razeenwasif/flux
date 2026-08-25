@@ -43,6 +43,10 @@ pub mod macros;
 pub mod mail;
 pub mod mem;
 pub mod memory;
+/// The Windows POSIX shell world (MSYS2 / Git-Bash). Nothing to say on Unix,
+/// where `$SHELL` already names it.
+#[cfg(windows)]
+pub mod msys;
 pub mod nav;
 pub mod netfilter;
 pub mod netspeed;

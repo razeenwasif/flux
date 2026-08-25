@@ -8,6 +8,8 @@
  * be tested without standing up a PTY.
  */
 
+import { isWindows } from "./platform";
+
 /** Reserved PTY-session range for the editor column. Tab ids start at 1 and
  *  climb slowly; TUI panes own 0xe0000000+ and TerminalColumn's splits
  *  0xf0000000+ — a distinct base keeps the four allocators from ever colliding. */
@@ -28,11 +30,23 @@ export const BOOT_CMD = "nvim";
  *
  * Mirrors `flux_core::nvim::socket_path`. Two languages, one format: both sides
  * pin the literal in a test, so changing either without the other fails rather
- * than quietly breaking RPC. `/tmp` because on the Windows build these two sides
- * are different operating systems and it needs no environment lookup to agree.
+ * than quietly breaking RPC. `/tmp` needs no environment lookup to agree on.
+ *
+ * Windows gets a **named pipe**, because nvim there is a native Windows binary
+ * and refuses to `--listen` on a filesystem path at all — the editor wouldn't
+ * lose RPC, it would fail to start. `//./pipe/…` and not `\\.\pipe\…`: the
+ * command is typed into an MSYS2 bash, whose runtime eats backslashes on the way
+ * to a native process. Forward slashes name the same object and survive.
  */
 export function socketPath(session: number): string {
-  return `/tmp/flux-nvim-${session}.sock`;
+  return socketPathFor(session, isWindows);
+}
+
+/** The address for a *given* platform — [`socketPath`] is this one, resolved for
+ *  the platform we're on. Split out so both formats can be pinned in a test from
+ *  either side; the running flag is a module constant and can't be flipped. */
+export function socketPathFor(session: number, windows: boolean): string {
+  return windows ? `//./pipe/flux-nvim-${session}` : `/tmp/flux-nvim-${session}.sock`;
 }
 
 /**
@@ -41,15 +55,19 @@ export function socketPath(session: number): string {
  *
  * `rm -f` first because the socket outlives a crash: nvim refuses to listen on a
  * path that already exists, so a hard exit would leave the column permanently
- * unable to start. Removing it runs in the same shell the socket lives in, which
- * is what makes this correct on the Windows build too — there the shell is WSL,
- * and so is the socket.
+ * unable to start. Removing it runs in the same shell the socket lives in.
  *
- * The path is quoted but also `/tmp/flux-nvim-<n>.sock` by construction — digits
- * and dashes, nothing a shell would look at twice.
+ * A **named pipe** (Windows) needs no such sweep, and `rm` can't do it anyway:
+ * pipes aren't files, and the kernel drops the name the moment the last handle
+ * closes — so a crashed editor leaves nothing behind to clear.
+ *
+ * The address is quoted but also `/tmp/flux-nvim-<n>.sock` or
+ * `//./pipe/flux-nvim-<n>` by construction — digits, dashes and slashes, nothing
+ * a shell would look at twice.
  */
 export function bootCommand(socket: string): string {
-  return `rm -f '${socket}' && ${BOOT_CMD} --listen '${socket}'`;
+  const listen = `${BOOT_CMD} --listen '${socket}'`;
+  return socket.startsWith("//./pipe/") ? listen : `rm -f '${socket}' && ${listen}`;
 }
 
 /**

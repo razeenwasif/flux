@@ -1,5 +1,5 @@
 //! Run a shell command for the agent ("hey Gemma, run …"). One-shot: it runs the
-//! command in the same shell the embedded terminal uses (WSL on Windows), captures
+//! command in the same shell the embedded terminal uses (MSYS2 on Windows), captures
 //! stdout+stderr, and returns it. A safety **denylist** blocks `rm` and other
 //! clearly-destructive commands so a mis-heard voice command can't wreck anything.
 //!
@@ -47,7 +47,11 @@ pub fn blocked_reason(cmd: &str) -> Option<String> {
 }
 
 /// Build the command in the right shell: an explicit `FLUX_EXEC_SHELL`/`FLUX_SHELL`,
-/// else WSL on Windows (matching the embedded terminal) / `sh` elsewhere.
+/// else MSYS2 bash on Windows (matching the embedded terminal) / `sh` elsewhere.
+///
+/// Matching the terminal is the whole point — `shellhist` reads `~/.bash_history`
+/// through here, and a one-shot that lands in a different shell's home reads a
+/// history the user never typed.
 pub(crate) fn shell_command(cmd: &str) -> Command {
     if let Some(sh) = std::env::var("FLUX_EXEC_SHELL")
         .ok()
@@ -56,22 +60,30 @@ pub(crate) fn shell_command(cmd: &str) -> Command {
     {
         let low = sh.to_ascii_lowercase();
         let mut c = Command::new(&sh);
-        if low.contains("wsl") {
-            c.args(["--", "bash", "-lc", cmd]);
-        } else if low.contains("cmd") {
+        if low.contains("cmd.exe") || low.ends_with("cmd") {
             c.args(["/C", cmd]);
         } else if low.contains("powershell") || low.contains("pwsh") {
             c.args(["-NoProfile", "-Command", cmd]);
         } else {
             c.args(["-lc", cmd]);
+            #[cfg(windows)]
+            crate::msys::configure(&mut c, false);
         }
         return c;
     }
     #[cfg(windows)]
     {
-        let mut c = Command::new("wsl.exe");
-        c.args(["--", "bash", "-lc", cmd]);
-        c
+        // The same bash the terminal spawns, as a login shell so $MSYSTEM's PATH
+        // is built before the command runs. No install found → PowerShell, which
+        // at least reaches the Windows-side tools.
+        match crate::msys::login_command(cmd) {
+            Some(c) => c,
+            None => {
+                let mut c = Command::new("powershell.exe");
+                c.args(["-NoProfile", "-Command", cmd]);
+                c
+            }
+        }
     }
     #[cfg(not(windows))]
     {

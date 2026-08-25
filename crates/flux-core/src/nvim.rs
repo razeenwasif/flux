@@ -17,9 +17,9 @@
 //! costs a process spawn per query — tens of milliseconds, against an agent turn
 //! measured in seconds — and buys no msgpack implementation to get wrong, no new
 //! dependency, and a client that is by construction the right version for the
-//! server. It also crosses the WSL boundary for free: on the Windows build nvim
-//! runs inside WSL, so the client has to as well, and that is one `wsl.exe`
-//! prefix rather than a socket-forwarding problem.
+//! server. It also crosses the Windows shell boundary for free: on that build
+//! nvim is started from the MSYS2 terminal, so the client runs there too, and
+//! that is one `bash -lc` rather than a socket-forwarding problem.
 //!
 //! # The expressions are ours, never the model's
 //!
@@ -39,11 +39,27 @@ use serde::Serialize;
 /// Where the editor's RPC socket lives, for a given PTY session.
 ///
 /// `/tmp` rather than `$XDG_RUNTIME_DIR`: the path has to be identical on both
-/// sides, and on the Windows build the two sides are different operating
-/// systems. `/tmp` exists in WSL and on Linux and needs no environment lookup,
-/// so the string can't drift. The socket itself is created 0600 by nvim.
+/// sides, and it is written by one process and read by another. `/tmp` needs no
+/// environment lookup, so the string can't drift. The socket itself is created
+/// 0600 by nvim.
+///
+/// **Windows gets a named pipe instead**, and has to: nvim there is a native
+/// Windows binary, and it refuses a filesystem path outright — *"Failed to
+/// --listen: permission denied"* — so the editor doesn't merely lose RPC, it
+/// fails to start. (Under WSL this never came up; nvim was a Linux process with
+/// real Unix sockets.) Written `//./pipe/…` rather than the more familiar
+/// `\\.\pipe\…` because the name reaches nvim by way of bash, and the MSYS
+/// runtime eats backslashes on the way through. Forward slashes are the same
+/// object to Win32 and survive the trip unaltered.
 pub fn socket_path(session: u64) -> String {
-    format!("/tmp/flux-nvim-{session}.sock")
+    #[cfg(windows)]
+    {
+        format!("//./pipe/flux-nvim-{session}")
+    }
+    #[cfg(not(windows))]
+    {
+        format!("/tmp/flux-nvim-{session}.sock")
+    }
 }
 
 /// What the editor is doing right now.
@@ -153,16 +169,36 @@ fn spawn_client(sock: &str, expression: &str) -> Result<std::process::Output, St
     run_bounded(cmd)
 }
 
-/// On the Windows build the editor is inside WSL, so the client must be too.
-/// The expression is passed as an argument, never spliced into a shell string —
-/// the lesson `files.rs` records about `wsl.exe` re-parsing its command line.
+/// On the Windows build the editor was started from the MSYS2 terminal, so the
+/// client runs there too — same shell, same `PATH`, so it is the same `nvim`
+/// answering as the one being asked about.
+///
+/// Two Windows-only details, both found the hard way:
+///
+///   · `--headless`. Without it, `--remote-expr` on Windows opens a full TUI and
+///     prints the answer nowhere; the query returns empty and the panel looks
+///     like an editor that isn't there. On Linux the flag isn't needed, so it
+///     stays on this side of the split.
+///   · positional parameters. `bash -c <script> <name> <args…>` binds `"$1"` and
+///     `"$2"` from argv, so the socket and the expression are *passed*, never
+///     parsed. `--remote-expr` evaluates Vimscript, which makes this the one
+///     place in the module where a string could become code — the constants in
+///     `expr` are why it can't, and this is why the shell can't reopen the door.
 #[cfg(windows)]
 fn spawn_client(sock: &str, expression: &str) -> Result<std::process::Output, String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut cmd = Command::new("wsl.exe");
-    cmd.args(["--", "nvim", "--server", sock, "--remote-expr", expression])
-        .creation_flags(CREATE_NO_WINDOW);
+    let bash = crate::msys::bash().ok_or("no MSYS2 bash found for the nvim client")?;
+    let mut cmd = Command::new(bash);
+    cmd.args([
+        "-lc",
+        r#"exec nvim --headless --server "$1" --remote-expr "$2""#,
+        "flux-nvim", // $0
+        sock,
+        expression,
+    ]);
+    crate::msys::configure(&mut cmd, false);
+    cmd.creation_flags(CREATE_NO_WINDOW);
     run_bounded(cmd)
 }
 
@@ -407,6 +443,9 @@ mod tests {
         // because awaiting it would race the column's mount. Nothing checks the
         // two agree at runtime — a mismatch just means the agent silently can't
         // reach the editor — so both sides pin the literal instead.
+        #[cfg(windows)]
+        assert_eq!(socket_path(7), "//./pipe/flux-nvim-7");
+        #[cfg(not(windows))]
         assert_eq!(socket_path(7), "/tmp/flux-nvim-7.sock");
         // Distinct per session, or two columns would fight over one socket.
         assert_ne!(socket_path(7), socket_path(8));

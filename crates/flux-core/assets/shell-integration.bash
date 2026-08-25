@@ -18,6 +18,16 @@ case "$-" in
   *) return 0 2>/dev/null ;;
 esac
 
+# MSYS2 / Git-Bash: `--rcfile` implies a non-login shell, which never runs
+# /etc/profile — the script that builds the MSYS PATH (per $MSYSTEM), creates
+# $HOME and honours $CHERE_INVOKING. Without it the shell has only the Windows
+# PATH and no /usr/bin. Bash ignores --rcfile for login shells, so Flux sets
+# FLUX_MSYS_PROFILE and we run it here instead, before anything needs a PATH.
+if [ -n "${FLUX_MSYS_PROFILE:-}" ] && [ -r /etc/profile ]; then
+  unset FLUX_MSYS_PROFILE
+  . /etc/profile
+fi
+
 # Re-source the user's normal config (system-wide first, then per-user).
 [ -r /etc/bash.bashrc ] && . /etc/bash.bashrc
 [ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"

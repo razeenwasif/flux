@@ -34,6 +34,51 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
   late and a tab that came back is never trimmed again.
 
 ### Changed
+- **The Windows shell is MSYS2 bash, not WSL (ADR 0003).** The embedded terminal defaulted to
+  `wsl.exe`, and so did everything that borrows "the shell": the agent's one-shot `exec` bridge,
+  service start commands, shell-history search, the nvim RPC client. On a machine without a distro
+  that is not a degraded experience, it's a spawn error.
+
+  MSYS2 (or Git-for-Windows) `bash.exe` replaces it, auto-detected — `C:\msys64` and friends, first
+  root holding a `usr\bin\bash.exe`, PowerShell only if there is none. `FLUX_SHELL` still overrides
+  everything; `FLUX_MSYS_ROOT` and `FLUX_MSYSTEM` steer the detection. `$MSYSTEM` defaults to the
+  first sub-environment that is actually populated (UCRT64 before MINGW64), because an install with
+  only UCRT64 packages has an empty `mingw64\bin` and hardcoding it hands you a shell that can't
+  find your compiler.
+
+  Most of the WSL scaffolding simply **deletes**, because it existed to cross an OS boundary that
+  is no longer there. `bash.exe` is a native Windows child: the `FLUX_TAB_*` context vars are
+  inherited like any other environment (no `WSLENV` allowlist), the shell takes its own flags (no
+  `wsl.exe --` prefix, no `--cd ~`), and a Windows cwd is just a cwd. The Windows and Unix spawn
+  paths are one code path again. What's left is a small `msys` module: find the install, translate
+  the few strings bash reads *as* paths (the OSC 133 rcfile), and resolve a program on the MSYS
+  `PATH` to a Windows path so `dtach`/`pkill` can still be spawned directly — the no-`sh -c`-wrapper
+  property `pkill -f` depends on.
+
+  Two behaviours that had to be re-established rather than ported:
+
+  · **`/etc/profile` runs.** `--rcfile` (how the OSC 133 integration is injected) makes bash a
+  non-login shell, and on MSYS2 that skips the script which builds the `PATH` from `$MSYSTEM`,
+  creates `$HOME` and honours `CHERE_INVOKING` — leaving a shell with the raw Windows `PATH` and no
+  `/usr/bin`. Bash ignores `--rcfile` for login shells, so the two can't be combined; instead Flux
+  exports `FLUX_MSYS_PROFILE` and the integration snippet sources `/etc/profile` first thing.
+  `MSYS2_PATH_TYPE=inherit` keeps the Windows `PATH` visible, which is what WSL interop did.
+
+  · **One `$HOME`.** MSYS2 keeps its own (`/home/you`, not `C:\Users\you`), and an inherited
+  Windows-shaped `HOME` would give the terminal a different home from MSYS2's own shortcuts — two
+  `~/.bashrc`s, two histories, and a shell-history search reading the wrong file. Flux drops `HOME`
+  and lets `/etc/profile` derive it, exactly as the MSYS2 launcher does. A Terminal tab's saved
+  directory is translated back the same way, `/mnt/c/...` from the WSL days included.
+
+- **The nvim column's RPC address is a named pipe on Windows (#179).** Fallout from the above, and
+  not a small one: nvim there is a native Windows binary and refuses a filesystem socket outright
+  (*"Failed to --listen: permission denied"*), so the editor didn't merely lose RPC — it failed to
+  start. Both sides now derive `//./pipe/flux-nvim-<session>`, spelled with forward slashes because
+  the name travels through an MSYS2 bash whose runtime eats backslashes on the way to a native
+  process. The boot command skips its `rm -f` sweep for a pipe (not a file, and Windows drops the
+  name when the last handle closes), and the client passes `--headless`, without which
+  `--remote-expr` opens a TUI on Windows and prints the answer nowhere.
+
 - **Mobile performance pass (ADR 0012).** Flux felt slow on the phone. Four things were paying
   desktop prices on hardware that can't afford them.
 

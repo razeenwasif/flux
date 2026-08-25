@@ -8,6 +8,7 @@ import {
   exitAction,
   sessionFor,
   socketPath,
+  socketPathFor,
 } from "./editorboot";
 
 describe("editor column boot policy", () => {
@@ -44,8 +45,15 @@ describe("editor column boot policy", () => {
     // The two sides never exchange this path — each computes it. Pinning the
     // literal here and in `flux_core::nvim`'s tests means changing one without
     // the other fails a test instead of silently breaking RPC.
-    expect(socketPath(7)).toBe("/tmp/flux-nvim-7.sock");
-    expect(socketPath(EDITOR_SESSION_BASE)).toBe(`/tmp/flux-nvim-${EDITOR_SESSION_BASE}.sock`);
+    expect(socketPathFor(7, false)).toBe("/tmp/flux-nvim-7.sock");
+    expect(socketPathFor(EDITOR_SESSION_BASE, false)).toBe(
+      `/tmp/flux-nvim-${EDITOR_SESSION_BASE}.sock`,
+    );
+    // Windows: a named pipe, since nvim there won't listen on a file path at
+    // all. Forward slashes — the name travels through an MSYS2 bash, which
+    // would eat the backslashes of the `\\.\pipe\…` spelling.
+    expect(socketPathFor(7, true)).toBe("//./pipe/flux-nvim-7");
+    expect(socketPathFor(7, true)).not.toContain("\\");
     // Distinct per session, or two columns would fight over one socket.
     expect(socketPath(7)).not.toBe(socketPath(8));
   });
@@ -59,6 +67,15 @@ describe("editor column boot policy", () => {
     expect(cmd.indexOf("rm -f")).toBeLessThan(cmd.indexOf("--listen"));
     // …and only starts the editor if the removal succeeded.
     expect(cmd).toContain("&&");
+  });
+
+  it("doesn't try to rm a named pipe", () => {
+    // A pipe isn't a file: `rm -f` can't clear it, and nothing needs clearing —
+    // Windows drops the name when the last handle closes. Sweeping anyway would
+    // fail the `&&` and stop the editor from booting at all.
+    const cmd = bootCommand("//./pipe/flux-nvim-9");
+    expect(cmd).toBe(`${BOOT_CMD} --listen '//./pipe/flux-nvim-9'`);
+    expect(cmd).not.toContain("rm -f");
   });
 
   it("boots the editor without a redundant cd", () => {

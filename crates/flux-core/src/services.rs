@@ -1,7 +1,7 @@
 //! Local background services (#KB) — auto-start the user's Omni search engine and
 //! Scroll clipper so the KB / omnibox / clip features just work without manually
 //! launching them. Each service has a health probe and a start command run through
-//! the user's shell (so on a Windows build they launch inside WSL, where they live).
+//! the user's shell (so on a Windows build they launch under MSYS2, where they live).
 //! Start commands background themselves (`nohup … &`) and survive Flux closing.
 //!
 //! Auto-start runs once on boot for any service that's down; opt out with
@@ -74,9 +74,9 @@ fn is_up(s: &Service) -> bool {
 }
 
 /// Launch a service's start command. We spawn it in the FOREGROUND of the shell
-/// process and simply don't wait on it: the shell (e.g. `wsl.exe`) stays alive
-/// hosting the long-running server, which keeps the WSL session up and survives
-/// Flux closing (a dropped `Child` is never killed). This is more reliable than
+/// process and simply don't wait on it: the shell (e.g. MSYS2 `bash -lc`) stays
+/// alive hosting the long-running server and survives Flux closing (a dropped
+/// `Child` is never killed). This is more reliable than
 /// `nohup … &`, whose orphaned job can die with the transient one-shot session.
 fn start(s: &Service) -> Result<(), String> {
     let user_cmd = std::env::var(s.start_env)

@@ -20,9 +20,15 @@ Disable it with `FLUX_NO_SHELL_INTEGRATION=1` if it ever conflicts with an exoti
 prompt setup. (The same snippet lives at
 `crates/flux-core/assets/shell-integration.bash`.)
 
-> WSL: Flux runs `wsl.exe -- bash --rcfile …`, so this forces **bash** even if your
-> login shell is zsh. Set `FLUX_NO_SHELL_INTEGRATION=1` to keep your default shell,
-> then add the zsh snippet below by hand.
+> Windows (MSYS2 / Git-Bash): Flux runs `bash --rcfile …`, so this forces **bash**
+> even if your login shell is zsh. Set `FLUX_NO_SHELL_INTEGRATION=1` to keep your
+> default shell, then add the zsh snippet below by hand.
+>
+> `--rcfile` also means bash is *not* a login shell, so it would skip
+> `/etc/profile` — the script that builds the MSYS `PATH` from `$MSYSTEM`. Flux
+> passes `FLUX_MSYS_PROFILE=1` and the snippet sources it first thing; a
+> hand-rolled replacement on Windows should do the same, or start bash with `-l`
+> instead.
 
 ## zsh — manual
 

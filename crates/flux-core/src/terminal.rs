@@ -29,6 +29,13 @@
 //! flux-term (the WGPU grid/renderer) is untouched and remains the future
 //! native-render path; it would consume the same PTY bytes this module reads.
 //!
+//! **The shell on Windows** is MSYS2 (or Git-Bash) bash — see [`crate::msys`].
+//! It used to be `wsl.exe`, and the difference runs through this whole module:
+//! WSL is another operating system reached through a launcher, so the shell
+//! needed its own flags, its own env bridge and its own path shapes, while MSYS2
+//! bash is an ordinary Windows executable. The platform split in the spawn path
+//! is correspondingly small now.
+//!
 //! Desktop only: `portable-pty`'s transitive `termios` doesn't build for Android
 //! and a phone has no shell to spawn (ADR 0012). On mobile the module compiles to
 //! the `stub` below — identical command signatures, each reporting unavailability
@@ -81,7 +88,7 @@ impl TerminalManager {
 }
 
 /// Pick the user's shell. `$FLUX_SHELL` overrides everything (so a user can
-/// pick pwsh/cmd/bash without a rebuild); otherwise PowerShell on Windows,
+/// pick pwsh/cmd/bash without a rebuild); otherwise MSYS2 bash on Windows,
 /// `$SHELL` on Unix.
 fn default_shell() -> String {
     if let Ok(s) = std::env::var("FLUX_SHELL") {
@@ -91,10 +98,13 @@ fn default_shell() -> String {
     }
     #[cfg(windows)]
     {
-        // Default to WSL (the user's dev environment lives there). Override
-        // with FLUX_SHELL=powershell.exe / cmd.exe / pwsh.exe if WSL isn't set
-        // up; the spawn error surfaces in the terminal either way.
-        "wsl.exe".to_string()
+        // MSYS2 (or Git-Bash) — the POSIX environment the user actually develops
+        // in, and a native Windows exe, so it spawns into a ConPTY like anything
+        // else. PowerShell only when no install was found: better a working shell
+        // than a spawn error, and `flux`/git/cargo are all on the Windows PATH.
+        crate::msys::bash()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "powershell.exe".to_string())
     }
     #[cfg(not(windows))]
     {
@@ -152,88 +162,44 @@ pub fn terminal_spawn(
     // a ^L, which is gentler on a full-screen TUI.
     let dtach_args = ["-A", sock.as_str(), "-z", "-E", "-r", "winch"];
 
-    #[cfg(windows)]
-    let mut cmd = {
-        let mut c = CommandBuilder::new(&shell);
-        // WSL: start in the Linux home (~), not the translated Windows cwd
-        // (/mnt/c/Users/...). `--cd` overrides the inherited working directory.
-        if shell.to_ascii_lowercase().contains("wsl") {
-            c.arg("--cd");
-            c.arg("~");
-            if let Some(eng) = engine {
-                c.arg("--");
-                match eng {
-                    LiveEngine::Tmux => {
-                        for a in ["tmux", "new-session", "-A", "-s", &tmux_name] {
-                            c.arg(a);
-                        }
-                    }
-                    LiveEngine::Dtach => {
-                        c.arg("dtach");
-                        for a in dtach_args {
-                            c.arg(a);
-                        }
-                        // dtach needs a program to run; give it a login shell so
-                        // the user's rc files are sourced as usual.
-                        for a in ["bash", "-l"] {
-                            c.arg(a);
-                        }
-                    }
-                }
-            } else if integration_enabled() {
-                // Run bash inside WSL with Flux's OSC 133 integration (#16). The
-                // rcfile lives on the Windows side, so hand bash its /mnt path.
-                if let Some(rc) = integration_rcfile().as_deref().and_then(to_wsl_path) {
-                    for a in ["--", "bash", "--rcfile"] {
-                        c.arg(a);
-                    }
-                    c.arg(rc);
-                }
-            }
-        }
-        c
-    };
-    #[cfg(not(windows))]
+    // One builder for both platforms. It used to be two, because the Windows
+    // shell was `wsl.exe` — a launcher for another OS, with its own flags (`--cd`),
+    // its own argument separator (`--`) and a program name that had to be resolved
+    // on the far side. MSYS2 bash is an ordinary Windows executable, so the Unix
+    // shape is now simply correct on Windows too; the only thing left that differs
+    // is *where* a program's path and the rcfile string come from, and both are
+    // answered by [`shell_program`] / [`integration_rcfile_arg`].
+    let startup = bash_startup_args(&shell);
     let mut cmd = if let Some(eng) = engine {
         match eng {
             LiveEngine::Tmux => {
-                let mut c = CommandBuilder::new("tmux");
+                let mut c = CommandBuilder::new(shell_program("tmux"));
                 for a in ["new-session", "-A", "-s", &tmux_name] {
                     c.arg(a);
                 }
                 c
             }
             LiveEngine::Dtach => {
-                let mut c = CommandBuilder::new("dtach");
+                let mut c = CommandBuilder::new(shell_program("dtach"));
                 for a in dtach_args {
                     c.arg(a);
                 }
-                // The user's shell, with the OSC 133 integration when we can —
-                // the broker shouldn't cost the status gutter (#16).
+                // The user's shell, started exactly as it would be without the
+                // broker — the persistence shouldn't cost the status gutter (#16)
+                // or, on Windows, the login shell that builds the MSYS PATH.
                 c.arg(&shell);
-                if integration_enabled() && shell_is_bash(&shell) {
-                    if let Some(rc) = integration_rcfile() {
-                        c.arg("--rcfile");
-                        c.arg(rc.to_string_lossy().as_ref());
-                    }
+                for a in &startup {
+                    c.arg(a);
                 }
                 c
             }
         }
-    } else if integration_enabled() && shell_is_bash(&shell) {
-        // Wrap bash so it sources Flux's OSC 133 integration (#16) on top of the
-        // user's own ~/.bashrc (which --rcfile would otherwise skip).
-        match integration_rcfile() {
-            Some(rc) => {
-                let mut c = CommandBuilder::new(&shell);
-                c.arg("--rcfile");
-                c.arg(rc.to_string_lossy().as_ref());
-                c
-            }
-            None => CommandBuilder::new(&shell),
-        }
     } else {
-        CommandBuilder::new(&shell)
+        let mut c = CommandBuilder::new(&shell);
+        for a in &startup {
+            c.arg(a);
+        }
+        c
     };
 
     cmd.env("TERM", "xterm-256color");
@@ -250,8 +216,8 @@ pub fn terminal_spawn(
     cmd.env_remove("STY"); // the same trap for GNU screen
     cmd.env("FLUX_SESSION", session.to_string());
     // DOM-aware terminal bridge (#65/#4): the dir holding active.json, which the
-    // `flux` CLI reads for the active page. WSLENV `/p` (below) translates the
-    // path for WSL shells.
+    // `flux` CLI reads for the active page. A plain Windows path — MSYS2 programs
+    // accept those, and the CLI on the other side is the same binary either way.
     let rpc_dir = app.state::<crate::rpc::RpcDir>();
     cmd.env("FLUX_RPC_DIR", rpc_dir.dir().to_string_lossy().as_ref());
     let mut cwd: Option<String> = None;
@@ -266,26 +232,41 @@ pub fn terminal_spawn(
             }
             // A Terminal tab stores its working dir in `url`; start there.
             if tab.url.starts_with('/') || tab.url.starts_with('~') {
-                cwd = Some(expand_home(&tab.url));
+                cwd = Some(tab.url.clone());
             }
         }
     }
-    // When the shell is WSL, forward the Flux context vars into the distro
-    // (Windows env doesn't cross into WSL unless listed in WSLENV). Harmless
-    // for non-WSL shells.
-    #[cfg(windows)]
-    cmd.env(
-        "WSLENV",
-        // `/p` on FLUX_RPC_DIR → WSL sees the path as /mnt/c/... so the Linux
-        // `flux` CLI can read active.json across the Windows↔WSL boundary.
-        "FLUX_SESSION:FLUX_TAB_ID:FLUX_TAB_URL:FLUX_TAB_TITLE:FLUX_TAB_DIR:FLUX_RPC_DIR/p",
-    );
+    // Every FLUX_* var above crosses into the shell by itself: MSYS2 bash is a
+    // native child process, so it inherits the environment like any other. (The
+    // WSLENV allowlist this replaces existed only because a distro is a separate
+    // OS with a separate environment.)
 
-    // Only set a cwd that actually exists — an invalid cwd makes spawn fail
-    // (e.g. a Unix-style path on Windows).
+    // The stored directory is in the *shell's* vocabulary — it was typed in one.
+    let cwd = cwd.map(|c| shell_dir_to_native(&c));
+
+    // Only set a cwd that actually exists — an invalid cwd makes spawn fail.
+    let tab_cwd = cwd.is_some();
     let cwd = cwd.unwrap_or_else(home_dir);
     if std::path::Path::new(&cwd).is_dir() {
         cmd.cwd(&cwd);
+    }
+
+    // MSYS2's own launcher environment: which sub-environment to put on PATH,
+    // whether the Windows PATH comes along, and — when a tab named a directory —
+    // that `/etc/profile` should stay in it instead of jumping to `$HOME`.
+    #[cfg(windows)]
+    if shell_is_bash(&shell) {
+        for (k, v) in crate::msys::env_pairs(tab_cwd && std::path::Path::new(&cwd).is_dir()) {
+            cmd.env(k, v);
+        }
+        for k in crate::msys::DROP_VARS {
+            cmd.env_remove(k);
+        }
+        // Tells the integration rcfile to run `/etc/profile` itself; see
+        // [`bash_startup_args`].
+        if integration_enabled() {
+            cmd.env("FLUX_MSYS_PROFILE", "1");
+        }
     }
 
     tracing::info!(target: "flux::term", session, %shell, %cwd, cols, rows, "spawning shell");
@@ -515,7 +496,8 @@ fn live_engine() -> Option<LiveEngine> {
 }
 
 /// The dtach socket for a session. `/tmp` rather than `$XDG_RUNTIME_DIR` because
-/// on Windows the path is resolved *inside WSL*, where we can't read that var.
+/// the path is resolved by dtach itself — on Windows that's the MSYS runtime,
+/// which knows `/tmp` (the install's `tmp\`) but not the variable.
 fn dtach_socket(session: u64) -> String {
     format!("/tmp/flux-term-{session}.sock")
 }
@@ -542,8 +524,6 @@ fn integration_enabled() -> bool {
 
 /// Is `shell` (a path or bare name) bash? Only bash is auto-wrapped today —
 /// other shells source the equivalent snippet manually (docs/shell-integration.md).
-/// Only the Unix cmd-builder consults this; on Windows the WSL branch forces bash.
-#[cfg(not(windows))]
 fn shell_is_bash(shell: &str) -> bool {
     std::path::Path::new(shell)
         .file_stem()
@@ -566,51 +546,94 @@ fn integration_rcfile() -> Option<std::path::PathBuf> {
     .clone()
 }
 
-/// Translate a Windows path to the WSL `/mnt/<drive>/…` form so a bash launched
-/// inside WSL can read the rcfile written on the Windows side. Assumes the
-/// default automount root (`/mnt`).
-#[cfg(windows)]
-fn to_wsl_path(p: &std::path::Path) -> Option<String> {
-    let s = p.to_string_lossy();
-    let b = s.as_bytes();
-    if b.len() >= 2 && b[1] == b':' {
-        let drive = (b[0] as char).to_ascii_lowercase();
-        Some(format!("/mnt/{}{}", drive, s[2..].replace('\\', "/")))
-    } else {
-        Some(s.replace('\\', "/"))
-    }
-}
-
-/// Is `cmd` available (in WSL on Windows, locally on Unix)? Cached per name — the
-/// check is a subprocess, and only persist-mode users ever reach it.
-fn command_available(cmd: &str) -> bool {
-    static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(&hit) = cache.lock().get(cmd) {
-        return hit;
-    }
-    let probe = format!("command -v {cmd}");
+/// The integration rcfile as bash will be given it: a POSIX path on Windows,
+/// where bash reads it through the MSYS runtime, and the plain path on Unix.
+fn integration_rcfile_arg() -> Option<String> {
+    let p = integration_rcfile()?;
     #[cfg(windows)]
-    let mut c = {
-        use std::os::windows::process::CommandExt;
-        let mut c = std::process::Command::new("wsl.exe");
-        c.args(["--", "sh", "-c", &probe]);
-        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        c
-    };
+    {
+        Some(crate::msys::to_posix(&p))
+    }
     #[cfg(not(windows))]
-    let mut c = {
-        let mut c = std::process::Command::new("sh");
-        c.args(["-c", &probe]);
-        c
-    };
-    let found = c.output().map(|o| o.status.success()).unwrap_or(false);
-    cache.lock().insert(cmd.to_string(), found);
-    found
+    {
+        Some(p.to_string_lossy().into_owned())
+    }
 }
 
-/// Run a command inside the shell's world — the WSL distro on Windows, locally on
-/// Unix — without a `sh -c` wrapper. Best-effort and fire-and-forget.
+/// How to start `shell` so it comes up configured: the OSC 133 rcfile when the
+/// integration is on, and on Windows a login shell when it isn't.
+///
+/// The Windows half is the subtle one. `--rcfile` makes bash a *non-login*
+/// interactive shell, and on MSYS2 that never runs `/etc/profile` — the script
+/// that builds the MSYS `PATH`, creates `$HOME` and honours `CHERE_INVOKING`.
+/// Skipping it leaves a shell holding the bare Windows `PATH`, with no `/usr/bin`
+/// on it. The two flags can't be combined either: bash ignores `--rcfile` for a
+/// login shell. So Flux sets `FLUX_MSYS_PROFILE` in the environment and the
+/// integration snippet sources `/etc/profile` itself, before anything else.
+fn bash_startup_args(shell: &str) -> Vec<String> {
+    if !shell_is_bash(shell) {
+        return Vec::new();
+    }
+    if integration_enabled() {
+        if let Some(rc) = integration_rcfile_arg() {
+            return vec!["--rcfile".to_string(), rc];
+        }
+    }
+    #[cfg(windows)]
+    {
+        vec!["-l".to_string()]
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+/// Where `cmd` lives in the shell's world, as something spawnable from here.
+///
+/// On Unix the shell's world is this process's world, so the bare name is already
+/// the answer. On Windows the program is an MSYS one, resolved on the MSYS `PATH`
+/// and handed back as a Windows path — see [`crate::msys::resolve`]. Falls back to
+/// the bare name (let the spawn fail with a real error) rather than silently
+/// dropping the feature. Windows lookups are cached in `msys`; the Unix probe
+/// below keeps its own cache.
+fn shell_program(cmd: &str) -> String {
+    #[cfg(not(windows))]
+    {
+        cmd.to_string()
+    }
+    #[cfg(windows)]
+    {
+        crate::msys::resolve(cmd).unwrap_or_else(|| cmd.to_string())
+    }
+}
+
+/// Is `cmd` available in the shell's world? Cached — each miss is a subprocess,
+/// and only persist-mode users reach it.
+fn command_available(cmd: &str) -> bool {
+    #[cfg(windows)]
+    {
+        crate::msys::resolve(cmd).is_some()
+    }
+    #[cfg(not(windows))]
+    {
+        static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Some(&hit) = cache.lock().get(cmd) {
+            return hit;
+        }
+        let found = std::process::Command::new("sh")
+            .args(["-c", &format!("command -v {cmd}")])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        cache.lock().insert(cmd.to_string(), found);
+        found
+    }
+}
+
+/// Run a command inside the shell's world — MSYS2 on Windows, locally on Unix —
+/// without a `sh -c` wrapper. Best-effort and fire-and-forget.
 ///
 /// **The missing wrapper is the point.** These commands carry a socket path as an
 /// argument and one of them is `pkill -f`, which matches on the whole command
@@ -625,9 +648,12 @@ fn run_in_shell_world(args: &[&str]) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("wsl.exe")
-            .arg("--")
-            .arg(program)
+        // Resolved to its Windows path and spawned directly, so the wrapper stays
+        // absent here too — an MSYS program run this way still reads `/tmp/…`
+        // arguments through the MSYS runtime, which is all these need.
+        let mut c = std::process::Command::new(shell_program(program));
+        crate::msys::configure(&mut c, false);
+        let _ = c
             .args(rest)
             .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
             .spawn();
@@ -776,10 +802,45 @@ fn downloads_dir() -> String {
     format!("{}/Downloads", home_dir())
 }
 
+/// `~/x` → `$HOME/x`. Unix only: Windows has a home of its own to reconcile
+/// first, which is [`shell_dir_to_native`]'s job.
+#[cfg(not(windows))]
 fn expand_home(path: &str) -> String {
     match path.strip_prefix('~') {
         Some(rest) => format!("{}{}", home_dir(), rest),
         None => path.to_string(),
+    }
+}
+
+/// A directory as the shell writes it (`~/src`, `/home/me/src`, `/mnt/c/code`)
+/// turned into one this process can hand to `spawn`.
+///
+/// On Unix that is just `~` expansion. On Windows it is a real translation, and
+/// `~` is the part that bites: MSYS2 keeps its own home (`/home/you`), so a `~`
+/// stored by a Terminal tab means *that* directory, not `C:\Users\you`. Falls
+/// back to the Windows home when there is no MSYS2 home to point at.
+fn shell_dir_to_native(dir: &str) -> String {
+    #[cfg(not(windows))]
+    {
+        expand_home(dir)
+    }
+    #[cfg(windows)]
+    {
+        if let Some(rest) = dir.strip_prefix('~') {
+            let home = crate::msys::home()
+                .map(|h| h.to_string_lossy().into_owned())
+                .unwrap_or_else(home_dir);
+            let rest = rest.trim_start_matches('/').replace('/', "\\");
+            return if rest.is_empty() {
+                home
+            } else {
+                format!("{home}\\{rest}")
+            };
+        }
+        match crate::msys::to_windows(dir) {
+            Some(w) => w.to_string_lossy().into_owned(),
+            None => dir.to_string(),
+        }
     }
 }
 
@@ -893,6 +954,44 @@ mod tests {
             "the pattern must require dtach before the socket: {pat}"
         );
         assert_ne!(pat, dtach_socket(42), "never kill on the bare path");
+    }
+
+    #[test]
+    fn bash_gets_the_integration_rcfile() {
+        // The rcfile is a temp-dir write; if that failed there's nothing to
+        // assert about, and integration is skipped by design.
+        let Some(rc) = integration_rcfile_arg() else {
+            return;
+        };
+        if !integration_enabled() {
+            return;
+        }
+        let args = bash_startup_args("/usr/bin/bash");
+        assert_eq!(args, vec!["--rcfile".to_string(), rc.clone()]);
+        // On Windows bash reads it through the MSYS runtime, so it has to be
+        // POSIX — a `C:\…` string is not a path bash will open.
+        #[cfg(windows)]
+        assert!(rc.starts_with('/'), "rcfile must be POSIX for bash: {rc}");
+        // Anything that isn't bash is launched as-is: no flags it doesn't have.
+        assert!(bash_startup_args("pwsh.exe").is_empty());
+        assert!(bash_startup_args("/bin/zsh").is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_stored_shell_directory_becomes_a_windows_one() {
+        // What a Terminal tab saves is what the user typed in a POSIX shell.
+        assert_eq!(shell_dir_to_native("/c/Users/me/code"), r"C:\Users\me\code");
+        // Sessions written before the MSYS2 switch hold WSL mount paths.
+        assert_eq!(shell_dir_to_native("/mnt/c/code"), r"C:\code");
+        // Already native: left exactly alone, including the drive letter's case.
+        assert_eq!(shell_dir_to_native(r"D:\work"), r"D:\work");
+        // `~` is the shell's home, not `C:\Users\me` — unless there's no MSYS2
+        // install to have one, in which case the Windows home is the honest
+        // fallback. Either way it must resolve to *a* directory, never stay `~`.
+        let home = shell_dir_to_native("~/src");
+        assert!(!home.starts_with('~'), "~ must be expanded: {home}");
+        assert!(home.ends_with(r"\src"), "kept the subdirectory: {home}");
     }
 }
 } // mod real

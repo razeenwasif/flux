@@ -2,7 +2,7 @@
 //! they open in a Flux Terminal tab with one click (sibling to the native
 //! `PagesBar`). The list is persisted to `<app_data>/tui-apps.json`; each entry
 //! is a shell command run in a fresh terminal (the shell is the user's
-//! `$FLUX_SHELL`, so commands resolve on that shell's PATH — incl. WSL).
+//! `$FLUX_SHELL`, so commands resolve on that shell's PATH — incl. MSYS2).
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -302,7 +302,7 @@ mod tests {
 
 /// Best-effort scan of the standard user bin dirs for executable names — a
 /// quick-add helper for the editor. Scans the *Flux process's* home (so on a
-/// Windows build this sees Windows bins, not WSL ones).
+/// Windows build this sees Windows bins, not the ones under the MSYS2 root).
 #[tauri::command]
 pub fn tui_apps_detect() -> Vec<String> {
     let home = std::env::var("HOME")
