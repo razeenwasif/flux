@@ -12,6 +12,7 @@
  * webview relayout follows it, the same contract the bookmark bar keeps.
  */
 import { Suspense, lazy, type Component } from "solid-js";
+import { win } from "./ipc";
 
 import RailTip from "./RailTip";
 
@@ -19,7 +20,19 @@ const PagesBar = lazy(() => import("./PagesBar"));
 const TuiAppsBar = lazy(() => import("./TuiAppsBar"));
 
 const BarsColumn: Component = () => (
-  <aside class="bars-col">
+  <aside class="bars-col" data-tauri-drag-region="deep">
+    {/* Vertical window controls (close, minimize, maximize) */}
+    <div class="rail-traffic" data-tauri-drag-region="deep">
+      <button class="tl tl-close" onClick={() => win.close()} title="Close" aria-label="Close">
+        ✕
+      </button>
+      <button class="tl tl-min" onClick={() => win.minimize()} title="Minimize" aria-label="Minimize">
+        −
+      </button>
+      <button class="tl tl-max" onClick={() => win.toggleMaximize()} title="Maximize" aria-label="Zoom">
+        +
+      </button>
+    </div>
     {/* Pages take the slack: the list is fixed and long. Terminal apps sit
         below with a ceiling, so a user with twenty of them can't push the
         native pages off the top. */}

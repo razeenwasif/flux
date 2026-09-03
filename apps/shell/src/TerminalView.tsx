@@ -28,6 +28,7 @@ import { openTab } from "./store";
 import { speak, stopSpeaking } from "./speak";
 import LiquidBackground from "./LiquidBackground";
 import { hex, palette as pal, rgba } from "./palette";
+import { theme } from "./themes";
 
 /**
  * The terminal's 16 colours, derived from the active theme.
@@ -40,15 +41,40 @@ import { hex, palette as pal, rgba } from "./palette";
  */
 const termTheme = () => {
   const p = pal();
+  if (theme() === "gruvbox") {
+    return {
+      background: "#282828",
+      foreground: "#ebdbb2",
+      cursor: "#ebdbb2",
+      cursorAccent: "#282828",
+      selectionBackground: "rgba(146, 131, 116, 0.4)",
+      black: "#282828",
+      red: "#ffffff",
+      green: "#b8bb26",
+      yellow: "#fabd2f",
+      blue: "#83a598",
+      magenta: "#d3869b",
+      cyan: "#8ec07c",
+      white: "#ebdbb2",
+      brightBlack: "#928374",
+      brightRed: "#ffffff",
+      brightGreen: "#b8bb26",
+      brightYellow: "#fabd2f",
+      brightBlue: "#83a598",
+      brightMagenta: "#d3869b",
+      brightCyan: "#8ec07c",
+      brightWhite: "#fbf1c7",
+    };
+  }
   return {
     background: hex(p.bg),
-    foreground: "#eef0fb",
+    foreground: hex(p.text),
     cursor: hex(p.accent),
     cursorAccent: hex(p.bg),
     selectionBackground: rgba(p.ai, 0.35),
     black: "#1a1640",
     // Semantic ANSI colours — fixed on purpose (see above).
-    red: "#ff6b8a",
+    red: "#ffffff",
     green: "#7cf5b0",
     yellow: "#f5d76e",
     blue: hex(p.ai),
@@ -56,7 +82,7 @@ const termTheme = () => {
     cyan: hex(p.accent),
     white: "#c9cde8",
     brightBlack: "#6a6f96",
-    brightRed: "#ff9fb0",
+    brightRed: "#ffffff",
     brightGreen: "#9affc9",
     brightYellow: "#ffe9a3",
     brightBlue: hex(p.ai2),
@@ -190,6 +216,11 @@ const TerminalView: Component<{
     // a pane that appears without the user asking must not hijack that (#178).
     registerTerminal(props.session, term, props.active ?? true);
 
+    createEffect(() => {
+      theme();
+      term.options.theme = { ...termTheme(), background: "#00000000" };
+    });
+
     // ── Shell integration (#16): OSC 133 prompt marks ───────────────────────
     // When the shell sources Flux's integration snippet it emits OSC 133 around
     // each prompt/command: `A` = prompt start, `B` = command input start,
@@ -205,7 +236,7 @@ const TerminalView: Component<{
       return cmds;
     };
     const barColor = (exit?: number) =>
-      exit === undefined ? "rgba(123, 97, 255, 0.5)" : exit === 0 ? "#7CF5B0" : "#ec4be0";
+      exit === undefined ? "rgba(123, 97, 255, 0.5)" : exit === 0 ? "#7CF5B0" : "#ffffff";
     const paint = (c: Cmd) => {
       const el = c.deco?.element;
       if (!el) return;

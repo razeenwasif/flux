@@ -219,7 +219,7 @@ import {
 import { createWebviewTiling } from "./tiling";
 import { startClockDriver } from "./clocks";
 import { addPluginListener } from "@tauri-apps/api/core";
-import { TitleBar, ResizeHandles } from "./Chrome";
+import { ResizeHandles } from "./Chrome";
 import {
   setPanelBadge,
   findOpen,
@@ -337,9 +337,11 @@ const App: Component = () => {
   // charged once instead of twice, which is most of the screen this reclaims on
   // a small display.
   const [stackW, setStackW] = createSignal(
-    // Seed from the old agent column so an existing install doesn't jump on the
-    // first launch after the panes merged.
-    loadW("flux.w.stack", loadW("flux.w.agent", 420)),
+    (() => {
+      const stored = localStorage.getItem("flux.w.stack.v3");
+      if (stored) return Number(stored) || 430;
+      return 430;
+    })(),
   );
   const [stackRatio, setStackRatioSig] = createSignal(
     Math.min(0.8, Math.max(0.2, Number(localStorage.getItem("flux.stack.split")) || 0.5)),
@@ -1801,14 +1803,11 @@ const App: Component = () => {
             }
           : {
               "grid-template-columns": columns(),
-              "grid-template-rows": "var(--flux-titlebar-h) 1fr",
-              "grid-template-areas": `"title title title title title title title" "side content webpanel bars dock stack connect"`,
+              "grid-template-rows": "1fr",
+              "grid-template-areas": `"side content webpanel bars dock stack connect"`,
             }
       }
     >
-      <Show when={!isMobile}>
-        <TitleBar />
-      </Show>
       <Show when={isMobile}>
         <Suspense>
           <MobileChrome
@@ -1952,7 +1951,7 @@ const App: Component = () => {
         <div
           class="pane-splitter"
           style={{ right: `${(connectColVisible() ? connectW() : 0) + stackW()}px` }}
-          onPointerDown={(e) => startPaneResize(e, stackW, setStackW, -1, "flux.w.stack", 300, 820)}
+          onPointerDown={(e) => startPaneResize(e, stackW, setStackW, -1, "flux.w.stack.v3", 260, 820)}
         />
       </Show>
 

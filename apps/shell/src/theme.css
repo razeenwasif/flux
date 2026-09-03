@@ -69,7 +69,7 @@
      a theme may need to move them to stay legible against its own accent, but
      it must not make "succeeded" and "failed" look alike. */
   --flux-ok: #7cf5b0;
-  --flux-warn: #ff9f9f;
+  --flux-warn: #ffffff;
 
   /* ── Interaction (Tactile neon) ── */
   --flux-teal: rgb(var(--accent-rgb));
@@ -166,6 +166,53 @@
   --flux-text-dim: #c9a3ad;
   --flux-text-mute: #966b78;
   --flux-popover-fill: #2a0d18;
+}
+
+/* ── Gruvbox Dark — authentic retro groove palette (Pavel Pertsev) ────────── */
+:root[data-theme="gruvbox"] {
+  /* Gruvbox Dark base tones */
+  --velvet-900: #1d2021; /* deepest / hard background */
+  --velvet-800: #282828; /* base dark 0 */
+  --velvet-700: #32302f; /* dark 0 soft / raised cards */
+  --velvet-600: #3c3836; /* dark 1 / panels */
+  --velvet-500: #504945; /* dark 2 / hover */
+
+  /* Palette channels */
+  --accent-rgb: 142, 192, 124;    /* primary interactive: Gruvbox Aqua (#8ec07c) */
+  --accent-ai-rgb: 250, 189, 47;   /* the agent / AI: Gruvbox Yellow (#fabd2f) */
+  --accent-ai2-rgb: 211, 134, 155; /* secondary AI: Gruvbox Purple (#d3869b) */
+  --accent-hot-rgb: 254, 128, 25;  /* attention / highlights: Gruvbox Orange (#fe8019) */
+  --neutral-rgb: 168, 153, 132;    /* borders, scrollbars: Gruvbox Light 4 (#a89984) */
+  --rim-rgb: 213, 196, 161;        /* glass specular edge: Gruvbox Light 2 (#d5c4a1) */
+
+  /* Semantic status colours */
+  --flux-ok: #b8bb26;   /* Gruvbox Bright Green */
+  --flux-warn: #ffffff; /* White per user preference */
+
+  /* Typography / Text tokens */
+  --flux-text: #ebdbb2;      /* Gruvbox Light 1 */
+  --flux-text-dim: #d5c4a1;  /* Gruvbox Light 2 */
+  --flux-text-mute: #928374; /* Gruvbox Gray */
+  --flux-popover-fill: #32302f;
+
+  /* Glass tokens adapted for warm Gruvbox tone */
+  --glass-fill: rgba(40, 40, 40, 0.65);
+  --glass-fill-soft: rgba(40, 40, 40, 0.45);
+}
+
+:root[data-theme="gruvbox"] .shell.window-acrylic .titlebar {
+  background: rgba(40, 40, 40, 0.35) !important;
+}
+:root[data-theme="gruvbox"] .shell.window-acrylic .sidebar {
+  background: rgba(40, 40, 40, 0.4) !important;
+}
+:root[data-theme="gruvbox"] .shell.window-acrylic .pages-bar,
+:root[data-theme="gruvbox"] .shell.window-acrylic .tui-bar,
+:root[data-theme="gruvbox"] .shell.window-acrylic .agent-inner,
+:root[data-theme="gruvbox"] .shell.window-acrylic .terminal-surface,
+:root[data-theme="gruvbox"] .shell.window-acrylic .dock-card {
+  background: rgba(40, 40, 40, 0.35) !important;
+  border-color: rgba(235, 219, 178, 0.1) !important;
 }
 
 * {
@@ -398,10 +445,11 @@ html.window-acrylic {
 .shell.window-acrylic .rightstack {
   background: transparent !important;
 }
-/* TUI apps & Flux pages rail: frosted translucent liquid glass */
+/* TUI apps & Flux pages rail: frosted translucent liquid glass, no gradient */
 .shell.window-acrylic .pages-bar,
-.shell.window-acrylic .tui-apps-bar {
+.shell.window-acrylic .tui-bar {
   background: rgba(15, 15, 18, 0.28) !important;
+  background-image: none !important;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
@@ -1361,7 +1409,7 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-teal);
 }
 .watch-err {
-  color: #ff6b81;
+  color: #ffffff;
 }
 .watch-act {
   flex: none;
@@ -1378,7 +1426,7 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-text);
 }
 .watch-del:hover {
-  color: #ff6b81;
+  color: #ffffff;
 }
 .watch-diff {
   padding: 8px 12px 12px;
@@ -1406,7 +1454,7 @@ body.resizing .panel-edge-resize::after {
 }
 .watch-rem {
   background: rgba(248, 81, 73, 0.1);
-  color: #ff9b95;
+  color: #ffffff;
   border-left: 2px solid #f85149;
 }
 
@@ -3011,7 +3059,7 @@ body.resizing .panel-edge-resize::after {
   box-shadow: none;
 }
 .perm-bar.danger .perm-ico {
-  color: #ff5a5a;
+  color: #ffffff;
 }
 .perm-bar.danger .perm-text {
   overflow: visible;
@@ -3095,7 +3143,65 @@ body.resizing .panel-edge-resize::after {
   flex-direction: column;
   gap: 6px;
   padding: var(--flux-frame-pad);
-  padding-right: 0;
+  padding-left: 2px;
+  padding-right: 6px;
+}
+/* ── Vertical window controls in launcher rail ── */
+.rail-traffic {
+  flex: none;
+  width: 100%;
+  padding: 9px 0;
+  border-radius: 10px;
+  background: var(--velvet-800);
+  border: 1px solid var(--glass-rim-soft);
+  box-shadow: var(--glass-shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: default;
+}
+.rail-traffic .tl {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: transparent;
+  cursor: pointer;
+  transition:
+    filter 0.15s var(--ease-soft),
+    transform 0.12s var(--ease-soft);
+}
+.rail-traffic .tl:hover {
+  transform: none;
+}
+.rail-traffic:hover .tl-close {
+  color: #7a0a00;
+}
+.rail-traffic:hover .tl-min {
+  color: #8a5a00;
+}
+.rail-traffic:hover .tl-max {
+  color: #006400;
+}
+.shell.window-acrylic .rail-traffic {
+  background: rgba(15, 15, 18, 0.28) !important;
+  background-image: none !important;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+:root[data-theme="gruvbox"] .shell.window-acrylic .rail-traffic {
+  background: rgba(40, 40, 40, 0.35) !important;
+  border-color: rgba(235, 219, 178, 0.1) !important;
 }
 .pages-bar {
   /* Takes the slack — the native-page list is fixed and long, so it is what
@@ -3111,7 +3217,7 @@ body.resizing .panel-edge-resize::after {
   overflow-x: hidden;
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
-  background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+  background: var(--velvet-800);
 }
 .pages-chip {
   flex: none;
@@ -3191,7 +3297,7 @@ body.resizing .panel-edge-resize::after {
   overflow-x: hidden;
   border: 1px solid var(--glass-rim-soft);
   border-radius: 10px;
-  background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.05), var(--velvet-800));
+  background: var(--velvet-800);
 }
 .tui-chip {
   flex: none;
@@ -3465,9 +3571,14 @@ body.resizing .panel-edge-resize::after {
   min-width: 0;
   height: 100%;
   padding: var(--flux-frame-pad);
-  padding-left: 0;
+  padding-left: 4px;
+  padding-right: 4px;
   position: relative;
   min-height: 0;
+  width: 100%;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: 40px;
 }
 /* #75 in-column splits: panes laid out row/column; controls float on hover. */
 .term-col-panes {
@@ -3516,7 +3627,7 @@ body.resizing .panel-edge-resize::after {
 }
 .term-fail-x {
   font-size: 11.5px;
-  color: var(--flux-magenta);
+  color: #ffffff;
   font-weight: 600;
 }
 .term-fail-btn {
@@ -3589,7 +3700,7 @@ body.resizing .panel-edge-resize::after {
 .term-col-bar {
   position: absolute;
   top: calc(var(--flux-frame-pad) + 6px);
-  right: 12px;
+  right: 8px;
   z-index: 4;
   display: flex;
   gap: 4px;
@@ -3985,7 +4096,12 @@ body.resizing .panel-edge-resize::after {
   min-width: 0;
   min-height: 0;
   padding: var(--flux-frame-pad);
-  padding-left: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+  width: 100%;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: 40px;
 }
 /* #123 ambient connections rail */
 .connect-rail {
@@ -4200,7 +4316,7 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-ok);
 }
 .sysmon-net-up {
-  color: rgb(var(--accent-hot-rgb));
+  color: #ffffff;
 }
 .sysmon-iface {
   display: grid;
@@ -4508,7 +4624,7 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-text);
 }
 .agent-model-cloud.on {
-  color: rgb(var(--accent-hot-rgb));
+  color: #ffffff;
 }
 .agent-model-cloud:disabled {
   opacity: 0.6;
@@ -4582,7 +4698,7 @@ body.resizing .panel-edge-resize::after {
 }
 .agent-chat-del:hover {
   opacity: 1;
-  color: #ff9b9b;
+  color: #ffffff;
 }
 .agent-stop-btn {
   color: #fff !important;
@@ -4620,7 +4736,7 @@ body.resizing .panel-edge-resize::after {
 }
 .agent-ctxchip-x:hover {
   opacity: 1;
-  color: #ff9b9b;
+  color: #ffffff;
 }
 .agent-ctxchip-clear {
   font-size: 11px;
@@ -4665,7 +4781,7 @@ body.resizing .panel-edge-resize::after {
   color: #9affc9;
 }
 .agent-diff .diff-del {
-  color: #ff9b9b;
+  color: #ffffff;
 }
 .agent-diff .diff-hunk {
   color: var(--flux-teal);
@@ -5044,7 +5160,7 @@ body.resizing .panel-edge-resize::after {
 }
 .agent-error {
   align-self: flex-start;
-  color: #ff9b9b;
+  color: #ffffff;
   background: rgba(255, 80, 80, 0.1);
   border: 1px solid rgba(255, 80, 80, 0.25);
 }
@@ -6099,7 +6215,7 @@ body.busy .start-card {
 }
 .evt-del {
   background: none;
-  color: #ff6b81;
+  color: #ffffff;
   border-color: rgba(255, 107, 129, 0.4) !important;
 }
 .evt-del:hover {
@@ -6211,7 +6327,7 @@ body.busy .start-card {
   padding: 8px 0;
 }
 .calc-clear {
-  color: #ff6b81;
+  color: #ffffff;
 }
 .calc-eq {
   background: linear-gradient(135deg, var(--flux-violet), var(--flux-teal));
@@ -6535,7 +6651,7 @@ body.busy .start-card {
   opacity: 1;
 }
 .start-todo-x:hover {
-  color: #e06b5a;
+  color: #ffffff;
 }
 .start-todo-count {
   font-size: 10.5px;
@@ -7235,7 +7351,7 @@ body.busy .start-card {
   text-align: center;
 }
 .files-err {
-  color: #ff9b9b;
+  color: #ffffff;
 }
 
 .files-statusbar {
@@ -7345,11 +7461,11 @@ body.busy .start-card {
   color: var(--flux-text);
 }
 .files-menu-item.danger {
-  color: #ff8d8d;
+  color: #ffffff;
 }
 .files-menu-item.danger:hover {
   background: rgba(255, 90, 90, 0.16);
-  color: #ffb0b0;
+  color: #ffffff;
 }
 .files-menu-key {
   color: var(--flux-text-mute);
@@ -7454,7 +7570,7 @@ body.busy .start-card {
   animation: files-toast-in 0.16s ease-out;
 }
 .files-toast.err {
-  color: #ffb0b0;
+  color: #ffffff;
   border-color: rgba(255, 90, 90, 0.4);
 }
 @keyframes files-toast-in {
@@ -8088,7 +8204,7 @@ body.busy .start-card {
 }
 .trail-forget {
   font-size: 12px;
-  color: #ffb0b0;
+  color: #ffffff;
   cursor: pointer;
   padding: 5px 11px;
   border-radius: 8px;
@@ -8538,7 +8654,7 @@ body.busy .start-card {
 }
 .trail-detail-forget {
   font-size: 12px;
-  color: #ffb0b0;
+  color: #ffffff;
   cursor: pointer;
   padding: 6px 12px;
   border-radius: 8px;
@@ -8583,7 +8699,7 @@ body.busy .start-card {
   color: var(--flux-text-mute);
 }
 .omni-status.off {
-  color: #ffb0b0;
+  color: #ffffff;
 }
 .omni-dot {
   width: 7px;
@@ -8928,7 +9044,7 @@ body.busy .start-card {
   color: var(--flux-text-mute);
 }
 .set-proxy-msg.err {
-  color: #ff8d8d;
+  color: #ffffff;
 }
 
 /* Extension manager (BACKLOG #95) */
@@ -8963,7 +9079,7 @@ body.busy .start-card {
   border-radius: 6px;
 }
 .ext-remove:hover {
-  color: #ff6b6b;
+  color: #ffffff;
   background: var(--flux-surface-2);
 }
 .ext-perms {
@@ -9002,7 +9118,7 @@ body.busy .start-card {
 }
 .ext-error {
   font-size: 11px;
-  color: #ff8a8a;
+  color: #ffffff;
   padding: 6px 8px 2px;
   word-break: break-word;
 }
@@ -9299,7 +9415,7 @@ body.busy .start-card {
   filter: brightness(1.08);
 }
 .vault-btn.danger {
-  color: #ff8a8a;
+  color: #ffffff;
 }
 .vault-btn.danger:hover {
   color: #fff;
@@ -9539,7 +9655,7 @@ body.busy .start-card {
   font-size: 12px;
 }
 .vault-msg.err {
-  color: #ff8a8a;
+  color: #ffffff;
 }
 .vault-toast {
   position: absolute;
@@ -10133,7 +10249,7 @@ body.busy .start-card {
   font-variant-numeric: tabular-nums;
 }
 .tm-cpu.hot {
-  color: #e8643c;
+  color: #ffffff;
   font-weight: 600;
 }
 .tm-mem {
@@ -10318,7 +10434,7 @@ body.busy .start-card {
 }
 .tm-verdict.bad .tm-verdict-dot {
   background: #ff6b6b;
-  color: #ff6b6b;
+  color: #ffffff;
   animation: tm-pulse 1.8s ease-in-out infinite;
 }
 @keyframes tm-pulse {
@@ -10827,7 +10943,7 @@ body.busy .start-card {
   cursor: default;
 }
 .st-error {
-  color: #e8643c;
+  color: #ffffff;
   font-size: 13px;
 }
 .st-hint {
@@ -10998,7 +11114,7 @@ body.busy .start-card {
 .sync-err {
   margin-top: 12px;
   font-size: 13px;
-  color: #e8643c;
+  color: #ffffff;
 }
 .sync-auto {
   justify-content: space-between;
@@ -11031,7 +11147,7 @@ body.busy .start-card {
 
 /* ── Macros popover (#67) ── */
 .icon-btn.rec-pulse {
-  color: #e8643c;
+  color: #ffffff;
   animation: rec-pulse 1.2s ease-in-out infinite;
 }
 @keyframes rec-pulse {
@@ -11059,7 +11175,7 @@ body.busy .start-card {
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
-  color: #e8643c;
+  color: #ffffff;
   font-weight: 600;
   padding: 4px 2px;
 }
@@ -11067,7 +11183,7 @@ body.busy .start-card {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #e8643c;
+  background: #ffffff;
   animation: rec-pulse 1.2s ease-in-out infinite;
 }
 .macro-note {
@@ -11199,7 +11315,7 @@ body.busy .start-card {
   cursor: default;
 }
 .boost-error {
-  color: #e8643c;
+  color: #ffffff;
   font-size: 11.5px;
   padding: 6px 2px 0;
 }
@@ -11696,7 +11812,7 @@ body.busy .start-card {
 }
 .feeds-error {
   font-size: 12.5px;
-  color: #e07a6b;
+  color: #ffffff;
   background: rgba(192, 57, 43, 0.12);
   border: 1px solid rgba(192, 57, 43, 0.3);
   border-radius: 8px;
@@ -13473,7 +13589,7 @@ input[type="radio"].pdf-fw {
   font-variant-numeric: tabular-nums;
 }
 .clock-face.done {
-  color: var(--flux-pink, #ff4d9d);
+  color: #ffffff;
 }
 .clock-progress {
   height: 4px;
@@ -14242,7 +14358,7 @@ input[type="radio"].pdf-fw {
   background: rgba(var(--accent-ai-rgb), 0.14);
 }
 .cal-pane-ev-btn.danger:hover {
-  color: #ffb0b0;
+  color: #ffffff;
   background: rgba(236, 75, 110, 0.14);
   border-color: rgba(236, 75, 110, 0.3);
 }
@@ -14296,7 +14412,7 @@ input[type="radio"].pdf-fw {
 }
 .cal-pane-err {
   font-size: 11px;
-  color: #ffb0b0;
+  color: #ffffff;
 }
 @media (max-width: 720px) {
   .cal-pane-body {
@@ -14708,7 +14824,7 @@ input[type="radio"].pdf-fw {
 }
 .scribe-err {
   font-size: 12px;
-  color: #ff9db0;
+  color: #ffffff;
   background: rgba(236, 75, 110, 0.12);
   border: 1px solid rgba(236, 75, 110, 0.3);
   border-radius: 8px;
@@ -15517,7 +15633,7 @@ html.mobile .appdock-btn {
   color: #f0b428;
 }
 .sentinel-banner.high .sentinel-ico {
-  color: #ff5a5a;
+  color: #ffffff;
 }
 .sentinel-body {
   flex: 1 1 auto;
@@ -16536,9 +16652,15 @@ html.mobile .appdock-btn {
 .rightstack-seam {
   flex: none;
   height: 9px;
-  margin: 0 var(--flux-frame-pad) 0 0;
+  margin: 0 2px 0 6px;
   cursor: ns-resize;
   position: relative;
+}
+.rightstack:not(.dock-col) .rightstack-seam {
+  width: calc(100% - 8px);
+  max-width: 352px;
+  margin-left: auto;
+  margin-right: 40px;
 }
 .rightstack-seam::after {
   content: "";

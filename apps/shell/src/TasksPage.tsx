@@ -38,7 +38,7 @@ const HISTORY = 90; // samples kept (~3 min at 2s/poll)
 
 const gb = (mb: number) => (mb / 1024).toFixed(1);
 const pctOf = (used: number, total: number) => (total > 0 ? Math.round((used * 100) / total) : 0);
-const loadColor = (pct: number) => (pct >= 85 ? "#ff6b6b" : pct >= 55 ? "#f5c451" : "var(--flux-teal)");
+const loadColor = (pct: number) => (pct >= 85 ? "#ffffff" : pct >= 55 ? "#f5c451" : "var(--flux-teal)");
 const fmtBps = (b: number): string => {
   if (b < 1024) return `${b | 0} B/s`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB/s`;
@@ -429,7 +429,7 @@ const TasksPage: Component = () => {
                     label={`${d.mount}${d.removable ? " ⏏" : ""}`}
                     pct={usedPct()}
                     text={`${gb(d.avail_mb)} GB free of ${gb(d.total_mb)}`}
-                    color={usedPct() >= 90 ? "#ff6b6b" : usedPct() >= 75 ? "#f5c451" : "#5bc0eb"}
+                    color={usedPct() >= 90 ? "#ffffff" : usedPct() >= 75 ? "#f5c451" : "#5bc0eb"}
                   />
                 );
               }}

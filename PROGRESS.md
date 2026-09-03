@@ -1,5 +1,166 @@
 # Flux Progress
 
+## 2026-09-04: Vertical window controls in launcher rail and complete removal of header title bar
+
+### Request
+Make the close, minimize, and maximize buttons vertical and part of the web panels rail, and completely remove the header bit.
+
+### Work Done
+1. **Removed Top Header Title Bar ([`App.tsx`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/App.tsx)):**
+   - Removed `<TitleBar />` from the desktop layout.
+   - Updated desktop CSS grid rows from `"var(--flux-titlebar-h) 1fr"` to `"1fr"` and grid-template-areas from `"title title..." "side content..."` to `"side content webpanel bars dock stack connect"`.
+   - Result: All main window panes (Sidebar, Content Area, Web Panels, Launcher Rail, Dock, and Stack) now span the full vertical height of the display without an unnecessary 34px top bar.
+2. **Vertical Window Controls in Launcher Rail ([`BarsColumn.tsx`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/BarsColumn.tsx) & [`theme.css`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/theme.css)):**
+   - Added `.rail-traffic` vertical window controls component to the top of `BarsColumn` with Close (✕), Minimize (−), and Maximize (+) buttons connected to Tauri window IPC (`win.close()`, `win.minimize()`, `win.toggleMaximize()`).
+   - Styled `.rail-traffic` as a sleek vertical capsule matching `.pages-bar` and `.tui-bar` with support for both default and Gruvbox themes as well as Windows acrylic frosted translucency.
+   - Included `data-tauri-drag-region="deep"` so the capsule and empty rail space allow dragging the window seamlessly.
+3. **Rebuilt & Deployed:**
+   - Compiled release binary via `npx tauri build --no-bundle`.
+   - Replaced installed application at `C:\Users\Razeen\AppData\Local\Programs\Flux\flux.exe`.
+
+### Files Changed
+- `apps/shell/src/App.tsx`
+- `apps/shell/src/BarsColumn.tsx`
+- `apps/shell/src/theme.css`
+- `PROGRESS.md`
+
+## 2026-09-04: Shift Agent and Terminal panels left away from Connections rail
+
+### Request
+Move the column a bit more to the left, as it was too close to the connections rail.
+
+### Work Done
+1. **Separation from Connections Rail ([`theme.css`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/theme.css)):**
+   - Updated `.agent` and `.terminal-col` margins to `margin-left: auto; margin-right: 40px;` with balanced horizontal padding (`padding: 8px 4px;`).
+   - Updated `.rightstack:not(.dock-col) .rightstack-seam` to `margin-left: auto; margin-right: 40px;` matching the 352px inner surface width.
+   - Adjusted `.term-col-bar` action bar offset to `right: 8px;`.
+   - Result: Moves the Agent panel and Terminal panel ~38px further to the left, creating a comfortable, distinct 40px buffer separating the stack panels from the connections rail.
+2. **Rebuilt & Deployed:**
+   - Compiled release binary via `npx tauri build --no-bundle`.
+   - Replaced installed application at `C:\Users\Razeen\AppData\Local\Programs\Flux\flux.exe`.
+
+### Files Changed
+- `apps/shell/src/theme.css`
+- `PROGRESS.md`
+
+## 2026-09-04: Widen Agent and Terminal column while keeping panels narrower
+
+### Request
+Widen the agent and terminal column but not the panel/box of each themselves.
+
+### Work Done
+1. **Wider Column Track (`stackW` in [`App.tsx`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/App.tsx)):**
+   - Widened the default shared right-hand stack column width (`stackW`) from 360px to 430px (+70px wider).
+   - Updated storage migration key to `flux.w.stack.v3` and updated resize handler boundary.
+2. **Constrained Panel / Box Geometry ([`theme.css`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/theme.css)):**
+   - Added `width: 100%; max-width: 360px; margin-left: auto;` to `.agent` and `.terminal-col`.
+   - Updated `.rightstack:not(.dock-col) .rightstack-seam` to `width: calc(100% - 8px); max-width: 352px; margin: 0 2px 0 auto;`.
+   - Result: The column itself provides a generous, spacious 430px track revealing the translucent acrylic glass background on the left, while the floating liquid glass panels for Agent and Terminal remain sleek, narrower (360px), and neatly docked against the right edge.
+3. **Rebuilt & Deployed:**
+   - Compiled release binary via `npx tauri build --no-bundle`.
+   - Replaced installed application at `C:\Users\Razeen\AppData\Local\Programs\Flux\flux.exe`.
+
+### Files Changed
+- `apps/shell/src/App.tsx`
+- `apps/shell/src/theme.css`
+- `PROGRESS.md`
+
+## 2026-09-03: Add Gruvbox Dark theme
+
+### Request
+Add the Gruvbox Dark theme to Flux.
+
+### Work Done
+1. **Theme Registration ([`themes.ts`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/themes.ts)):**
+   - Added `"gruvbox"` to `ThemeId` union type.
+   - Added Gruvbox Dark definition to `THEMES` list with name, description, and swatch palette (`["#282828", "#ebdbb2", "#8ec07c", "#fabd2f"]`).
+2. **CSS Palette & Acrylic Rules ([`theme.css`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/theme.css)):**
+   - Implemented authentic Gruvbox Dark palette (Pavel Pertsev) under `:root[data-theme="gruvbox"]`:
+     - Base tones: `--velvet-900: #1d2021` (hard dark), `--velvet-800: #282828` (dark 0), `--velvet-700: #32302f` (dark 0 soft), `--velvet-600: #3c3836` (dark 1), `--velvet-500: #504945` (dark 2).
+     - Palette channels: `--accent-rgb: 142, 192, 124` (Aqua), `--accent-ai-rgb: 250, 189, 47` (Yellow), `--accent-ai2-rgb: 211, 134, 155` (Purple), `--accent-hot-rgb: 254, 128, 25` (Orange), `--neutral-rgb: 168, 153, 132` (Light 4/Gray), `--rim-rgb: 213, 196, 161` (Light 2).
+     - Status colours: `--flux-ok: #b8bb26` (Bright Green), `--flux-warn: #ffffff` (White).
+     - Text tokens: `--flux-text: #ebdbb2` (Light 1 cream text), `--flux-text-dim: #d5c4a1`, `--flux-text-mute: #928374`.
+     - Integrated acrylic translucent styles for Gruvbox mode: `rgba(40, 40, 40, 0.35)` with warm cream specular rim borders.
+3. **Terminal Integration ([`TerminalView.tsx`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/TerminalView.tsx)):**
+   - Added full 16-color Gruvbox ANSI palette mapping for xterm.js in `termTheme()`.
+   - Added reactive `createEffect` tracking `theme()`, immediately repainting open xterm.js terminal instances when switching themes in Settings.
+4. **Rebuilt & Deployed:**
+   - Verified clean typecheck and build via `npm run check`.
+   - Built release binary via `npx tauri build --no-bundle`.
+   - Replaced installed application at `C:\Users\Razeen\AppData\Local\Programs\Flux\flux.exe`.
+
+### Files Changed
+- `apps/shell/src/themes.ts`
+- `apps/shell/src/theme.css`
+- `apps/shell/src/TerminalView.tsx`
+- `PROGRESS.md`
+
+## 2026-09-03: Make Agent and Terminal panels narrower
+
+### Request
+Make the Agent panel and Terminal panel slightly narrower.
+
+### Work Done
+1. **Narrower Stack Column Default & Range ([`App.tsx`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/App.tsx)):**
+   - Reduced the default width of the shared right-hand stack column (`stackW`) from 420px to 360px (~14.3% narrower).
+   - Added automatic migration check via `flux.w.stack.v2` so existing installations with legacy 420px (or uncustomized widths) seamlessly update to the narrower 360px width, while preserving any user adjustments proportionally.
+   - Reduced the minimum allowable drag-resize width from 300px to 260px in `startPaneResize`.
+2. **Rebuilt & Deployed:**
+   - Compiled release binary via `npx tauri build --no-bundle`.
+   - Replaced installed application at `C:\Users\Razeen\AppData\Local\Programs\Flux\flux.exe`.
+
+### Files Changed
+- `apps/shell/src/App.tsx`
+- `PROGRESS.md`
+
+## 2026-09-03: Shift launcher rail left and Agent / Terminal panels right
+
+### Request
+Shift the Agent panel and Terminal slightly to the right, and the TUI apps / Flux pages launcher rail slightly to the left.
+
+### Work Done
+1. **Launcher Rail Left Shift ([`theme.css`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/theme.css)):**
+   - Updated `.bars-col` padding from `padding: var(--flux-frame-pad); padding-right: 0;` (8px left, 0px right) to `padding-left: 2px; padding-right: 6px;`.
+   - Shifts the `.pages-bar` and `.tui-bar` 6px to the left, closing the previously wide 16px gap against the content card to a balanced 10px and increasing breathing room on its right.
+2. **Agent & Terminal Right Shift ([`theme.css`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/theme.css)):**
+   - Updated `.terminal-col` and `.agent` padding from `padding-left: 0; padding-right: 8px;` to `padding-left: 6px; padding-right: 2px;`.
+   - Updated `.rightstack-seam` margin from `margin: 0 var(--flux-frame-pad) 0 0;` to `margin: 0 2px 0 6px;`.
+   - Adjusted `.term-col-bar` floating action bar offset to `right: 6px;`.
+   - Shifts the Agent panel, Terminal surface, and seam 6px to the right, creating clean separation from the central launcher rails and docking neatly against the right edge.
+3. **Rebuilt & Deployed:**
+   - Compiled production build: `npx tauri build --no-bundle`.
+   - Updated installed binary at `AppData/Local/Programs/Flux/flux.exe`.
+
+### Files Changed
+- `apps/shell/src/theme.css`
+- `PROGRESS.md`
+
+## 2026-09-03: Turn all red text to white and remove TUI apps rail gradient
+
+### Request
+Turn all red text across the application to white, and remove the gradient on the TUI apps rail.
+
+### Work Done
+1. **Removed TUI Apps Rail Gradient:**
+   - In `apps/shell/src/theme.css`: Removed the linear-gradient on `.tui-bar` (`linear-gradient(160deg, rgba(var(--accent-rgb), 0.05), var(--velvet-800))`) and `.pages-bar`, setting both to solid `var(--velvet-800)` with `background-image: none`.
+   - Fixed the acrylic theme selector: Updated `.shell.window-acrylic .tui-apps-bar` to `.shell.window-acrylic .tui-bar` with `background-image: none !important` and `background: rgba(15, 15, 18, 0.28) !important` so it seamlessly integrates into the acrylic frosted effect without any residual gradient.
+2. **Turned All Red Text to White:**
+   - **Terminal Palette ([`TerminalView.tsx`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/TerminalView.tsx)):** Changed `red` and `brightRed` in `termTheme()` from `#ff6b8a` / `#ff9fb0` to `#ffffff`. Updated command exit error indicator (`barColor`) to `#ffffff`.
+   - **Task Manager & Metrics ([`TasksPage.tsx`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/TasksPage.tsx)):** Updated high CPU/RAM/disk usage text colors from `#ff6b6b` to `#ffffff`.
+   - **Global Theme & Component Red Styles ([`theme.css`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/theme.css)):**
+     - Updated `--flux-warn` semantic token from `#ff9f9f` to `#ffffff`.
+     - Replaced all red and reddish text colors across Agent (`.agent-error`, `.agent-chat-del:hover`, `.agent-ctxchip-x:hover`, `.agent-diff .diff-del`, `.agent-model-cloud.on`), Terminal failure banner (`.term-fail-x`), System Monitor (`.sysmon-net-up`, `.tm-cpu.hot`, `.tm-verdict.bad .tm-verdict-dot`), Files manager (`.files-err`, `.files-menu-item.danger`, `.files-toast.err`), Trail/Sync/Settings/Scribe/Sentinel (`.watch-err`, `.watch-del:hover`, `.watch-rem`, `.perm-bar.danger .perm-ico`, `.start-todo-x:hover`, `.trail-forget`, `.trail-detail-forget`, `.omni-status.off`, `.set-proxy-msg.err`, `.ext-remove:hover`, `.ext-error`, `.vault-btn.danger`, `.vault-msg.err`, `.st-error`, `.sync-err`, `.rec-pulse`, `.macro-recording`, `.macro-rec-dot`, `.boost-error`, `.feeds-error`, `.clock-face.done`, `.cal-pane-err`, `.cal-pane-ev-btn.danger:hover`, `.scribe-err`, `.sentinel-banner.high .sentinel-ico`) to `#ffffff`.
+3. **Rebuilt & Deployed:**
+   - Ran `npm run check` (`cargo check --workspace` and `tsc --noEmit`) to verify zero errors or regressions.
+   - Built release executable with `npx tauri build --no-bundle`.
+   - Replaced installed application at `C:\Users\Razeen\AppData\Local\Programs\Flux\flux.exe`.
+
+### Files Changed
+- `apps/shell/src/TerminalView.tsx`
+- `apps/shell/src/TasksPage.tsx`
+- `apps/shell/src/theme.css`
+- `PROGRESS.md`
+
 ## 2026-09-03: Acrylic frosted styling for Agent, Terminal, and Rails + Flowing Liquid Glass animations
 
 ### Request
