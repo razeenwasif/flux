@@ -982,6 +982,12 @@ mod real {
 
     /// Round the window's corners on Windows 11 (DWM). The window is opaque
     /// (transparency breaks WebView2 child webviews), so CSS can't round it.
+    /// DWM backdrop type attribute (Windows 11 build 22621+).
+    /// 0 = Auto, 1 = None (Default/solid), 2 = Mica, 3 = Acrylic, 4 = Tabbed (Mica Alt).
+    const DWMWA_SYSTEMBACKDROP_TYPE: u32 = 38;
+    const DWMSBT_NONE: u32 = 1;
+    const DWMSBT_TRANSIENTWINDOW: u32 = 3;
+
     /// No-op on non-Windows and pre-Win11 (the DWM call just errors, ignored).
     #[cfg(windows)]
     pub fn round_window_corners(window: &tauri::WebviewWindow) {
@@ -1000,6 +1006,92 @@ mod real {
                 );
             }
         }
+    }
+
+    /// Enable or disable Windows 11 Acrylic backdrop effect on the main window.
+    /// When acrylic is enabled, DWM renders the frosted translucent backdrop.
+    /// The frontend DOM adjusts window translucency while keeping the main content card opaque.
+    #[tauri::command]
+    pub fn set_window_acrylic(app: AppHandle, enabled: bool) -> Result<(), String> {
+        if let Some(win) = app.get_webview_window("main") {
+            if enabled {
+                let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+            } else {
+                let _ = win.set_background_color(Some(tauri::window::Color(15, 15, 18, 255)));
+            }
+
+            #[cfg(windows)]
+            {
+                use windows_sys::Win32::Foundation::HWND;
+                use windows_sys::Win32::Graphics::Dwm::{
+                    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
+                };
+                use windows_sys::Win32::UI::Controls::MARGINS;
+                use windows_sys::Win32::UI::WindowsAndMessaging::{
+                    SetWindowPos, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+                };
+
+                if let Ok(hwnd) = win.hwnd() {
+                    let hwnd_val = hwnd.0 as isize as HWND;
+                    let backdrop_type: u32 = if enabled {
+                        DWMSBT_TRANSIENTWINDOW
+                    } else {
+                        DWMSBT_NONE
+                    };
+                    const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+                    let dark: u32 = 1;
+
+                    let margins = if enabled {
+                        MARGINS {
+                            cxLeftWidth: -1,
+                            cxRightWidth: -1,
+                            cyTopHeight: -1,
+                            cyBottomHeight: -1,
+                        }
+                    } else {
+                        MARGINS {
+                            cxLeftWidth: 0,
+                            cxRightWidth: 0,
+                            cyTopHeight: 0,
+                            cyBottomHeight: 0,
+                        }
+                    };
+
+                    unsafe {
+                        let _ = DwmSetWindowAttribute(
+                            hwnd_val,
+                            DWMWA_USE_IMMERSIVE_DARK_MODE,
+                            &dark as *const _ as *const core::ffi::c_void,
+                            core::mem::size_of_val(&dark) as u32,
+                        );
+                        let _ = DwmSetWindowAttribute(
+                            hwnd_val,
+                            DWMWA_SYSTEMBACKDROP_TYPE,
+                            &backdrop_type as *const _ as *const core::ffi::c_void,
+                            core::mem::size_of_val(&backdrop_type) as u32,
+                        );
+                        let _ = DwmExtendFrameIntoClientArea(
+                            hwnd_val,
+                            &margins as *const _ as *const _,
+                        );
+                        let _ = SetWindowPos(
+                            hwnd_val,
+                            0 as HWND,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+                        );
+                    }
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (app, enabled);
+        }
+        Ok(())
     }
 
     /// macOS: the window is borderless (`decorations: false`), so it has square
@@ -1162,6 +1254,12 @@ mod stub {
 
     /// Window corner rounding is a desktop cosmetic; nothing to do on mobile.
     pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
+
+    /// Window acrylic backdrop stub on mobile.
+    #[tauri::command]
+    pub fn set_window_acrylic(_app: AppHandle, _enabled: bool) -> Result<(), String> {
+        Ok(())
+    }
 
     /// Panel/tab badge overlay — no native panel webview on mobile.
     #[tauri::command]

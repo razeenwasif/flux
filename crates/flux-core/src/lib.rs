@@ -986,6 +986,11 @@ pub fn run(intent: cli::LaunchIntent) {
     storage::apply_pending_clear_early();
     enable_http3();
 
+    // Windows WebView2: initialize default controller background as transparent (0x00000000)
+    // so the native DWM acrylic backdrop can shine through without opaque black flashes.
+    #[cfg(windows)]
+    std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "0");
+
     let builder = tauri::Builder::default();
     // Single-instance + window-state are desktop-only plugins (no argv, no window
     // geometry on Android — ADR 0012). Gate them so the mobile build links.
@@ -1088,6 +1093,7 @@ pub fn run(intent: cli::LaunchIntent) {
         .invoke_handler(tauri::generate_handler![
             commands::shell_snapshot,
             commands::close_main_window,
+            webview::set_window_acrylic,
             commands::tab_create,
             commands::tab_focus,
             commands::tab_close,

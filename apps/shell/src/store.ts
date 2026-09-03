@@ -1007,6 +1007,16 @@ export function setLiquidBg(on: boolean): void {
   localStorage.setItem("flux.liquidbg", on ? "1" : "0");
 }
 
+// Acrylic / frosted translucent window backdrop. Persisted, default OFF.
+// When enabled, the window shell/decorations become translucent and frosted (via DWM acrylic on Win11),
+// while the main page / web area card remains completely opaque.
+const [windowAcrylic, setWindowAcrylicRaw] = createSignal(localStorage.getItem("flux.window.acrylic") === "1");
+export { windowAcrylic };
+export function setWindowAcrylic(on: boolean): void {
+  setWindowAcrylicRaw(on);
+  localStorage.setItem("flux.window.acrylic", on ? "1" : "0");
+}
+
 // Launcher column (#149): Flux's native pages over the user's terminal apps, in
 // a vertical column left of the dock. Persisted, default ON (hidden only when
 // explicitly turned off). Like the bookmark bar, toggling resizes the card so

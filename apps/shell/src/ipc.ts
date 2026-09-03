@@ -29,6 +29,8 @@ export const win = {
   close: () => inTauri() && void invoke("close_main_window").catch(() => getCurrentWindow().destroy()),
   startDragging: () => inTauri() && void getCurrentWindow().startDragging(),
   startResize: (dir: ResizeDir) => inTauri() && void getCurrentWindow().startResizeDragging(dir),
+  setAcrylic: (enabled: boolean) =>
+    inTauri() ? invoke<void>("set_window_acrylic", { enabled }).catch(() => {}) : Promise.resolve(),
 };
 
 /** Reserved session id for the vertical terminal column (see terminal.rs). */

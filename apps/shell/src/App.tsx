@@ -104,6 +104,7 @@ import {
   workspaceActive,
   workspaceDelete,
   workspaceSwitch,
+  win,
   type TabMeta,
 } from "./ipc";
 import { setTerminalOpener } from "./terminals";
@@ -259,6 +260,7 @@ import {
   setOAuth,
   setSensitive,
   setConsent,
+  windowAcrylic,
 } from "./store";
 
 const App: Component = () => {
@@ -304,6 +306,20 @@ const App: Component = () => {
   createEffect(() => localStorage.setItem("flux.music.open", musicOpen() ? "1" : "0"));
   // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
   const [focusMode, setFocusMode] = createSignal(false);
+
+  // Native acrylic / frosted translucent window backdrop + shell effect.
+  // Updates the OS DWM window backdrop attribute and syncs the .window-acrylic class.
+  createEffect(() => {
+    const on = windowAcrylic();
+    void win.setAcrylic(on);
+    document.documentElement.classList.toggle("window-acrylic", on);
+    document.body.classList.toggle("window-acrylic", on);
+  });
+  onCleanup(() => {
+    document.documentElement.classList.remove("window-acrylic");
+    document.body.classList.remove("window-acrylic");
+  });
+
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [spotOpen, setSpotOpen] = createSignal(false);
   // Overlay registry (store.ts pageOverlayActive) + the one App-local overlay
@@ -1766,7 +1782,11 @@ const App: Component = () => {
   return (
     <div
       class="shell"
-      classList={{ mobile: isMobile, "drawer-open": isMobile && sidebarOpen() }}
+      classList={{
+        mobile: isMobile,
+        "drawer-open": isMobile && sidebarOpen(),
+        "window-acrylic": windowAcrylic(),
+      }}
       style={
         isMobile
           ? // Phone: a Chrome-style top bar row over one full-bleed content cell.

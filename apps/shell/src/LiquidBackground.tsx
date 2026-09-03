@@ -24,6 +24,7 @@ precision highp float;
 in vec2 v_uv; out vec4 o;
 uniform float u_time;
 uniform float u_aspect;
+uniform float u_glass;
 // The theme's palette, fed in from palette.ts so a theme change repaints the
 // shader. Baking these in is how the WebGL surfaces stayed teal under Ember.
 uniform vec3 u_c1;
@@ -107,10 +108,38 @@ void main() {
   float bgRipple = snoise(vec3(p * 1.5, t * 0.3));
   float bgRipple2 = snoise(vec3(p * 3.0 - bgRipple, t * 0.4));
   float bgMix = smoothstep(-0.6, 0.6, bgRipple * 0.7 + bgRipple2 * 0.3);
-  
-  // Base dark purple night sky
+
+  // Flowing liquid glass mode: neutral specular caustics without colored wash
+  if (u_glass > 0.5) {
+    vec3 glassCol = vec3(0.0);
+    for(float i = 0.0; i < 4.0; i++) {
+      float fi = i * 0.8;
+      vec2 q = p * vec2(0.4, 0.8) + vec2(t * 0.15 + fi, t * 0.1);
+      float n1 = snoise(vec3(q, t * 0.3));
+      float n2 = snoise(vec3(q * 1.5 + n1 * 0.5, t * 0.5));
+
+      float wave = p.x * 1.2 + n1 * 1.0 + n2 * 1.5 + t + fi * 1.5;
+      float curtain = smoothstep(-0.8, 1.0, sin(wave));
+      float sheen = smoothstep(0.6, 1.0, cos(wave));
+      curtain = curtain * 0.8 + sheen * 0.3;
+
+      float ridge = 1.0 - abs(n1 + n2 * 0.4);
+      ridge = smoothstep(0.0, 1.0, ridge);
+
+      float heightFade = smoothstep(0.05, 0.5, uv.y) * smoothstep(0.95, 0.2, uv.y);
+
+      // Specular liquid glass caustic highlights (pure neutral white/silver light)
+      float caustic = ridge * curtain * heightFade;
+      glassCol += vec3(0.92, 0.96, 1.0) * caustic * 0.32;
+    }
+    float alpha = clamp(length(glassCol) * 0.85 + bgMix * 0.04, 0.0, 0.55);
+    o = vec4(glassCol, alpha);
+    return;
+  }
+
+  // Base dark night sky
   vec3 bg = u_bg * 1.6 - uv.y * u_bg * 0.8;
-  // Add the deep velvet ripples to the background
+  // Add the deep ripples to the background
   bg += u_bg * 1.2 * bgMix * (1.0 - uv.y * 0.5);
 
   vec3 auroraCol = vec3(0.0);
@@ -157,14 +186,14 @@ void main() {
 }
 `;
 
-const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => void }> = (props) => {
+const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => void; glass?: boolean }> = (props) => {
   let canvas: HTMLCanvasElement | undefined;
 
   onMount(() => {
     const c = canvas;
     if (!c) return;
     const gl = c.getContext("webgl2", {
-      alpha: false,
+      alpha: true,
       antialias: false,
       depth: false,
       powerPreference: "low-power",
@@ -227,6 +256,7 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
 
     const uTime = gl.getUniformLocation(prog, "u_time");
     const uAspect = gl.getUniformLocation(prog, "u_aspect");
+    const uGlass = gl.getUniformLocation(prog, "u_glass");
     const uC1 = gl.getUniformLocation(prog, "u_c1");
     const uC2 = gl.getUniformLocation(prog, "u_c2");
     const uC3 = gl.getUniformLocation(prog, "u_c3");
@@ -244,6 +274,7 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       gl.uniform1f(uTime, time);
       gl.uniform1f(uAspect, aspect);
+      gl.uniform1f(uGlass, props.glass ? 1.0 : 0.0);
       if (paintGen !== paletteGeneration()) {
         paintGen = paletteGeneration();
         const p = pal();

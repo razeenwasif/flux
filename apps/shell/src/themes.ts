@@ -21,9 +21,9 @@ export type ThemeId = "velvet" | "ember";
 export const THEMES: { id: ThemeId; name: string; blurb: string; swatch: string[] }[] = [
   {
     id: "velvet",
-    name: "Velvet",
-    blurb: "Deep navy-plum, teal and amethyst",
-    swatch: ["#0b0a1d", "#2ff3ff", "#7b61ff", "#ec4be0"],
+    name: "Default (Neutral Dark)",
+    blurb: "Clean neutral dark slate with neon accents",
+    swatch: ["#0f0f12", "#2ff3ff", "#7b61ff", "#ec4be0"],
   },
   {
     id: "ember",

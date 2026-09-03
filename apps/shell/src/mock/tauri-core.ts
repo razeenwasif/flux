@@ -1422,6 +1422,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve([] as T);
     case "hibernate_rank":
       return Promise.resolve([] as T);
+    case "set_window_acrylic":
+      return Promise.resolve(undefined as T);
     default:
       return Promise.resolve(undefined as T);
   }

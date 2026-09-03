@@ -17,6 +17,7 @@
       try {
         var t = localStorage.getItem("flux.theme");
         if (t && t !== "velvet") document.documentElement.setAttribute("data-theme", t);
+        if (localStorage.getItem("flux.window.acrylic") === "1") document.documentElement.classList.add("window-acrylic");
       } catch (e) {}
     </script>
   </head>

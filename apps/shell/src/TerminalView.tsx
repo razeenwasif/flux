@@ -438,15 +438,15 @@ const TerminalView: Component<{
         height: "100%",
         overflow: "hidden",
         "border-radius": "inherit",
-        background: "var(--velvet-800)",
+        background: "transparent",
       }}
     >
       {/* The WebGL shader backdrop is decorative; skip it when the column is split
           (props.background=false) so split panes don't each hold a WebGL2 context —
           too many contexts white-out other GPU-composited glass surfaces (#75). */}
       <Show when={props.background ?? true}>
-        <div style={{ position: "absolute", inset: 0, "z-index": 0, "pointer-events": "none", opacity: 0.6 }}>
-          <LiquidBackground active={() => props.active ?? true} />
+        <div style={{ position: "absolute", inset: 0, "z-index": 0, "pointer-events": "none", opacity: 0.8 }}>
+          <LiquidBackground active={() => props.active ?? true} glass={true} />
         </div>
       </Show>
       <div

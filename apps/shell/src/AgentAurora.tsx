@@ -113,19 +113,19 @@ void main() {
     float sweep = 0.5 + 0.5 * sin(angle * 3.0 + t * (1.0 + busy * 3.0) + fi);
     float focus = mix(centerWash * 0.12 + edgeBand * 0.45, centerWash * 0.22 + edgeBand * 0.85, busy);
 
-    vec3 col = mix(u_c1, u_c2, smoothstep(-0.8, 0.8, n1));
-    col = mix(col, u_c3, smoothstep(-0.4, 1.0, n2 + radius));
-    col = mix(col, u_c4, pow(sweep, 2.4) * (0.18 + busy * 0.22));
+    // Flowing liquid glass caustics: pure neutral specular refraction (colorless)
+    float caustic = ribbon * grain * focus * (0.24 + busy * 0.28);
+    vec3 col = vec3(0.94, 0.97, 1.0) * caustic;
 
-    auroraCol += col * ribbon * grain * focus * (0.18 + busy * 0.20);
+    auroraCol += col;
   }
 
   // A restrained inner rim makes the glass feel alive without washing out text.
   float innerRim = smoothstep(0.44, 0.58, radius) * smoothstep(0.66, 0.50, radius);
   float pulse = 0.55 + 0.45 * sin(t * (2.2 + busy * 3.2) + angle * 2.0);
-  auroraCol += u_c1 * innerRim * pulse * (0.03 + busy * 0.05);
+  auroraCol += vec3(0.94, 0.97, 1.0) * innerRim * pulse * (0.04 + busy * 0.06);
 
-  float alpha = clamp(length(auroraCol) * mix(0.24, 0.34, busy), 0.0, 0.72);
+  float alpha = clamp(length(auroraCol) * mix(0.40, 0.55, busy), 0.0, 0.60);
   o = vec4(auroraCol, alpha);
 }
 `;

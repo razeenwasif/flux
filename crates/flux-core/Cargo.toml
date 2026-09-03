@@ -136,7 +136,7 @@ objc = "0.2"
 block = "0.1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging", "Win32_UI_Controls"] }
 # Content-blocker request interceptor (#57/#91): WebView2's `WebResourceRequested`
 # via the raw webview. Versions pinned to match wry/Tauri (webview2-com 0.38 +
 # windows 0.61) so the COM types unify with `PlatformWebview::controller()`.

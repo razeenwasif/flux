@@ -34,12 +34,12 @@
 }
 
 :root {
-  /* ── Velvet base (deep → near-black, royal-purple undertone) ── */
-  --velvet-900: #07050f; /* deepest, window corners */
-  --velvet-800: #0b0a1d; /* base navy-plum */
-  --velvet-700: #12102e; /* raised */
-  --velvet-600: #1a1640; /* panels */
-  --velvet-500: #241d57; /* hover / royal */
+  /* ── Neutral dark base (clean dark slate/charcoal — zero purple tint) ── */
+  --velvet-900: #09090b; /* deepest near-black */
+  --velvet-800: #0f0f12; /* base neutral dark */
+  --velvet-700: #16161a; /* raised card / panels */
+  --velvet-600: #1e1e24; /* panels */
+  --velvet-500: #27272e; /* hover */
 
   /* Brand identity (carried from ADR 0001) */
   --flux-bg: var(--velvet-800);
@@ -47,9 +47,9 @@
   --flux-surface: rgba(var(--neutral-rgb), 0.07);
   --flux-surface-2: rgba(var(--neutral-rgb), 0.16);
   --flux-border: rgba(var(--neutral-rgb), 0.14);
-  --flux-text: #eef0fb;
-  --flux-text-dim: #9aa0c4;
-  --flux-text-mute: #6a6f96;
+  --flux-text: #f0f0f4;
+  --flux-text-dim: #a0a4b8;
+  --flux-text-mute: #6e7288;
 
   /* ── Palette channels ──────────────────────────────────────────────────────
      Every accent in this file resolves through one of these RGB triplets, so a
@@ -89,11 +89,11 @@
   );
 
   /* ── Liquid glass tokens ── */
-  --glass-fill: rgba(26, 22, 64, 0.55);
-  --glass-fill-soft: rgba(26, 22, 64, 0.38);
+  --glass-fill: rgba(22, 22, 26, 0.6);
+  --glass-fill-soft: rgba(22, 22, 26, 0.4);
   /* Opaque popover fill — for menus that float over the native webview layer,
      where backdrop-blur can't sample the page (see .popover/.footer-pop). */
-  --flux-popover-fill: #14102e;
+  --flux-popover-fill: #16161a;
   --glass-blur: saturate(180%) blur(40px);
   --glass-rim: rgba(var(--rim-rgb), 0.22); /* specular edge */
   --glass-rim-soft: rgba(var(--rim-rgb), 0.1);
@@ -256,10 +256,7 @@ body {
      can't composite per-tab child webviews on a transparent host (pages went
      invisible). Native Win11 rounded corners are BACKLOG #80. */
   background-color: var(--velvet-800);
-  background-image:
-    radial-gradient(115% 85% at -5% -10%, rgba(var(--accent-rgb), 0.1), transparent 50%),
-    radial-gradient(120% 90% at 105% 110%, rgba(var(--accent-ai-rgb), 0.18), transparent 55%),
-    linear-gradient(160deg, var(--velvet-700), var(--velvet-900));
+  background-image: none;
   color: var(--flux-text);
   user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -363,11 +360,80 @@ input::placeholder {
      also lives on body, so there are no bare corners. */
   overflow: hidden;
   background-color: var(--velvet-800);
-  background-image:
-    radial-gradient(115% 85% at -5% -10%, rgba(var(--accent-rgb), 0.12), transparent 50%),
-    radial-gradient(120% 90% at 105% 110%, rgba(var(--accent-ai-rgb), 0.2), transparent 55%),
-    radial-gradient(90% 70% at 50% 120%, rgba(var(--accent-hot-rgb), 0.1), transparent 60%),
-    linear-gradient(160deg, var(--velvet-700), var(--velvet-900));
+  background-image: none;
+}
+
+/* ── Acrylic / Frosted translucent window setting ── */
+/* When acrylic mode is enabled:
+   1. The OS DWM renders the native acrylic / transient backdrop behind the window.
+   2. body and .shell become completely transparent so the native acrylic backdrop shows through with NO color scheme tint.
+   3. Chrome elements (titlebar, sidebar, docks) use neutral frosted translucency.
+   4. ONLY the main page content card (.card / #flux-web-area) remains 100% solid, opaque, and neutral. */
+body.window-acrylic,
+html.window-acrylic {
+  background-color: transparent !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.shell.window-acrylic {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+.shell.window-acrylic .titlebar {
+  background: rgba(15, 15, 18, 0.25) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.shell.window-acrylic .sidebar {
+  background: rgba(15, 15, 18, 0.3) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset -1px 0 0 0 rgba(255, 255, 255, 0.04);
+}
+.shell.window-acrylic .bars-col,
+.shell.window-acrylic .dock-col,
+.shell.window-acrylic .rightstack {
+  background: transparent !important;
+}
+/* TUI apps & Flux pages rail: frosted translucent liquid glass */
+.shell.window-acrylic .pages-bar,
+.shell.window-acrylic .tui-apps-bar {
+  background: rgba(15, 15, 18, 0.28) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+}
+/* Agent panel & terminal panel: frosted translucent liquid glass */
+.shell.window-acrylic .agent-inner,
+.shell.window-acrylic .terminal-surface {
+  background: rgba(15, 15, 18, 0.28) !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 0 rgba(255, 255, 255, 0.08) !important;
+}
+.shell.window-acrylic .term-col-bar {
+  background: rgba(15, 15, 18, 0.4) !important;
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.shell.window-acrylic .dock-card {
+  background: rgba(15, 15, 18, 0.28) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+/* Critical requirement: ONLY the main page card stays completely opaque */
+.shell.window-acrylic .card {
+  background-color: #121215 !important;
+  background-image: none !important;
+  opacity: 1 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
 }
 
 /* While dragging a splitter: no easing (track the pointer 1:1) + lock the
@@ -3558,13 +3624,13 @@ body.resizing .panel-edge-resize::after {
   width: 100%;
   height: 100%;
   position: relative;
-  background: linear-gradient(160deg, rgba(10, 8, 24, 0.96), rgba(7, 5, 15, 0.98));
-  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  background: linear-gradient(160deg, rgba(18, 18, 22, 0.96), rgba(12, 12, 15, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--flux-radius-card);
   overflow: hidden;
   box-shadow:
     var(--glass-shadow),
-    inset 0 1px 0 0 rgba(var(--accent-rgb), 0.12);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
 /* ── Music bubble (#125) — floating right-edge VERTICAL mini-player ── */
@@ -4265,7 +4331,7 @@ body.resizing .panel-edge-resize::after {
   min-height: 0; /* let the feed scroll instead of growing the panel */
   padding: 14px;
   border-radius: var(--flux-radius-card);
-  background: rgba(18, 14, 46, 0.75); /* Darker than var(--glass-fill) */
+  background: rgba(18, 18, 22, 0.75); /* Dark neutral glass */
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-rim-soft);

@@ -128,6 +128,8 @@ import {
   setSearchSuggestOn,
   setVimHints,
   vimHints,
+  windowAcrylic,
+  setWindowAcrylic,
   activeId,
   updateTabTitle,
 } from "./store";
@@ -716,6 +718,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             hint="A GPU particle-liquid backdrop on the start page (only animates while the start tab is visible). Off = the lightweight wave."
           >
             <Toggle on={liquidBg()} onClick={() => setLiquidBg(!liquidBg())} />
+          </Row>
+          <Row
+            label="Acrylic / Frosted window"
+            hint="Make the window frame translucent and frosted (acrylic). The main page stays opaque."
+          >
+            <Toggle on={windowAcrylic()} onClick={() => setWindowAcrylic(!windowAcrylic())} />
           </Row>
         </Section>
 
