@@ -210,7 +210,9 @@
 :root[data-theme="gruvbox"] .shell.window-acrylic .tui-bar,
 :root[data-theme="gruvbox"] .shell.window-acrylic .agent-inner,
 :root[data-theme="gruvbox"] .shell.window-acrylic .terminal-surface,
-:root[data-theme="gruvbox"] .shell.window-acrylic .dock-card {
+:root[data-theme="gruvbox"] .shell.window-acrylic .dock-card,
+:root[data-theme="gruvbox"] .shell.window-acrylic .editor-col-surface,
+:root[data-theme="gruvbox"] .shell.window-acrylic .editor-col-dead {
   background: rgba(40, 40, 40, 0.35) !important;
   border-color: rgba(235, 219, 178, 0.1) !important;
 }
@@ -455,9 +457,11 @@ html.window-acrylic {
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
 }
-/* Agent panel & terminal panel: frosted translucent liquid glass */
+/* Agent panel, terminal panel, and nvim editor column: frosted translucent liquid glass */
 .shell.window-acrylic .agent-inner,
-.shell.window-acrylic .terminal-surface {
+.shell.window-acrylic .terminal-surface,
+.shell.window-acrylic .editor-col-surface,
+.shell.window-acrylic .editor-col-dead {
   background: rgba(15, 15, 18, 0.28) !important;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -2913,6 +2917,13 @@ body.resizing .panel-edge-resize::after {
   border: 1px solid var(--glass-rim-soft);
   border-radius: var(--flux-radius-card);
   background: linear-gradient(160deg, var(--velvet-700), var(--velvet-800));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.editor-col:focus-within .editor-col-surface {
+  border-color: rgba(var(--accent-rgb), 0.35) !important;
+}
+:root[data-theme="gruvbox"] .editor-col:focus-within .editor-col-surface {
+  border-color: rgba(142, 192, 124, 0.4) !important;
 }
 /* Grab strip between the page and the editor. It is a real gap in the row, so
    no native webview covers it — the same trick the split seams use. */

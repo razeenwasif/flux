@@ -1,5 +1,26 @@
 # Flux Progress
 
+## 2026-09-07: Acrylic frosted styling for persistent nvim editor column
+
+### Request
+Make the persistent nvim workspace / editor column acrylic as well.
+
+### Work Done
+1. **Frosted Acrylic Styling for Editor Column ([`theme.css`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/theme.css)):**
+   - Added `.editor-col-surface` and `.editor-col-dead` to the frosted acrylic styling rules (`.shell.window-acrylic .editor-col-surface`, `.shell.window-acrylic .editor-col-dead`) with `background: rgba(15, 15, 18, 0.28) !important;`, `backdrop-filter: blur(24px);`, soft specular rim, and drop shadow.
+   - Added Gruvbox acrylic styling for `:root[data-theme="gruvbox"] .shell.window-acrylic .editor-col-surface` (`rgba(40, 40, 40, 0.35)` with warm cream specular rim).
+   - Added active focus-within rim highlighting (`.editor-col:focus-within .editor-col-surface`) across default and Gruvbox themes with smooth transitions.
+   - Preserves transparent terminal background (`TerminalView`'s xterm `#00000000`) so the underlying blurred acrylic desktop backdrop shines through cleanly while keeping code text crisp and readable.
+2. **Rebuilt & Deployed:**
+   - Validated typecheck via `npm run typecheck --workspace apps/shell`.
+   - Built frontend distribution via `npm run shell:build`.
+   - Built production release binary via `npx tauri build --no-bundle`.
+   - Updated installed binary at `AppData/Local/Programs/Flux/flux.exe` (with `flux.exe.bak` backup).
+
+### Files Changed
+- `apps/shell/src/theme.css`
+- `PROGRESS.md`
+
 ## 2026-09-04: Vertical window controls in launcher rail and complete removal of header title bar
 
 ### Request
