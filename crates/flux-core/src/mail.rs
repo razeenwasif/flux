@@ -174,7 +174,10 @@ fn with_session<T>(
 ) -> Result<T, String> {
     let tcp = TcpStream::connect((cfg.host.as_str(), cfg.port))
         .map_err(|e| format!("connect {}:{}: {e}", cfg.host, cfg.port))?;
-    let connector = rustls_connector::RustlsConnector::new_with_webpki_root_certs()
+    let connector = rustls_connector::RustlsConnectorConfig::new_with_platform_verifier()
+        .with_webpki_root_certs()
+        .connector_with_no_client_auth()
+        .or_else(|_| rustls_connector::RustlsConnector::new_with_webpki_root_certs())
         .map_err(|e| format!("TLS setup: {e}"))?;
     let tls = connector
         .connect(&cfg.host, tcp)

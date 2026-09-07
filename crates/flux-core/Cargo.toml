@@ -90,7 +90,7 @@ notify = "6"
 # and the content-blocker filter lists (EasyList/EasyPrivacy, https → needs TLS).
 ureq = { version = "2", default-features = false, features = ["tls", "gzip"] }
 imap = { version = "2", default-features = false }
-rustls-connector = { version = "0.23.6", default-features = false, features = ["rustls--ring", "webpki-root-certs"] }
+rustls-connector = { version = "0.23.6", default-features = false, features = ["rustls--ring", "webpki-root-certs", "platform-verifier"] }
 
 # Windows-only: DWM rounded corners (the window is opaque, so CSS can't round
 # it). Cross-verified against the x86_64-pc-windows-msvc target.

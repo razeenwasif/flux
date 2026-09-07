@@ -1,5 +1,31 @@
 # Flux Progress
 
+## 2026-09-07: Fix IMAP TLS peer certificate validation with OS platform verifier
+
+### Problem
+Connecting to email in the built-in mail pane failed with `TLS: IO error: invalid peer certificate: UnknownIssuer`.
+
+### Root Cause
+IMAP TLS was initialized strictly using `rustls_connector::RustlsConnector::new_with_webpki_root_certs()`, which only trusts the static, hardcoded Mozilla webpki root list. Any mail servers whose root CAs or intermediate CAs reside in the Windows OS Certificate Store (such as enterprise roots, local proxy certificates, or CAs not present in webpki) were rejected as `UnknownIssuer`. In addition, webpki does not support AIA (Authority Information Access) resolution for servers that omit intermediate certificates in their handshake.
+
+### Fix
+1. **Enabled Platform Verifier in Cargo Dependencies ([`crates/flux-core/Cargo.toml`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/Cargo.toml)):**
+   - Added `platform-verifier` feature to `rustls-connector` in `flux-core`.
+   - On Windows, this delegates certificate verification to Windows CryptoAPI / Schannel (`rustls-platform-verifier`), matching the exact trust stores and chain validation used by Edge, Outlook, and Chrome.
+2. **Hybrid Verification with WebPKI Fallback ([`crates/flux-core/src/mail.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/mail.rs)):**
+   - Configured `RustlsConnectorConfig::new_with_platform_verifier().with_webpki_root_certs().connector_with_no_client_auth()`.
+   - Combines the system OS certificate store with extra webpki roots, with an automatic fallback to `new_with_webpki_root_certs()`.
+3. **Rebuilt & Deployed:**
+   - Verified unit tests pass via `cargo test -p flux-core --lib mail::tests`.
+   - Validated workspace typecheck via `npm run check`.
+   - Built production release binary via `npx tauri build --no-bundle`.
+   - Deployed updated binary to `AppData/Local/Programs/Flux/flux.exe`.
+
+### Files Changed
+- `crates/flux-core/Cargo.toml`
+- `crates/flux-core/src/mail.rs`
+- `PROGRESS.md`
+
 ## 2026-09-07: Acrylic frosted styling for persistent nvim editor column
 
 ### Request
