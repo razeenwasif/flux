@@ -123,11 +123,11 @@ impl RootsStore {
 /// instead of falling back to raw lexical normalization that could escape allowed roots.
 fn resolve(p: &str) -> PathBuf {
     let expanded = expand_home(p);
-    let path = Path::new(&expanded);
-    if let Ok(c) = std::fs::canonicalize(path) {
+    let path = lexical(Path::new(&expanded));
+    if let Ok(c) = std::fs::canonicalize(&path) {
         return strip_verbatim(c);
     }
-    let mut ancestor = path;
+    let mut ancestor = path.as_path();
     let mut trailing = Vec::new();
     while let Some(parent) = ancestor.parent() {
         if let Some(file_name) = ancestor.file_name() {
@@ -145,7 +145,7 @@ fn resolve(p: &str) -> PathBuf {
         }
         ancestor = parent;
     }
-    lexical(path)
+    path
 }
 
 /// `~/x` → `$HOME/x`. The agent and the user both write `~`.

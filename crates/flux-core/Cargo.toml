@@ -26,7 +26,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["unstable", "devtools"] }  # `unstable` → multi-webview (one child webview per tab); `devtools` → F12 inspector in release
+tauri = { version = "2", features = ["unstable", "devtools", "macos-private-api"] }  # `unstable` → multi-webview (one child webview per tab); `devtools` → F12 inspector in release; `macos-private-api` → transparent window on macOS
 serde.workspace = true
 serde_json.workspace = true
 # TS type generation (BACKLOG #12): derive specta::Type on IPC structs and emit

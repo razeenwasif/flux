@@ -419,7 +419,9 @@ input::placeholder {
    3. Chrome elements (titlebar, sidebar, docks) use neutral frosted translucency.
    4. ONLY the main page content card (.card / #flux-web-area) remains 100% solid, opaque, and neutral. */
 body.window-acrylic,
-html.window-acrylic {
+html.window-acrylic,
+#root.window-acrylic,
+.window-acrylic #root {
   background-color: transparent !important;
   background-image: none !important;
   backdrop-filter: none !important;

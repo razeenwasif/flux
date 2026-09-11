@@ -1014,14 +1014,14 @@ mod real {
     #[tauri::command]
     pub fn set_window_acrylic(app: AppHandle, enabled: bool) -> Result<(), String> {
         if let Some(win) = app.get_webview_window("main") {
-            if enabled {
-                let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
-            } else {
-                let _ = win.set_background_color(Some(tauri::window::Color(15, 15, 18, 255)));
-            }
-
             #[cfg(windows)]
             {
+                if enabled {
+                    let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+                } else {
+                    let _ = win.set_background_color(Some(tauri::window::Color(15, 15, 18, 255)));
+                }
+
                 use windows_sys::Win32::Foundation::HWND;
                 use windows_sys::Win32::Graphics::Dwm::{
                     DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
@@ -1089,20 +1089,81 @@ mod real {
 
             #[cfg(target_os = "macos")]
             {
+                use objc::runtime::{Class, Object, NO, YES};
+                use objc::{class, msg_send, sel, sel_impl};
                 use window_vibrancy::{
                     apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
                 };
 
-                if enabled {
-                    let _ = apply_vibrancy(
-                        &win,
-                        NSVisualEffectMaterial::HudWindow,
-                        Some(NSVisualEffectState::Active),
-                        Some(10.0),
-                    );
-                } else {
-                    let _ = clear_vibrancy(&win);
-                }
+                // Clear window background so NSVisualEffectView can shine through
+                let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+
+                let win_clone = win.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Ok(ptr) = win_clone.ns_window() {
+                        let ns_window = ptr as *mut Object;
+                        if !ns_window.is_null() {
+                            unsafe {
+                                let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+                                let _: () = msg_send![ns_window, setOpaque: NO];
+                                let _: () = msg_send![ns_window, setBackgroundColor: clear];
+
+                                let content: *mut Object = msg_send![ns_window, contentView];
+                                if !content.is_null() {
+                                    let subviews: *mut Object = msg_send![content, subviews];
+                                    if !subviews.is_null() {
+                                        let count: usize = msg_send![subviews, count];
+                                        if let Some(cls) = Class::get("WKWebView") {
+                                            let key: *mut Object = msg_send![class!(NSString), stringWithUTF8String: b"drawsBackground\0".as_ptr()];
+                                            let bool_val: *mut Object = msg_send![class!(NSNumber), numberWithBool: if enabled { NO } else { YES }];
+                                            for i in 0..count {
+                                                let subview: *mut Object = msg_send![subviews, objectAtIndex: i];
+                                                let is_wk: bool = msg_send![subview, isKindOfClass: cls];
+                                                if is_wk {
+                                                    let _: () = msg_send![subview, setValue: bool_val forKey: key];
+                                                    if enabled {
+                                                        let _: () = msg_send![subview, setUnderPageBackgroundColor: clear];
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    let _ = clear_vibrancy(&win_clone);
+                    if enabled {
+                        if let Err(e) = apply_vibrancy(
+                            &win_clone,
+                            NSVisualEffectMaterial::HudWindow,
+                            Some(NSVisualEffectState::Active),
+                            Some(10.0),
+                        ) {
+                            tracing::warn!(target: "flux::acrylic", "apply_vibrancy failed: {e}");
+                        }
+                    }
+                });
+
+                // Also ensure WKWebView instance directly from wry is updated
+                let _ = win.with_webview(move |platform| unsafe {
+                    let webview = platform.inner() as *mut Object;
+                    if !webview.is_null() {
+                        if let Some(cls) = Class::get("WKWebView") {
+                            let is_wk: bool = msg_send![webview, isKindOfClass: cls];
+                            if is_wk {
+                                let key: *mut Object = msg_send![class!(NSString), stringWithUTF8String: b"drawsBackground\0".as_ptr()];
+                                let bool_val: *mut Object = msg_send![class!(NSNumber), numberWithBool: if enabled { NO } else { YES }];
+                                let _: () = msg_send![webview, setValue: bool_val forKey: key];
+                                if enabled {
+                                    let clear: *mut Object = msg_send![class!(NSColor), clearColor];
+                                    let _: () = msg_send![webview, setUnderPageBackgroundColor: clear];
+                                }
+                            }
+                        }
+                    }
+                });
             }
         }
         #[cfg(not(any(windows, target_os = "macos")))]
