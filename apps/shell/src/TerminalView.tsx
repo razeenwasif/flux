@@ -147,7 +147,24 @@ const TerminalView: Component<{
     }
   });
 
-  onMount(async () => {
+  // SolidJS lifecycle fix (#4): Register cleanup synchronously in the component owner scope.
+  let disposed = false;
+  let teardown = () => {};
+
+  onCleanup(() => {
+    disposed = true;
+    teardown();
+  });
+
+  createEffect(() => {
+    theme();
+    if (termRef) {
+      termRef.options.theme = { ...termTheme(), background: "#00000000" };
+    }
+  });
+
+  onMount(() => {
+    void (async () => {
     // Lazy chunk: xterm core + addons + css, all off the base bundle.
     const [{ Terminal }, { FitAddon }, { WebLinksAddon }, { WebglAddon }] = await Promise.all([
       import("@xterm/xterm"),
@@ -156,6 +173,8 @@ const TerminalView: Component<{
       import("@xterm/addon-webgl"),
       import("@xterm/xterm/css/xterm.css"),
     ]);
+
+    if (disposed) return;
 
     // #17: clicking a link in the terminal opens a Flux browser tab (closing the
     // terminal↔browser loop) rather than the OS browser. Covers both auto-detected
@@ -215,11 +234,6 @@ const TerminalView: Component<{
     // Readable by the agent, but only *the* read target if it mounted active —
     // a pane that appears without the user asking must not hijack that (#178).
     registerTerminal(props.session, term, props.active ?? true);
-
-    createEffect(() => {
-      theme();
-      term.options.theme = { ...termTheme(), background: "#00000000" };
-    });
 
     // ── Shell integration (#16): OSC 133 prompt marks ───────────────────────
     // When the shell sources Flux's integration snippet it emits OSC 133 around
@@ -420,6 +434,11 @@ const TerminalView: Component<{
     const unExit = await onTermExit((session) => {
       if (session === props.session) term.write("\r\n\x1b[90m[process exited]\x1b[0m\r\n");
     });
+    if (disposed) {
+      unExit();
+      term.dispose();
+      return;
+    }
 
     // Output: Rust PTY → channel (raw bytes) → xterm.
     const channel = new Channel<number[]>();
@@ -449,7 +468,7 @@ const TerminalView: Component<{
     ro.observe(host);
     if (props.autoFocus ?? true) term.focus();
 
-    onCleanup(() => {
+    const cleanup = () => {
       ro.disconnect();
       inputSub.dispose();
       oscSub.dispose();
@@ -458,8 +477,19 @@ const TerminalView: Component<{
       unregisterTerminal(props.session);
       void terminalKill(props.session);
       term.dispose();
-    });
+      termRef = undefined;
+      fitRef = undefined;
+    };
+
+    if (disposed) {
+      cleanup();
+    } else {
+      teardown = cleanup;
+    }
+  })().catch((err) => {
+    console.error("[TerminalView] Initialization failed:", err);
   });
+});
 
   return (
     <div

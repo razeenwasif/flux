@@ -1086,8 +1086,26 @@ mod real {
                     }
                 }
             }
+
+            #[cfg(target_os = "macos")]
+            {
+                use window_vibrancy::{
+                    apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+                };
+
+                if enabled {
+                    let _ = apply_vibrancy(
+                        &win,
+                        NSVisualEffectMaterial::HudWindow,
+                        Some(NSVisualEffectState::Active),
+                        Some(10.0),
+                    );
+                } else {
+                    let _ = clear_vibrancy(&win);
+                }
+            }
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = (app, enabled);
         }

@@ -663,14 +663,39 @@ pub async fn agent_task_step(
 
 /// Execute a previously-planned action that the user approved (BACKLOG #8).
 /// Compiles it to JS (the script paints the magenta highlight, then acts) and
-/// injects it into the active tab's webview.
+/// injects it into the target tab's webview.
+///
+/// # Security (Review Item #2)
+/// Binds execution to the specified `tab` (or fallback active tab) and checks that
+/// the target tab has not navigated away from `expected_url`.
 #[tauri::command]
 pub async fn agent_run_action(
     app: AppHandle,
     state: State<'_, FluxState>,
     action: flux_agent::AgentAction,
+    tab: Option<u64>,
+    expected_url: Option<String>,
 ) -> Result<flux_agent::AgentAction, String> {
-    let tab = state.active_tab().ok_or("no active tab")?;
+    let tab = tab.or_else(|| state.active_tab()).ok_or("no active tab")?;
+    let webview = app
+        .get_webview(&format!("tab-{tab}"))
+        .ok_or_else(|| format!("webview tab-{tab} not found"))?;
+
+    if let Some(expected) = expected_url.as_deref().filter(|s| !s.trim().is_empty()) {
+        let current_url = webview.url().map_err(|e| e.to_string())?;
+        if let Ok(expected_u) = tauri::Url::parse(expected) {
+            if current_url.scheme() != expected_u.scheme()
+                || current_url.host_str() != expected_u.host_str()
+                || current_url.port() != expected_u.port()
+                || current_url.path().trim_end_matches('/') != expected_u.path().trim_end_matches('/')
+            {
+                return Err(format!(
+                    "action rejected: target tab navigated from {expected} to {current_url}"
+                ));
+            }
+        }
+    }
+
     // #104: flag destructive intent for the activity feed. The compiled click
     // JS independently re-checks the element's *live* label and aborts there —
     // this annotation is the user-facing heads-up, not the enforcement point.
@@ -689,9 +714,6 @@ pub async fn agent_run_action(
         selector: action.selector().unwrap_or_default().to_owned(),
     };
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
-    let webview = app
-        .get_webview(&format!("tab-{tab}"))
-        .ok_or_else(|| format!("webview tab-{tab} not found"))?;
     webview.eval(action.to_js()).map_err(|e| e.to_string())?;
     // Sentinel audit log (ADR 0013, Pillar 0): record every action the agent runs
     // on the user's behalf. `confirmed: true` — this command is only reached after

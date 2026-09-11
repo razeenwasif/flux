@@ -46,7 +46,7 @@ pub struct AgentRoots {
 pub struct RootsStore {
     path: Option<PathBuf>,
     state: Mutex<AgentRoots>,
-    loaded: std::sync::atomic::AtomicBool,
+    initialized: std::sync::Once,
 }
 
 impl Default for RootsStore {
@@ -54,7 +54,7 @@ impl Default for RootsStore {
         RootsStore {
             path: None,
             state: Mutex::new(AgentRoots::default()),
-            loaded: std::sync::atomic::AtomicBool::new(false),
+            initialized: std::sync::Once::new(),
         }
     }
 }
@@ -68,16 +68,14 @@ impl RootsStore {
     }
 
     fn hydrate(&self) {
-        use std::sync::atomic::Ordering;
-        if self.loaded.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let Some(p) = &self.path else { return };
-        if let Ok(s) = std::fs::read_to_string(p) {
-            if let Ok(v) = serde_json::from_str::<AgentRoots>(&s) {
-                *self.state.lock() = v;
+        self.initialized.call_once(|| {
+            let Some(p) = &self.path else { return };
+            if let Ok(s) = std::fs::read_to_string(p) {
+                if let Ok(v) = serde_json::from_str::<AgentRoots>(&s) {
+                    *self.state.lock() = v;
+                }
             }
-        }
+        });
     }
 
     pub fn get(&self) -> AgentRoots {
@@ -119,16 +117,35 @@ impl RootsStore {
 
 /// Resolve a path as far as the OS allows, then normalise what's left.
 ///
-/// `canonicalize` is preferred because it resolves symlinks, but it fails on a
-/// path that doesn't exist yet — and a *root* the user typed may legitimately be
-/// gone. Falling back to lexical normalisation keeps the check working instead
-/// of failing open.
+/// `canonicalize` is preferred because it resolves symlinks/junctions, but it fails on a
+/// path that doesn't exist yet. By walking up to the nearest existing ancestor directory
+/// and canonicalizing that, symlinks/junctions in the path prefix are properly resolved
+/// instead of falling back to raw lexical normalization that could escape allowed roots.
 fn resolve(p: &str) -> PathBuf {
     let expanded = expand_home(p);
-    match std::fs::canonicalize(&expanded) {
-        Ok(c) => strip_verbatim(c),
-        Err(_) => lexical(Path::new(&expanded)),
+    let path = Path::new(&expanded);
+    if let Ok(c) = std::fs::canonicalize(path) {
+        return strip_verbatim(c);
     }
+    let mut ancestor = path;
+    let mut trailing = Vec::new();
+    while let Some(parent) = ancestor.parent() {
+        if let Some(file_name) = ancestor.file_name() {
+            trailing.push(file_name);
+        }
+        if parent.as_os_str().is_empty() {
+            break;
+        }
+        if let Ok(c) = std::fs::canonicalize(parent) {
+            let mut resolved = strip_verbatim(c);
+            for part in trailing.into_iter().rev() {
+                resolved.push(part);
+            }
+            return lexical(&resolved);
+        }
+        ancestor = parent;
+    }
+    lexical(path)
 }
 
 /// `~/x` → `$HOME/x`. The agent and the user both write `~`.
@@ -271,7 +288,8 @@ pub async fn agent_write_text_file(
     content: String,
 ) -> Result<(), String> {
     store.check(&path)?;
-    crate::files::write_text_file(path, content).await
+    let target = resolve(&path).to_string_lossy().into_owned();
+    crate::files::write_text_file(target, content).await
 }
 
 /// The agent's PDF read. `pdf_fetch` also serves `http(s)://`, which the gate has
@@ -290,6 +308,7 @@ pub async fn agent_pdf_fetch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn a_root_contains_itself_and_its_children() {
@@ -388,6 +407,12 @@ mod tests {
             "a symlink pointing out of the root must not be treated as inside it"
         );
 
+        // Non-existent target through symlink also resolves outside and must be refused.
+        assert!(
+            !contains(&root, &link.join("nonexistent_new_file.txt").to_string_lossy()),
+            "a nonexistent file through an escaping link must not escape allowed roots"
+        );
+
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -398,5 +423,33 @@ mod tests {
         };
         assert!(contains("~", &format!("{home}/x")));
         assert!(contains(&home, "~/x"));
+    }
+
+    #[test]
+    fn concurrent_hydrate_waits_for_loaded_state() {
+        let dir = std::env::temp_dir().join(format!("flux_roots_hydrate_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("roots.json");
+        let roots = AgentRoots {
+            enabled: true,
+            roots: vec!["/allowed".to_string()],
+        };
+        std::fs::write(&path, serde_json::to_string(&roots).unwrap()).unwrap();
+
+        let store = Arc::new(RootsStore::empty(path));
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let s = store.clone();
+            handles.push(std::thread::spawn(move || {
+                let r = s.get();
+                assert!(r.enabled);
+                assert_eq!(r.roots, vec!["/allowed".to_string()]);
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

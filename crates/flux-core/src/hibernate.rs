@@ -69,11 +69,92 @@ impl HibernateStore {
     }
 }
 
+/// A single captured form field's state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FormFieldState {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(rename = "type", default)]
+    pub field_type: String,
+    #[serde(default)]
+    pub v: Option<String>,
+    #[serde(default)]
+    pub c: Option<bool>,
+}
+
+/// Bounded typed structure for captured scroll/form state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HibernateState {
+    #[serde(default)]
+    pub u: Option<String>,
+    #[serde(default)]
+    pub x: Option<f64>,
+    #[serde(default)]
+    pub y: Option<f64>,
+    #[serde(default)]
+    pub f: Vec<FormFieldState>,
+}
+
+impl HibernateState {
+    pub fn validate_limits(&mut self) -> Result<(), String> {
+        if self.f.len() > 300 {
+            return Err("too many form fields in hibernate state".into());
+        }
+        if let Some(u) = &self.u {
+            if u.len() > 4096 {
+                return Err("url in hibernate state too long".into());
+            }
+        }
+        for field in &mut self.f {
+            if field.id.len() > 256 {
+                field.id.truncate(256);
+            }
+            if field.name.len() > 256 {
+                field.name.truncate(256);
+            }
+            if field.field_type.len() > 64 {
+                field.field_type.truncate(64);
+            }
+            if let Some(v) = &mut field.v {
+                if v.len() > 65536 {
+                    v.truncate(65536);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn caller_tab(webview: &tauri::Webview) -> Result<TabId, String> {
+    webview
+        .label()
+        .strip_prefix("tab-")
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| "not a tab webview".into())
+}
+
 /// Page → Rust: store a tab's captured scroll/form state (a `fluxtab` plugin
 /// command, like `dom_publish`, so the remote page may call it).
 #[tauri::command]
-pub fn hibernate_capture(store: State<'_, HibernateStore>, tab_id: TabId, state: String) {
-    store.capture(tab_id, state);
+pub fn hibernate_capture(
+    webview: tauri::Webview,
+    store: State<'_, HibernateStore>,
+    tab_id: Option<TabId>,
+    state: String,
+) -> Result<(), String> {
+    let tab = caller_tab(&webview)?;
+    if let Some(tid) = tab_id {
+        if tid != tab {
+            return Err("tab_id mismatch with caller webview".into());
+        }
+    }
+    let mut captured: HibernateState = serde_json::from_str(&state).map_err(|e| e.to_string())?;
+    captured.validate_limits()?;
+    let safe_json = serde_json::to_string(&captured).map_err(|e| e.to_string())?;
+    store.capture(tab, safe_json);
+    Ok(())
 }
 
 // ─── Belady/Markov eviction ranking (BACKLOG #106) ───────────────────────────

@@ -157,13 +157,24 @@ struct TraceData {
 /// The Trail store: visits + edges (persisted) and a runtime tab→current-visit
 /// map (session-only, so nav edges are drawn within a run; a restart legitimately
 /// starts fresh tab pointers).
-#[derive(Default)]
 pub struct TraceStore {
     inner: RwLock<TraceData>,
     by_tab: RwLock<HashMap<TabId, VisitId>>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
-    hydrated: AtomicBool,
+    initialized: std::sync::Once,
+}
+
+impl Default for TraceStore {
+    fn default() -> Self {
+        Self {
+            inner: RwLock::new(TraceData::default()),
+            by_tab: RwLock::new(HashMap::new()),
+            path: None,
+            dirty: AtomicBool::new(false),
+            initialized: std::sync::Once::new(),
+        }
+    }
 }
 
 impl TraceStore {
@@ -181,26 +192,25 @@ impl TraceStore {
     /// hydrate thread runs can't start a fresh store and later overwrite the
     /// persisted Trail (the flag makes first-touch hydration win every race).
     pub fn hydrate(&self) {
-        if self.hydrated.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let Some(path) = &self.path else { return };
-        let Some((json, was_plaintext)) = super::sealed::load_string(path) else {
-            return;
-        };
-        let Some(loaded) = serde_json::from_str::<TraceData>(&json).ok() else {
-            return;
-        };
-        if was_plaintext {
-            // Legacy pre-encryption file: rewrite sealed on the next flush.
-            self.dirty.store(true, Ordering::Relaxed);
-        }
-        let mut d = self.inner.write();
-        if d.visits.is_empty() && d.edges.is_empty() {
-            d.next_id = d.next_id.max(loaded.next_id);
-            d.visits = loaded.visits;
-            d.edges = loaded.edges;
-        }
+        self.initialized.call_once(|| {
+            let Some(path) = &self.path else { return };
+            let Some((json, was_plaintext)) = super::sealed::load_string(path) else {
+                return;
+            };
+            let Some(loaded) = serde_json::from_str::<TraceData>(&json).ok() else {
+                return;
+            };
+            if was_plaintext {
+                // Legacy pre-encryption file: rewrite sealed on the next flush.
+                self.dirty.store(true, Ordering::Relaxed);
+            }
+            let mut d = self.inner.write();
+            if d.visits.is_empty() && d.edges.is_empty() {
+                d.next_id = d.next_id.max(loaded.next_id);
+                d.visits = loaded.visits;
+                d.edges = loaded.edges;
+            }
+        });
     }
 
     /// Record (or refresh) a visit for `tab` navigating to `url`. Returns the

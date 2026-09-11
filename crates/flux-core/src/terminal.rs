@@ -46,7 +46,7 @@ mod real {
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -78,7 +78,7 @@ struct Session {
 /// `FluxState`.
 #[derive(Default)]
 pub struct TerminalManager {
-    sessions: Mutex<HashMap<u64, Session>>,
+    sessions: Mutex<HashMap<u64, Arc<Session>>>,
 }
 
 impl TerminalManager {
@@ -288,12 +288,12 @@ pub fn terminal_spawn(
 
     manager.sessions.lock().insert(
         session,
-        Session {
+        Arc::new(Session {
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
             child: Mutex::new(child),
             mode,
-        },
+        }),
     );
 
     // Replay what was on screen last time, before any live output arrives, so the
@@ -344,8 +344,10 @@ pub fn terminal_write(
     session: u64,
     data: Vec<u8>,
 ) -> Result<(), String> {
-    let sessions = manager.sessions.lock();
-    let s = sessions.get(&session).ok_or("no such terminal session")?;
+    let s = {
+        let sessions = manager.sessions.lock();
+        sessions.get(&session).cloned().ok_or("no such terminal session")?
+    };
     let mut w = s.writer.lock();
     w.write_all(&data).map_err(|e| e.to_string())?;
     w.flush().map_err(|e| e.to_string())
@@ -359,9 +361,11 @@ pub fn terminal_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let sessions = manager.sessions.lock();
-    let s = sessions.get(&session).ok_or("no such terminal session")?;
-    let result = s
+    let s = {
+        let sessions = manager.sessions.lock();
+        sessions.get(&session).cloned().ok_or("no such terminal session")?
+    };
+    let res = s
         .master
         .lock()
         .resize(PtySize {
@@ -371,7 +375,7 @@ pub fn terminal_resize(
             pixel_height: 0,
         })
         .map_err(|e| e.to_string());
-    result
+    res
 }
 
 /// Kill and drop a session (tab/pane closed).
@@ -387,10 +391,19 @@ pub fn terminal_kill(
     manager: State<'_, TerminalManager>,
     session: u64,
 ) -> Result<(), String> {
-    let mode = manager.sessions.lock().remove(&session).map(|s| {
+    let (s, mode) = {
+        let mut sessions = manager.sessions.lock();
+        match sessions.remove(&session) {
+            Some(s) => {
+                let mode = s.mode;
+                (Some(s), Some(mode))
+            }
+            None => (None, None),
+        }
+    };
+    if let Some(s) = s {
         let _ = s.child.lock().kill();
-        s.mode
-    });
+    }
     // Nothing left to persist for a terminal the user deliberately closed.
     let mode = mode.unwrap_or_default();
     if mode.live {

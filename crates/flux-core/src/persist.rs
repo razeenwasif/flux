@@ -9,21 +9,30 @@
 //! the target. Rename is atomic on the same filesystem (POSIX and NTFS), so
 //! a reader sees either the old file or the new one — never a torn mix.
 
+use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Atomically replace `path` with `bytes`. Creates parent dirs. The temp name
-/// carries the pid so two Flux processes can't clobber each other's staging.
+/// carries the pid and a sequence counter so concurrent writers never clobber staging.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
     let mut name = path
         .file_name()
         .map(|s| s.to_os_string())
         .unwrap_or_default();
-    name.push(format!(".{}.tmp", std::process::id()));
+    name.push(format!(".{}.{}.tmp", std::process::id(), seq));
     let tmp = path.with_file_name(name);
-    std::fs::write(&tmp, bytes)?;
+    {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
     std::fs::rename(&tmp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp); // don't leave staging litter behind
     })
@@ -81,6 +90,26 @@ mod tests {
         save_json(&p, &vec![1u32, 2, 3]);
         let back: Vec<u32> = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert_eq!(back, vec![1, 2, 3]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_writers_do_not_collide() {
+        let dir = scratch("concurrent");
+        let p = dir.join("concurrent.json");
+        let mut handles = Vec::new();
+        for i in 0..10 {
+            let p = p.clone();
+            handles.push(std::thread::spawn(move || {
+                let bytes = format!("writer-{}", i).into_bytes();
+                write_atomic(&p, &bytes).unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let read = std::fs::read_to_string(&p).unwrap();
+        assert!(read.starts_with("writer-"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

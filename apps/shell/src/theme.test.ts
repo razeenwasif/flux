@@ -133,10 +133,10 @@ describe("mobile backdrop blur", () => {
 
     // Selectors the mobile block explicitly resets. Kept as literals so adding a
     // hardcoded blur forces a deliberate choice here rather than passing quietly.
-    const neutralised = ["files-menu", "files-confirm-backdrop", "pg-over", "appdock-btn"];
+    const neutralised = ["files-menu", "files-confirm-backdrop", "pg-over", "appdock-btn", "window-acrylic"];
 
     const offenders = rules
-      .filter((r) => !r.value.includes("var(--glass-blur)") && r.value !== "none")
+      .filter((r) => !r.value.includes("var(--glass-blur)") && !r.value.trim().startsWith("none"))
       .filter((r) => !r.selector.startsWith("html.mobile"))
       .filter((r) => !neutralised.some((n) => r.selector.includes(n)))
       .map((r) => `${r.selector} → ${r.value}`);

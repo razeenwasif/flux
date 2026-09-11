@@ -256,7 +256,8 @@ mod tests {
         }
         let existing = std::fs::read_to_string(BINDINGS_PATH).unwrap_or_default();
         assert_eq!(
-            existing, generated,
+            existing.replace("\r\n", "\n"),
+            generated.replace("\r\n", "\n"),
             "bindings.gen.ts is stale — run `FLUX_WRITE_BINDINGS=1 cargo test -p flux-core bindings`"
         );
     }

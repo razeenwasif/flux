@@ -134,9 +134,13 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    static TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
     #[test]
     fn current_is_cached_rather_than_probed_per_call() {
+        let _guard = TEST_LOCK.lock();
         // `current()` reads like a cheap accessor and was called like one, but
         // each call was an HTTP round trip. Works whether or not Ollama is up:
         // what's asserted is that the answer is memoized and stable.
@@ -159,11 +163,11 @@ mod tests {
 
     #[test]
     fn invalidating_the_probe_forces_a_fresh_answer() {
+        let _guard = TEST_LOCK.lock();
         current();
         invalidate_probe();
         assert!(PROBE.lock().is_none(), "invalidate should clear the cache");
     }
-    use super::*;
 
     // These assert env-independent invariants (whether or not Ollama is up). The
     // Model path is exercised at runtime, not in unit tests.

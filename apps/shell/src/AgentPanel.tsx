@@ -163,6 +163,8 @@ type FeedItem = {
   editDiff?: string;
   citations?: KbHit[];
   voice?: string;
+  tabId?: number;
+  expectedUrl?: string;
 };
 
 const AgentPanel: Component = () => {
@@ -2483,11 +2485,23 @@ const AgentPanel: Component = () => {
       const act = p.match(/^\/(?:act|do)\s+([\s\S]+)/i);
       if (act?.[1]) {
         // Plan first, then PREVIEW — nothing touches the page until you approve (#8).
+        const targetTabId = activeId();
+        const targetUrl = tabs().find((x) => x.id === targetTabId)?.url;
         const action = await agentPlan(act[1].trim());
         if (action.action === "refuse") {
           setFeed((f) => [...f, { role: "assistant", text: describeAction(action) }]);
         } else {
-          setFeed((f) => [...f, { role: "plan", text: describeAction(action), action, pending: true }]);
+          setFeed((f) => [
+            ...f,
+            {
+              role: "plan",
+              text: describeAction(action),
+              action,
+              pending: true,
+              tabId: targetTabId != null ? targetTabId : undefined,
+              expectedUrl: targetUrl,
+            },
+          ]);
         }
       } else if (scope() === "thread" && pageThread()) {
         // The page's PERSISTENT thread (ADR 0011): route through trace_chat_send
@@ -2593,12 +2607,12 @@ const AgentPanel: Component = () => {
     else if (h.path) void fsOpen(h.path).catch(() => {});
   };
 
-  // Approve a previewed action → execute it on the page (#8).
-  const approve = async (idx: number, action: AgentAction) => {
+  // Approve a previewed action → execute it on the page (#8, bound to tab & URL #2).
+  const approve = async (idx: number, action: AgentAction, tabId?: number, expectedUrl?: string) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
     setBusy(true);
     try {
-      await agentRunAction(action);
+      await agentRunAction(action, tabId, expectedUrl);
       setFeed((f) => [...f, { role: "action", text: `✓ ${describeAction(action)}` }]);
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
@@ -3013,9 +3027,11 @@ const AgentPanel: Component = () => {
         }
 
         // Run the approved step, record it, let the page settle before re-planning.
+        const stepTabId = activeId() ?? undefined;
+        const stepUrl = tabs().find((t) => t.id === stepTabId)?.url;
         setBusy(true);
         try {
-          await agentRunAction(action);
+          await agentRunAction(action, stepTabId, stepUrl);
           setFeed((f) => [...f, { role: "action", text: describeAction(action) }]);
           history.push(describeAction(action));
         } finally {
@@ -3295,7 +3311,10 @@ const AgentPanel: Component = () => {
                   </Show>
                   <Show when={item.role === "plan" && item.pending && item.action}>
                     <div class="agent-approve">
-                      <button class="agent-approve-yes" onClick={() => void approve(i(), item.action!)}>
+                      <button
+                        class="agent-approve-yes"
+                        onClick={() => void approve(i(), item.action!, item.tabId, item.expectedUrl)}
+                      >
                         ✓ Approve
                       </button>
                       <button class="agent-approve-no" onClick={() => cancelPlan(i())}>

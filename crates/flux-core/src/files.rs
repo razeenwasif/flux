@@ -6,7 +6,7 @@
 //! payload; the frontend virtualizes rendering and sorts client-side.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -1037,18 +1037,53 @@ fn remove_path(p: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Recursive copy (dir trees included); symlinks are copied as their target.
-fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+/// Canonicalize a path or its parent if the leaf does not exist yet.
+fn canonical_destination(p: &Path) -> std::io::Result<PathBuf> {
+    if let Ok(c) = p.canonicalize() {
+        return Ok(c);
+    }
+    if let Some(parent) = p.parent() {
+        if let Ok(c) = parent.canonicalize() {
+            if let Some(name) = p.file_name() {
+                return Ok(c.join(name));
+            }
+        }
+    }
+    Ok(p.to_path_buf())
+}
+
+/// Reject copying or moving a directory into itself or any descendant.
+fn check_not_descendant(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(src)?.is_dir() {
+        let src_canon = src.canonicalize()?;
+        let dst_canon = canonical_destination(dst)?;
+        if dst_canon.starts_with(&src_canon) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "cannot copy or move a directory into itself or a descendant",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn copy_recursive_inner(src: &Path, dst: &Path) -> std::io::Result<()> {
     if std::fs::symlink_metadata(src)?.is_dir() {
         std::fs::create_dir(dst)?;
         for ent in std::fs::read_dir(src)? {
             let ent = ent?;
-            copy_recursive(&ent.path(), &dst.join(ent.file_name()))?;
+            copy_recursive_inner(&ent.path(), &dst.join(ent.file_name()))?;
         }
         Ok(())
     } else {
         std::fs::copy(src, dst).map(|_| ())
     }
+}
+
+/// Recursive copy (dir trees included); symlinks are copied as their target.
+fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    check_not_descendant(src, dst)?;
+    copy_recursive_inner(src, dst)
 }
 
 /// A non-colliding sibling of `target`: `name copy`, `name copy 2`, … (the
@@ -1152,10 +1187,15 @@ pub async fn fs_move(
                 if target.exists() {
                     return Err(format!("{} already exists", clean(&target)));
                 }
-                if std::fs::rename(src_p, &target).is_err() {
-                    // Cross-device (or rename refused): copy then remove the source.
-                    copy_recursive(src_p, &target).map_err(|e| e.to_string())?;
-                    remove_path(src_p).map_err(|e| e.to_string())?;
+                check_not_descendant(src_p, &target).map_err(|e| e.to_string())?;
+                match std::fs::rename(src_p, &target) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+                        // Cross-device: copy then remove the source.
+                        copy_recursive(src_p, &target).map_err(|e| e.to_string())?;
+                        remove_path(src_p).map_err(|e| e.to_string())?;
+                    }
+                    Err(e) => return Err(e.to_string()),
                 }
                 pairs.push((src.clone(), clean(&target)));
             }
@@ -1657,6 +1697,19 @@ mod stream_tests {
             .filter(|f| f["kind"] == "entries")
             .all(|f| f["entries"].as_array().unwrap().len() <= LIST_CHUNK));
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn copy_into_descendant_is_rejected() {
+        let base = std::env::temp_dir().join(format!("flux_copy_descendant_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let sub = base.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let target = sub.join("base_copy");
+        let res = copy_recursive(&base, &target);
+        assert!(res.is_err(), "should reject copying directory into its descendant");
         let _ = std::fs::remove_dir_all(&base);
     }
 }

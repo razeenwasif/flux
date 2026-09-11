@@ -107,20 +107,121 @@ pub fn shell_guard(command: String) -> Option<String> {
 /// found`, exit 127) comes back as `Err`, so callers can distinguish "ran and
 /// printed" from "failed", which the shared `run_shell` path deliberately blurs.
 /// Used by read-only preflights like `pac_status`.
-pub(crate) fn run_captured(command: &str) -> Result<String, String> {
-    if let Some(reason) = blocked_reason(command) {
-        return Err(reason);
+struct BoundedOutput {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    status: std::process::ExitStatus,
+    timed_out: bool,
+    truncated: bool,
+}
+
+fn drain_pipe<R: std::io::Read>(mut reader: R, limit: usize) -> (Vec<u8>, bool) {
+    let mut buf = Vec::new();
+    let mut truncated = false;
+    let mut chunk = [0u8; 4096];
+    while let Ok(n) = reader.read(&mut chunk) {
+        if n == 0 {
+            break;
+        }
+        if buf.len() < limit {
+            let take = (limit - buf.len()).min(n);
+            buf.extend_from_slice(&chunk[..take]);
+            if take < n {
+                truncated = true;
+            }
+        } else {
+            truncated = true;
+        }
     }
-    let mut cmd = shell_command(command);
+    (buf, truncated)
+}
+
+fn run_bounded(
+    mut cmd: Command,
+    timeout: std::time::Duration,
+    limit: usize,
+) -> Result<BoundedOutput, String> {
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
     cmd.stdin(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let out = cmd
-        .output()
+
+    let mut child = cmd
+        .spawn()
         .map_err(|e| format!("couldn't run the command: {e}"))?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let timed_out_watcher = std::sync::Arc::clone(&timed_out);
+
+    let child_arc = std::sync::Arc::new(parking_lot::Mutex::new(child));
+    let child_watcher = std::sync::Arc::clone(&child_arc);
+
+    let (tx_done, rx_done) = std::sync::mpsc::channel();
+    let watcher = std::thread::spawn(move || {
+        if rx_done.recv_timeout(timeout).is_err() {
+            timed_out_watcher.store(true, std::sync::atomic::Ordering::SeqCst);
+            let mut guard = child_watcher.lock();
+            let _ = guard.kill();
+        }
+    });
+
+    let (stdout_res, stderr_res) = std::thread::scope(|s| {
+        let t1 = s.spawn(|| {
+            if let Some(r) = stdout {
+                drain_pipe(r, limit)
+            } else {
+                (Vec::new(), false)
+            }
+        });
+        let t2 = s.spawn(|| {
+            if let Some(r) = stderr {
+                drain_pipe(r, limit)
+            } else {
+                (Vec::new(), false)
+            }
+        });
+        (t1.join().unwrap_or_default(), t2.join().unwrap_or_default())
+    });
+
+    let _ = tx_done.send(());
+    let _ = watcher.join();
+
+    let was_timed_out = timed_out.load(std::sync::atomic::Ordering::SeqCst);
+    let mut child = std::sync::Arc::try_unwrap(child_arc)
+        .map_err(|_| "failed to unwrap child process handle".to_string())?
+        .into_inner();
+    let status = child.wait().map_err(|e| format!("wait failed: {e}"))?;
+
+    Ok(BoundedOutput {
+        stdout: stdout_res.0,
+        stderr: stderr_res.0,
+        status,
+        timed_out: was_timed_out,
+        truncated: stdout_res.1 || stderr_res.1,
+    })
+}
+
+/// Run `command` synchronously and return combined stdout+stderr (trimmed),
+/// applying the same safety denylist as [`run_shell`]. Returns `Ok` **only when
+/// the process exits successfully** — a non-zero exit (e.g. `pac: command not
+/// found`, exit 127) comes back as `Err`, so callers can distinguish "ran and
+/// printed" from "failed", which the shared `run_shell` path deliberately blurs.
+/// Used by read-only preflights like `pac_status`.
+pub(crate) fn run_captured(command: &str) -> Result<String, String> {
+    if let Some(reason) = blocked_reason(command) {
+        return Err(reason);
+    }
+    let cmd = shell_command(command);
+    let out = run_bounded(cmd, std::time::Duration::from_secs(30), 64 * 1024)?;
+    if out.timed_out {
+        return Err("command timed out".into());
+    }
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     let err = String::from_utf8_lossy(&out.stderr);
     if !err.trim().is_empty() {
@@ -142,24 +243,19 @@ pub(crate) fn run_captured(command: &str) -> Result<String, String> {
 }
 
 /// Run `command` and return its output (truncated). stdin is closed so commands
-/// that would wait for input get EOF instead of hanging.
+/// that would wait for input get EOF instead of hanging. Output is bounded to 64 KiB
+/// during collection and execution has a 60-second deadline (#13).
 #[tauri::command]
 pub async fn run_shell(command: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         if let Some(reason) = blocked_reason(&command) {
             return Err(reason);
         }
-        let mut cmd = shell_command(&command);
-        cmd.stdin(Stdio::null());
-        // Windows: this is the headless capture path — don't flash a console window.
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        let cmd = shell_command(&command);
+        let out = run_bounded(cmd, std::time::Duration::from_secs(60), 64 * 1024)?;
+        if out.timed_out {
+            return Err("command timed out after 60 seconds".into());
         }
-        let out = cmd
-            .output()
-            .map_err(|e| format!("couldn't run the command: {e}"))?;
         let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
         let err = String::from_utf8_lossy(&out.stderr);
         if !err.trim().is_empty() {
@@ -169,7 +265,7 @@ pub async fn run_shell(command: String) -> Result<String, String> {
             text.push_str(&err);
         }
         let text = text.trim();
-        let shown: String = if text.chars().count() > 4000 {
+        let shown: String = if text.chars().count() > 4000 || out.truncated {
             text.chars().take(4000).collect::<String>() + "\n…(truncated)"
         } else {
             text.to_string()
@@ -191,4 +287,41 @@ pub async fn run_shell(command: String) -> Result<String, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocked_commands_are_refused() {
+        assert!(blocked_reason("rm -rf /").is_some());
+        assert!(blocked_reason("del /f /q foo").is_some());
+        assert!(blocked_reason("echo ok").is_none());
+    }
+
+    #[test]
+    fn bounded_drain_caps_output() {
+        let mut cmd = Command::new(if cfg!(windows) { "cmd" } else { "sh" });
+        if cfg!(windows) {
+            cmd.args(["/c", "echo 12345678901234567890"]);
+        } else {
+            cmd.args(["-c", "echo 12345678901234567890"]);
+        }
+        let out = run_bounded(cmd, std::time::Duration::from_secs(5), 10).unwrap();
+        assert!(out.truncated);
+        assert_eq!(out.stdout.len(), 10);
+    }
+
+    #[test]
+    fn run_bounded_terminates_on_timeout() {
+        let mut cmd = Command::new(if cfg!(windows) { "powershell" } else { "sh" });
+        if cfg!(windows) {
+            cmd.args(["-Command", "Start-Sleep -Seconds 5"]);
+        } else {
+            cmd.args(["-c", "sleep 5"]);
+        }
+        let out = run_bounded(cmd, std::time::Duration::from_millis(200), 1024).unwrap();
+        assert!(out.timed_out);
+    }
 }

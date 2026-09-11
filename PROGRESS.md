@@ -1,5 +1,122 @@
 # Flux Progress
 
+## 2026-09-11: Wire up macOS Acrylic / Frosted Vibrancy Effect
+
+### Scope & Summary
+Wired up native macOS frosted glass translucency (vibrancy) to the existing "Acrylic / Frosted window" setting, giving parity between Windows 11 DWM transient acrylic and macOS Cocoa `NSVisualEffectView`.
+
+### Work Done
+1. **Target Dependency ([`crates/flux-core/Cargo.toml`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/Cargo.toml)):**
+   - Added `window-vibrancy = "0.6"` under `[target.'cfg(target_os = "macos")'.dependencies]`, matching Tauri v2's native macOS dependency graph.
+2. **Native macOS Vibrancy Implementation ([`crates/flux-core/src/webview.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/webview.rs)):**
+   - In [`set_window_acrylic`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/webview.rs), implemented `#[cfg(target_os = "macos")]`:
+     - When `enabled == true`: Sets window background to transparent `Color(0, 0, 0, 0)` and calls `window_vibrancy::apply_vibrancy` with `NSVisualEffectMaterial::HudWindow`, `NSVisualEffectState::Active`, and 10px corner radius matching `round_window_corners`.
+     - When `enabled == false`: Calls `window_vibrancy::clear_vibrancy(&win)` and restores the opaque background `Color(15, 15, 18, 255)`.
+3. **Test Suite Stabilization ([`crates/flux-core/src/embedding.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/embedding.rs)):**
+   - Synchronized tests accessing the shared `static PROBE` via `TEST_LOCK` to prevent multi-threaded test runner races between `current_is_cached_rather_than_probed_per_call` and `invalidating_the_probe_forces_a_fresh_answer`.
+4. **Validation & Deployment:**
+   - Cargo workspace tests: 352 unit tests + 3 integration tests passed (`cargo test -p flux-core`).
+   - Frontend validation: TypeScript check clean and 107/107 Vitest tests passed (`npm run typecheck`, `npm run test`).
+   - Production build: Rebuilt and deployed binary to `AppData/Local/Programs/Flux/flux.exe`.
+
+## 2026-09-08: Fix main UI thread deadlock in DOM publishing and deploy release
+
+### Problem
+After launching the application, Flux became unresponsive ("Not Responding") shortly after opening tab webviews (`opened tab webview tab_id=...`).
+
+### Root Cause
+In [`crates/flux-core/src/dom.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/dom.rs) (`dom_publish`), when implementing review item #6, `let tab = state.tabs.get(&tab_id).ok_or("unknown tab")?;` was held in the function's local scope while line 166 attempted `if let Some(mut t) = state.tabs.get_mut(&tab_id)`.
+`state.tabs` is a `DashMap` guarded by per-shard `parking_lot::RwLock`s. Because `dom_publish` runs synchronously on the main Win32 UI thread when `capture.js` sends DOM updates, holding a read lock (`tabs.get`) while attempting to acquire an exclusive write lock (`tabs.get_mut`) on the same shard caused an immediate, deterministic deadlock of the main thread.
+
+### Fix
+1. **Scoped DashMap Read Lock ([`crates/flux-core/src/dom.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/dom.rs)):**
+   - Replaced the persistent `tabs.get` reference with a localized scope that copies the necessary metadata (`title`, `private`, `workspace`) and immediately drops the read lock before `state.tabs.get_mut(&tab_id)` is invoked.
+   - Bound workspace attribution `trace.record(..., Some(ws_id))` correctly to the active tab's workspace.
+2. **Regression Testing:**
+   - Added unit tests [`tab_metadata_read_does_not_deadlock_with_mutation`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/dom.rs) and [`validate_reported_url_matches_origins`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/dom.rs) to ensure concurrent and sequential read/write operations against the same shard cannot deadlock.
+   - All 352 unit tests and integration tests passed (`cargo test -p flux-core`).
+3. **Rebuild & Deployment:**
+   - Compiled frontend via `npm run shell:build`.
+   - Built optimized production release binary via `npx tauri build --no-bundle`.
+   - Deployed updated binary to `C:\Users\Razeen\AppData\Local\Programs\Flux\flux.exe`.
+
+## 2026-09-08: Complete remediation of issues from CODE_REVIEW.md
+
+### Scope & Summary
+Applied comprehensive fixes for all 16 issues across backend concurrency, memory & resource bounds, SolidJS lifecycle, security & remote-page IPC, persistence, test suites, dependencies, and CI workflows as cataloged in `CODE_REVIEW.md`.
+
+### Work Done
+
+1. **Lazy Initialization Concurrency ([`crates/flux-core/src/trace/store.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/trace/store.rs), [`crates/flux-core/src/fsroots.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/fsroots.rs), [`crates/flux-core/src/kb.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/kb.rs)):**
+   - Replaced flawed `swap(true)` lazy hydration pattern in `TraceStore`, `RootsStore`, and `KbStore` with `std::sync::Once::call_once`.
+   - Concurrent callers block safely until disk loading finishes, preventing history loss in Trail, temporary security bypass in `RootsStore`, and unhydrated state in `KbStore`. Added regression tests verifying concurrent caller blocking.
+
+2. **Agent Action Tab & Document URL Binding ([`crates/flux-core/src/agent.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/agent.rs), [`apps/shell/src/ipc.ts`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/ipc.ts), [`apps/shell/src/AgentPanel.tsx`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/AgentPanel.tsx)):**
+   - Bound planned agent actions to originating `tab` ID and document `expected_url`.
+   - In `agent_run_action`, validates target webview existence and checks that the tab's current URL origin and path have not navigated away before injecting action JS.
+
+3. **Recursive Copy Descendant Guard & Move Cross-Device Fallback ([`crates/flux-core/src/files.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/files.rs)):**
+   - Added canonical path checks rejecting attempts to copy or move a directory into any of its own descendants.
+   - Restricted fallback copy+remove in `fs_move` strictly to `std::io::ErrorKind::CrossesDevices`. Added regression test `copy_into_descendant_is_rejected`.
+
+4. **SolidJS Lifecycle & Resource Cleanup in TerminalView ([`apps/shell/src/TerminalView.tsx`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/TerminalView.tsx)):**
+   - Registered `onCleanup` synchronously at component top-level within Solid's owner scope using a `disposed` flag and `teardown()` closure.
+   - Handled early disposal if component unmounts during dynamic imports or PTY spawn.
+   - Moved theme subscription `createEffect` to component top-level so xterm themes update reactively under a valid owner.
+
+5. **Bounded Hibernation State & Caller Tab Attribution ([`crates/flux-core/src/hibernate.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/hibernate.rs)):**
+   - Replaced arbitrary remote state string interpolation with typed, bounded `HibernateState` and `FormFieldState` structs with strict length and entry count validation.
+   - Derived tab identity strictly from webview label (`caller_tab(&webview)`) rather than trusting remote arguments, preventing cross-tab state tampering.
+
+6. **Hardened DOM Publication Identity & Origin Verification ([`crates/flux-core/src/dom.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/dom.rs)):**
+   - Enforced `caller_tab(&webview)` on `dom_publish` and verified that reported page URL matches the webview's actual native URL origin (`validate_reported_url`).
+   - Verified target tab exists in state and derived `private` flag from native tab state.
+
+7. **Live URL & Secure Origin Autofill Authorization ([`crates/flux-core/src/vault.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/vault.rs)):**
+   - Replaced stale tab metadata checks in autofill and sentinel commands (`vault_fill`, `vault_page_info`, `vault_fill_page`, `vault_save_from_page`, `vault_page_matches`, `vault_offer_save`) with live URL inspection via `webview.url()`.
+   - Added `require_secure_credential_origin` requiring HTTPS, localhost/127.0.0.1, or `flux://` before matching or releasing credentials. Rechecked document URL immediately before JS injection.
+
+8. **New-File Junction Traversal Resolution in FsRoots ([`crates/flux-core/src/fsroots.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/fsroots.rs)):**
+   - For nonexistent target files, canonicalized the nearest existing ancestor path and appended remaining components, preventing junction/symlink escape outside allowed roots. Added regression tests.
+
+9. **Safe Vault Read/Decryption Recovery ([`crates/flux-core/src/vault.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/vault.rs)):**
+   - In `hydrate_keychain`, kept vault locked (`None`) on read or decryption errors instead of substituting an empty `Vault::default()`, preventing credential overwrites during keychain errors.
+
+10. **Atomic Knowledge Base Vector Sidecar & Hash Verification ([`crates/flux-core/src/kb.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/kb.rs)):**
+    - Added `generation` counter and `vecs_hash` to `KbData`.
+    - Persisted binary vector sidecar first via `write_atomic`, followed by the index JSON containing the sidecar's content hash.
+    - On hydration, verifies sidecar byte hash against index before accepting embeddings, rejecting mismatched sidecars and rebuilding safely. Added regression test.
+
+11. **Process-Unique Atomic Temporary Files ([`crates/flux-core/src/persist.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/persist.rs)):**
+    - Added atomic sequence counter `TMP_SEQ: AtomicU64` to `write_atomic` temporary filenames (`.{pid}.{seq}.tmp`) and added `file.sync_all()` before renaming, preventing file collision across concurrent writers. Added regression test.
+
+12. **Patched Vulnerable Build Dependencies ([`package-lock.json`](file:///C:/Users/Razeen/Projects/flux/package-lock.json)):**
+    - Ran `npm audit fix`, upgrading `browserslist` to 4.28.7+ and `nanoid` to 3.3.18+, achieving 0 audit vulnerabilities.
+
+13. **Bounded Shell Command Draining & Deadline ([`crates/flux-core/src/exec.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/exec.rs)):**
+    - Implemented `run_bounded` draining stdout and stderr concurrently with a 64 KiB memory limit and a 60-second deadline.
+    - Terminates and reaps runaway or hanging child processes upon timeout. Added unit tests for bounds and timeouts.
+
+14. **PTY Session Map Mutex Lock Release ([`crates/flux-core/src/terminal.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/terminal.rs)):**
+    - Wrapped `Session` in `Arc<Session>` in `TerminalManager`.
+    - In `terminal_write` and `terminal_resize`, clones `Arc<Session>` and releases the session map mutex immediately before performing blocking PTY I/O.
+
+15. **Cross-Platform CRLF/LF Binding Test Normalization ([`crates/flux-core/src/bindings.rs`](file:///C:/Users/Razeen/Projects/flux/crates/flux-core/src/bindings.rs)):**
+    - Normalized `\r\n` to `\n` in `bindings_up_to_date` assertion, eliminating false test failures on Windows git checkouts.
+
+16. **CI Correctness Suite Job ([`.github/workflows/perf.yml`](file:///C:/Users/Razeen/Projects/flux/.github/workflows/perf.yml)):**
+    - Added `correctness` workflow job running `cargo test --workspace --locked`, `npm run typecheck --workspace apps/shell`, and `npm run test --workspace apps/shell`.
+
+17. **Theme Test Fix ([`apps/shell/src/theme.test.ts`](file:///C:/Users/Razeen/Projects/flux/apps/shell/src/theme.test.ts)):**
+    - Neutralized `window-acrylic` class and accounted for `!important` declarations in CSS backdrop-filter checks. All 107 frontend unit tests passing.
+
+### Validation Results
+- Frontend tests: 16 test files / 107 tests passed (`npm run test --workspace apps/shell`).
+- TypeScript checking: 0 errors (`npm run typecheck --workspace apps/shell`).
+- Rust workspace tests: 395 tests passed across all crates (`cargo test --workspace`).
+- Security audit: 0 vulnerabilities found (`npm audit`).
+- Release build: frontend and desktop binaries compiled successfully.
+
 ## 2026-09-07: Fix IMAP TLS peer certificate validation with OS platform verifier
 
 ### Problem

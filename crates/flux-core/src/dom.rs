@@ -104,9 +104,34 @@ pub async fn active_fresh(app: &AppHandle, state: &FluxState) -> Option<Arc<DomS
     refresh(app, state, tab).await
 }
 
+fn caller_tab(webview: &tauri::Webview) -> Result<TabId, String> {
+    webview
+        .label()
+        .strip_prefix("tab-")
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| "not a tab webview".into())
+}
+
+fn validate_reported_url(actual: &tauri::Url, reported: &str) -> Result<(), String> {
+    let rep = match tauri::Url::parse(reported) {
+        Ok(u) => u,
+        Err(_) => return Err("invalid reported URL".into()),
+    };
+    if actual.scheme() != rep.scheme()
+        || actual.host_str() != rep.host_str()
+        || actual.port() != rep.port()
+    {
+        return Err(format!(
+            "reported URL does not match webview origin (actual: {actual}, reported: {reported})"
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn dom_publish(
     app: AppHandle,
+    webview: tauri::Webview,
     state: State<'_, FluxState>,
     tab_id: TabId,
     url: String,
@@ -114,22 +139,23 @@ pub fn dom_publish(
     text: String,
     title: Option<String>,
 ) -> Result<(), String> {
+    let caller = caller_tab(&webview)?;
+    if caller != tab_id {
+        return Err(format!("tab_id mismatch: caller is {caller}, reported {tab_id}"));
+    }
+    let actual_url = webview.url().map_err(|e| e.to_string())?;
+    validate_reported_url(&actual_url, &url)?;
+    let (tab_title, private, ws_id) = {
+        let tab = state.tabs.get(&tab_id).ok_or("unknown tab")?;
+        (tab.title.clone(), tab.private, tab.workspace)
+    };
+
     // Bound per-tab memory before anything holds onto these strings (#79).
     let html = cap_utf8(html, MAX_SNAPSHOT_HTML);
     let text = cap_utf8(text, MAX_SNAPSHOT_TEXT);
 
     // Prefer the page's own <title>; fall back to the tab's stored title.
-    let title = title.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| {
-        state
-            .tabs
-            .get(&tab_id)
-            .map(|t| t.title.clone())
-            .unwrap_or_default()
-    });
-
-    // Private tabs (#59) leave no trace: keep the live snapshot in RAM (for the
-    // agent on the active tab) but never record history or ingest into Omni.
-    let private = state.tabs.get(&tab_id).map(|t| t.private).unwrap_or(false);
+    let title = title.filter(|t| !t.trim().is_empty()).unwrap_or(tab_title);
 
     // Keep the tab's stored title fresh (so omni_search + the session show the
     // live title, not the creation-time one). In-memory only — not worth a disk
@@ -149,17 +175,14 @@ pub fn dom_publish(
         // Same non-private guard as history; the task label is the tab's active
         // workspace name, and the nav edge is drawn from the tab's prior visit.
         if let Some(tr) = app.try_state::<crate::trace::TraceStore>() {
-            let ws_id = state.tabs.get(&tab_id).map(|t| t.workspace);
-            let task = ws_id.and_then(|ws| {
-                state
-                    .workspaces_list()
-                    .into_iter()
-                    .find(|w| w.id == ws)
-                    .map(|w| w.name)
-            });
+            let task = state
+                .workspaces_list()
+                .into_iter()
+                .find(|w| w.id == ws_id)
+                .map(|w| w.name);
             // Stamp the id too: the name is what the user sees, but it can be
             // renamed, and a scoped view must not lose old research when it is.
-            tr.record(tab_id, &url, &title, task, ws_id);
+            tr.record(tab_id, &url, &title, task, Some(ws_id));
         }
         // Live ingest into Omni (no-op unless the user enabled auto-ingest). Done
         // before the snapshot is built so the page text is still owned here.
@@ -364,4 +387,57 @@ pub(crate) fn dirs_download() -> String {
     std::env::var("HOME")
         .map(|h| format!("{h}/Downloads"))
         .unwrap_or_else(|_| ".".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{FluxState, TabKind, TabMeta};
+
+    #[test]
+    fn tab_metadata_read_does_not_deadlock_with_mutation() {
+        let state = FluxState::default();
+        state.tabs.insert(
+            42,
+            TabMeta {
+                id: 42,
+                kind: TabKind::Browser,
+                url: "https://example.com".into(),
+                title: "Old Title".into(),
+                pinned: false,
+                cluster: None,
+                group: None,
+                folder: None,
+                custom_title: None,
+                workspace: 1,
+                private: false,
+                container: 0,
+            },
+        );
+
+        // Pattern used in dom_publish: read guard must be released before get_mut
+        let (tab_title, private, _ws_id) = {
+            let tab = state.tabs.get(&42).expect("tab should exist");
+            (tab.title.clone(), tab.private, tab.workspace)
+        };
+        assert_eq!(tab_title, "Old Title");
+        assert!(!private);
+
+        let new_title = "New Title".to_string();
+        if let Some(mut t) = state.tabs.get_mut(&42) {
+            t.title = new_title.clone();
+        }
+
+        assert_eq!(state.tabs.get(&42).unwrap().title, "New Title");
+    }
+
+    #[test]
+    fn validate_reported_url_matches_same_origin() {
+        let actual = tauri::Url::parse("https://login.example.com/oauth/authorize?foo=bar").unwrap();
+        assert!(validate_reported_url(&actual, "https://login.example.com/oauth/authorize").is_ok());
+        assert!(validate_reported_url(&actual, "https://login.example.com/callback").is_ok());
+
+        assert!(validate_reported_url(&actual, "https://attacker.com/steal").is_err());
+        assert!(validate_reported_url(&actual, "http://login.example.com/oauth").is_err());
+    }
 }

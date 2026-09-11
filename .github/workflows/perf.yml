@@ -26,6 +26,28 @@ jobs:
       - name: Check JS + binary budgets (ADR 0001)
         run: node scripts/perf-budget.mjs
 
+  # Correctness gate (#16): Rust workspace tests, TypeScript checks, and frontend tests.
+  correctness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri/WebKitGTK build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck --workspace apps/shell
+      - run: npm run test --workspace apps/shell
+      - run: cargo test --workspace --locked
+
   # Compile + run the criterion IPC benches so they can't bit-rot. Latency is
   # reported, not hard-gated (shared CI runners are too noisy for a p99 gate).
   benches:

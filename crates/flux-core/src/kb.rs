@@ -87,6 +87,17 @@ struct KbData {
     /// persisted in Flux's own config so it survives without fragile env vars.
     #[serde(default)]
     config: HashMap<String, String>,
+    #[serde(default)]
+    generation: u64,
+    #[serde(default)]
+    vecs_hash: Option<u64>,
+}
+
+fn hash_bytes(b: &[u8]) -> u64 {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    h.write(b);
+    h.finish()
 }
 
 impl Default for KbData {
@@ -99,6 +110,8 @@ impl Default for KbData {
             last: HashMap::new(),
             errors: HashMap::new(),
             config: HashMap::new(),
+            generation: 0,
+            vecs_hash: None,
         }
     }
 }
@@ -371,7 +384,7 @@ pub fn scribe_docs(store: &crate::scribe::ScribeStore) -> Vec<RawDoc> {
 pub struct KbStore {
     path: Option<PathBuf>,
     data: Arc<RwLock<KbData>>,
-    hydrated: Arc<AtomicBool>,
+    initialized: Arc<std::sync::Once>,
     indexing: Arc<AtomicBool>,
 }
 
@@ -399,7 +412,7 @@ impl Default for KbStore {
         KbStore {
             path: None,
             data: Arc::new(RwLock::new(KbData::default())),
-            hydrated: Arc::new(AtomicBool::new(false)),
+            initialized: Arc::new(std::sync::Once::new()),
             indexing: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -420,52 +433,65 @@ impl KbStore {
 
     /// Load the persisted index from disk (idempotent).
     pub fn hydrate(&self) {
-        if self.hydrated.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let Some(path) = &self.path else { return };
-        let Ok(json) = std::fs::read_to_string(path) else {
-            return;
-        };
-        let Ok(mut data) = serde_json::from_str::<KbData>(&json) else {
-            return;
-        };
+        self.initialized.call_once(|| {
+            let Some(path) = &self.path else { return };
+            let Ok(json) = std::fs::read_to_string(path) else {
+                return;
+            };
+            let Ok(mut data) = serde_json::from_str::<KbData>(&json) else {
+                return;
+            };
 
-        let sidecar = std::fs::read(Self::vectors_path(path))
-            .ok()
-            .and_then(|b| VecStore::from_bytes(&b));
-        let mut migrated = false;
+            let sidecar = std::fs::read(Self::vectors_path(path))
+                .ok()
+                .and_then(|b| {
+                    if let Some(expected_hash) = data.vecs_hash {
+                        let actual = hash_bytes(&b);
+                        if actual != expected_hash {
+                            tracing::warn!(
+                                target: "flux::kb",
+                                expected = expected_hash,
+                                actual,
+                                "vector sidecar hash mismatch; refusing mismatched sidecar"
+                            );
+                            return None;
+                        }
+                    }
+                    VecStore::from_bytes(&b)
+                });
+            let mut migrated = false;
 
-        match sidecar {
-            // Normal path. The count check is the guard on the pairing
-            // invariant: a sidecar that doesn't line up is refused outright,
-            // because using it would silently score each chunk with another
-            // document's vector.
-            Some(v) if v.len() == data.chunks.len() => data.vecs = v,
-            other => {
-                if other.is_some() {
-                    tracing::warn!(
-                        target: "flux::kb",
-                        chunks = data.chunks.len(),
-                        "vector sidecar doesn't match the index; rebuilding from the JSON"
-                    );
+            match sidecar {
+                // Normal path. The count check is the guard on the pairing
+                // invariant: a sidecar that doesn't line up is refused outright,
+                // because using it would silently score each chunk with another
+                // document's vector.
+                Some(v) if v.len() == data.chunks.len() => data.vecs = v,
+                other => {
+                    if other.is_some() {
+                        tracing::warn!(
+                            target: "flux::kb",
+                            chunks = data.chunks.len(),
+                            "vector sidecar doesn't match the index; rebuilding from the JSON"
+                        );
+                    }
+                    migrated = Self::migrate_inline_vectors(&mut data);
                 }
-                migrated = Self::migrate_inline_vectors(&mut data);
             }
-        }
 
-        // Free the migration buffers either way — on the normal path they were
-        // never populated, and after a migration they're duplicated in `vecs`.
-        for c in &mut data.chunks {
-            c.legacy_embedding = Vec::new();
-        }
-        data.chunks.shrink_to_fit();
+            // Free the migration buffers either way — on the normal path they were
+            // never populated, and after a migration they're duplicated in `vecs`.
+            for c in &mut data.chunks {
+                c.legacy_embedding = Vec::new();
+            }
+            data.chunks.shrink_to_fit();
 
-        debug_assert!(data.paired());
-        *self.data.write() = data;
-        if migrated {
-            self.persist();
-        }
+            debug_assert!(data.paired());
+            *self.data.write() = data;
+            if migrated {
+                self.persist();
+            }
+        });
     }
 
     /// Rebuild the vector store from embeddings that were inlined in the JSON.
@@ -512,13 +538,19 @@ impl KbStore {
 
     fn persist(&self) {
         let Some(path) = &self.path else { return };
-        let (json, vecs) = {
-            let d = self.data.read();
-            (serde_json::to_string(&*d).ok(), d.vecs.to_bytes())
+        let (json, vecs_bytes) = {
+            let mut d = self.data.write();
+            let vecs_bytes = d.vecs.to_bytes();
+            d.vecs_hash = Some(hash_bytes(&vecs_bytes));
+            d.generation = d.generation.wrapping_add(1);
+            let json = serde_json::to_string(&*d).ok();
+            (json, vecs_bytes)
         };
         if let Some(json) = json {
-            let _ = std::fs::write(path, json);
-            let _ = std::fs::write(Self::vectors_path(path), vecs);
+            let vec_path = Self::vectors_path(path);
+            if crate::persist::write_atomic(&vec_path, &vecs_bytes).is_ok() {
+                let _ = crate::persist::write_atomic(path, json.as_bytes());
+            }
         }
     }
 
@@ -2654,6 +2686,45 @@ mod tests {
                 .any(|x| x.doc_id == "empty.md" && x.n_chunks == 0),
             "an empty document is still indexed, with no chunks"
         );
+        drop(d);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mismatched_vector_sidecar_hash_is_rejected_on_hydrate() {
+        let dir = std::env::temp_dir().join(format!("flux-kb-hash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let index_path = dir.join("kb-index.json");
+        let store = KbStore::empty(index_path.clone());
+
+        let raw = vec![RawDoc {
+            doc_id: "doc1.md".into(),
+            title: "Doc 1".into(),
+            path: "/doc1.md".into(),
+            mtime: 1,
+            body: "Knowledge base document content".into(),
+        }];
+        store.reindex_source("onyx", Embedder::Hash, raw).unwrap();
+        store.persist();
+
+        // Tamper with the sidecar vectors file (e.g. simulate mismatched sidecar bytes)
+        let vec_path = KbStore::vectors_path(&index_path);
+        assert!(vec_path.exists());
+        let mut corrupted = std::fs::read(&vec_path).unwrap();
+        if !corrupted.is_empty() {
+            corrupted[0] ^= 0xff;
+        }
+        std::fs::write(&vec_path, corrupted).unwrap();
+
+        // Create fresh store instance and hydrate
+        let store2 = KbStore::empty(index_path);
+        store2.hydrate();
+
+        // Because sidecar hash did not match, corrupted sidecar was rejected
+        let d = store2.data.read();
+        assert_eq!(d.vecs.len(), 0);
         drop(d);
 
         let _ = std::fs::remove_dir_all(&dir);

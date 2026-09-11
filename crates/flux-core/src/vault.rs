@@ -123,22 +123,29 @@ impl VaultState {
         }
         let (open, source) = match obtain_key(&self.dir) {
             (Some(dk), src) => {
-                let vault = match std::fs::read(&self.path) {
+                let vault_res = match std::fs::read(&self.path) {
                     Ok(blob) if !blob.is_empty() => {
-                        Vault::decrypt(&dk, &blob).unwrap_or_else(|e| {
-                            tracing::error!(target: "flux::vault", "vault decrypt failed: {e}");
-                            Vault::default()
-                        })
+                        Vault::decrypt(&dk, &blob).map_err(|e| format!("vault decrypt failed: {e}"))
                     }
-                    _ => Vault::default(),
+                    Ok(_) => Ok(Vault::default()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vault::default()),
+                    Err(e) => Err(format!("vault read error: {e}")),
                 };
-                (
-                    Some(Unlocked {
-                        vault,
-                        dk: Zeroizing::new(dk),
-                    }),
-                    src,
-                )
+                match vault_res {
+                    Ok(vault) => (
+                        Some(Unlocked {
+                            vault,
+                            dk: Zeroizing::new(dk),
+                        }),
+                        src,
+                    ),
+                    Err(err) => {
+                        tracing::error!(target: "flux::vault", "{err}");
+                        // Keep vault locked on decryption/read failure so it is never
+                        // overwritten with an empty default vault.
+                        (None, "error")
+                    }
+                }
             }
             (None, _) => (None, "none"),
         };
@@ -592,10 +599,15 @@ pub fn vault_fill(
     tab_id: u64,
     id: String,
 ) -> Result<(), String> {
-    let host = app
-        .try_state::<crate::state::FluxState>()
-        .and_then(|s| s.tabs.get(&tab_id).map(|t| host_of(&t.url)))
-        .ok_or("no such tab")?;
+    let webview = app
+        .get_webview(&format!("tab-{tab_id}"))
+        .ok_or("no such tab webview")?;
+    let current_url = webview.url().map_err(|e| e.to_string())?;
+    require_secure_credential_origin(&current_url)?;
+    let host = current_url
+        .host_str()
+        .ok_or("no host on current page")?
+        .to_ascii_lowercase();
 
     // Credential-entry firewall (ADR 0013, Pillar 2): never type a saved password
     // into a site that impersonates a brand the user values — even if a
@@ -618,17 +630,16 @@ pub fn vault_fill(
     })?;
     let (user, pass) = found.ok_or_else(|| format!("no credential matches {host}"))?;
 
+    // Recheck URL right before injection:
+    let rechecked = webview.url().map_err(|e| e.to_string())?;
+    if rechecked != current_url {
+        return Err("document navigated during autofill authorization".into());
+    }
+
     let u = serde_json::to_string(&user).unwrap_or_else(|_| "\"\"".into());
     let p = serde_json::to_string(&pass).unwrap_or_else(|_| "\"\"".into());
     let js = format!("{AUTOFILL_JS}\n;__fluxFill({u},{p});");
-    crate::webview::eval(&app, tab_id, &js)
-}
-
-fn host_of(url: &str) -> String {
-    let s = url.split("://").nth(1).unwrap_or(url);
-    let s = s.split(['/', '?', '#']).next().unwrap_or(s);
-    let s = s.rsplit('@').next().unwrap_or(s);
-    s.split(':').next().unwrap_or(s).to_ascii_lowercase()
+    webview.eval(&js).map_err(|e| e.to_string())
 }
 
 // ─── Page sentinel (#61 follow-up) ───────────────────────────────────────────
@@ -803,10 +814,47 @@ fn caller_tab(webview: &tauri::Webview) -> Result<u64, String> {
         .ok_or_else(|| "not a tab webview".into())
 }
 
+fn require_secure_credential_origin(url: &tauri::Url) -> Result<(), String> {
+    if url.scheme() == "https" {
+        return Ok(());
+    }
+    if url.scheme() == "http" {
+        if let Some(h) = url.host_str() {
+            if h == "localhost" || h == "127.0.0.1" || h == "::1" {
+                return Ok(());
+            }
+        }
+    }
+    Err(format!(
+        "credentials require a secure origin (https or localhost); refused for {}",
+        url.as_str()
+    ))
+}
+
+fn webview_secure_host(webview: &tauri::Webview) -> Result<String, String> {
+    let url = webview.url().map_err(|e| e.to_string())?;
+    require_secure_credential_origin(&url)?;
+    url.host_str()
+        .map(|h| h.to_ascii_lowercase())
+        .ok_or_else(|| "no host on current page".into())
+}
+
 fn tab_host(app: &AppHandle, tab_id: u64) -> Result<String, String> {
-    app.try_state::<crate::state::FluxState>()
-        .and_then(|s| s.tabs.get(&tab_id).map(|t| host_of(&t.url)))
-        .ok_or_else(|| "no such tab".into())
+    if let Some(wv) = app.get_webview(&format!("tab-{tab_id}")) {
+        if let Ok(h) = webview_secure_host(&wv) {
+            return Ok(h);
+        }
+    }
+    let s = app
+        .try_state::<crate::state::FluxState>()
+        .ok_or("state unavailable")?;
+    let tab = s.tabs.get(&tab_id).ok_or("no such tab")?;
+    let parsed = tauri::Url::parse(&tab.url).map_err(|e| e.to_string())?;
+    require_secure_credential_origin(&parsed)?;
+    parsed
+        .host_str()
+        .map(|h| h.to_ascii_lowercase())
+        .ok_or_else(|| "no host in tab url".into())
 }
 
 /// Sentinel probe: is the vault unlocked, and do any credentials match the
@@ -823,10 +871,10 @@ pub fn vault_page_info(
         count: 0,
         username: String::new(),
     };
-    let Ok(tab) = caller_tab(&webview) else {
+    let Ok(_tab) = caller_tab(&webview) else {
         return locked_out;
     };
-    let Ok(host) = tab_host(&app, tab) else {
+    let Ok(host) = webview_secure_host(&webview) else {
         return locked_out;
     };
     // Credential-entry firewall: on an impersonating host, show no fill chip at
@@ -859,7 +907,7 @@ pub fn vault_fill_page(
     state: State<'_, VaultState>,
 ) -> Result<(), String> {
     let tab = caller_tab(&webview)?;
-    let host = tab_host(&app, tab)?;
+    let host = webview_secure_host(&webview)?;
     let id = state
         .read_open(|v| v.matches(&host).first().map(|c| c.id.clone()))?
         .ok_or_else(|| format!("no credential matches {host}"))?;
@@ -888,8 +936,8 @@ pub fn vault_save_from_page(
     if password.is_empty() {
         return Err("empty password".into());
     }
-    let tab = caller_tab(&webview)?;
-    let host = tab_host(&app, tab)?;
+    let _tab = caller_tab(&webview)?;
+    let host = webview_secure_host(&webview)?;
     if host.is_empty() {
         return Err("no host".into());
     }
@@ -930,10 +978,10 @@ pub fn vault_page_matches(
     webview: tauri::Webview,
     state: State<'_, VaultState>,
 ) -> Vec<PageMatch> {
-    let Ok(tab) = caller_tab(&webview) else {
+    let Ok(_tab) = caller_tab(&webview) else {
         return Vec::new();
     };
-    let Ok(host) = tab_host(&app, tab) else {
+    let Ok(host) = webview_secure_host(&webview) else {
         return Vec::new();
     };
     // Same firewall as the chip: offer no picker on an impersonating host.
@@ -1001,10 +1049,10 @@ pub fn vault_offer_save(
     if password.is_empty() {
         return Ok(());
     }
-    let Ok(tab) = caller_tab(&webview) else {
+    let Ok(_tab) = caller_tab(&webview) else {
         return Ok(());
     };
-    let Ok(host) = tab_host(&app, tab) else {
+    let Ok(host) = webview_secure_host(&webview) else {
         return Ok(());
     };
     if host.is_empty() {

@@ -365,8 +365,13 @@ export const terminalEnv = () => invoke<Record<string, string>>("terminal_env");
 export const agentExecute = (prompt: string) => invoke<AgentAction>("agent_execute", { prompt });
 /** Plan a page action without executing it — the UI previews + asks to approve (#8). */
 export const agentPlan = (prompt: string) => invoke<AgentAction>("agent_plan", { prompt });
-/** Execute a user-approved planned action (#8). */
-export const agentRunAction = (action: AgentAction) => invoke<AgentAction>("agent_run_action", { action });
+/** Execute a user-approved planned action (#8, bound to originating tab and doc URL #2). */
+export const agentRunAction = (action: AgentAction, tab?: number, expectedUrl?: string) =>
+  invoke<AgentAction>("agent_run_action", {
+    action,
+    tab: tab ?? null,
+    expectedUrl: expectedUrl ?? null,
+  });
 /** Plan the next step of a multi-step task given the goal + steps done so far (#A). */
 export const agentTaskStep = (goal: string, history: string[]) =>
   invoke<AgentAction>("agent_task_step", { goal, history });
