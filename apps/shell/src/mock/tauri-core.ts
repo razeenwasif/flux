@@ -297,7 +297,36 @@ let mockContainers: { id: number; name: string; color: number }[] = [
   { id: 1, name: "Work", color: 0x7cf5b0 },
 ];
 
+// Explicit preview-only fixtures for exercising unsupported platforms and failed writes.
+const previewParams = new URLSearchParams(window.location.search);
+let failNextSave = previewParams.get("previewFailSave") === "once";
+let mockDefaultEngine = "ddg";
+let mockShieldsOn = true;
+let mockHttpsOn = false;
+
+let mockTuiApps = [
+  { id: "onyx", name: "Onyx", icon: "onyx", cmd: "onyx", cwd: "" },
+  { id: "lazygit", name: "LazyGit", icon: "lazygit", cmd: "lazygit", cwd: "" },
+  { id: "tuxedo", name: "Tuxedo", icon: "tuxedo", cmd: "tuxedo", cwd: "" },
+  { id: "custom-1", name: "Canopy", icon: "🌳", cmd: "canopy", cwd: "" },
+];
+
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (
+    failNextSave &&
+    [
+      "tui_apps_set",
+      "search_set_default",
+      "shields_set_enabled",
+      "https_set_enabled",
+      "tracking_set_level",
+      "permissions_set_block",
+      "trace_drafts_set",
+    ].includes(cmd)
+  ) {
+    failNextSave = false;
+    return Promise.reject(new Error("Simulated preview save failure"));
+  }
   switch (cmd) {
     // The shell's whole startup payload. Missing, this returned `undefined` and
     // `refreshTabs` threw on `.tabs` — which aborted store init, so the preview
@@ -882,14 +911,29 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         }) as T,
       );
     case "shields_status":
-      return Promise.resolve({ enabled: true, blocked: 42, sites_off: [] } as T);
+      return Promise.resolve({
+        enabled: mockShieldsOn,
+        blocked: 42,
+        sites_off: [],
+        cache_hit_pct: 75,
+        cache_len: 20,
+        rules_fired: 6,
+        backend: previewParams.get("previewProtection") === "webkit" ? "webkit" : "webview2",
+        request_metrics: previewParams.get("previewProtection") !== "webkit",
+        request_controls: previewParams.get("previewProtection") !== "webkit",
+        attachment: previewParams.get("previewProtection") === "failed" ? "failed" : "attached",
+      } as T);
     case "shields_set_enabled":
+      mockShieldsOn = Boolean(args?.on);
+      return Promise.resolve(undefined as T);
     case "shields_set_site":
     case "shields_refresh":
       return Promise.resolve(undefined as T);
     case "https_status":
-      return Promise.resolve({ enabled: false, sites_allow_http: [] } as T);
+      return Promise.resolve({ enabled: mockHttpsOn, sites_allow_http: [] } as T);
     case "https_set_enabled":
+      mockHttpsOn = Boolean(args?.on);
+      return Promise.resolve(undefined as T);
     case "https_allow_site":
     case "cookies_clear_site":
     case "cookies_clear_all":
@@ -997,7 +1041,10 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         ]) as T,
       );
     case "search_default":
-      return Promise.resolve("ddg" as T);
+      return Promise.resolve(mockDefaultEngine as T);
+    case "search_set_default":
+      mockDefaultEngine = String(args?.id ?? "ddg");
+      return Promise.resolve(undefined as T);
     case "search_engines":
       return Promise.resolve([
         { id: "ddg", name: "DuckDuckGo", keyword: "ddg", search_template: "", suggest_template: null },
@@ -1013,13 +1060,9 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     // entries on icon *names* and one on a literal emoji, so both halves of
     // IconOrGlyph are exercised.
     case "tui_apps_list":
-      return Promise.resolve([
-        { id: "onyx", name: "Onyx", icon: "onyx", cmd: "onyx", cwd: "" },
-        { id: "lazygit", name: "LazyGit", icon: "lazygit", cmd: "lazygit", cwd: "" },
-        { id: "tuxedo", name: "Tuxedo", icon: "tuxedo", cmd: "tuxedo", cwd: "" },
-        { id: "custom-1", name: "Canopy", icon: "🌳", cmd: "canopy", cwd: "" },
-      ] as T);
+      return Promise.resolve(mockTuiApps as T);
     case "tui_apps_set":
+      mockTuiApps = args?.apps as typeof mockTuiApps;
       return Promise.resolve(undefined as T);
     case "tui_apps_detect":
       return Promise.resolve([] as T);

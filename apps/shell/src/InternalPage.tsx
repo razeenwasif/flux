@@ -152,7 +152,10 @@ const InternalPage: Component<InternalPageProps> = (props) => {
     <div ref={host} style={{ display: "contents" }}>
       <Switch
         fallback={
-          <span style={{ "text-align": "center", "line-height": 1.8 }}>
+          <span
+            aria-hidden={tab()?.kind === "browser" && /^https?:/i.test(tab()?.url ?? "")}
+            style={{ "text-align": "center", "line-height": 1.8 }}
+          >
             <strong style={{ color: "var(--flux-text)" }}>{tab()?.title || "Flux"}</strong>
             <br />
             loading…

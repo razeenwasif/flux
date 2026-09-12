@@ -1,3 +1,4 @@
+import { density, setDensity, type Density } from "./interfacePreferences";
 /**
  * flux://settings — the real Settings page (BACKLOG #78). Consolidates the
  * toggles that were scattered across the footer ⚙ popover and the Shields popover
@@ -6,8 +7,14 @@
  * localStorage) or behind flux-core commands — this page is just a tidy front end
  * over what already existed, plus the privacy controls that had no home here.
  */
-import { For, Show, createSignal, onMount, type Component, type JSX } from "solid-js";
+import { For, Show, createSignal, onMount, type Component } from "solid-js";
 
+import { terminalScreenReader, setTerminalScreenReader } from "./terminalAccessibility";
+import { settingsWriter } from "./settingsWriter";
+import { protectionMetrics, requestControlsHint } from "./protectionStatus";
+import type { ShieldsStatus } from "./ipc";
+import { Row, Toggle } from "./SettingsControls";
+import SettingsNavigator, { Section } from "./SettingsNavigator";
 import { visibleInterval } from "./poll";
 import { THEMES, setTheme, theme } from "./themes";
 import {
@@ -136,36 +143,6 @@ import {
 
 const TRACKING_LABELS = ["Off", "Basic", "Balanced", "Strict"];
 
-const Section: Component<{ title: string; sub?: string; children: JSX.Element }> = (props) => (
-  <section class="set-section">
-    <div class="set-section-head">
-      <h2>{props.title}</h2>
-      <Show when={props.sub}>
-        <span class="set-section-sub">{props.sub}</span>
-      </Show>
-    </div>
-    <div class="set-card">{props.children}</div>
-  </section>
-);
-
-const Row: Component<{ label: string; hint?: string; children: JSX.Element }> = (props) => (
-  <div class="set-row">
-    <div class="set-row-text">
-      <span class="set-row-label">{props.label}</span>
-      <Show when={props.hint}>
-        <span class="set-row-hint">{props.hint}</span>
-      </Show>
-    </div>
-    <div class="set-row-control">{props.children}</div>
-  </div>
-);
-
-const Toggle: Component<{ on: boolean; onClick: () => void }> = (props) => (
-  <button classList={{ "shields-toggle": true, on: props.on }} onClick={() => props.onClick()}>
-    {props.on ? "On" : "Off"}
-  </button>
-);
-
 type ElevenLabsVoiceRef = { voiceId: string; publicOwnerId?: string };
 
 function parseElevenLabsVoiceRef(input: string): ElevenLabsVoiceRef {
@@ -204,6 +181,10 @@ function parseElevenLabsVoiceRef(input: string): ElevenLabsVoiceRef {
 }
 
 const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
+  const writer = settingsWriter();
+  const [coreReady, setCoreReady] = createSignal(false);
+  const [loadError, setLoadError] = createSignal(false);
+  const controlsDisabled = () => writer.pending() || !coreReady();
   // Gemma's voice (TTS engine) + "Hey Gemma" always-on listening.
   const [ttsEngineSel, setTtsEngineSel] = createSignal<TtsEngine>(ttsEngine());
   const pickTts = (e: TtsEngine) => {
@@ -522,7 +503,8 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [defaultEngine, setDefaultEngine] = createSignal("");
   // Privacy state (lives in flux-core; loaded on mount).
   const [shieldsOn, setShieldsOn] = createSignal(true);
-  const [blocked, setBlocked] = createSignal(0);
+  const [shieldsInfo, setShieldsInfo] = createSignal<ShieldsStatus | null>(null);
+  const requestControls = () => shieldsInfo()?.request_controls === true;
   const [httpsOn, setHttpsOn] = createSignal(false);
   const [tracking, setTracking] = createSignal(2);
   const [blockPerms, setBlockPerms] = createSignal(false);
@@ -530,8 +512,11 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   const [draftsOn, setDraftsOn] = createSignal(false);
   const toggleDrafts = () => {
     const next = !draftsOn();
-    setDraftsOn(next);
-    void traceDraftsSet(next).catch(() => setDraftsOn(!next));
+    void writer.run(
+      "draft capture",
+      () => traceDraftsSet(next),
+      () => setDraftsOn(next),
+    );
   };
   const [cookieFlash, setCookieFlash] = createSignal("");
   const [mem, setMem] = createSignal<MemInfo | null>(null);
@@ -558,32 +543,41 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   };
   const [leanOn, setLeanOn] = createSignal<string[]>([]); // lean mode on
 
-  const loadShields = () =>
-    void shieldsStatus()
-      .then((s) => {
-        setShieldsOn(s.enabled);
-        setBlocked(s.blocked);
-        setSitesOff(s.sites_off);
-      })
-      .catch(() => {});
-  const loadHttps = () =>
-    void httpsStatus()
-      .then((s) => {
-        setHttpsOn(s.enabled);
-        setHttpAllow(s.sites_allow_http);
-      })
-      .catch(() => {});
-  const loadLean = () =>
-    void leanStatus()
-      .then((s) => setLeanOn(s.sites_on))
-      .catch(() => {});
+  const loadCore = async () => {
+    setCoreReady(false);
+    setLoadError(false);
+    try {
+      const [engines, engine, shields, https, tracking, permissions, drafts, lean] = await Promise.all([
+        searchEngines(),
+        searchDefault(),
+        shieldsStatus(),
+        httpsStatus(),
+        trackingStatus(),
+        permissionsStatus(),
+        traceDraftsEnabled(),
+        leanStatus(),
+      ]);
+      setEngines(engines);
+      setDefaultEngine(engine);
+      setShieldsInfo(shields);
+      setShieldsOn(shields.enabled);
+      setSitesOff(shields.sites_off);
+      setHttpsOn(https.enabled);
+      setHttpAllow(https.sites_allow_http);
+      setTracking(tracking);
+      setBlockPerms(permissions);
+      setDraftsOn(drafts);
+      setLeanOn(lean.sites_on);
+      setCoreReady(true);
+    } catch {
+      setLoadError(true);
+    }
+  };
 
   onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Settings");
-    void traceDraftsEnabled()
-      .then(setDraftsOn)
-      .catch(() => {});
+    void loadCore();
     refreshVoices();
     try {
       window.speechSynthesis?.addEventListener?.("voiceschanged", refreshVoices);
@@ -596,24 +590,11 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     refreshPcKey();
     refreshMem();
     refreshMics();
-    void searchEngines()
-      .then(setEngines)
-      .catch(() => {});
-    void searchDefault()
-      .then(setDefaultEngine)
-      .catch(() => {});
-    loadShields();
-    loadHttps();
+
     void proxyGet()
       .then((p) => setProxy(p ?? ""))
       .catch(() => {});
-    loadLean();
-    void trackingStatus()
-      .then(setTracking)
-      .catch(() => {});
-    void permissionsStatus()
-      .then(setBlockPerms)
-      .catch(() => {});
+
     const pollMem = () =>
       void memStatus()
         .then(setMem)
@@ -621,50 +602,62 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     visibleInterval(pollMem, 3000);
   });
 
-  const pickEngine = (id: string) => {
-    setDefaultEngine(id);
-    void searchSetDefault(id).catch(() => {});
-  };
+  const pickEngine = (id: string) =>
+    void writer.run(
+      "search engine",
+      () => searchSetDefault(id),
+      () => setDefaultEngine(id),
+    );
   const toggleShields = () => {
-    const v = !shieldsOn();
-    setShieldsOn(v);
-    void shieldsSetEnabled(v).catch(() => {});
+    const value = !shieldsOn();
+    void writer.run(
+      "Shields",
+      () => shieldsSetEnabled(value),
+      () => setShieldsOn(value),
+    );
   };
   const toggleHttps = () => {
-    const v = !httpsOn();
-    setHttpsOn(v);
-    void httpsSetEnabled(v).catch(() => {});
+    const value = !httpsOn();
+    void writer.run(
+      "HTTPS-only",
+      () => httpsSetEnabled(value),
+      () => setHttpsOn(value),
+    );
   };
-  const setTrack = (lvl: number) => {
-    setTracking(lvl);
-    void trackingSetLevel(lvl).catch(() => {});
-  };
+  const setTrack = (value: number) =>
+    void writer.run(
+      "tracking prevention",
+      () => trackingSetLevel(value),
+      () => setTracking(value),
+    );
   const toggleBlockPerms = () => {
-    const v = !blockPerms();
-    setBlockPerms(v);
-    void permissionsSetBlock(v).catch(() => {});
+    const value = !blockPerms();
+    void writer.run(
+      "site permissions",
+      () => permissionsSetBlock(value),
+      () => setBlockPerms(value),
+    );
   };
-  const clearCookies = () => {
-    void cookiesClearAll()
-      .then(() => {
-        setCookieFlash("✓ cleared");
-        window.setTimeout(() => setCookieFlash(""), 2000);
-      })
-      .catch(() => {});
-  };
-  // Clear an exception → re-enable the default for that host.
+  const clearCookies = () =>
+    void writer.run("cookie cleanup", cookiesClearAll, () => setCookieFlash("✓ cleared"));
   const reenableShields = (host: string) =>
-    void shieldsSetSite(host, true)
-      .then(loadShields)
-      .catch(() => {});
+    void writer.run(
+      "site exception",
+      () => shieldsSetSite(host, true),
+      () => setSitesOff((sites) => sites.filter((s) => s !== host)),
+    );
   const disallowHttp = (host: string) =>
-    void httpsAllowSite(host, false)
-      .then(loadHttps)
-      .catch(() => {});
+    void writer.run(
+      "HTTP exception",
+      () => httpsAllowSite(host, false),
+      () => setHttpAllow((sites) => sites.filter((s) => s !== host)),
+    );
   const leanOff = (host: string) =>
-    void leanSetSite(host, false)
-      .then(loadLean)
-      .catch(() => {});
+    void writer.run(
+      "Lean mode",
+      () => leanSetSite(host, false),
+      () => setLeanOn((sites) => sites.filter((s) => s !== host)),
+    );
 
   const hasExceptions = () => sitesOff().length + httpAllow().length + leanOn().length > 0;
 
@@ -673,8 +666,43 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
       <header class="hist-head">
         <div class="hist-title">⚙ Settings</div>
       </header>
-      <div class="set-body">
+      <Show when={loadError()}>
+        <div class="settings-feedback" role="alert">
+          Could not load search and privacy settings.
+          <button class="set-link-btn" onClick={() => void loadCore()}>
+            Retry loading
+          </button>
+        </div>
+      </Show>
+      <Show when={writer.error()}>
+        <div class="settings-feedback" role="alert">
+          {writer.error()}
+          <button class="set-link-btn" disabled={writer.pending()} onClick={() => void writer.retry()}>
+            Retry save
+          </button>
+        </div>
+      </Show>
+      <Show when={writer.pending()}>
+        <div class="settings-save-status" role="status">
+          Saving…
+        </div>
+      </Show>
+      <SettingsNavigator>
         <Section title="Appearance">
+          <Row
+            label="Interface density"
+            hint="Comfortable adds room to tabs, navigation buttons, and settings rows."
+          >
+            <select
+              class="set-select"
+              aria-label="Interface density"
+              value={density()}
+              onChange={(e) => setDensity(e.currentTarget.value as Density)}
+            >
+              <option value="compact">Compact</option>
+              <option value="comfortable">Comfortable</option>
+            </select>
+          </Row>
           {/* Swatches rather than a dropdown: a colour theme is the one setting
               you can't evaluate from its name. */}
           <Row label="Theme" hint="Colours the whole of Flux. Applies immediately.">
@@ -731,8 +759,13 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           <Row label="Default engine" hint="Used for omnibox searches.">
             <select
               class="shields-select"
+              disabled={controlsDisabled()}
+              aria-label="Default search engine"
               value={defaultEngine()}
-              onChange={(e) => pickEngine(e.currentTarget.value)}
+              onChange={(e) => {
+                pickEngine(e.currentTarget.value);
+                e.currentTarget.value = defaultEngine();
+              }}
             >
               <For each={engines()}>{(en) => <option value={en.id}>{en.name}</option>}</For>
               <Show when={engines().length === 0}>
@@ -820,11 +853,21 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
 
         <Section title="Terminal">
           <Row
+            label="Terminal screen reader support"
+            hint="Expose terminal output to VoiceOver and other screen readers. Applies immediately to open terminals and the editor; may add overhead during heavy output."
+          >
+            <Toggle
+              on={terminalScreenReader()}
+              onClick={() => setTerminalScreenReader(!terminalScreenReader())}
+            />
+          </Row>
+          <Row
             label="Keep sessions across restarts"
             hint="Off by default. “Running processes” hands the shell to dtach (or tmux) so it survives closing Flux — but on reattach a shell redraws only its prompt, not its earlier output. “Scrollback” records output to disk and replays it, which needs nothing installed and survives a crash or reboot, but the processes are gone. “Both” is the pair. Note that scrollback writes terminal output — including anything printed by a command — to a capped file under Flux's data directory. Applies to terminals opened from now on."
           >
             <select
               class="shields-select"
+              aria-label="Keep sessions across restarts"
               value={persist()}
               onChange={(e) => pickPersist(e.currentTarget.value)}
             >
@@ -839,12 +882,36 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
         <Section title="Privacy & security">
           <Row
             label="Shields (content blocker)"
-            hint={`Block ads + trackers at the request level. ${blocked().toLocaleString()} blocked this session.`}
+            hint={requestControls() ? protectionMetrics(shieldsInfo()) : requestControlsHint(shieldsInfo())}
           >
-            <Toggle on={shieldsOn()} onClick={toggleShields} />
+            <Show
+              when={requestControls()}
+              fallback={
+                <span class="set-row-hint">
+                  {!shieldsInfo()
+                    ? "Checking…"
+                    : shieldsInfo()?.backend === "webkit"
+                      ? "Native rules"
+                      : "Unavailable"}
+                </span>
+              }
+            >
+              <Toggle on={shieldsOn()} disabled={controlsDisabled()} onClick={toggleShields} />
+            </Show>
           </Row>
-          <Row label="HTTPS-only" hint="Upgrade http:// to https://; per-site exceptions are remembered.">
-            <Toggle on={httpsOn()} onClick={toggleHttps} />
+          <Row
+            label="HTTPS-only"
+            hint={
+              requestControls()
+                ? "Upgrade http:// to https://; per-site exceptions are remembered."
+                : "HTTPS-only upgrades are unavailable on this platform."
+            }
+          >
+            <Toggle
+              on={httpsOn()}
+              disabled={controlsDisabled() || !requestControls()}
+              onClick={toggleHttps}
+            />
           </Row>
           <Row
             label="Proxy (HTTP / SOCKS5)"
@@ -870,11 +937,23 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
               </Show>
             </div>
           </Row>
-          <Row label="Tracking prevention" hint="How aggressively to block known tracking scripts.">
+          <Row
+            label="Tracking prevention"
+            hint={
+              requestControls()
+                ? "How aggressively WebView2 blocks known tracking scripts."
+                : "Tracking-prevention levels are available on Windows only."
+            }
+          >
             <select
               class="shields-select"
+              disabled={controlsDisabled() || !requestControls()}
+              aria-label="Tracking prevention"
               value={String(tracking())}
-              onChange={(e) => setTrack(Number(e.currentTarget.value))}
+              onChange={(e) => {
+                setTrack(Number(e.currentTarget.value));
+                e.currentTarget.value = String(tracking());
+              }}
             >
               <For each={TRACKING_LABELS}>{(lbl, i) => <option value={String(i())}>{lbl}</option>}</For>
             </select>
@@ -883,10 +962,10 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             label="Capture typed drafts (Trail)"
             hint="Off by default. Save what you were typing (comments, issues, long forms) with the page's Trail visit, so a closed tab can't eat a draft. Structurally redacted — password/card/OTP fields and login forms are never read, card numbers can't be stored — and the store is encrypted at rest. Applies to newly-loaded pages."
           >
-            <Toggle on={draftsOn()} onClick={toggleDrafts} />
+            <Toggle on={draftsOn()} disabled={controlsDisabled()} onClick={toggleDrafts} />
           </Row>
           <Row label="Block camera / mic / location" hint="Auto-deny these permission prompts globally.">
-            <Toggle on={blockPerms()} onClick={toggleBlockPerms} />
+            <Toggle on={blockPerms()} disabled={controlsDisabled()} onClick={toggleBlockPerms} />
           </Row>
           <Row
             label="Per-site permissions"
@@ -905,7 +984,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             </button>
           </Row>
           <Row label="Cookies" hint="Clear every cookie in the store.">
-            <button class="set-link-btn" onClick={clearCookies}>
+            <button class="set-link-btn" disabled={controlsDisabled()} onClick={clearCookies}>
               {cookieFlash() || "Clear all"}
             </button>
           </Row>
@@ -920,6 +999,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                     <button
                       class="set-exc-x"
                       title="Re-enable shields here"
+                      disabled={controlsDisabled() || !requestControls()}
                       onClick={() => reenableShields(host)}
                     >
                       ✕
@@ -935,6 +1015,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                     <button
                       class="set-exc-x"
                       title="Require HTTPS here again"
+                      disabled={controlsDisabled() || !requestControls()}
                       onClick={() => disallowHttp(host)}
                     >
                       ✕
@@ -947,7 +1028,12 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                   <div class="set-exc-row">
                     <span class="set-exc-tag">lean mode</span>
                     <span class="set-exc-host">{host}</span>
-                    <button class="set-exc-x" title="Turn lean mode off here" onClick={() => leanOff(host)}>
+                    <button
+                      class="set-exc-x"
+                      title="Turn lean mode off here"
+                      disabled={controlsDisabled() || !requestControls()}
+                      onClick={() => leanOff(host)}
+                    >
                       ✕
                     </button>
                   </div>
@@ -1448,7 +1534,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
             </Row>
           </Show>
         </Section>
-      </div>
+      </SettingsNavigator>
     </div>
   );
 };

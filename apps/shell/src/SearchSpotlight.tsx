@@ -16,12 +16,14 @@
  * *over* the content card — App hides the active webview while it's open, or the
  * page would paint straight through this.
  */
-import { For, Show, createSignal, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js";
 
 import type { PaletteAction } from "./CommandPalette";
 import { START_URL, searchResolve, searchSuggest } from "./ipc";
-import { activeId, openTab, setTile } from "./store";
+import { activeId, openTab, searchSuggestOn, setTile } from "./store";
 import { MAX_PANES, layoutsFor } from "./tiles";
+import { latestQuery } from "./latestQuery";
+import Modal from "./Modal";
 
 /** The toolbar carries the sidebar's *page tools* — things you do to the page
  *  you're on — rather than destinations, which the palette already lists and
@@ -53,34 +55,42 @@ const SearchSpotlight: Component<{
   const [related, setRelated] = createSignal<string[]>([]);
   const [sel, setSel] = createSignal(-1);
   const [busy, setBusy] = createSignal(false);
-  let debounce: number | undefined;
+  const [error, setError] = createSignal("");
+  const suggestions = latestQuery(
+    (q) => searchSuggest(q, { enabled: searchSuggestOn(), tabId: activeId() }),
+    (items) => setRelated(items.slice(0, 8)),
+    () => setRelated([]),
+    140,
+  );
+  onCleanup(suggestions.cancel);
 
   const toolbar = () =>
     TOOLBAR_IDS.map((id) => props.actions.find((a) => a.id === id)).filter(
       (a): a is PaletteAction => a != null,
     );
 
-  onMount(() => requestAnimationFrame(() => document.getElementById("flux-spot-input")?.focus()));
-
   const onInput = (v: string) => {
     setQuery(v);
     setSel(-1);
-    clearTimeout(debounce);
+    setError("");
+    setRelated([]);
     const q = v.trim();
     // A URL isn't a search: completing one returns noise, and it would hand the
     // address you're navigating to over to the suggest endpoint.
-    if (!q || /^[a-z]+:\/\//i.test(q)) {
-      setRelated([]);
+    if (!searchSuggestOn() || !q || /^[a-z]+:\/\//i.test(q)) {
+      suggestions.cancel();
       return;
     }
-    debounce = window.setTimeout(
-      () =>
-        void searchSuggest(q)
-          .then((s) => setRelated(s.slice(0, 8)))
-          .catch(() => setRelated([])),
-      140,
-    );
+    suggestions.search(q);
   };
+
+  createEffect(() => {
+    activeId();
+    searchSuggestOn();
+    suggestions.cancel();
+    setRelated([]);
+    setSel(-1);
+  });
 
   /** The text a given selection would run: a highlighted suggestion, else what
    *  was typed. */
@@ -110,6 +120,7 @@ const SearchSpotlight: Component<{
       if (r.kind === "search") props.onAiSearch(t);
     } catch {
       setBusy(false);
+      setError("Could not open this search. Please try again.");
     }
   };
 
@@ -128,6 +139,7 @@ const SearchSpotlight: Component<{
       setTile(panes, layoutsFor(panes.length)[0]!);
     } catch {
       setBusy(false);
+      setError("Could not create a split. Please try again.");
     }
   };
 
@@ -145,106 +157,115 @@ const SearchSpotlight: Component<{
       e.preventDefault();
       // Shift+Enter mirrors the split button, the way it does in the omnibox.
       void (e.shiftKey ? runSplit(effective()) : run(effective()));
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      props.onClose();
     }
   };
 
   return (
-    <div class="spot-backdrop" onClick={props.onClose}>
-      <div class="spot glass" onClick={(e) => e.stopPropagation()}>
-        {/* Quick actions. Icon-only and capped to one row — this is a shortcut
+    <Modal label="Search the web" backdropClass="spot-backdrop" class="spot glass" onClose={props.onClose}>
+      {/* Quick actions. Icon-only and capped to one row — this is a shortcut
             strip, not a menu; ⌘K is where the full labelled list lives. */}
-        <div class="spot-toolbar">
-          <For each={toolbar()}>
-            {(a) => (
+      <div class="spot-toolbar">
+        <For each={toolbar()}>
+          {(a) => (
+            <button
+              class="spot-tool"
+              title={a.label}
+              onClick={() => {
+                props.onClose();
+                a.run();
+              }}
+            >
+              {a.icon}
+            </button>
+          )}
+        </For>
+      </div>
+
+      <div class="spot-field">
+        <span class="spot-glyph">⌕</span>
+        <input
+          id="flux-spot-input"
+          class="spot-input"
+          placeholder="Search the web, or enter an address"
+          value={query()}
+          onInput={(e) => onInput(e.currentTarget.value)}
+          onKeyDown={onKey}
+          spellcheck={false}
+          autocomplete="off"
+          data-autofocus
+          role="combobox"
+          aria-label="Search the web or enter an address"
+          aria-expanded={related().length > 0}
+          aria-controls="spot-results"
+          aria-autocomplete="list"
+          aria-activedescendant={sel() >= 0 ? `spot-result-${sel()}` : undefined}
+        />
+        <button
+          class="spot-btn"
+          title="Home — the start page"
+          onClick={() => {
+            props.onClose();
+            props.onNavigate(START_URL);
+          }}
+        >
+          ⌂
+        </button>
+        <button
+          class="spot-btn"
+          title="File explorer"
+          onClick={() => {
+            props.onClose();
+            props.onOpenFiles();
+          }}
+        >
+          🗁
+        </button>
+        <button
+          class="spot-btn"
+          title="Open beside the current page (Shift+Enter)"
+          disabled={busy() || !effective()}
+          onClick={() => void runSplit(effective())}
+        >
+          ▤
+        </button>
+        <button
+          class="spot-btn primary"
+          title="Search (Enter)"
+          disabled={busy() || !effective()}
+          onClick={() => void run(effective())}
+        >
+          ⌕
+        </button>
+      </div>
+
+      <Show when={related().length > 0}>
+        <div class="spot-related" id="spot-results" role="listbox" aria-label="Related searches">
+          <div class="spot-related-head">Related searches</div>
+          <For each={related()}>
+            {(s, i) => (
               <button
-                class="spot-tool"
-                title={a.label}
-                onClick={() => {
-                  props.onClose();
-                  a.run();
-                }}
+                id={`spot-result-${i()}`}
+                role="option"
+                aria-selected={sel() === i()}
+                tabIndex={-1}
+                classList={{ "spot-related-item": true, sel: sel() === i() }}
+                onMouseEnter={() => setSel(i())}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => void run(s)}
               >
-                {a.icon}
+                <span class="spot-related-glyph">⌕</span>
+                <span class="spot-related-text">{s}</span>
               </button>
             )}
           </For>
         </div>
-
-        <div class="spot-field">
-          <span class="spot-glyph">⌕</span>
-          <input
-            id="flux-spot-input"
-            class="spot-input"
-            placeholder="Search the web, or enter an address"
-            value={query()}
-            onInput={(e) => onInput(e.currentTarget.value)}
-            onKeyDown={onKey}
-            spellcheck={false}
-            autocomplete="off"
-          />
-          <button
-            class="spot-btn"
-            title="Home — the start page"
-            onClick={() => {
-              props.onClose();
-              props.onNavigate(START_URL);
-            }}
-          >
-            ⌂
-          </button>
-          <button
-            class="spot-btn"
-            title="File explorer"
-            onClick={() => {
-              props.onClose();
-              props.onOpenFiles();
-            }}
-          >
-            🗁
-          </button>
-          <button
-            class="spot-btn"
-            title="Open beside the current page (Shift+Enter)"
-            disabled={!effective()}
-            onClick={() => void runSplit(effective())}
-          >
-            ▤
-          </button>
-          <button
-            class="spot-btn primary"
-            title="Search (Enter)"
-            disabled={!effective()}
-            onClick={() => void run(effective())}
-          >
-            ⌕
-          </button>
+      </Show>
+      <Show when={error()}>
+        <div class="palette-empty" role="alert">
+          {error()}
         </div>
-
-        <Show when={related().length > 0}>
-          <div class="spot-related">
-            <div class="spot-related-head">Related searches</div>
-            <For each={related()}>
-              {(s, i) => (
-                <button
-                  classList={{ "spot-related-item": true, sel: sel() === i() }}
-                  onMouseEnter={() => setSel(i())}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    void run(s);
-                  }}
-                >
-                  <span class="spot-related-glyph">⌕</span>
-                  <span class="spot-related-text">{s}</span>
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-      </div>
-    </div>
+      </Show>
+    </Modal>
   );
 };
 

@@ -1,8 +1,7 @@
 // Right-side vertical terminal column (ADR 0002/0003, splits #75), extracted
 // from App.tsx. The always-available dev terminal; the first pane is the
 // persistent PANE_SESSION, and #75 adds resizable side-by-side / stacked PTY
-// panes, each its own shell. (Extra panes are session-local — they reset if the
-// column is hidden.)
+// panes, each its own shell. Sessions remain mounted when layouts hide the column.
 import { type Component, For, Show, createSignal, lazy, Suspense } from "solid-js";
 import { PANE_SESSION } from "./ipc";
 
@@ -12,7 +11,7 @@ const COL_PANE_BASE = 0xf000_0000;
 
 const TerminalView = lazy(() => import("./TerminalView"));
 
-const TerminalColumn: Component = () => {
+const TerminalColumn: Component<{ visible: boolean }> = (props) => {
   const [panes, setPanes] = createSignal<number[]>([PANE_SESSION]);
   // Per-pane flex-grow weights, parallel to `panes` — dragging a seam shifts
   // weight between the two neighbours so splits are resizable (#75).
@@ -118,7 +117,12 @@ const TerminalColumn: Component = () => {
               >
                 <div class="terminal-surface">
                   <Suspense>
-                    <TerminalView session={s} active={active() === s} background={panes().length === 1} />
+                    <TerminalView
+                      session={s}
+                      active={props.visible && active() === s}
+                      visible={props.visible}
+                      background={panes().length === 1}
+                    />
                   </Suspense>
                 </div>
               </div>

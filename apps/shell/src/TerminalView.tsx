@@ -10,6 +10,7 @@
  * column passes PANE_SESSION (0).
  */
 import { createEffect, createSignal, onCleanup, onMount, Show, type Component } from "solid-js";
+import { terminalScreenReader } from "./terminalAccessibility";
 import type { Terminal as XTerm, IMarker, IDecoration } from "@xterm/xterm";
 import {
   agentChat,
@@ -137,7 +138,9 @@ const TerminalView: Component<{
   // caret. (onMount handles the first show.)
   createEffect(() => {
     if ((props.visible ?? props.active) && termRef) {
-      requestAnimationFrame(() => fitRef?.fit());
+      requestAnimationFrame(() => {
+        if ((props.visible ?? props.active) && host.clientWidth > 0 && host.clientHeight > 0) fitRef?.fit();
+      });
     }
   });
   createEffect(() => {
@@ -163,6 +166,11 @@ const TerminalView: Component<{
     }
   });
 
+  createEffect(() => {
+    const enabled = terminalScreenReader();
+    if (termRef) termRef.options.screenReaderMode = enabled;
+  });
+
   onMount(() => {
     void (async () => {
     // Lazy chunk: xterm core + addons + css, all off the base bundle.
@@ -185,6 +193,7 @@ const TerminalView: Component<{
     };
 
     const term: XTerm = new Terminal({
+      screenReaderMode: terminalScreenReader(),
       linkHandler: { activate: (_e, uri) => openInFlux(uri) },
       // Broad monospace fallback: prefer a programming font, then any installed
       // Nerd/symbol font for prompt glyphs, then Unicode/emoji coverage, then
@@ -462,6 +471,9 @@ const TerminalView: Component<{
 
     // Keep the PTY's window size in sync with the rendered grid.
     const ro = new ResizeObserver(() => {
+      // display:none produces a zero-size observation. Resizing a live PTY to
+      // xterm's minimum grid on hide needlessly reflows its buffer and TUI.
+      if (props.visible === false || host.clientWidth === 0 || host.clientHeight === 0) return;
       fit.fit();
       void terminalResize(props.session, term.cols, term.rows);
     });

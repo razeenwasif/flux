@@ -12,7 +12,7 @@ on:
   pull_request:
 
 jobs:
-  # Fast, dependency-light gate: the chrome JS budget (≤ 65 KB gzip, ADR 0001). Blocks merge.
+  # Entry (56 KiB) and desktop preload (84 KiB) gzip budgets. Blocks merge.
   chrome-budget:
     runs-on: ubuntu-latest
     steps:
@@ -22,9 +22,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run shell:build
-      - name: Check JS + binary budgets (ADR 0001)
-        run: node scripts/perf-budget.mjs
+      - run: npm run perf
 
   # Correctness gate (#16): Rust workspace tests, TypeScript checks, and frontend tests.
   correctness:
@@ -47,6 +45,26 @@ jobs:
       - run: npm run typecheck --workspace apps/shell
       - run: npm run test --workspace apps/shell
       - run: cargo test --workspace --locked
+
+  # Compile and test OS-specific native paths; Linux stays in correctness above.
+  native-correctness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run shell:build
+      - run: cargo test -p flux-core --lib --locked
+      - run: cargo check -p flux-core --bin flux --features custom-protocol --locked
 
   # Compile + run the criterion IPC benches so they can't bit-rot. Latency is
   # reported, not hard-gated (shared CI runners are too noisy for a p99 gate).

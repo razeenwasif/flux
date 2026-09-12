@@ -147,9 +147,15 @@ install node`). No WebView runtime to install — WKWebView is built into macOS.
 runs `tauri build`, which produces the `.app`/`.dmg` bundle *and* the `flux`
 binary in one pass, then copies the app to `/Applications` and the binary to
 `~/.cargo/bin`, clearing the Gatekeeper quarantine flag on the local build.
-Caveat: Shields' network-level blocking, HTTPS-only, and the download interceptor
-are no-ops on macOS (those hooks are Windows/WebView2 + Linux/WebKitGTK only);
-cosmetic element-hiding still works.
+Shields uses native `WKContentRuleList` rules on macOS. The Shields panel reports
+whether those rules attached to the selected page. WebKit does not expose the
+request counters used on Windows, and Flux's global/site request-blocking
+switches, HTTPS-only upgrades, tracking-prevention levels, and Lean mode are not
+wired on this backend. Their controls are unavailable in the UI; cosmetic
+element hiding is a separate path. Restart Flux after a filter-list update to
+apply refreshed native rules. The custom download interceptor remains unavailable
+on macOS. This describes implementation support, not verified protection parity
+with WebView2; controlled native request tests are still needed.
 
 Then, on any platform:
 

@@ -183,6 +183,12 @@ impl SearchConfig {
 
 // ─── URL detection ──────────────────────────────────────────────────────────
 
+/// Suggestions are outbound keystrokes, never navigation input or private browsing.
+pub fn allows_suggestions(query: &str, enabled: bool, private: bool) -> bool {
+    let q = query.trim();
+    enabled && !private && q.chars().count() >= 2 && !looks_like_url(q)
+}
+
 /// Heuristic: does this omnibox input look like a URL/host (vs a search query)?
 pub fn looks_like_url(s: &str) -> bool {
     let s = s.trim();
@@ -324,6 +330,24 @@ mod tests {
     #[test]
     fn bare_host_is_normalized_with_https() {
         assert_eq!(cfg().resolve("example.com").url(), "https://example.com");
+    }
+
+    #[test]
+    fn suggestions_require_consent_and_non_private_context() {
+        assert!(allows_suggestions("rust traits", true, false));
+        assert!(!allows_suggestions("rust traits", false, false));
+        assert!(!allows_suggestions("rust traits", true, true));
+        for input in [
+            "",
+            "a",
+            "https://example.com/private",
+            "example.com",
+            "localhost:8080",
+            "file:///notes",
+            "flux://settings",
+        ] {
+            assert!(!allows_suggestions(input, true, false), "{input}");
+        }
     }
 
     #[test]

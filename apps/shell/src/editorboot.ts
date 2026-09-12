@@ -13,7 +13,9 @@ import { isWindows } from "./platform";
 /** Reserved PTY-session range for the editor column. Tab ids start at 1 and
  *  climb slowly; TUI panes own 0xe0000000+ and TerminalColumn's splits
  *  0xf0000000+ — a distinct base keeps the four allocators from ever colliding. */
-export const EDITOR_SESSION_BASE = 0xd000_0000;
+// The separate native smoke app must not unlink a running production editor's
+// socket (socket names derive from this session id in both Rust and TypeScript).
+export const EDITOR_SESSION_BASE = import.meta.env.VITE_FLUX_NATIVE_SMOKE === "1" ? 0xd100_0000 : 0xd000_0000;
 
 /** What the column boots. No `cd ~` on purpose: a non-tab PTY already starts in
  *  the user's home (`terminal.rs` falls back to `home_dir()`), so adding one
@@ -66,7 +68,7 @@ export function socketPathFor(session: number, windows: boolean): string {
  * a shell would look at twice.
  */
 export function bootCommand(socket: string): string {
-  const listen = `${BOOT_CMD} --listen '${socket}'`;
+  const listen = `${BOOT_CMD}${import.meta.env.VITE_FLUX_NATIVE_SMOKE === "1" ? " --clean" : ""} --listen '${socket}'`;
   return socket.startsWith("//./pipe/") ? listen : `rm -f '${socket}' && ${listen}`;
 }
 

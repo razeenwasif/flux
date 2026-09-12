@@ -32,3 +32,16 @@ export const isWindows: boolean = typeof navigator !== "undefined" && /windows/i
 if (isMobile && typeof document !== "undefined") {
   document.documentElement.classList.add("mobile");
 }
+
+/** Format the same cross-platform shortcut accepted by the shell. */
+export function shortcutLabel(
+  chord: string,
+  mac = typeof navigator !== "undefined" && /Macintosh|Mac OS X/i.test(navigator.userAgent),
+): string {
+  return mac
+    ? chord
+        .replace(/Ctrl\+/g, "⌘")
+        .replace(/Shift\+/g, "⇧")
+        .replace(/Alt\+/g, "⌥")
+    : chord;
+}

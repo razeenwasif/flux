@@ -155,6 +155,9 @@ harness = false
 
 [features]
 default = []
+# Local native smoke harness only. Requires the distinct smoke app identifier;
+# OS keychain access is replaced with an in-memory store in this build.
+native-smoke = []
 # Production asset serving (DO NOT REMOVE). Without this, even a release build
 # loads the dev server URL (devUrl → localhost:1420) instead of the embedded
 # frontend → ERR_CONNECTION_REFUSED. `cargo tauri build` sets it automatically;

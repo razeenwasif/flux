@@ -2,7 +2,7 @@
   "name": "flux-monorepo",
   "private": true,
   "version": "0.1.0",
-  "description": "Flux — AI-native, terminal-embedded, hyper-optimized desktop browser",
+  "description": "Flux \u2014 AI-native, terminal-embedded, hyper-optimized desktop browser",
   "workspaces": [
     "apps/shell"
   ],
@@ -12,7 +12,7 @@
     "shell:dev": "npm run dev --workspace apps/shell",
     "shell:build": "npm run build --workspace apps/shell",
     "check": "cargo check --workspace && npm run typecheck --workspace apps/shell",
-    "perf": "npm run shell:build && node scripts/perf-budget.mjs"
+    "perf": "node --test scripts/startup-graph.test.mjs && npm run shell:build && node scripts/perf-budget.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0",

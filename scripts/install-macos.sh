@@ -4,10 +4,9 @@
 #   • ~/.cargo/bin/flux        — the `flux` command (on PATH), for terminal launches
 #
 # macOS uses the native WKWebView, so per-tab web browsing works here (unlike the
-# Linux/WebKitGTK build). One honest caveat: Shields' network-level blocking +
-# HTTPS-only + the download interceptor are no-ops on macOS (those native hooks
-# exist only for Windows/WebView2 and Linux/WebKitGTK); cosmetic element-hiding
-# still works.
+# Linux/WebKitGTK build). Shields uses native WKContentRuleList blocking on macOS.
+# Per-request counters, policy switches, HTTPS-only upgrades, and the download
+# interceptor still lack macOS support; see README.md for platform limitations.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

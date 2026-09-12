@@ -159,9 +159,24 @@ mod real {
             .and_then(|s| s.tabs.get(&tab_id).map(|t| (t.private, t.container)))
             .unwrap_or((false, 0));
         let app_for_load = app.clone();
+        let app_for_title = app.clone();
         let mut builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
             .incognito(private)
-            .initialization_script(&init);
+            .initialization_script(&init)
+            .on_document_title_changed(move |webview, title| {
+                let Ok(url) = webview.url() else {
+                    return;
+                };
+                let title = crate::dom::cap_utf8(title, 4096);
+                // Native metadata is independent of the debounced DOM/index capture.
+                // custom_title is deliberately untouched: user aliases survive navigation.
+                if let Some(state) = app_for_title.try_state::<crate::state::FluxState>() {
+                    if let Some(mut tab) = state.tabs.get_mut(&tab_id) {
+                        tab.title = title.clone();
+                    }
+                }
+                let _ = app_for_title.emit("flux://tab-title", (tab_id, url.as_str(), title));
+            });
         if !private && container != 0 {
             if let Ok(dir) = app.path().app_data_dir() {
                 builder =
@@ -169,6 +184,10 @@ mod real {
             }
         }
         // Outbound proxy (#63), if configured — opt-in, so direct otherwise.
+        #[cfg(target_os = "macos")]
+        if let Some(user_agent) = crate::browser_identity::user_agent() {
+            builder = builder.user_agent(user_agent);
+        }
         if let Some(proxy) = app
             .try_state::<crate::proxy::ProxyState>()
             .and_then(|s| s.parsed())
@@ -251,7 +270,16 @@ mod real {
                     let _ = webview.eval(format!("window.__fluxRestore&&window.__fluxRestore({json})"));
                 }
             }
-            let _ = app_for_load.emit("flux://tab-loaded", (tab_id, url, phase));
+            let _ = app_for_load.emit("flux://tab-loaded", (tab_id, &url, phase));
+            // A title callback can precede the URL event. Replay the latest title
+            // after completion so the shell's URL guard doesn't lose that update.
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                if let Some(state) = app_for_load.try_state::<crate::state::FluxState>() {
+                    if let Some(tab) = state.tabs.get(&tab_id) {
+                        let _ = app_for_load.emit("flux://tab-title", (tab_id, &url, &tab.title));
+                    }
+                }
+            }
         });
 
         let scale = window.scale_factor().unwrap_or(1.0);
@@ -549,6 +577,7 @@ mod real {
     /// intact so the shell re-creates the webview (reloading the page) on focus.
     #[tauri::command]
     pub async fn webview_hibernate(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+        crate::netfilter::forget(tab_id);
         // Arm restore (#45) so the captured scroll/form state re-applies on wake.
         if let Some(store) = app.try_state::<crate::hibernate::HibernateStore>() {
             store.mark_wake(tab_id);
@@ -657,6 +686,7 @@ mod real {
 
     #[tauri::command]
     pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
+        crate::netfilter::forget(tab_id);
         // Clear-on-close (#58): if this tab's host is flagged, wipe its cookies
         // (through the always-alive main webview) before tearing the tab down.
         let host: Option<String> = app.try_state::<crate::state::FluxState>().and_then(|s| {
@@ -743,6 +773,10 @@ mod real {
         );
         let mut builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target))
             .initialization_script(&init);
+        #[cfg(target_os = "macos")]
+        if let Some(user_agent) = crate::browser_identity::user_agent() {
+            builder = builder.user_agent(user_agent);
+        }
         if let Some(proxy) = app
             .try_state::<crate::proxy::ProxyState>()
             .and_then(|s| s.parsed())

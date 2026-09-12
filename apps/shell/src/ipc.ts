@@ -656,8 +656,11 @@ export type Resolution = GenResolution;
 
 /** Resolve omnibox input → final URL (navigate vs search vs keyword). */
 export const searchResolve = (input: string) => invoke<Resolution>("search_resolve", { input });
-/** Live search suggestions from the default engine's suggest endpoint (#32). */
-export const searchSuggest = (query: string) => invoke<string[]>("search_suggest", { query });
+/** Every entry point must supply consent and tab context. Never invoke when disabled. */
+export const searchSuggest = (query: string, policy: { enabled: boolean; tabId: number | null }) =>
+  policy.enabled && policy.tabId != null
+    ? invoke<string[]>("search_suggest", { query, enabled: policy.enabled, tabId: policy.tabId })
+    : Promise.resolve<string[]>([]);
 export const searchEngines = () => invoke<SearchEngine[]>("search_engines");
 export const searchDefault = () => invoke<string>("search_default");
 export const searchSetDefault = (id: string) => invoke<void>("search_set_default", { id });
@@ -937,7 +940,8 @@ export const omniIngestActive = async (): Promise<{ added: number; skipped: numb
 
 // ─── Content blocker / shields (BACKLOG #57) ────────────────────────────────
 // ShieldsStatus / HotRule types are generated (bindings.gen) and aliased above.
-export const shieldsStatus = () => invoke<ShieldsStatus>("shields_status");
+export const shieldsStatus = (tabId: number | null = null) =>
+  invoke<ShieldsStatus>("shields_status", { tabId });
 export const shieldsSetEnabled = (on: boolean) => invoke<void>("shields_set_enabled", { on });
 /** Turn shields on/off for one site (`on = false` allowlists it). */
 export const shieldsSetSite = (host: string, on: boolean) => invoke<void>("shields_set_site", { host, on });
@@ -1602,6 +1606,10 @@ export const webviewFind = (tabId: number, query: string, forward = true) =>
 export const webviewClose = (tabId: number) => invoke<void>("webview_close", { tabId });
 /** Diagnostic: window scale/size + the tab webview's actual physical bounds. */
 export const webviewDebug = (tabId: number) => invoke<string>("webview_debug", { tabId });
+
+/** Native document title, paired with its URL to reject superseded navigation. */
+export const onTabTitle = (cb: (tabId: number, url: string, title: string) => void): Promise<UnlistenFn> =>
+  listen<[number, string, string]>("flux://tab-title", (e) => cb(...e.payload));
 
 /** Page load progress for a tab: [tabId, url, "started" | "finished"]. */
 export const onTabLoaded = (

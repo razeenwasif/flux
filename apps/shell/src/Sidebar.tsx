@@ -1,3 +1,6 @@
+import { shortcutLabel } from "./platform";
+import { setLauncherOpen } from "./launcherOpen";
+import { LAYOUT_PRESETS, type LayoutPreset } from "./layout";
 /**
  * Sidebar — the Arc-style left rail (ADR 0002): tab strip (pinned tiles, groups,
  * folders, split-view pairs), omnibox + suggestions, workspaces, footer panels
@@ -145,6 +148,9 @@ import {
 import Icon from "./Icon";
 import { visibleInterval } from "./poll";
 import { attachHScroll } from "./hscroll";
+import Modal from "./Modal";
+import { latestQuery } from "./latestQuery";
+import { lastAccessForUrl } from "./store";
 import { Favicon, PanelIcon, clusterColor } from "./tabvisual";
 import { LAYOUT_LABEL, MAX_PANES, layoutsFor, stripRows, type StripRow } from "./tiles";
 import {
@@ -171,6 +177,11 @@ const CalendarPop = lazy(() => import("./CalendarPop"));
 // ─── Sidebar ────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
+  layoutPreset: LayoutPreset | "custom";
+  onChooseLayout: (preset: LayoutPreset) => void;
+  onRestoreLayout: () => void;
+  canRestoreLayout: boolean;
+  layoutConstrained: boolean;
   collapsed: boolean;
   terminalOpen: boolean;
   agentOpen: boolean;
@@ -251,6 +262,10 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Store-backed so the webview-gating effects can hide the page beneath it.
   const splitPicker = splitPickerOpen;
   const setSplitPicker = setSplitPickerOpen;
+  const [splitQuery, setSplitQuery] = createSignal("");
+  createEffect(() => {
+    if (splitPicker()) setSplitQuery("");
+  });
   // Page-watch (#128) — is the active page being monitored? Re-checked on tab change.
   const [watched, setWatched] = createSignal(false);
   createEffect(() => {
@@ -275,8 +290,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
   /** Every open tab in the workspace can be tiled: web pages get a native webview
    *  over their slot, Files tabs and Flux's own pages render through `pageFor`,
    *  and a terminal's keep-alive layer (#73) is positioned into its slot. */
-  const splitCandidates = () =>
-    tabs().filter((t) => t.workspace === activeWorkspace() && t.id !== activeId());
+  const splitContext = (t: TabMeta) =>
+    [folders().find((f) => f.id === t.folder)?.name, groups().find((g) => g.id === t.group)?.name]
+      .filter(Boolean)
+      .join(" · ");
+  const splitCandidates = createMemo(() => {
+    // Access timestamps are intentionally lightweight; refresh ordering on open.
+    splitPicker();
+    const query = splitQuery().trim().toLowerCase();
+    return tabs()
+      .filter((t) => t.workspace === activeWorkspace() && t.id !== activeId())
+      .filter((t) => !query || `${tabLabel(t)} ${t.url} ${splitContext(t)}`.toLowerCase().includes(query))
+      .sort((a, b) => lastAccessForUrl(b.url) - lastAccessForUrl(a.url));
+  });
   /** Can this page be pinned as a panel?
    *
    *  Web pages get a native webview; Flux's own pages render as DOM through
@@ -329,6 +355,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   };
   const doSplitNew = async () => {
     const left = activeId();
+    if (tileSel().length >= MAX_PANES) return;
     setSplitPicker(false);
     if (left == null) return;
     // Open a real (navigable) blank webview in the background, then tile it on the right.
@@ -684,7 +711,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
   // Omnibox live suggestions (#32): local history matches + engine suggestions.
   const [suggestions, setSuggestions] = createSignal<Suggestion[]>([]);
   const [selIdx, setSelIdx] = createSignal(-1);
-  let sugTimer: number | undefined;
 
   // Omnibox AI answer card: a grounded, streamed answer from the Omni index.
   // User-initiated (the "Ask Omni" row or Alt+Enter) — never per-keystroke, so it
@@ -695,6 +721,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   let omniGen = 0; // ignore events from a superseded request
   let omniDismissTimer: number | undefined;
   const closeSuggest = () => {
+    addressSearch.cancel();
     setSuggestions([]);
     setSelIdx(-1);
   };
@@ -736,17 +763,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
     });
   };
 
-  const onAddressInput = (v: string) => {
-    setAddress(v);
-    setSelIdx(-1);
-    clearOmniAns(); // a new query invalidates any shown answer
-    clearTimeout(sugTimer);
-    const q = v.trim();
-    if (!q || q.startsWith("flux://")) {
-      setSuggestions([]);
-      return;
-    }
-    sugTimer = window.setTimeout(async () => {
+  const addressSearch = latestQuery(
+    async (q) => {
+      const tabId = activeId();
       const hist = await historySearch(q, 5).catch(() => []);
       const out: Suggestion[] = hist.map((h) => ({
         kind: "history",
@@ -754,17 +773,35 @@ const Sidebar: Component<SidebarProps> = (props) => {
         sub: h.url,
         url: h.url,
       }));
-      if (searchSuggestOn()) {
-        const sug = await searchSuggest(q).catch(() => []);
-        for (const t of sug) {
+      // Re-check after local history resolves: focus/consent may have changed.
+      if (activeId() === tabId && searchSuggestOn()) {
+        const remote = await searchSuggest(q, { enabled: searchSuggestOn(), tabId }).catch(() => []);
+        for (const label of remote) {
           if (out.length >= 8) break;
-          if (!out.some((x) => x.label.toLowerCase() === t.toLowerCase()))
-            out.push({ kind: "search", label: t });
+          if (!out.some((x) => x.label.toLowerCase() === label.toLowerCase()))
+            out.push({ kind: "search", label });
         }
       }
-      // Drop suggestions if the user already moved on / cleared the field.
-      if (address().trim() === q) setSuggestions(out.slice(0, 8));
-    }, 110);
+      return out.slice(0, 8);
+    },
+    setSuggestions,
+    () => setSuggestions([]),
+    110,
+  );
+  onCleanup(addressSearch.cancel);
+  createEffect(() => {
+    activeId();
+    searchSuggestOn();
+    closeSuggest();
+  });
+
+  const onAddressInput = (v: string) => {
+    setAddress(v);
+    setSelIdx(-1);
+    setSuggestions([]);
+    clearOmniAns();
+    const q = v.trim();
+    addressSearch.search(q.startsWith("flux://") ? "" : q);
   };
 
   const chooseSuggestion = async (s: Suggestion) => {
@@ -900,24 +937,50 @@ const Sidebar: Component<SidebarProps> = (props) => {
       {/* Nav row. Also a drag region (`deep`) for extra grab area; buttons
           still click through. Traffic lights live in the title bar now. */}
       <div class="sidebar-controls" classList={{ collapsed: props.collapsed }} data-tauri-drag-region="deep">
-        <button class="icon-btn" title="Toggle sidebar (Ctrl+B)" onClick={props.onToggleSidebar}>
+        <button
+          class="icon-btn"
+          title={shortcutLabel("Toggle sidebar (Ctrl+B)")}
+          onClick={props.onToggleSidebar}
+        >
           {props.collapsed ? "»" : "«"}
         </button>
+        <Show when={props.collapsed}>
+          <button
+            class="icon-btn"
+            aria-label="Open launcher"
+            title="Open launcher"
+            onClick={() => setLauncherOpen(true)}
+          >
+            ⌕
+          </button>
+        </Show>
         {/* The nav tools fold away (#150). The sidebar-toggle above stays put in
             both states — folding must never be a way to lose the control that
             unfolds, and the caret at the end of the row is the other half of
             that contract. */}
         <Show when={!props.collapsed && toolbarOpen()}>
-          <button class="icon-btn" title="Back (Alt+←)" onClick={() => navActive(webviewBack)}>
+          <button
+            class="icon-btn"
+            title={shortcutLabel("Back (Alt+←)")}
+            onClick={() => navActive(webviewBack)}
+          >
             ‹
           </button>
-          <button class="icon-btn" title="Forward (Alt+→)" onClick={() => navActive(webviewForward)}>
+          <button
+            class="icon-btn"
+            title={shortcutLabel("Forward (Alt+→)")}
+            onClick={() => navActive(webviewForward)}
+          >
             ›
           </button>
           <Show
             when={isLoading(activeId())}
             fallback={
-              <button class="icon-btn" title="Reload (Ctrl+R)" onClick={() => navActive(webviewReload)}>
+              <button
+                class="icon-btn"
+                title={shortcutLabel("Reload (Ctrl+R)")}
+                onClick={() => navActive(webviewReload)}
+              >
                 ⟳
               </button>
             }
@@ -993,7 +1056,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               setAddrFocused(false);
               setTimeout(closeSuggest, 150);
             }}
-            placeholder="Search or enter address  (Ctrl+L)"
+            placeholder={shortcutLabel("Search or enter address  (Ctrl+L)")}
             spellcheck={false}
             autocomplete="off"
           />
@@ -1002,7 +1065,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             <button
               type="button"
               class="zoom-pill"
-              title="Reset zoom (Ctrl+0)"
+              title={shortcutLabel("Reset zoom (Ctrl+0)")}
               onClick={() => props.onZoomReset()}
             >
               {Math.round(activeZoom() * 100)}%
@@ -1141,11 +1204,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <button
                 type="button"
                 classList={{ "icon-btn": true, "bm-star": true, active: props.isBookmarked() }}
-                title={
+                title={shortcutLabel(
                   props.isBookmarked()
                     ? "Bookmarked — click to remove (Ctrl+D)"
-                    : "Bookmark this page (Ctrl+D)"
-                }
+                    : "Bookmark this page (Ctrl+D)",
+                )}
                 onClick={() => props.onToggleBookmark()}
               >
                 {props.isBookmarked() ? "★" : "☆"}
@@ -1207,7 +1270,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               <button
                 type="button"
                 class="icon-btn"
-                title="Save this page to Omni (Ctrl+Shift+O)"
+                title={shortcutLabel("Save this page to Omni (Ctrl+Shift+O)")}
                 onClick={() => props.onSaveToOmni()}
               >
                 ✦
@@ -1219,74 +1282,104 @@ const Sidebar: Component<SidebarProps> = (props) => {
         {/* Split-view picker — pick a tab to tile beside the current page, or open a
             fresh blank pane. Portaled to <body> so the glass card isn't clipped. */}
         <Show when={splitPicker()}>
-          <Portal>
-            <div
-              class="split-picker-backdrop"
-              onClick={() => setSplitPicker(false)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setSplitPicker(false);
-              }}
-            >
-              <div class="split-picker glass" onClick={(e) => e.stopPropagation()}>
-                <div class="split-picker-head">
-                  ◫ Tile up to {MAX_PANES} pages
-                  <Show when={tileGroup()}>
-                    <button class="split-picker-clear" onClick={() => clearTile()}>
-                      Exit split
-                    </button>
-                  </Show>
-                </div>
-                {/* Layout row — only meaningful once two panes are chosen. */}
-                <Show when={(tileGroup()?.tabs.length ?? 0) >= 2}>
-                  <div class="split-picker-layouts">
-                    <For each={layoutsFor(tileGroup()!.tabs.length)}>
-                      {(l) => (
-                        <button
-                          classList={{ "split-layout": true, on: tileGroup()?.layout === l }}
-                          title={LAYOUT_LABEL[l]}
-                          onClick={() => setTileLayout(l)}
-                        >
-                          <span class={`split-layout-ico ico-${l}`} />
-                          <span>{LAYOUT_LABEL[l]}</span>
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-                <div class="split-picker-list">
-                  <For
-                    each={splitCandidates()}
-                    fallback={<div class="split-picker-empty">No other pages open to split with.</div>}
-                  >
-                    {(t) => (
-                      <button
-                        classList={{ "split-picker-item": true, on: tileSel().includes(t.id) }}
-                        onClick={() => toggleTiled(t.id)}
-                      >
-                        <Favicon tab={t} />
-                        <span class="split-picker-label">{t.title || t.url}</span>
-                        <Show when={tiledElsewhere(t.id) && !tileSel().includes(t.id)}>
-                          <span
-                            class="split-picker-elsewhere"
-                            title="Already in another split — adding it here moves it"
-                          >
-                            <Icon name="split" />
-                          </span>
-                        </Show>
-                        <Show when={tileSel().includes(t.id)}>
-                          <span class="split-picker-tick">✓</span>
-                        </Show>
-                      </button>
-                    )}
-                  </For>
-                  <button class="split-picker-item split-picker-new" onClick={doSplitNew}>
-                    <span class="split-picker-newico">＋</span>
-                    <span class="split-picker-label">New blank tab</span>
-                  </button>
-                </div>
-              </div>
+          <Modal
+            label="Split view"
+            backdropClass="split-picker-backdrop"
+            class="split-picker glass"
+            onClose={() => setSplitPicker(false)}
+          >
+            <div class="split-picker-head">
+              ◫ Tile up to {MAX_PANES} pages
+              <Show when={tileGroup()}>
+                <button class="split-picker-clear" onClick={() => clearTile()}>
+                  Exit split
+                </button>
+              </Show>
             </div>
-          </Portal>
+            <input
+              class="split-picker-search"
+              data-autofocus
+              aria-label="Search tabs to split"
+              placeholder="Search tabs, sites or groups…"
+              value={splitQuery()}
+              onInput={(e) => setSplitQuery(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && splitCandidates().length) {
+                  e.preventDefault();
+                  toggleTiled(splitCandidates()[0]!.id);
+                }
+              }}
+            />
+            {/* Layout row — only meaningful once two panes are chosen. */}
+            <Show when={(tileGroup()?.tabs.length ?? 0) >= 2}>
+              <div class="split-picker-layouts">
+                <For each={layoutsFor(tileGroup()!.tabs.length)}>
+                  {(l) => (
+                    <button
+                      classList={{ "split-layout": true, on: tileGroup()?.layout === l }}
+                      aria-pressed={tileGroup()?.layout === l}
+                      title={LAYOUT_LABEL[l]}
+                      onClick={() => setTileLayout(l)}
+                    >
+                      <span class={`split-layout-ico ico-${l}`} />
+                      <span>{LAYOUT_LABEL[l]}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <div class="split-picker-list">
+              <For
+                each={splitCandidates()}
+                fallback={
+                  <div class="split-picker-empty" role="status">
+                    {splitQuery()
+                      ? "No matching tabs. Try another search."
+                      : "No other pages open to split with."}
+                  </div>
+                }
+              >
+                {(t) => (
+                  <button
+                    classList={{ "split-picker-item": true, on: tileSel().includes(t.id) }}
+                    aria-pressed={tileSel().includes(t.id)}
+                    disabled={!tileSel().includes(t.id) && tileSel().length >= MAX_PANES}
+                    onClick={() => toggleTiled(t.id)}
+                  >
+                    <Favicon tab={t} />
+                    <span class="split-picker-text">
+                      <span class="split-picker-label">{tabLabel(t)}</span>
+                      <span class="split-picker-context">{splitContext(t) || t.url}</span>
+                    </span>
+                    <Show when={tiledElsewhere(t.id) && !tileSel().includes(t.id)}>
+                      <span
+                        class="split-picker-elsewhere"
+                        title="Already in another split — adding it here moves it"
+                      >
+                        <Icon name="split" />
+                      </span>
+                    </Show>
+                    <Show when={tileSel().includes(t.id)}>
+                      <span class="split-picker-tick">✓</span>
+                    </Show>
+                  </button>
+                )}
+              </For>
+            </div>
+            <div class="split-picker-actions">
+              <button
+                class="split-picker-item split-picker-new"
+                disabled={tileSel().length >= MAX_PANES}
+                onClick={doSplitNew}
+              >
+                <span class="split-picker-newico">＋</span>
+                <span class="split-picker-label">New blank tab</span>
+              </button>
+              <button class="split-picker-clear" onClick={() => setSplitPicker(false)}>
+                Done
+              </button>
+            </div>
+          </Modal>
         </Show>
 
         {/* Pinned tiles (Arc Favorites) */}
@@ -1310,24 +1403,64 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </div>
         </Show>
 
+        <Show when={!props.collapsed}>
+          <div class="layout-picker">
+            <label for="browser-layout">Layout</label>
+            <select
+              id="browser-layout"
+              value={props.layoutPreset}
+              onChange={(e) => props.onChooseLayout(e.currentTarget.value as LayoutPreset)}
+            >
+              <option value="custom" disabled>
+                Custom
+              </option>
+              <For each={Object.entries(LAYOUT_PRESETS)}>
+                {([id, preset]) => <option value={id}>{preset.label}</option>}
+              </For>
+            </select>
+            <Show when={props.canRestoreLayout}>
+              <button
+                aria-label="Restore previous layout"
+                title="Restore previous layout"
+                onClick={props.onRestoreLayout}
+              >
+                ↶
+              </button>
+            </Show>
+          </div>
+          <Show when={props.layoutConstrained}>
+            <div class="layout-note">More panels fit in a wider window.</div>
+          </Show>
+        </Show>
+
         {/* New tab */}
-        <div style={{ position: "relative" }}>
-          <button
-            onClick={() => setPicker((v) => !v)}
-            style={{
-              width: "100%",
-              padding: "8px 10px",
-              "text-align": "left",
-              color: "var(--flux-teal)",
-              border: "1px solid var(--flux-border)",
-            }}
-          >
+        <div
+          class="new-tab-control"
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && picker()) {
+              e.preventDefault();
+              e.stopPropagation();
+              setPicker(false);
+              e.currentTarget.querySelector<HTMLButtonElement>(".new-tab-options")?.focus();
+            }
+          }}
+        >
+          <button class="new-tab-primary" onClick={() => void create("browser")}>
             + New tab
           </button>
+          <button
+            class="new-tab-options"
+            aria-label="More tab types"
+            aria-expanded={picker()}
+            aria-controls="new-tab-options"
+            onClick={() => setPicker((v) => !v)}
+          >
+            ▾
+          </button>
           <Show when={picker()}>
-            <div class="glass popover" style={{ top: "calc(100% + 6px)", left: 0 }}>
+            <div id="new-tab-options" class="glass popover" style={{ top: "calc(100% + 6px)", left: 0 }}>
               <button onClick={() => create("browser")}>
-                🌐 Browser tab <kbd>Ctrl+T</kbd>
+                🌐 Browser tab <kbd>{shortcutLabel("Ctrl+T")}</kbd>
               </button>
               <button
                 onClick={() => {
@@ -1358,6 +1491,17 @@ const Sidebar: Component<SidebarProps> = (props) => {
             </div>
           </Show>
         </div>
+
+        <button
+          class="sidebar-launcher"
+          onClick={() => {
+            setPicker(false);
+            setLauncherOpen(true);
+          }}
+        >
+          ⌕ <span>Launcher</span>
+          <span class="launcher-muted">Pages & apps</span>
+        </button>
 
         {/* Tab list — grouped sections (#56) then ungrouped, all drag-reorderable */}
         <div class="tab-list-head">
@@ -1965,21 +2109,21 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <Show when={footerOpen()}>
           <button
             classList={{ "icon-btn": true, active: props.terminalOpen }}
-            title="Terminal (Ctrl+`)"
+            title={shortcutLabel("Terminal (Ctrl+`)")}
             onClick={props.onToggleTerminal}
           >
             <Icon name="terminal" />
           </button>
           <button
             classList={{ "icon-btn": true, active: editorColOpen() }}
-            title="Editor / Nvim Column (Ctrl+Shift+E)"
+            title={shortcutLabel("Editor / Nvim Column (Ctrl+Shift+E)")}
             onClick={() => setEditorColOpen(!editorColOpen())}
           >
             <Icon name="editor" />
           </button>
           <button
             classList={{ "icon-btn": true, active: props.agentOpen }}
-            title="Flux Agent (Ctrl+Shift+A)"
+            title={shortcutLabel("Flux Agent (Ctrl+Shift+A)")}
             onClick={props.onToggleAgent}
           >
             <Icon name="agent" />
@@ -1988,7 +2132,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             marks an event starting within 30 minutes. Popover body is lazy. */}
           <button
             classList={{ "icon-btn": true, active: calendarPopOpen() }}
-            title="Calendar — today & upcoming (also in ⌘K)"
+            title={shortcutLabel("Calendar — today & upcoming (also in Ctrl+K)")}
             onClick={() => setCalendarPopOpen(!calendarPopOpen())}
           >
             <Icon name="calendar" />
@@ -2000,11 +2144,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
             one had only a palette entry, which made it effectively invisible. */}
           <button
             classList={{ "icon-btn": true, active: dockOpen() }}
-            title={
+            title={shortcutLabel(
               dockOpen()
                 ? "Hide the calendar + mail column"
-                : "Calendar + mail in their own column (also in ⌘K)"
-            }
+                : "Calendar + mail in their own column (also in Ctrl+K)",
+            )}
             onClick={() => toggleDock()}
           >
             <Icon name="mail" />
@@ -2275,6 +2419,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   Search suggestions
                 </span>
                 <button
+                  role="switch"
+                  aria-label="Search suggestions"
+                  aria-checked={searchSuggestOn()}
                   classList={{ "shields-toggle": true, on: searchSuggestOn() }}
                   onClick={() => setSearchSuggestOn(!searchSuggestOn())}
                 >
@@ -2290,6 +2437,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   AI answers for searches
                 </span>
                 <button
+                  role="switch"
+                  aria-label="AI answers for searches"
+                  aria-checked={aiAnswersOn()}
                   classList={{ "shields-toggle": true, on: aiAnswersOn() }}
                   onClick={() => setAiAnswersOn(!aiAnswersOn())}
                 >
@@ -2305,6 +2455,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   Omni answer on search
                 </span>
                 <button
+                  role="switch"
+                  aria-label="Omni answer on search"
+                  aria-checked={omniAutoAnswer()}
                   classList={{ "shields-toggle": true, on: omniAutoAnswer() }}
                   onClick={() => setOmniAutoAnswer(!omniAutoAnswer())}
                 >
@@ -2320,6 +2473,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   Dark mode (websites)
                 </span>
                 <button
+                  role="switch"
+                  aria-label="Dark mode (websites)"
+                  aria-checked={darkMode()}
                   classList={{ "shields-toggle": true, on: darkMode() }}
                   onClick={() => setDarkMode(!darkMode())}
                 >
@@ -2339,6 +2495,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   Vim link hints (f)
                 </span>
                 <button
+                  role="switch"
+                  aria-label="Vim link hints (f)"
+                  aria-checked={vimHints()}
                   classList={{ "shields-toggle": true, on: vimHints() }}
                   onClick={() => setVimHints(!vimHints())}
                 >
@@ -2354,6 +2513,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   Mouse gestures
                 </span>
                 <button
+                  role="switch"
+                  aria-label="Mouse gestures"
+                  aria-checked={mouseGestures()}
                   classList={{ "shields-toggle": true, on: mouseGestures() }}
                   onClick={() => setMouseGestures(!mouseGestures())}
                 >
@@ -2373,6 +2535,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   Sleep inactive tabs
                 </span>
                 <button
+                  role="switch"
+                  aria-label="Sleep inactive tabs"
+                  aria-checked={hibernateEnabled()}
                   classList={{ "shields-toggle": true, on: hibernateEnabled() }}
                   onClick={() => setHibernateEnabled(!hibernateEnabled())}
                 >
@@ -2405,6 +2570,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   Sleep under memory pressure
                 </span>
                 <button
+                  role="switch"
+                  aria-label="Sleep under memory pressure"
+                  aria-checked={memEvict()}
                   classList={{ "shields-toggle": true, on: memEvict() }}
                   onClick={() => setMemEvict(!memEvict())}
                 >

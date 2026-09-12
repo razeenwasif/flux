@@ -17,7 +17,6 @@ import { win } from "./ipc";
 import RailTip from "./RailTip";
 
 const PagesBar = lazy(() => import("./PagesBar"));
-const TuiAppsBar = lazy(() => import("./TuiAppsBar"));
 
 const BarsColumn: Component = () => (
   <aside class="bars-col" data-tauri-drag-region="deep">
@@ -33,14 +32,9 @@ const BarsColumn: Component = () => (
         +
       </button>
     </div>
-    {/* Pages take the slack: the list is fixed and long. Terminal apps sit
-        below with a ceiling, so a user with twenty of them can't push the
-        native pages off the top. */}
+    {/* A short favorites rail; the launcher holds the full catalog. */}
     <Suspense>
       <PagesBar />
-    </Suspense>
-    <Suspense>
-      <TuiAppsBar />
     </Suspense>
     {/* One shared hover label for both bars — the chips are icon-only. */}
     <RailTip />

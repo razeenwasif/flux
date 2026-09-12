@@ -28,7 +28,15 @@ const DECISION_CACHE_TTL: Duration = Duration::from_secs(600);
 
 /// The bundled curated starter list (major ad/tracker networks) — always active,
 /// so blocking works offline / before the big lists download.
+#[cfg(not(feature = "native-smoke"))]
 const DEFAULT_FILTERS: &str = include_str!("../assets/default-filters.txt");
+// Deterministic local request, translated by the same filter engine and installed
+// by the same native backend. Never part of the shipping filter list.
+#[cfg(feature = "native-smoke")]
+const DEFAULT_FILTERS: &str = concat!(
+    include_str!("../assets/default-filters.txt"),
+    "\n/flux-smoke-blocked.js\n"
+);
 
 /// Upstream filter lists fetched + cached on top of the bundled default.
 /// `(cache filename, url)`.
@@ -93,7 +101,7 @@ impl ShieldsState {
         // layer (WebKitGTK) has rules before the first background refresh
         // lands — webviews open in the same boot tick. Cheap: the bundled
         // list is small. refresh() overwrites it with the full lists.
-        if s.content_blocker_json().is_none() {
+        if cfg!(feature = "native-smoke") || s.content_blocker_json().is_none() {
             s.write_content_blocker(DEFAULT_FILTERS);
         }
         s
@@ -214,6 +222,17 @@ impl ShieldsState {
     fn status(&self) -> ShieldsStatus {
         let cache = self.decisions.stats();
         ShieldsStatus {
+            backend: if cfg!(windows) {
+                "webview2"
+            } else if cfg!(any(target_os = "macos", target_os = "linux")) {
+                "webkit"
+            } else {
+                "unsupported"
+            }
+            .into(),
+            request_metrics: cfg!(windows),
+            request_controls: cfg!(windows),
+            attachment: "not_requested".into(),
             enabled: self.enabled.load(Ordering::Relaxed),
             blocked: self.blocked.load(Ordering::Relaxed),
             sites_off: self.off_for.iter().map(|e| e.key().clone()).collect(),
@@ -245,6 +264,14 @@ impl ShieldsState {
 
 #[derive(Serialize, specta::Type)]
 pub struct ShieldsStatus {
+    /// Native blocker backend: webview2, webkit, or unsupported.
+    pub backend: String,
+    /// Whether the native request path reports counters.
+    pub request_metrics: bool,
+    /// Whether global/site request policy, HTTPS upgrades and lean mode are wired.
+    pub request_controls: bool,
+    /// Requested tab's installation: not_requested, pending, attached, failed, unavailable.
+    pub attachment: String,
     /// Global shields on/off.
     pub enabled: bool,
     /// Requests blocked this session.
@@ -301,8 +328,13 @@ fn fetch(url: &str) -> Result<String, String> {
 // ─── Commands ────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn shields_status(state: State<'_, ShieldsState>) -> ShieldsStatus {
-    state.status()
+pub fn shields_status(
+    state: State<'_, ShieldsState>,
+    tab_id: Option<crate::state::TabId>,
+) -> ShieldsStatus {
+    let mut status = state.status();
+    status.attachment = crate::netfilter::attachment(tab_id);
+    status
 }
 
 #[tauri::command]

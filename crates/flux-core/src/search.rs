@@ -112,15 +112,23 @@ pub fn search_resolve(state: State<'_, SearchState>, input: String) -> Resolutio
 }
 
 /// Live omnibox suggestions for `query` from the default engine's suggest
-/// endpoint (#32). Empty if the engine has none. Note: this sends the query to
-/// the engine — the chrome only calls it when the user enabled suggestions.
+/// endpoint (#32). Consent is supplied by trusted chrome (remote pages cannot
+/// call this command); private/missing tabs and navigation input fail closed.
 #[tauri::command]
 pub async fn search_suggest(
     state: State<'_, SearchState>,
+    tabs: State<'_, crate::state::FluxState>,
     query: String,
+    enabled: bool,
+    tab_id: crate::state::TabId,
 ) -> Result<Vec<String>, String> {
     let q = query.trim();
-    if q.len() < 2 {
+    let private = tabs
+        .tabs
+        .get(&tab_id)
+        .map(|tab| tab.private)
+        .unwrap_or(true);
+    if !flux_search::allows_suggestions(q, enabled, private) {
         return Ok(vec![]);
     }
     let Some(url) = state.suggest_url(q) else {

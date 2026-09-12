@@ -40,7 +40,6 @@ import {
   setConsent,
   activeTab,
   bookmarkBarOpen,
-  editorColOpen,
   editorColRatio,
   setEditorColRatio,
   setPhish,
@@ -95,6 +94,7 @@ const BookmarkBar = lazy(() => import("./BookmarkBar"));
  *  dashboard (`flux://start`), or — for a loaded page — a placeholder the
  *  native child webview is positioned over (BACKLOG #2). */
 const ContentArea: Component<{
+  editorVisible: boolean;
   onNavigate: (url: string) => void;
   onNewTerminal: () => void;
   onToggleAgent: () => void;
@@ -104,6 +104,8 @@ const ContentArea: Component<{
   // The row holding the page card + the nvim column (#174); measured live so the
   // seam converts pointer position into a ratio.
   let rowEl!: HTMLDivElement;
+  // Once started, keep the editor alive while layouts temporarily hide it.
+  const editorMounted = createMemo((was: boolean) => was || props.editorVisible, false);
 
   /** Smallest either half of the row may be dragged to, in px. */
   const EDITOR_MIN_PX = 220;
@@ -395,16 +397,24 @@ const ContentArea: Component<{
         </div>
         {/* The nvim column and its seam. Both live in the row, after the card, so
           the page occupies the remaining width and re-tiles itself. */}
-        <Show when={editorColOpen()}>
+        <Show when={props.editorVisible}>
           <div
             class="editor-seam"
             title="Drag to resize · double-click for an even split"
             onDblClick={() => setEditorColRatio(0.5)}
             onPointerDown={startEditorDrag}
           />
-          <div class="editor-col-slot" style={{ "flex-basis": `${editorColRatio() * 100}%` }}>
+        </Show>
+        <Show when={editorMounted()}>
+          <div
+            class="editor-col-slot"
+            style={{
+              display: props.editorVisible ? undefined : "none",
+              "flex-basis": `${editorColRatio() * 100}%`,
+            }}
+          >
             <Suspense>
-              <EditorColumn />
+              <EditorColumn visible={props.editorVisible} />
             </Suspense>
           </div>
         </Show>

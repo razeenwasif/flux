@@ -1,3 +1,4 @@
+import { shortcutLabel } from "./platform";
 /**
  * Find-in-page bar (BACKLOG #33). Permanently visible in the sidebar, right
  * under the omnibox — the native tab webview is a separate OS layer that
@@ -67,7 +68,7 @@ const FindBar: Component = () => {
         id="flux-find"
         ref={input}
         class="find-input"
-        placeholder="Find in page  (Ctrl+F)"
+        placeholder={shortcutLabel("Find in page  (Ctrl+F)")}
         value={query()}
         spellcheck={false}
         onInput={(e) => onInput(e.currentTarget.value)}

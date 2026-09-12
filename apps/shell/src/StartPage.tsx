@@ -20,6 +20,8 @@ import {
   type Component,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import Modal from "./Modal";
+import { WIDGETS, FOCUSED_HIDDEN, readHidden, readOrder } from "./startPreferences";
 
 import { visibleInterval } from "./poll";
 import {
@@ -205,34 +207,12 @@ const StartPage: Component<{
   const [expandedWidget, setExpandedWidget] = createSignal<ExpandedWidget>(null);
   // Bridge the modal's open state to App so it hides the native web-panel webviews
   // while a widget is expanded (z-index can't cover them — see store #90).
-  createEffect(() => setHomeModalOpen(expandedWidget() !== null));
   onCleanup(() => setHomeModalOpen(false));
   // Show/hide widgets (#71) — persisted list of hidden widget keys (the clock + hero
   // are always shown). `Customize` toggles a checklist popover.
-  const WIDGETS: { key: string; label: string }[] = [
-    { key: "recent", label: "Recent" },
-    { key: "shortcuts", label: "Shortcuts" },
-    { key: "topsites", label: "Top sites" },
-    { key: "headlines", label: "Headlines" },
-    { key: "briefing", label: "Daily briefing" },
-    { key: "scratchpad", label: "Scratchpad" },
-    { key: "calendar", label: "Calendar & clocks" },
-    { key: "tasks", label: "Tasks" },
-    { key: "clocks", label: "Timers & alarms" },
-    { key: "calc", label: "Calculator" },
-    { key: "convert", label: "Unit converter" },
-    { key: "map", label: "Maps" },
-    { key: "omni", label: "Omni index" },
-    { key: "actions", label: "Quick actions" },
-  ];
-  const readHidden = (): string[] => {
-    try {
-      return JSON.parse(localStorage.getItem("flux.start.hidden") || "[]");
-    } catch {
-      return [];
-    }
-  };
-  const [hiddenWidgets, setHiddenWidgets] = createSignal<string[]>(readHidden());
+  const [hiddenWidgets, setHiddenWidgets] = createSignal<string[]>(
+    readHidden(localStorage.getItem("flux.start.hidden")),
+  );
   const widgetOn = (k: string) => !hiddenWidgets().includes(k);
   const toggleWidget = (k: string) => {
     const next = widgetOn(k) ? [...hiddenWidgets(), k] : hiddenWidgets().filter((x) => x !== k);
@@ -240,22 +220,26 @@ const StartPage: Component<{
     localStorage.setItem("flux.start.hidden", JSON.stringify(next));
   };
   const [customizing, setCustomizing] = createSignal(false);
+  createEffect(() => setHomeModalOpen(expandedWidget() !== null || customizing()));
+  const [previousHidden, setPreviousHidden] = createSignal<string[] | null>(null);
+  const applyPreset = (hidden: string[]) => {
+    setPreviousHidden([...hiddenWidgets()]);
+    setHiddenWidgets([...hidden]);
+    localStorage.setItem("flux.start.hidden", JSON.stringify(hidden));
+  };
+  const undoPreset = () => {
+    const previous = previousHidden();
+    if (!previous) return;
+    setHiddenWidgets(previous);
+    localStorage.setItem("flux.start.hidden", JSON.stringify(previous));
+    setPreviousHidden(null);
+  };
   // Widget order (#71) — persisted key order; merged with WIDGETS so new widgets are
   // appended and removed ones dropped. Applied via CSS `order` (the grid honours it);
   // the clock/hero stays first (order 0, since widget orders are 1-based).
-  const readOrder = (): string[] => {
-    let saved: string[] = [];
-    try {
-      saved = JSON.parse(localStorage.getItem("flux.start.order") || "[]");
-    } catch {
-      saved = [];
-    }
-    const keys = WIDGETS.map((w) => w.key);
-    const ordered = saved.filter((k) => keys.includes(k));
-    for (const k of keys) if (!ordered.includes(k)) ordered.push(k);
-    return ordered;
-  };
-  const [widgetOrder, setWidgetOrder] = createSignal<string[]>(readOrder());
+  const [widgetOrder, setWidgetOrder] = createSignal<string[]>(
+    readOrder(localStorage.getItem("flux.start.order")),
+  );
   const orderOf = (k: string) => widgetOrder().indexOf(k) + 1;
   const orderedWidgets = () =>
     widgetOrder()
@@ -1084,47 +1068,85 @@ const StartPage: Component<{
 
   return (
     <div class="start" style={bgStyle()}>
-      <button class="start-customize" title="Show/hide widgets" onClick={() => setCustomizing((v) => !v)}>
-        ⚙
+      <button class="start-customize" title="Customize home" onClick={() => setCustomizing((v) => !v)}>
+        ⚙ <span>Customize home</span>
       </button>
       <Show when={customizing()}>
-        <div class="shield-backdrop" onClick={() => setCustomizing(false)} />
-        <div class="glass popover start-customize-pop">
-          <div class="ctx-label">Widgets — toggle to show/hide, ↑↓ to reorder</div>
-          <For each={orderedWidgets()}>
-            {(w, i) => (
-              <div class="start-customize-row">
-                <input type="checkbox" checked={widgetOn(w.key)} onChange={() => toggleWidget(w.key)} />
-                <span class="start-customize-name">{w.label}</span>
-                <button
-                  class="start-customize-move"
-                  disabled={i() === 0}
-                  title="Move up"
-                  onClick={() => moveWidget(w.key, -1)}
-                >
-                  ↑
-                </button>
-                <button
-                  class="start-customize-move"
-                  disabled={i() === orderedWidgets().length - 1}
-                  title="Move down"
-                  onClick={() => moveWidget(w.key, 1)}
-                >
-                  ↓
-                </button>
-              </div>
-            )}
-          </For>
-          <div class="ctx-sep" />
-          <div class="ctx-label">Background — image URL or CSS color (empty = liquid)</div>
+        <Modal
+          label="Customize home"
+          backdropClass="launcher-backdrop"
+          class="launcher-dialog home-customize-dialog"
+          onClose={() => setCustomizing(false)}
+        >
+          <header class="launcher-heading">
+            <div>
+              <h2>Customize home</h2>
+              <p>Keep what helps. Your choices save automatically.</p>
+            </div>
+            <button class="tui-act" onClick={() => setCustomizing(false)}>
+              Done
+            </button>
+          </header>
+          <div class="home-presets">
+            <button class="tui-act" onClick={() => applyPreset(FOCUSED_HIDDEN)}>
+              Focused home
+            </button>
+            <button class="tui-act" onClick={() => applyPreset([])}>
+              All widgets
+            </button>
+            <Show when={previousHidden()}>
+              <button class="tui-act" onClick={undoPreset}>
+                Undo preset
+              </button>
+            </Show>
+          </div>
+          <p class="launcher-muted">
+            Focused home shows open tabs, shortcuts, and scratchpad. Search and the date stay visible.
+          </p>
+          <div class="home-widget-list" role="group" aria-label="Home widgets">
+            <For each={orderedWidgets()}>
+              {(w, i) => (
+                <div class="start-customize-row">
+                  <input
+                    type="checkbox"
+                    aria-label={`Show ${w.label}`}
+                    checked={widgetOn(w.key)}
+                    onChange={() => toggleWidget(w.key)}
+                  />
+                  <span class="start-customize-name">{w.label}</span>
+                  <button
+                    class="start-customize-move"
+                    disabled={i() === 0}
+                    aria-label={`Move ${w.label} up`}
+                    onClick={() => moveWidget(w.key, -1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    class="start-customize-move"
+                    disabled={i() === orderedWidgets().length - 1}
+                    aria-label={`Move ${w.label} down`}
+                    onClick={() => moveWidget(w.key, 1)}
+                  >
+                    ↓
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+          <label class="home-background-label" for="home-background">
+            Background image URL or color
+          </label>
+          <p class="launcher-muted">Leave empty for the default animated background.</p>
           <input
+            id="home-background"
             class="start-customize-bg"
             value={bg()}
             placeholder="https://…/wallpaper.jpg  ·  #0b0a1d  ·  empty"
             spellcheck={false}
             onChange={(e) => setBg(e.currentTarget.value)}
           />
-        </div>
+        </Modal>
       </Show>
       <header class="start-hero">
         <div class="start-brand">
@@ -1137,6 +1159,7 @@ const StartPage: Component<{
           <input
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
+            aria-label="Search the web or enter a URL"
             placeholder="Search the web or enter a URL"
             spellcheck={false}
             autofocus
@@ -1148,31 +1171,29 @@ const StartPage: Component<{
         <div class="start-hint">
           <kbd>!g</kbd> Google · type a site to go there · everything else searches {engineName()}
         </div>
+        <div class="start-date-strip">
+          <div class="start-date-time">{clock()}</div>
+          <div class="start-date-label">{dateStr()}</div>
+          <Show when={weather()}>
+            {(w) => (
+              <div class="start-weather">
+                {weatherInfo(w().code)[0]} {w().temp}° · {weatherInfo(w().code)[1]}
+                <span class="start-weather-city">{w().city}</span>
+              </div>
+            )}
+          </Show>
+        </div>
       </header>
 
       <div class="start-scroll">
         <section class="start-cards">
-          {/* Clock + weather */}
-          <div class="glass start-card start-clock">
-            <div class="start-clock-time">{clock()}</div>
-            <div class="start-clock-date">{dateStr()}</div>
-            <Show when={weather()}>
-              {(w) => (
-                <div class="start-weather">
-                  {weatherInfo(w().code)[0]} {w().temp}° · {weatherInfo(w().code)[1]}
-                  <span class="start-weather-city">{w().city}</span>
-                </div>
-              )}
-            </Show>
-          </div>
-
           {/* Recent tabs */}
           <div
             class="glass start-card"
             style={{ display: widgetOn("recent") ? undefined : "none", order: orderOf("recent") }}
           >
             <div class="start-card-title">
-              Recent
+              Open tabs
               <button
                 class="start-card-link"
                 title="Expand recent tabs"

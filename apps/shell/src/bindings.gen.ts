@@ -240,7 +240,7 @@ export type OmniHit = { kind: string; tab_id: number | null; title: string; url:
  * list item, quote, preformatted block, image caption, or image.
  */
 export type ReaderBlock = { kind: string; text?: string; level?: number; src?: string }
-export type ShieldsStatus = { enabled: boolean; blocked: number; sites_off: string[]; cache_hit_pct: number; cache_len: number; rules_fired: number }
+export type ShieldsStatus = { backend: string; request_metrics: boolean; request_controls: boolean; attachment: string; enabled: boolean; blocked: number; sites_off: string[]; cache_hit_pct: number; cache_len: number; rules_fired: number }
 export type HotRule = { rule: string; hits: number }
 export type LeanStatus = { enabled: boolean; sites_on: string[] }
 export type HttpsStatus = { enabled: boolean; sites_allow_http: string[] }

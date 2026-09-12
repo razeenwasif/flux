@@ -1,77 +1,64 @@
-/**
- * Pages bar — one icon per Flux native page, in the vertical launcher column
- * (BarsColumn). Clicking one opens that page in a NEW tab.
- *
- * Icons only (#154): seventeen labels at 12px is a wall of text you read past
- * rather than scan, and the names cost the column three times its width for
- * information you need only while you're learning it. `RailTip` gives them back
- * on hover and on keyboard focus.
- */
-import { For, type Component } from "solid-js";
-
-import Icon, { type IconName } from "./Icon";
-import { openTab } from "./store";
+/** Compact launcher rail. All destinations remain searchable in Launcher. */
+import { For, createMemo, onMount, type Component } from "solid-js";
+import { IconOrGlyph } from "./Icon";
+import { openTab, openTuiPane } from "./store";
 import { hideTip, showTip } from "./RailTip";
-import {
-  APPS_URL,
-  ARCHIVE_URL,
-  BOOKMARKS_URL,
-  FEEDS_URL,
-  HISTORY_URL,
-  NOTEBOOK_URL,
-  OMNI_URL,
-  RESOURCES_URL,
-  SESSIONS_URL,
-  SETTINGS_URL,
-  SPEEDTEST_URL,
-  SYNC_URL,
-  TASKS_URL,
-  TRAIL_URL,
-  WHITEBOARD_URL,
-  SCRIBE_URL,
-  VAULT_URL,
-} from "./ipc";
-
-const PAGES: { icon: IconName; label: string; url: string }[] = [
-  { icon: "notebook", label: "Notebook", url: NOTEBOOK_URL },
-  { icon: "trail", label: "Trail", url: TRAIL_URL },
-  { icon: "whiteboard", label: "Whiteboard", url: WHITEBOARD_URL },
-  { icon: "scribe", label: "Scribe", url: SCRIBE_URL },
-  { icon: "sessions", label: "Sessions", url: SESSIONS_URL },
-  { icon: "archive", label: "Saved pages", url: ARCHIVE_URL },
-  { icon: "feeds", label: "Feeds", url: FEEDS_URL },
-  { icon: "history", label: "History", url: HISTORY_URL },
-  { icon: "bookmarks", label: "Bookmarks", url: BOOKMARKS_URL },
-  { icon: "tasks", label: "Task manager", url: TASKS_URL },
-  { icon: "resources", label: "Resources", url: RESOURCES_URL },
-  { icon: "speedtest", label: "Speed test", url: SPEEDTEST_URL },
-  { icon: "omni", label: "Omni", url: OMNI_URL },
-  { icon: "apps", label: "Apps", url: APPS_URL },
-  { icon: "passwords", label: "Passwords", url: VAULT_URL },
-  { icon: "sync", label: "Sync", url: SYNC_URL },
-  { icon: "settings", label: "Settings", url: SETTINGS_URL },
-];
-
-const PagesBar: Component = () => (
-  <div class="pages-bar">
-    <For each={PAGES}>
-      {(p) => (
-        <button
-          class="pages-chip"
-          title={`Open ${p.label} in a new tab`}
-          onClick={() => void openTab("browser", p.url)}
-          onMouseEnter={(e) => showTip(e.currentTarget, p.label)}
-          onMouseLeave={hideTip}
-          // Keyboard tabbing through the rail gets the same labels the mouse
-          // does — otherwise the column is unusable without a pointer.
-          onFocus={(e) => showTip(e.currentTarget, p.label)}
-          onBlur={hideTip}
-        >
-          <Icon name={p.icon} size={17} class="pages-chip-ico" />
-        </button>
-      )}
-    </For>
-  </div>
-);
-
+import { PAGES } from "./launcherCatalog";
+import { favorites, loadTerminalApps, terminalApps } from "./launcherData";
+import { setLauncherOpen } from "./launcherOpen";
+const PagesBar: Component = () => {
+  onMount(() => void loadTerminalApps());
+  const entries = createMemo(() =>
+    favorites().flatMap((id) => {
+      const page = PAGES.find((p) => `page:${p.url}` === id);
+      if (page)
+        return [
+          {
+            name: page.label,
+            icon: page.icon as string,
+            launch: () => {
+              void openTab("browser", page.url).catch(() => setLauncherOpen(true));
+            },
+          },
+        ];
+      const app = terminalApps().find((a) => `terminal:${a.id}` === id);
+      return app ? [{ name: app.name, icon: app.icon, launch: () => openTuiPane({ ...app }) }] : [];
+    }),
+  );
+  return (
+    <div class="pages-bar launcher-rail">
+      <button
+        class="pages-chip"
+        aria-label="Open launcher"
+        title="Open launcher"
+        onClick={() => {
+          hideTip();
+          setLauncherOpen(true);
+        }}
+      >
+        ⌕
+      </button>
+      <div class="launcher-rail-sep" />
+      <For each={entries()}>
+        {(entry) => (
+          <button
+            class="pages-chip"
+            title={`Open ${entry.name}`}
+            aria-label={`Open ${entry.name}`}
+            onClick={() => {
+              hideTip();
+              entry.launch();
+            }}
+            onMouseEnter={(e) => showTip(e.currentTarget, entry.name)}
+            onMouseLeave={hideTip}
+            onFocus={(e) => showTip(e.currentTarget, entry.name)}
+            onBlur={hideTip}
+          >
+            <IconOrGlyph icon={entry.icon} size={17} />
+          </button>
+        )}
+      </For>
+    </div>
+  );
+};
 export default PagesBar;

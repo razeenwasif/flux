@@ -1,0 +1,18 @@
+{
+  "productName": "Flux Smoke",
+  "identifier": "dev.flux.smoke",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Flux Smoke — Native Test",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 720,
+        "minHeight": 480,
+        "decorations": false,
+        "dragDropEnabled": false
+      }
+    ]
+  }
+}

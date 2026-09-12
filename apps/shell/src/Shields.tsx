@@ -32,10 +32,11 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
       <button
         classList={{ "icon-btn": true, active: open() }}
         title="Shields — content blocker"
+        aria-label="Shields — content blocker"
         onClick={() => setOpen((v) => !v)}
       >
         <Icon name="shields" />
-        <Show when={(status()?.blocked ?? 0) > 0}>
+        <Show when={status()?.request_metrics && (status()?.blocked ?? 0) > 0}>
           <span class="shield-badge">{status()!.blocked > 999 ? "999+" : status()!.blocked}</span>
         </Show>
       </button>

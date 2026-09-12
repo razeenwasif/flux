@@ -1,3 +1,4 @@
+import { launcherOpen } from "./launcherOpen";
 /**
  * Shared tab store. Module-level Solid signals: the tab strip, pinned rail,
  * and web area all read the same source of truth, so a pin/focus mutation is
@@ -267,11 +268,11 @@ const [panels, setPanels] = createSignal<WebPanel[]>([]);
 const [activePanelId, setActivePanelIdRaw] = createSignal<number | null>(null);
 const [activePanelIdB, setActivePanelIdBRaw] = createSignal<number | null>(null);
 // Persist which panels are open so they reopen on next launch (panel "on by default").
-function setActivePanelId(id: number | null): void {
+export function setActivePanelId(id: number | null): void {
   setActivePanelIdRaw(id);
   localStorage.setItem("flux.panel.active", id == null ? "" : String(id));
 }
-function setActivePanelIdB(id: number | null): void {
+export function setActivePanelIdB(id: number | null): void {
   setActivePanelIdBRaw(id);
   localStorage.setItem("flux.panel.activeB", id == null ? "" : String(id));
 }
@@ -377,10 +378,13 @@ export function setCalDockRatio(r: number): void {
 /** Is the dock column (calendar over mail) showing? Persisted. */
 const [dockOpen, setDockOpenSig] = createSignal(localStorage.getItem("flux.dock.open") === "1");
 export { dockOpen };
-export function toggleDock(): void {
-  const v = !dockOpen();
+export function setDockOpen(v: boolean): void {
   setDockOpenSig(v);
   localStorage.setItem("flux.dock.open", v ? "1" : "0");
+}
+export function toggleDock(): void {
+  const v = !dockOpen();
+  setDockOpen(v);
   // Opening the column is what makes the pairing useful; leaving the calendar in
   // the web panel would keep this column half-empty and the panel busy.
   if (v && calendarDock() !== "dock") setCalendarDock("dock");
@@ -695,7 +699,8 @@ export async function deleteFolder(id: number): Promise<void> {
 }
 
 /** Display name for a tab: the user's custom name, else the page title, else url. */
-export const tabLabel = (t: TabMeta): string => t.custom_title || t.title || t.url;
+export const tabLabel = (t: TabMeta): string =>
+  t.custom_title || (t.url === START_URL ? "New Tab" : t.title || t.url);
 /** Rename a tab (empty → revert to the page title). */
 export async function renameTab(id: number, name: string): Promise<void> {
   await tabRename(id, name).catch(() => {});
@@ -1185,6 +1190,7 @@ export { savePrompt, setSavePrompt };
 // only this. Forgetting a flag here is the bug class that hid split view and
 // buried expanded home widgets — don't re-grow per-effect boolean chains.
 export const pageOverlayActive = (): boolean =>
+  launcherOpen() ||
   readerOpen() ||
   calendarOverlayOpen() ||
   filesPanelOpen() ||
@@ -1496,6 +1502,7 @@ const readJson = <T>(key: string, fallback: T): T => {
   }
 };
 let accessMap: Record<string, number> = readJson(ACCESS_KEY, {});
+export const lastAccessForUrl = (url: string): number => accessMap[url] ?? 0;
 const saveAccess = () => localStorage.setItem(ACCESS_KEY, JSON.stringify(accessMap));
 /** Record that a tab's URL was just visited (so it's not considered stale). */
 export function touchTabUrl(url: string): void {

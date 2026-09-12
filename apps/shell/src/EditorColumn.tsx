@@ -27,7 +27,7 @@ import { setPendingCommand } from "./terminals";
 
 const TerminalView = lazy(() => import("./TerminalView"));
 
-const EditorColumn: Component = () => {
+const EditorColumn: Component<{ visible: boolean }> = (props) => {
   // Each relaunch gets a *new* session id rather than reusing the old one: the
   // previous PTY is still being torn down as the next spawns, and reusing the id
   // would race the kill against the spawn on the Rust side.
@@ -134,8 +134,8 @@ const EditorColumn: Component = () => {
                     broker never reattaches a session that is already in nvim. */}
                 <TerminalView
                   session={s}
-                  active={focused()}
-                  visible
+                  active={props.visible && focused()}
+                  visible={props.visible}
                   background={false}
                   persist="off"
                   autoFocus={grabCaret()}

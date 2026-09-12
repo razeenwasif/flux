@@ -7,6 +7,56 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Fixed
+- macOS browser tabs and web panels now use a Safari-compatible user agent derived from the installed Safari version, avoiding unsupported-browser detection caused by the generic WKWebView identity.
+- Browser content no longer receives Tauri's app-identification marker, which Proton Mail interprets as its own desktop application. The trusted Flux shell keeps its marker, and IPC permissions remain unchanged. The narrowly patched Tauri 2.11.2 source and upgrade notes are recorded in `vendor/README.md`.
+
+### Added
+- Searchable launcher for native pages and terminal apps, with category filters, keyboard navigation, and six saved favorites in a compact rail. Available from the expanded or collapsed sidebar and command palette.
+- Home customization dialog with focused/all-widget presets, preset undo, labeled visibility/reorder controls, and validated saved preferences. Existing explicit widget choices are preserved.
+- Compact/comfortable interface density in Appearance settings, with platform-aware shortcut labels in navigation and find controls.
+
+### Changed
+- Home defaults to open tabs, shortcuts, and scratchpad when no widget preference exists; the date, time, and weather share a compact line below search.
+- Terminal-app editing keeps drafts on save failure, reports errors and scan results, validates required fields, and retains typing focus. Removed apps no longer consume favorite slots.
+
+### Added
+- Optional terminal screen-reader support in Settings, applied immediately to existing terminal/editor sessions through xterm's accessible output mode.
+- An isolated macOS native smoke build and loopback fixture for title/navigation, controlled request-blocking, PTY retention, and accessibility checks.
+- macOS and Windows CI compilation/unit-test jobs for native core paths; the JS budget job also runs startup-graph tests.
+
+### Fixed
+- Covered web-page placeholders no longer expose a perpetual loading message to assistive technology alongside the actual native page.
+- The terminal persistence selector now has an accessible name. Hidden terminal containers no longer resize their live PTYs to a minimum-size grid.
+
+### Added
+- Protection capability and per-tab native rule-attachment reporting, including pending, failed, and unconfirmed states with recovery guidance.
+- A separate 84 KiB gzip budget for the desktop entry plus explicit preloads and their shared static dependencies, driven by the same registry used at startup. The existing 56 KiB entry budget remains unchanged.
+
+### Fixed
+- Shields no longer presents unavailable WebKit request counters as zero blocked or offers request-policy controls unsupported by that backend. macOS platform documentation now reflects its native rule-list implementation.
+- Core search/privacy changes in full Settings and Shields wait for backend acknowledgment, retain the previous value on failure, and show a retry action. Related controls are disabled while saving or when their initial state cannot be loaded.
+- Late native rule-compilation callbacks cannot overwrite a replacement webview's attachment status; closing or hibernating a tab clears its report.
+
+### Added
+- Browse, Research, and Develop layout presets with a persisted previous-layout restore action. Presets are available from the sidebar and command palette.
+- Settings search across labels and descriptions, category navigation, clear/empty states, and responsive controls. Filtering preserves form values.
+
+### Fixed
+- Layout sizing now accounts for the editor's share of the page area, split-page widths, and content gutters before allocating auxiliary panels.
+- Editor and terminal sessions, including terminal splits, stay mounted when layouts or window resizing hide them. Hidden panels stop receiving terminal focus and resume fitting when shown.
+- Settings fills its content card at narrow widths and uses a solid surface with more readable secondary text.
+
+### Changed
+- The primary New tab button now creates a browser tab immediately; an adjacent dropdown offers other tab types.
+- Split view now supports tab search, recent-first ordering, and folder/group context.
+- Search dialogs contain and restore keyboard focus, expose dialog and result semantics, and Settings toggles expose their labels and switch state.
+
+### Fixed
+- Search suggestions honor the preference across entry points, with backend checks excluding private tabs and navigation input.
+- Debounced searches discard superseded responses and cancel pending work when dismissed.
+- Native document title changes update tab labels independently of page indexing, while preserving custom names.
+
 ### Added
 - **Nvim editor column toggle shortcut, footer button, and setting (#174).** Added `Ctrl+Shift+E` / `Cmd+Shift+E` keyboard shortcut (also forwarded from page webviews and terminal), a dedicated sidebar footer icon button, and an Appearance setting toggle to easily show or hide the persistent editor column.
 

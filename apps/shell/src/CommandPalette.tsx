@@ -4,9 +4,11 @@
  * history. Because it's a centered modal and the native webview is a separate OS
  * layer over the content card, App hides the active webview while it's open.
  */
-import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js";
 import { omniSearch, type OmniHit } from "./ipc";
 import { activeId, focusTab, tabs } from "./store";
+import { latestQuery } from "./latestQuery";
+import Modal from "./Modal";
 
 export type PaletteAction = { id: string; label: string; icon: string; run: () => void };
 type Item = { key: string; icon: string; label: string; sub: string; run: () => void };
@@ -21,26 +23,27 @@ const CommandPalette: Component<{
   // together by the local embedder. Fetched (debounced) only when searching.
   const [results, setResults] = createSignal<OmniHit[]>([]);
   const [sel, setSel] = createSignal(0);
-  let debounce: number | undefined;
-
-  onMount(() => requestAnimationFrame(() => document.getElementById("flux-palette-input")?.focus()));
+  const [searchState, setSearchState] = createSignal<"idle" | "loading" | "error">("idle");
+  const search = latestQuery(
+    (q) => omniSearch(q, 14),
+    (hits) => {
+      setResults(hits);
+      setSearchState("idle");
+    },
+    () => {
+      setResults([]);
+      setSearchState("error");
+    },
+  );
+  onCleanup(search.cancel);
 
   const onInput = (v: string) => {
     setQuery(v);
     setSel(0);
-    clearTimeout(debounce);
     const q = v.trim();
-    if (!q) {
-      setResults([]);
-      return;
-    }
-    debounce = window.setTimeout(
-      () =>
-        void omniSearch(q, 14)
-          .then(setResults)
-          .catch(() => setResults([])),
-      120,
-    );
+    setResults([]);
+    setSearchState(q ? "loading" : "idle");
+    search.search(q);
   };
 
   const items = createMemo<Item[]>(() => {
@@ -85,6 +88,12 @@ const CommandPalette: Component<{
     return out;
   });
 
+  createEffect(() => {
+    const count = items().length;
+    setSel((i) => Math.min(i, Math.max(0, count - 1)));
+    document.getElementById(`palette-result-${sel()}`)?.scrollIntoView({ block: "nearest" });
+  });
+
   const choose = (it: Item) => {
     props.onClose();
     it.run();
@@ -102,49 +111,72 @@ const CommandPalette: Component<{
       e.preventDefault();
       const it = items()[sel()];
       if (it) choose(it);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      props.onClose();
     }
   };
 
   return (
-    <div class="palette-backdrop" onClick={props.onClose}>
-      <div class="palette glass" onClick={(e) => e.stopPropagation()}>
-        <input
-          id="flux-palette-input"
-          class="palette-input"
-          placeholder="Search everything — tabs, page text, bookmarks, history…"
-          value={query()}
-          onInput={(e) => onInput(e.currentTarget.value)}
-          onKeyDown={onKey}
-          spellcheck={false}
-          autocomplete="off"
-        />
-        <div class="palette-list">
-          <Show when={items().length > 0} fallback={<div class="palette-empty">No matches</div>}>
-            <For each={items()}>
-              {(it, i) => (
-                <button
-                  classList={{ "palette-item": true, sel: sel() === i() }}
-                  onMouseEnter={() => setSel(i())}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    choose(it);
-                  }}
-                >
-                  <span class="palette-icon">{it.icon}</span>
-                  <span class="palette-text">
-                    <span class="palette-label">{it.label}</span>
-                    <span class="palette-sub">{it.sub}</span>
-                  </span>
-                </button>
-              )}
-            </For>
-          </Show>
-        </div>
+    <Modal
+      label="Search tabs and commands"
+      backdropClass="palette-backdrop"
+      class="palette glass"
+      onClose={props.onClose}
+    >
+      <input
+        id="flux-palette-input"
+        class="palette-input"
+        placeholder="Search everything — tabs, page text, bookmarks, history…"
+        value={query()}
+        onInput={(e) => onInput(e.currentTarget.value)}
+        onKeyDown={onKey}
+        spellcheck={false}
+        autocomplete="off"
+        role="combobox"
+        aria-label="Search tabs and commands"
+        aria-expanded="true"
+        aria-controls="palette-results"
+        aria-autocomplete="list"
+        aria-activedescendant={items().length ? `palette-result-${sel()}` : undefined}
+      />
+      <div
+        class="palette-list"
+        id="palette-results"
+        role="listbox"
+        aria-label="Tabs and commands"
+        aria-busy={searchState() === "loading"}
+      >
+        <Show when={items().length > 0}>
+          <For each={items()}>
+            {(it, i) => (
+              <button
+                id={`palette-result-${i()}`}
+                role="option"
+                aria-selected={sel() === i()}
+                tabIndex={-1}
+                classList={{ "palette-item": true, sel: sel() === i() }}
+                onMouseEnter={() => setSel(i())}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => choose(it)}
+              >
+                <span class="palette-icon">{it.icon}</span>
+                <span class="palette-text">
+                  <span class="palette-label">{it.label}</span>
+                  <span class="palette-sub">{it.sub}</span>
+                </span>
+              </button>
+            )}
+          </For>
+        </Show>
       </div>
-    </div>
+      <Show when={searchState() !== "idle" || items().length === 0}>
+        <div class="palette-empty" role="status">
+          {searchState() === "loading"
+            ? "Searching…"
+            : searchState() === "error"
+              ? "Search unavailable. Try again."
+              : "No matches"}
+        </div>
+      </Show>
+    </Modal>
   );
 };
 

@@ -95,6 +95,7 @@ pub mod vault;
 pub mod vecstore;
 pub mod voice;
 pub mod watch;
+mod browser_identity;
 pub mod webview;
 
 use tauri::{Emitter, Manager};
@@ -339,6 +340,7 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
     android_jni::set_app_handle(app.handle().clone());
     // Fetch/refresh the big filter lists (EasyList/EasyPrivacy) off the
     // main thread — parsing tens of thousands of rules is heavy.
+    #[cfg(not(feature = "native-smoke"))]
     {
         let handle = app.handle().clone();
         std::thread::spawn(move || handle.state::<shields::ShieldsState>().refresh());
@@ -970,6 +972,28 @@ fn finish_boot(app: &tauri::App, boot_started: std::time::Instant) {
 
 /// Build the Tauri application. Split from `main` for testability.
 pub fn run(intent: cli::LaunchIntent) {
+    let context = tauri::generate_context!();
+    #[cfg(feature = "native-smoke")]
+    {
+        assert_eq!(
+            context.config().identifier,
+            "dev.flux.smoke",
+            "native-smoke requires scripts/native-smoke.config.json"
+        );
+        // Separate the legacy pre-Tauri log/clear-marker paths as well as the
+        // app identifier. Never read production credentials in a smoke build.
+        let scratch = std::env::temp_dir().join("flux-native-smoke");
+        assert_eq!(
+            option_env!("VITE_FLUX_NATIVE_SMOKE"),
+            Some("1"),
+            "build native-smoke with scripts/native-smoke-build.mjs"
+        );
+        std::env::set_var("XDG_DATA_HOME", &scratch);
+        std::env::set_var("FLUX_AUDIOPULSE_DIR", scratch.join("audiopulse"));
+        std::env::set_var("FLUX_NO_AUTOSTART", "1");
+        std::env::set_var("FLUX_TRAIL_AUTOINDEX", "0");
+        keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+    }
     init_tracing();
     // First line in every log. Three separate diagnoses this project has run were
     // wasted on results from a binary that predated the fix being tested, and
@@ -1521,7 +1545,7 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_watch,
             files::fs_unwatch,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running Flux");
 }
 

@@ -24,18 +24,46 @@
 use tauri::webview::Webview;
 use tauri::AppHandle;
 
+// Each install owns its report. A late compile from a closed/recreated webview
+// can only update its old handle, never the replacement's status.
+type InstallReport = std::sync::Arc<parking_lot::RwLock<String>>;
+static INSTALLS: std::sync::LazyLock<dashmap::DashMap<String, InstallReport>> =
+    std::sync::LazyLock::new(dashmap::DashMap::new);
+
+fn begin(label: &str) -> InstallReport {
+    let report = std::sync::Arc::new(parking_lot::RwLock::new("pending".to_string()));
+    if label.starts_with("tab-") {
+        INSTALLS.insert(label.to_string(), report.clone());
+    }
+    report
+}
+
+pub fn attachment(tab_id: Option<crate::state::TabId>) -> String {
+    tab_id
+        .and_then(|id| INSTALLS.get(&format!("tab-{id}")).map(|r| r.read().clone()))
+        .unwrap_or_else(|| "not_requested".into())
+}
+
+pub fn forget(tab_id: crate::state::TabId) {
+    INSTALLS.remove(&format!("tab-{tab_id}"));
+}
+
 /// Install the content-blocker interceptor on a freshly-created tab webview.
 pub fn install(app: &AppHandle, webview: &Webview) {
+    let report = begin(webview.label());
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         let app = app.clone();
-        let r = webview.with_webview(move |platform| wire(&app, platform));
+        let pending = report.clone();
+        let r = webview.with_webview(move |platform| wire(&app, platform, pending));
         if let Err(e) = r {
+            *report.write() = "failed".into();
             tracing::warn!(target: "flux::netfilter", "with_webview failed: {e}");
         }
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
+        *report.write() = "unavailable".into();
         let _ = (app, webview);
     }
 }
@@ -44,16 +72,20 @@ pub fn install(app: &AppHandle, webview: &Webview) {
 /// #50) — peeks are their own window, not a `tab-*` child webview, so they'd
 /// otherwise miss shields/HTTPS-only/lean entirely.
 pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
+    let report = begin(window.label());
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         let app = app.clone();
-        let r = window.with_webview(move |platform| wire(&app, platform));
+        let pending = report.clone();
+        let r = window.with_webview(move |platform| wire(&app, platform, pending));
         if let Err(e) = r {
+            *report.write() = "failed".into();
             tracing::warn!(target: "flux::netfilter", "with_webview (window) failed: {e}");
         }
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
+        *report.write() = "unavailable".into();
         let _ = (app, window);
     }
 }
@@ -62,18 +94,20 @@ pub fn install_on_window(app: &AppHandle, window: &tauri::WebviewWindow) {
 /// Runs on the GTK main thread (where `with_webview` puts us) — required by
 /// both the filter store and the thread-local compile state in `gtk`.
 #[cfg(target_os = "linux")]
-fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
+fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: InstallReport) {
     use tauri::Manager;
     let Some(shields) = app.try_state::<crate::shields::ShieldsState>() else {
+        *report.write() = "failed".into();
         return;
     };
     let Some(json_path) = shields.content_blocker_json() else {
+        *report.write() = "failed".into();
         tracing::warn!(target: "flux::netfilter", "no content-blocker JSON yet; webview unfiltered");
         return;
     };
     // The compiled-filter cache lives next to the JSON source.
     let store_dir = json_path.with_file_name("cb-store");
-    gtk::attach(&json_path, &store_dir, &platform.inner());
+    gtk::attach(&json_path, &store_dir, &platform.inner(), report);
 }
 
 /// Attach the compiled shields content blocker to a fresh WKWebView (macOS).
@@ -81,19 +115,26 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
 /// `WKContentRuleList`, so macOS is declarative like Linux (not per-request like
 /// Windows). Runs on the webview's main thread (where `with_webview` puts us).
 #[cfg(target_os = "macos")]
-fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
+fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: InstallReport) {
     use tauri::Manager;
     let Some(shields) = app.try_state::<crate::shields::ShieldsState>() else {
+        *report.write() = "failed".into();
         return;
     };
     let Some(json_path) = shields.content_blocker_json() else {
+        *report.write() = "failed".into();
         tracing::warn!(target: "flux::netfilter", "no content-blocker JSON yet; webview unfiltered");
         return;
     };
     let Ok(json) = std::fs::read_to_string(&json_path) else {
+        *report.write() = "failed".into();
         return;
     };
-    mac::attach(platform.inner() as *mut objc::runtime::Object, &json);
+    mac::attach(
+        platform.inner() as *mut objc::runtime::Object,
+        &json,
+        report,
+    );
 }
 
 /// WKContentRuleList compile + attach via Cocoa. The compile is async (the store
@@ -113,13 +154,15 @@ mod mac {
         msg_send![obj, initWithBytes: s.as_ptr() length: s.len() encoding: NSUTF8_STRING_ENCODING]
     }
 
-    pub fn attach(webview: *mut Object, json: &str) {
+    pub fn attach(webview: *mut Object, json: &str, report: super::InstallReport) {
         if webview.is_null() {
+            *report.write() = "failed".into();
             return;
         }
         unsafe {
             let store: *mut Object = msg_send![class!(WKContentRuleListStore), defaultStore];
             if store.is_null() {
+                *report.write() = "failed".into();
                 return;
             }
             let ident = nsstring("flux-shields");
@@ -127,13 +170,18 @@ mod mac {
 
             // Keep the webview alive across the async compile; released in the block.
             let _: () = msg_send![webview, retain];
-            let block = ConcreteBlock::new(move |list: *mut Object, _err: *mut Object| unsafe {
-                if !list.is_null() {
+            let block = ConcreteBlock::new(move |list: *mut Object, err: *mut Object| unsafe {
+                *report.write() = "failed".into();
+                if !err.is_null() {
+                    tracing::warn!(target: "flux::netfilter", "WKContentRuleList compilation failed");
+                }
+                if err.is_null() && !list.is_null() {
                     let config: *mut Object = msg_send![webview, configuration];
                     if !config.is_null() {
                         let ucc: *mut Object = msg_send![config, userContentController];
                         if !ucc.is_null() {
                             let _: () = msg_send![ucc, addContentRuleList: list];
+                            *report.write() = "attached".into();
                         }
                     }
                 }
@@ -144,6 +192,8 @@ mod mac {
                 compileContentRuleListForIdentifier: ident
                 encodedContentRuleList: json_ns
                 completionHandler: &*block];
+            let _: () = msg_send![ident, release];
+            let _: () = msg_send![json_ns, release];
         }
     }
 }
@@ -152,13 +202,14 @@ mod mac {
 /// Runs on the webview's UI thread (where `with_webview` puts us) — the only
 /// place the WebView2 event handler may be installed.
 #[cfg(windows)]
-fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
+fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: InstallReport) {
     use tauri::Manager;
     let controller = platform.controller();
     unsafe {
         let core = match controller.CoreWebView2() {
             Ok(c) => c,
             Err(e) => {
+                *report.write() = "failed".into();
                 tracing::warn!(target: "flux::netfilter", "CoreWebView2() failed: {e}");
                 return;
             }
@@ -191,8 +242,14 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview) {
             win::Decision::Allow
         };
         match win::install_interceptor(&core, verdict) {
-            Ok(()) => tracing::info!(target: "flux::netfilter", "interceptor installed"),
-            Err(e) => tracing::warn!(target: "flux::netfilter", "install failed: {e}"),
+            Ok(()) => {
+                *report.write() = "attached".into();
+                tracing::info!(target: "flux::netfilter", "interceptor installed");
+            }
+            Err(e) => {
+                *report.write() = "failed".into();
+                tracing::warn!(target: "flux::netfilter", "install failed: {e}");
+            }
         }
     }
 }
@@ -228,7 +285,7 @@ mod gtk {
         /// No compile started yet.
         Untried,
         /// Compile in flight; managers (each `g_object_ref`'d) waiting for it.
-        Compiling(Vec<*mut WebKitUserContentManager>),
+        Compiling(Vec<(*mut WebKitUserContentManager, super::InstallReport)>),
         /// Compiled — one process-lifetime ref held, attach directly.
         Ready(*mut WebKitUserContentFilter),
         /// Compile failed; don't retry every webview (log once, run unfiltered).
@@ -241,13 +298,20 @@ mod gtk {
 
     /// Attach the shields filter to `wv`'s content manager, kicking off the
     /// one-time async compile on first call. Main thread only.
-    pub fn attach(json_path: &Path, store_dir: &Path, wv: &webkit2gtk::WebView) {
+    pub fn attach(
+        json_path: &Path,
+        store_dir: &Path,
+        wv: &webkit2gtk::WebView,
+        report: super::InstallReport,
+    ) {
         let wv_ptr: *mut WebKitWebView = wv.to_glib_none().0;
         if wv_ptr.is_null() {
+            *report.write() = "failed".into();
             return;
         }
         let ucm = unsafe { webkit_web_view_get_user_content_manager(wv_ptr) };
         if ucm.is_null() {
+            *report.write() = "failed".into();
             return;
         }
         STATE.with(|s| {
@@ -255,29 +319,33 @@ mod gtk {
             match &mut *state {
                 CbState::Ready(filter) => unsafe {
                     webkit_user_content_manager_add_filter(ucm, *filter);
+                    *report.write() = "attached".into();
                 },
                 CbState::Compiling(pending) => unsafe {
                     // Keep the manager alive until the compile lands — the
                     // webview could be closed before then.
                     g_object_ref(ucm.cast::<GObject>());
-                    pending.push(ucm);
+                    pending.push((ucm, report));
                 },
-                CbState::Failed => {}
+                CbState::Failed => { *report.write() = "failed".into(); }
                 CbState::Untried => {
                     let Ok(json) = std::fs::read(json_path) else {
                         tracing::warn!(target: "flux::netfilter", "content-blocker JSON unreadable");
                         *state = CbState::Failed;
+                        *report.write() = "failed".into();
                         return;
                     };
                     let _ = std::fs::create_dir_all(store_dir);
                     let Ok(dir_c) = CString::new(store_dir.to_string_lossy().as_bytes()) else {
                         *state = CbState::Failed;
+                        *report.write() = "failed".into();
                         return;
                     };
                     unsafe {
                         let store = webkit_user_content_filter_store_new(dir_c.as_ptr());
                         if store.is_null() {
                             *state = CbState::Failed;
+                            *report.write() = "failed".into();
                             return;
                         }
                         let bytes = g_bytes_new(json.as_ptr().cast(), json.len());
@@ -297,7 +365,7 @@ mod gtk {
                             bytes = json.len(),
                             "compiling WebKit content blocker"
                         );
-                        *state = CbState::Compiling(vec![ucm]);
+                        *state = CbState::Compiling(vec![(ucm, report)]);
                     }
                 }
             }
@@ -325,7 +393,13 @@ mod gtk {
                     Vec::new()
                 }
             };
-            for ucm in pending {
+            for (ucm, report) in pending {
+                *report.write() = if filter.is_null() {
+                    "failed"
+                } else {
+                    "attached"
+                }
+                .into();
                 if !filter.is_null() {
                     webkit_user_content_manager_add_filter(ucm, filter);
                 }
@@ -437,5 +511,21 @@ mod win {
             COREWEBVIEW2_WEB_RESOURCE_CONTEXT_PING => "ping",
             _ => "other",
         }
+    }
+}
+
+#[cfg(test)]
+mod report_tests {
+    #[test]
+    fn late_install_cannot_replace_new_webview_report() {
+        let old = super::begin("tab-4294967000");
+        let current = super::begin("tab-4294967000");
+        *old.write() = "failed".into();
+        assert_eq!(super::attachment(Some(4294967000)), "pending");
+        *current.write() = "attached".into();
+        assert_eq!(super::attachment(Some(4294967000)), "attached");
+        super::forget(4294967000);
+        *current.write() = "failed".into();
+        assert_eq!(super::attachment(Some(4294967000)), "not_requested");
     }
 }

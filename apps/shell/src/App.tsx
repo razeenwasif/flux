@@ -1,3 +1,5 @@
+import "./interfacePreferences";
+import { launcherOpen, setLauncherOpen } from "./launcherOpen";
 /**
  * Flux shell — Arc-style vertical layout (ADR 0002).
  *
@@ -21,6 +23,7 @@ import {
   For,
   Show,
   Suspense,
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -73,6 +76,7 @@ import {
   onShortcut,
   onOpenUrl,
   onTabLoaded,
+  onTabTitle,
   onPanelBadge,
   searchSetDefault,
   tabSetUrl,
@@ -124,16 +128,8 @@ const MobileMenu = lazy(() => import("./MobileMenu")); // mobile drawer (replace
 // boot. Splitting them costs the desktop nothing as long as the chunk is in
 // flight before Solid renders, which is what the preload below is for: the
 // import starts at module-eval time rather than when the <Show> flips.
-const Sidebar = lazy(() => import("./Sidebar"));
-const AppDock = lazy(() => import("./AppDock"));
-const WebPanelPane = lazy(() => import("./WebPanelPane"));
-const TerminalColumn = lazy(() => import("./TerminalColumn"));
-if (!isMobile) {
-  void Sidebar.preload();
-  void AppDock.preload();
-  void WebPanelPane.preload();
-  void TerminalColumn.preload();
-}
+import { Sidebar, AppDock, WebPanelPane, TerminalColumn, preloadDesktopChrome } from "./desktopChrome";
+if (!isMobile) preloadDesktopChrome();
 const ShellHistory = lazy(() => import("./ShellHistory"));
 const SemanticFind = lazy(() => import("./SemanticFind"));
 const WatchPanel = lazy(() => import("./WatchPanel"));
@@ -141,6 +137,15 @@ const TrackerGraph = lazy(() => import("./TrackerGraph"));
 const AppPane = lazy(() => import("./AppPane"));
 const TuiPane = lazy(() => import("./TuiPane"));
 import { FLUX_APPS } from "./apps";
+import {
+  fitLayout,
+  LAYOUT_PRESETS,
+  layoutPresetFor,
+  parseLayout,
+  type LayoutPreset,
+  type LayoutState,
+} from "./layout";
+import { tileRects } from "./tiles";
 import type { PaletteAction } from "./CommandPalette";
 import { LinkMenu } from "./linkMenu";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
@@ -152,6 +157,7 @@ const Playground = lazy(() => import("./playground/Playground"));
 const NotebookPage = lazy(() => import("./NotebookPage"));
 const ConnectionsRail = lazy(() => import("./ConnectionsRail"));
 const DockColumn = lazy(() => import("./DockColumn"));
+const Launcher = lazy(() => import("./Launcher"));
 const BarsColumn = lazy(() => import("./BarsColumn"));
 const MusicBubble = lazy(() => import("./MusicBubble"));
 const AgentPanel = lazy(() => import("./AgentPanel"));
@@ -167,6 +173,7 @@ import {
   bookmarkBarOpen,
   setBookmarkBarOpen,
   editorColOpen,
+  editorColRatio,
   setEditorColOpen,
   appDockOpen,
   setAppDockOpen,
@@ -207,6 +214,12 @@ import {
   createWorkspace,
   requestWorkspaceRename,
   activePanel,
+  activePanelId,
+  activePanelIdB,
+  setActivePanelId,
+  setActivePanelIdB,
+  calendarPopOpen,
+  setDockOpen,
   activePanelB,
   panelWidth,
   panelDragging,
@@ -269,13 +282,14 @@ const App: Component = () => {
   // opens what they need. One-shot at boot; rotating mid-session keeps state.
   // Mobile always boots with side surfaces collapsed (the drawer closed) — the
   // Android WebView can report a wide innerWidth before layout, so key off isMobile.
+  const savedLayout = parseLayout(localStorage.getItem("flux.layout.current"));
   const narrow = isMobile || window.innerWidth < 760;
-  const [sidebarOpen, setSidebarOpen] = createSignal(!narrow);
+  const [sidebarOpen, setSidebarOpen] = createSignal(!narrow && (savedLayout?.sidebar ?? true));
   // Mobile Chrome-style tab switcher (ADR 0012).
   const [mobileTabsOpen, setMobileTabsOpen] = createSignal(false);
   // Terminal column open by default (persisted — toggling off sticks).
   const [terminalOpen, setTerminalOpen] = createSignal(
-    !narrow && localStorage.getItem("flux.term.open") !== "0",
+    !narrow && (savedLayout?.terminal ?? localStorage.getItem("flux.term.open") !== "0"),
   );
   // Persist only on real toggles — the initial run would otherwise write the
   // narrow-screen collapse back and poison the desktop default.
@@ -290,10 +304,10 @@ const App: Component = () => {
   // The Trail (ADR 0011 step 1): snapshot + embed a page once it's been engaged
   // past the dwell threshold. Owned by this component's lifetime.
   installDwellCapture();
-  const [agentOpen, setAgentOpen] = createSignal(!narrow);
+  const [agentOpen, setAgentOpen] = createSignal(!narrow && (savedLayout?.agent ?? true));
   // Ambient connections rail (#123) — on by default; toggled via the palette.
   const [connectOpen, setConnectOpen] = createSignal(
-    !narrow && localStorage.getItem("flux.connect.open") !== "0",
+    !narrow && (savedLayout?.connect ?? localStorage.getItem("flux.connect.open") !== "0"),
   );
   let connPersist = false;
   createEffect(() => {
@@ -306,6 +320,58 @@ const App: Component = () => {
   createEffect(() => localStorage.setItem("flux.music.open", musicOpen() ? "1" : "0"));
   // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
   const [focusMode, setFocusMode] = createSignal(false);
+
+  const captureLayout = (): LayoutState => ({
+    sidebar: sidebarOpen(),
+    agent: agentOpen(),
+    terminal: terminalOpen(),
+    connect: connectOpen(),
+    editor: editorColOpen(),
+    bars: pagesBarOpen(),
+    dock: dockOpen(),
+    calendar: calendarPopOpen(),
+    appDock: appDockOpen(),
+    panelA: activePanelId(),
+    panelB: activePanelIdB(),
+  });
+  const [previousLayout, setPreviousLayout] = createSignal(
+    parseLayout(localStorage.getItem("flux.layout.previous")),
+  );
+  createEffect(() => {
+    const state = captureLayout();
+    // A phone or narrow startup must not overwrite the desktop arrangement.
+    if (!narrow) localStorage.setItem("flux.layout.current", JSON.stringify(state));
+  });
+  const applyLayout = (state: LayoutState) =>
+    batch(() => {
+      setFocusMode(false);
+      setSidebarOpen(state.sidebar);
+      setAgentOpen(state.agent);
+      setTerminalOpen(state.terminal);
+      setConnectOpen(state.connect);
+      setEditorColOpen(state.editor);
+      setPagesBarOpen(state.bars);
+      setDockOpen(state.dock);
+      setCalendarPopOpen(state.calendar);
+      setAppDockOpen(state.appDock);
+      setActivePanelId(state.panelA);
+      setActivePanelIdB(state.panelB);
+    });
+  const chooseLayout = (preset: LayoutPreset) => {
+    const previous = captureLayout();
+    setPreviousLayout(previous);
+    localStorage.setItem("flux.layout.previous", JSON.stringify(previous));
+    applyLayout(LAYOUT_PRESETS[preset].state);
+    toast(`${LAYOUT_PRESETS[preset].label} layout applied`, "ok");
+  };
+  const restoreLayout = () => {
+    const previous = previousLayout();
+    if (!previous) return;
+    applyLayout(previous);
+    setPreviousLayout(null);
+    localStorage.removeItem("flux.layout.previous");
+    toast("Previous layout restored", "ok");
+  };
 
   // Native acrylic / frosted translucent window backdrop + shell effect.
   // Updates the OS DWM window backdrop attribute and syncs the .window-acrylic class.
@@ -678,6 +744,13 @@ const App: Component = () => {
     holdListener(
       onFindResult((tabId, count) => {
         if (tabId === activeId()) setFindMatches(count);
+      }),
+    );
+    holdListener(
+      onTabTitle((tabId, url, title) => {
+        // Ignore an event queued by a page we have already navigated away from.
+        const tab = tabs().find((t) => t.id === tabId);
+        if (tab?.url === url) updateTabTitle(tabId, title);
       }),
     );
     // Keep the address bar fresh as pages navigate, and re-apply the active
@@ -1299,6 +1372,7 @@ const App: Component = () => {
   });
   // Actions offered by the palette (tab-switching + history are built in).
   const paletteActions = (): PaletteAction[] => [
+    { id: "launcher", label: "Open launcher", icon: "⌕", run: () => setLauncherOpen(true) },
     { id: "new-tab", label: "New browser tab", icon: "🌐", run: () => void openTab("browser") },
     {
       id: "new-private",
@@ -1456,6 +1530,15 @@ const App: Component = () => {
       })),
     { id: "install-app", label: "Install this site as app", icon: "🧩", run: () => installApp() },
     { id: "apps", label: "Open installed apps", icon: "🧩", run: () => go(APPS_URL) },
+    ...Object.entries(LAYOUT_PRESETS).map(([id, preset]) => ({
+      id: `layout-${id}`,
+      label: `Use ${preset.label} layout`,
+      icon: "▦",
+      run: () => chooseLayout(id as LayoutPreset),
+    })),
+    ...(previousLayout()
+      ? [{ id: "layout-restore", label: "Restore previous layout", icon: "↶", run: restoreLayout }]
+      : []),
     { id: "settings", label: "Open Settings", icon: "⚙", run: () => go(SETTINGS_URL) },
     { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
     { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
@@ -1622,89 +1705,54 @@ const App: Component = () => {
     }
   };
 
-  // Responsive pane-shedding (#28 / ADR 0002 mitigation): when the fixed panes would
-  // squeeze the content card below a comfortable minimum, drop them in priority order
-  // — terminal, then web panel, then agent, then collapse the sidebar to its icon rail
-  // — and restore them as the window grows back. Non-destructive: the user's open
-  // intent is untouched (the signals stay set), only the rendered layout adapts.
-  const SIDEBAR_RAIL = 72; // --flux-sidebar-w-min
-  const MIN_CONTENT = 460; // narrowest content card we'll keep before shedding a pane
-  /** Launcher column width — fixed, not draggable. It holds one column of
-   *  icon-only buttons (names come back on hover, #154), so there is no second
-   *  width that shows more of anything; a splitter here would only be a way to
-   *  make it wrong. */
   const BARS_W = 54;
+  const layoutIntent = () => ({
+    sidebar: sidebarOpen(),
+    agent: agentOpen(),
+    terminal: terminalOpen(),
+    panel: activePanel() != null || activePanelB() != null || calendarDocked(),
+    connect: connectOpen(),
+    dock: dockOpen(),
+    bars: pagesBarOpen(),
+    editor: editorColOpen(),
+  });
   const responsive = createMemo(() => {
+    const want = layoutIntent();
     if (focusMode())
       return {
         sidebar: false,
-        panel: false,
-        terminal: false,
         agent: false,
+        terminal: false,
+        panel: false,
         connect: false,
         dock: false,
         bars: false,
+        editor: false,
       };
-    // What the user wants open (same conditions as the non-responsive layout used).
-    const want = {
-      sidebar: sidebarOpen(),
-      agent: agentOpen(),
-      // A docked calendar lives in this column too, so it must keep the
-      // column allocated even with no native panel open.
-      panel: activePanel() != null || activePanelB() != null || calendarDocked(),
-      // Keep the dev terminal column up even on a terminal *tab* — the column is
-      // the persistent shell; a launched TUI app tab lives alongside it.
-      terminal: terminalOpen(),
-      connect: connectOpen(),
-      // The dock column holds mail (always) plus the calendar when it's set to
-      // that placement — so it's wanted whenever the user has it switched on.
-      dock: dockOpen(),
-      // The pages + terminal-app launcher column (same toggle it had as a strip).
-      bars: pagesBarOpen(),
-    };
-    const out = {
-      sidebar: false,
-      agent: false,
-      panel: false,
-      terminal: false,
-      connect: false,
-      dock: false,
-      bars: false,
-    };
-    // Content card + the always-present sidebar rail are reserved first.
-    let used = MIN_CONTENT + SIDEBAR_RAIL;
-    const w = winW();
-    // The agent and terminal SHARE one column, so their width is charged once —
-    // wanting both now costs no more than wanting either. Allocate in PRIORITY
-    // order (kept longest first): the sidebar's expansion, then that shared
-    // column, then the web panel, then the launcher column, then the dock, then
-    // the connections rail (shed first). The launcher outranks the dock because
-    // it is the cheapest column on screen — shedding it buys back the least.
-    const wantStack = want.agent || want.terminal;
-    const order: [keyof typeof want | "stack", number][] = [
-      ["sidebar", sidebarW() - SIDEBAR_RAIL], // extra beyond the rail it already has
-      ["stack", wantStack ? stackW() : 0],
-      ["panel", panelWidth()],
-      ["bars", BARS_W],
-      ["dock", dockW()],
-      ["connect", connectW()],
-    ];
-    for (const [k, extra] of order) {
-      if (k === "stack") {
-        if (wantStack && used + extra <= w) {
-          out.agent = want.agent;
-          out.terminal = want.terminal;
-          used += extra;
-        }
-        continue;
-      }
-      if (want[k] && used + extra <= w) {
-        out[k] = true;
-        used += extra;
-      }
+    const group = tileGroup();
+    let pageMinimum = activeTab()?.url === SETTINGS_URL ? 720 : 560;
+    if (group) {
+      const rects = tileRects({
+        ...group,
+        n: group.tabs.length,
+        rect: { x: 0, y: 0, width: 10000, height: 10000 },
+        gap: 0,
+      });
+      pageMinimum = Math.max(pageMinimum, (320 * 10000) / Math.min(...rects.map((r) => r.width)) + 24);
     }
-    return out;
+    return fitLayout(winW(), pageMinimum, editorColRatio(), want, {
+      sidebar: sidebarW(),
+      stack: stackW(),
+      panel: panelWidth(),
+      bars: BARS_W,
+      dock: dockW(),
+      connect: connectW(),
+    });
   });
+  const layoutConstrained = () => {
+    const want = layoutIntent();
+    return (Object.keys(want) as (keyof typeof want)[]).some((key) => want[key] && !responsive()[key]);
+  };
 
   // The vertical terminal column (the persistent dev shell) shows whenever it's
   // toggled on and there's room — including alongside a terminal *tab*.
@@ -1719,6 +1767,9 @@ const App: Component = () => {
   const barsColVisible = () => responsive().bars;
   /** The shared right-hand column is up whenever either pane in it is. */
   const stackVisible = () => agentColVisible() || termColVisible();
+  // Hiding a panel must not kill its PTY or discard an in-progress conversation.
+  const agentMounted = createMemo((was: boolean) => was || agentColVisible(), false);
+  const terminalMounted = createMemo((was: boolean) => was || termColVisible(), false);
 
   const columns = () =>
     focusMode()
@@ -1830,6 +1881,11 @@ const App: Component = () => {
       >
         <Suspense>
           <Sidebar
+            layoutPreset={layoutPresetFor(captureLayout())}
+            onChooseLayout={chooseLayout}
+            onRestoreLayout={restoreLayout}
+            canRestoreLayout={previousLayout() != null}
+            layoutConstrained={layoutConstrained()}
             collapsed={!responsive().sidebar}
             terminalOpen={terminalOpen()}
             agentOpen={agentOpen()}
@@ -1866,6 +1922,7 @@ const App: Component = () => {
         </Suspense>
       </Show>
       <ContentArea
+        editorVisible={responsive().editor}
         onNavigate={go}
         onNewTerminal={() => void openTab("terminal")}
         onToggleAgent={() => setAgentOpen(true)}
@@ -1894,10 +1951,16 @@ const App: Component = () => {
       {/* One right-hand column holding both panes: agent above, terminal below,
           with a draggable seam. Sharing a column is what reclaims the screen —
           two columns cost two widths. */}
-      <Show when={stackVisible()}>
-        <div class="rightstack">
-          <Show when={agentColVisible()}>
-            <div class="rightstack-slot" style={{ "flex-grow": String(termColVisible() ? stackRatio() : 1) }}>
+      <Show when={agentMounted() || terminalMounted()}>
+        <div class="rightstack" style={{ display: stackVisible() ? undefined : "none" }}>
+          <Show when={agentMounted()}>
+            <div
+              class="rightstack-slot"
+              style={{
+                display: agentColVisible() ? undefined : "none",
+                "flex-grow": String(termColVisible() ? stackRatio() : 1),
+              }}
+            >
               <Suspense>
                 <AgentPanel />
               </Suspense>
@@ -1906,13 +1969,16 @@ const App: Component = () => {
           <Show when={agentColVisible() && termColVisible()}>
             <div class="rightstack-seam" title="Drag to resize" onPointerDown={startStackDrag} />
           </Show>
-          <Show when={termColVisible()}>
+          <Show when={terminalMounted()}>
             <div
               class="rightstack-slot"
-              style={{ "flex-grow": String(agentColVisible() ? 1 - stackRatio() : 1) }}
+              style={{
+                display: termColVisible() ? undefined : "none",
+                "flex-grow": String(agentColVisible() ? 1 - stackRatio() : 1),
+              }}
             >
               <Suspense>
-                <TerminalColumn />
+                <TerminalColumn visible={termColVisible()} />
               </Suspense>
             </div>
           </Show>
@@ -1975,6 +2041,12 @@ const App: Component = () => {
           drawer holding all Flux destinations; a backdrop closes it. */}
       <Show when={isMobile && sidebarOpen()}>
         <div class="mobile-drawer-backdrop" onClick={() => setSidebarOpen(false)} />
+      </Show>
+
+      <Show when={launcherOpen()}>
+        <Suspense>
+          <Launcher />
+        </Suspense>
       </Show>
 
       {/* Command palette (#6) — overlay; renders above the (hidden) webview. */}
