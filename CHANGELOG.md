@@ -15,7 +15,7 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - Browser content no longer receives Tauri's app-identification marker, which Proton Mail interprets as its own desktop application. The trusted Flux shell keeps its marker, and IPC permissions remain unchanged. The narrowly patched Tauri 2.11.2 source and upgrade notes are recorded in `vendor/README.md`.
 
 ### Added
-- Searchable launcher for native pages and terminal apps, with category filters, keyboard navigation, and six saved favorites in a compact rail. Available from the expanded or collapsed sidebar and command palette.
+- Searchable launcher for native pages and terminal apps, with category filters, keyboard navigation, and saved favorites in a compact, scrollable rail. Available from the expanded or collapsed sidebar and command palette.
 - Home customization dialog with focused/all-widget presets, preset undo, labeled visibility/reorder controls, and validated saved preferences. Existing explicit widget choices are preserved.
 - Compact/comfortable interface density in Appearance settings, with platform-aware shortcut labels in navigation and find controls.
 

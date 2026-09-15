@@ -11,7 +11,7 @@ export function readFavorites(raw: string | null): string[] {
           (id): id is string => typeof id === "string" && /^(page:flux:\/\/|terminal:).+/.test(id),
         ),
       ),
-    ].slice(0, 6);
+    ];
   } catch {
     return [...DEFAULT_FAVORITES];
   }

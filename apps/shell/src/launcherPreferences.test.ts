@@ -7,7 +7,7 @@ describe("launcher preferences", () => {
     expect(readFavorites("[]")).toEqual([]);
     for (const raw of [null, "null", "{}", "broken"]) expect(readFavorites(raw)).toEqual(DEFAULT_FAVORITES);
   });
-  it("deduplicates valid identifiers and caps the rail at six", () => {
+  it("deduplicates valid identifiers without capping the rail", () => {
     expect(
       readFavorites(
         JSON.stringify([
@@ -19,7 +19,7 @@ describe("launcher preferences", () => {
           ...Array.from({ length: 8 }, (_, i) => `terminal:${i}`),
         ]),
       ),
-    ).toEqual(["page:flux://history", "terminal:0", "terminal:1", "terminal:2", "terminal:3", "terminal:4"]);
+    ).toEqual(["page:flux://history", ...Array.from({ length: 8 }, (_, i) => `terminal:${i}`)]);
   });
   it("matches all query terms across names and commands without case sensitivity", () => {
     expect(matchesLauncher("  GIT term ", "LazyGit", "Terminal", "lazygit")).toBe(true);

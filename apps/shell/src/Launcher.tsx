@@ -186,12 +186,6 @@ const Launcher: Component = () => {
                       class="launcher-star"
                       aria-label={`${favorites().includes(entry.id) ? "Unfavorite" : "Favorite"} ${entry.name}`}
                       aria-pressed={favorites().includes(entry.id)}
-                      disabled={!favorites().includes(entry.id) && favorites().length >= 6}
-                      title={
-                        favorites().length >= 6 && !favorites().includes(entry.id)
-                          ? "Remove a favorite to add another (limit 6)"
-                          : undefined
-                      }
                       onClick={() => {
                         try {
                           toggleFavorite(entry.id);
@@ -220,7 +214,7 @@ const Launcher: Component = () => {
             </Show>
             <footer class="launcher-footer">
               <span class="launcher-muted" role="status">
-                {visible().length} {visible().length === 1 ? "result" : "results"} · {favorites().length}/6
+                {visible().length} {visible().length === 1 ? "result" : "results"} · {favorites().length}
                 favorites
               </span>
               <Show when={!isMobile}>

@@ -5,7 +5,7 @@ export const [favorites, setFavorites] = createSignal(readFavorites(localStorage
 export function toggleFavorite(id: string): void {
   const next = favorites().includes(id)
     ? favorites().filter((value) => value !== id)
-    : [...favorites(), id].slice(0, 6);
+    : [...favorites(), id];
   localStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
   setFavorites(next);
 }
