@@ -459,6 +459,18 @@ export const elevenlabsImportVoice = (voiceId: string, publicOwnerId = "", name 
 /** Cloud TTS via ElevenLabs: returns a base64 MP3 (sends the text to ElevenLabs). */
 export const elevenlabsSpeak = (text: string, voiceId: string, modelId: string) =>
   invoke<string>("elevenlabs_speak", { text, voiceId, modelId });
+/** Store (or clear, with "") the Fish Audio API key in the OS keyring. */
+export const fishaudioSetKey = (key: string) => invoke<void>("fishaudio_set_key", { key });
+export const fishaudioHasKey = () => invoke<boolean>("fishaudio_has_key");
+export const fishaudioVerifyKey = () => invoke<string>("fishaudio_verify_key");
+export const fishaudioVerifyKeyValue = (key: string) => invoke<string>("fishaudio_verify_key_value", { key });
+export const fishaudioVoices = () => invoke<{ id: string; name: string }[]>("fishaudio_voices");
+/** Resolve a fish.audio voice link or model id to `{ id, name }`. */
+export const fishaudioResolveVoice = (voice: string) =>
+  invoke<{ id: string; name: string }>("fishaudio_resolve_voice", { voice });
+/** Cloud TTS via Fish Audio: returns a base64 MP3 (sends the text to Fish Audio). */
+export const fishaudioSpeak = (text: string, voiceId: string, modelId: string) =>
+  invoke<string>("fishaudio_speak", { text, voiceId, modelId });
 
 // ─── Gemini cloud escalation (#175) ─────────────────────────────────────────
 // The agent is local by default. These are the only calls that can change that,

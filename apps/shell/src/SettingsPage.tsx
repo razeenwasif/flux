@@ -37,6 +37,12 @@ import {
   elevenlabsVerifyKey,
   elevenlabsVerifyKeyValue,
   elevenlabsVoices,
+  fishaudioHasKey,
+  fishaudioResolveVoice,
+  fishaudioSetKey,
+  fishaudioVerifyKey,
+  fishaudioVerifyKeyValue,
+  fishaudioVoices,
   HISTORY_URL,
   httpsAllowSite,
   httpsSetEnabled,
@@ -89,11 +95,18 @@ import { micDeviceId, micDevices, noiseSuppress, setMicDeviceId, setNoiseSuppres
 import {
   elVoiceId,
   elVoiceName,
+  fishModel,
+  fishVoiceId,
+  fishVoiceName,
   loadVoices,
   preferredVoice,
   previewElevenLabs,
+  previewFishAudio,
   setElVoiceId,
   setElVoiceName,
+  setFishModel,
+  setFishVoiceId,
+  setFishVoiceName,
   setPreferredVoice,
   setSpeechLength,
   setTtsEngine,
@@ -347,11 +360,15 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
       if (ttsEngineSel() === "elevenlabs") {
         await previewElevenLabs("Hi, I'm Gemma");
         setElFlash("Voice tested");
+      } else if (ttsEngineSel() === "fishaudio") {
+        await previewFishAudio("Hi, I'm Gemma");
+        setFishFlash("Voice tested");
       } else {
         await speak("Hi, I'm Gemma. This is how I'll sound when we talk.");
       }
     } catch (e) {
-      setElFlash(String(e));
+      if (ttsEngineSel() === "fishaudio") setFishFlash(String(e));
+      else setElFlash(String(e));
     } finally {
       setTesting(false);
     }
@@ -498,6 +515,75 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     }
   };
 
+  // Fish Audio (cloud) voice. Any public fish.audio model id works directly as
+  // the voice — no import step — so a pasted link just resolves to its title.
+  const [fishKeyInput, setFishKeyInput] = createSignal("");
+  const [fishKeySet, setFishKeySet] = createSignal(false);
+  const [fishVoices, setFishVoices] = createSignal<{ id: string; name: string }[]>([]);
+  const [fishVoiceSel, setFishVoiceSel] = createSignal(fishVoiceId());
+  const [fishVoiceNameSel, setFishVoiceNameSel] = createSignal(fishVoiceName());
+  const [fishModelSel, setFishModelSel] = createSignal(fishModel());
+  const [fishManualVoice, setFishManualVoice] = createSignal("");
+  const [fishFlash, setFishFlash] = createSignal("");
+  const [fishSavingVoice, setFishSavingVoice] = createSignal(false);
+  const selectableFishVoices = () => fishVoices().filter((v) => v.id !== fishVoiceSel());
+  const refreshFishKey = () =>
+    void fishaudioHasKey()
+      .then(setFishKeySet)
+      .catch(() => {});
+  const loadFishVoices = () =>
+    void fishaudioVoices()
+      .then(setFishVoices)
+      .catch(() => setFishVoices([]));
+  const saveFishKey = async () => {
+    try {
+      const raw = fishKeyInput().trim();
+      if (!raw) {
+        await fishaudioSetKey("");
+        setFishKeyInput("");
+        setFishKeySet(false);
+        setFishVoices([]);
+        setFishFlash("Key removed");
+        return;
+      }
+      await fishaudioVerifyKeyValue(raw);
+      await fishaudioSetKey(raw);
+      const msg = await fishaudioVerifyKey();
+      setFishKeyInput("");
+      setFishKeySet(true);
+      setFishFlash(msg);
+      loadFishVoices();
+    } catch (e) {
+      setFishFlash(String(e));
+    }
+  };
+  const pickFishVoice = (id: string, name = "") => {
+    const resolvedName = name || fishVoices().find((v) => v.id === id)?.name || "";
+    setFishVoiceId(id);
+    setFishVoiceName(resolvedName);
+    setFishVoiceSel(id);
+    setFishVoiceNameSel(resolvedName);
+  };
+  const saveManualFishVoice = async () => {
+    const raw = fishManualVoice().trim();
+    if (!raw) {
+      setFishFlash("Paste a fish.audio voice link or ID");
+      return;
+    }
+    setFishSavingVoice(true);
+    setFishFlash("Looking up voice…");
+    try {
+      const v = await fishaudioResolveVoice(raw);
+      pickFishVoice(v.id, v.name);
+      setFishManualVoice("");
+      setFishFlash(`Using “${v.name}”`);
+    } catch (e) {
+      setFishFlash(String(e));
+    } finally {
+      setFishSavingVoice(false);
+    }
+  };
+
   // Search engines.
   const [engines, setEngines] = createSignal<SearchEngine[]>([]);
   const [defaultEngine, setDefaultEngine] = createSignal("");
@@ -586,6 +672,8 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     }
     refreshElKey();
     if (ttsEngine() === "elevenlabs") loadElVoices();
+    refreshFishKey();
+    if (ttsEngine() === "fishaudio") loadFishVoices();
     refreshGemKey();
     refreshPcKey();
     refreshMem();
@@ -1375,7 +1463,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           </Show>
           <Row
             label="Gemma's voice"
-            hint="System and Piper are fully local. ElevenLabs is a cloud service — choosing it sends Gemma's reply text (not your mic audio) to ElevenLabs, needs an API key, and is metered. Piper: set FLUX_PIPER_MODEL to a .onnx voice; falls back to System if absent."
+            hint="System and Piper are fully local. ElevenLabs and Fish Audio are cloud services — choosing one sends Gemma's reply text (not your mic audio) to that service, needs an API key, and is metered. Piper: set FLUX_PIPER_MODEL to a .onnx voice; falls back to System if absent."
           >
             <select
               class="shields-select"
@@ -1386,12 +1474,16 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                 if (v === "elevenlabs") {
                   refreshElKey();
                   loadElVoices();
+                } else if (v === "fishaudio") {
+                  refreshFishKey();
+                  loadFishVoices();
                 }
               }}
             >
               <option value="system">System voice (local)</option>
               <option value="piper">Piper (local neural)</option>
               <option value="elevenlabs">ElevenLabs (cloud)</option>
+              <option value="fishaudio">Fish Audio (cloud)</option>
             </select>
           </Row>
           <Row
@@ -1504,6 +1596,102 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
                     </button>
                   </div>
                 </div>
+              </Row>
+            </Show>
+          </Show>
+          <Show when={ttsEngineSel() === "fishaudio"}>
+            <Row
+              label="Fish Audio API key"
+              hint="Stored in your OS keyring, never in plaintext. Create a key at fish.audio → API Keys. Leave blank and save to remove it."
+            >
+              <div class="set-stack-control">
+                <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                  <input
+                    class="map-search-input"
+                    type="password"
+                    style={{ "max-width": "260px" }}
+                    placeholder={fishKeySet() ? "•••••••• (key set)" : "Fish Audio API key…"}
+                    value={fishKeyInput()}
+                    onInput={(e) => setFishKeyInput(e.currentTarget.value)}
+                  />
+                  <button class="set-link-btn" onClick={() => void saveFishKey()}>
+                    Save
+                  </button>
+                </div>
+                <Show when={fishFlash()}>
+                  <div class="set-status-line" title={fishFlash()}>
+                    {fishFlash()}
+                  </div>
+                </Show>
+              </div>
+            </Row>
+            <Show when={fishKeySet()}>
+              <Row
+                label="Fish Audio voice"
+                hint="Pick one of your voices, or paste any fish.audio voice link (fish.audio/m/…) or model ID. Use Test to preview."
+              >
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                    <select
+                      class="shields-select"
+                      value={fishVoiceSel()}
+                      onChange={(e) => {
+                        const id = e.currentTarget.value;
+                        pickFishVoice(id, id ? e.currentTarget.selectedOptions[0]?.textContent || "" : "");
+                      }}
+                    >
+                      <option value="">Fish Audio default</option>
+                      <Show when={fishVoiceSel()}>
+                        <option value={fishVoiceSel()}>{fishVoiceNameSel() || fishVoiceSel()}</option>
+                      </Show>
+                      <For each={selectableFishVoices()}>{(v) => <option value={v.id}>{v.name}</option>}</For>
+                    </select>
+                    <button class="set-link-btn" onClick={loadFishVoices}>
+                      ↻
+                    </button>
+                    <button class="set-link-btn" onClick={() => void testVoice()}>
+                      {testing() ? "■ Stop" : "🔊 Test"}
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+                    <input
+                      class="map-search-input"
+                      style={{ "max-width": "360px" }}
+                      placeholder="Paste fish.audio voice link or model ID"
+                      value={fishManualVoice()}
+                      onInput={(e) => setFishManualVoice(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void saveManualFishVoice();
+                      }}
+                    />
+                    <button
+                      class="set-link-btn"
+                      disabled={fishSavingVoice()}
+                      onClick={() => void saveManualFishVoice()}
+                    >
+                      {fishSavingVoice() ? "Looking up…" : "Use voice"}
+                    </button>
+                  </div>
+                </div>
+              </Row>
+              <Row
+                label="Fish Audio model"
+                hint="The speech model Fish Audio synthesizes with. Paid models draw on API credit, which is separate from subscription credit (fish.audio/app/developers). S2.1 Pro Free is the free developer tier."
+              >
+                <select
+                  class="shields-select"
+                  value={fishModelSel()}
+                  onChange={(e) => {
+                    const m = e.currentTarget.value;
+                    setFishModel(m);
+                    setFishModelSel(m);
+                  }}
+                >
+                  <option value="s2.1-pro">S2.1 Pro</option>
+                  <option value="s2.1-pro-free">S2.1 Pro Free</option>
+                  <option value="s2-pro">S2 Pro</option>
+                  <option value="s1">S1</option>
+                </select>
               </Row>
             </Show>
           </Show>

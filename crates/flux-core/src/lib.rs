@@ -1413,6 +1413,13 @@ pub fn run(intent: cli::LaunchIntent) {
             tts::elevenlabs_voices,
             tts::elevenlabs_import_voice,
             tts::elevenlabs_speak,
+            tts::fishaudio_set_key,
+            tts::fishaudio_has_key,
+            tts::fishaudio_verify_key,
+            tts::fishaudio_verify_key_value,
+            tts::fishaudio_voices,
+            tts::fishaudio_resolve_voice,
+            tts::fishaudio_speak,
             // Opt-in cloud escalation for the agent (#175). Local stays default.
             gemini::gemini_set_key,
             gemini::gemini_has_key,

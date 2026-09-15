@@ -1,17 +1,19 @@
-// Gemma's voice (TTS). Two fully-local engines, no cloud either way:
-//   • "system" — the webview's built-in speechSynthesis (OS voices). Zero deps.
-//   • "piper"  — local neural TTS via the backend `voice_speak` (Piper subprocess),
-//                falling back to the system voice if Piper isn't installed.
-// Privacy: nothing here touches the network; text is synthesized on-device.
+// Gemma's voice (TTS):
+//   • "system"     — the webview's built-in speechSynthesis (OS voices). Zero deps.
+//   • "piper"      — local neural TTS via the backend `voice_speak` (Piper subprocess),
+//                    falling back to the system voice if Piper isn't installed.
+//   • "elevenlabs" / "fishaudio" — opt-in cloud TTS; the reply text is sent to that
+//                    service. Both fall back to the system voice on any failure.
+// Privacy: system/piper never touch the network; mic audio never leaves the machine.
 
 import { createSignal } from "solid-js";
 
-import { elevenlabsSpeak, voiceSpeak } from "./ipc";
+import { elevenlabsSpeak, fishaudioSpeak, voiceSpeak } from "./ipc";
 
 /** True while Gemma is speaking — drives the Stop / interrupt affordance. */
 export const [speaking, setSpeaking] = createSignal(false);
 
-export type TtsEngine = "system" | "piper" | "elevenlabs";
+export type TtsEngine = "system" | "piper" | "elevenlabs" | "fishaudio";
 const ENGINE_KEY = "flux.voice.tts";
 export const ttsEngine = (): TtsEngine => (localStorage.getItem(ENGINE_KEY) as TtsEngine) || "system";
 export const setTtsEngine = (e: TtsEngine) => localStorage.setItem(ENGINE_KEY, e);
@@ -26,6 +28,17 @@ export const elVoiceName = (): string => localStorage.getItem(EL_VOICE_NAME_KEY)
 export const setElVoiceName = (name: string) => localStorage.setItem(EL_VOICE_NAME_KEY, name);
 export const elModel = (): string => localStorage.getItem(EL_MODEL_KEY) || "eleven_turbo_v2_5";
 export const setElModel = (m: string) => localStorage.setItem(EL_MODEL_KEY, m);
+
+// Fish Audio voice (a model id; "" = Fish Audio's default voice) + TTS model.
+const FISH_VOICE_KEY = "flux.voice.fish.voice";
+const FISH_VOICE_NAME_KEY = "flux.voice.fish.voiceName";
+const FISH_MODEL_KEY = "flux.voice.fish.model";
+export const fishVoiceId = (): string => localStorage.getItem(FISH_VOICE_KEY) || "";
+export const setFishVoiceId = (id: string) => localStorage.setItem(FISH_VOICE_KEY, id);
+export const fishVoiceName = (): string => localStorage.getItem(FISH_VOICE_NAME_KEY) || "";
+export const setFishVoiceName = (name: string) => localStorage.setItem(FISH_VOICE_NAME_KEY, name);
+export const fishModel = (): string => localStorage.getItem(FISH_MODEL_KEY) || "s2.1-pro";
+export const setFishModel = (m: string) => localStorage.setItem(FISH_MODEL_KEY, m);
 
 // Which speechSynthesis voice to use ("" = auto-pick a female English voice so it
 // matches Gemma). The Settings dropdown stores an exact voice name here.
@@ -269,6 +282,15 @@ export async function previewElevenLabs(text: string): Promise<void> {
   await playAudioB64(b64, "audio/mpeg", true);
 }
 
+/** Preview Fish Audio directly and surface configuration/API errors to Settings. */
+export async function previewFishAudio(text: string): Promise<void> {
+  const t = cleanForSpeech(text);
+  if (!t) return;
+  stopSpeaking();
+  const b64 = await fishaudioSpeak(t, fishVoiceId(), fishModel());
+  await playAudioB64(b64, "audio/mpeg", true);
+}
+
 /** Speak `text`, resolving when the audio finishes. Honours the engine setting. */
 export async function speak(text: string): Promise<void> {
   const t = conciseForSpeech(text);
@@ -292,6 +314,14 @@ export async function speak(text: string): Promise<void> {
         return;
       } catch {
         /* no key / network / quota → fall back to the OS voice */
+      }
+    } else if (engine === "fishaudio") {
+      try {
+        const b64 = await fishaudioSpeak(t, fishVoiceId(), fishModel());
+        await playAudioB64(b64, "audio/mpeg");
+        return;
+      } catch {
+        /* no key / network / credit → fall back to the OS voice */
       }
     }
     await speakSystem(t);

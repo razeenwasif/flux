@@ -551,9 +551,245 @@ pub async fn elevenlabs_speak(
     .map_err(|e| e.to_string())?
 }
 
+// ── Fish Audio (cloud TTS) ───────────────────────────────────────────────────
+//
+// Same contract as ElevenLabs: opt-in, only Gemma's reply *text* leaves the
+// machine, and the API key lives in the OS keyring. Voices are Fish Audio
+// "models" addressed by `reference_id` (the id in a fish.audio/m/<id> link).
+
+const FISH_SERVICE: &str = "flux.fishaudio";
+const FISH_API: &str = "https://api.fish.audio";
+const FISH_DEFAULT_MODEL: &str = "s2.1-pro";
+
+fn fish_key() -> Result<String, String> {
+    let entry = keyring::Entry::new(FISH_SERVICE, EL_ACCOUNT).map_err(|e| e.to_string())?;
+    match entry.get_password() {
+        Ok(k) if !normalize_el_key(&k).is_empty() => Ok(normalize_el_key(&k)),
+        _ => Err("no Fish Audio API key set — add it in Settings → Voice".into()),
+    }
+}
+
+fn fish_err(action: &str, e: ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(code, r) => {
+            let body: String = r
+                .into_string()
+                .unwrap_or_default()
+                .chars()
+                .take(300)
+                .collect();
+            let hint = match code {
+                401 => " — the API key was rejected",
+                402 => " — out of API credit (separate from subscription credit); top up at fish.audio/app/developers or switch the model to S2.1 Pro Free",
+                _ => "",
+            };
+            format!("Fish Audio {action} failed ({code}{hint}): {body}")
+        }
+        e => format!("Fish Audio {action} failed: {e}"),
+    }
+}
+
+fn fish_verify_key(key: &str, action: &str) -> Result<String, String> {
+    let key = normalize_el_key(key);
+    if key.is_empty() {
+        return Err("no Fish Audio API key set — add it in Settings → Voice".into());
+    }
+    let key_label = el_key_label(&key);
+    el_http()
+        .get(&format!("{FISH_API}/model"))
+        .query("self", "true")
+        .query("page_size", "1")
+        .set("authorization", &format!("Bearer {key}"))
+        .call()
+        .map_err(|e| format!("{} ({key_label})", fish_err(action, e)))?;
+    Ok(key_label)
+}
+
+fn fish_voice_from(v: &Value) -> Option<ElVoice> {
+    let id = v.get("_id").and_then(|x| x.as_str())?;
+    let name = v.get("title").and_then(|x| x.as_str()).unwrap_or(id);
+    Some(ElVoice {
+        id: id.to_string(),
+        name: name.to_string(),
+    })
+}
+
+/// Accept a bare model id or any fish.audio link containing one
+/// (`https://fish.audio/m/<id>/`, `…/app/text-to-speech/?modelId=<id>`).
+fn parse_fish_voice_ref(input: &str) -> String {
+    let t = input.trim();
+    if let Some(i) = t.find("modelId=") {
+        return t[i + "modelId=".len()..]
+            .split(['&', '#'])
+            .next()
+            .unwrap_or("")
+            .to_string();
+    }
+    if let Some(i) = t.find("/m/") {
+        return t[i + 3..]
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or("")
+            .to_string();
+    }
+    t.to_string()
+}
+
+/// Store (or, with an empty string, clear) the Fish Audio API key in the keyring.
+#[tauri::command]
+pub fn fishaudio_set_key(key: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(FISH_SERVICE, EL_ACCOUNT).map_err(|e| e.to_string())?;
+    let key = normalize_el_key(&key);
+    let _ = entry.delete_credential();
+    if key.is_empty() {
+        return Ok(());
+    }
+    entry.set_password(&key).map_err(|e| e.to_string())?;
+    let saved = entry
+        .get_password()
+        .map_err(|e| format!("could not read saved Fish Audio key back from OS keyring: {e}"))?;
+    if normalize_el_key(&saved) != key {
+        return Err("saved Fish Audio key did not round-trip through the OS keyring".into());
+    }
+    Ok(())
+}
+
+/// Whether a Fish Audio API key is stored (never reads the key into the renderer).
+#[tauri::command]
+pub fn fishaudio_has_key() -> bool {
+    fish_key().is_ok()
+}
+
+/// Verify the stored key against Fish Audio.
+#[tauri::command]
+pub async fn fishaudio_verify_key() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let key = fish_key()?;
+        let key_label = fish_verify_key(&key, "verify stored key")?;
+        Ok(format!("Key verified ({key_label})"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Verify the typed key before it touches the OS keyring.
+#[tauri::command]
+pub async fn fishaudio_verify_key_value(key: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let key_label = fish_verify_key(&key, "verify typed key")?;
+        Ok(format!("Typed key verified ({key_label})"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The voice models owned by the configured Fish Audio account.
+#[tauri::command]
+pub async fn fishaudio_voices() -> Result<Vec<ElVoice>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let key = fish_key()?;
+        let v: Value = el_http()
+            .get(&format!("{FISH_API}/model"))
+            .query("self", "true")
+            .query("page_size", "100")
+            .set("authorization", &format!("Bearer {key}"))
+            .call()
+            .map_err(|e| fish_err("list voices", e))?
+            .into_json()
+            .map_err(|e| e.to_string())?;
+        Ok(v.get("items")
+            .and_then(|x| x.as_array())
+            .map(|items| items.iter().filter_map(fish_voice_from).collect())
+            .unwrap_or_default())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Resolve a pasted fish.audio voice link or model id to `{id, name}`. Public
+/// voices need no import step — any model id can be used as `reference_id`.
+#[tauri::command]
+pub async fn fishaudio_resolve_voice(voice: String) -> Result<ElVoice, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let id = clean_el_path_segment("voice ID", &parse_fish_voice_ref(&voice))?;
+        let key = fish_key()?;
+        let v: Value = el_http()
+            .get(&format!("{FISH_API}/model/{id}"))
+            .set("authorization", &format!("Bearer {key}"))
+            .call()
+            .map_err(|e| fish_err("look up voice", e))?
+            .into_json()
+            .map_err(|e| e.to_string())?;
+        Ok(fish_voice_from(&v).unwrap_or(ElVoice {
+            id: id.clone(),
+            name: id,
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Synthesize `text` with Fish Audio; returns base64 MP3 for the webview to play.
+/// An empty `voice_id` uses Fish Audio's default voice.
+#[tauri::command]
+pub async fn fishaudio_speak(
+    text: String,
+    voice_id: String,
+    model_id: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let t = text.trim().to_string();
+        if t.is_empty() {
+            return Err("nothing to speak".into());
+        }
+        let key = fish_key()?;
+        let model = match model_id.trim() {
+            "" => FISH_DEFAULT_MODEL,
+            m => m,
+        };
+        let mut body = json!({ "text": t, "format": "mp3", "latency": "balanced" });
+        if !voice_id.trim().is_empty() {
+            body["reference_id"] = json!(clean_el_path_segment("voice ID", &voice_id)?);
+        }
+        let resp = el_http()
+            .post(&format!("{FISH_API}/v1/tts"))
+            .set("authorization", &format!("Bearer {key}"))
+            .set("model", model)
+            .set("content-type", "application/json")
+            .send_json(body)
+            .map_err(|e| fish_err("synthesize", e))?;
+        let mut bytes = Vec::new();
+        resp.into_reader()
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.is_empty() {
+            return Err("Fish Audio returned no audio".into());
+        }
+        Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalize_el_key;
+    use super::{normalize_el_key, parse_fish_voice_ref};
+
+    #[test]
+    fn parses_fish_voice_links() {
+        let id = "7f92f8afb8ec43bf81429cc1c9199cb1";
+        assert_eq!(parse_fish_voice_ref(id), id);
+        assert_eq!(
+            parse_fish_voice_ref(&format!("https://fish.audio/m/{id}/")),
+            id
+        );
+        assert_eq!(
+            parse_fish_voice_ref(&format!(
+                "https://fish.audio/app/text-to-speech/?modelId={id}&x=1"
+            )),
+            id
+        );
+    }
 
     const KEY: &str = "sk_1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJK";
 

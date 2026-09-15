@@ -7,6 +7,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- Fish Audio as a cloud TTS engine for Gemma's voice (Settings → Voice). The API key is stored in the OS keyring and verified before saving; pick an account voice or paste any fish.audio voice link/model ID, choose the S1/S2/S2.1 model (or the free-tier S2.1 Pro Free), and preview with Test. Like ElevenLabs, only reply text is sent, and playback falls back to the system voice on any failure.
+
 ### Fixed
 - macOS browser tabs and web panels now use a Safari-compatible user agent derived from the installed Safari version, avoiding unsupported-browser detection caused by the generic WKWebView identity.
 - Browser content no longer receives Tauri's app-identification marker, which Proton Mail interprets as its own desktop application. The trusted Flux shell keeps its marker, and IPC permissions remain unchanged. The narrowly patched Tauri 2.11.2 source and upgrade notes are recorded in `vendor/README.md`.
