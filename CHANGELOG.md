@@ -7,6 +7,9 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Fixed
+- The Browse and Research layout presets no longer switch off the ambient connections rail (and its system monitor). Applying either preset had turned the rail off and persisted that, so it stayed hidden afterwards. Develop still gives the width to the editor and terminal.
+
 ### Added
 - Fish Audio as a cloud TTS engine for Gemma's voice (Settings → Voice). The API key is stored in the OS keyring and verified before saving; pick an account voice or paste any fish.audio voice link/model ID, choose the S1/S2/S2.1 model (or the free-tier S2.1 Pro Free), and preview with Test. Like ElevenLabs, only reply text is sent, and playback falls back to the system voice on any failure.
 
