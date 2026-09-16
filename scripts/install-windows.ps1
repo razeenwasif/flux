@@ -21,6 +21,14 @@
         winget install Microsoft.EdgeWebView2Runtime).
       * Node >= 20 + npm -only needed if the frontend must be (re)built.
 
+.PARAMETER CliOnly
+    Skip updating the installed desktop app. By DEFAULT, if Flux is installed at
+    %LOCALAPPDATA%\Programs\Flux, the freshly built exe is swapped in there as
+    well as onto PATH — otherwise the app you launch from the Start menu keeps
+    running an old binary while `flux --version` reports the new one, and a fix
+    you just built appears not to have shipped. (That is exactly what happened on
+    2026-09-16: the app had been three weeks behind every CLI install.)
+
 .PARAMETER SkipFrontend
     Reuse the existing apps\shell\dist instead of rebuilding it (the dist is
     platform-neutral, so one built under WSL embeds fine). By DEFAULT the frontend
@@ -47,7 +55,11 @@ param(
     [switch]$Tauri,
     # Fast iteration build: the `release-fast` profile (no fat LTO, parallel codegen)
     # — ~2x faster than the shipping release, exe a touch larger. Good for testing.
-    [switch]$Fast
+    [switch]$Fast,
+    # Install ONLY the `flux` CLI onto PATH, leaving an installed desktop app
+    # (%LOCALAPPDATA%\Programs\Flux) on its old binary. The pre-2026-09-16
+    # behaviour; see the .PARAMETER CliOnly help for why it is not the default.
+    [switch]$CliOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -166,6 +178,48 @@ $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if ($userPath -notlike "*$dest*") {
     [Environment]::SetEnvironmentVariable('Path', "$userPath;$dest", 'User')
     Write-Host "Added $dest to your user PATH - open a new terminal to pick it up." -ForegroundColor Yellow
+}
+
+# --- Update the installed desktop app -----------------------------------------
+# The CLI copy above is NOT what the Start menu launches. Keep the two in step,
+# or a build lands on PATH while the app keeps its old exe.
+$appDir = Join-Path $env:LOCALAPPDATA 'Programs\Flux'
+$appExe = Join-Path $appDir 'flux.exe'
+if ($CliOnly) {
+    Write-Host "==> -CliOnly: leaving the installed app untouched" -ForegroundColor DarkYellow
+} elseif (-not (Test-Path $appExe)) {
+    Write-Host "==> No desktop app at $appDir - PATH install only" -ForegroundColor DarkGray
+} else {
+    $running = @(Get-Process flux -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -eq $appExe })
+    # Windows locks a running exe against overwrite but NOT against rename, so
+    # renaming the live binary and copying the new one in works while the app is
+    # open: the running process keeps its (renamed) image and the next launch
+    # picks up the new one. The rename doubles as the backup.
+    $stamp = (Get-Item $appExe).LastWriteTime.ToString('yyyy-MM-dd')
+    $backup = Join-Path $appDir "flux.exe.$stamp.bak"
+    Rename-Item $appExe $backup -Force
+    try {
+        Copy-Item $exe $appExe -Force
+    } catch {
+        # Put the old binary back rather than leaving the app with no exe at all.
+        Rename-Item $backup $appExe -Force
+        throw
+    }
+    Write-Host "==> Updated app:  $appExe (backup: $(Split-Path $backup -Leaf))" -ForegroundColor Green
+
+    # Keep the 3 most recent backups; older ones are dead weight (~21 MB each).
+    Get-ChildItem $appDir -Filter 'flux.exe.*.bak' |
+        Sort-Object LastWriteTime -Descending | Select-Object -Skip 3 |
+        ForEach-Object {
+            Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-Host "    pruned old backup: $($_.Name)" -ForegroundColor DarkGray
+        }
+
+    if ($running.Count -gt 0) {
+        Write-Host "`nFlux is RUNNING (PID $($running[0].Id)) on the old binary." -ForegroundColor Yellow
+        Write-Host "Quit and reopen it to pick this build up." -ForegroundColor Yellow
+    }
 }
 
 Write-Host "`nDone. Open a new terminal and run:  flux --version" -ForegroundColor Green
