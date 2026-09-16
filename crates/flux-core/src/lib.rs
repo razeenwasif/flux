@@ -1503,6 +1503,7 @@ pub fn run(intent: cli::LaunchIntent) {
             vault::vault_add,
             vault::vault_remove,
             vault::vault_import_proton,
+            vault::vault_export,
             vault::vault_fill,
             vault::vault_unlock,
             vault::vault_lock,

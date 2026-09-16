@@ -1080,6 +1080,15 @@ export const vaultRemove = (id: string) => invoke<void>("vault_remove", { id });
  *  `passphrase` is only needed for a PGP-encrypted export. Returns the count. */
 export const vaultImportProton = (path: string, passphrase?: string) =>
   invoke<number>("vault_import_proton", { path, passphrase: passphrase ?? null });
+/** Write the whole vault to `path` for another device. `"encrypted"` seals it
+ *  with `passphrase` (portable, device-independent, imported on the other side
+ *  by the same importer); `"csv"` writes **every password in the clear** and is
+ *  only for moving into another manager. Returns the number of logins written. */
+export const vaultExport = (
+  path: string,
+  format: "encrypted" | "csv",
+  passphrase?: string,
+) => invoke<number>("vault_export", { path, format, passphrase: passphrase ?? null });
 /** Autofill credential `id` into the active tab's login form (same-origin enforced). */
 export const vaultFill = (tabId: number, id: string) => invoke<void>("vault_fill", { tabId, id });
 /** Why autofill didn't offer on this tab. Chrome-only (never page-callable):

@@ -590,6 +590,157 @@ pub fn vault_import_proton(
     })?
 }
 
+/// Export the whole vault to `path` so it can be carried to another device
+/// (BACKLOG #61 follow-up; the vault is deliberately outside sync, ADR 0017).
+///
+/// Two formats, and the difference matters:
+///
+/// - `"encrypted"` (default): a passphrase-sealed `.fluxvault` file
+///   (Argon2id + AES-256-GCM, independent of this device's data key). Safe to
+///   put on a USB stick or through a sync folder; useless without the
+///   passphrase. The other device imports it on the same Import screen.
+/// - `"csv"`: **every password in the clear**, for moving into another manager.
+///   Only produced when the caller asks for it by name; the chrome confirms
+///   first, and the count we return is what the UI tells the user to delete.
+///
+/// Returns the number of logins written. Requires the vault unlocked.
+#[tauri::command]
+pub fn vault_export(
+    state: State<'_, VaultState>,
+    path: String,
+    format: Option<String>,
+    passphrase: Option<String>,
+) -> Result<usize, String> {
+    let target = PathBuf::from(path.trim());
+    if target.as_os_str().is_empty() {
+        return Err("choose where to write the export".into());
+    }
+    if target.is_dir() {
+        return Err(format!(
+            "{} is a folder — give a file path",
+            target.display()
+        ));
+    }
+    // Never let an export land on the live vault: `vault.bin`/`keywrap.json`
+    // are the one pair whose loss is unrecoverable.
+    let in_vault_dir = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| same_dir(p, &state.dir))
+        .unwrap_or(false);
+    if in_vault_dir {
+        return Err("refusing to write inside Flux's own vault folder".into());
+    }
+    if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+        if !parent.is_dir() {
+            return Err(format!("no such folder: {}", parent.display()));
+        }
+    }
+
+    let fmt = format.as_deref().unwrap_or("encrypted");
+    let pass = passphrase.unwrap_or_default();
+    let (bytes, count) = match fmt {
+        "encrypted" => {
+            if pass.trim().is_empty() {
+                return Err("an encrypted export needs a passphrase".into());
+            }
+            state.read_open(|v| {
+                v.export_encrypted(&pass)
+                    .map(|b| (Zeroizing::new(b), v.entries.len()))
+                    .map_err(|e| e.to_string())
+            })??
+        }
+        "csv" => state.read_open(|v| {
+            v.export_csv()
+                .map(|s| (Zeroizing::new(s.as_bytes().to_vec()), v.entries.len()))
+                .map_err(|e| e.to_string())
+        })??,
+        other => return Err(format!("unknown export format: {other}")),
+    };
+
+    write_secret(&target, &bytes).map_err(|e| format!("write {}: {e}", target.display()))?;
+    tracing::info!(
+        target: "flux::vault",
+        "exported {count} logins as {fmt} to {}",
+        target.display()
+    );
+    Ok(count)
+}
+
+/// Are these the same directory? Compares canonical paths where possible (so
+/// `.`, symlinks and drive-letter casing don't fool the guard), else the
+/// paths as given.
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
+/// Create `path` owner-only *before* writing secrets into it — a plain
+/// `fs::write` would publish a world-readable file first and tighten it after.
+fn write_secret(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    set_owner_only(path);
+    Ok(())
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    fn tmp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("flux-vault-export-test-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn write_secret_truncates_a_previous_export() {
+        let dir = tmp("truncate");
+        let p = dir.join("export.fluxvault");
+        write_secret(&p, b"a much longer previous export").unwrap();
+        // Re-exporting a smaller vault must not leave the old tail behind —
+        // a Flux export is length-delimited, but a stale tail would still be
+        // a chunk of the old ciphertext sitting on disk.
+        write_secret(&p, b"short").unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"short");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&p).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "export must be owner-only");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn same_dir_sees_through_dot_segments() {
+        let dir = tmp("samedir");
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        assert!(same_dir(&sub, &dir.join("sub")));
+        assert!(same_dir(&sub, &dir.join(".").join("sub")));
+        assert!(!same_dir(&sub, &dir));
+        // Non-existent paths can't canonicalize; fall back to comparing as given.
+        let ghost = dir.join("nope");
+        assert!(same_dir(&ghost, &ghost));
+        assert!(!same_dir(&ghost, &dir.join("other")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// Fill the active tab's login form with credential `id` (same-origin enforced;
 /// password injected straight into the page, never via the chrome's JS).
 #[tauri::command]
