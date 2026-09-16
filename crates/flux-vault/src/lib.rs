@@ -148,9 +148,10 @@ impl Vault {
             .collect()
     }
 
-    /// Import a Proton Pass export in whatever format it actually arrives as —
-    /// **CSV**, a **ZIP** (JSON/CSV inside), a **PGP-encrypted** blob (decrypted
-    /// with `passphrase`), or raw JSON. Detected by magic bytes + filename.
+    /// Import an export in whatever format it actually arrives as — a **Flux
+    /// encrypted export** (opened with `passphrase`), **CSV**, a **ZIP**
+    /// (JSON/CSV inside), a **PGP-encrypted** Proton blob (also `passphrase`),
+    /// or raw JSON. Detected by magic bytes + filename, never by user choice.
     pub fn import(
         &mut self,
         data: &[u8],
@@ -159,6 +160,11 @@ impl Vault {
     ) -> Result<usize, VaultError> {
         let lower = filename.to_ascii_lowercase();
 
+        // Flux's own encrypted export — passphrase-sealed, device-independent.
+        if data.starts_with(EXPORT_MAGIC) {
+            let plain = open_export(data, passphrase.unwrap_or(""))?;
+            return self.import_json(std::str::from_utf8(&plain).map_err(|_| VaultError::Crypto)?);
+        }
         // ZIP (PK\x03\x04) — Proton's full export.
         if data.starts_with(b"PK\x03\x04") || lower.ends_with(".zip") {
             return self.import_zip(data);
@@ -184,12 +190,15 @@ impl Vault {
     }
 
     /// Dispatch a JSON export to the right vendor parser by peeking at its
-    /// shape: Proton nests logins under `vaults`, Bitwarden under a flat
-    /// `items` array. Unknown shapes fall through to the Proton parser (a
+    /// shape: Flux's own export is a flat `entries` array, Proton nests logins
+    /// under `vaults`, Bitwarden under a flat `items` array. Unknown shapes fall
+    /// through to the Proton parser (a
     /// no-op that returns 0 rather than erroring on an empty/foreign file).
     pub fn import_json(&mut self, json: &str) -> Result<usize, VaultError> {
         let probe: serde_json::Value = serde_json::from_str(json)?;
-        if probe.get("vaults").is_some() {
+        if probe.get("entries").is_some() {
+            self.import_flux(json)
+        } else if probe.get("vaults").is_some() {
             self.import_proton(json)
         } else if probe.get("items").is_some() {
             self.import_bitwarden(json)
@@ -403,6 +412,121 @@ impl Vault {
         }
         Ok(n)
     }
+
+    // ─── Export (BACKLOG #61 follow-up) ──────────────────────────────────────
+
+    /// Import a **Flux** export — the `{"entries":[…]}` shape `export_csv`'s
+    /// encrypted sibling carries. Ids are content-stable already, but a foreign
+    /// or hand-edited file may omit them, so a missing id is re-derived rather
+    /// than trusted; that also means a round-trip through another vault dedupes
+    /// against what is already here instead of duplicating it.
+    pub fn import_flux(&mut self, json: &str) -> Result<usize, VaultError> {
+        let incoming: Vault = serde_json::from_str(json)?;
+        let mut n = 0;
+        for mut c in incoming.entries {
+            if c.password.trim().is_empty() && c.username.trim().is_empty() {
+                continue; // not a real login
+            }
+            if c.id.trim().is_empty() {
+                let first = c.urls.first().cloned().unwrap_or_default();
+                c.id = Credential::stable_id(&c.name, &c.username, &first);
+            }
+            self.upsert(c);
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    /// Serialize every login to **plaintext CSV**, in the column shape
+    /// [`Vault::import_csv`] reads back (so an export round-trips through this
+    /// vault, Bitwarden, or any importer that speaks the common header names).
+    ///
+    /// The returned string is [`Zeroizing`]: it holds every password in the
+    /// clear, and the caller is responsible for the file it lands in. Multiple
+    /// URLs are space-joined — `import_csv` splits the column on spaces and
+    /// commas, so the round-trip preserves them.
+    pub fn export_csv(&self) -> Result<Zeroizing<String>, VaultError> {
+        let mut w = csv::Writer::from_writer(vec![]);
+        w.write_record(["name", "url", "username", "password", "totp", "note"])
+            .map_err(|e| VaultError::Import(e.to_string()))?;
+        for c in &self.entries {
+            w.write_record([
+                c.name.as_str(),
+                &c.urls.join(" "),
+                c.username.as_str(),
+                c.password.as_str(),
+                c.totp.as_str(),
+                c.notes.as_str(),
+            ])
+            .map_err(|e| VaultError::Import(e.to_string()))?;
+        }
+        let bytes = Zeroizing::new(
+            w.into_inner()
+                .map_err(|e| VaultError::Import(e.to_string()))?,
+        );
+        String::from_utf8(bytes.to_vec())
+            .map(Zeroizing::new)
+            .map_err(|_| VaultError::Crypto)
+    }
+
+    /// Seal every login into a **portable encrypted export**, openable on
+    /// another device with nothing but `passphrase`.
+    ///
+    /// Deliberately independent of this device's data key: a fresh export key is
+    /// drawn, wrapped by an Argon2id KEK from the passphrase (the same wrapping
+    /// the master password uses), and the vault is sealed under it. Layout:
+    ///
+    /// ```text
+    /// "FLUXVLT1" ‖ u32-LE header_len ‖ KeyWrap JSON ‖ nonce(12) ‖ AES-256-GCM(export_key, vault JSON)
+    /// ```
+    pub fn export_encrypted(&self, passphrase: &str) -> Result<Vec<u8>, VaultError> {
+        if passphrase.is_empty() {
+            return Err(VaultError::Import(
+                "an encrypted export needs a passphrase".into(),
+            ));
+        }
+        let ek = Zeroizing::new(new_key());
+        let wrap = wrap_key(passphrase, &ek)?;
+        let header = serde_json::to_vec(&wrap)?;
+        let body = self.encrypt(&ek)?;
+        let mut out = Vec::with_capacity(EXPORT_MAGIC.len() + 4 + header.len() + body.len());
+        out.extend_from_slice(EXPORT_MAGIC);
+        out.extend_from_slice(&(header.len() as u32).to_le_bytes());
+        out.extend_from_slice(&header);
+        out.extend_from_slice(&body);
+        Ok(out)
+    }
+}
+
+/// Magic prefix of a Flux encrypted export (see [`Vault::export_encrypted`]).
+pub const EXPORT_MAGIC: &[u8; 8] = b"FLUXVLT1";
+
+/// Open a Flux encrypted export → the plaintext vault JSON.
+fn open_export(data: &[u8], passphrase: &str) -> Result<Zeroizing<Vec<u8>>, VaultError> {
+    let rest = data
+        .get(EXPORT_MAGIC.len()..)
+        .ok_or_else(|| VaultError::Import("truncated Flux export".into()))?;
+    let (len_bytes, rest) = rest
+        .split_at_checked(4)
+        .ok_or_else(|| VaultError::Import("truncated Flux export".into()))?;
+    let header_len = u32::from_le_bytes(len_bytes.try_into().expect("4 bytes")) as usize;
+    let (header, body) = rest
+        .split_at_checked(header_len)
+        .ok_or_else(|| VaultError::Import("truncated Flux export".into()))?;
+    let wrap: KeyWrap = serde_json::from_slice(header)?;
+    if passphrase.is_empty() {
+        // Worth its own message: the caller reached here by magic bytes, so the
+        // file is fine and only the passphrase prompt was missed.
+        return Err(VaultError::Import(
+            "this is an encrypted Flux export — give its passphrase".into(),
+        ));
+    }
+    // A wrong passphrase fails the KEK's AEAD tag, not the body's.
+    let ek = Zeroizing::new(
+        unwrap_key(passphrase, &wrap)
+            .map_err(|_| VaultError::Import("wrong export passphrase".into()))?,
+    );
+    Ok(Zeroizing::new(open(&ek, body)?))
 }
 
 fn first_nonempty<'a>(candidates: &[&'a String]) -> &'a str {
@@ -738,6 +862,100 @@ mod tests {
         assert_eq!(back.entries.len(), 1);
         assert_eq!(back.entries[0].password, "s3cret");
         assert!(Vault::decrypt(&key(), b"too short").is_err());
+    }
+
+    fn sample_vault() -> Vault {
+        let mut v = Vault::new();
+        v.upsert(Credential {
+            id: "a".into(),
+            name: "GitHub, Inc".into(), // comma: exercises CSV quoting
+            urls: vec![
+                "https://github.com".into(),
+                "https://gist.github.com".into(),
+            ],
+            username: "octocat".into(),
+            password: "s3cret,\"x\"".into(),
+            totp: "otpauth://totp/GitHub".into(),
+            notes: "line one\nline two".into(),
+            created_ms: 7,
+        });
+        v.upsert(Credential {
+            id: "b".into(),
+            name: "Mail".into(),
+            urls: vec!["https://mail.proton.me".into()],
+            username: "me@proton.me".into(),
+            password: "hunter2".into(),
+            totp: String::new(),
+            notes: String::new(),
+            created_ms: 0,
+        });
+        v
+    }
+
+    #[test]
+    fn csv_export_roundtrips_through_the_importer() {
+        let csv = sample_vault().export_csv().unwrap();
+        let mut back = Vault::new();
+        assert_eq!(back.import_csv(&csv).unwrap(), 2);
+        let gh = back
+            .entries
+            .iter()
+            .find(|c| c.name == "GitHub, Inc")
+            .unwrap();
+        assert_eq!(gh.password, "s3cret,\"x\"");
+        assert_eq!(gh.username, "octocat");
+        assert_eq!(gh.totp, "otpauth://totp/GitHub");
+        assert_eq!(gh.notes, "line one\nline two");
+        // Space-joined URLs survive the round-trip as separate entries.
+        assert_eq!(gh.urls.len(), 2);
+        assert!(gh.matches_host("gist.github.com"));
+    }
+
+    #[test]
+    fn encrypted_export_roundtrips_and_needs_the_passphrase() {
+        let blob = sample_vault().export_encrypted("correct horse").unwrap();
+        assert!(blob.starts_with(EXPORT_MAGIC));
+        // Nothing recognizable in the clear.
+        assert!(!blob.windows(7).any(|w| w == b"hunter2"));
+
+        // Format is detected from the magic bytes, not the filename.
+        let mut back = Vault::new();
+        assert_eq!(
+            back.import(&blob, "whatever.bin", Some("correct horse"))
+                .unwrap(),
+            2
+        );
+        let mail = back.entries.iter().find(|c| c.name == "Mail").unwrap();
+        assert_eq!(mail.password, "hunter2");
+        assert_eq!(mail.id, "b"); // ids preserved, so re-import dedupes
+
+        // Wrong / missing passphrase fails loudly rather than importing junk.
+        assert!(Vault::new()
+            .import(&blob, "x.fluxvault", Some("wrong"))
+            .is_err());
+        assert!(Vault::new().import(&blob, "x.fluxvault", None).is_err());
+        // Truncation is an error, not a panic.
+        assert!(Vault::new()
+            .import(
+                &blob[..EXPORT_MAGIC.len() + 2],
+                "x.fluxvault",
+                Some("correct horse"),
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn reimporting_an_export_dedupes_instead_of_duplicating() {
+        let v = sample_vault();
+        let blob = v.export_encrypted("pw").unwrap();
+        let mut back = v.clone();
+        assert_eq!(back.import(&blob, "x.fluxvault", Some("pw")).unwrap(), 2);
+        assert_eq!(back.entries.len(), 2); // upserted by id, not appended
+    }
+
+    #[test]
+    fn export_encrypted_refuses_an_empty_passphrase() {
+        assert!(sample_vault().export_encrypted("").is_err());
     }
 
     #[test]

@@ -8,6 +8,30 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 ## [Unreleased]
 
 ### Added
+- **Vault export — the vault can now leave this device (#61, ADR 0009).** The password vault is
+  deliberately outside sync (ADR 0017), which left exactly one way to move it: copying
+  `vault.bin` + `keywrap.json` by hand, and only in master-password mode — in keychain mode the
+  data key never leaves Windows Credential Manager, so the copy is undecryptable.
+
+  `vault_export` writes a real export instead, in one of two formats. **`.fluxvault`** is
+  passphrase-sealed: a fresh export key, Argon2id-wrapped exactly as the master password is
+  (19 MiB / t=2), sealing an AES-256-GCM body, behind an `FLUXVLT1` magic header. It is keyed by
+  the passphrase *alone* — not by this device's data key — so it opens on a machine whose vault
+  is empty, keychain-protected, or protected by a different password. **Plain CSV** is the exit
+  door to another manager, and is only written when the caller names the format and the user ticks
+  an acknowledgement.
+
+  The export reads back through the **existing importer**, detected by magic bytes like Proton's
+  ZIP or PGP — no format picker to get wrong. Credential ids are content-stable, so importing an
+  export **upserts**: re-exporting to re-sync a second device updates in place instead of piling
+  up duplicates.
+
+  Guards worth naming: the command refuses to write inside Flux's own vault folder (canonicalized,
+  so `.` and symlinks don't slip past), creates the file `0600` on unix *before* the secrets go in
+  rather than tightening afterwards, and truncates — re-exporting a smaller vault can't leave a
+  tail of the previous ciphertext on disk. An empty passphrase is refused rather than silently
+  producing a file anyone can open.
+
 - **Nvim editor column toggle shortcut, footer button, and setting (#174).** Added `Ctrl+Shift+E` / `Cmd+Shift+E` keyboard shortcut (also forwarded from page webviews and terminal), a dedicated sidebar footer icon button, and an Appearance setting toggle to easily show or hide the persistent editor column.
 
 ### Added

@@ -963,6 +963,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(undefined as T);
     case "vault_import_proton":
       return Promise.resolve(0 as T); // no filesystem in the preview
+    case "vault_export":
+      return Promise.resolve(mockVault.length as T); // no filesystem in the preview
     case "vault_fill":
       return Promise.resolve(undefined as T);
     case "cookies_status":

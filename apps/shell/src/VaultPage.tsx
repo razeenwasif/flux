@@ -13,6 +13,7 @@ import { visibleInterval } from "./poll";
 import {
   vaultAdd,
   vaultDisableMasterPassword,
+  vaultExport,
   vaultImportProton,
   vaultList,
   vaultLock,
@@ -29,7 +30,7 @@ import {
 } from "./ipc";
 import { activeId, updateTabTitle } from "./store";
 
-type Pane = "detail" | "add" | "import" | "security";
+type Pane = "detail" | "add" | "import" | "export" | "security";
 
 function avatarColor(name: string): string {
   let h = 0;
@@ -58,6 +59,11 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const [form, setForm] = createSignal({ name: "", url: "", username: "", password: "" });
   const [impPath, setImpPath] = createSignal("");
   const [impPass, setImpPass] = createSignal("");
+  const [expPath, setExpPath] = createSignal("");
+  const [expFormat, setExpFormat] = createSignal<"encrypted" | "csv">("encrypted");
+  const [expPass, setExpPass] = createSignal("");
+  const [expPass2, setExpPass2] = createSignal("");
+  const [expAck, setExpAck] = createSignal(false); // plaintext-CSV acknowledgement
   const [mpw, setMpw] = createSignal("");
   const [mpw2, setMpw2] = createSignal("");
 
@@ -142,15 +148,52 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       setMsg(String(e));
     }
   };
-  const isPgp = () => /\.(pgp|gpg)$/i.test(impPath().trim());
+  /** Formats whose import needs a passphrase: PGP (Proton) and Flux's own. */
+  const needsPass = () => /\.(pgp|gpg|fluxvault)$/i.test(impPath().trim());
   const runImport = async () => {
     if (!impPath().trim()) return;
     try {
-      const n = await vaultImportProton(impPath().trim(), isPgp() ? impPass() : undefined);
+      const n = await vaultImportProton(impPath().trim(), needsPass() ? impPass() : undefined);
       setImpPath("");
       setImpPass("");
       setMsg(`Imported ${n} login${n === 1 ? "" : "s"}`);
       refresh();
+    } catch (e) {
+      setMsg(String(e));
+    }
+  };
+  /** Keep the filename's extension honest when the format changes. */
+  const swapExt = (fmt: "encrypted" | "csv") => {
+    const want = fmt === "csv" ? ".csv" : ".fluxvault";
+    const p = expPath().trim();
+    if (p) setExpPath(p.replace(/\.(fluxvault|csv)$/i, "") + want);
+  };
+  const runExport = async () => {
+    const path = expPath().trim();
+    if (!path) return;
+    if (expFormat() === "encrypted") {
+      if (expPass().length < 8) {
+        setMsg("use a passphrase of at least 8 characters");
+        return;
+      }
+      if (expPass() !== expPass2()) {
+        setMsg("passphrases don't match");
+        return;
+      }
+    } else if (!expAck()) {
+      setMsg("tick the box to confirm an unencrypted export");
+      return;
+    }
+    try {
+      const n = await vaultExport(
+        path,
+        expFormat(),
+        expFormat() === "encrypted" ? expPass() : undefined,
+      );
+      setExpPass("");
+      setExpPass2("");
+      setExpAck(false);
+      setMsg(`Exported ${n} login${n === 1 ? "" : "s"} to ${path}`);
     } catch (e) {
       setMsg(String(e));
     }
@@ -246,6 +289,16 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
               }}
             >
               Import
+            </button>
+            <button
+              class="vault-btn"
+              classList={{ on: pane() === "export" }}
+              onClick={() => {
+                setPane("export");
+                setSelId(null);
+              }}
+            >
+              Export
             </button>
             <button
               class="vault-btn"
@@ -356,22 +409,23 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
             <Show when={pane() === "import"}>
               <h3>Import passwords</h3>
               <p class="vault-hint">
-                Export from <b>Proton Pass</b> (CSV, ZIP, PGP, JSON), <b>Chrome</b> (Settings → Passwords →
-                Export, CSV), or <b>Bitwarden</b> (unencrypted CSV/JSON) and give the file path. The format is
+                Takes a <b>Flux export</b> (<code>.fluxvault</code> — give its passphrase below),
+                <b>Proton Pass</b> (CSV, ZIP, PGP, JSON), <b>Chrome</b> (Settings → Passwords → Export,
+                CSV), or <b>Bitwarden</b> (unencrypted CSV/JSON). Give the file path; the format is
                 detected automatically. No live sync — re-import to refresh.
               </p>
               <label class="vault-field">
                 <span>File path</span>
                 <input
                   class="vault-input"
-                  placeholder="/path/to/export.csv (.zip / .pgp / .json)"
+                  placeholder="/path/to/export.csv (.fluxvault / .zip / .pgp / .json)"
                   value={impPath()}
                   onInput={(e) => setImpPath(e.currentTarget.value)}
                 />
               </label>
-              <Show when={isPgp()}>
+              <Show when={needsPass()}>
                 <label class="vault-field">
-                  <span>PGP passphrase</span>
+                  <span>Passphrase</span>
                   <input
                     class="vault-input"
                     type="password"
@@ -387,6 +441,96 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                   onClick={() => void runImport()}
                 >
                   Import
+                </button>
+              </div>
+            </Show>
+
+            <Show when={pane() === "export"}>
+              <h3>Export passwords</h3>
+              <p class="vault-hint">
+                The vault is deliberately left out of sync, so moving it to another device is an
+                explicit act. Write a file here, carry it over, and open it on the other device's{" "}
+                <b>Import</b> screen — the format is detected automatically.
+              </p>
+              <label class="vault-field">
+                <span>Format</span>
+                <select
+                  class="vault-input"
+                  value={expFormat()}
+                  onChange={(e) => {
+                    const f = e.currentTarget.value as "encrypted" | "csv";
+                    setExpFormat(f);
+                    swapExt(f);
+                  }}
+                >
+                  <option value="encrypted">Encrypted (.fluxvault) — for another Flux</option>
+                  <option value="csv">Plain CSV — for another password manager</option>
+                </select>
+              </label>
+              <label class="vault-field">
+                <span>Save to</span>
+                <input
+                  class="vault-input"
+                  placeholder={
+                    expFormat() === "csv"
+                      ? "/path/to/passwords.csv"
+                      : "/path/to/flux-vault.fluxvault"
+                  }
+                  value={expPath()}
+                  onInput={(e) => setExpPath(e.currentTarget.value)}
+                />
+              </label>
+
+              <Show when={expFormat() === "encrypted"}>
+                <p class="vault-hint">
+                  Sealed with Argon2id + AES-256-GCM under the passphrase below — not with this
+                  device's key, so the other device needs nothing but the passphrase. Lose it and the
+                  file is gone; there is no recovery.
+                </p>
+                <label class="vault-field">
+                  <span>Passphrase</span>
+                  <input
+                    class="vault-input"
+                    type="password"
+                    value={expPass()}
+                    onInput={(e) => setExpPass(e.currentTarget.value)}
+                  />
+                </label>
+                <label class="vault-field">
+                  <span>Confirm passphrase</span>
+                  <input
+                    class="vault-input"
+                    type="password"
+                    value={expPass2()}
+                    onInput={(e) => setExpPass2(e.currentTarget.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void runExport()}
+                  />
+                </label>
+              </Show>
+
+              <Show when={expFormat() === "csv"}>
+                <div class="vault-danger">
+                  <b>⚠ This file holds every password in plain text.</b> Anything that can read the
+                  file — another user on this machine, a backup, a sync folder, an indexer — can read
+                  your logins. Import it on the other device and delete it immediately.
+                </div>
+                <label class="vault-check">
+                  <input
+                    type="checkbox"
+                    checked={expAck()}
+                    onChange={(e) => setExpAck(e.currentTarget.checked)}
+                  />
+                  <span>I understand this export is not encrypted.</span>
+                </label>
+              </Show>
+
+              <div class="vault-row">
+                <button
+                  class="vault-btn primary"
+                  disabled={!expPath().trim() || (expFormat() === "csv" && !expAck())}
+                  onClick={() => void runExport()}
+                >
+                  Export {status()?.count ?? 0} login{(status()?.count ?? 0) === 1 ? "" : "s"}
                 </button>
               </div>
             </Show>

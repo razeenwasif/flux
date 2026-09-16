@@ -69,9 +69,28 @@ default (E2E sync is a separate item, #62).
   after import. Chrome/Bitwarden/1Password importers slot in behind the same
   `Credential` model.
 
+### Export
+- **Two formats, because they answer different questions.** `.fluxvault` is a
+  passphrase-sealed container (fresh export key, Argon2id-wrapped, AES-256-GCM
+  body) for *moving the vault to another Flux*; plain CSV is for *leaving*, and
+  is written only when the caller names the format and the user ticks a box.
+- The encrypted export is deliberately **independent of the device's data key**:
+  keyed by passphrase alone, it opens on a machine with a different keychain
+  entry, a different master password, or no vault at all. The alternative —
+  shipping the data key — would make the file exactly as sensitive as `key.bin`
+  and unusable in password mode.
+- It is read back by the **same importer**, detected by magic bytes like every
+  other format. Ids are content-stable, so re-importing an export **upserts**
+  rather than duplicating, and a device can be re-synced by re-exporting.
+- The vault stays **out of sync** ([0017](0017-sync.md)). Export is the seam:
+  an explicit, user-initiated act with a passphrase attached, not a folder that
+  quietly replicates every password to wherever Syncthing points.
+
 ## Consequences
 - Autofill works offline and is engine-agnostic (injection, not an extension).
 - Proton data is a **snapshot**: re-export to resync until/unless Proton offers
   an API. Documented in the import UI.
+- Moving devices costs a passphrase the user must not lose — there is no
+  recovery path for a `.fluxvault` file, by construction.
 - Crypto + keychain are platform/runtime surfaces (verified by compile + the
   pure crypto/import unit tests here; behavioral verification on Windows).
