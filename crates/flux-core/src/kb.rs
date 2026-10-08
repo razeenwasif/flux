@@ -386,6 +386,10 @@ pub struct KbStore {
     data: Arc<RwLock<KbData>>,
     initialized: Arc<std::sync::Once>,
     indexing: Arc<AtomicBool>,
+    /// One `persist` at a time, snapshot through last rename: interleaved, one
+    /// call's sidecar can land beside the other's JSON, and `hydrate` refuses
+    /// that pair along with the whole corpus.
+    persist_lock: Arc<parking_lot::Mutex<()>>,
 }
 
 fn now_ms() -> u64 {
@@ -414,6 +418,7 @@ impl Default for KbStore {
             data: Arc::new(RwLock::new(KbData::default())),
             initialized: Arc::new(std::sync::Once::new()),
             indexing: Arc::new(AtomicBool::new(false)),
+            persist_lock: Arc::default(),
         }
     }
 }
@@ -431,6 +436,13 @@ impl KbStore {
         index.with_extension("vec")
     }
 
+    /// The sidecar the on-disk JSON was written against, kept by `persist`
+    /// until the JSON naming its replacement is in place, so a crash, kill or
+    /// failed write between the two files still leaves a matching pair.
+    fn prev_vectors_path(index: &std::path::Path) -> PathBuf {
+        index.with_extension("vec.prev")
+    }
+
     /// Load the persisted index from disk (idempotent).
     pub fn hydrate(&self) {
         self.initialized.call_once(|| {
@@ -442,23 +454,35 @@ impl KbStore {
                 return;
             };
 
-            let sidecar = std::fs::read(Self::vectors_path(path))
-                .ok()
-                .and_then(|b| {
-                    if let Some(expected_hash) = data.vecs_hash {
-                        let actual = hash_bytes(&b);
-                        if actual != expected_hash {
-                            tracing::warn!(
-                                target: "flux::kb",
-                                expected = expected_hash,
-                                actual,
-                                "vector sidecar hash mismatch; refusing mismatched sidecar"
-                            );
-                            return None;
-                        }
+            // The current sidecar, else the one `persist` set aside before
+            // replacing it: a crash or failed write between the sidecar and the
+            // JSON leaves the JSON paired with that one.
+            let (vec_path, prev_path) = (Self::vectors_path(path), Self::prev_vectors_path(path));
+            let expected = data.vecs_hash;
+            let matching = |p: &Path| {
+                std::fs::read(p)
+                    .ok()
+                    .filter(|b| expected.is_none_or(|h| hash_bytes(b) == h))
+            };
+            let bytes = match matching(&vec_path) {
+                Some(b) => Some(b),
+                None => {
+                    let prev = matching(&prev_path);
+                    if prev.is_some() {
+                        // Back from an interrupted persist: make the pair
+                        // current again, so the next persist sets *it* aside.
+                        let _ = std::fs::rename(&prev_path, &vec_path);
+                    } else if vec_path.exists() {
+                        tracing::warn!(
+                            target: "flux::kb",
+                            expected = ?expected,
+                            "vector sidecar hash mismatch; refusing mismatched sidecar"
+                        );
                     }
-                    VecStore::from_bytes(&b)
-                });
+                    prev
+                }
+            };
+            let sidecar = bytes.and_then(|b| VecStore::from_bytes(&b));
             let mut migrated = false;
 
             match sidecar {
@@ -538,20 +562,37 @@ impl KbStore {
 
     fn persist(&self) {
         let Some(path) = &self.path else { return };
+        let _writing = self.persist_lock.lock();
         let (json, vecs_bytes) = {
             let mut d = self.data.write();
             let vecs_bytes = d.vecs.to_bytes();
             d.vecs_hash = Some(hash_bytes(&vecs_bytes));
             d.generation = d.generation.wrapping_add(1);
+            // Only the two fields above need the write guard; encoding the
+            // whole index under it would stall every query meanwhile.
+            let d = parking_lot::RwLockWriteGuard::downgrade(d);
             let json = serde_json::to_string(&*d).ok();
             (json, vecs_bytes)
         };
-        if let Some(json) = json {
-            let vec_path = Self::vectors_path(path);
-            if crate::persist::write_atomic(&vec_path, &vecs_bytes).is_ok() {
-                let _ = crate::persist::write_atomic(path, json.as_bytes());
-            }
+        let Some(json) = json else { return };
+        let (vec_path, prev_path) = (Self::vectors_path(path), Self::prev_vectors_path(path));
+        // Set aside the sidecar the on-disk JSON pairs with; `hydrate` falls back
+        // to it, so no crash point leaves the JSON without its sidecar. With no
+        // current sidecar (the last write failed) this fails, and the `.prev`
+        // already there, still the JSON's pair, stays.
+        let _ = std::fs::rename(&vec_path, &prev_path);
+        if let Err(e) = crate::persist::write_atomic(&vec_path, &vecs_bytes) {
+            tracing::warn!(target: "flux::kb", "KB vector sidecar not written: {e}");
+            return;
         }
+        if let Err(e) = crate::persist::write_atomic(path, json.as_bytes()) {
+            tracing::warn!(target: "flux::kb", "KB index not written: {e}");
+            // The old JSON is still in place: put its sidecar back beside it.
+            let _ = std::fs::rename(&prev_path, &vec_path);
+            return;
+        }
+        // Committed; the fallback is no longer needed.
+        let _ = std::fs::remove_file(&prev_path);
     }
 
     pub fn status(&self) -> KbStatus {
@@ -2727,6 +2768,110 @@ mod tests {
         assert_eq!(d.vecs.len(), 0);
         drop(d);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn three_docs() -> Vec<RawDoc> {
+        (0..3)
+            .map(|i| RawDoc {
+                doc_id: format!("d{i}.md"),
+                title: format!("Doc {i}"),
+                path: format!("/d{i}.md"),
+                mtime: 1,
+                body: format!("document {i} about rust and borrowing"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_persist_interrupted_between_its_two_files_keeps_the_corpus() {
+        // `persist` writes the sidecar, then the JSON. Dying in between used to
+        // leave a new sidecar beside the old JSON, which the next boot refused,
+        // clearing every source with it.
+        let dir = std::env::temp_dir().join(format!("flux-kb-torn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let index = dir.join("kb-index.json");
+        let store = KbStore::empty(index.clone());
+        store
+            .reindex_source("onyx", Embedder::Hash, three_docs())
+            .unwrap();
+        store.data.write().embedder = Embedder::Hash;
+        store.persist();
+
+        // The next persist set the old sidecar aside and wrote its new one, and
+        // the process died before the JSON landed.
+        let (vec_path, prev_path) = (
+            KbStore::vectors_path(&index),
+            KbStore::prev_vectors_path(&index),
+        );
+        std::fs::rename(&vec_path, &prev_path).unwrap();
+        let mut newer = VecStore::default();
+        newer.push(&embedding::embed_with("something else", Embedder::Hash).unwrap());
+        std::fs::write(&vec_path, newer.to_bytes()).unwrap();
+
+        let reopened = KbStore::empty(index);
+        assert_eq!(reopened.query("rust borrowing", 5, None).unwrap().len(), 3);
+        assert!(!reopened.data.read().errors.contains_key("onyx"));
+        assert!(
+            !prev_path.exists(),
+            "the recovered sidecar is the current one again"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_persists_leave_a_matching_pair() {
+        let dir = std::env::temp_dir().join(format!("flux-kb-racing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let index = dir.join("kb-index.json");
+        let store = KbStore::empty(index.clone());
+        let raw: Vec<RawDoc> = (0..8)
+            .map(|i| RawDoc {
+                doc_id: format!("d{i}.md"),
+                title: format!("Doc {i}"),
+                path: format!("/d{i}.md"),
+                mtime: 1,
+                body: format!("document {i} about rust and borrowing"),
+            })
+            .collect();
+        store.reindex_source("onyx", Embedder::Hash, raw).unwrap();
+        store.data.write().embedder = Embedder::Hash;
+        store.persist();
+        // As in the app, every persist below follows the one-time load.
+        store.hydrate();
+
+        // Trail forgets and rebuilds persist from different threads at once.
+        std::thread::scope(|s| {
+            for i in 0..8 {
+                let store = &store;
+                s.spawn(move || {
+                    if i % 2 == 0 {
+                        store.remove_docs("onyx", &[format!("d{i}.md")]);
+                    } else {
+                        store.persist();
+                    }
+                });
+            }
+        });
+
+        let reopened = KbStore::empty(index.clone());
+        reopened.hydrate();
+        let d = reopened.data.read();
+        assert!(
+            d.paired() && !d.errors.contains_key("onyx"),
+            "the pair on disk matches"
+        );
+        let mut ids: Vec<&str> = d.docs.iter().map(|x| x.doc_id.as_str()).collect();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            ["d1.md", "d3.md", "d5.md", "d7.md"],
+            "and holds every removal"
+        );
+        drop(d);
+        assert!(!KbStore::prev_vectors_path(&index).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
