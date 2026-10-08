@@ -80,6 +80,12 @@ pub struct LocalEvent {
     /// before recurrence existed load as one-off.
     #[serde(default)]
     pub rrule: String,
+    /// Last add/edit on this device (ms), compared against tombstones on sync
+    /// exactly as `Todo::updated_ms` is. Events saved before this existed are
+    /// stamped in `restore`, so tombstones they predate (which `merge` never
+    /// enforced) don't retroactively delete them.
+    #[serde(default)]
+    pub updated_ms: u64,
 }
 
 #[derive(Default)]
@@ -231,9 +237,16 @@ impl LocalEventStore {
             items: serde_json::from_str(&raw).unwrap_or_default(),
             tombstones: Default::default(),
         });
-        let next = p.items.iter().map(|e| e.id).max().unwrap_or(0) + 1;
+        let mut items = p.items;
+        let now = now_ms();
+        for e in &mut items {
+            if e.updated_ms == 0 {
+                e.updated_ms = now;
+            }
+        }
+        let next = items.iter().map(|e| e.id).max().unwrap_or(0) + 1;
         Self {
-            items: RwLock::new(p.items),
+            items: RwLock::new(items),
             tombstones: RwLock::new(p.tombstones),
             next_id: AtomicU64::new(next),
             path: Some(path),
@@ -245,8 +258,9 @@ impl LocalEventStore {
     }
 
     /// Merge remote events, keyed by date + start + title. An event both
-    /// devices have is left alone: there's no per-event timestamp to decide
-    /// which edit is newer, so the safe move is to keep what's here rather than
+    /// devices have is left alone: `updated_ms` only orders it against
+    /// deletions (older events are stamped when loaded, so it can't say whose
+    /// wording is newer), so the safe move is to keep what's here rather than
     /// let whichever device synced last silently overwrite the other's wording.
     pub fn merge(
         &self,
@@ -259,11 +273,11 @@ impl LocalEventStore {
         let mut items = self.items.write();
         let mut tombs = self.tombstones.write();
         merge_into(&mut tombs, remote_tombs);
-        items.retain(|e| !suppressed(&tombs, &event_key(e), u64::MAX));
+        items.retain(|e| !suppressed(&tombs, &event_key(e), e.updated_ms));
         let mut added = 0;
         for r in remote {
             let key = event_key(&r);
-            if suppressed(&tombs, &key, u64::MAX) || items.iter().any(|e| event_key(e) == key) {
+            if suppressed(&tombs, &key, r.updated_ms) || items.iter().any(|e| event_key(e) == key) {
                 continue;
             }
             items.push(LocalEvent {
@@ -302,8 +316,13 @@ impl LocalEventStore {
             location,
             notes,
             rrule,
+            updated_ms: now_ms(),
         };
-        self.items.write().push(ev.clone());
+        let mut items = self.items.write();
+        // Re-creating an event un-buries its key, as re-adding a bookmark does.
+        self.tombstones.write().remove(&event_key(&ev));
+        items.push(ev.clone());
+        drop(items);
         self.save();
         ev
     }
@@ -324,6 +343,7 @@ impl LocalEventStore {
         let out = {
             let mut items = self.items.write();
             let e = items.iter_mut().find(|e| e.id == id)?;
+            let old_key = event_key(e);
             if let Some(v) = title {
                 e.title = v;
             }
@@ -345,7 +365,21 @@ impl LocalEventStore {
             if let Some(v) = rrule {
                 e.rrule = v;
             }
-            e.clone()
+            e.updated_ms = now_ms();
+            let out = e.clone();
+            let new_key = event_key(&out);
+            if new_key != old_key {
+                let mut tombs = self.tombstones.write();
+                tombs.remove(&new_key);
+                // The key is this event's identity in the sync blob and on other
+                // devices: without a tombstone the old slot is re-added by the
+                // next merge as a duplicate. Not while an identical event still
+                // holds that key here, or the tombstone would delete it too.
+                if !items.iter().any(|o| event_key(o) == old_key) {
+                    tombs.insert(old_key, out.updated_ms);
+                }
+            }
+            out
         };
         self.save();
         Some(out)
@@ -561,6 +595,7 @@ fn ics_to_local_events(ics: &str) -> Vec<LocalEvent> {
             location: v.location,
             notes: String::new(),
             rrule: v.rrule,
+            updated_ms: 0, // stamped by the store on insert
         });
     });
     out
@@ -1265,6 +1300,94 @@ END:VCALENDAR";
         assert!(store.list().is_empty());
     }
 
+    fn event_at(s: &LocalEventStore, title: &str, date: &str, start: &str) -> LocalEvent {
+        let blank = String::new;
+        s.add(
+            title.into(),
+            date.into(),
+            start.into(),
+            blank(),
+            blank(),
+            blank(),
+            blank(),
+        )
+    }
+
+    fn move_to(s: &LocalEventStore, id: u64, date: &str, start: &str) {
+        let (date, start) = (Some(date.into()), Some(start.into()));
+        s.update(id, None, date, start, None, None, None, None)
+            .unwrap();
+    }
+
+    #[test]
+    fn moving_an_event_does_not_duplicate_it_on_sync() {
+        // date|start|title is the sync key, so a drag changes it. The blob still
+        // holds the old slot this device pushed, and without a tombstone the next
+        // merge put it straight back as a second event.
+        let a = LocalEventStore::default();
+        let e = event_at(&a, "Dentist", "2026-06-26", "09:00");
+        let published = a.list();
+        move_to(&a, e.id, "2026-06-27", "10:00");
+        a.merge(published.clone(), &a.tombstones());
+        assert_eq!(a.list().len(), 1, "the old slot came back");
+
+        // A device still holding the old copy drops it rather than keeping both.
+        let b = LocalEventStore::default();
+        b.merge(published, &Default::default());
+        b.merge(a.list(), &a.tombstones());
+        let got = b.list();
+        assert_eq!(got.len(), 1, "both copies kept");
+        assert_eq!(got[0].date, "2026-06-27");
+        assert_eq!(got[0].start, "10:00");
+
+        // Moving one of two identical events must not bury the other.
+        let c = LocalEventStore::default();
+        let first = event_at(&c, "Lunch", "2026-07-01", "12:00");
+        event_at(&c, "Lunch", "2026-07-01", "12:00");
+        move_to(&c, first.id, "2026-07-01", "13:00");
+        c.merge(Vec::new(), &c.tombstones());
+        assert_eq!(c.list().len(), 2);
+    }
+
+    #[test]
+    fn deletes_propagate_and_a_re_created_event_survives() {
+        let a = LocalEventStore::default();
+        let e = event_at(&a, "Standup", "2026-07-01", "09:00");
+        let published = a.list();
+        let b = LocalEventStore::default();
+        b.merge(published.clone(), &Default::default());
+        a.remove(e.id);
+        b.merge(a.list(), &a.tombstones());
+        assert!(b.list().is_empty(), "the delete was undone");
+        b.merge(published, &Default::default());
+        assert!(b.list().is_empty(), "a stale copy resurrected it");
+
+        // Re-created later (stamped explicitly: the delete and the re-add land in
+        // one millisecond here, which no person ever manages).
+        let deleted_at = a.tombstones()["2026-07-01|09:00|Standup"];
+        event_at(&a, "Standup", "2026-07-01", "09:00");
+        a.items.write()[0].updated_ms = deleted_at + 1000;
+        b.merge(a.list(), &a.tombstones());
+        assert_eq!(b.list().len(), 1, "the old tombstone buried the new event");
+    }
+
+    #[test]
+    fn tombstones_from_before_timestamps_do_not_delete_on_upgrade() {
+        // `merge` never enforced tombstones before `updated_ms`, so a store can
+        // hold one for an event re-created afterwards. Loading must not turn it
+        // into a delete.
+        let dir = std::env::temp_dir().join(format!("flux-cal-legacy-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("cal_events.json");
+        let legacy = r#"{"items":[{"id":1,"title":"Standup","date":"2026-07-01","start":"09:00",
+            "end":"","location":"","notes":""}],"tombstones":{"2026-07-01|09:00|Standup":1000}}"#;
+        std::fs::write(&path, legacy).unwrap();
+        let s = LocalEventStore::restore(path);
+        s.merge(Vec::new(), &Default::default());
+        assert_eq!(s.list().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn local_event_sort_key_matches_ics() {
         // A 10:00 local event must sort exactly like the equivalent ICS occurrence.
@@ -1277,6 +1400,7 @@ END:VCALENDAR";
             location: String::new(),
             notes: String::new(),
             rrule: String::new(),
+            updated_ms: 0,
         });
         assert_eq!(cal.sort_key, 202606191000);
         assert!(cal.editable);
@@ -1323,6 +1447,7 @@ END:VCALENDAR";
             location: String::new(),
             notes: String::new(),
             rrule: String::new(),
+            updated_ms: 0,
         };
         let (lo, hi) = (day(2026, 6, 1), day(2026, 12, 1));
         let mut out = Vec::new();

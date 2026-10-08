@@ -212,7 +212,7 @@ export type CalEvent = { calendar: string; summary: string; date: string; time: 
  * A Flux-local calendar event (on-device, fully editable). Distinct from a
  * read-only ICS `CalEvent` — these are what the grid editor and Gemma write to.
  */
-export type LocalEvent = { id: number; title: string; date: string; start: string; end: string; location: string; notes: string; rrule?: string }
+export type LocalEvent = { id: number; title: string; date: string; start: string; end: string; location: string; notes: string; rrule?: string; updated_ms?: number }
 export type CurrencyRates = { base: string; date: string; rates: { [key: string]: number } }
 /**
  * One ranked match returned to the UI.
