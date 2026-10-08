@@ -785,7 +785,8 @@ pub fn scribe_delete(
 /// the ink + `body` text) under `<vault>/<course>/`, with the rendered PNG in
 /// `assets/`. One-way — the note is a searchable, KB-indexable mirror. Fails
 /// loud (never silently) when the vault path isn't set, per Flux's no-silent-
-/// failure rule. `png_b64` is the shell-rendered PNG (base64, no data: prefix).
+/// failure rule. `png_b64` is the shell-rendered PNG (base64, no data: prefix),
+/// or empty for a typed page with no drawing, which publishes its text alone.
 #[tauri::command]
 pub async fn scribe_publish_page(
     scribe: State<'_, ScribeStore>,
@@ -847,24 +848,31 @@ fn publish_page(
         .filter(|c| !c.is_empty())
         .unwrap_or("Flux Scribe");
     let dir = root.join(folder);
-    let assets = dir.join("assets");
-    std::fs::create_dir_all(&assets).map_err(|e| format!("{}: {e}", assets.display()))?;
-
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(png_b64.trim())
-        .map_err(|e| format!("bad image data: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
 
     let slug = crate::kb::sanitize_note_name(title);
     let page_no = page_index + 1;
-    // Disambiguate the PNG so re-publishing a page doesn't clobber a prior one.
-    let mut img_name = format!("{slug}-p{page_no}.png");
-    let mut n = 2;
-    while assets.join(&img_name).exists() {
-        img_name = format!("{slug}-p{page_no} {n}.png");
-        n += 1;
-    }
-    let img_path = assets.join(&img_name);
-    std::fs::write(&img_path, &bytes).map_err(|e| format!("{}: {e}", img_path.display()))?;
+    // No image = a typed page with no drawing: the note is its text alone. An
+    // empty payload used to decode fine and write a 0-byte PNG plus a broken embed.
+    let embed = if png_b64.trim().is_empty() {
+        String::new()
+    } else {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(png_b64.trim())
+            .map_err(|e| format!("bad image data: {e}"))?;
+        let assets = dir.join("assets");
+        std::fs::create_dir_all(&assets).map_err(|e| format!("{}: {e}", assets.display()))?;
+        // Disambiguate the PNG so re-publishing a page doesn't clobber a prior one.
+        let mut img_name = format!("{slug}-p{page_no}.png");
+        let mut n = 2;
+        while assets.join(&img_name).exists() {
+            img_name = format!("{slug}-p{page_no} {n}.png");
+            n += 1;
+        }
+        let img_path = assets.join(&img_name);
+        std::fs::write(&img_path, &bytes).map_err(|e| format!("{}: {e}", img_path.display()))?;
+        format!("![handwritten](assets/{img_name})\n\n")
+    };
 
     let mut md_path = dir.join(format!("{slug}.md"));
     let mut n = 2;
@@ -890,14 +898,14 @@ fn publish_page(
         format!("tags:\n{items}")
     };
     let md = format!(
-        "---\ntitle: {}\n{}{}source: flux-scribe\npage: {}\ndate: {}\n---\n\n# {}\n\n![handwritten](assets/{})\n\n{}\n",
+        "---\ntitle: {}\n{}{}source: flux-scribe\npage: {}\ndate: {}\n---\n\n# {}\n\n{}{}\n",
         yaml_quote(title.trim()),
         course_line,
         tags_line,
         page_no,
         today_ymd(),
         title.trim(),
-        img_name,
+        embed,
         body.trim(),
     );
     std::fs::write(&md_path, md).map_err(|e| format!("{}: {e}", md_path.display()))?;
@@ -1270,6 +1278,31 @@ mod tests {
         assert!(vault
             .join("MATH1013/assets/Integration by parts-p1.png")
             .exists());
+        let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn publish_without_a_drawing_writes_the_text_alone() {
+        // A typed page has no ink, so the shell sends no image: the note is just
+        // its text, with no 0-byte PNG and no embed pointing at one.
+        let vault = scratch("vault-text");
+        let vault_str = vault.to_string_lossy().into_owned();
+        let path = publish_page(
+            Some(&vault_str),
+            Some("MATH1013"),
+            2,
+            &PageNote {
+                title: "Limits".into(),
+                body: "Squeeze theorem.".into(),
+                tags: None,
+            },
+            "",
+        )
+        .expect("publish");
+        let md = std::fs::read_to_string(&path).unwrap();
+        assert!(md.contains("# Limits\n\nSqueeze theorem.\n"), "got: {md}");
+        assert!(!md.contains("![handwritten]"), "got: {md}");
+        assert!(!vault.join("MATH1013/assets").exists());
         let _ = std::fs::remove_dir_all(&vault);
     }
 

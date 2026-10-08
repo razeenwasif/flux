@@ -386,12 +386,14 @@ const ScribePage: Component = () => {
     setPubMsg("");
     try {
       const blob = await docApi.pageToBlob();
-      if (!blob) {
+      // A typed page has no drawing: publish its text alone (an empty image
+      // tells Rust to skip the embed) rather than refusing it.
+      if (!blob && !pubBody().trim()) {
         setPubMsg("Nothing to publish on this page yet.");
         setPubBusy(false);
         return;
       }
-      const b64 = await blobToB64(blob);
+      const b64 = blob ? await blobToB64(blob) : "";
       const path = await scribePublishPage(
         cur.id,
         pageIndex(),
@@ -697,7 +699,7 @@ const ScribePage: Component = () => {
                 onInput={(e) => setPubTags(e.currentTarget.value)}
               />
               <div class="scribe-pub-hint">
-                Writes a Markdown note with the handwriting embedded as a PNG into{" "}
+                Writes a Markdown note, with the page's drawing (if any) embedded as a PNG, into{" "}
                 <b>{notebook()!.course || "Flux Scribe"}</b> in your vault. One-way — Scribe keeps the ink.
               </div>
               <Show when={pubMsg()}>
