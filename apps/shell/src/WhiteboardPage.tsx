@@ -32,6 +32,22 @@ const loadBoards = (): Board[] => {
 // wrote one instance's whole array over the other's strokes.
 const [boards, setBoards] = createSignal<Board[]>(loadBoards());
 let saveTimer = 0;
+const [saveErr, setSaveErr] = createSignal("");
+
+/** Write every board now. A failure is shown, not swallowed: the boards share
+ *  the origin's ~5 MB of localStorage with the whole chrome, and what didn't
+ *  save is gone on restart — while it's on screen it can still be exported. */
+const saveBoards = () => {
+  try {
+    localStorage.setItem(BOARDS_KEY, JSON.stringify(boards()));
+    setSaveErr("");
+  } catch (e) {
+    console.error("whiteboard: save failed", e);
+    setSaveErr(
+      "Whiteboard not saved — browser storage is full or unavailable. Export boards as PNG or delete old ones, or recent drawing is lost on restart.",
+    );
+  }
+};
 
 const WhiteboardPage: Component = () => {
   const [boardId, setBoardId] = createSignal(boards()[0]!.id);
@@ -47,13 +63,7 @@ const WhiteboardPage: Component = () => {
 
   const scheduleSave = () => {
     window.clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(BOARDS_KEY, JSON.stringify(boards()));
-      } catch {
-        /* full/private — drawing still lives in memory */
-      }
-    }, 500);
+    saveTimer = window.setTimeout(saveBoards, 500);
   };
 
   // Undo/redo/export/clear all live inside InkCanvas now; this only persists.
@@ -97,16 +107,15 @@ const WhiteboardPage: Component = () => {
     if (id != null) updateTabTitle(id, "Whiteboard");
     onCleanup(() => {
       window.clearTimeout(saveTimer);
-      try {
-        localStorage.setItem(BOARDS_KEY, JSON.stringify(boards()));
-      } catch {
-        /* ignore */
-      }
+      saveBoards();
     });
   });
 
   return (
     <div class="wb">
+      <Show when={saveErr()}>
+        <div class="scribe-err">{saveErr()}</div>
+      </Show>
       {/* Keyed on boardId so switching boards remounts the engine — resetting
           its camera + undo history, exactly as before. */}
       <Show when={boardId()} keyed>
