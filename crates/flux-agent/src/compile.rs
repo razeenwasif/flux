@@ -37,7 +37,15 @@ fn highlight_prelude(selector: &str) -> String {
 fn destructive_guard() -> String {
     let deny = js_str_arr(crate::DESTRUCTIVE_TERMS);
     format!(
-        r#"const __name = ((__el.getAttribute('aria-label') || __el.innerText || __el.value || __el.title || '') + '').slice(0, 240).toLowerCase();
+        r#"/* Read EVERY naming source, on the element AND on the control a click on
+       it activates: `a || b || c` stopped at the first non-empty source (an icon
+       glyph hid title="Delete"), and a click on an unlabelled child (an icon
+       <span>) bubbles to its <button>. Each source is capped on its own, so a
+       long one can't push a label out of the check. */
+    const __ctl = __el.closest('button,a[href],input,select,summary,[role=button],[role=link],[role=menuitem],[role=option],[onclick]') || __el;
+    const __lbl = n => [n.getAttribute('aria-label'), (n.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => id && document.getElementById(id)?.textContent).join(' '), n.innerText ?? n.textContent, n.value, n.getAttribute('title'), n.getAttribute('alt')]
+      .filter(v => typeof v === 'string' && v).map(v => v.slice(0, 1000)).join(' ');
+    const __name = (__lbl(__el) + ' ' + (__ctl === __el ? '' : __lbl(__ctl))).replace(/\s+/g, ' ').toLowerCase();
     const __hit = {deny}.find(t => __name.includes(t));
     if (__hit) {{ __el.style.cssText = __old; window.__FLUX__?.report('blocked_destructive', __hit); return; }}"#
     )
@@ -96,11 +104,29 @@ pub fn to_js(action: &AgentAction) -> String {
             r#"(() => {{
   {prelude}
   __el.focus();
-  /* Native setter + input event → works with React/Vue controlled inputs. */
-  const proto = Object.getPrototypeOf(__el);
-  const set = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-  if (set) set.call(__el, {text}); else __el.value = {text};
-  __el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+  const __text = {text};
+  if (__el.isContentEditable) {{
+    /* Rich editors (webmail compose, chat boxes, Notion) have no `value`, so an
+       assignment is an invisible expando. Replace the content through the
+       editor's own input pipeline (beforeinput/input) so its model updates. */
+    getSelection()?.selectAllChildren(__el);
+    if (!document.execCommand('insertText', false, __text)) {{
+      __el.textContent = __text;
+      __el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: __text }}));
+    }}
+  }} else if ('value' in __el) {{
+    /* Native setter + input event → works with React/Vue controlled inputs. */
+    const proto = Object.getPrototypeOf(__el);
+    const set = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    if (set) set.call(__el, __text); else __el.value = __text;
+    __el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+    __el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+  }} else {{
+    /* Neither an editor nor a form control: say so rather than claim 'typed'. */
+    __el.style.cssText = __old;
+    window.__FLUX__?.report('not_typable', {sel});
+    return;
+  }}
   __el.style.cssText = __old;
   window.__FLUX__?.report('typed', {sel});
 }})();"#,
@@ -179,5 +205,54 @@ mod tests {
         let g = js.find("blocked_destructive").unwrap();
         let c = js.find("__el.click()").unwrap();
         assert!(g < c, "guard must run before the click");
+    }
+
+    /// The guard stopped at the first non-empty label source and read only the
+    /// element itself, so `<a title="Delete">🗑</a>` and an icon `<span>` inside
+    /// a "Delete account" button both read as harmless.
+    #[test]
+    fn click_guard_reads_every_label_and_the_enclosing_control() {
+        let js = AgentAction::Click {
+            selector: "form#settings button.btn-danger > span.icon".into(),
+            reason: "open settings".into(),
+        }
+        .to_js();
+        assert!(
+            !js.contains("|| __el.innerText ||"),
+            "first-non-empty chain is back"
+        );
+        for src in [
+            "'aria-label'",
+            "'aria-labelledby'",
+            "innerText",
+            "'title'",
+            "'alt'",
+        ] {
+            assert!(js.contains(src), "guard no longer reads {src}");
+        }
+        // The control the click bubbles to is named too.
+        assert!(js.contains("__el.closest("));
+        assert!(js.contains("__lbl(__ctl)"));
+        assert!(js.contains("\"place your order\""));
+    }
+
+    /// Webmail and chat composers are contenteditable `<div>`s with no `value`:
+    /// the old template set an invisible expando there and still reported
+    /// "typed", so the next step clicked Send on an empty reply.
+    #[test]
+    fn type_drives_contenteditable_editors_and_never_fakes_success() {
+        let js = AgentAction::Type {
+            selector: "div[aria-label='Message Body']".into(),
+            text: "I'll be there at 3".into(),
+        }
+        .to_js();
+        let editable = js.find("__el.isContentEditable").expect("editors handled");
+        let setter = js.find("set.call(").unwrap();
+        assert!(editable < setter, "editors go before the value setter");
+        assert!(js.contains("execCommand('insertText', false, __text)"));
+        // Anything that is neither an editor nor a form control says so.
+        assert!(js.contains("report('not_typable'"));
+        // The text is still embedded only as a JSON string literal.
+        assert!(js.contains(r#"const __text = "I'll be there at 3";"#));
     }
 }

@@ -20,7 +20,7 @@
 //!      intent.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use crate::{AgentError, Inference};
 
@@ -48,8 +48,9 @@ pub struct RouteStatus {
 pub struct RoutingBackend {
     local: Box<dyn Inference>,
     /// `None` until a key is supplied. Held behind a lock because the key can be
-    /// set, changed, or cleared while the browser is running.
-    cloud: RwLock<Option<Box<dyn Inference>>>,
+    /// set, changed, or cleared while the browser is running. An `Arc` so a
+    /// request clones the backend out and releases the lock immediately.
+    cloud: RwLock<Option<Arc<dyn Inference>>>,
 }
 
 impl RoutingBackend {
@@ -69,7 +70,7 @@ impl RoutingBackend {
     pub fn set_cloud(&self, backend: Option<Box<dyn Inference>>) {
         let removing = backend.is_none();
         if let Ok(mut g) = self.cloud.write() {
-            *g = backend;
+            *g = backend.map(Arc::from);
         }
         if removing {
             CLOUD_ON.store(false, Ordering::SeqCst);
@@ -80,23 +81,22 @@ impl RoutingBackend {
         self.cloud.read().map(|g| g.is_some()).unwrap_or(false)
     }
 
-    /// True when this request will go to the cloud. A poisoned lock reads as
-    /// "no cloud", which routes locally — the safe direction.
-    fn use_cloud(&self) -> bool {
-        CLOUD_ON.load(Ordering::SeqCst) && self.has_cloud()
-    }
-
     /// Run `f` against whichever backend is in force.
     ///
-    /// Taking the read lock for the duration is what makes a key cleared
-    /// mid-request safe: the clear waits rather than dropping the backend out
-    /// from under a call that is already talking to it.
+    /// The backend is cloned OUT of the lock: the clone keeps it alive, so a key
+    /// cleared mid-request still can't drop it from under the call, while the
+    /// clear (a main-thread command) never waits on a minutes-long cloud
+    /// generation, nor parks every other reader behind its queued write. A
+    /// poisoned lock reads as "no cloud", which routes locally — the safe way.
     fn with<T>(&self, f: impl FnOnce(&dyn Inference) -> T) -> T {
-        if self.use_cloud() {
-            if let Ok(g) = self.cloud.read() {
-                if let Some(b) = g.as_ref() {
-                    return f(b.as_ref());
-                }
+        if CLOUD_ON.load(Ordering::SeqCst) {
+            let cloud = self
+                .cloud
+                .read()
+                .ok()
+                .and_then(|g| g.as_ref().map(Arc::clone));
+            if let Some(b) = cloud {
+                return f(b.as_ref());
             }
         }
         f(self.local.as_ref())
@@ -269,6 +269,66 @@ mod tests {
             !status(true, false).requested,
             "removing the backend must revoke the request, not just park it"
         );
+        request_cloud(false);
+    }
+
+    /// The router held its read lock for the whole cloud call, so clearing the
+    /// key (a main-thread command) froze the UI until a minutes-long stream
+    /// ended, and every reader queued behind that write.
+    #[test]
+    fn clearing_the_key_does_not_wait_for_a_call_in_flight() {
+        use std::sync::mpsc::{channel, Receiver, Sender};
+        use std::time::Duration;
+        struct Slow {
+            started: Sender<()>,
+            release: Mutex<Receiver<()>>,
+        }
+        impl Inference for Slow {
+            fn complete(
+                &self,
+                p: &str,
+                _: Option<&serde_json::Value>,
+            ) -> Result<String, AgentError> {
+                self.chat(p)
+            }
+            fn chat(&self, _: &str) -> Result<String, AgentError> {
+                let _ = self.started.send(());
+                let _ = self.release.lock().unwrap().recv();
+                Ok("cloud".into())
+            }
+        }
+
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let r = Arc::new(router());
+        let (started, in_flight) = channel();
+        let (release, held) = channel();
+        r.set_cloud(Some(Box::new(Slow {
+            started,
+            release: Mutex::new(held),
+        })));
+        request_cloud(true);
+        let call = {
+            let r = Arc::clone(&r);
+            std::thread::spawn(move || r.chat("x"))
+        };
+        in_flight.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        let (done, cleared) = channel();
+        {
+            let r = Arc::clone(&r);
+            std::thread::spawn(move || {
+                r.set_cloud(None);
+                let _ = done.send(r.has_cloud());
+            });
+        }
+        let has_cloud = cleared
+            .recv_timeout(Duration::from_secs(5))
+            .expect("clearing the key waited for the call in flight");
+        assert!(!has_cloud);
+        // New requests go local at once; the one under way keeps its backend.
+        assert_eq!(r.chat("x").unwrap(), "local");
+        release.send(()).unwrap();
+        assert_eq!(call.join().unwrap().unwrap(), "cloud");
         request_cloud(false);
     }
 

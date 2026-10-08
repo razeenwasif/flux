@@ -63,10 +63,20 @@ fn stored_key() -> Option<String> {
 
 /// Store (or with an empty string, clear) the Gemini API key.
 ///
-/// Clearing also tears the cloud backend out of the router, which revokes the
-/// session's escalation — see `RoutingBackend::set_cloud`.
+/// Clearing — and replacing — also tears the cloud backend out of the router,
+/// which revokes the session's escalation — see `RoutingBackend::set_cloud`.
+///
+/// Async + `spawn_blocking`, like every keyring command here: a sync command
+/// runs on the UI thread, and keyring I/O can block there (a macOS keychain
+/// prompt, Credential Manager on a cold start, a locked Secret Service).
 #[tauri::command]
-pub fn gemini_set_key(key: String) -> Result<(), String> {
+pub async fn gemini_set_key(key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || set_key(key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn set_key(key: String) -> Result<(), String> {
     if !crate::vault::HAS_OS_KEYCHAIN {
         return Err("no OS keychain on this platform, so the key can't be saved".into());
     }
@@ -77,6 +87,12 @@ pub fn gemini_set_key(key: String) -> Result<(), String> {
         crate::agent_bridge::router().set_cloud(None);
         return Ok(());
     }
+    // Replacing the key revokes escalation too. The installed backend holds a
+    // copy of the PREVIOUS key, so leaving it would keep sending prompts under a
+    // credential the keyring no longer holds (and, if the write below fails,
+    // under one the UI reports as absent). The next "cloud on" rebuilds it from,
+    // and re-verifies, the key actually stored.
+    crate::agent_bridge::router().set_cloud(None);
     let _ = entry.delete_credential();
     entry.set_password(&key).map_err(|e| e.to_string())?;
     // Read it back: a keyring that accepts a write and returns something else is
@@ -97,8 +113,10 @@ pub fn gemini_set_key(key: String) -> Result<(), String> {
 /// Whether a key is stored — so the UI can show its state without the key ever
 /// reaching the renderer.
 #[tauri::command]
-pub fn gemini_has_key() -> bool {
-    stored_key().is_some()
+pub async fn gemini_has_key() -> bool {
+    tauri::async_runtime::spawn_blocking(|| stored_key().is_some())
+        .await
+        .unwrap_or(false)
 }
 
 /// Check the stored key against the API before anything depends on it.
@@ -146,18 +164,22 @@ pub fn gemini_default_model() -> String {
 /// true rather than what was asked for.
 #[tauri::command]
 pub async fn agent_cloud_set(on: bool, model: String) -> Result<RouteStatus, String> {
+    // Keyring reads and the key check both block, so the whole switch runs on
+    // the blocking pool rather than parking an async worker.
+    tauri::async_runtime::spawn_blocking(move || cloud_set(on, model))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn cloud_set(on: bool, model: String) -> Result<RouteStatus, String> {
     let router = crate::agent_bridge::router();
     if !on {
         route::request_cloud(false);
-        return Ok(route::status(gemini_has_key(), router.has_cloud()));
+        return Ok(route::status(stored_key().is_some(), router.has_cloud()));
     }
     let key = stored_key()
         .ok_or("no Gemini API key set — add one in Settings → Integrations before escalating")?;
-    let probe_key = key.clone();
-    tauri::async_runtime::spawn_blocking(move || flux_agent::gemini::verify_key(&probe_key))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    flux_agent::gemini::verify_key(&key).map_err(|e| e.to_string())?;
 
     router.set_cloud(Some(Box::new(GeminiBackend::new(key, &model))));
     route::request_cloud(true);
@@ -166,7 +188,7 @@ pub async fn agent_cloud_set(on: bool, model: String) -> Result<RouteStatus, Str
         model = %if model.trim().is_empty() { flux_agent::gemini::default_model() } else { model },
         "cloud escalation ON — agent prompts (page text, notes, terminal output) now leave this machine"
     );
-    Ok(route::status(gemini_has_key(), router.has_cloud()))
+    Ok(route::status(stored_key().is_some(), router.has_cloud()))
 }
 
 /// What the next agent request will actually do.
@@ -176,8 +198,11 @@ pub async fn agent_cloud_set(on: bool, model: String) -> Result<RouteStatus, Str
 /// reporting that here would tell a user who had just saved a key that they
 /// still need one — and hide the control that would have built it.
 #[tauri::command]
-pub fn agent_cloud_status() -> RouteStatus {
-    route::status(gemini_has_key(), crate::agent_bridge::router().has_cloud())
+pub async fn agent_cloud_status() -> RouteStatus {
+    let has_key = tauri::async_runtime::spawn_blocking(|| stored_key().is_some())
+        .await
+        .unwrap_or(false);
+    route::status(has_key, crate::agent_bridge::router().has_cloud())
 }
 
 #[cfg(test)]

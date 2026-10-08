@@ -291,8 +291,15 @@ fn is_plausible_el_key(token: &str) -> bool {
 }
 
 /// Store (or, with an empty string, clear) the ElevenLabs API key in the keyring.
+/// Keyring I/O can block, so it runs off the UI thread (see `gemini_set_key`).
 #[tauri::command]
-pub fn elevenlabs_set_key(key: String) -> Result<(), String> {
+pub async fn elevenlabs_set_key(key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || el_set_key(key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn el_set_key(key: String) -> Result<(), String> {
     if !crate::vault::HAS_OS_KEYCHAIN {
         return Err("no OS keychain on this platform, so the key can't be saved".into());
     }
@@ -322,12 +329,16 @@ pub fn elevenlabs_set_key(key: String) -> Result<(), String> {
 /// Whether an ElevenLabs API key is stored (so the UI can show key-set state
 /// without ever reading the key back into the renderer).
 #[tauri::command]
-pub fn elevenlabs_has_key() -> bool {
-    keyring::Entry::new(EL_SERVICE, EL_ACCOUNT)
-        .ok()
-        .and_then(|e| e.get_password().ok())
-        .map(|k| !normalize_el_key(&k).is_empty())
-        .unwrap_or(false)
+pub async fn elevenlabs_has_key() -> bool {
+    tauri::async_runtime::spawn_blocking(|| {
+        keyring::Entry::new(EL_SERVICE, EL_ACCOUNT)
+            .ok()
+            .and_then(|e| e.get_password().ok())
+            .map(|k| !normalize_el_key(&k).is_empty())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// Verify that the stored key is accepted by ElevenLabs before the user tries to
@@ -639,8 +650,15 @@ fn parse_fish_voice_ref(input: &str) -> String {
 }
 
 /// Store (or, with an empty string, clear) the Fish Audio API key in the keyring.
+/// Keyring I/O can block, so it runs off the UI thread (see `gemini_set_key`).
 #[tauri::command]
-pub fn fishaudio_set_key(key: String) -> Result<(), String> {
+pub async fn fishaudio_set_key(key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || fish_set_key(key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn fish_set_key(key: String) -> Result<(), String> {
     if !crate::vault::HAS_OS_KEYCHAIN {
         return Err("no OS keychain on this platform, so the key can't be saved".into());
     }
@@ -662,8 +680,10 @@ pub fn fishaudio_set_key(key: String) -> Result<(), String> {
 
 /// Whether a Fish Audio API key is stored (never reads the key into the renderer).
 #[tauri::command]
-pub fn fishaudio_has_key() -> bool {
-    fish_key().is_ok()
+pub async fn fishaudio_has_key() -> bool {
+    tauri::async_runtime::spawn_blocking(|| fish_key().is_ok())
+        .await
+        .unwrap_or(false)
 }
 
 /// Verify the stored key against Fish Audio.

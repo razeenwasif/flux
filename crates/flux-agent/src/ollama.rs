@@ -68,11 +68,18 @@ pub fn set_model(name: &str) {
 /// List models the local Ollama server has pulled (`/api/tags`). Empty if the
 /// server isn't reachable.
 pub fn list_models() -> Vec<String> {
-    let url = format!("{}/api/tags", endpoint());
+    list_models_from(&format!("{}/api/tags", endpoint()), Duration::from_secs(5))
+}
+
+fn list_models_from(url: &str, read_timeout: Duration) -> Vec<String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(3))
+        // ureq 2 has NO default read timeout: a server that accepts and never
+        // answers would park this thread (and every KB answer, which routes
+        // through `specialists::discover`) forever. Listing tags is instant.
+        .timeout_read(read_timeout)
         .build();
-    let Ok(resp) = agent.get(&url).call() else {
+    let Ok(resp) = agent.get(url).call() else {
         return Vec::new();
     };
     let Ok(value) = resp.into_json::<serde_json::Value>() else {
@@ -218,7 +225,9 @@ impl OllamaBackend {
                 // Fail fast if no server is listening (e.g. Ollama not running
                 // / wrong host) instead of hanging…
                 .timeout_connect(Duration::from_secs(5))
-                // …but allow many seconds for the model to actually generate.
+                // …but allow a cold model load and a long prompt eval before the
+                // first token. Every reply is streamed, so this bounds a stall,
+                // not the total generation time.
                 .timeout_read(Duration::from_secs(180))
                 .build(),
             endpoint: endpoint(),
@@ -284,10 +293,28 @@ const DEFAULT_NUM_CTX: u32 = 4096;
 pub(crate) const MAX_AUTO_CTX: u32 = 16384;
 
 /// An explicit user override, which always wins over auto-sizing.
+///
+/// `num_ctx` in `FLUX_OLLAMA_OPTIONS` counts too, and wins: `merge_options`
+/// lets it override what we send, so the room arithmetic must use the same
+/// number — and it is the knob the "no room left" error tells the user to turn.
 fn num_ctx_override() -> Option<u32> {
-    std::env::var("FLUX_OLLAMA_NUM_CTX")
-        .ok()
-        .and_then(|s| s.parse().ok())
+    pick_num_ctx(
+        extra_options().as_ref(),
+        std::env::var("FLUX_OLLAMA_NUM_CTX").ok().as_deref(),
+    )
+}
+
+/// [`num_ctx_override`]'s precedence, pure so it's testable without touching the
+/// process environment: OPTIONS first, as `merge_options` applies it on the wire.
+fn pick_num_ctx(
+    options: Option<&serde_json::Map<String, serde_json::Value>>,
+    num_ctx_env: Option<&str>,
+) -> Option<u32> {
+    options
+        .and_then(|o| o.get("num_ctx"))
+        .and_then(|n| n.as_u64())
+        .and_then(|n| u32::try_from(n).ok())
+        .or_else(|| num_ctx_env.and_then(|s| s.parse().ok()))
 }
 
 /// The context window a request will get: the user's override, else the ceiling
@@ -309,8 +336,8 @@ pub(crate) fn estimate_tokens(s: &str) -> u32 {
 /// leave room to answer.
 ///
 /// `num_ctx` covers prompt + output together. A fixed 4096 silently truncated
-/// our longest prompts (`flag_policy` sends a 12 KB document, `chat_pages` 12 KB
-/// of tabs), and Ollama drops the *oldest* tokens — which is exactly where the
+/// our longest prompts (`flag_policy` sends a 12 KB document, `chat_pages` up to
+/// 32 KB of tabs), and Ollama drops the *oldest* tokens — which is exactly where the
 /// "reply with one JSON object" instruction lives. The model then sees a bare
 /// document with no task, rambles, and hits the output cap: a truncated-JSON
 /// parse error that looks like model weakness but is our own configuration.
@@ -471,7 +498,8 @@ fn generate_body_capped(
     body
 }
 
-/// Interpret a non-streaming `/api/generate` reply.
+/// Interpret an `/api/generate` reply, as [`read_stream`] folds it (the whole
+/// text plus the final chunk's `done_reason`).
 ///
 /// Ollama reports **why** it stopped. `done_reason:"length"` means the token cap
 /// was hit, so the JSON is cut off mid-token — the caller would otherwise see an
@@ -518,6 +546,58 @@ fn read_generate_response_capped(
         .ok_or_else(|| AgentError::Inference(format!("ollama: no `response` field in {value}")))
 }
 
+/// Fold a `stream:true` `/api/generate` reply — newline-delimited JSON objects,
+/// each `{ "response": "<chunk>", "done": … }` — relaying each chunk to
+/// `on_token`. Returns the final chunk (which carries `done_reason`) with
+/// `response` replaced by the whole text: the shape of a `stream:false` reply.
+///
+/// Once streaming has started, Ollama reports a failure (runner crash, OOM, a
+/// cancelled load) as an `{"error": …}` line on a stream that already returned
+/// 200, and a complete stream always ends with `done:true`. So an error line, or
+/// a stream that closes without `done`, is an error — not a short answer.
+/// Pure over the reader, so it's testable without a server.
+fn read_stream(
+    mut reader: impl std::io::BufRead,
+    on_token: &mut dyn FnMut(&str),
+) -> Result<serde_json::Value, AgentError> {
+    let mut full = String::new();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break, // stream closed
+            Ok(_) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                // A malformed chunk shouldn't abort a good stream; skip it.
+                let Ok(mut value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+                    continue;
+                };
+                if let Some(err) = value.get("error").and_then(|e| e.as_str()) {
+                    return Err(AgentError::Inference(format!("ollama: {err}")));
+                }
+                if let Some(tok) = value.get("response").and_then(|v| v.as_str()) {
+                    if !tok.is_empty() {
+                        full.push_str(tok);
+                        on_token(tok);
+                    }
+                }
+                // `get` only finds `done` on an object, so the insert can't panic.
+                if value.get("done").and_then(|d| d.as_bool()).unwrap_or(false) {
+                    value["response"] = serde_json::Value::String(full);
+                    return Ok(value);
+                }
+            }
+            Err(e) => return Err(AgentError::Inference(format!("ollama stream read: {e}"))),
+        }
+    }
+    Err(AgentError::Inference(
+        "ollama: the reply stream closed before generation finished".into(),
+    ))
+}
+
 impl OllamaBackend {
     /// One structured/free-text completion, retrying a **truncated** structured
     /// reply with a larger token ceiling.
@@ -542,11 +622,16 @@ impl OllamaBackend {
         let structured = format.is_some();
         let mut cap = STRUCTURED_PREDICT_CAP;
         loop {
+            // Streamed, then folded back into one reply. With `stream:false`
+            // Ollama writes nothing until generation ends, so the 180 s read
+            // timeout was a deadline on the WHOLE generation (plus any cold
+            // load), which the upper retry rungs can't meet on a slower GPU.
+            // Streamed, each chunk resets it: it only bounds a stall.
             let body = generate_body_capped(
                 &active_model(),
                 prompt,
                 format.clone(),
-                false,
+                true,
                 structured.then_some(cap),
             );
             let resp = self
@@ -554,12 +639,10 @@ impl OllamaBackend {
                 .post(&url)
                 .send_json(body)
                 .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
-            let value: serde_json::Value = resp
-                .into_json()
-                .map_err(|e| AgentError::Inference(format!("ollama response decode: {e}")))?;
+            let value = read_stream(std::io::BufReader::new(resp.into_reader()), &mut |_| {})?;
 
-            // Free-text replies are streamed elsewhere and aren't grammar-bound,
-            // so a cap hit there is a genuine stop, not a broken payload.
+            // Free-text replies aren't grammar-bound, so a cap hit there is a
+            // genuine stop, not a broken payload: only structured ones retry.
             if structured && hit_token_cap(&value) && cap < STRUCTURED_PREDICT_MAX {
                 let next = (cap.saturating_mul(2)).min(STRUCTURED_PREDICT_MAX);
                 // Raising the cap only helps if the window can actually hold the
@@ -603,56 +686,44 @@ impl OllamaBackend {
                 cap = next;
                 continue;
             }
-            return read_generate_response_capped(&value, &active_model(), cap);
+            if structured {
+                return read_generate_response_capped(&value, &active_model(), cap);
+            }
+            // Free text (`chat`, `translate`) cut at `num_predict` is still a
+            // usable (long) answer, which is what the streaming path returns for
+            // the same stop. Don't discard it behind the structured-output error,
+            // which would also name a cap and a retry this call never had.
+            return value
+                .get("response")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    AgentError::Inference(format!("ollama: no `response` field in {value}"))
+                });
         }
     }
 
-    /// Stream a free-text completion: `/api/generate` with `stream:true` returns
-    /// newline-delimited JSON objects, each `{ "response": "<chunk>", "done": … }`.
-    /// We relay each chunk to `on_token` and accumulate the full text (BACKLOG #82).
+    /// Stream a free-text completion, relaying each chunk to `on_token` and
+    /// accumulating the full text (BACKLOG #82). Tokens already relayed stay on
+    /// screen when the stream fails; the caller also gets the error, so a cut-off
+    /// reply isn't presented (or saved) as a complete one. See [`read_stream`].
     fn generate_stream(
         &self,
         prompt: &str,
         on_token: &mut dyn FnMut(&str),
     ) -> Result<String, AgentError> {
-        use std::io::BufRead;
         let url = format!("{}/api/generate", self.endpoint);
         let resp = self
             .agent
             .post(&url)
             .send_json(generate_body(&active_model(), prompt, None, true))
             .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
-
-        let mut reader = std::io::BufReader::new(resp.into_reader());
-        let mut full = String::new();
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match reader.read_line(&mut line) {
-                Ok(0) => break, // stream closed
-                Ok(_) => {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    // A malformed chunk shouldn't abort a good stream; skip it.
-                    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
-                        continue;
-                    };
-                    if let Some(tok) = value.get("response").and_then(|v| v.as_str()) {
-                        if !tok.is_empty() {
-                            full.push_str(tok);
-                            on_token(tok);
-                        }
-                    }
-                    if value.get("done").and_then(|d| d.as_bool()).unwrap_or(false) {
-                        break;
-                    }
-                }
-                Err(e) => return Err(AgentError::Inference(format!("ollama stream read: {e}"))),
-            }
-        }
-        Ok(full)
+        let value = read_stream(std::io::BufReader::new(resp.into_reader()), on_token)?;
+        Ok(value
+            .get("response")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_owned())
     }
 }
 
@@ -972,11 +1043,188 @@ mod tests {
         assert_eq!(merged["temperature"], 0.1, "untouched defaults survive");
     }
 
+    /// The "no room left" error tells the user to set `num_ctx` in
+    /// FLUX_OLLAMA_OPTIONS, and that is what Ollama receives — so the room
+    /// arithmetic has to use it too, or following the advice changes nothing.
+    #[test]
+    fn options_num_ctx_drives_the_context_arithmetic() {
+        let opts = |v: serde_json::Value| v.as_object().cloned();
+        let big = opts(serde_json::json!({ "num_ctx": 32768 }));
+        assert_eq!(pick_num_ctx(big.as_ref(), None), Some(32768));
+        // The same precedence as on the wire: OPTIONS beats FLUX_OLLAMA_NUM_CTX.
+        assert_eq!(pick_num_ctx(big.as_ref(), Some("8192")), Some(32768));
+        let sent = merge_options(serde_json::json!({ "num_ctx": 8192 }), big.clone());
+        assert_eq!(sent["num_ctx"], 32768);
+        // Without it, the dedicated variable still applies; with neither,
+        // nothing overrides auto-sizing.
+        let other = opts(serde_json::json!({ "temperature": 0.2 }));
+        assert_eq!(pick_num_ctx(other.as_ref(), Some("8192")), Some(8192));
+        assert_eq!(pick_num_ctx(None, None), None);
+    }
+
     #[test]
     fn chat_body_is_plain_text() {
         let b = generate_body("gemma4:12b-it-qat", "hello", None, false);
         assert!(b.get("format").is_none()); // no JSON constraint for chat
         assert_eq!(b["options"]["temperature"], 0.6);
+    }
+
+    /// A loopback stand-in for Ollama: answers each connection with the next
+    /// canned NDJSON body, and passes back the request body it received.
+    fn fake_ollama(
+        replies: Vec<&'static str>,
+    ) -> (OllamaBackend, std::sync::mpsc::Receiver<serde_json::Value>) {
+        use std::io::{BufRead, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for reply in replies {
+                let (mut sock, _) = listener.accept().unwrap();
+                let mut reader = std::io::BufReader::new(sock.try_clone().unwrap());
+                let (mut len, mut line) = (0, String::new());
+                // Headers end at the bare "\r\n".
+                while reader.read_line(&mut line).unwrap() > 2 {
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap();
+                    }
+                    line.clear();
+                }
+                let mut body = vec![0; len];
+                reader.read_exact(&mut body).unwrap();
+                let _ = tx.send(serde_json::from_slice(&body).unwrap());
+                write!(
+                    sock,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .unwrap();
+            }
+        });
+        let backend = OllamaBackend {
+            agent: ureq::AgentBuilder::new()
+                .timeout_read(Duration::from_secs(10))
+                .build(),
+            endpoint,
+        };
+        (backend, rx)
+    }
+
+    /// With `stream:false` Ollama writes nothing until generation ends, so the
+    /// 180 s read timeout capped the WHOLE generation, and the upper retry rungs
+    /// couldn't finish in time on a slower GPU. Streamed, each chunk resets it.
+    #[test]
+    fn structured_calls_stream_and_fold_the_reply() {
+        let schema = serde_json::json!({ "type": "object" });
+        let (backend, rx) = fake_ollama(vec![
+            // Cut off at the cap: the retry ladder must still see `done_reason`.
+            concat!(
+                r#"{"response":"{\"a\":","done":false}"#,
+                "\n",
+                r#"{"response":"","done":true,"done_reason":"length"}"#,
+                "\n"
+            ),
+            concat!(
+                r#"{"response":"{\"a\":","done":false}"#,
+                "\n",
+                r#"{"response":"1}","done":false}"#,
+                "\n",
+                r#"{"response":"","done":true,"done_reason":"stop"}"#,
+                "\n"
+            ),
+        ]);
+        assert_eq!(backend.complete("act", Some(&schema)).unwrap(), "{\"a\":1}");
+        let first = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let retry = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        for sent in [&first, &retry] {
+            assert_eq!(
+                sent["stream"], true,
+                "a non-streamed call races the read timeout"
+            );
+            assert_eq!(sent["format"], schema);
+        }
+        assert!(
+            retry["options"]["num_predict"].as_i64() > first["options"]["num_predict"].as_i64(),
+            "the retry asked for more room"
+        );
+    }
+
+    /// A free-text reply that reached `num_predict` (a long translation) was
+    /// thrown away behind the structured-output error, which also named a
+    /// 1536-token cap and a retry this call never had.
+    #[test]
+    fn a_long_free_text_reply_is_kept_at_the_cap() {
+        let (backend, rx) = fake_ollama(vec![concat!(
+            r#"{"response":"Guten Tag, ","done":false}"#,
+            "\n",
+            r#"{"response":"und so weiter","done":true,"done_reason":"length"}"#,
+            "\n"
+        )]);
+        assert_eq!(
+            backend.chat("translate this").unwrap(),
+            "Guten Tag, und so weiter"
+        );
+        let sent = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(sent.get("format").is_none(), "free text carries no schema");
+    }
+
+    /// Ollama reports a failure after streaming began as an `{"error": …}` line
+    /// on a 200 stream. Skipping it returned half a sentence (or "") as a
+    /// finished answer, which the Trail chat then saved as one.
+    #[test]
+    fn a_stream_that_errors_or_stops_short_is_an_error() {
+        let fold = |body: &str| {
+            let mut toks: Vec<String> = Vec::new();
+            let r = read_stream(body.as_bytes(), &mut |t| toks.push(t.to_owned()));
+            (r, toks)
+        };
+
+        // A complete stream: chunks relayed, the final chunk carries the text.
+        let (r, toks) = fold(
+            "{\"response\":\"Hel\",\"done\":false}\n\
+             not json\n\
+             {\"response\":\"lo\",\"done\":false}\n\
+             {\"response\":\"\",\"done\":true,\"done_reason\":\"stop\"}\n",
+        );
+        let v = r.unwrap();
+        assert_eq!(toks, ["Hel", "lo"]);
+        assert_eq!(v["response"], "Hello");
+        assert_eq!(v["done_reason"], "stop");
+
+        // A mid-generation failure: what arrived stays relayed, but it's an error.
+        let (r, toks) = fold(
+            "{\"response\":\"Hal\",\"done\":false}\n\
+             {\"error\":\"model runner has unexpectedly stopped\"}\n",
+        );
+        assert_eq!(toks, ["Hal"]);
+        assert!(r.unwrap_err().to_string().contains("unexpectedly stopped"));
+
+        // A stream that ends without `done:true` never finished.
+        let (r, _) = fold("{\"response\":\"Hal\",\"done\":false}\n");
+        assert!(r
+            .unwrap_err()
+            .to_string()
+            .contains("before generation finished"));
+        assert!(fold("").0.is_err());
+    }
+
+    /// ureq 2 has no default read timeout: a listener that accepts and never
+    /// answers (a dead SSH forward on 11434) parked every KB answer for good.
+    #[test]
+    fn listing_models_gives_up_on_a_server_that_never_answers() {
+        // Bound but never accepted: the OS completes the handshake, nobody replies.
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/api/tags", silent.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(list_models_from(&url, Duration::from_millis(200)));
+        });
+        let models = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("list_models hung on a server that never answers");
+        assert!(models.is_empty());
+        drop(silent);
     }
 
     #[test]

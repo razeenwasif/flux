@@ -58,6 +58,18 @@ impl SearchState {
         http_for_loopback(base)
     }
 
+    /// Where page text may be POSTed for ingest. `omni_base` follows the default
+    /// *search engine* — DuckDuckGo out of the box — so only an explicit
+    /// `FLUX_OMNI_URL` or an origin on this machine qualifies; anything else means
+    /// no Omni is configured, and nothing may be sent.
+    pub fn omni_ingest_base(&self) -> Option<String> {
+        let base = self.omni_base();
+        if std::env::var("FLUX_OMNI_URL").is_ok_and(|v| !v.trim().is_empty()) {
+            return Some(base);
+        }
+        is_loopback_origin(&base).then_some(base)
+    }
+
     /// The default engine's suggestions endpoint for `query`, if it defines one.
     pub fn suggest_url(&self, query: &str) -> Option<String> {
         let cfg = self.config.read();
@@ -95,6 +107,16 @@ fn http_for_loopback(base: String) -> String {
         }
     }
     base
+}
+
+/// Is `base` (`scheme://host[:port]`) served from this machine?
+fn is_loopback_origin(base: &str) -> bool {
+    tauri::Url::parse(base).is_ok_and(|u| {
+        matches!(
+            u.host_str(),
+            Some("localhost" | "127.0.0.1" | "0.0.0.0" | "[::1]")
+        )
+    })
 }
 
 /// `"http://host:port/search?q={query}"` → `"http://host:port"`.
@@ -198,7 +220,26 @@ pub fn search_remove_engine(state: State<'_, SearchState>, id: String) -> Result
 
 #[cfg(test)]
 mod omni_base_tests {
-    use super::http_for_loopback;
+    use super::*;
+
+    /// Out of the box the default engine is DuckDuckGo, so `omni_base` is its
+    /// origin, and "Save to Omni" / auto-ingest POSTed page text to it.
+    #[test]
+    fn page_text_is_only_ingested_by_an_omni_on_this_machine() {
+        assert!(is_loopback_origin("http://localhost:8080"));
+        assert!(is_loopback_origin("http://127.0.0.1:8080"));
+        assert!(is_loopback_origin("http://[::1]:8080"));
+        assert!(!is_loopback_origin("https://duckduckgo.com"));
+        assert!(!is_loopback_origin("https://localhost.example.com"));
+        assert!(!is_loopback_origin(""));
+        if std::env::var_os("FLUX_OMNI_URL").is_none() {
+            let s = SearchState {
+                config: RwLock::new(SearchConfig::default()),
+                path: PathBuf::new(),
+            };
+            assert_eq!(s.omni_ingest_base(), None, "{} is no Omni", s.omni_base());
+        }
+    }
 
     #[test]
     fn downgrades_loopback_https_to_http_only() {
