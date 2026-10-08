@@ -65,6 +65,37 @@ export function keyFor(src: string): string {
   return `flux.pdf.${(h >>> 0).toString(36)}`;
 }
 
+/** decodeURIComponent, leaving a malformed escape ("100% done.pdf") as it is. */
+function decodeOnce(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * The document a `flux://pdf?src=…` viewer URL points at.
+ *
+ * `pdfViewerUrl` encodes the src exactly once and URLSearchParams undoes exactly
+ * that, so its value IS the src. Decoding it a second time corrupted any src with
+ * a %XX in it: a presigned link's `%2B` token became "+" (a 403), and a local
+ * "50%2B growth.pdf" became "50+ growth.pdf". The exception is a file:// URL
+ * (Files → "Open in browser"): percent-encoded by construction, while pdf_fetch
+ * only undoes `%20`, so it is decoded to the path it names.
+ */
+export function viewerSrc(url: string): string {
+  const i = url.indexOf("?");
+  const s = i < 0 ? "" : (new URLSearchParams(url.slice(i + 1)).get("src") ?? "");
+  return /^file:/i.test(s) ? decodeOnce(s) : s;
+}
+
+/** Where a document's state is stored: keyed by its src decoded once more, which
+ *  is what the viewer handed in before `viewerSrc` stopped double-decoding (a
+ *  file:// src it still decodes itself). Re-keying by the exact src would have
+ *  orphaned the notes on every "Week%201.pdf". */
+const storageKey = (src: string) => keyFor(/^file:/i.test(src) ? src : decodeOnce(src));
+
 /** Coerce whatever is in storage into a valid state. Anything unparseable,
  *  truncated or hand-edited yields defaults rather than throwing — a corrupt
  *  entry must never stop a document from opening. */
@@ -119,7 +150,7 @@ export function parseState(raw: string | null): PdfDocState {
 export function loadDocState(src: string): PdfDocState {
   if (!src) return emptyState();
   try {
-    return parseState(localStorage.getItem(keyFor(src)));
+    return parseState(localStorage.getItem(storageKey(src)));
   } catch {
     return emptyState();
   }
@@ -132,9 +163,58 @@ export function saveDocState(src: string, s: PdfDocState): void {
   const worthless =
     s.page <= 1 && s.scale === DEFAULT_SCALE && s.bookmarks.length === 0 && s.comments.length === 0;
   try {
-    if (worthless) localStorage.removeItem(keyFor(src));
-    else localStorage.setItem(keyFor(src), JSON.stringify(s));
+    if (worthless) localStorage.removeItem(storageKey(src));
+    else localStorage.setItem(storageKey(src), JSON.stringify(s));
   } catch {
     /* quota or a locked-down storage partition — reading state isn't worth a throw */
   }
+}
+
+// Both writers below read-modify-write: the same file can be open in two tiled
+// tabs, and a viewer writing its own (possibly stale) lists back on every page
+// turn erased whatever the other one had just added.
+
+/** Store where you are and the zoom, keeping whatever notes are stored. */
+export function savePosition(src: string, page: number, scale: number): void {
+  saveDocState(src, { ...loadDocState(src), page, scale });
+}
+
+/** Store the notes, keeping the stored position and zoom. */
+export function saveNotes(src: string, bookmarks: PdfBookmark[], comments: PdfComment[]): void {
+  saveDocState(src, { ...loadDocState(src), bookmarks, comments });
+}
+
+/**
+ * Unsaved edits of a PDF tab whose viewer unmounted. Unlike the state above they
+ * are in memory only: the editor's annotations and page edits live in the viewer
+ * until Save, and the viewer is disposed whenever its tab is switched away from,
+ * which used to drop all of them without a word. Keyed by tab id, with the
+ * document's src so a tab that has since opened another file never inherits them.
+ */
+export interface UnsavedPdf<A> {
+  src: string;
+  /** The working bytes (page-ops and applied form values in). */
+  bytes: Uint8Array;
+  /** The document as fetched, for "Download original". */
+  original: Uint8Array;
+  annots: A[];
+}
+const unsavedPdfs = new Map<number, UnsavedPdf<unknown>>();
+
+export function stashUnsavedPdf<A>(tabId: number, u: UnsavedPdf<A>): void {
+  unsavedPdfs.set(tabId, u);
+}
+
+/** Take (and forget) this tab's edits, if they are for `src`. */
+export function takeUnsavedPdf<A>(tabId: number, src: string): UnsavedPdf<A> | undefined {
+  const u = unsavedPdfs.get(tabId);
+  unsavedPdfs.delete(tabId);
+  return u && u.src === src ? (u as UnsavedPdf<A>) : undefined;
+}
+
+/** Forget the edits of every tab that's closed or shows something else now, so
+ *  none pins a whole document for the session. `srcOf` gives the src a tab's
+ *  viewer would open ("" for a closed tab or one that isn't a PDF). */
+export function pruneUnsavedPdfs(srcOf: (tabId: number) => string): void {
+  for (const [id, u] of unsavedPdfs) if (srcOf(id) !== u.src) unsavedPdfs.delete(id);
 }

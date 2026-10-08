@@ -19,16 +19,31 @@ import {
   Match,
   Show,
   Switch,
+  batch,
   createEffect,
+  createRoot,
   createSignal,
   onCleanup,
   onMount,
+  untrack,
   type Component,
 } from "solid-js";
-import { ocrAvailable, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
-import { ocrDocument } from "./pdftext";
+import { PDF_URL, ocrAvailable, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
+import { drawableText } from "./pdffont";
+import { ocrDocument, openPdf } from "./pdftext";
 import { tabs, updateTabTitle } from "./store";
-import { DEFAULT_SCALE, loadDocState, saveDocState, type PdfBookmark, type PdfComment } from "./pdfstate";
+import {
+  DEFAULT_SCALE,
+  loadDocState,
+  pruneUnsavedPdfs,
+  saveNotes,
+  savePosition,
+  stashUnsavedPdf,
+  takeUnsavedPdf,
+  viewerSrc,
+  type PdfBookmark,
+  type PdfComment,
+} from "./pdfstate";
 
 // ─── Annotation model (all geometry in PDF points, origin top-left, y-down) ──
 type Tool = "pan" | "highlight" | "pen" | "text" | "rect" | "arrow" | "erase";
@@ -115,6 +130,9 @@ function hexToRgb01(hex: string): [number, number, number] {
   );
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
+/** Added to a save / extract toast when a text note was burned in with "?" (pdffont.ts). */
+const UNDRAWABLE_NOTE = ` (text-note characters the PDF font can't draw were written as "?")`;
+
 function bytesToB64(bytes: Uint8Array): string {
   let bin = "";
   const chunk = 0x8000;
@@ -123,6 +141,21 @@ function bytesToB64(bytes: Uint8Array): string {
   }
   return btoa(bin);
 }
+
+/** The src tab `id`'s viewer would open, or "" when the tab is gone or not a PDF. */
+const tabPdfSrc = (id: number): string => {
+  const url = tabs().find((t) => t.id === id)?.url ?? "";
+  return url.startsWith(PDF_URL) ? viewerSrc(url) : "";
+};
+// Unsaved edits stashed by an unmounting viewer only wait for their tab to show
+// that document again: drop them once it closes or moves on, or a closed tab would
+// pin a full copy of its document for the session. One effect for the app.
+createRoot(() =>
+  createEffect(() => {
+    tabs(); // tracked even while nothing is stashed
+    pruneUnsavedPdfs(tabPdfSrc);
+  }),
+);
 
 /** One viewer instance per PDF tab. `tabId` is what makes that true: the source,
  *  the loaded document and every edit are scoped to THIS tab, never to whichever
@@ -178,26 +211,24 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   const [widgets, setWidgets] = createSignal<WidgetBox[]>([]);
 
   let working: Uint8Array = new Uint8Array();
+  /** The bytes as fetched: what "Download original" saves. */
+  let original: Uint8Array = new Uint8Array();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let pdfDoc: any = null;
   const canvases: (HTMLCanvasElement | undefined)[] = [];
   let renderToken = 0;
+  /** Pages within ~1.5 viewports of the visible area, the only ones that hold a
+   *  bitmap: each is w×h×4 bytes at scale × DPR (≈11 MB for A4 at 2x), so painting
+   *  a 300-page paper eagerly pinned gigabytes, and every zoom step redid it all. */
+  const nearPages = new Set<number>();
+  let io: IntersectionObserver | undefined;
   let annotId = 1;
   // Drag context for the in-progress annotation.
   let drag: { page: number; rect: DOMRect; w: number; h: number } | null = null;
 
-  const parseSrc = () => {
-    // THIS tab's url — not the active tab's. Reading activeTab() here is what
-    // made every PDF tab render whichever file was opened last.
-    const url = tabs().find((t) => t.id === props.tabId)?.url ?? "";
-    const q = url.split("?")[1] ?? "";
-    const s = new URLSearchParams(q).get("src");
-    try {
-      return s ? decodeURIComponent(s) : "";
-    } catch {
-      return s ?? "";
-    }
-  };
+  // THIS tab's url — not the active tab's. Reading activeTab() here is what
+  // made every PDF tab render whichever file was opened last.
+  const parseSrc = () => viewerSrc(tabs().find((t) => t.id === props.tabId)?.url ?? "");
   const filename = () => {
     const tail = (src().split(/[?#]/)[0] ?? "").split("/").pop() || "PDF";
     try {
@@ -213,15 +244,17 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   };
 
   // ── PDF.js load + render ───────────────────────────────────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let pdfjs: any = null;
-  const ensurePdfjs = async () => {
-    if (pdfjs) return pdfjs;
-    pdfjs = await import("pdfjs-dist");
-    const PdfWorker = (await import("pdfjs-dist/build/pdf.worker.min.mjs?worker")).default;
-    pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
-    return pdfjs;
-  };
+  // One app-wide worker (pdftext.ts `openPdf`). Each mount used to spawn a new
+  // one, terminate none and destroy no document, so every visit to the tab and
+  // every page-op leaked a worker or a full copy of the document.
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+    renderToken++; // stop a render pass still in flight
+    const doc = pdfDoc;
+    pdfDoc = null;
+    void doc?.destroy().catch(() => {}); // also ends an orphaned OCR loop at its next getPage
+  });
 
   /** Matches the Rust-side cap; stopping here avoids extracting pages whose text
    *  would only be truncated on arrival. */
@@ -230,8 +263,17 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   /** (Re)load the viewer from a byte buffer (initial load + after a page-op). */
   const loadBytes = async (bytes: Uint8Array) => {
     working = bytes;
-    const lib = await ensurePdfjs();
-    pdfDoc = await lib.getDocument({ data: bytes.slice() }).promise;
+    const next = await openPdf(bytes.slice());
+    if (disposed) {
+      void next.destroy().catch(() => {}); // unmounted while it parsed
+      return;
+    }
+    // A page-op / form apply supersedes the document: free the old copy, and stop
+    // the render pass that was drawing it.
+    const prev = pdfDoc;
+    pdfDoc = next;
+    renderToken++;
+    void prev?.destroy().catch(() => {});
     const n = pdfDoc.numPages;
     const ds: Dims[] = [];
     for (let i = 1; i <= n; i++) {
@@ -241,6 +283,11 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     setDims(ds);
     setNumPages(n);
     setPages(Array.from({ length: n }, (_, i) => i + 1));
+    // <For> drops a deleted page's wrapper but its ref stays in these arrays: a
+    // detached node measures top 0, so pageFromScroll() reported page n+1 on
+    // every scroll, and its full-size canvas could never be collected.
+    pageEls.length = n;
+    canvases.length = n;
     setReady(true);
     setDocVersion((v) => v + 1);
     void publishText();
@@ -350,17 +397,51 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     }
   };
 
+  /** The in-flight render per canvas, so a newer pass can cancel it. */
+  const renderTasks: ({ cancel: () => void } | undefined)[] = [];
   const renderPage = async (pageNo: number, token: number) => {
     const canvas = canvases[pageNo - 1];
     if (!pdfDoc || !canvas) return;
     const page = await pdfDoc.getPage(pageNo);
-    if (token !== renderToken) return;
+    if (token !== renderToken || !nearPages.has(pageNo)) return; // superseded, or scrolled away
+    // PDF.js throws on a second render() into a canvas it is still painting, and
+    // Ctrl+wheel starts a new pass per tick: cancel the superseded one first (it
+    // also stops drawing before the canvas is resized under it).
+    renderTasks[pageNo - 1]?.cancel();
     const dpr = window.devicePixelRatio || 1;
     const vp = page.getViewport({ scale: scale() * dpr });
     canvas.width = vp.width;
     canvas.height = vp.height;
     const ctx = canvas.getContext("2d");
-    if (ctx) await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    if (!ctx) return;
+    const task = page.render({ canvasContext: ctx, viewport: vp });
+    renderTasks[pageNo - 1] = task;
+    try {
+      await task.promise;
+    } catch (e) {
+      if ((e as { name?: string } | null)?.name !== "RenderingCancelledException") throw e;
+    } finally {
+      if (renderTasks[pageNo - 1] === task) renderTasks[pageNo - 1] = undefined;
+    }
+  };
+  /** IntersectionObserver callback: paint a page as it comes near, free it once far. */
+  const onNear = (entries: IntersectionObserverEntry[]) => {
+    for (const e of entries) {
+      const p = pageEls.indexOf(e.target as HTMLDivElement) + 1;
+      if (p <= 0) continue;
+      if (e.isIntersecting) {
+        if (nearPages.has(p)) continue;
+        nearPages.add(p);
+        if (ready()) void renderPage(p, renderToken).catch(() => {});
+      } else if (nearPages.delete(p)) {
+        renderTasks[p - 1]?.cancel();
+        const c = canvases[p - 1];
+        if (c) {
+          c.width = 0; // releases the backing store now; re-rendered on approach
+          c.height = 0;
+        }
+      }
+    }
   };
 
   const load = async () => {
@@ -381,6 +462,23 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       setLoading(false);
       return;
     }
+    // Edits left unsaved when this tab was switched away from: restore them
+    // rather than re-fetching the file, which silently threw them away.
+    const stash = takeUnsavedPdf<Annot>(props.tabId, s);
+    if (stash) {
+      try {
+        original = stash.original;
+        setAnnots(stash.annots);
+        annotId = stash.annots.reduce((m, a) => Math.max(m, a.id), 0) + 1;
+        await loadBytes(stash.bytes);
+        setDirty(true);
+        updateTabTitle(props.tabId, filename());
+      } catch (e) {
+        setError(`Couldn't render this PDF: ${String(e)}`);
+      }
+      setLoading(false);
+      return;
+    }
     try {
       const buf = await pdfFetch(s);
       if (!buf || buf.byteLength === 0) {
@@ -391,6 +489,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       // Raw ArrayBuffer straight from Rust — no atob, no intermediate binary
       // string, one copy. This is what makes large PDFs affordable.
       const bytes = new Uint8Array(buf);
+      original = bytes;
       await loadBytes(bytes);
       updateTabTitle(props.tabId, filename());
       setLoading(false);
@@ -401,7 +500,8 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   };
 
   onMount(load);
-  // Re-render every page when the doc reloads or the zoom changes.
+  // Re-render the pages near the viewport when the doc reloads or the zoom
+  // changes; the observer (onNear) paints the rest as they come near.
   createEffect(() => {
     if (!ready()) return;
     docVersion();
@@ -409,9 +509,11 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     pages();
     const token = ++renderToken;
     void (async () => {
-      for (const p of pages()) {
+      for (const p of [...nearPages].sort((a, b) => a - b)) {
         if (token !== renderToken) return;
-        await renderPage(p, token);
+        if (!nearPages.has(p)) continue; // scrolled away meanwhile
+        // One page that fails (or is cancelled by a reload) must not stop the rest.
+        await renderPage(p, token).catch(() => {});
       }
       if (token !== renderToken) return;
       // The page wrappers are sized from `dims × scale`, so they have their
@@ -434,11 +536,14 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
 
   /** Scroll so `n`'s top edge sits just under the viewport top. */
   const scrollToPage = (n: number, behavior: ScrollBehavior = "smooth") => {
-    const el = pageEls[Math.min(Math.max(1, n), Math.max(1, numPages())) - 1];
+    // Clamped for the readout too: after deleting the page you were on, the
+    // re-anchor asks for a page that no longer exists.
+    const p = Math.min(Math.max(1, n), Math.max(1, numPages()));
+    const el = pageEls[p - 1];
     if (!el || !wrapEl) return;
     const delta = el.getBoundingClientRect().top - wrapEl.getBoundingClientRect().top;
     wrapEl.scrollTo({ top: wrapEl.scrollTop + delta - 8, behavior });
-    setCurPage(n);
+    setCurPage(p);
   };
 
   /** Which page is under the top of the viewport — the last one that has
@@ -465,26 +570,47 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   };
 
   // ── Persistence ────────────────────────────────────────────────────────────
+  // Position and notes are written separately, each merged into what's stored:
+  // the same file can be open in two tiled tabs (#43), and each viewer writing
+  // ITS lists back on every page turn erased whatever the other had just added.
   const persist = () => {
-    if (!ready()) return;
-    saveDocState(src(), {
-      page: curPage(),
-      scale: scale(),
-      bookmarks: bookmarks(),
-      comments: comments(),
+    if (ready()) savePosition(src(), curPage(), scale());
+  };
+  /** Adopt the stored notes before an edit, so it lands on top of them. Only when
+   *  another viewer changed them: fresh arrays re-create every Notes-panel row. */
+  const syncNotes = () => {
+    const s = loadDocState(src());
+    batch(() => {
+      if (JSON.stringify(s.bookmarks) !== JSON.stringify(bookmarks())) setBookmarks(s.bookmarks);
+      if (JSON.stringify(s.comments) !== JSON.stringify(comments())) setComments(s.comments);
     });
   };
-  // Bookmarks, comments and zoom are all low-frequency, so they persist the
-  // moment they change; only scrolling needs the debounce above.
+  // Bookmarks and comments are low-frequency, so they persist the moment they
+  // change; only scrolling needs the debounce above.
   createEffect(() => {
-    bookmarks();
-    comments();
+    const b = bookmarks();
+    const c = comments();
+    untrack(() => {
+      if (ready()) saveNotes(src(), b, c);
+    });
+  });
+  // Zoom persists at once too. `untrack`: persist() reads curPage, and tracking it
+  // made this effect write on every page turn, not just on zoom.
+  createEffect(() => {
     scale();
-    persist();
+    untrack(persist);
   });
   onCleanup(() => {
     clearTimeout(scrollTimer);
     persist();
+    // Unsaved annotations / page edits wait for this tab to show the document
+    // again, unless the tab itself closed or moved on. `untrack`: cleanups run
+    // under whichever computation disposed us, which mustn't subscribe to these.
+    untrack(() => {
+      if (dirty() && ready() && tabPdfSrc(props.tabId) === src()) {
+        stashUnsavedPdf(props.tabId, { src: src(), bytes: working, original, annots: annots() });
+      }
+    });
   });
 
   const zoom = (d: number) => {
@@ -533,6 +659,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   const nextNoteId = () => Date.now();
   const addBookmark = () => {
     const p = curPage();
+    syncNotes();
     setBookmarks((b) =>
       [...b, { id: nextNoteId(), page: p, label: `Page ${p}`, ms: Date.now() }].sort(
         (x, y) => x.page - y.page,
@@ -541,20 +668,29 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     setMode("notes");
     flash(`Bookmarked page ${p}.`);
   };
-  const renameBookmark = (id: number, label: string) =>
+  const renameBookmark = (id: number, label: string) => {
+    syncNotes();
     setBookmarks((b) => b.map((x) => (x.id === id ? { ...x, label: label || `Page ${x.page}` } : x)));
-  const removeBookmark = (id: number) => setBookmarks((b) => b.filter((x) => x.id !== id));
+  };
+  const removeBookmark = (id: number) => {
+    syncNotes();
+    setBookmarks((b) => b.filter((x) => x.id !== id));
+  };
   const bookmarkOn = (p: number) => bookmarks().some((b) => b.page === p);
 
   const addComment = () => {
     const text = noteDraft().trim();
     if (!text) return;
+    syncNotes();
     setComments((c) =>
       [...c, { id: nextNoteId(), page: curPage(), text, ms: Date.now() }].sort((x, y) => x.page - y.page),
     );
     setNoteDraft("");
   };
-  const removeComment = (id: number) => setComments((c) => c.filter((x) => x.id !== id));
+  const removeComment = (id: number) => {
+    syncNotes();
+    setComments((c) => c.filter((x) => x.id !== id));
+  };
   const flash = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(""), 3200);
@@ -656,12 +792,19 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   };
 
   // ── pdf-lib: burn annotations + page operations ────────────────────────────
-  const burnAnnots = async (bytes: Uint8Array): Promise<Uint8Array> => {
+  /** `onReplaced` fires when a text note held characters the PDF font can't draw. */
+  const burnAnnots = async (bytes: Uint8Array, onReplaced?: () => void): Promise<Uint8Array> => {
     const list = annots();
     if (list.length === 0) return bytes;
-    const { PDFDocument, rgb } = await import("pdf-lib");
+    const { PDFDocument, rgb, StandardFonts } = await import("pdf-lib");
     const doc = await PDFDocument.load(bytes.slice());
     const pgs = doc.getPages();
+    // Helvetica is WinAnsi-only, and one note it couldn't encode threw out of
+    // Save and every page-op (see pdffont.ts).
+    const font = list.some((a) => a.kind === "text")
+      ? await doc.embedFont(StandardFonts.Helvetica)
+      : undefined;
+    const glyphs = new Set(font?.getCharacterSet() ?? []);
     for (const a of list) {
       const pg = pgs[a.page - 1];
       if (!pg) continue;
@@ -706,22 +849,35 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
           });
         }
       } else if (a.kind === "text") {
-        pg.drawText(a.text, { x: a.x, y: H - a.y - a.size, size: a.size, color: col });
+        const t = drawableText(a.text, glyphs);
+        if (t.replaced) onReplaced?.();
+        pg.drawText(t.text, { x: a.x, y: H - a.y - a.size, size: a.size, color: col, font });
       }
     }
     return new Uint8Array(await doc.save());
   };
 
+  /** One page-op at a time: each starts from `working`, so a second click before
+   *  the first had reloaded began from the same bytes and silently discarded the
+   *  first one's result. Not queued: a queued op's page index would point at the
+   *  document as it was when clicked, not as the earlier op left it. */
+  const [pageOpBusy, setPageOpBusy] = createSignal(false);
   /** Burn current annotations, run a byte→byte transform, reload the viewer. */
   const applyPageOp = async (op: (bytes: Uint8Array) => Promise<Uint8Array>) => {
+    if (pageOpBusy()) return;
+    setPageOpBusy(true);
     try {
-      const burned = await burnAnnots(working);
+      let replaced = false;
+      const burned = await burnAnnots(working, () => (replaced = true));
       const next = await op(burned);
       setAnnots([]);
       await loadBytes(next);
       setDirty(true);
+      if (replaced) flash(`Text-note characters the PDF font can't draw were written as "?".`);
     } catch (e) {
       flash(`Page operation failed: ${String(e)}`);
+    } finally {
+      setPageOpBusy(false);
     }
   };
 
@@ -768,14 +924,15 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   const extractPage = async (i: number) => {
     try {
       const { PDFDocument } = await import("pdf-lib");
-      const burned = await burnAnnots(working);
+      let replaced = false;
+      const burned = await burnAnnots(working, () => (replaced = true));
       const src = await PDFDocument.load(burned);
       const out = await PDFDocument.create();
       const [p] = await out.copyPages(src, [i]);
       out.addPage(p!);
       const bytes = new Uint8Array(await out.save());
       const path = await pdfSave(bytesToB64(bytes), saveName().replace(/\.pdf$/i, ` p${i + 1}.pdf`));
-      flash(`Saved page ${i + 1} → ${path}`);
+      flash(`Saved page ${i + 1} → ${path}${replaced ? UNDRAWABLE_NOTE : ""}`);
     } catch (e) {
       flash(`Extract failed: ${String(e)}`);
     }
@@ -998,11 +1155,12 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     setSaving(true);
     try {
       // Form values + drawn annotations both burned into the saved copy.
+      let replaced = false;
       const withForm = await writeForm(working, flattenOnSave());
-      const bytes = await burnAnnots(withForm);
+      const bytes = await burnAnnots(withForm, () => (replaced = true));
       const path = await pdfSave(bytesToB64(bytes), saveName());
       setDirty(false);
-      flash(`Saved → ${path}`);
+      flash(`Saved → ${path}${replaced ? UNDRAWABLE_NOTE : ""}`);
     } catch (e) {
       flash(`Save failed: ${String(e)}`);
     } finally {
@@ -1160,9 +1318,21 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
         >
           {saving() ? "…" : "Save"}
         </button>
-        <a class="pdf-btn" href={src()} download={filename()} title="Download original">
+        {/* Never <a href={src()} download>: a local path resolves against the
+            chrome's own origin, and engines ignore `download` on a cross-origin
+            link and navigate the whole chrome window to the remote URL. */}
+        <button
+          class="pdf-btn"
+          title="Save the original to Downloads"
+          disabled={!ready()}
+          onClick={() =>
+            void pdfSave(bytesToB64(original), filename())
+              .then((path) => flash(`Saved original → ${path}`))
+              .catch((e) => flash(`Download failed: ${String(e)}`))
+          }
+        >
           ↓
-        </a>
+        </button>
       </div>
 
       {/* Edit toolbar */}
@@ -1261,7 +1431,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       <Show when={mode() === "pages" && ready()}>
         <div class="pdf-pages-panel">
           <div class="pdf-pages-actions">
-            <button class="pdf-btn" onClick={() => mergeInput?.click()}>
+            <button class="pdf-btn" disabled={pageOpBusy()} onClick={() => mergeInput?.click()}>
               ＋ Merge PDF…
             </button>
             <input
@@ -1291,13 +1461,23 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
                   <PageThumb pageNo={p} getDoc={() => pdfDoc} version={docVersion()} />
                   <div class="pdf-thumb-bar">
                     <span class="pdf-thumb-no">{i() + 1}</span>
-                    <button class="pdf-thumb-btn" title="Rotate 90°" onClick={() => void rotatePage(i())}>
+                    <button
+                      class="pdf-thumb-btn"
+                      title="Rotate 90°"
+                      disabled={pageOpBusy()}
+                      onClick={() => void rotatePage(i())}
+                    >
                       ⟳
                     </button>
                     <button class="pdf-thumb-btn" title="Extract page" onClick={() => void extractPage(i())}>
                       ⤓
                     </button>
-                    <button class="pdf-thumb-btn danger" title="Delete page" onClick={() => deletePage(i())}>
+                    <button
+                      class="pdf-thumb-btn danger"
+                      title="Delete page"
+                      disabled={pageOpBusy()}
+                      onClick={() => deletePage(i())}
+                    >
                       ✕
                     </button>
                   </div>
@@ -1316,6 +1496,8 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
           onScroll={onScroll}
           ref={(el) => {
             wrapEl = el;
+            io = new IntersectionObserver(onNear, { root: el, rootMargin: "150% 0px" });
+            onCleanup(() => io?.disconnect());
             // Registered by hand and non-passive: a passive listener cannot
             // preventDefault, and without that the engine zooms the whole
             // chrome out from under the document.
@@ -1331,7 +1513,14 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
               return (
                 <div
                   class="pdf-page-wrap"
-                  ref={(el) => (pageEls[p - 1] = el)}
+                  ref={(el) => {
+                    pageEls[p - 1] = el;
+                    io?.observe(el);
+                    onCleanup(() => {
+                      io?.unobserve(el);
+                      nearPages.delete(p); // a page-op removed this page
+                    });
+                  }}
                   style={{ width: `${cssW()}px`, height: `${cssH()}px` }}
                 >
                   <canvas class="pdf-page" ref={(el) => (canvases[p - 1] = el)} />
@@ -1658,7 +1847,7 @@ const PageThumb: Component<{ pageNo: number; getDoc: () => unknown; version: num
       canvas.height = vp.height;
       const ctx = canvas.getContext("2d");
       if (ctx) await page.render({ canvasContext: ctx, viewport: vp }).promise;
-    })();
+    })().catch(() => {}); // the document was replaced (page-op) or destroyed mid-render
   });
   return <canvas class="pdf-thumb-canvas" ref={(el) => (canvas = el)} />;
 };

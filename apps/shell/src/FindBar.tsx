@@ -11,7 +11,7 @@ import { shortcutLabel } from "./platform";
  * Ctrl+F focuses the input, Escape — here or globally — clears the query and
  * the page highlight but the bar itself never unmounts.
  */
-import { Show, createEffect, createSignal, type Component } from "solid-js";
+import { Show, batch, createEffect, createSignal, type Component } from "solid-js";
 import { webviewFind } from "./ipc";
 import { activeId, findMatches, findOpen, setFindMatches, setFindOpen, setSemFindOpen } from "./store";
 
@@ -26,8 +26,13 @@ const FindBar: Component = () => {
   };
 
   const onInput = (v: string) => {
-    setQuery(v);
-    setFindOpen(v.length > 0);
+    // One batch: written separately, setQuery(v) flushes the sync-down effect
+    // below while findOpen() is still false, and it wipes the query, so the first
+    // character typed into a bar not opened with Ctrl+F vanished.
+    batch(() => {
+      setQuery(v);
+      setFindOpen(v.length > 0);
+    });
     clearTimeout(debounce);
     if (!v) {
       setFindMatches(null);

@@ -52,8 +52,30 @@ import {
   type QuickLocation,
 } from "./ipc";
 import { openTab } from "./store";
+import { crumbs, toFileUrl } from "./filepaths";
 
 const ROW_H = 30;
+/** One collator for every comparison. `a.localeCompare(b, undefined, opts)`
+ *  builds a fresh ICU collator per call: sorting 20k names took ~740 ms vs
+ *  ~48 ms with this, on every filter keystroke and every streamed chunk. */
+const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/** Per-id queue for fs_watch / fs_unwatch. fs_watch builds its watcher off-thread
+ *  and inserts it when done, while fs_unwatch is immediate, so an unmount's
+ *  unwatch (or a later navigation's watch) could overtake an earlier watch and
+ *  leave an orphaned or stale-folder watcher. Module-level so a remounted view
+ *  with the same id (a tab switched back to, the Files popout) joins the queue. */
+const watchQueue = new Map<number, Promise<void>>();
+function queueWatch(id: number, op: () => Promise<unknown>): void {
+  const next = (watchQueue.get(id) ?? Promise.resolve()).then(op).then(
+    () => {},
+    () => {},
+  );
+  watchQueue.set(id, next);
+  void next.then(() => {
+    if (watchQueue.get(id) === next) watchQueue.delete(id);
+  });
+}
 
 type SortKey = "name" | "size" | "modified";
 type Clipboard = { mode: "copy" | "cut"; paths: string[] } | null;
@@ -120,6 +142,9 @@ const FilesView: Component<{
   let noticeTimer: number | undefined;
   let unlistenFs: (() => void) | undefined;
   let watchTimer: number | undefined;
+  /** Set on unmount. Async work (the first listing, the fs-changed listener, a
+   *  file op's refresh) can finish after cleanup and must not re-arm anything. */
+  let disposed = false;
 
   // Navigation history (per Files tab).
   let back: string[] = [];
@@ -140,7 +165,10 @@ const FilesView: Component<{
   // Generation token: each (re)load bumps it so chunks from a superseded
   // navigation are dropped instead of landing in the new directory's listing (#86).
   let loadGen = 0;
+  /** A soft refresh was asked for while a full load was in flight. */
+  let softAfterLoad = false;
   const load = async (path: string, selectName?: string) => {
+    if (disposed) return; // a file op's refresh landing after unmount would re-watch
     const gen = ++loadGen;
     setLoading(true);
     setError(null);
@@ -152,7 +180,7 @@ const FilesView: Component<{
           setListing({ path: m.path, parent: m.parent, entries: [] });
           setCwd(m.path);
           props.onPathChange(m.path);
-          void fsWatch(props.id, m.path).catch(() => {}); // live watch (#85)
+          queueWatch(props.id, () => fsWatch(props.id, m.path)); // live watch (#85), in order
           setSelected(selectName ? new Set([selectName]) : new Set<string>());
           setCursor(-1);
           anchor = -1;
@@ -174,6 +202,10 @@ const FilesView: Component<{
       if (gen === loadGen) {
         setLoading(false);
         setStreaming(false);
+        if (softAfterLoad) {
+          softAfterLoad = false;
+          void softRefresh();
+        }
       }
     }
   };
@@ -182,6 +214,15 @@ const FilesView: Component<{
   /** Re-list in place (external change / undo): keep scroll + selection. Buffers
    *  the whole stream then swaps once, so an external change doesn't flicker. */
   const softRefresh = async () => {
+    // Never steal the generation of a load still in flight: its later frames
+    // would be dropped and its `finally` skipped, leaving "Loading…" (or, before
+    // its head landed, the OLD folder re-listed) or "loading more…" stuck. Run
+    // once it settles instead, on whatever folder it ended up in.
+    if (loading() || streaming()) {
+      softAfterLoad = true;
+      return;
+    }
+    softAfterLoad = false;
     const gen = ++loadGen;
     let acc: FileEntry[] = [];
     try {
@@ -240,18 +281,25 @@ const FilesView: Component<{
 
   onMount(async () => {
     await load(props.path);
+    if (disposed) return;
     setPlaces(await fsQuickLocations().catch(() => []));
     // Live watch: re-list (debounced) when the shown directory changes on disk.
-    unlistenFs = await onFsChanged((p) => {
+    const un = await onFsChanged((p) => {
       if (p !== cwd()) return;
       clearTimeout(watchTimer);
       watchTimer = window.setTimeout(() => void softRefresh(), 180);
     }).catch(() => undefined);
+    // Unmounted while the (possibly long) first listing streamed in: onCleanup
+    // has already run, so a listener kept now would never be removed.
+    if (disposed) un?.();
+    else unlistenFs = un;
   });
   onCleanup(() => {
+    disposed = true;
+    loadGen++; // drop a still-streaming listing: its `head` would re-watch after the unwatch below
     unlistenFs?.();
     clearTimeout(watchTimer);
-    void fsUnwatch(props.id).catch(() => {});
+    queueWatch(props.id, () => fsUnwatch(props.id));
   });
 
   // Filter (hidden + search) then sort (folders first, then the chosen key).
@@ -266,7 +314,7 @@ const FilesView: Component<{
     return [...es].sort((a, b) => {
       if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
       let c = 0;
-      if (key === "name") c = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      if (key === "name") c = NAME_COLLATOR.compare(a.name, b.name);
       else if (key === "size") c = (a.size ?? -1) - (b.size ?? -1);
       else c = (a.modified ?? 0) - (b.modified ?? 0);
       return c * dir;
@@ -470,6 +518,7 @@ const FilesView: Component<{
         const reply = await agentChat(
           `Summarize the following file concisely — a couple of sentences, plus key points as bullets if useful. Do not repeat the file verbatim.\n\nFile: ${att.name}\n\n${att.text.slice(0, 24_000)}`,
         );
+        if (ai()?.title !== title) return; // dismissed while the model was thinking
         setAi({ title, state: "ok", text: reply.trim() });
       } catch (e) {
         setAi({ title, state: "error", err: String(e) });
@@ -480,6 +529,10 @@ const FilesView: Component<{
   const renameByContent = (entry: FileEntry) => {
     setMenu(null);
     const title = `Suggest a name — ${entry.name}`;
+    // Pin the folder now: the model can take a while, and by the time the confirm
+    // appears the user may be in another folder with a file of the same name,
+    // which `cwd()` read at confirm time would then rename.
+    const dir = cwd();
     setAi({ title, state: "loading" });
     void (async () => {
       try {
@@ -488,6 +541,8 @@ const FilesView: Component<{
         const reply = await agentChat(
           `Suggest ONE short, descriptive filename in kebab-case (lowercase words joined by hyphens, no spaces, no extension, at most 5 words) for the file below, based on its content. Reply with ONLY the filename — nothing else.\n\n${att.text.slice(0, 12_000)}`,
         );
+        // Dismissed while the model was thinking: don't pop a rename up later.
+        if (ai()?.title !== title) return;
         const ext = extOf(entry.name);
         const suggested = safeBaseName(reply) + (ext ? "." + ext : "");
         if (suggested === entry.name) {
@@ -503,7 +558,7 @@ const FilesView: Component<{
           onYes: async () => {
             setConfirm(null);
             try {
-              await fsRename(joinPath(cwd(), entry.name), joinPath(cwd(), suggested));
+              await fsRename(joinPath(dir, entry.name), joinPath(dir, suggested));
               await refresh();
               toast(`Renamed to ${suggested}`);
             } catch (e) {
@@ -692,17 +747,23 @@ const FilesView: Component<{
       return;
     }
     setSearching(true);
+    // False once a newer query, folder or mode supersedes this run: a slow narrow
+    // walk must not land over the broader search typed after it.
+    let live = true;
     clearTimeout(searchTimer);
     searchTimer = window.setTimeout(
       () => {
         void fsSearch(dir, q, 500, sem)
-          .then(setSearchHits)
-          .catch(() => setSearchHits([]))
-          .finally(() => setSearching(false));
+          .then((hits) => live && setSearchHits(hits))
+          .catch(() => live && setSearchHits([]))
+          .finally(() => live && setSearching(false));
       },
       sem ? 350 : 200,
     ); // a touch more debounce when the embed round-trip is on
-    onCleanup(() => clearTimeout(searchTimer));
+    onCleanup(() => {
+      live = false;
+      clearTimeout(searchTimer);
+    });
   });
   const dirOf = (p: string): string => {
     const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
@@ -737,13 +798,19 @@ const FilesView: Component<{
     }
     const path = joinPath(cwd(), t.name);
     setPreview({ state: "loading" });
+    // False once the selection moves on: a slow read (a 20 MB image is ~53 MB of
+    // base64 JSON) must not land over the file selected after it.
+    let live = true;
     clearTimeout(previewTimer);
     previewTimer = window.setTimeout(() => {
       void attachmentRead(path)
-        .then((att) => setPreview({ state: "ok", att }))
-        .catch((e) => setPreview({ state: "error", err: String(e) }));
+        .then((att) => live && setPreview({ state: "ok", att }))
+        .catch((e) => live && setPreview({ state: "error", err: String(e) }));
     }, 120);
-    onCleanup(() => clearTimeout(previewTimer));
+    onCleanup(() => {
+      live = false;
+      clearTimeout(previewTimer);
+    });
   });
 
   // Context menu, built from what's under the cursor + current state.
@@ -1480,13 +1547,6 @@ const BROWSER_EXTS = new Set([
   "ogg",
 ]);
 
-/** Turn a local OS path into a file:// URL (handles Windows drive paths + backslashes). */
-function toFileUrl(p: string): string {
-  let s = p.replace(/\\/g, "/");
-  if (!s.startsWith("/")) s = "/" + s; // C:/Users/… → /C:/Users/…
-  return "file://" + encodeURI(s);
-}
-
 /** Coerce a model-suggested filename into a safe, single base name (no ext, no path). */
 function safeBaseName(raw: string): string {
   const first = (raw.split(/[\r\n]/)[0] ?? "").trim();
@@ -1532,29 +1592,6 @@ function menuStyle(m: { x: number; y: number }): JSX.CSSProperties {
   const x = typeof window !== "undefined" ? Math.min(m.x, window.innerWidth - W - 8) : m.x;
   const y = typeof window !== "undefined" ? Math.min(m.y, window.innerHeight - H - 8) : m.y;
   return { left: `${Math.max(8, x)}px`, top: `${Math.max(8, y)}px` };
-}
-
-/** Breadcrumb segments with their absolute paths (Windows `C:\…` + Unix `/…`). */
-function crumbs(path: string): { name: string; path: string }[] {
-  const win = path.includes("\\");
-  const sep = win ? "\\" : "/";
-  const out: { name: string; path: string }[] = [];
-  let acc = "";
-  path.split(sep).forEach((part, i) => {
-    if (i === 0) {
-      if (win) {
-        acc = part + sep;
-        out.push({ name: part, path: acc });
-      } else {
-        acc = "/";
-        out.push({ name: "/", path: "/" });
-      }
-    } else if (part) {
-      acc = acc.endsWith(sep) ? acc + part : acc + sep + part;
-      out.push({ name: part, path: acc });
-    }
-  });
-  return out;
 }
 
 function fmtSize(n: number | null, isDir: boolean): string {
