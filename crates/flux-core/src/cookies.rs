@@ -16,11 +16,31 @@ use tauri::{AppHandle, Manager};
 pub struct CookieState {
     /// Hosts whose cookies are wiped when their tab closes.
     clear_on_close: DashMap<String, ()>,
+    /// Where the flags are saved (`None` = in-memory only; tests).
+    path: Option<std::path::PathBuf>,
 }
 
 impl CookieState {
     pub fn new() -> Self {
         Self::default()
+    }
+    /// Load the saved flags. In memory only, they silently stopped clearing
+    /// anything after a restart.
+    pub fn restore(path: std::path::PathBuf) -> Self {
+        let hosts: Vec<String> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Self {
+            clear_on_close: hosts.into_iter().map(|h| (h, ())).collect(),
+            path: Some(path),
+        }
+    }
+    fn persist(&self) {
+        let Some(path) = &self.path else { return };
+        let mut hosts = self.status().clear_on_close;
+        hosts.sort();
+        crate::persist::save_json_pretty(path, &hosts);
     }
     pub fn should_clear_on_close(&self, host: &str) -> bool {
         self.clear_on_close.contains_key(host)
@@ -77,6 +97,7 @@ pub fn cookies_set_clear_on_close(state: tauri::State<'_, CookieState>, host: St
     } else {
         state.clear_on_close.remove(&host);
     }
+    state.persist();
 }
 
 #[tauri::command]
@@ -140,5 +161,17 @@ mod tests {
         assert!(!cookie_for_host("bank.example", "notbank.example"));
         assert!(!cookie_for_host("bank.example", "bank.example.evil"));
         assert!(!cookie_for_host("www.bank.example", "other.bank.example"));
+    }
+
+    #[test]
+    fn clear_on_close_flags_survive_a_restart() {
+        let dir = std::env::temp_dir().join(format!("flux-cookies-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("clear-on-close.json");
+        let s = CookieState::restore(path.clone());
+        s.clear_on_close.insert("bank.example".into(), ());
+        s.persist();
+        assert!(CookieState::restore(path).should_clear_on_close("bank.example"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -13,7 +13,7 @@ use std::time::Duration;
 use dashmap::DashMap;
 use flux_filter::Filter;
 use parking_lot::RwLock;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 use crate::cache::TtlCache;
@@ -57,6 +57,23 @@ const CB_JSON_FILE: &str = "webkit-cb.json";
 /// stay well under it — the hot ~10% of EasyList does the real blocking anyway.
 const CB_MAX_RULES: usize = 75_000;
 
+/// The user's shields choices, as saved to `shields.json`.
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
+struct ShieldsPrefs {
+    enabled: bool,
+    sites_off: Vec<String>,
+}
+
+impl Default for ShieldsPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sites_off: Vec::new(),
+        }
+    }
+}
+
 pub struct ShieldsState {
     filter: RwLock<Filter>,
     /// Page hosts where the user turned shields OFF (allowlist).
@@ -76,6 +93,9 @@ pub struct ShieldsState {
     fired_rules: DashMap<String, u64>,
     /// Where fetched lists are cached (`None` → bundled default only; tests).
     filters_dir: Option<PathBuf>,
+    /// Where the global toggle + per-site allowlist are saved (`None` →
+    /// in-memory only; tests).
+    prefs: Option<PathBuf>,
 }
 
 impl Default for ShieldsState {
@@ -96,6 +116,7 @@ impl ShieldsState {
             decisions: TtlCache::new(DECISION_CACHE_CAP, Some(DECISION_CACHE_TTL)),
             fired_rules: DashMap::new(),
             filters_dir,
+            prefs: None,
         };
         // Seed the content-blocker JSON from the bundled list so the native
         // layer (WebKitGTK) has rules before the first background refresh
@@ -105,6 +126,28 @@ impl ShieldsState {
             s.write_content_blocker(DEFAULT_FILTERS);
         }
         s
+    }
+
+    /// Restore the global toggle + per-site allowlist from `path` (missing or
+    /// unreadable → on, no exceptions) and save every change back there. They
+    /// used to live only in memory and silently reset on restart.
+    pub fn with_prefs(mut self, path: PathBuf) -> Self {
+        let saved: ShieldsPrefs = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        *self.enabled.get_mut() = saved.enabled;
+        self.off_for = saved.sites_off.into_iter().map(|h| (h, ())).collect();
+        self.prefs = Some(path);
+        self
+    }
+
+    fn save_prefs(&self) {
+        let Some(path) = &self.prefs else { return };
+        let mut sites_off: Vec<String> = self.off_for.iter().map(|e| e.key().clone()).collect();
+        sites_off.sort();
+        let enabled = self.enabled.load(Ordering::Relaxed);
+        crate::persist::save_json_pretty(path, &ShieldsPrefs { enabled, sites_off });
     }
 
     /// Fetch any stale/missing upstream lists, then rebuild the filter from the
@@ -340,6 +383,7 @@ pub fn shields_status(
 #[tauri::command]
 pub fn shields_set_enabled(state: State<'_, ShieldsState>, on: bool) {
     state.enabled.store(on, Ordering::Relaxed);
+    state.save_prefs();
 }
 
 /// Turn shields on/off for one site (`on = false` allowlists the host).
@@ -350,6 +394,7 @@ pub fn shields_set_site(state: State<'_, ShieldsState>, host: String, on: bool) 
     } else {
         state.off_for.insert(host, ());
     }
+    state.save_prefs();
 }
 
 /// Diagnostic / agent hook: would this request be blocked? (Does not count.)
@@ -461,6 +506,25 @@ mod tests {
             0,
             "rebuilding the rule set must invalidate verdicts"
         );
+    }
+
+    #[test]
+    fn toggle_and_allowlist_survive_a_restart() {
+        let dir = std::env::temp_dir().join(format!("flux-shields-prefs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("shields.json");
+        let s = ShieldsState::new(None).with_prefs(path.clone());
+        assert!(s.enabled.load(Ordering::Relaxed), "on by default");
+        s.off_for.insert("broken.example".into(), ());
+        s.save_prefs();
+        let back = ShieldsState::new(None).with_prefs(path.clone());
+        assert!(back.status().sites_off.contains(&"broken.example".to_string()));
+        assert!(back.enabled.load(Ordering::Relaxed));
+
+        back.enabled.store(false, Ordering::Relaxed);
+        back.save_prefs();
+        assert!(!ShieldsState::new(None).with_prefs(path).enabled.load(Ordering::Relaxed));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
