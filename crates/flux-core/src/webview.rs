@@ -225,10 +225,7 @@ mod real {
         if let Some(user_agent) = crate::browser_identity::user_agent() {
             builder = builder.user_agent(user_agent);
         }
-        if let Some(proxy) = app
-            .try_state::<crate::proxy::ProxyState>()
-            .and_then(|s| s.parsed())
-        {
+        if let Some(proxy) = crate::proxy::for_webview(&app)? {
             builder = builder.proxy_url(proxy);
         }
         let builder = builder
@@ -822,10 +819,7 @@ mod real {
         if let Some(user_agent) = crate::browser_identity::user_agent() {
             builder = builder.user_agent(user_agent);
         }
-        if let Some(proxy) = app
-            .try_state::<crate::proxy::ProxyState>()
-            .and_then(|s| s.parsed())
-        {
+        if let Some(proxy) = crate::proxy::for_webview(&app)? {
             builder = builder.proxy_url(proxy); // #63
         }
         let scale = window.scale_factor().unwrap_or(1.0);

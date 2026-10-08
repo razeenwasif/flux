@@ -97,10 +97,15 @@ fn open_window(app: &AppHandle, pwa: &PwaApp) -> Result<(), String> {
         .url
         .parse()
         .map_err(|_| format!("invalid URL: {}", pwa.url))?;
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(&pwa.name)
         .inner_size(1100.0, 800.0)
-        .on_navigation(|u| !crate::webview::is_app_origin(u))
+        .on_navigation(|u| !crate::webview::is_app_origin(u));
+    // Same outbound proxy (#63) as tabs: an installed app must not go direct.
+    if let Some(proxy) = crate::proxy::for_webview(app)? {
+        builder = builder.proxy_url(proxy);
+    }
+    builder
         .build()
         .map_err(|e| format!("open app window: {e}"))?;
     Ok(())

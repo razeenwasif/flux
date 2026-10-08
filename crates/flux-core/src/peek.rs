@@ -120,10 +120,7 @@ fn open_peek(app: &AppHandle, url: &str, session: Session) -> Result<(), String>
         builder = builder.data_store_identifier(store);
     }
     // Same outbound proxy (#63) as tab webviews: a peek must not go direct.
-    if let Some(proxy) = app
-        .try_state::<crate::proxy::ProxyState>()
-        .and_then(|s| s.parsed())
-    {
+    if let Some(proxy) = crate::proxy::for_webview(app)? {
         builder = builder.proxy_url(proxy);
     }
     let win = builder.build().map_err(|e| format!("open peek: {e}"))?;
