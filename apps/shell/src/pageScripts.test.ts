@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import captureJs from "../../../crates/flux-core/assets/capture.js?raw";
 import consentJs from "../../../crates/flux-core/assets/consent.js?raw";
 import navJs from "../../../crates/flux-core/assets/nav.js?raw";
+import newtabJs from "../../../crates/flux-core/assets/newtab.js?raw";
 import explainRs from "../../../crates/flux-core/src/sentinel/explain.rs?raw";
 
 /** Run an injected script with `globals` standing in for the browser's. Timers
@@ -207,5 +208,57 @@ describe("nav.js", () => {
     expect(page.press("f", [body])).toBe(true);
     page.press("j", [body]);
     expect(page.scrolled).toEqual([64]);
+  });
+});
+
+describe("newtab.js", () => {
+  /** `active`: navigator.userActivation.isActive (undefined: no such API). */
+  const loadNewtab = (active: boolean | undefined) => {
+    const opened: unknown[] = [];
+    const native: unknown[][] = [];
+    const window: Record<string, unknown> = {
+      __TAURI_INTERNALS__: {
+        invoke: (cmd: string, args: unknown) => {
+          opened.push([cmd, args]);
+          return Promise.resolve();
+        },
+      },
+      open: (...args: unknown[]) => {
+        native.push(args);
+        return null;
+      },
+    };
+    runPageScript(newtabJs, {
+      window,
+      document: { baseURI: "https://example.com/page", addEventListener: () => {} },
+      navigator: active === undefined ? {} : { userActivation: { isActive: active } },
+    });
+    return { open: window.open as (url?: string, target?: string) => unknown, opened, native };
+  };
+
+  it("refuses a scripted popup with no user gesture", () => {
+    const page = loadNewtab(false);
+    expect(page.open("https://ads.example/popunder")).toBeNull();
+    expect(page.opened).toEqual([]);
+    expect(page.native).toEqual([]);
+  });
+
+  it("navigates in place for _self, _top and _parent", () => {
+    const page = loadNewtab(true);
+    page.open("/next", "_self");
+    page.open("/next", "_TOP");
+    page.open("/next", "_parent");
+    expect(page.opened).toEqual([]);
+    expect(page.native.map((a) => a[1])).toEqual(["_self", "_TOP", "_parent"]);
+  });
+
+  it("opens a Flux tab for a gesture-driven popup", () => {
+    for (const active of [true, undefined]) {
+      const page = loadNewtab(active);
+      expect(page.open("https://example.org/", "_blank")).not.toBeNull();
+      expect(page.opened).toEqual([
+        ["plugin:fluxtab|chrome_open_url", { url: "https://example.org/", background: false }],
+      ]);
+    }
   });
 });
