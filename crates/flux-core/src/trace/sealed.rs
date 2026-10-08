@@ -118,27 +118,34 @@ pub(super) fn data_key(dir: &Path) -> Option<[u8; 32]> {
 }
 
 /// Serialize + seal + atomically write. Falls back to plaintext when no key.
-pub(crate) fn save_json_sealed<T: serde::Serialize>(path: &Path, value: &T) {
+/// Returns false if it didn't land (logged): the caller stays dirty so its next
+/// flush retries, rather than dropping the change until some other mutation.
+pub(crate) fn save_json_sealed<T: serde::Serialize>(path: &Path, value: &T) -> bool {
     if HELD.lock().iter().any(|p| p == path) {
-        return; // couldn't be loaded this run; it may hold the only copy
+        return true; // couldn't be loaded this run; it may hold the only copy
     }
-    let Ok(json) = serde_json::to_vec(value) else {
-        return;
-    };
     let dir = path.parent().unwrap_or(Path::new("."));
-    match data_key(dir) {
-        Some(key) => {
-            if let Ok(ct) = flux_vault::seal(&key, &json) {
-                let mut blob = Vec::with_capacity(MAGIC.len() + ct.len());
-                blob.extend_from_slice(MAGIC);
-                blob.extend_from_slice(&ct);
-                let _ = crate::persist::write_atomic(path, &blob);
-            }
-        }
-        None => {
-            let _ = crate::persist::write_atomic(path, &json);
-        }
+    let res = serde_json::to_vec(value)
+        .map_err(std::io::Error::other)
+        .and_then(|json| match data_key(dir) {
+            Some(key) => flux_vault::seal(&key, &json)
+                .map_err(std::io::Error::other)
+                .and_then(|ct| {
+                    let mut blob = Vec::with_capacity(MAGIC.len() + ct.len());
+                    blob.extend_from_slice(MAGIC);
+                    blob.extend_from_slice(&ct);
+                    crate::persist::write_atomic(path, &blob)
+                }),
+            None => crate::persist::write_atomic(path, &json),
+        });
+    if let Err(e) = &res {
+        tracing::warn!(
+            target: "flux::trace",
+            path = %path.display(),
+            "store save failed, will retry: {e}"
+        );
     }
+    res.is_ok()
 }
 
 /// Leave `path` untouched and skip saving it for the rest of this run.
@@ -306,6 +313,18 @@ mod tests {
         save_json_sealed(&path, &serde_json::json!({ "fresh": true }));
         assert_eq!(std::fs::read(&path).unwrap(), b"only copy");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_save_is_reported_not_swallowed() {
+        // Non-string map keys can't be JSON, so this fails before any key or
+        // disk work. The caller must hear about it to stay dirty and retry.
+        let path = std::env::temp_dir()
+            .join(format!("flux-sealed-fail-{}", std::process::id()))
+            .join("store.json");
+        let unserializable = std::collections::HashMap::from([((1u8, 2u8), 3u8)]);
+        assert!(!save_json_sealed(&path, &unserializable));
+        assert!(!path.exists());
     }
 
     #[test]

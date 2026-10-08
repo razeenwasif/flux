@@ -753,7 +753,9 @@ impl TraceStore {
         }
         let Some(path) = &self.path else { return };
         let d = self.inner.read();
-        super::sealed::save_json_sealed(path, &*d);
+        if !super::sealed::save_json_sealed(path, &*d) {
+            self.dirty.store(true, Ordering::Relaxed); // retry on the next flush
+        }
     }
 }
 
