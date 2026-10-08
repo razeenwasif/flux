@@ -709,6 +709,10 @@ const App: Component = () => {
       const now = Date.now();
       const act = activeId();
       if (act != null) lastActive.set(act, now);
+      // Every pane of an on-screen split is in use, not only the active one.
+      // Otherwise a tiled partner leaves the split already "idle" for as long as
+      // it went unfocused, and is slept at the very next tick.
+      for (const p of paneLayout()) lastActive.set(p.tab.id, now);
       // Auto-archive (#46, branch-aware): stale tabs that form a Trail-connected
       // "rabbit hole" archive together as ONE named branch; loners go to the flat
       // list. Runs BEFORE the live-bg bail (stale tabs are usually hibernated).
@@ -853,20 +857,25 @@ const App: Component = () => {
     holdListener(onPanelBadge((id, count) => setPanelBadge(id, count)));
   });
 
-  // Capture a tab's scroll/form state the moment you switch away from it (#45),
+  // Capture a tab's scroll/form state the moment it leaves the screen (#45),
   // while its webview still exists — so it's preserved if the tab later sleeps.
+  // That is every tab that was on screen: the active tab and its split partners.
+  // Capturing only the active one lost a tiled pane's scroll and half-typed form
+  // text when it later hibernated.
   // No rush: a backgrounded page is frozen, so this never races hibernation.
-  let prevActive: number | null = null;
+  let prevVisible = new Set<number>();
   createEffect(() => {
-    const cur = activeId();
-    if (prevActive != null && prevActive !== cur) {
-      const pid = prevActive;
+    const cur = new Set((tilePanes() ?? []).map((t) => t.id));
+    const act = activeId();
+    if (act != null) cur.add(act);
+    for (const pid of prevVisible) {
+      if (cur.has(pid)) continue;
       const pt = tabs().find((t) => t.id === pid);
       if (pt?.kind === "browser" && !isStartUrl(pt.url) && openedWebviews.has(pid)) {
         void webviewCaptureState(pid).catch(() => {});
       }
     }
-    prevActive = cur;
+    prevVisible = cur;
   });
 
   // Reader mode (#41) closes when you switch away from its tab.
