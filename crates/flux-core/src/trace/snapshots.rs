@@ -90,8 +90,8 @@ pub struct TraceSnapshots {
     /// `TraceStore`'s `Once`): an `add` that ran on the not-yet-loaded store
     /// made the loader discard the whole corpus for the next flush to seal.
     hydrated: std::sync::OnceLock<()>,
-    /// Bumped on every `add`/`forget_visits` change — the KB auto-reindex
-    /// debouncer watches this to fold settled browsing into the `web` source.
+    /// Bumped on every add or removal — the KB auto-reindex debouncer watches
+    /// this to fold settled browsing into the `web` source.
     generation: std::sync::atomic::AtomicU64,
 }
 
@@ -200,6 +200,21 @@ impl TraceSnapshots {
                 saved_ms: s.saved_ms,
                 text: s.text.clone(),
             })
+    }
+
+    /// Drop one snapshot by id: a capture that lost a race with `trace_forget`
+    /// or with a concurrent capture of the same visit.
+    pub fn remove(&self, id: u64) {
+        self.hydrate();
+        let mut d = self.inner.write();
+        let before = d.snapshots.len();
+        d.snapshots.retain(|s| s.id != id);
+        if d.snapshots.len() != before {
+            drop(d);
+            self.dirty.store(true, Ordering::Relaxed);
+            // A reindex that ran since the add re-syncs `web` without it.
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Visits whose snapshots are semantically nearest to `embedding` — cosine ≥

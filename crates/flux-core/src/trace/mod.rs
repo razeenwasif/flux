@@ -120,7 +120,8 @@ pub fn trace_snapshot_get(snaps: State<'_, TraceSnapshots>, id: u64) -> Option<S
 /// the already-cached DOM text (no new page capture), embeds it off-thread, stores
 /// it, and attaches `snapshot_id` to the visit. Idempotent — a visit that already
 /// has a snapshot returns it without re-embedding. Returns the snapshot id, or
-/// `None` if there's no current visit / no cached text yet.
+/// `None` if there's no current visit / no cached text yet / the visit left the
+/// Trail while embedding.
 #[tauri::command]
 pub async fn trace_snapshot(
     trace: State<'_, TraceStore>,
@@ -175,11 +176,33 @@ pub async fn trace_snapshot(
     // pass with what the page text mentions, then link shared papers/repos.
     let entities = extract_entities(&url, &text);
     let id = snaps.add(visit_id, url, title, text, embedding);
-    trace.attach_snapshot(visit_id, id);
+    match attach_or_discard(&trace, &snaps, visit_id, id) {
+        Some(sid) if sid == id => {}
+        other => return Ok(other),
+    }
     trace.add_semantic_edges(visit_id, &neighbours);
     trace.set_entities(visit_id, entities);
     trace.derive_entity_edges(visit_id);
     Ok(Some(id))
+}
+
+/// Attach snapshot `id` (just added) to `visit`, or remove it if the capture
+/// lost a race while embedding: the visit was forgotten or evicted (`None`), or
+/// a concurrent capture attached first (its id). Kept, ours would be an orphan
+/// the KB reindex folds back into `web` (doc_id = visit id). An attach that
+/// wins is safe too: trace_forget drops visits before it cascades, so its
+/// cascade removes the snapshot. Returns the visit's snapshot id.
+fn attach_or_discard(
+    trace: &TraceStore,
+    snaps: &TraceSnapshots,
+    visit: VisitId,
+    id: u64,
+) -> Option<u64> {
+    let attached = trace.attach_snapshot(visit, id);
+    if attached != Some(id) {
+        snaps.remove(id);
+    }
+    attached
 }
 
 /// Ambient watcher (ADR 0011, local-only): if the tab's current page shows an
@@ -344,6 +367,9 @@ pub async fn trace_chat_send(
     let prompt = chat_prompt(&visit, snapshot_text.as_deref(), &thread, &message);
     // Record the user side before inference so a crash mid-stream can't lose it.
     chats.append(visit_id, "user", &message);
+    if drop_if_forgotten(&trace, &chats, visit_id) {
+        return Err("that page is no longer in the Trail".into());
+    }
 
     // Inference on a blocking thread (CPU/GPU-bound), streaming frames out.
     let reply = tauri::async_runtime::spawn_blocking(move || {
@@ -359,7 +385,24 @@ pub async fn trace_chat_send(
     .map_err(|e| e.to_string())?;
 
     chats.append(visit_id, "assistant", &reply);
+    // If a forget ran during inference, its cascade has passed and this append
+    // re-created the thread.
+    if drop_if_forgotten(&trace, &chats, visit_id) {
+        return Err("that page was forgotten while answering".into());
+    }
     Ok(())
+}
+
+/// Append-then-recheck for a page chat: if `visit` left the Trail, drop the
+/// thread our append (re)created. trace_forget drops visits before it cascades,
+/// so either the visit is gone by now or its cascade runs after our append.
+/// Returns whether the thread was dropped.
+fn drop_if_forgotten(trace: &TraceStore, chats: &TraceChats, visit: VisitId) -> bool {
+    if trace.visit(visit).is_some() {
+        return false;
+    }
+    chats.forget_visits(&std::collections::HashSet::from([visit]));
+    true
 }
 
 /// Forget part (or all) of the Trail — the day-one privacy control (ADR 0011).
@@ -375,6 +418,8 @@ pub async fn trace_forget(
     kb: State<'_, crate::kb::KbStore>,
     scope: ForgetScope,
 ) -> Result<(), String> {
+    // Visits before the cascades: an in-flight capture or chat reply adds, then
+    // re-checks its visit (see `attach_or_discard`, `drop_if_forgotten`).
     let removed: std::collections::HashSet<VisitId> = store.forget(&scope).into_iter().collect();
     snaps.forget_visits(&removed);
     chats.forget_visits(&removed);
@@ -389,4 +434,57 @@ pub async fn trace_forget(
     tauri::async_runtime::spawn_blocking(move || kb.remove_docs("web", &doc_ids))
         .await
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn a_capture_that_loses_a_race_leaves_no_snapshot() {
+        let trace = TraceStore::default();
+        let snaps = TraceSnapshots::empty_for_tests();
+        let snap =
+            |v: VisitId| snaps.add(v, format!("https://{v}/"), "T".into(), "t".into(), vec![]);
+
+        // Two captures of one visit both embedded: the one attaching second
+        // backs out, so the visit keeps one snapshot (one KB `web` doc).
+        let v = trace.record(1, "https://a.com/", "A", None, None).unwrap();
+        let (first, second) = (snap(v), snap(v));
+        assert_eq!(attach_or_discard(&trace, &snaps, v, first), Some(first));
+        assert_eq!(attach_or_discard(&trace, &snaps, v, second), Some(first));
+        assert!(snaps.get(second).is_none());
+        assert_eq!(snaps.web_docs().len(), 1);
+
+        // trace_forget lands mid-embed: the visit and its (still empty) cascade
+        // are done before the capture stores anything.
+        let w = trace.record(2, "https://b.com/", "B", None, None).unwrap();
+        let gone: HashSet<VisitId> = trace.forget(&ForgetScope::All).into_iter().collect();
+        snaps.forget_visits(&gone);
+        let id = snap(w);
+        let generation = snaps.generation();
+        assert_eq!(attach_or_discard(&trace, &snaps, w, id), None);
+        assert!(snaps.get(id).is_none(), "no orphan for the KB reindex");
+        assert!(
+            snaps.generation() > generation,
+            "a reindex since the add re-syncs"
+        );
+    }
+
+    #[test]
+    fn a_reply_for_a_forgotten_page_is_not_kept() {
+        let trace = TraceStore::default();
+        let chats = TraceChats::default();
+        let v = trace.record(1, "https://a.com/", "A", None, None).unwrap();
+        chats.append(v, "user", "what is this page about?");
+        assert!(!drop_if_forgotten(&trace, &chats, v));
+        // Forgotten during inference: the cascade drops the thread, then the
+        // reply re-creates it for a visit that's gone.
+        let gone: HashSet<VisitId> = trace.forget(&ForgetScope::All).into_iter().collect();
+        chats.forget_visits(&gone);
+        chats.append(v, "assistant", "it is about lifetimes");
+        assert!(drop_if_forgotten(&trace, &chats, v));
+        assert!(!chats.has_thread(v));
+    }
 }

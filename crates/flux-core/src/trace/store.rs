@@ -361,17 +361,20 @@ impl TraceStore {
     }
 
     /// Attach a dwell snapshot to a visit (idempotent — a second call is ignored
-    /// so re-capture can't thrash the pointer).
-    pub fn attach_snapshot(&self, visit: VisitId, snapshot_id: u64) {
+    /// so re-capture can't thrash the pointer). Returns the visit's snapshot id
+    /// afterwards (this one, or an earlier capture's), or `None` if the visit is
+    /// gone.
+    pub fn attach_snapshot(&self, visit: VisitId, snapshot_id: u64) -> Option<u64> {
         self.hydrate();
         let mut d = self.inner.write();
-        if let Some(v) = d.visits.iter_mut().find(|v| v.id == visit) {
-            if v.snapshot_id.is_none() {
-                v.snapshot_id = Some(snapshot_id);
-                drop(d);
-                self.dirty.store(true, Ordering::Relaxed);
-            }
+        let v = d.visits.iter_mut().find(|v| v.id == visit)?;
+        if let Some(existing) = v.snapshot_id {
+            return Some(existing);
         }
+        v.snapshot_id = Some(snapshot_id);
+        drop(d);
+        self.dirty.store(true, Ordering::Relaxed);
+        Some(snapshot_id)
     }
 
     /// Add derived (non-Nav) edges — semantic neighbours, citations, implements
