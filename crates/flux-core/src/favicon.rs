@@ -5,24 +5,34 @@
 //! anyone else. Falls back to the letter glyph when a site has no usable icon.
 
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use base64::Engine as _;
-use dashmap::DashMap;
 use tauri::State;
 
-/// host → Some(data-url) on success, None when known-missing (this session).
-#[derive(Default)]
+use crate::cache::TtlCache;
+
+/// Hosts kept in memory. Each icon can be a ~350 KB data URL and a page can
+/// mint hosts at will (navigating itself through fresh subdomains), so this is
+/// bounded. The shell keeps its own copy per host; an evicted host falls back
+/// to the disk cache.
+const MEM_CAP: usize = 128;
+/// How long a host stays in memory, so a known-missing icon is retried.
+const MEM_TTL: Duration = Duration::from_secs(6 * 3600);
+/// Icons kept on disk, oldest dropped first.
+const DISK_CAP: usize = 2000;
+
+/// host → Some(data-url) on success, None when known-missing.
 pub struct FaviconCache {
-    mem: DashMap<String, Option<String>>,
+    mem: TtlCache<String, Option<String>>,
     dir: Option<PathBuf>,
 }
 
 impl FaviconCache {
     pub fn new(dir: Option<PathBuf>) -> Self {
         Self {
-            mem: DashMap::new(),
+            mem: TtlCache::new(MEM_CAP, Some(MEM_TTL)),
             dir,
         }
     }
@@ -50,7 +60,7 @@ pub async fn favicon(
         return Ok(None);
     }
     if let Some(v) = cache.mem.get(&host) {
-        return Ok(v.clone());
+        return Ok(v);
     }
     // Disk cache (successes only). Skip stale `data:image/x-icon` entries written
     // before the ICO→PNG transcode landed — they don't render on WebKitGTK, so
@@ -65,15 +75,41 @@ pub async fn favicon(
     }
 
     let h = host.clone();
-    let fetched = tauri::async_runtime::spawn_blocking(move || try_fetch(&h))
-        .await
-        .unwrap_or(None);
-    cache.mem.insert(host.clone(), fetched.clone());
-    if let (Some(dir), Some(data)) = (&cache.dir, &fetched) {
-        let _ = std::fs::create_dir_all(dir);
-        let _ = std::fs::write(dir.join(format!("{}.txt", sanitize(&host))), data);
-    }
+    let dir = cache.dir.clone();
+    let fetched = tauri::async_runtime::spawn_blocking(move || {
+        let data = try_fetch(&h)?;
+        if let Some(dir) = dir {
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::fs::write(dir.join(format!("{}.txt", sanitize(&h))), &data);
+            prune_disk(&dir, DISK_CAP);
+        }
+        Some(data)
+    })
+    .await
+    .unwrap_or(None);
+    cache.mem.insert(host, fetched.clone());
     Ok(fetched)
+}
+
+/// Keep at most `cap` icons on disk, dropping the oldest-written. Trims to 90%
+/// so the next writes don't each re-stat the whole folder.
+fn prune_disk(dir: &Path, cap: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    if paths.len() <= cap {
+        return;
+    }
+    let mut dated: Vec<_> = paths
+        .into_iter()
+        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
+        .collect();
+    dated.sort_by_key(|(t, _)| *t);
+    let excess = dated.len().saturating_sub(cap * 9 / 10);
+    for (_, p) in dated.into_iter().take(excess) {
+        let _ = std::fs::remove_file(p);
+    }
 }
 
 /// `/favicon.ico`, then the root page's declared `<link rel="…icon">`.
@@ -270,6 +306,28 @@ mod tests {
             attr(r#"link rel='shortcut icon' href='//cdn/x.png'"#, "href").as_deref(),
             Some("//cdn/x.png")
         );
+    }
+
+    #[test]
+    fn disk_cache_is_pruned_oldest_first() {
+        let dir = std::env::temp_dir().join(format!("flux-favicon-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let t0 = std::time::SystemTime::now() - Duration::from_secs(3600);
+        for i in 0..12u64 {
+            let f = std::fs::File::create(dir.join(format!("h{i}.txt"))).unwrap();
+            f.set_modified(t0 + Duration::from_secs(i)).unwrap();
+        }
+        prune_disk(&dir, 20);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 12, "under the cap");
+
+        prune_disk(&dir, 10);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 9);
+        for gone in ["h0.txt", "h1.txt", "h2.txt"] {
+            assert!(!dir.join(gone).exists(), "{gone} is among the oldest");
+        }
+        assert!(dir.join("h3.txt").exists() && dir.join("h11.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
