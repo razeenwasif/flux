@@ -186,6 +186,18 @@ impl ExtRegistry {
         self.entries.read().clone()
     }
 
+    /// Whether enabled extension `ext_id` has a content script whose `@match`
+    /// patterns cover `url`: the pages ADR 0008 §6 confines it to. The broker
+    /// scopes tab-targeting calls with this.
+    pub fn matches_url(&self, ext_id: &str, url: &str) -> bool {
+        self.entries
+            .read()
+            .iter()
+            .filter(|e| e.enabled && e.manifest.id == ext_id)
+            .flat_map(|e| &e.manifest.content_scripts)
+            .any(|cs| cs.matches.iter().any(|m| pattern_matches(m, url)))
+    }
+
     /// The raw per-extension content-script payloads that apply to `url` at this
     /// load phase (`at_start` = `document_start`, else `document_end`/idle) — the
     /// content scripts of every *enabled* extension whose `@match` patterns hit
@@ -477,6 +489,28 @@ mod tests {
 
         reg.remove("com.example.reader");
         assert!(reg.list().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn matches_url_is_scoped_to_the_extensions_own_patterns() {
+        let dir = std::env::temp_dir().join(format!("flux-ext-scope-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let only_example = VALID.replace("https://*/*", "https://example.com/*");
+        std::fs::write(dir.join(MANIFEST_FILE), only_example).unwrap();
+        std::fs::write(dir.join("r.js"), "// content script").unwrap();
+
+        let reg = ExtRegistry::new();
+        reg.install(&dir).unwrap();
+        let id = "com.example.reader";
+        assert!(reg.matches_url(id, "https://example.com/inbox"));
+        // Another site's tab is out of reach, whatever the grant.
+        assert!(!reg.matches_url(id, "https://mail.example.org/inbox"));
+        assert!(!reg.matches_url(id, "flux://settings"));
+        // Unknown and disabled extensions match nothing.
+        assert!(!reg.matches_url("com.other", "https://example.com/"));
+        reg.set_enabled(id, false);
+        assert!(!reg.matches_url(id, "https://example.com/inbox"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

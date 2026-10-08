@@ -201,6 +201,25 @@ impl BrokerState {
                 "permission denied: {api}.{method} (extension {ext_id})"
             ));
         }
+        // ADR 0008 §6: a content script is confined to the pages its `matches`
+        // cover, so a tab-targeting call may only act on such a page — or one
+        // token (readable by its page under WebView2) reaches every tab. Checked
+        // against the tab webview's live URL, as `dom_publish` does: `TabMeta.url`
+        // only catches up on load-finish. Tabs with no webview are never in scope.
+        let not_here =
+            |tab: TabId| format!("permission denied: extension {ext_id} doesn't run on tab {tab}");
+        let in_scope = |tab: TabId| -> Result<(), String> {
+            let url = app
+                .get_webview(&format!("tab-{tab}"))
+                .ok_or("no such tab webview")?
+                .url()
+                .map_err(|e| e.to_string())?;
+            if registry.matches_url(&ext_id, url.as_str()) {
+                Ok(())
+            } else {
+                Err(not_here(tab))
+            }
+        };
         match (api, method) {
             ("runtime", "id") => Ok(json!(ext_id)),
             ("runtime", "version") => Ok(json!(ext.manifest.version)),
@@ -240,6 +259,7 @@ impl BrokerState {
             }
             ("tabs", "navigate") => {
                 let tab = arg_tab(args)?;
+                in_scope(tab)?;
                 let url = arg_web_url(args)?;
                 crate::webview::eval(app, tab, &format!("location.assign({})", json_str(&url)))?;
                 if let Some(mut t) = app.state::<FluxState>().tabs.get_mut(&tab) {
@@ -250,15 +270,20 @@ impl BrokerState {
 
             ("dom", "read") => {
                 let tab = arg_tab(args)?;
+                in_scope(tab)?;
                 match app.state::<FluxState>().dom_cache.get(&tab) {
-                    Some(s) => Ok(
+                    // The snapshot can predate the page now loaded, so its own
+                    // URL has to be in scope too.
+                    Some(s) if registry.matches_url(&ext_id, &s.url) => Ok(
                         json!({ "url": s.url, "text": &*s.text, "html": &*s.html, "capturedAtMs": s.captured_at_ms }),
                     ),
+                    Some(_) => Err(not_here(tab)),
                     None => Ok(Value::Null),
                 }
             }
             ("dom", "inject") => {
                 let tab = arg_tab(args)?;
+                in_scope(tab)?;
                 crate::webview::eval(app, tab, arg_str(args, "js")?)?;
                 Ok(Value::Bool(true))
             }
