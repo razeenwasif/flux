@@ -445,6 +445,10 @@ fn other_model(d: &KbData, current: Embedder, model: &str) -> bool {
 const MODEL_CHANGED: &str =
     "the embedding model changed since this index was built — Reindex all to re-embed";
 
+/// `reindex`'s refusal while another build holds the index: a caller that must
+/// not lose its rebuild retries on exactly this.
+pub(crate) const BUSY: &str = "an index build is already running";
+
 fn embedder_name(e: Embedder) -> &'static str {
     match e {
         Embedder::Model => "model",
@@ -775,11 +779,17 @@ impl KbStore {
     pub fn reindex(&self, source: Option<String>, c: Corpora) -> Result<KbStatus, String> {
         self.hydrate();
         if self.indexing.swap(true, Ordering::AcqRel) {
-            return Err("an index build is already running".into());
+            return Err(BUSY.into());
         }
         let result = self.reindex_inner(source, c);
         self.indexing.store(false, Ordering::Release);
         result.map(|_| self.status())
+    }
+
+    /// Is a build holding the index right now? Lets a background caller defer
+    /// before paying to gather its corpus.
+    pub fn is_indexing(&self) -> bool {
+        self.indexing.load(Ordering::Acquire)
     }
 
     fn reindex_inner(&self, source: Option<String>, c: Corpora) -> Result<(), String> {
@@ -2394,6 +2404,17 @@ mod tests {
         assert!(store.data.read().chunks.len() <= before);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_build_refused_while_another_runs_says_so_retryably() {
+        // kbfresh has already cleared the source's dirty mark by the time it
+        // asks, so it must be able to tell "busy, try again" from a failure.
+        let store = KbStore::default();
+        store.indexing.store(true, Ordering::Release);
+        assert!(store.is_indexing());
+        let err = store.reindex(Some("onyx".into()), Corpora::default()).err();
+        assert_eq!(err.as_deref(), Some(BUSY));
     }
 
     #[test]

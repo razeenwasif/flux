@@ -75,10 +75,18 @@ impl KbFreshness {
 /// file/HTTP-backed sources (`onyx`, `scroll`, `council`) collect themselves and
 /// ignore what's passed. Handing over only the relevant slice keeps a Scribe
 /// edit from walking the Onyx vault.
-fn reindex_one(app: &AppHandle, source: &str) {
+///
+/// `take_due` has already cleared the source, so when another build holds the
+/// index (often the Trail's `web` auto-index, which doesn't cover this source)
+/// it's marked again and retried after the next quiet window, not dropped.
+fn reindex_one(app: &AppHandle, fresh: &KbFreshness, source: &str) {
     let Some(kb) = app.try_state::<crate::kb::KbStore>() else {
         return;
     };
+    if kb.is_indexing() {
+        fresh.touch(source);
+        return;
+    }
     let corpora = match source {
         "scribe" => app
             .try_state::<crate::scribe::ScribeStore>()
@@ -106,8 +114,8 @@ fn reindex_one(app: &AppHandle, source: &str) {
             ms = started.elapsed().as_millis() as u64,
             "auto-reindexed after an edit"
         ),
-        // "already running" is the common case when a manual reindex overlaps;
-        // the source stays dirty-free but the manual run covers it.
+        // Lost the race for the index after the check above: same treatment.
+        Err(e) if e == crate::kb::BUSY => fresh.touch(source),
         Err(e) => tracing::debug!(target: "flux::kb", source, "auto-reindex skipped: {e}"),
     }
 }
@@ -133,7 +141,7 @@ pub fn start(app: &AppHandle) {
             continue;
         };
         for source in fresh.take_due() {
-            reindex_one(&handle, &source);
+            reindex_one(&handle, &fresh, &source);
         }
     });
     watch_onyx(app);
