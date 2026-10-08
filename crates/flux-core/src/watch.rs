@@ -158,10 +158,20 @@ impl WatchStore {
 
     /// Add a watch and capture its initial baseline (best-effort). Idempotent on URL.
     pub fn add(&self, url: String, title: String, interval_secs: Option<u64>) -> WatchItem {
+        self.add_fetched(url, title, interval_secs, fetch_text)
+    }
+
+    fn add_fetched(
+        &self,
+        url: String,
+        title: String,
+        interval_secs: Option<u64>,
+        fetch: impl FnOnce(&str) -> Result<String, String>,
+    ) -> WatchItem {
         if let Some(e) = self.inner.read().entries.iter().find(|e| e.url == url) {
             return e.to_item();
         }
-        let (baseline, error) = match fetch_text(&url) {
+        let (baseline, error) = match fetch(&url) {
             Ok(t) => (t, None),
             Err(e) => (String::new(), Some(e)),
         };
@@ -169,6 +179,13 @@ impl WatchStore {
         // re-read after releasing the lock could race a concurrent remove.
         let item = {
             let mut inner = self.inner.write();
+            // Check again under the guard that inserts: the fetch takes seconds,
+            // and a second add for this URL (a repeated click) passed the check
+            // above meanwhile. Two entries meant two fetches per check and two
+            // notifications per change.
+            if let Some(e) = inner.entries.iter().find(|e| e.url == url) {
+                return e.to_item();
+            }
             let id = inner.next_id;
             inner.next_id += 1;
             let entry = WatchEntry {
@@ -641,6 +658,34 @@ mod tests {
         // and bringing a removed watch back.
         assert!(saved(&path).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn adding_one_url_twice_at_once_makes_one_watch() {
+        // A double click: the second add passes the first check while the
+        // first is still fetching. The fetches wait for each other here, so the
+        // two adds always overlap.
+        let store = WatchStore {
+            inner: Arc::default(),
+            path: Arc::new(None),
+            save_lock: Arc::default(),
+        };
+        let both_fetching = Arc::new(std::sync::Barrier::new(2));
+        let adds: Vec<_> = (0..2)
+            .map(|_| {
+                let (store, both_fetching) = (store.clone(), both_fetching.clone());
+                std::thread::spawn(move || {
+                    let url = "https://a.test/".to_string();
+                    store.add_fetched(url, String::new(), None, |_| {
+                        both_fetching.wait();
+                        Ok("page text".into())
+                    })
+                })
+            })
+            .collect();
+        let ids: Vec<u64> = adds.into_iter().map(|a| a.join().unwrap().id).collect();
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(ids[0], ids[1], "both clicks get the same watch");
     }
 
     #[test]
