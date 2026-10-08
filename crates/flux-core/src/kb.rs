@@ -2019,17 +2019,28 @@ pub(crate) fn write_onyx_note(
     let root = onyx_vault(location)
         .ok_or_else(|| "Onyx vault not found — set its path in the Notebook first.".to_string())?;
     let dir = match folder.map(str::trim).filter(|f| !f.is_empty()) {
-        Some(f) => root.join(f),
+        // `folder` can be model output steered by a web page (note_plan →
+        // note_apply), and `root.join` with `..` or an absolute path leaves the
+        // vault. Only a plain path inside it goes; an absolute one naming a
+        // place in the vault is taken relative to the vault.
+        Some(f) => {
+            let rel = Path::new(f);
+            let rel = rel.strip_prefix(&root).unwrap_or(rel);
+            let plain = rel.components().all(|c| {
+                matches!(
+                    c,
+                    std::path::Component::Normal(_) | std::path::Component::CurDir
+                )
+            });
+            if !plain {
+                return Err(format!("“{f}” isn't a folder inside your Onyx vault"));
+            }
+            root.join(rel)
+        }
         None => root,
     };
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let base = sanitize_note_name(title);
-    let mut path = dir.join(format!("{base}.md"));
-    let mut n = 2;
-    while path.exists() {
-        path = dir.join(format!("{base} {n}.md"));
-        n += 1;
-    }
     // Lead with an H1 title unless the content already opens with a heading.
     let body = if content.trim_start().starts_with('#') {
         content.trim_start().to_string()
@@ -2056,8 +2067,33 @@ pub(crate) fn write_onyx_note(
             body,
         )
     };
-    std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(path.to_string_lossy().into_owned())
+    // `create_new` claims the name: probing `exists()` and then writing let a
+    // note that appeared in between (another writer, a sync tool) be truncated.
+    let mut n = 1;
+    loop {
+        let path = if n == 1 {
+            dir.join(format!("{base}.md"))
+        } else {
+            dir.join(format!("{base} {n}.md"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut f) => {
+                use std::io::Write as _;
+                if let Err(e) = f.write_all(body.as_bytes()) {
+                    drop(f);
+                    let _ = std::fs::remove_file(&path); // ours, and incomplete
+                    return Err(format!("{}: {e}", path.display()));
+                }
+                return Ok(path.to_string_lossy().into_owned());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        }
+    }
 }
 
 /// Filesystem-safe note base name from a title (no path separators / illegal chars).
@@ -2231,6 +2267,38 @@ mod tests {
         assert!(!std::fs::read_to_string(&p1).unwrap().starts_with("---"));
         assert_eq!(sanitize_note_name("   ...  "), "Untitled note");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_note_folder_cannot_leave_the_vault() {
+        // The folder can be model output steered by a web page (note_plan →
+        // note_apply), and `root.join` happily leaves the root.
+        let base = std::env::temp_dir().join(format!("flux-onyx-escape-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let vault_dir = base.join("vault");
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        let vault = vault_dir.to_string_lossy().into_owned();
+        let outside = base.join("outside");
+        for bad in [
+            "../outside",
+            "Inbox/../../outside",
+            outside.to_str().unwrap(),
+        ] {
+            assert!(
+                write_onyx_note(Some(&vault), "Note", "x", Some(bad), None).is_err(),
+                "{bad} was accepted"
+            );
+        }
+        assert!(!outside.exists(), "nothing was created outside the vault");
+
+        // Nested folders still work, and so does the vault's own absolute path.
+        let nested = vault_dir.join("Courses").join("MATH3512");
+        let p = write_onyx_note(Some(&vault), "Note", "x", Some("Courses/MATH3512"), None).unwrap();
+        assert!(Path::new(&p).starts_with(&nested), "{p}");
+        let inbox = vault_dir.join("Inbox");
+        let p = write_onyx_note(Some(&vault), "Note", "x", inbox.to_str(), None).unwrap();
+        assert!(Path::new(&p).starts_with(&inbox), "{p}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
