@@ -408,9 +408,19 @@ const StartPage: Component<{
     if (!scratchReady()) return;
     setScratch(text);
     clearTimeout(scratchTimer);
-    scratchTimer = window.setTimeout(() => void noteSet(SCRATCH_KEY, text).catch(() => {}), 400);
+    scratchTimer = window.setTimeout(() => {
+      scratchTimer = undefined;
+      void noteSet(SCRATCH_KEY, text).catch((e) => console.error("scratchpad save", e));
+    }, 400);
   };
-  onCleanup(() => clearTimeout(scratchTimer));
+  // The page unmounts on every tab switch, ⌘W or navigation, so leaving inside
+  // the debounce window must flush the pending text, not cancel it.
+  onCleanup(() => {
+    if (scratchTimer === undefined) return;
+    clearTimeout(scratchTimer);
+    scratchTimer = undefined;
+    void noteSet(SCRATCH_KEY, scratch()).catch((e) => console.error("scratchpad save", e));
+  });
 
   const monthLabel = () => now().toLocaleDateString([], { month: "long", year: "numeric" });
   const monthCells = (): (number | null)[] => {
