@@ -962,11 +962,14 @@ const InkCanvas: Component<Props> = (props) => {
       list: listOn(),
     };
     if (idx >= 0) {
-      // Keep the original colour/size unless the style changed under it.
+      // Keep the original colour/size: only the words, style and list flag are
+      // edited here. Taking them from `block` repainted and resized the block in
+      // whatever the palette and pt picker happened to show.
       const prev = strokes()[idx] as TextStroke;
-      commit(strokes().map((st, i) => (i === idx ? { ...prev, ...block, at: prev.at } : st)));
-      const b = textBox({ ...prev, ...block, at: prev.at });
-      setCaret({ x: prev.at.x, y: b.y1 + lineHeightOf(block) });
+      const next: TextStroke = { ...prev, ...block, color: prev.color, size: prev.size, at: prev.at };
+      commit(strokes().map((st, i) => (i === idx ? next : st)));
+      const b = textBox(next);
+      setCaret({ x: prev.at.x, y: b.y1 + lineHeightOf(next) });
       return;
     }
     commit([...strokes(), block]);
@@ -1183,10 +1186,12 @@ const InkCanvas: Component<Props> = (props) => {
   const textScreen = () => {
     const at = textAt();
     if (!at) return { left: "0px", top: "0px" };
+    // An edited block keeps its own colour and size, so preview it in those.
+    const editing = editIdx() >= 0 ? (strokes()[editIdx()] as TextStroke | undefined) : undefined;
     const probe: TextStroke = {
       t: "text",
-      color: color(),
-      size: ptUnits(),
+      color: editing?.color ?? color(),
+      size: editing?.size ?? ptUnits(),
       at,
       text: "",
       w: wrapWidthAt(at.x),
@@ -1201,7 +1206,7 @@ const InkCanvas: Component<Props> = (props) => {
       "font-size": `${fs * cam.z}px`,
       "line-height": `${lineHeightOf(probe) * cam.z}px`,
       "font-weight": textStyle() === "body" ? "400" : textStyle() === "h2" ? "600" : "700",
-      color: color(),
+      color: probe.color,
     };
   };
 
