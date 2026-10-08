@@ -73,6 +73,22 @@ describe("tileRects", () => {
     }
   });
 
+  it("fills the card with a quad that has lost panes", () => {
+    // A group keeps its layout when a member closes or leaves the workspace. A
+    // quad of two filled only the top row, leaving the bottom half of the card
+    // blank; it now lays out (and seams) like the first layout offered for n.
+    for (const n of [2, 3]) {
+      const opts = { n, main: 0.5, sec: 0.5, rect: RECT, gap: 8 };
+      const quad = tileRects({ ...opts, layout: "quad" });
+      expect(quad).toEqual(tileRects({ ...opts, layout: layoutsFor(n)[0]! }));
+      expect(tileSeams({ ...opts, layout: "quad" })).toEqual(
+        tileSeams({ ...opts, layout: layoutsFor(n)[0]! }),
+      );
+      const area = quad.reduce((sum, r) => sum + r.width * r.height, 0);
+      expect(area, `quad × ${n}`).toBeGreaterThan(RECT.width * RECT.height * 0.95);
+    }
+  });
+
   it("agrees between the pixel and percentage consumers", () => {
     // The native webview tiler works in pixels and the DOM panes in percent.
     // They must describe the same layout or the page and its frame drift apart.

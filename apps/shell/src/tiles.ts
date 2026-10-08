@@ -70,13 +70,21 @@ const equal = (start: number, total: number, n: number, gap: number): [number, n
   return Array.from({ length: n }, (_, i) => [start + i * (each + gap), each]);
 };
 
+/** "quad" is a 2×2 grid. A group keeps its layout when a member closes or leaves
+ *  the workspace, so a quad of two or three panes left whole cells blank (the
+ *  top row only, for two). Fall back to the first layout offered for that count;
+ *  tileRects and tileSeams both go through here, so DOM panes and webviews agree. */
+const effectiveLayout = (layout: TileLayout, n: number): TileLayout =>
+  layout === "quad" && n < 4 ? (layoutsFor(n)[0] ?? "cols") : layout;
+
 /**
  * Lay `n` panes out inside `rect`. Returns exactly `n` rects in slot order —
  * slot 0 is the "main" pane for the main* layouts.
  */
 export function tileRects(o: Opts): Rect[] {
-  const { layout, main, sec, rect, gap } = o;
+  const { main, sec, rect, gap } = o;
   const n = Math.max(1, Math.min(MAX_PANES, o.n));
+  const layout = effectiveLayout(o.layout, n);
   const { x, y, width: w, height: h } = rect;
   if (n === 1) return [rect];
   const m = clampFrac(main);
@@ -169,9 +177,10 @@ export function tileRects(o: Opts): Rect[] {
 
 /** The seams a layout exposes for dragging, positioned in `rect`'s space. */
 export function tileSeams(o: Opts): Seam[] {
-  const { layout, rect, gap } = o;
+  const { rect, gap } = o;
   const n = Math.max(1, Math.min(MAX_PANES, o.n));
   if (n < 2) return [];
+  const layout = effectiveLayout(o.layout, n);
   const r = tileRects(o);
   const out: Seam[] = [];
   const vert = (afterPane: number, key: Seam["key"], top: number, len: number) => {
