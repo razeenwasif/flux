@@ -1,6 +1,13 @@
 import { onCleanup, onMount, type Component, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 
+/** Open modals, bottom → top. Only the topmost contains focus: two document
+ *  focusin traps that each pull focus back into their own dialog recurse until
+ *  the stack overflows. */
+const stack: HTMLElement[] = [];
+/** #root's inert state from before the first modal opened. */
+let baseInert = false;
+
 /** Shell overlays share focus containment and restoration. Native pages are hidden by App. */
 const Modal: Component<{
   label: string;
@@ -13,7 +20,8 @@ const Modal: Component<{
   onMount(() => {
     const previous = document.activeElement;
     const root = document.getElementById("root");
-    const wasInert = root?.inert ?? false;
+    if (stack.length === 0) baseInert = root?.inert ?? false;
+    stack.push(dialog);
     if (root) root.inert = true;
     const focusFirst = () =>
       (
@@ -23,14 +31,20 @@ const Modal: Component<{
       ).focus();
     const frame = requestAnimationFrame(focusFirst);
     const containFocus = (event: FocusEvent) => {
+      if (stack.at(-1) !== dialog) return; // a modal above this one owns focus
       if (event.target instanceof Node && !dialog.contains(event.target)) focusFirst();
     };
     document.addEventListener("focusin", containFocus);
     onCleanup(() => {
+      const wasTop = stack.at(-1) === dialog;
+      const i = stack.lastIndexOf(dialog);
+      if (i >= 0) stack.splice(i, 1);
       cancelAnimationFrame(frame);
       document.removeEventListener("focusin", containFocus);
-      if (root) root.inert = wasInert;
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+      // Modals can close out of order: #root stays inert until the last one goes.
+      if (root && stack.length === 0) root.inert = baseInert;
+      // Restoring focus from under a modal that's still open would pull it out.
+      if (wasTop && previous instanceof HTMLElement && previous.isConnected) previous.focus();
     });
   });
 
