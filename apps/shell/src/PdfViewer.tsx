@@ -28,6 +28,7 @@ import {
   type Component,
 } from "solid-js";
 import { ocrAvailable, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
+import { drawableText } from "./pdffont";
 import { ocrDocument, openPdf } from "./pdftext";
 import { tabs, updateTabTitle } from "./store";
 import {
@@ -125,6 +126,9 @@ function hexToRgb01(hex: string): [number, number, number] {
   );
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
+/** Added to a save / extract toast when a text note was burned in with "?" (pdffont.ts). */
+const UNDRAWABLE_NOTE = ` (text-note characters the PDF font can't draw were written as "?")`;
+
 function bytesToB64(bytes: Uint8Array): string {
   let bin = "";
   const chunk = 0x8000;
@@ -741,12 +745,19 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   };
 
   // ── pdf-lib: burn annotations + page operations ────────────────────────────
-  const burnAnnots = async (bytes: Uint8Array): Promise<Uint8Array> => {
+  /** `onReplaced` fires when a text note held characters the PDF font can't draw. */
+  const burnAnnots = async (bytes: Uint8Array, onReplaced?: () => void): Promise<Uint8Array> => {
     const list = annots();
     if (list.length === 0) return bytes;
-    const { PDFDocument, rgb } = await import("pdf-lib");
+    const { PDFDocument, rgb, StandardFonts } = await import("pdf-lib");
     const doc = await PDFDocument.load(bytes.slice());
     const pgs = doc.getPages();
+    // Helvetica is WinAnsi-only, and one note it couldn't encode threw out of
+    // Save and every page-op (see pdffont.ts).
+    const font = list.some((a) => a.kind === "text")
+      ? await doc.embedFont(StandardFonts.Helvetica)
+      : undefined;
+    const glyphs = new Set(font?.getCharacterSet() ?? []);
     for (const a of list) {
       const pg = pgs[a.page - 1];
       if (!pg) continue;
@@ -791,7 +802,9 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
           });
         }
       } else if (a.kind === "text") {
-        pg.drawText(a.text, { x: a.x, y: H - a.y - a.size, size: a.size, color: col });
+        const t = drawableText(a.text, glyphs);
+        if (t.replaced) onReplaced?.();
+        pg.drawText(t.text, { x: a.x, y: H - a.y - a.size, size: a.size, color: col, font });
       }
     }
     return new Uint8Array(await doc.save());
@@ -800,11 +813,13 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   /** Burn current annotations, run a byte→byte transform, reload the viewer. */
   const applyPageOp = async (op: (bytes: Uint8Array) => Promise<Uint8Array>) => {
     try {
-      const burned = await burnAnnots(working);
+      let replaced = false;
+      const burned = await burnAnnots(working, () => (replaced = true));
       const next = await op(burned);
       setAnnots([]);
       await loadBytes(next);
       setDirty(true);
+      if (replaced) flash(`Text-note characters the PDF font can't draw were written as "?".`);
     } catch (e) {
       flash(`Page operation failed: ${String(e)}`);
     }
@@ -853,14 +868,15 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   const extractPage = async (i: number) => {
     try {
       const { PDFDocument } = await import("pdf-lib");
-      const burned = await burnAnnots(working);
+      let replaced = false;
+      const burned = await burnAnnots(working, () => (replaced = true));
       const src = await PDFDocument.load(burned);
       const out = await PDFDocument.create();
       const [p] = await out.copyPages(src, [i]);
       out.addPage(p!);
       const bytes = new Uint8Array(await out.save());
       const path = await pdfSave(bytesToB64(bytes), saveName().replace(/\.pdf$/i, ` p${i + 1}.pdf`));
-      flash(`Saved page ${i + 1} → ${path}`);
+      flash(`Saved page ${i + 1} → ${path}${replaced ? UNDRAWABLE_NOTE : ""}`);
     } catch (e) {
       flash(`Extract failed: ${String(e)}`);
     }
@@ -1083,11 +1099,12 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     setSaving(true);
     try {
       // Form values + drawn annotations both burned into the saved copy.
+      let replaced = false;
       const withForm = await writeForm(working, flattenOnSave());
-      const bytes = await burnAnnots(withForm);
+      const bytes = await burnAnnots(withForm, () => (replaced = true));
       const path = await pdfSave(bytesToB64(bytes), saveName());
       setDirty(false);
-      flash(`Saved → ${path}`);
+      flash(`Saved → ${path}${replaced ? UNDRAWABLE_NOTE : ""}`);
     } catch (e) {
       flash(`Save failed: ${String(e)}`);
     } finally {
