@@ -5,6 +5,7 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import {
+  SESSIONS_URL,
   sessionDelete,
   sessionSave,
   sessionsList,
@@ -12,7 +13,7 @@ import {
   type DaySnapshot,
   type SavedSession,
 } from "./ipc";
-import { activeId, closeTabs, restoreSession, restoreSnapshot, tabs, updateTabTitle } from "./store";
+import { closeTabs, restoreSession, restoreSnapshot, tabs, titleInternalTab } from "./store";
 
 const when = (ms: number) =>
   new Date(ms).toLocaleString(undefined, {
@@ -53,8 +54,7 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
       .catch(() => setSnaps([]));
   };
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Sessions");
+    titleInternalTab(SESSIONS_URL, "Sessions");
     load();
   });
 

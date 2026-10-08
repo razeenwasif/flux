@@ -391,11 +391,11 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     let acc = "";
     try {
       await traceChatSend(vid, msg, (e) => {
-        if (chatFor !== vid) return; // user selected another node mid-stream
-        if (e.kind === "token") {
-          acc += e.text;
-          setChatStream(acc);
-        }
+        if (e.kind !== "token") return;
+        // Always accumulate: the reply must stay whole while another node is
+        // selected. Only the live view is gated on the current selection.
+        acc += e.text;
+        if (chatFor === vid) setChatStream(acc);
       });
       if (chatFor === vid) {
         setChatMsgs((m) => [...m, { role: "assistant", text: acc, ms: Date.now() }]);
@@ -503,8 +503,13 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       if (!window.confirm("Forget your ENTIRE Trail? This can't be undone.")) return;
       await traceForget({ kind: "all" }).catch(() => {});
     } else {
-      if (!window.confirm(`Forget everything in the Trail from the last ${win.label}?`)) return;
-      await traceForget({ kind: "range", after_ms: Date.now() - win.ms, before_ms: null }).catch(() => {});
+      // Forget the window being viewed. Scrubbed back, that's [end − span, end],
+      // the same bounds load() queried, not the most recent span.
+      const end = endMs();
+      const after = (end ?? Date.now()) - win.ms;
+      const what = end == null ? `the last ${win.label}` : `${fmtT(after)} → ${fmtT(end)}`;
+      if (!window.confirm(`Forget everything in the Trail from ${what}? This can't be undone.`)) return;
+      await traceForget({ kind: "range", after_ms: after, before_ms: end }).catch(() => {});
     }
     setSelected(null);
     selNode = null;

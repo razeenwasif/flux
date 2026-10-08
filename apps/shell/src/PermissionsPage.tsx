@@ -7,6 +7,7 @@
  */
 import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
 import {
+  PERMISSIONS_URL,
   permissionsClearAll,
   permissionsClearHost,
   permissionsList,
@@ -17,7 +18,7 @@ import {
 } from "./ipc";
 import { permissionHost } from "./permissionHost";
 import { isWindows } from "./platform";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 
 const KINDS: { kind: PermKind; label: string; icon: string }[] = [
   { kind: "camera", label: "Camera", icon: "📷" },
@@ -39,8 +40,7 @@ const PermissionsPage: Component = () => {
       .then((p) => setPerms(p ?? []))
       .catch(() => {});
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Site Permissions");
+    titleInternalTab(PERMISSIONS_URL, "Site Permissions");
     refresh();
   });
 

@@ -11,6 +11,7 @@ import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component
 
 import { visibleInterval } from "./poll";
 import {
+  VAULT_URL,
   vaultAdd,
   vaultDisableMasterPassword,
   vaultExport,
@@ -28,7 +29,7 @@ import {
   type CredentialMeta,
   type VaultStatus,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 
 type Pane = "detail" | "add" | "import" | "export" | "security";
 
@@ -79,8 +80,7 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       .catch(() => setList([]));
   };
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Passwords");
+    titleInternalTab(VAULT_URL, "Passwords");
     visibleInterval(refresh, 4000);
     // Cleanup is wired before anything resolves: after an `await` there is no
     // owner, so an onCleanup there never ran and every visit leaked both listeners.

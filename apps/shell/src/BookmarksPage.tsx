@@ -7,6 +7,7 @@
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
+  BOOKMARKS_URL,
   bookmarkRemove,
   bookmarkRename,
   bookmarksClear,
@@ -16,7 +17,7 @@ import {
   type Bookmark,
   type ChromeProfilePreview,
 } from "./ipc";
-import { activeId, ensureFavicon, faviconFor, openUrlsAsGroup, updateTabTitle } from "./store";
+import { ensureFavicon, faviconFor, openUrlsAsGroup, titleInternalTab } from "./store";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string | null {
@@ -52,8 +53,7 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
       .then(setItems)
       .catch(() => setItems([]));
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Bookmarks");
+    titleInternalTab(BOOKMARKS_URL, "Bookmarks");
     load();
   });
 

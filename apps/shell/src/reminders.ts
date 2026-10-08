@@ -74,9 +74,10 @@ export function parseWhen(input: string, now: number): { text: string; due: numb
   if (halfHr) return { text: strip(text, halfHr[0]!), due: now + 18e5 };
 
   // "in N minutes/hours/seconds/days" — N is a digit OR a spelled-out word, plus
-  // an optional "of" ("in a couple of hours").
+  // an optional leading "a" and "of" ("in a couple of hours", "in a few
+  // minutes"). Backtracking still lets "a"/"an" itself be the count ("in an hour").
   const rel = lower.match(
-    /\bin\s+(?:(\d+(?:\.\d+)?)|([a-z]+))\s*(?:of\s+)?(sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?|days?)\b/,
+    /\bin\s+(?:(\d+(?:\.\d+)?)|(?:a\s+)?([a-z]+))\s*(?:of\s+)?(sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?|days?)\b/,
   );
   if (rel) {
     const n = rel[1] ? Number(rel[1]) : (NUMW[rel[2]!] ?? NaN);
@@ -105,16 +106,23 @@ export function parseWhen(input: string, now: number): { text: string; due: numb
     if (ap === "am" && h === 12) h = 0;
     const d = new Date(now);
     d.setHours(h, min, 0, 0);
-    let due = d.getTime();
-    if (day === "tomorrow") due += 864e5;
-    else if (due <= now) due += 864e5; // already past today → tomorrow
+    // Tomorrow, or already past today. By CALENDAR day, not 24h of ms: across a
+    // DST change that lands an hour off the wall-clock time asked for. setHours
+    // again pins it even if today's H:MM fell in the spring-forward gap.
+    if (day === "tomorrow" || d.getTime() <= now) {
+      d.setDate(d.getDate() + 1);
+      d.setHours(h, min, 0, 0);
+    }
+    const due = d.getTime();
     text = strip(text, at[0]!);
     return { text, due };
   }
 
-  // bare "tomorrow" → 9am tomorrow
+  // bare "tomorrow" → 9am tomorrow. The next calendar day: late in the evening
+  // before spring-forward, now + 24h is already the day after (that day is 23h).
   if (/\btomorrow\b/.test(lower)) {
-    const d = new Date(now + 864e5);
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
     d.setHours(9, 0, 0, 0);
     text = strip(text, "tomorrow");
     return { text, due: d.getTime() };

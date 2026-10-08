@@ -5,8 +5,15 @@
  * matches. Each row carries the site favicon (#21); click to open, ✕ to forget.
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
-import { historyClear, historyDelete, historyRecent, historySearch, type HistoryEntry } from "./ipc";
-import { activeId, ensureFavicon, faviconFor, updateTabTitle } from "./store";
+import {
+  HISTORY_URL,
+  historyClear,
+  historyDelete,
+  historyRecent,
+  historySearch,
+  type HistoryEntry,
+} from "./ipc";
+import { ensureFavicon, faviconFor, titleInternalTab } from "./store";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string | null {
@@ -52,8 +59,7 @@ const HistoryPage: Component<{ onNavigate: (url: string) => void }> = (props) =>
   };
   let debounce: number | undefined;
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "History");
+    titleInternalTab(HISTORY_URL, "History");
     load();
     onCleanup(() => clearTimeout(debounce));
   });

@@ -11,7 +11,7 @@
  * one click away in Gmail, via the message-id search that opens exactly that
  * message rather than a guess based on subject.
  */
-import { For, Show, createSignal, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onMount, type Component } from "solid-js";
 
 import { mailConfig, mailConnect, mailDisconnect, mailFetch, mailMarkAllRead, type MailMsg } from "./ipc";
 import { openTab } from "./store";
@@ -20,6 +20,9 @@ import { visibleInterval } from "./poll";
 /** Gmail's own app-password host, which is what this is overwhelmingly for. */
 const DEFAULT_HOST = "imap.gmail.com";
 const DEFAULT_PORT = 993;
+/** How many of the newest INBOX messages the pane fetches, and so the most
+ *  unread ones it can count. */
+const FETCH_LIMIT = 20;
 
 const ago = (ms: number): string => {
   if (!ms) return "";
@@ -48,7 +51,7 @@ const MailPane: Component = () => {
 
   const refresh = () => {
     setBusy(true);
-    void mailFetch(20)
+    void mailFetch(FETCH_LIMIT)
       .then((m) => {
         setMsgs(m);
         setErr("");
@@ -60,15 +63,22 @@ const MailPane: Component = () => {
   };
 
   onMount(() => {
-    void mailConfig().then((c) => {
-      setConfigured(c != null);
-      if (c) {
-        setEmail(c.email);
-        refresh();
-        // Polls only while the pane is on screen.
-        visibleInterval(refresh, 120_000);
-      }
-    });
+    void mailConfig()
+      .then((c) => {
+        if (c) setEmail(c.email);
+        setConfigured(c != null);
+      })
+      .catch((e) => {
+        setConfigured(false);
+        setErr(String(e).replace(/^Error:\s*/, ""));
+      });
+  });
+  // Polls only while an account is configured and the pane is on screen. Armed
+  // from an effect so visibleInterval's onCleanup has an owner: called from a
+  // promise callback it had none, so every remount of the dock column and every
+  // forget/reconnect left another 2-minute IMAP poll running for good.
+  createEffect(() => {
+    if (configured()) visibleInterval(refresh, 120_000); // fetches once right away
   });
 
   const connect = (e: Event) => {
@@ -78,9 +88,7 @@ const MailPane: Component = () => {
     void mailConnect(host().trim(), Number(port()) || DEFAULT_PORT, email().trim(), pass())
       .then(() => {
         setPass(""); // it lives in the keychain now; don't keep it in a signal
-        setConfigured(true);
-        refresh();
-        visibleInterval(refresh, 120_000);
+        setConfigured(true); // the effect above fetches now and starts polling
       })
       .catch((e) => setErr(String(e).replace(/^Error:\s*/, "")))
       .finally(() => setBusy(false));
@@ -91,7 +99,14 @@ const MailPane: Component = () => {
   const markAllRead = () => {
     const n = unread();
     if (!n) return;
-    if (!window.confirm(`Mark ${n} message${n === 1 ? "" : "s"} as read? This applies in Gmail too.`)) return;
+    // `n` only counts unread mail among the newest FETCH_LIMIT messages, but the
+    // backend marks every UNSEEN message in INBOX: when the window is full, older
+    // unread mail may exist, so name the real scope rather than present `n` as it.
+    const what =
+      msgs().length >= FETCH_LIMIT
+        ? `every unread message in your inbox (${n} among the newest ${FETCH_LIMIT}, possibly many more)`
+        : `${n} message${n === 1 ? "" : "s"}`;
+    if (!window.confirm(`Mark ${what} as read? This applies in Gmail too.`)) return;
     setBusy(true);
     setErr("");
     void mailMarkAllRead()
