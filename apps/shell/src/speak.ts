@@ -86,6 +86,10 @@ let current: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
 let currentContext: AudioContext | null = null;
+/** Bumped by every stop. Playback begun under an older generation was
+ *  cancelled on purpose: its media error / AbortError must not trigger the
+ *  Web Audio fallback, and its `finally` must not clear a newer `speaking`. */
+let playGen = 0;
 
 /** Strip emoji / markdown so the voice reads clean prose, not "asterisk asterisk". */
 export function cleanForSpeech(text: string): string {
@@ -130,6 +134,7 @@ export function conciseForSpeech(text: string): string {
 }
 
 export function stopSpeaking(): void {
+  playGen++;
   setSpeaking(false);
   try {
     window.speechSynthesis?.cancel();
@@ -201,6 +206,7 @@ function audioBufferFromB64(b64: string): ArrayBuffer {
 }
 
 async function playAudioBufferB64(b64: string): Promise<void> {
+  const gen = playGen;
   if (currentContext) {
     await currentContext.close().catch(() => {});
     currentContext = null;
@@ -209,6 +215,9 @@ async function playAudioBufferB64(b64: string): Promise<void> {
   currentContext = ctx;
   if (ctx.state === "suspended") await ctx.resume();
   const buffer = await ctx.decodeAudioData(audioBufferFromB64(b64));
+  // Stopped while decoding: stopSpeaking() closed this context, and a source
+  // started on a closed context never ends, so the promise would never settle.
+  if (gen !== playGen) return;
   await new Promise<void>((resolve, reject) => {
     const source = ctx.createBufferSource();
     currentSource = source;
@@ -230,6 +239,7 @@ async function playAudioBufferB64(b64: string): Promise<void> {
 }
 
 function playAudioB64(b64: string, mime: string, rejectOnError = false): Promise<void> {
+  const gen = playGen;
   return new Promise((resolve, reject) => {
     if (currentUrl) {
       URL.revokeObjectURL(currentUrl);
@@ -253,6 +263,9 @@ function playAudioB64(b64: string, mime: string, rejectOnError = false): Promise
     };
     const fail = (err: unknown) => {
       cleanup();
+      // stopSpeaking() set `src = ""`, which fires `error` (and aborts a pending
+      // play()). That is a stop, not a decode failure: don't replay the clip.
+      if (gen !== playGen) return resolve();
       const firstError = err instanceof Error ? err : audioError(a, String(err || "unknown"));
       void playAudioBufferB64(b64)
         .then(resolve)
@@ -296,12 +309,15 @@ export async function speak(text: string): Promise<void> {
   const t = conciseForSpeech(text);
   if (!t) return;
   stopSpeaking();
+  const gen = playGen;
+  const stopped = () => gen !== playGen;
   setSpeaking(true);
   try {
     const engine = ttsEngine();
     if (engine === "piper") {
       try {
         const b64 = await voiceSpeak(t);
+        if (stopped()) return; // Stop pressed (or a newer reply) while synthesising
         await playAudioB64(b64, "audio/wav");
         return;
       } catch {
@@ -310,6 +326,7 @@ export async function speak(text: string): Promise<void> {
     } else if (engine === "elevenlabs") {
       try {
         const b64 = await elevenlabsSpeak(t, elVoiceId(), elModel());
+        if (stopped()) return;
         await playAudioB64(b64, "audio/mpeg");
         return;
       } catch {
@@ -318,14 +335,18 @@ export async function speak(text: string): Promise<void> {
     } else if (engine === "fishaudio") {
       try {
         const b64 = await fishaudioSpeak(t, fishVoiceId(), fishModel());
+        if (stopped()) return;
         await playAudioB64(b64, "audio/mpeg");
         return;
       } catch {
         /* no key / network / credit → fall back to the OS voice */
       }
     }
+    if (stopped()) return;
     await speakSystem(t);
   } finally {
-    setSpeaking(false);
+    // Only the newest speak() owns the flag; one cancelled by a later call must
+    // not report "not speaking" over it.
+    if (!stopped()) setSpeaking(false);
   }
 }

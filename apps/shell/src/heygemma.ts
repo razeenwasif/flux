@@ -2,7 +2,7 @@
 //
 // How it works: one mic stream is VAD-segmented into utterances (speech bounded by
 // silence). Each finished utterance is transcribed locally (Vosk, reusing the
-// push-to-talk path). While *armed* we only act on an utterance that contains the
+// push-to-talk path). While *armed* we only act on an utterance that opens with the
 // wake word "gemma" — anything else is discarded immediately (never sent to the
 // agent, never stored). After the wake word we enter a short *warm* window where
 // follow-ups need no wake word, so you can keep talking. The injected handler runs
@@ -44,8 +44,13 @@ export const [listening, setListening] = createSignal(false);
 /** Short human-readable status for the indicator tooltip. */
 export const [voiceStatus, setVoiceStatus] = createSignal("");
 
-// The wake word + a few near-misses Vosk tends to emit for "gemma".
-const WAKE = /\b(?:hey\s+)?(?:gemma|gems?|gema|jemma|gamma|gemini|hmm|a\s+german|jim)\b/i;
+// The wake word + a few near-misses Vosk tends to emit for "gemma". Anchored: the
+// wake word has to OPEN the utterance. Whisper punctuates it ("Hey, Gemma, …"),
+// so leading punctuation and a comma after the greeting are allowed. "hmm" (a
+// filler, not a mishearing) is gone: unanchored, any sentence that merely
+// contained "jim"/"gemini"/"gamma"/"hmm" was run as a command.
+export const WAKE =
+  /^[\s"'.,!?-]*(?:(?:hey|hi|ok(?:ay)?)[\s,.!-]+)?(?:gemma|gems?|gema|jemma|gamma|gemini|a\s+german|jim)\b/i;
 const SILENCE_S = 0.8; // trailing silence that ends an utterance (longer = less cut-off)
 const MIN_SPEECH_S = 0.2; // ignore shorter blips (coughs, clicks)
 const MAX_UTTER_S = 12; // hard cap on one utterance
@@ -189,7 +194,7 @@ async function transcribeCommand(b64: string, voskText: string): Promise<string>
     return "";
   }
 }
-function stripWake(text: string): string {
+export function stripWake(text: string): string {
   const m = WAKE.exec(text);
   return m
     ? text
@@ -299,16 +304,24 @@ function micErrorText(e: unknown): string {
   return "couldn't start the microphone";
 }
 
+/** Bumped by stopConversation(): a start that resumes after its awaits must not
+ *  go live if it was cancelled in the meantime. */
+let startSeq = 0;
+/** Bumped by every setHeyGemmaEnabled(): only the latest toggle owns the setting. */
+let toggleSeq = 0;
+
 export async function startConversation(): Promise<boolean> {
   if (running) return true;
+  const seq = startSeq;
   if (!navigator.mediaDevices?.getUserMedia) {
     setVoiceStatus("no microphone access");
     return false;
   }
+  let s: MediaStream;
   try {
     // Honors the chosen mic + noise-suppression setting (Settings → Integrations);
     // echo cancellation on so barge-in doesn't hear Gemma's own voice.
-    stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
+    s = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
   } catch (e) {
     // A selected mic that's since been unplugged/changed fails the exact-deviceId
     // constraint — drop the dead selection and retry with the default device before
@@ -316,7 +329,7 @@ export async function startConversation(): Promise<boolean> {
     if (micDeviceId()) {
       setMicDeviceId("");
       try {
-        stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
+        s = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
       } catch (e2) {
         setVoiceStatus(micErrorText(e2));
         return false;
@@ -326,9 +339,16 @@ export async function startConversation(): Promise<boolean> {
       return false;
     }
   }
+  if (seq !== startSeq || running) {
+    // Turned off (or started by a concurrent caller) while the mic was opening:
+    // close this stream instead of going live or orphaning a second capture.
+    s.getTracks().forEach((t) => t.stop());
+    return running;
+  }
+  stream = s;
   ctx = new AudioContext();
   rate = ctx.sampleRate;
-  const src = ctx.createMediaStreamSource(stream);
+  const src = ctx.createMediaStreamSource(s);
   node = ctx.createScriptProcessor(4096, 1, 1);
   node.onaudioprocess = onAudio;
   src.connect(node);
@@ -338,13 +358,21 @@ export async function startConversation(): Promise<boolean> {
   warmUntil = 0;
   resetUtter();
   // Dedicated wake model (if selected + configured); otherwise the Vosk scan runs.
-  porcupineOn = wakeEngine() === "porcupine" ? await startPorcupine(onPorcupineWake) : false;
+  const pOn = wakeEngine() === "porcupine" ? await startPorcupine(onPorcupineWake) : false;
+  if (seq !== startSeq) {
+    // Stopped during the model load; stop couldn't see this worker. Release it
+    // unless a newer start is already live (startPorcupine shares one worker).
+    if (pOn && !running) void stopPorcupine();
+    return false;
+  }
+  porcupineOn = pOn;
   setMicLive(true);
   setVoiceStatus("say “hey Gemma”");
   return true;
 }
 
 export function stopConversation(): void {
+  startSeq++; // abandon any start still awaiting the mic / Porcupine
   running = false;
   stopSpeaking();
   if (porcupineOn) {
@@ -369,10 +397,14 @@ export function stopConversation(): void {
 
 /** Toggle the feature (persisted). Starts/stops the mic loop. */
 export async function setHeyGemmaEnabled(on: boolean): Promise<boolean> {
+  const mine = ++toggleSeq;
   localStorage.setItem(ENABLED_KEY, on ? "1" : "0");
   setEnabledSig(on);
   if (on) {
     const ok = await startConversation();
+    // A later toggle (off, or on again) owns the setting now. This start being
+    // cancelled by it is not a failure: don't flip the setting or report one.
+    if (mine !== toggleSeq) return true;
     if (!ok) {
       setEnabledSig(false);
       localStorage.setItem(ENABLED_KEY, "0");
