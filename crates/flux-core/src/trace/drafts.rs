@@ -164,6 +164,9 @@ impl TraceDrafts {
             return;
         }
         let Some(path) = &self.path else { return };
+        // Unlike the other trace stores, the guard stays held across the write:
+        // `set_enabled` also persists (from a command thread), and two saves of
+        // released snapshots could land a stale opt-in toggle last.
         let d = self.inner.read();
         if !super::sealed::save_json_sealed(path, &*d) {
             self.dirty.store(true, Ordering::Relaxed); // retry on the next flush

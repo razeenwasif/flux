@@ -121,11 +121,21 @@ pub(super) fn data_key(dir: &Path) -> Option<[u8; 32]> {
 /// Returns false if it didn't land (logged): the caller stays dirty so its next
 /// flush retries, rather than dropping the change until some other mutation.
 pub(crate) fn save_json_sealed<T: serde::Serialize>(path: &Path, value: &T) -> bool {
+    save_sealed_with(path, || serde_json::to_vec(value))
+}
+
+/// [`save_json_sealed`] with the serialization handed in, so a store can hold
+/// its lock only while `serialize` runs: the AES pass, a first-use keychain
+/// lookup and the fsync'd write then happen without it.
+pub(crate) fn save_sealed_with(
+    path: &Path,
+    serialize: impl FnOnce() -> serde_json::Result<Vec<u8>>,
+) -> bool {
     if HELD.lock().iter().any(|p| p == path) {
         return true; // couldn't be loaded this run; it may hold the only copy
     }
     let dir = path.parent().unwrap_or(Path::new("."));
-    let res = serde_json::to_vec(value)
+    let res = serialize()
         .map_err(std::io::Error::other)
         .and_then(|json| match data_key(dir) {
             Some(key) => flux_vault::seal(&key, &json)

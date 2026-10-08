@@ -752,8 +752,11 @@ impl TraceStore {
             return;
         }
         let Some(path) = &self.path else { return };
-        let d = self.inner.read();
-        if !super::sealed::save_json_sealed(path, &*d) {
+        // Hold the read lock only to serialize: a writer queued behind it
+        // (`record`, from dom_publish on the UI thread) used to wait out the
+        // seal and the fsync'd write. Releasing it early is safe because the
+        // flush thread is this file's only writer, so saves can't reorder.
+        if !super::sealed::save_sealed_with(path, || serde_json::to_vec(&*self.inner.read())) {
             self.dirty.store(true, Ordering::Relaxed); // retry on the next flush
         }
     }

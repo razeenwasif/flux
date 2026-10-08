@@ -115,8 +115,10 @@ impl SentinelAudit {
             return;
         }
         let Some(path) = &self.path else { return };
-        let d = self.inner.read();
-        if !crate::trace::sealed::save_json_sealed(path, &*d) {
+        // Lock held only to serialize (see `TraceStore::persist_if_dirty`); the
+        // flush thread is this file's only writer.
+        if !crate::trace::sealed::save_sealed_with(path, || serde_json::to_vec(&*self.inner.read()))
+        {
             self.dirty.store(true, Ordering::Relaxed); // retry on the next flush
         }
     }
