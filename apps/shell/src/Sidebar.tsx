@@ -475,6 +475,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
+        // Cancel a rename first: unmounting its field fires blur on WebView2,
+        // which would otherwise commit it.
+        setEditWs(null);
         setWsPanelOpen(false);
       }
     };
@@ -497,6 +500,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [editContainer, setEditContainer] = createSignal<number | null>(null);
   const [editFolder, setEditFolder] = createSignal<number | null>(null);
   const [editTab, setEditTab] = createSignal<number | null>(null);
+  // The tab-rename draft lives outside the row: rows are keyed on TabMeta
+  // objects, so an update to the tab re-creates its row (and field) mid-edit.
+  const [tabDraft, setTabDraft] = createSignal("");
+  let tabDraftFrom = "";
+  const beginTabRename = (t: TabMeta) => {
+    tabDraftFrom = tabLabel(t);
+    setTabDraft(tabDraftFrom);
+    setEditTab(t.id);
+  };
   const openCtx = (e: MouseEvent, tab: TabMeta) => {
     e.preventDefault();
     setCtxTab(tab);
@@ -549,6 +561,39 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const cycleWsColor = (w: Workspace) => {
     const i = WS_PALETTE.indexOf(w.color);
     void recolorWorkspace(w.id, WS_PALETTE[(i + 1) % WS_PALETTE.length]!);
+  };
+
+  /** A tab row's inline rename field (its draft is `tabDraft`). */
+  const TabRename: Component<{ tab: TabMeta }> = (p) => {
+    // Disposal runs before the old field leaves the DOM, so this is already set
+    // when Chromium/WebView2 fires blur on it: a rebuilt row must not commit.
+    let disposed = false;
+    onCleanup(() => (disposed = true));
+    return (
+      <input
+        class="tab-rename"
+        value={tabDraft()}
+        // Focused on every mount rather than by autofocus, which Chromium honours
+        // once per document: a rebuilt row re-creates this field mid-edit.
+        ref={(el) => queueMicrotask(() => el.focus())}
+        onClick={(e) => e.stopPropagation()}
+        onInput={(e) => setTabDraft(e.currentTarget.value)}
+        onBlur={() => {
+          // Escape already cleared editTab; a disposed field is being rebuilt.
+          if (disposed || editTab() !== p.tab.id) return;
+          setEditTab(null);
+          const v = tabDraft().trim();
+          // Unchanged → no-op: committing the shown title would store it as a
+          // custom name and freeze the label across later navigations.
+          if (v !== tabDraftFrom.trim()) void renameTab(p.tab.id, v);
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") e.currentTarget.blur();
+          else if (e.key === "Escape") setEditTab(null);
+        }}
+      />
+    );
   };
 
   // One tab row — reused for grouped + ungrouped lists.
@@ -623,28 +668,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
             class="title"
             onDblClick={(e) => {
               e.stopPropagation();
-              setEditTab(p.tab.id);
+              beginTabRename(p.tab);
             }}
           >
             {tabLabel(p.tab)}
           </span>
         }
       >
-        <input
-          class="tab-rename"
-          value={tabLabel(p.tab)}
-          autofocus
-          onClick={(e) => e.stopPropagation()}
-          onBlur={(e) => {
-            void renameTab(p.tab.id, e.currentTarget.value.trim());
-            setEditTab(null);
-          }}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") e.currentTarget.blur();
-            else if (e.key === "Escape") setEditTab(null);
-          }}
-        />
+        <TabRename tab={p.tab} />
       </Show>
       <button
         class="close"
@@ -1618,6 +1649,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                           autofocus
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => {
+                            if (editGroup() !== g.id) return; // Escape cancelled it
                             const v = e.currentTarget.value.trim();
                             if (v) void renameGroup(g.id, v);
                             setEditGroup(null);
@@ -1697,9 +1729,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </button>
               <button
                 onClick={() => {
-                  const id = t().id;
+                  const tab = t();
                   closeCtx();
-                  setEditTab(id);
+                  beginTabRename(tab);
                 }}
               >
                 Rename tab
@@ -1985,6 +2017,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                       autofocus
                       onClick={(e) => e.stopPropagation()}
                       onBlur={(e) => {
+                        if (editWs() !== w.id) return; // Escape cancelled it
                         const v = e.currentTarget.value.trim();
                         if (v) void renameWorkspace(w.id, v);
                         setEditWs(null);
@@ -2060,6 +2093,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                         autofocus
                         onClick={(e) => e.stopPropagation()}
                         onBlur={(e) => {
+                          if (editFolder() !== f.id) return; // Escape cancelled it
                           const v = e.currentTarget.value.trim();
                           if (v) void renameFolder(f.id, v);
                           setEditFolder(null);
@@ -2380,6 +2414,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                         autofocus
                         onClick={(e) => e.stopPropagation()}
                         onBlur={(e) => {
+                          if (editContainer() !== c.id) return; // Escape cancelled it
                           const v = e.currentTarget.value.trim();
                           if (v) void renameContainer(c.id, v);
                           setEditContainer(null);
