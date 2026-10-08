@@ -90,9 +90,12 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
   const placement = () => PLACEMENT[calendarDock()] ?? PLACEMENT.overlay;
   const [events, setEvents] = createSignal<CalEvent[]>([]);
   const [loading, setLoading] = createSignal(true);
-  const todayStr = dateStrOf(new Date());
+  // A signal, refreshed by the minute timer below: a docked calendar stays
+  // mounted for days, and a date fixed at mount put "today" (and the now-line)
+  // on yesterday after midnight.
+  const [todayStr, setTodayStr] = createSignal(dateStrOf(new Date()));
   const [ym, setYm] = createSignal<[number, number]>([new Date().getFullYear(), new Date().getMonth()]);
-  const [selected, setSelected] = createSignal<string>(todayStr);
+  const [selected, setSelected] = createSignal<string>(todayStr());
   // Inline editor: null = closed, 0 = new event, >0 = editing that local event id.
   const [editing, setEditing] = createSignal<number | null>(null);
   const [fTitle, setFTitle] = createSignal("");
@@ -219,10 +222,11 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
 
   const [nowMins, setNowMins] = createSignal(new Date().getHours() * 60 + new Date().getMinutes());
   onMount(() => {
-    const t = window.setInterval(
-      () => setNowMins(new Date().getHours() * 60 + new Date().getMinutes()),
-      60_000,
-    );
+    const t = window.setInterval(() => {
+      const now = new Date();
+      setNowMins(now.getHours() * 60 + now.getMinutes());
+      setTodayStr(dateStrOf(now)); // only notifies when the date actually changes
+    }, 60_000);
     onCleanup(() => window.clearInterval(t));
   });
 
@@ -406,7 +410,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
   const goToday = () => {
     const now = new Date();
     setYm([now.getFullYear(), now.getMonth()]);
-    setSelected(todayStr);
+    setSelected(dateStrOf(now));
   };
 
   /** The grid: leading blanks + day numbers (weeks start Monday). */
@@ -432,7 +436,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
       .sort((a, b) => a.sort_key - b.sort_key),
   );
   const dayTitle = () =>
-    selected() === todayStr
+    selected() === todayStr()
       ? "Today"
       : new Date(`${selected()}T00:00`).toLocaleDateString([], {
           weekday: "long",
@@ -586,7 +590,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
               <span class="tt-gutter" />
               <For each={weekDays()}>
                 {(d) => (
-                  <span classList={{ "tt-dow": true, today: dateStrOf(d) === todayStr }}>
+                  <span classList={{ "tt-dow": true, today: dateStrOf(d) === todayStr() }}>
                     {d.toLocaleDateString([], { weekday: "short" })} {d.getDate()}
                   </span>
                 )}
@@ -614,12 +618,12 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                 </div>
                 <For each={weekDays()}>
                   {(d) => (
-                    <div classList={{ "tt-col": true, today: dateStrOf(d) === todayStr }}>
+                    <div classList={{ "tt-col": true, today: dateStrOf(d) === todayStr() }}>
                       <For each={hours()}>{() => <div class="tt-slot" />}</For>
                       {/* Now-line, only on today's column. */}
                       <Show
                         when={
-                          dateStrOf(d) === todayStr &&
+                          dateStrOf(d) === todayStr() &&
                           nowMins() >= hourRange()[0] * 60 &&
                           nowMins() <= hourRange()[1] * 60
                         }
@@ -686,7 +690,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                   <button
                     classList={{
                       "cal-pop-day": true,
-                      today: dateOf(day!) === todayStr,
+                      today: dateOf(day!) === todayStr(),
                       sel: selected() === dateOf(day!),
                       has: eventDays().has(day!),
                     }}
