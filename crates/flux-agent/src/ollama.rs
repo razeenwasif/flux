@@ -68,11 +68,18 @@ pub fn set_model(name: &str) {
 /// List models the local Ollama server has pulled (`/api/tags`). Empty if the
 /// server isn't reachable.
 pub fn list_models() -> Vec<String> {
-    let url = format!("{}/api/tags", endpoint());
+    list_models_from(&format!("{}/api/tags", endpoint()), Duration::from_secs(5))
+}
+
+fn list_models_from(url: &str, read_timeout: Duration) -> Vec<String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(3))
+        // ureq 2 has NO default read timeout: a server that accepts and never
+        // answers would park this thread (and every KB answer, which routes
+        // through `specialists::discover`) forever. Listing tags is instant.
+        .timeout_read(read_timeout)
         .build();
-    let Ok(resp) = agent.get(&url).call() else {
+    let Ok(resp) = agent.get(url).call() else {
         return Vec::new();
     };
     let Ok(value) = resp.into_json::<serde_json::Value>() else {
@@ -977,6 +984,24 @@ mod tests {
         let b = generate_body("gemma4:12b-it-qat", "hello", None, false);
         assert!(b.get("format").is_none()); // no JSON constraint for chat
         assert_eq!(b["options"]["temperature"], 0.6);
+    }
+
+    /// ureq 2 has no default read timeout: a listener that accepts and never
+    /// answers (a dead SSH forward on 11434) parked every KB answer for good.
+    #[test]
+    fn listing_models_gives_up_on_a_server_that_never_answers() {
+        // Bound but never accepted: the OS completes the handshake, nobody replies.
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/api/tags", silent.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(list_models_from(&url, Duration::from_millis(200)));
+        });
+        let models = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("list_models hung on a server that never answers");
+        assert!(models.is_empty());
+        drop(silent);
     }
 
     #[test]
