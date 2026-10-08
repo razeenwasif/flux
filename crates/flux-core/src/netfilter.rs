@@ -126,67 +126,117 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: Inst
         tracing::warn!(target: "flux::netfilter", "no content-blocker JSON yet; webview unfiltered");
         return;
     };
-    let Ok(json) = std::fs::read_to_string(&json_path) else {
-        *report.write() = "failed".into();
-        return;
-    };
     mac::attach(
         platform.inner() as *mut objc::runtime::Object,
-        &json,
+        &json_path,
         report,
     );
 }
 
-/// WKContentRuleList compile + attach via Cocoa. The compile is async (the store
-/// takes a completion block); the block retains the webview so it's still valid
-/// when the compiled rules land, adds them, then releases. All selectors are
-/// standard WebKit API.
+/// WKContentRuleList compile + attach via Cocoa, compiled ONCE per app run like
+/// the WebKitGTK path. `compileContentRuleListForIdentifier` always recompiles,
+/// so doing it per webview re-read the multi-MB JSON on the main thread and
+/// spent seconds compiling 75k rules for every tab, peek and panel, each tab
+/// unfiltered until its own compile landed. Now later webviews get the cached
+/// list in the turn they're created; ones opened while the compile is in
+/// flight are retained and get it when it lands. Main thread only:
+/// `with_webview` and WebKit's completion handler both run there, so a
+/// `thread_local` state machine is sound. Same trade-off as Linux: a list
+/// refreshed mid-run applies from the next launch.
 #[cfg(target_os = "macos")]
 mod mac {
+    use std::cell::RefCell;
+    use std::path::Path;
+
     use block::ConcreteBlock;
     use objc::runtime::Object;
     use objc::{class, msg_send, sel, sel_impl};
 
     const NSUTF8_STRING_ENCODING: usize = 4;
 
+    enum CbState {
+        /// No compile started yet.
+        Untried,
+        /// Compile in flight; webviews (each retained) waiting for it.
+        Compiling(Vec<(*mut Object, super::InstallReport)>),
+        /// Compiled; one process-lifetime retain held, attach directly.
+        Ready(*mut Object),
+        /// Read or compile failed; don't retry every webview.
+        Failed,
+    }
+
+    thread_local! {
+        static STATE: RefCell<CbState> = const { RefCell::new(CbState::Untried) };
+    }
+
     unsafe fn nsstring(s: &str) -> *mut Object {
         let obj: *mut Object = msg_send![class!(NSString), alloc];
         msg_send![obj, initWithBytes: s.as_ptr() length: s.len() encoding: NSUTF8_STRING_ENCODING]
     }
 
-    pub fn attach(webview: *mut Object, json: &str, report: super::InstallReport) {
+    /// Add a compiled list to one webview's user content controller.
+    unsafe fn add_list(webview: *mut Object, list: *mut Object) -> bool {
+        let config: *mut Object = msg_send![webview, configuration];
+        if config.is_null() {
+            return false;
+        }
+        let ucc: *mut Object = msg_send![config, userContentController];
+        if ucc.is_null() {
+            return false;
+        }
+        let _: () = msg_send![ucc, addContentRuleList: list];
+        true
+    }
+
+    pub fn attach(webview: *mut Object, json_path: &Path, report: super::InstallReport) {
         if webview.is_null() {
             *report.write() = "failed".into();
             return;
         }
+        let json = STATE.with(|s| {
+            let mut state = s.borrow_mut();
+            match &mut *state {
+                CbState::Ready(list) => {
+                    let ok = unsafe { add_list(webview, *list) };
+                    *report.write() = if ok { "attached" } else { "failed" }.into();
+                    None
+                }
+                CbState::Compiling(waiting) => {
+                    // Keep the webview alive until the compile lands.
+                    let _: () = unsafe { msg_send![webview, retain] };
+                    waiting.push((webview, report));
+                    None
+                }
+                CbState::Failed => {
+                    *report.write() = "failed".into();
+                    None
+                }
+                CbState::Untried => match std::fs::read_to_string(json_path) {
+                    Ok(json) => {
+                        let _: () = unsafe { msg_send![webview, retain] };
+                        *state = CbState::Compiling(vec![(webview, report)]);
+                        Some(json)
+                    }
+                    Err(_) => {
+                        tracing::warn!(target: "flux::netfilter", "content-blocker JSON unreadable");
+                        *state = CbState::Failed;
+                        *report.write() = "failed".into();
+                        None
+                    }
+                },
+            }
+        });
+        // Compile outside the borrow: `compiled` takes it again.
+        let Some(json) = json else { return };
         unsafe {
             let store: *mut Object = msg_send![class!(WKContentRuleListStore), defaultStore];
             if store.is_null() {
-                *report.write() = "failed".into();
+                compiled(std::ptr::null_mut(), std::ptr::null_mut());
                 return;
             }
             let ident = nsstring("flux-shields");
-            let json_ns = nsstring(json);
-
-            // Keep the webview alive across the async compile; released in the block.
-            let _: () = msg_send![webview, retain];
-            let block = ConcreteBlock::new(move |list: *mut Object, err: *mut Object| unsafe {
-                *report.write() = "failed".into();
-                if !err.is_null() {
-                    tracing::warn!(target: "flux::netfilter", "WKContentRuleList compilation failed");
-                }
-                if err.is_null() && !list.is_null() {
-                    let config: *mut Object = msg_send![webview, configuration];
-                    if !config.is_null() {
-                        let ucc: *mut Object = msg_send![config, userContentController];
-                        if !ucc.is_null() {
-                            let _: () = msg_send![ucc, addContentRuleList: list];
-                            *report.write() = "attached".into();
-                        }
-                    }
-                }
-                let _: () = msg_send![webview, release];
-            });
+            let json_ns = nsstring(&json);
+            let block = ConcreteBlock::new(|list: *mut Object, err: *mut Object| compiled(list, err));
             let block = block.copy();
             let _: () = msg_send![store,
                 compileContentRuleListForIdentifier: ident
@@ -194,6 +244,31 @@ mod mac {
                 completionHandler: &*block];
             let _: () = msg_send![ident, release];
             let _: () = msg_send![json_ns, release];
+        }
+    }
+
+    /// Compile completion (main thread): cache the list for every later webview
+    /// and attach it to the ones that opened while it compiled.
+    unsafe fn compiled(list: *mut Object, err: *mut Object) {
+        let ok = err.is_null() && !list.is_null();
+        if ok {
+            let _: () = msg_send![list, retain]; // held for the life of the process
+        } else {
+            tracing::warn!(target: "flux::netfilter", "WKContentRuleList compilation failed");
+        }
+        let next = if ok {
+            CbState::Ready(list)
+        } else {
+            CbState::Failed
+        };
+        let waiting = STATE.with(|s| match std::mem::replace(&mut *s.borrow_mut(), next) {
+            CbState::Compiling(w) => w,
+            _ => Vec::new(),
+        });
+        for (webview, report) in waiting {
+            let attached = ok && add_list(webview, list);
+            *report.write() = if attached { "attached" } else { "failed" }.into();
+            let _: () = msg_send![webview, release];
         }
     }
 }
@@ -235,7 +310,9 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: Inst
                 return win::Decision::Block;
             }
             if let Some(h) = policy_app.try_state::<crate::https::HttpsState>() {
-                if let Some(secure) = h.upgrade(url) {
+                // Subresources inherit the page's HTTP exception; navigations don't.
+                let page = (ty != "document").then_some(source);
+                if let Some(secure) = h.upgrade(url, page) {
                     return win::Decision::Redirect(secure);
                 }
             }

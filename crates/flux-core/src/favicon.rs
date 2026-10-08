@@ -5,24 +5,35 @@
 //! anyone else. Falls back to the letter glyph when a site has no usable icon.
 
 use std::io::Read;
-use std::path::PathBuf;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use base64::Engine as _;
-use dashmap::DashMap;
 use tauri::State;
 
-/// host → Some(data-url) on success, None when known-missing (this session).
-#[derive(Default)]
+use crate::cache::TtlCache;
+
+/// Hosts kept in memory. Each icon can be a ~350 KB data URL and a page can
+/// mint hosts at will (navigating itself through fresh subdomains), so this is
+/// bounded. The shell keeps its own copy per host; an evicted host falls back
+/// to the disk cache.
+const MEM_CAP: usize = 128;
+/// How long a host stays in memory, so a known-missing icon is retried.
+const MEM_TTL: Duration = Duration::from_secs(6 * 3600);
+/// Icons kept on disk, oldest dropped first.
+const DISK_CAP: usize = 2000;
+
+/// host → Some(data-url) on success, None when known-missing.
 pub struct FaviconCache {
-    mem: DashMap<String, Option<String>>,
+    mem: TtlCache<String, Option<String>>,
     dir: Option<PathBuf>,
 }
 
 impl FaviconCache {
     pub fn new(dir: Option<PathBuf>) -> Self {
         Self {
-            mem: DashMap::new(),
+            mem: TtlCache::new(MEM_CAP, Some(MEM_TTL)),
             dir,
         }
     }
@@ -43,6 +54,7 @@ fn sanitize(host: &str) -> String {
 #[tauri::command]
 pub async fn favicon(
     cache: State<'_, FaviconCache>,
+    proxy: State<'_, crate::proxy::ProxyState>,
     host: String,
 ) -> Result<Option<String>, String> {
     let host = host.trim().trim_start_matches("www.").to_ascii_lowercase();
@@ -50,7 +62,7 @@ pub async fn favicon(
         return Ok(None);
     }
     if let Some(v) = cache.mem.get(&host) {
-        return Ok(v.clone());
+        return Ok(v);
     }
     // Disk cache (successes only). Skip stale `data:image/x-icon` entries written
     // before the ICO→PNG transcode landed — they don't render on WebKitGTK, so
@@ -64,25 +76,145 @@ pub async fn favicon(
         }
     }
 
+    // The tabs' network path: through the user's proxy (#63) when one is set,
+    // never direct, which would hand each site the address the proxy hides.
+    let proxy = proxy.parsed();
+    let Some(builder) = crate::proxy::agent_builder(proxy.as_ref()) else {
+        return Ok(None);
+    };
+    let proxied = proxy.is_some();
     let h = host.clone();
-    let fetched = tauri::async_runtime::spawn_blocking(move || try_fetch(&h))
-        .await
-        .unwrap_or(None);
-    cache.mem.insert(host.clone(), fetched.clone());
-    if let (Some(dir), Some(data)) = (&cache.dir, &fetched) {
-        let _ = std::fs::create_dir_all(dir);
-        let _ = std::fs::write(dir.join(format!("{}.txt", sanitize(&host))), data);
-    }
+    let dir = cache.dir.clone();
+    let fetched = tauri::async_runtime::spawn_blocking(move || {
+        let data = try_fetch(&icon_agent(builder, proxied, &h), &h)?;
+        if let Some(dir) = dir {
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::fs::write(dir.join(format!("{}.txt", sanitize(&h))), &data);
+            prune_disk(&dir, DISK_CAP);
+        }
+        Some(data)
+    })
+    .await
+    .unwrap_or(None);
+    cache.mem.insert(host, fetched.clone());
     Ok(fetched)
 }
 
+/// Keep at most `cap` icons on disk, dropping the oldest-written. Trims to 90%
+/// so the next writes don't each re-stat the whole folder.
+fn prune_disk(dir: &Path, cap: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    if paths.len() <= cap {
+        return;
+    }
+    let mut dated: Vec<_> = paths
+        .into_iter()
+        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
+        .collect();
+    dated.sort_by_key(|(t, _)| *t);
+    let excess = dated.len().saturating_sub(cap * 9 / 10);
+    for (_, p) in dated.into_iter().take(excess) {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// Agent for one host's icon fetch. The icon URL is page-chosen (`<link
+/// rel=icon href>`) and redirects can go anywhere, so without a proxy every
+/// connection, each redirect hop included, is checked when it resolves: see
+/// [`icon_addrs`].
+fn icon_agent(builder: ureq::AgentBuilder, proxied: bool, host: &str) -> ureq::Agent {
+    // Through a proxy, every connection is to the proxy, which resolves names
+    // itself: a lookup here would leak them.
+    if proxied {
+        return builder.build();
+    }
+    // The browsed host may be an intranet site. Look it up once and pin it, so
+    // a second (rebinding) answer can't move it inward mid-fetch.
+    let pinned = (host, 443)
+        .to_socket_addrs()
+        .map(|it| pin(it.map(|a| a.ip())))
+        .unwrap_or_default();
+    let host = host.to_string();
+    builder
+        .resolver(move |netloc: &str| icon_addrs(netloc, &host, &pinned))
+        .build()
+}
+
+/// The browsed host's addresses, as resolved once. A genuine intranet host
+/// resolves only inward; one that mixes public and inward answers keeps only
+/// the public ones, or a crafted answer could put a loopback address beside
+/// the server that sends the redirect.
+fn pin(addrs: impl Iterator<Item = IpAddr>) -> Vec<IpAddr> {
+    let mut v: Vec<IpAddr> = addrs.collect();
+    if v.iter().any(|ip| is_public(*ip)) {
+        v.retain(|ip| is_public(*ip));
+    }
+    v
+}
+
+/// Where an icon request to `netloc` (`name:port`) may connect: the browsed
+/// `host` goes to its `pinned` addresses (it may be on the LAN, like the tab
+/// showing it); any other host only to public addresses. Otherwise a visited
+/// site could point its icon, or a redirect, at the router or a local service.
+fn icon_addrs(netloc: &str, host: &str, pinned: &[IpAddr]) -> std::io::Result<Vec<SocketAddr>> {
+    let addrs: Vec<SocketAddr> = match netloc.rsplit_once(':') {
+        Some((name, port)) if name.eq_ignore_ascii_case(host) => {
+            let port = port
+                .parse()
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+            pinned.iter().map(|ip| SocketAddr::new(*ip, port)).collect()
+        }
+        _ => netloc
+            .to_socket_addrs()?
+            .filter(|a| is_public(a.ip()))
+            .collect(),
+    };
+    if addrs.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "icon host has no public address",
+        ));
+    }
+    Ok(addrs)
+}
+
+/// Not loopback, private (RFC 1918 / unique-local), link-local, CGNAT,
+/// unspecified or broadcast.
+fn is_public(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xc0) == 64)) // CGNAT 100.64/10
+        }
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_public(IpAddr::V4(v4)),
+            None => {
+                let s0 = v6.segments()[0];
+                !(v6.is_loopback()
+                    || v6.is_unspecified()
+                    || (s0 & 0xfe00) == 0xfc00 // unique-local fc00::/7
+                    || (s0 & 0xffc0) == 0xfe80) // link-local fe80::/10
+            }
+        },
+    }
+}
+
 /// `/favicon.ico`, then the root page's declared `<link rel="…icon">`.
-fn try_fetch(host: &str) -> Option<String> {
-    if let Some(d) = fetch_icon(&format!("https://{host}/favicon.ico")) {
+fn try_fetch(agent: &ureq::Agent, host: &str) -> Option<String> {
+    if let Some(d) = fetch_icon(agent, &format!("https://{host}/favicon.ico")) {
         return Some(d);
     }
-    if let Some(href) = root_icon_href(host) {
-        if let Some(d) = fetch_icon(&resolve(host, &href)) {
+    if let Some(href) = root_icon_href(agent, host) {
+        if let Some(d) = fetch_icon(agent, &resolve(host, &href)) {
             return Some(d);
         }
     }
@@ -93,8 +225,9 @@ fn try_fetch(host: &str) -> Option<String> {
 /// page or 403 to non-browser agents, which would fail icon detection.
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 
-fn fetch_icon(url: &str) -> Option<String> {
-    let resp = ureq::get(url)
+fn fetch_icon(agent: &ureq::Agent, url: &str) -> Option<String> {
+    let resp = agent
+        .get(url)
         .set("User-Agent", UA)
         .set(
             "Accept",
@@ -179,8 +312,9 @@ fn image_mime(buf: &[u8], ct: &str) -> Option<String> {
     None
 }
 
-fn root_icon_href(host: &str) -> Option<String> {
-    let html = ureq::get(&format!("https://{host}/"))
+fn root_icon_href(agent: &ureq::Agent, host: &str) -> Option<String> {
+    let html = agent
+        .get(&format!("https://{host}/"))
         .set("User-Agent", UA)
         .timeout(Duration::from_secs(5))
         .call()
@@ -270,6 +404,74 @@ mod tests {
             attr(r#"link rel='shortcut icon' href='//cdn/x.png'"#, "href").as_deref(),
             Some("//cdn/x.png")
         );
+    }
+
+    #[test]
+    fn only_public_addresses_count_as_public() {
+        for ip in ["93.184.216.34", "2606:2800:220:1::1", "::ffff:93.184.216.34"] {
+            assert!(is_public(ip.parse().unwrap()), "{ip}");
+        }
+        for ip in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "255.255.255.255",
+            "::1",
+            "::",
+            "fd00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+        ] {
+            assert!(!is_public(ip.parse().unwrap()), "{ip}");
+        }
+    }
+
+    #[test]
+    fn page_chosen_icon_urls_cannot_reach_the_lan() {
+        let public: IpAddr = "93.184.216.34".parse().unwrap();
+        // Another host (an icon href, a redirect hop) on loopback or the LAN.
+        for netloc in ["127.0.0.1:8080", "192.168.1.1:80", "[::1]:443", "169.254.169.254:80"] {
+            let err = icon_addrs(netloc, "example.com", &[public]).unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied, "{netloc}");
+        }
+        assert!(icon_addrs("93.184.216.34:443", "example.com", &[public]).is_ok());
+        // The browsed host keeps its pinned addresses, an intranet one too, on any port.
+        let lan: IpAddr = "10.0.0.5".parse().unwrap();
+        let got = icon_addrs("wiki.corp.example:8080", "wiki.corp.example", &[lan]).unwrap();
+        assert_eq!(got, vec![SocketAddr::new(lan, 8080)]);
+        // Pinned means no second lookup: a host that resolved to nothing stays unreachable.
+        assert!(icon_addrs("example.com:443", "example.com", &[]).is_err());
+
+        // A host answering both public and loopback keeps only the public address.
+        let loopback: IpAddr = "127.0.0.1".parse().unwrap();
+        assert_eq!(pin([loopback, public].into_iter()), vec![public]);
+        assert_eq!(pin([lan].into_iter()), vec![lan]);
+    }
+
+    #[test]
+    fn disk_cache_is_pruned_oldest_first() {
+        let dir = std::env::temp_dir().join(format!("flux-favicon-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let t0 = std::time::SystemTime::now() - Duration::from_secs(3600);
+        for i in 0..12u64 {
+            let f = std::fs::File::create(dir.join(format!("h{i}.txt"))).unwrap();
+            f.set_modified(t0 + Duration::from_secs(i)).unwrap();
+        }
+        prune_disk(&dir, 20);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 12, "under the cap");
+
+        prune_disk(&dir, 10);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 9);
+        for gone in ["h0.txt", "h1.txt", "h2.txt"] {
+            assert!(!dir.join(gone).exists(), "{gone} is among the oldest");
+        }
+        assert!(dir.join("h3.txt").exists() && dir.join("h11.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

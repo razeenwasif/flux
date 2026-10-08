@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use flux_filter::Filter;
-use parking_lot::RwLock;
-use serde::Serialize;
+use parking_lot::{Mutex, RwLock};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 use crate::cache::TtlCache;
@@ -57,6 +57,23 @@ const CB_JSON_FILE: &str = "webkit-cb.json";
 /// stay well under it — the hot ~10% of EasyList does the real blocking anyway.
 const CB_MAX_RULES: usize = 75_000;
 
+/// The user's shields choices, as saved to `shields.json`.
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
+struct ShieldsPrefs {
+    enabled: bool,
+    sites_off: Vec<String>,
+}
+
+impl Default for ShieldsPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sites_off: Vec::new(),
+        }
+    }
+}
+
 pub struct ShieldsState {
     filter: RwLock<Filter>,
     /// Page hosts where the user turned shields OFF (allowlist).
@@ -76,6 +93,13 @@ pub struct ShieldsState {
     fired_rules: DashMap<String, u64>,
     /// Where fetched lists are cached (`None` → bundled default only; tests).
     filters_dir: Option<PathBuf>,
+    /// Where the global toggle + per-site allowlist are saved (`None` →
+    /// in-memory only; tests).
+    prefs: Option<PathBuf>,
+    /// List-refresh coalescing: `None` while idle, `Some(again)` while a
+    /// refresh (download + full rebuild) runs; `again` marks a forced request
+    /// that arrived meanwhile and still needs a pass of its own.
+    refresh_run: Mutex<Option<bool>>,
 }
 
 impl Default for ShieldsState {
@@ -96,6 +120,8 @@ impl ShieldsState {
             decisions: TtlCache::new(DECISION_CACHE_CAP, Some(DECISION_CACHE_TTL)),
             fired_rules: DashMap::new(),
             filters_dir,
+            prefs: None,
+            refresh_run: Mutex::new(None),
         };
         // Seed the content-blocker JSON from the bundled list so the native
         // layer (WebKitGTK) has rules before the first background refresh
@@ -107,18 +133,71 @@ impl ShieldsState {
         s
     }
 
+    /// Restore the global toggle + per-site allowlist from `path` (missing or
+    /// unreadable → on, no exceptions) and save every change back there. They
+    /// used to live only in memory and silently reset on restart.
+    pub fn with_prefs(mut self, path: PathBuf) -> Self {
+        let saved: ShieldsPrefs = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        *self.enabled.get_mut() = saved.enabled;
+        self.off_for = saved.sites_off.into_iter().map(|h| (h, ())).collect();
+        self.prefs = Some(path);
+        self
+    }
+
+    fn save_prefs(&self) {
+        let Some(path) = &self.prefs else { return };
+        let mut sites_off: Vec<String> = self.off_for.iter().map(|e| e.key().clone()).collect();
+        sites_off.sort();
+        let enabled = self.enabled.load(Ordering::Relaxed);
+        crate::persist::save_json_pretty(path, &ShieldsPrefs { enabled, sites_off });
+    }
+
     /// Fetch any stale/missing upstream lists, then rebuild the filter from the
     /// bundled default + every cached list and swap it in. Blocking + heavy
     /// (parses tens of thousands of rules) — call from a background thread.
     pub fn refresh(&self) {
+        self.refresh_lists(false);
+    }
+
+    /// [`refresh`](Self::refresh); `force` re-downloads even fresh lists (the
+    /// user's "Update filter lists"). One run at a time: a request that lands
+    /// mid-run doesn't start a second full rebuild beside it (that run re-reads
+    /// every cached list anyway); a forced one gets one more pass after it.
+    pub fn refresh_lists(&self, force: bool) {
         let Some(dir) = &self.filters_dir else { return };
+        {
+            let mut run = self.refresh_run.lock();
+            if let Some(again) = run.as_mut() {
+                *again |= force;
+                return;
+            }
+            *run = Some(false);
+        }
+        let mut force = force;
+        loop {
+            self.rebuild(dir, force);
+            let mut run = self.refresh_run.lock();
+            if *run != Some(true) {
+                *run = None;
+                return;
+            }
+            *run = Some(false);
+            force = true;
+        }
+    }
+
+    fn rebuild(&self, dir: &Path, force: bool) {
         let _ = std::fs::create_dir_all(dir);
         for (name, url) in LISTS {
             let path = dir.join(name);
-            if is_stale(&path) {
+            if force || is_stale(&path) {
                 match fetch(url) {
                     Ok(body) if body.len() > 1024 => {
-                        let _ = std::fs::write(&path, body);
+                        // Atomic: a torn list would be trusted as fresh for days.
+                        let _ = crate::persist::write_atomic(&path, body.as_bytes());
                     }
                     Ok(_) => {
                         tracing::warn!(target: "flux::shields", "{url}: suspiciously small, kept old")
@@ -340,6 +419,7 @@ pub fn shields_status(
 #[tauri::command]
 pub fn shields_set_enabled(state: State<'_, ShieldsState>, on: bool) {
     state.enabled.store(on, Ordering::Relaxed);
+    state.save_prefs();
 }
 
 /// Turn shields on/off for one site (`on = false` allowlists the host).
@@ -350,6 +430,7 @@ pub fn shields_set_site(state: State<'_, ShieldsState>, host: String, on: bool) 
     } else {
         state.off_for.insert(host, ());
     }
+    state.save_prefs();
 }
 
 /// Diagnostic / agent hook: would this request be blocked? (Does not count.)
@@ -378,7 +459,9 @@ pub fn shields_check(
 /// download + parse are heavy). Fire-and-forget.
 #[tauri::command]
 pub fn shields_refresh(app: AppHandle) {
-    std::thread::spawn(move || app.state::<ShieldsState>().refresh());
+    // Forced: the plain refresh skips lists under five days old, which after
+    // the boot refresh is nearly always all of them.
+    std::thread::spawn(move || app.state::<ShieldsState>().refresh_lists(true));
 }
 
 /// The session's hot rule set — the filters that actually fired, busiest first
@@ -461,6 +544,60 @@ mod tests {
             0,
             "rebuilding the rule set must invalidate verdicts"
         );
+    }
+
+    #[test]
+    fn refresh_requests_coalesce_instead_of_stacking_rebuilds() {
+        let dir = std::env::temp_dir().join(format!("flux-shields-refresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Just-written cached lists are fresh: a plain refresh rebuilds from
+        // them without downloading anything.
+        for (name, _) in LISTS {
+            std::fs::write(dir.join(name), "||flux-refresh-test.example^\n").unwrap();
+        }
+        let s = ShieldsState::new(Some(dir.clone()));
+        let (url, page) = ("https://flux-refresh-test.example/t.js", "https://news.com");
+
+        // A refresh is already running: requests return at once instead of
+        // starting a second full rebuild beside it, and a forced one is queued.
+        *s.refresh_run.lock() = Some(false);
+        s.refresh_lists(true);
+        s.refresh();
+        assert_eq!(
+            *s.refresh_run.lock(),
+            Some(true),
+            "forced pass queued, not dropped"
+        );
+        assert!(
+            !s.should_block(url, page, "script"),
+            "nothing rebuilt beside it"
+        );
+
+        *s.refresh_run.lock() = None; // idle again (the forced pass would download)
+        s.refresh();
+        assert!(s.should_block(url, page, "script"));
+        assert_eq!(*s.refresh_run.lock(), None, "back to idle");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn toggle_and_allowlist_survive_a_restart() {
+        let dir = std::env::temp_dir().join(format!("flux-shields-prefs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("shields.json");
+        let s = ShieldsState::new(None).with_prefs(path.clone());
+        assert!(s.enabled.load(Ordering::Relaxed), "on by default");
+        s.off_for.insert("broken.example".into(), ());
+        s.save_prefs();
+        let back = ShieldsState::new(None).with_prefs(path.clone());
+        assert!(back.status().sites_off.contains(&"broken.example".to_string()));
+        assert!(back.enabled.load(Ordering::Relaxed));
+
+        back.enabled.store(false, Ordering::Relaxed);
+        back.save_prefs();
+        assert!(!ShieldsState::new(None).with_prefs(path).enabled.load(Ordering::Relaxed));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

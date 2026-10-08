@@ -107,8 +107,10 @@ impl PermState {
                     .collect()
             })
             .unwrap_or_default();
+        // The global block used to reset to off on every launch: failing open.
+        let block = std::fs::read_to_string(block_path(&path)).is_ok_and(|s| s.trim() == "1");
         Self {
-            block: AtomicBool::new(false),
+            block: AtomicBool::new(block),
             decisions: RwLock::new(decisions),
             path: Some(path),
         }
@@ -116,6 +118,13 @@ impl PermState {
 
     pub fn blocking(&self) -> bool {
         self.block.load(Ordering::Relaxed)
+    }
+
+    fn set_block(&self, on: bool) {
+        self.block.store(on, Ordering::Relaxed);
+        if let Some(path) = &self.path {
+            crate::persist::save_text(&block_path(path), if on { "1" } else { "0" });
+        }
     }
 
     /// The remembered decision for a (host, kind), or `Ask`.
@@ -190,6 +199,11 @@ impl PermState {
     }
 }
 
+/// The global block's file, next to the decisions file.
+fn block_path(decisions: &std::path::Path) -> PathBuf {
+    decisions.with_file_name("permissions-block.txt")
+}
+
 /// Install the PermissionRequested handler on a freshly-created tab webview.
 pub fn install(app: &AppHandle, webview: &Webview) {
     #[cfg(windows)]
@@ -209,7 +223,7 @@ pub fn permissions_status(state: State<'_, PermState>) -> bool {
 
 #[tauri::command]
 pub fn permissions_set_block(state: State<'_, PermState>, on: bool) {
-    state.block.store(on, Ordering::Relaxed);
+    state.set_block(on);
 }
 
 /// Every remembered per-site decision (for the manager UI).
@@ -291,13 +305,14 @@ mod win {
     use tauri::{AppHandle, Emitter, Manager};
     use webview2_com::Microsoft::Web::WebView2::Win32::{
         ICoreWebView2Deferral, ICoreWebView2PermissionRequestedEventArgs,
-        COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CAMERA,
+        ICoreWebView2PermissionRequestedEventArgs3, COREWEBVIEW2_PERMISSION_KIND,
+        COREWEBVIEW2_PERMISSION_KIND_CAMERA,
         COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ, COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION,
         COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
         COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DENY,
     };
     use webview2_com::PermissionRequestedEventHandler;
-    use windows::core::PWSTR;
+    use windows::core::{Interface, PWSTR};
 
     use super::{Effective, PermAsk, PermKind, PermState};
 
@@ -333,6 +348,14 @@ mod win {
             let handler =
                 PermissionRequestedEventHandler::create(Box::new(move |_sender, args| {
                     let Some(args) = args else { return Ok(()) };
+                    // PermState is the one store of decisions. WebView2 defaults
+                    // SavesInProfile to TRUE, saving every SetState (a one-off
+                    // answer too) in the profile, where it can stop future
+                    // PermissionRequested events and so outlive a revocation or
+                    // the global block here. Deferred Asks share these args.
+                    if let Ok(a3) = args.cast::<ICoreWebView2PermissionRequestedEventArgs3>() {
+                        let _ = a3.SetSavesInProfile(false);
+                    }
                     let Some(state) = app.try_state::<PermState>() else {
                         return Ok(());
                     };
@@ -462,6 +485,20 @@ mod tests {
         let l = s.list();
         assert_eq!(l[0].host, "a.com");
         assert_eq!(l[1].host, "z.com");
+    }
+
+    #[test]
+    fn global_block_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("flux-perms-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("permissions.json");
+        let s = PermState::restore(path.clone());
+        assert!(!s.blocking(), "off until turned on");
+        s.set_block(true);
+        assert!(PermState::restore(path.clone()).blocking());
+        s.set_block(false);
+        assert!(!PermState::restore(path).blocking());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

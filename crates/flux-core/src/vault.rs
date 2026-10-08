@@ -96,7 +96,11 @@ impl VaultState {
             .join("vault");
         let path = dir.join("vault.bin");
         let meta = read_meta(&dir);
-        let password_mode = meta.protection == "password" && dir.join("keywrap.json").is_file();
+        // keywrap.json is what makes a vault password-protected; only an explicit
+        // "keychain" in meta (a disable that couldn't remove it) overrides it. A
+        // missing or unreadable meta.json must not boot such a vault in keychain
+        // mode, which has no key for it.
+        let password_mode = dir.join("keywrap.json").is_file() && meta.protection != "keychain";
         let never_save = read_never_save(&dir);
 
         Self {
@@ -121,7 +125,7 @@ impl VaultState {
         if *self.protection.read() == Protection::Password || self.open.read().is_some() {
             return;
         }
-        let (open, source) = match obtain_key(&self.dir) {
+        let (open, source) = match obtain_key(&self.dir, keychain_key()) {
             (Some(dk), src) => {
                 let vault_res = match std::fs::read(&self.path) {
                     Ok(blob) if !blob.is_empty() => {
@@ -204,9 +208,16 @@ impl VaultState {
 
     /// Run `f` against the decrypted vault, or error if locked. Touches activity.
     fn read_open<R>(&self, f: impl FnOnce(&Vault) -> R) -> Result<R, String> {
+        let r = self.probe_open(f)?;
+        self.touch();
+        Ok(r)
+    }
+    /// [`read_open`](Self::read_open) that isn't user activity: chrome polls,
+    /// page probes and the sentinel's per-navigation read would otherwise hold
+    /// an idle vault open past its auto-lock indefinitely.
+    fn probe_open<R>(&self, f: impl FnOnce(&Vault) -> R) -> Result<R, String> {
         let guard = self.open.read();
         let u = guard.as_ref().ok_or("vault is locked")?;
-        self.touch();
         Ok(f(&u.vault))
     }
     fn write_open<R>(&self, f: impl FnOnce(&mut Vault) -> R) -> Result<R, String> {
@@ -223,18 +234,50 @@ impl VaultState {
 
 // ─── key acquisition (keychain mode) ─────────────────────────────────────────
 
-fn obtain_key(dir: &Path) -> (Option<[u8; 32]>, &'static str) {
-    match keychain_key() {
-        Ok(k) => return (Some(k), "keychain"),
+/// The data key: the keychain's (`keychain` is [`keychain_key`]'s answer), else
+/// an existing key.bin, else, only when there is no vault yet, a new one.
+fn obtain_key(
+    dir: &Path,
+    keychain: Result<Option<[u8; 32]>, String>,
+) -> (Option<[u8; 32]>, &'static str) {
+    match &keychain {
+        Ok(Some(k)) => return (Some(*k), "keychain"),
+        Ok(None) => {}
         Err(e) => tracing::warn!(target: "flux::vault", "OS keychain unavailable: {e}"),
     }
-    match file_key(dir) {
-        Ok(k) => (Some(k), "file"),
-        Err(e) => {
-            tracing::error!(target: "flux::vault", "no vault key (keychain + file failed): {e}");
-            (None, "none")
-        }
+    // An empty keychain doesn't mean a first run: key.bin sealed the vault on
+    // any boot when the keychain wasn't available.
+    if let Some(k) = read_file_key(dir) {
+        return (Some(k), "file");
     }
+    // A new key can't open an existing vault, and once in the keychain it would
+    // shadow the real key on every later boot.
+    if vault_on_disk(dir) {
+        tracing::error!(target: "flux::vault", "the vault's key is missing; not minting a new one");
+        return (None, "none");
+    }
+    let k = flux_vault::new_key();
+    // The keychain only if it answered above.
+    let source = if keychain.is_ok() {
+        store_key(dir, &k)
+    } else {
+        store_key_file(dir, &k)
+    };
+    if source == "none" {
+        tracing::error!(target: "flux::vault", "no vault key (keychain + file failed)");
+        return (None, "none");
+    }
+    (Some(k), source)
+}
+
+/// Is there already a vault a new key would orphan? An empty vault.bin holds
+/// nothing; one we can't even stat is assumed to hold something.
+fn vault_on_disk(dir: &Path) -> bool {
+    let sealed = match std::fs::metadata(dir.join("vault.bin")) {
+        Ok(m) => m.len() > 0,
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    };
+    sealed || dir.join("keywrap.json").is_file()
 }
 
 /// Whether `keyring` has a real OS secret store on this target. Everywhere else
@@ -250,39 +293,22 @@ pub(crate) const HAS_OS_KEYCHAIN: bool = cfg!(any(
     target_os = "openbsd"
 ));
 
-fn keychain_key() -> Result<[u8; 32], String> {
+/// The keychain's copy of the data key; `Ok(None)` when it has none.
+fn keychain_key() -> Result<Option<[u8; 32]>, String> {
     if !HAS_OS_KEYCHAIN {
         return Err("no OS keychain on this platform".into());
     }
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string())?;
     match entry.get_password() {
-        Ok(hex) => decode_key(&hex),
-        Err(keyring::Error::NoEntry) => {
-            let k = flux_vault::new_key();
-            entry
-                .set_password(&encode_key(&k))
-                .map_err(|e| e.to_string())?;
-            Ok(k)
-        }
+        Ok(hex) => decode_key(&hex).map(Some),
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
 }
 
-fn file_key(dir: &Path) -> Result<[u8; 32], String> {
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let p = dir.join("key.bin");
-    if let Ok(b) = std::fs::read(&p) {
-        if b.len() == 32 {
-            let mut k = [0u8; 32];
-            k.copy_from_slice(&b);
-            return Ok(k);
-        }
-    }
-    let k = flux_vault::new_key();
-    // Atomic: a torn key.bin would be re-minted next launch, orphaning the vault.
-    crate::persist::write_atomic(&p, &k).map_err(|e| e.to_string())?;
-    set_owner_only(&p);
-    Ok(k)
+/// key.bin's key, if there is a well-formed one.
+fn read_file_key(dir: &Path) -> Option<[u8; 32]> {
+    std::fs::read(dir.join("key.bin")).ok()?.try_into().ok()
 }
 
 /// Store the data key in the keychain (preferred) or a 0600 key file.
@@ -294,6 +320,11 @@ fn store_key(dir: &Path, dk: &[u8; 32]) -> &'static str {
             }
         }
     }
+    store_key_file(dir, dk)
+}
+
+/// [`store_key`]'s 0600 key file on its own.
+fn store_key_file(dir: &Path, dk: &[u8; 32]) -> &'static str {
     let p = dir.join("key.bin");
     // fsync + rename: this may be about to become the key's only copy.
     if crate::persist::write_atomic(&p, dk).is_ok() {
@@ -560,17 +591,20 @@ pub fn vault_set_autolock(state: State<'_, VaultState>, minutes: u64) -> Result<
     )
 }
 
+/// Not activity: the Passwords page polls this every few seconds, and the
+/// sentinel reads it on every navigation.
 #[tauri::command]
 pub fn vault_list(state: State<'_, VaultState>) -> Result<Vec<CredentialMeta>, String> {
-    state.read_open(|v| v.entries.iter().map(CredentialMeta::from).collect())
+    state.probe_open(|v| v.entries.iter().map(CredentialMeta::from).collect())
 }
 
+/// Not activity: the open Passwords popover polls this.
 #[tauri::command]
 pub fn vault_for_host(
     state: State<'_, VaultState>,
     host: String,
 ) -> Result<Vec<CredentialMeta>, String> {
-    state.read_open(|v| {
+    state.probe_open(|v| {
         v.matches(&host)
             .into_iter()
             .map(CredentialMeta::from)
@@ -838,7 +872,8 @@ pub fn vault_fill(
 // ─── Page sentinel (#61 follow-up) ───────────────────────────────────────────
 // Commands the injected passwords.js may call (fluxtab plugin). The calling
 // tab is identified from the webview's OWN label (`tab-{id}`) — page-supplied
-// ids are never trusted, so a page can only ever act on itself.
+// ids are never trusted, so a page can only ever act on itself. None of them is
+// vault activity (`probe_open`): any page could keep an idle vault unlocked.
 
 /// What the sentinel needs to decide which chip to show on a login form. No
 /// usernames: every script on the page can read this, and the chrome's fill bar
@@ -1095,7 +1130,7 @@ pub fn vault_page_info(
         return locked_out;
     }
     state
-        .read_open(|v| PageVaultInfo {
+        .probe_open(|v| PageVaultInfo {
             unlocked: true,
             count: v.matches(&host).len() as u32,
         })
@@ -1122,7 +1157,7 @@ pub fn vault_fill_page(
         return Err(refused());
     }
     let choices: Vec<FillChoice> = state
-        .read_open(|v| {
+        .probe_open(|v| {
             v.matches(&host)
                 .into_iter()
                 .map(|c| FillChoice {
@@ -1148,7 +1183,7 @@ pub fn vault_fill_page(
 /// actually keep the promise of remembering it.
 #[tauri::command]
 pub fn vault_suggest_password(state: State<'_, VaultState>) -> Result<String, String> {
-    state.read_open(|_| ())?; // unlocked check + activity touch
+    state.probe_open(|_| ())?; // unlocked check only: a page call isn't activity
     Ok(flux_vault::generate_password(20))
 }
 
@@ -1181,7 +1216,7 @@ pub fn vault_save_from_page(
     }
     // No never-save skip here: the user just accepted a generated password, and
     // dropping it silently would lock them out of the new account.
-    let (already, update) = state.read_open(|v| {
+    let (already, update) = state.probe_open(|v| {
         let m = v.matches(&host);
         let already = m
             .iter()
@@ -1277,7 +1312,7 @@ pub fn vault_offer_save(
     }
     // Decide save vs update vs skip against the (unlocked) vault. Locked →
     // silently do nothing; we can't dedupe and the save would fail anyway.
-    let Ok((already, update)) = state.read_open(|v| {
+    let Ok((already, update)) = state.probe_open(|v| {
         let m = v.matches(&host);
         let already = m
             .iter()
@@ -1366,4 +1401,53 @@ pub fn vault_never_save(state: State<'_, VaultState>) -> Result<(), String> {
         write_never_save(&state.dir, &state.never_save.read())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod activity_tests {
+    use super::*;
+
+    #[test]
+    fn probes_and_polls_dont_postpone_autolock() {
+        let s = VaultState {
+            open: RwLock::new(Some(Unlocked {
+                vault: Vault::default(),
+                dk: Zeroizing::new([7; 32]),
+            })),
+            dir: PathBuf::new(),
+            path: PathBuf::new(),
+            protection: RwLock::new(Protection::Password),
+            source: RwLock::new("password"),
+            autolock_min: AtomicU64::new(10),
+            last_activity: AtomicU64::new(u64::MAX), // a value `touch` never writes
+            pending_save: RwLock::new(None),
+            never_save: RwLock::new(HashSet::new()),
+        };
+        assert_eq!(s.probe_open(|v| v.entries.len()), Ok(0));
+        assert_eq!(s.last_activity.load(Ordering::Relaxed), u64::MAX);
+        s.read_open(|_| ()).unwrap();
+        assert_ne!(s.last_activity.load(Ordering::Relaxed), u64::MAX);
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_keychain_never_shadows_an_existing_vault() {
+        let dir = std::env::temp_dir().join(format!("flux-vault-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("vault.bin"), b"sealed").unwrap();
+        // Sealed on a boot without a keychain: key.bin holds the real key.
+        std::fs::write(dir.join("key.bin"), [9u8; 32]).unwrap();
+        assert_eq!(obtain_key(&dir, Ok(None)), (Some([9u8; 32]), "file"));
+        // No key anywhere for an existing vault: fail closed, mint nothing.
+        std::fs::remove_file(dir.join("key.bin")).unwrap();
+        assert_eq!(obtain_key(&dir, Ok(None)), (None, "none"));
+        assert_eq!(obtain_key(&dir, Err("unavailable".into())), (None, "none"));
+        assert!(!dir.join("key.bin").exists(), "nothing minted");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

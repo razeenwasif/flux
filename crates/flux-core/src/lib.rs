@@ -331,8 +331,13 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
     );
     // Content-blocker shields: the filter engine + per-site policy (#57).
     let filters_dir = app.path().app_data_dir().ok().map(|d| d.join("filters"));
+    let shields_prefs = app.path().app_data_dir().ok().map(|d| d.join("shields.json"));
     app.manage(boot_phase("shields.init", boot_started, || {
-        shields::ShieldsState::new(filters_dir)
+        let shields = shields::ShieldsState::new(filters_dir);
+        match shields_prefs {
+            Some(p) => shields.with_prefs(p),
+            None => shields,
+        }
     }));
     // Android Shields: let the WebView's JNI shouldInterceptRequest callback reach
     // the managed ShieldsState (ADR 0012, M3).
@@ -346,7 +351,12 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
         std::thread::spawn(move || handle.state::<shields::ShieldsState>().refresh());
     }
     // HTTPS-only mode (#58) — shares the request interceptor with shields.
-    app.manage(https::HttpsState::new());
+    app.manage(
+        match app.path().app_data_dir().ok().map(|d| d.join("https.json")) {
+            Some(p) => https::HttpsState::restore(p),
+            None => https::HttpsState::new(),
+        },
+    );
     // Tracking prevention (#58) — native WebView2 3rd-party blocking.
     app.manage(
         match app.path().app_data_dir().ok().map(|d| d.join("tracking.txt")) {
@@ -355,7 +365,12 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
         },
     );
     // Per-site cookie flags (clear-on-close, #58).
-    app.manage(cookies::CookieState::new());
+    app.manage(
+        match app.path().app_data_dir().ok().map(|d| d.join("clear-on-close.json")) {
+            Some(p) => cookies::CookieState::restore(p),
+            None => cookies::CookieState::new(),
+        },
+    );
     // Site-permission hardening (#58) — block camera/mic/geo on demand.
     let perms_path = app
         .path()

@@ -538,10 +538,10 @@ fn open_export(data: &[u8], passphrase: &str) -> Result<Zeroizing<Vec<u8>>, Vaul
         ));
     }
     // A wrong passphrase fails the KEK's AEAD tag, not the body's.
-    let ek = Zeroizing::new(
-        unwrap_key(passphrase, &wrap)
-            .map_err(|_| VaultError::Import("wrong export passphrase".into()))?,
-    );
+    let ek = Zeroizing::new(unwrap_key(passphrase, &wrap).map_err(|e| match e {
+        VaultError::Crypto => VaultError::Import("wrong export passphrase".into()),
+        other => other,
+    })?);
     Ok(Zeroizing::new(open(&ek, body)?))
 }
 
@@ -671,9 +671,26 @@ pub fn wrap_key(password: &str, data_key: &[u8; 32]) -> Result<KeyWrap, VaultErr
     })
 }
 
+// Ceilings for a KeyWrap read back from a file (an import header, keywrap.json).
+// Far above what `wrap_key` writes, so a retuned default still opens, but a
+// crafted header can't demand terabytes (the failed allocation aborts the
+// process) or 2^32 passes before anything is authenticated.
+const ARGON_M_MAX: u32 = 262_144; // 256 MiB, in KiB
+const ARGON_T_MAX: u32 = 16;
+const ARGON_P_MAX: u32 = 8;
+
 /// Recover the data key from a [`KeyWrap`] with the master `password`. A wrong
 /// password fails (AES-GCM authentication) rather than returning garbage.
 pub fn unwrap_key(password: &str, w: &KeyWrap) -> Result<[u8; 32], VaultError> {
+    if w.kdf != "argon2id"
+        || w.m_cost > ARGON_M_MAX
+        || w.t_cost > ARGON_T_MAX
+        || w.p_cost > ARGON_P_MAX
+    {
+        return Err(VaultError::Import(
+            "unsupported key-derivation parameters".into(),
+        ));
+    }
     let kek = derive_kek(password, &w.salt, w.m_cost, w.t_cost, w.p_cost)?;
     let dk = open(&kek, &w.wrapped)?;
     if dk.len() != 32 {
@@ -1232,6 +1249,42 @@ jRQjwtU=\n=+uGW\n-----END PGP MESSAGE-----\n";
                 .wrapped,
             w.wrapped
         );
+    }
+
+    #[test]
+    fn crafted_kdf_parameters_are_refused_before_deriving() {
+        let w = wrap_key("pw", &key()).unwrap();
+        // Each just over its ceiling: refused up front (Import), never derived
+        // and then failed (Crypto). Unbounded, u32::MAX asked for 4 TiB.
+        let tweaks: [fn(&mut KeyWrap); 4] = [
+            |w| w.m_cost = ARGON_M_MAX + 1,
+            |w| w.t_cost = ARGON_T_MAX + 1,
+            |w| w.p_cost = ARGON_P_MAX + 1,
+            |w| w.kdf = "scrypt".into(),
+        ];
+        for tweak in tweaks {
+            let mut bad = w.clone();
+            tweak(&mut bad);
+            assert!(matches!(unwrap_key("pw", &bad), Err(VaultError::Import(_))));
+        }
+        assert_eq!(unwrap_key("pw", &w).unwrap(), key());
+
+        // An import says what's wrong, not "wrong export passphrase".
+        let blob = sample_vault().export_encrypted("pw").unwrap();
+        let start = EXPORT_MAGIC.len() + 4;
+        let len = u32::from_le_bytes(blob[EXPORT_MAGIC.len()..start].try_into().unwrap());
+        let end = start + len as usize;
+        let mut header: KeyWrap = serde_json::from_slice(&blob[start..end]).unwrap();
+        header.m_cost = ARGON_M_MAX + 1;
+        let header = serde_json::to_vec(&header).unwrap();
+        let mut file = EXPORT_MAGIC.to_vec();
+        file.extend_from_slice(&(header.len() as u32).to_le_bytes());
+        file.extend_from_slice(&header);
+        file.extend_from_slice(&blob[end..]);
+        let err = Vault::new()
+            .import(&file, "x.fluxvault", Some("pw"))
+            .unwrap_err();
+        assert!(err.to_string().contains("key-derivation"), "{err}");
     }
 
     #[test]
