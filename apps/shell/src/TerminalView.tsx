@@ -341,11 +341,22 @@ const TerminalView: Component<{
         `Fix this failing shell command. Reply with ONLY the corrected command.\n\n${block}`,
       )
         .then((cmd) => {
-          if (cmd && cmd.trim()) {
+          const fix = cmd?.trim() ?? "";
+          // The model's input is terminal output, which untrusted text can steer.
+          // A CR or LF inside the reply is accept-line for readline/ZLE, so the
+          // shell would run it before the user saw it; ESC and other control
+          // bytes can drive the line editor. Only ever type one plain line.
+          const unsafe = [...fix].some((ch) => {
+            const c = ch.charCodeAt(0);
+            return c < 0x20 || (c >= 0x7f && c <= 0x9f);
+          });
+          if (fix && unsafe) {
+            flash("Suggested fix isn't a single plain line, so it wasn't typed");
+          } else if (fix) {
             // Ctrl-U clears the current line first, then type the fix (no Enter).
             void terminalWrite(
               props.session,
-              new TextEncoder().encode(String.fromCharCode(0x15) + cmd.trim()),
+              new TextEncoder().encode(String.fromCharCode(0x15) + fix),
             );
             flash("✓ Fix typed — review & press Enter");
           } else {

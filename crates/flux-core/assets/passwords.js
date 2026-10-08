@@ -7,12 +7,15 @@
 //   * REGISTRATION — autocomplete="new-password", two password fields in one
 //     form, or signup wording near the form → "✦ Strong password" chip. Click
 //     asks the Rust vault for a generated password (vault_suggest_password),
-//     fills every password field in the form, and arms a submit hook that
-//     saves {username, password} to the vault (vault_save_from_page).
+//     fills every password field in the form, and arms a submit hook that asks
+//     Rust to offer saving {username, password} (vault_save_from_page raises
+//     the chrome's "Save password?" bar; nothing is stored until the user
+//     confirms there).
 //   * LOGIN — a lone password field → ask vault_page_info; if the vault is
-//     unlocked and has a match for this host, show "🔑 Fill · user" which
-//     triggers vault_fill_page (Rust injects the credential; it never passes
-//     through this script).
+//     unlocked and has a match for this host, show "🔑 Fill saved login",
+//     which asks Rust (vault_fill_page) to raise the chrome's fill bar. The
+//     password is injected only when the user confirms there; it never passes
+//     through this script, and no username ever reaches this JS world.
 //
 // Security: top-level document only (no iframes — an embedded third party
 // must never see chips or trigger fills); Rust identifies the calling tab
@@ -172,38 +175,6 @@
     placeChip();
   }
 
-  // A vertical picker (same anchor/positioning as the chip) listing several
-  // matching credentials; `onPick(item)` fires with the chosen {id,username,name}.
-  function showMenu(anchor, items, onPick) {
-    removeChip();
-    chipAnchor = anchor;
-    chip = document.createElement("div");
-    chip.id = "__flux_pw_chip";
-    chip.style.cssText =
-      "position:fixed;z-index:2147483646;display:flex;flex-direction:column;gap:2px;" +
-      "padding:6px;border-radius:9px;font:12.5px system-ui,sans-serif;min-width:180px;max-width:280px;" +
-      "background:rgba(16,14,28,.97);color:#e8e6f4;border:1px solid rgba(47,243,255,.35);" +
-      "box-shadow:0 6px 24px rgba(0,0,0,.45);user-select:none;";
-    var head = document.createElement("div");
-    head.textContent = "🔑 Choose a login";
-    head.style.cssText = "opacity:.6;padding:2px 6px 4px;font-size:11.5px;";
-    chip.appendChild(head);
-    items.forEach(function (it) {
-      var row = document.createElement("div");
-      row.textContent = it.username || it.name || "saved login";
-      row.title = it.name || "";
-      row.style.cssText =
-        "padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
-      row.addEventListener("mouseenter", function () { row.style.background = "rgba(47,243,255,.14)"; });
-      row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-      row.addEventListener("click", function () { removeChip(); onPick(it); });
-      chip.appendChild(row);
-    });
-    chip.addEventListener("mousedown", function (e) { e.preventDefault(); }); // keep field focus
-    document.documentElement.appendChild(chip);
-    placeChip();
-  }
-
   addEventListener("scroll", placeChip, { passive: true, capture: true });
   addEventListener("resize", placeChip, { passive: true });
 
@@ -224,12 +195,13 @@
           }).catch(function () {});
         };
         if (form) {
-          // Save when the user actually signs up (username is filled by then).
+          // Offer the save when the user actually signs up (username is filled
+          // by then).
           form.addEventListener("submit", save, { once: true, capture: true });
-          showChip(pw, "✓", "Will be saved to your vault on sign-up", function () {});
+          showChip(pw, "✓", "Flux will offer to save this password when you sign up", function () {});
         } else {
-          save(); // no form to hook — save now; the entry is editable in the vault
-          showChip(pw, "✓", "Saved to your vault", function () {});
+          save(); // no form to hook — offer now; the entry is editable in the vault
+          showChip(pw, "✓", "Press Save in the Flux bar to keep this password", function () {});
         }
         setTimeout(removeChip, 4000);
       }).catch(function () {
@@ -240,8 +212,12 @@
     });
   }
 
-  // ── Login: one-click fill (picker when >1 credential matches) ───────────────
-  function fillFirst(pw) {
+  // ── Login: fill, confirmed in the chrome ────────────────────────────────────
+  // The click only asks. Any script on this page shares our JS world and could
+  // fake it, so Rust raises a fill bar in the Flux chrome (which the page can't
+  // reach), and the password is injected only when the user confirms there. The
+  // bar also lists the logins when several match.
+  function requestFill(pw) {
     handled.add(pw);
     removeChip();
     call("vault_fill_page").catch(function () {});
@@ -256,21 +232,8 @@
       if (dismissed) { reason("dismissed"); return; }
       if (pw.value) { reason("field-prefilled"); return; } // re-check: probe was async
       reason("offered");
-      var who = info.username || "saved login";
-      var extra = info.count > 1 ? " (+" + (info.count - 1) + ")" : "";
-      showChip(pw, "🔑", "Fill · " + who + extra, function () {
-        if (info.count <= 1) return fillFirst(pw);
-        // Several logins match this host — let the user choose which, rather
-        // than silently filling the first. Fall back to the first if the
-        // metadata fetch fails.
-        call("vault_page_matches").then(function (list) {
-          if (!list || list.length <= 1) return fillFirst(pw);
-          showMenu(pw, list, function (it) {
-            handled.add(pw);
-            call("vault_fill_page_id", { id: it.id }).catch(function () {});
-          });
-        }).catch(function () { fillFirst(pw); });
-      });
+      var label = info.count > 1 ? "Fill · " + info.count + " saved logins" : "Fill saved login";
+      showChip(pw, "🔑", label, function () { requestFill(pw); });
     }).catch(function () {});
   }
 

@@ -160,6 +160,9 @@ type FeedItem = {
   shellCmd?: string;
   editPath?: string;
   editNew?: string;
+  /** The exact disk text `editNew` was computed from. Apply refuses if the file
+   *  no longer matches it. Live only: dropped when the chat is persisted. */
+  editBase?: string;
   editDiff?: string;
   citations?: KbHit[];
   voice?: string;
@@ -206,7 +209,9 @@ const AgentPanel: Component = () => {
       id: currentId,
       title: titleOf(f),
       ts: Date.now(),
-      feed: f.map((it) => ({ ...it, pending: false })),
+      // `editBase` only matters while a card can still be applied; keeping it
+      // would double every edit card's share of the localStorage quota.
+      feed: f.map((it) => ({ ...it, pending: false, editBase: undefined })),
     };
     persistChats([session, ...chats().filter((s) => s.id !== currentId)].slice(0, 50));
   };
@@ -1334,8 +1339,18 @@ const AgentPanel: Component = () => {
     if (!path || !instruction.trim()) return "";
     setBusy(true);
     try {
-      const inCtx = ctxFiles().find((f) => f.path === path);
-      const content = inCtx ? inCtx.content : await agentReadTextFile(path);
+      // Apply overwrites the WHOLE file, so the base must be the file as it is on
+      // disk now: not the context copy (possibly stale, or an editor buffer or
+      // PDF text), and not a read the backend truncated or decoded lossily.
+      const content = await agentReadTextFile(path);
+      if (/\n…\(truncated; \d+ bytes total\)$/.test(content)) {
+        throw new Error(
+          `${path} is too large for the agent to edit safely: only its first 60,000 characters can be read.`,
+        );
+      }
+      if (content.includes("\uFFFD")) {
+        throw new Error(`${path} isn't valid UTF-8 text, so editing it here would corrupt it.`);
+      }
       const plan = await agentEditPlan(path, content, instruction.trim());
       if (!plan.edits.length) {
         setFeed((f) => [...f, { role: "assistant", text: `I couldn't make that edit: ${plan.summary}` }]);
@@ -1362,6 +1377,7 @@ const AgentPanel: Component = () => {
           text: `✏ ${path} — ${plan.summary}`,
           editPath: path,
           editNew: out,
+          editBase: content,
           editDiff: diff,
           pending: true,
         },
@@ -1375,9 +1391,15 @@ const AgentPanel: Component = () => {
       setBusy(false);
     }
   };
-  const approveEdit = async (idx: number, path: string, content: string) => {
+  const approveEdit = async (idx: number, path: string, content: string, base?: string) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
     try {
+      // The card may have waited a while: never overwrite changes made since.
+      if (base === undefined || (await agentReadTextFile(path)) !== base) {
+        throw new Error(
+          `${path} changed on disk after this edit was drafted, so nothing was written. Ask for the edit again.`,
+        );
+      }
       await agentWriteTextFile(path, content);
       setCtxFiles((c) => c.map((f) => (f.path === path ? { ...f, content } : f)));
       setFeed((f) => [...f, { role: "action", text: `✓ Wrote ${path.split(/[/\\]/).pop()}.` }]);
@@ -3388,7 +3410,7 @@ const AgentPanel: Component = () => {
                       <div class="agent-approve">
                         <button
                           class="agent-approve-yes"
-                          onClick={() => void approveEdit(i(), item.editPath!, item.editNew!)}
+                          onClick={() => void approveEdit(i(), item.editPath!, item.editNew!, item.editBase)}
                         >
                           ✓ Apply
                         </button>

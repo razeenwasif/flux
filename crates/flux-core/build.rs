@@ -29,8 +29,6 @@ fn main() {
                     "vault_fill_page",
                     "vault_suggest_password",
                     "vault_save_from_page",
-                    "vault_page_matches",
-                    "vault_fill_page_id",
                     "vault_offer_save",
                     "vault_probe_report",
                     "sentinel_input_focus",

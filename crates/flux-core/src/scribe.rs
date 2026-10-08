@@ -14,7 +14,7 @@
 //! becomes a `.md` holding an embedded PNG of the ink plus a text body — a
 //! searchable, KB-indexable mirror. Scribe stays the source of truth for ink.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -196,9 +196,25 @@ pub struct NotebookMeta {
     pub ts: u64,
 }
 
+/// How a page was written from outside the editor (the agent's `note_apply`,
+/// a folder-sync merge) after the editor loaded its notebook.
+#[derive(Clone, Copy, PartialEq)]
+enum Outside {
+    /// The editor never had this page.
+    Added,
+    /// The editor holds an older copy of this page.
+    Changed,
+}
+
 #[derive(Default)]
 pub struct ScribeStore {
     books: RwLock<HashMap<String, Notebook>>,
+    /// Per notebook: pages written from outside the editor since the editor
+    /// last loaded it. The editor autosaves the whole notebook it loaded and is
+    /// never told about those writes, so a page missing from (or older in) its
+    /// save is staleness, not a delete or a revert. Lock order: `books`, then
+    /// `unseen`.
+    unseen: RwLock<HashMap<String, HashMap<String, Outside>>>,
     dir: Option<PathBuf>,
     /// Monotonic tiebreaker so two notebooks created in the same millisecond
     /// still get distinct ids.
@@ -230,6 +246,7 @@ impl ScribeStore {
         }
         Self {
             books: RwLock::new(books),
+            unseen: RwLock::new(HashMap::new()),
             dir: Some(dir),
             seq: AtomicU64::new(0),
             generation: AtomicU64::new(0),
@@ -257,6 +274,50 @@ impl ScribeStore {
 
     pub fn load(&self, id: &str) -> Option<Notebook> {
         self.books.read().get(id).cloned()
+    }
+
+    /// The editor's load (`scribe_load`). From here on the editor holds every
+    /// page, so its saves speak for deletions again. The marks are cleared
+    /// under `books`, which outside writes also hold while marking, so each such
+    /// write is either in the copy returned here or marked after the clear.
+    pub fn load_for_editor(&self, id: &str) -> Option<Notebook> {
+        let books = self.books.read();
+        self.unseen.write().remove(id);
+        books.get(id).cloned()
+    }
+
+    /// A write from outside the editor (the agent's `note_apply`). Changes the
+    /// stored notebook in place under the lock, since a load-modify-save would put
+    /// back a copy missing any editor save in between. Marks the page `f` returns,
+    /// so an editor that loaded the notebook earlier neither tombstones that page
+    /// on its next autosave nor puts its older copy back.
+    pub fn update_outside_editor(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut Notebook) -> Result<String, String>,
+    ) -> Result<(), String> {
+        let nb = {
+            let mut books = self.books.write();
+            let nb = books.get_mut(id).ok_or("no such notebook")?;
+            let had: HashSet<String> = nb.pages.iter().map(|p| p.id.clone()).collect();
+            let page = f(nb)?;
+            let how = if had.contains(&page) {
+                Outside::Changed
+            } else {
+                Outside::Added
+            };
+            nb.ts = now_ms();
+            self.unseen
+                .write()
+                .entry(id.to_string())
+                .or_default()
+                .entry(page)
+                .or_insert(how);
+            nb.clone()
+        };
+        self.write(&nb);
+        self.touch();
+        Ok(())
     }
 
     /// Create an empty notebook with one blank page and persist it.
@@ -309,25 +370,48 @@ impl ScribeStore {
     pub fn save(&self, mut nb: Notebook) {
         nb.ts = now_ms();
         {
-            let books = self.books.read();
+            // One guard across working out the deletions and replacing the
+            // book, so a merge or an agent write can't land in between and be
+            // overwritten wholesale.
+            let mut books = self.books.write();
             if let Some(prev) = books.get(&nb.id) {
                 // The editor deletes a page by sending back a notebook without
                 // it — Rust never sees a "delete page" call. Work it out here,
                 // or a merge would read the gap as "the other device added a
                 // page" and put it straight back.
-                let present: std::collections::HashSet<&str> =
-                    nb.pages.iter().map(|p| p.id.as_str()).collect();
+                //
+                // Not for a page added from outside since the editor loaded (see
+                // `unseen`): it never had that page, so it can't have deleted it.
+                let unseen = self.unseen.read().get(&nb.id).cloned().unwrap_or_default();
+                let present: HashSet<&str> = nb.pages.iter().map(|p| p.id.as_str()).collect();
+                let mut kept = Vec::new();
                 for p in &prev.pages {
-                    if !present.contains(p.id.as_str()) {
+                    if present.contains(p.id.as_str()) {
+                        continue;
+                    }
+                    if unseen.get(&p.id) == Some(&Outside::Added) {
+                        kept.push(p.clone());
+                    } else {
                         nb.deleted_pages.insert(p.id.clone(), nb.ts);
+                    }
+                }
+                nb.pages.extend(kept);
+                // A page written from outside since then keeps that newer write
+                // unless the user has edited it after (e.g. an agent append to a
+                // page the editor shows but hasn't touched since).
+                for lp in nb.pages.iter_mut().filter(|p| unseen.contains_key(&p.id)) {
+                    if let Some(pp) = prev.pages.iter().find(|p| p.id == lp.id) {
+                        if pp.ts > lp.ts {
+                            *lp = pp.clone();
+                        }
                     }
                 }
                 for (k, v) in &prev.deleted_pages {
                     nb.deleted_pages.entry(k.clone()).or_insert(*v);
                 }
             }
+            books.insert(nb.id.clone(), nb.clone());
         }
-        self.books.write().insert(nb.id.clone(), nb.clone());
         self.write(&nb);
         self.touch();
     }
@@ -360,14 +444,19 @@ impl ScribeStore {
             }
         }
         // Pages: newer edit wins; a page only on one side is kept.
+        let mut arrived: Vec<(String, Outside)> = Vec::new();
         for rp in incoming.pages {
             match merged.pages.iter_mut().find(|p| p.id == rp.id) {
                 Some(lp) => {
                     if rp.ts > lp.ts {
+                        arrived.push((rp.id.clone(), Outside::Changed));
                         *lp = rp;
                     }
                 }
-                None => merged.pages.push(rp),
+                None => {
+                    arrived.push((rp.id.clone(), Outside::Added));
+                    merged.pages.push(rp);
+                }
             }
         }
         // A tombstone at least as new as the page removes it. `>=` so a
@@ -387,6 +476,13 @@ impl ScribeStore {
 
         let changed = serde_json::to_string(&merged).ok() != serde_json::to_string(&local).ok();
         if changed {
+            // An editor with this notebook open loaded it before these arrived.
+            let mut unseen = self.unseen.write();
+            let marks = unseen.entry(merged.id.clone()).or_default();
+            for (page, how) in arrived {
+                marks.entry(page).or_insert(how);
+            }
+            drop(unseen);
             books.insert(merged.id.clone(), merged);
             drop(books);
             self.touch();
@@ -642,7 +738,10 @@ pub fn scribe_list(store: State<'_, ScribeStore>) -> Vec<NotebookMeta> {
 
 #[tauri::command]
 pub fn scribe_load(store: State<'_, ScribeStore>, id: String) -> Result<Notebook, String> {
-    store.load(&id).ok_or_else(|| "notebook not found".to_string())
+    // Only the editor calls this; see `ScribeStore::unseen`.
+    store
+        .load_for_editor(&id)
+        .ok_or_else(|| "notebook not found".to_string())
 }
 
 #[tauri::command]
@@ -903,6 +1002,65 @@ mod tests {
             after.pages.iter().any(|p| p.id == "b"),
             "newer than the delete"
         );
+    }
+
+    #[test]
+    fn a_stale_editor_save_keeps_what_was_written_outside_it() {
+        // The editor autosaves the whole notebook it loaded. Pages the agent or
+        // another device wrote after that load are missing or older in it, which
+        // is staleness and must not become a tombstone or a revert.
+        let store = ScribeStore::default();
+        store.merge_notebook(nb("n1", 10, vec![pg("a", 10, "A"), pg("b", 10, "B")]));
+        let editor = store.load_for_editor("n1").unwrap();
+        store
+            .update_outside_editor("n1", |n| {
+                n.pages.push(pg("agent", 20, "new page"));
+                Ok("agent".into())
+            })
+            .unwrap();
+        store
+            .update_outside_editor("n1", |n| {
+                let a = n.pages.iter_mut().find(|p| p.id == "a").unwrap();
+                append_prose(a, "appended")?;
+                Ok("a".into())
+            })
+            .unwrap();
+        store.merge_notebook(nb("n1", 30, vec![pg("theirs", 30, "remote")]));
+
+        // The user edits page b and the editor autosaves its copy.
+        let mut edited = editor.clone();
+        edited.pages[1] = pg("b", now_ms(), "B edited");
+        store.save(edited);
+        let got = store.load("n1").unwrap();
+        for id in ["agent", "theirs"] {
+            assert!(got.pages.iter().any(|p| p.id == id), "{id} was deleted");
+            assert!(!got.deleted_pages.contains_key(id), "{id} was tombstoned");
+        }
+        let a = got.pages.iter().find(|p| p.id == "a").unwrap();
+        assert!(
+            page_text(&a.strokes).contains("appended"),
+            "the append was reverted"
+        );
+        let b = got.pages.iter().find(|p| p.id == "b").unwrap();
+        assert!(
+            b.strokes.contains("B edited"),
+            "the editor's own edit was lost"
+        );
+
+        // A page the editor did have is still deleted by leaving it out...
+        let mut without = editor;
+        without.pages.retain(|p| p.id != "b");
+        store.save(without);
+        assert!(store.load("n1").unwrap().deleted_pages.contains_key("b"));
+        // ...and once it reloads, so is one that was added outside.
+        let mut reloaded = store.load_for_editor("n1").unwrap();
+        reloaded.pages.retain(|p| p.id != "agent");
+        store.save(reloaded);
+        assert!(store
+            .load("n1")
+            .unwrap()
+            .deleted_pages
+            .contains_key("agent"));
     }
 
     #[test]

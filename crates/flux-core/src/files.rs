@@ -437,11 +437,25 @@ impl UndoOp {
                 Ok(format!("Reverted rename of {}", base_name(&from)))
             }
             UndoOp::Move { pairs } => {
+                // Refuse before anything moves, as `Rename` does: `rename` and
+                // `fs::copy` both replace an existing file, so a file created at
+                // an original location since the move would be destroyed.
+                if let Some((src, _)) = pairs
+                    .iter()
+                    .find(|(src, _)| std::fs::symlink_metadata(src).is_ok())
+                {
+                    return Err(format!("{} already exists", base_name(src)));
+                }
                 for (src, dst) in pairs.iter().rev() {
-                    if std::fs::rename(dst, src).is_err() {
-                        copy_recursive(Path::new(dst), Path::new(src))
-                            .map_err(|e| e.to_string())?;
-                        remove_path(Path::new(dst)).map_err(|e| e.to_string())?;
+                    match std::fs::rename(dst, src) {
+                        Ok(()) => {}
+                        // Only a cross-device move needs copy + delete.
+                        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+                            copy_recursive(Path::new(dst), Path::new(src))
+                                .map_err(|e| e.to_string())?;
+                            remove_path(Path::new(dst)).map_err(|e| e.to_string())?;
+                        }
+                        Err(e) => return Err(e.to_string()),
                     }
                 }
                 Ok(format!(
@@ -1436,9 +1450,8 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
             return Err("no file path given".into());
         }
         let raw: String = read_text_raw(p)?;
-        const CAP: usize = 60_000;
-        if raw.chars().count() > CAP {
-            let head: String = raw.chars().take(CAP).collect();
+        if raw.chars().count() > READ_TEXT_CAP {
+            let head: String = raw.chars().take(READ_TEXT_CAP).collect();
             Ok(format!("{head}\n…(truncated; {} bytes total)", raw.len()))
         } else {
             Ok(raw)
@@ -1453,6 +1466,34 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
 /// is that text is lossy-decoded and bytes aren't.
 fn read_text_raw(p: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&read_bytes_any(p)?).into_owned())
+}
+
+/// Most characters `read_text_file` hands the agent before truncating.
+pub(crate) const READ_TEXT_CAP: usize = 60_000;
+
+/// Refuse to overwrite a file the agent can only have seen part of. The edit
+/// flow writes `read_text_file`'s output back with the edits applied: past
+/// [`READ_TEXT_CAP`] that's the head plus a "…(truncated)" line, and for
+/// non-UTF-8 bytes it's a lossy U+FFFD copy. Either write destroys data.
+pub(crate) async fn ensure_fully_readable(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = match read_bytes_any(&path) {
+            Ok(b) => b,
+            Err(_) if !Path::new(&path).exists() => return Ok(()), // a new file
+            Err(e) => return Err(e),
+        };
+        let text = std::str::from_utf8(&bytes).map_err(|_| {
+            format!("{path} isn't valid UTF-8, so an edit would corrupt the bytes the agent couldn't read")
+        })?;
+        if text.chars().count() > READ_TEXT_CAP {
+            return Err(format!(
+                "{path} is longer than the {READ_TEXT_CAP} characters the agent can read, so it won't overwrite the rest"
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Write a text file (overwrites). WSL-aware on Windows for unix paths. Only called
@@ -1710,6 +1751,40 @@ mod stream_tests {
         let target = sub.join("base_copy");
         let res = copy_recursive(&base, &target);
         assert!(res.is_err(), "should reject copying directory into its descendant");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod undo_tests {
+    use super::*;
+
+    #[test]
+    fn undoing_a_move_never_overwrites_a_newer_file() {
+        let base = std::env::temp_dir().join(format!("flux_undo_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("dest")).unwrap();
+        let src = base.join("invoice.pdf");
+        let dst = base.join("dest").join("invoice.pdf");
+        std::fs::write(&dst, b"moved").unwrap();
+        // A new file appeared where the moved one came from.
+        std::fs::write(&src, b"newer").unwrap();
+
+        let op = UndoOp::Move {
+            pairs: vec![(clean(&src), clean(&dst))],
+        };
+        assert!(op.revert().is_err());
+        assert_eq!(std::fs::read(&src).unwrap(), b"newer");
+        assert_eq!(std::fs::read(&dst).unwrap(), b"moved");
+
+        // With the original location free, the undo moves it back.
+        std::fs::remove_file(&src).unwrap();
+        let op = UndoOp::Move {
+            pairs: vec![(clean(&src), clean(&dst))],
+        };
+        assert!(op.revert().is_ok());
+        assert_eq!(std::fs::read(&src).unwrap(), b"moved");
+        assert!(!dst.exists());
         let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -396,7 +396,11 @@ fn snippet(text: &str, toks: &[&str]) -> String {
     if text.is_empty() {
         return String::new();
     }
-    let lower = text.to_lowercase();
+    // ASCII lowercasing keeps every byte offset identical to `text`. Unicode
+    // `to_lowercase` does not (Kelvin `K` is 3 bytes, `k` is 1; `İ` grows to 3),
+    // so an offset found in it could land mid-character or past the end of
+    // `text` and the slices below would panic, aborting the browser.
+    let lower = text.to_ascii_lowercase();
     match toks.iter().filter_map(|t| lower.find(t)).min() {
         Some(p) => {
             let start = text[..p]
@@ -730,4 +734,17 @@ pub async fn agent_run_action(
     *state.agent.write() = AgentStatus::Idle;
     let _ = app.emit("flux://agent-status", state.agent.read().clone());
     Ok(action)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::snippet;
+
+    #[test]
+    fn snippet_survives_case_folds_that_change_byte_length() {
+        // Unicode lowercasing shrinks the Kelvin sign and grows Turkish `İ`, which
+        // used to move the match offset off a char boundary or past the end.
+        assert!(snippet("\u{212A}\u{212A}\u{212A} rust", &["rust"]).contains("rust"));
+        assert!(snippet("İİİİİİİİ ç ş hava ü", &["hava"]).contains("hava"));
+    }
 }

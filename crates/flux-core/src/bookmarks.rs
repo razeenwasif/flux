@@ -131,9 +131,11 @@ impl BookmarkStore {
         remote_tombs: &crate::tombstone::Tombstones,
     ) -> usize {
         use crate::tombstone::{merge_into, suppressed};
+        // Lock order is items -> tombstones, as in every mutation and save().
+        // Taking tombstones first here deadlocked auto-sync against the UI thread.
+        let mut items = self.items.write();
         let mut tombs = self.tombstones.write();
         merge_into(&mut tombs, remote_tombs);
-        let mut items = self.items.write();
         // Apply tombstones to local items (a remote delete propagates here).
         items.retain(|b| !suppressed(&tombs, &bm_key(&b.url, &b.folder), b.added_ms));
         let mut added = 0;

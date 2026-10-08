@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
+use crate::dom::utf8_prefix;
 use crate::embedding;
 use crate::state::{FluxState, TabId};
 
@@ -86,11 +87,9 @@ fn rank(query: &str, docs: Vec<Doc>, limit: usize) -> Result<Vec<FindHit>, Strin
     let mut owner: Vec<usize> = Vec::new();
     let mut texts: Vec<String> = Vec::new();
     for (di, d) in docs.iter().enumerate() {
-        let body = if d.text.len() > MAX_TEXT {
-            &d.text[..MAX_TEXT]
-        } else {
-            &d.text
-        };
+        // MAX_TEXT is a byte budget; a plain `[..MAX_TEXT]` panics when that
+        // byte lands mid-character in the page's text.
+        let body = utf8_prefix(&d.text, MAX_TEXT);
         for p in passages(body, MAX_PASSAGES_PER_TAB) {
             owner.push(di);
             texts.push(p);
@@ -236,5 +235,19 @@ mod tests {
             "got: {}",
             hits[0].passage
         );
+    }
+
+    #[test]
+    fn rank_caps_long_multibyte_text_on_a_char_boundary() {
+        // 79_999 ASCII bytes, then a 3-byte char across byte MAX_TEXT.
+        let text = format!("{}a日本語 tail", "a ".repeat(39_999));
+        assert!(!text.is_char_boundary(MAX_TEXT));
+        let docs = vec![Doc {
+            tab_id: 1,
+            title: "t".into(),
+            url: "u".into(),
+            text,
+        }];
+        assert!(rank("tail", docs, 5).is_ok());
     }
 }

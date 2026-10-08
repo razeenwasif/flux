@@ -7,6 +7,26 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Security
+- Saved passwords are filled into a page only after you confirm in a Flux bar above it. A page's own scripts could previously trigger the fill and read the password back, and could read the usernames saved for the site; pages now see only how many logins match. Pages also can no longer write to the vault: a generated sign-up password now waits in the "Save password?" bar like any other.
+- Imported app logins (`android://`, `androidapp://` and `iosapp://` URLs from Chrome or Bitwarden exports) no longer match websites whose domain resembles the app's package name.
+- Tabs, web panels, peeks and installed web apps can no longer load Flux's own app origin, which has access to every Flux command.
+- Pages can no longer trigger Flux shortcuts without a key press, or from a background tab or closed panel. Only the chords the in-page shortcut forwarder produces are accepted.
+- Extensions with the `tabs` permission can open and navigate tabs only to http(s) URLs, not `javascript:`, `file:` or `flux:` ones.
+- The terminal's "Fix" button no longer types a suggestion containing a line break or control characters, which the shell would have run before you could review it.
+
+### Fixed
+- Non-English text could crash Flux in semantic find, omnibox snippets, page watching, mail subjects and senders, tab hibernation, and when pasting a Gemini API key. Each cut text at a byte offset inside a character.
+- Auto-sync could freeze the browser when it merged bookmarks, sessions, to-dos or calendars while you were editing them. Installing or opening a web app no longer hangs Windows builds, and pasting into a terminal whose program isn't reading input no longer freezes the browser.
+- Unlocking the vault no longer opens an empty vault, which the next save would write over the real one, when the vault file can't be read. Changing or removing the master password now writes the key files atomically and in a safe order, keeps the password-protected key if no other copy could be stored, and "Change password" asks you to confirm the new password.
+- On Android, the vault and Trail keys are kept in a key file in app storage instead of keyring's in-memory stand-in, which lost them on exit. Saving an API key or mail password there now reports that it can't be stored instead of silently losing it.
+- Trail, chat, draft, snapshot and Sentinel audit files that can't be read or decrypted are left untouched, or moved aside if corrupt, instead of being replaced with an empty store.
+- An open Scribe notebook's autosave no longer deletes pages the agent or folder sync added, or reverts text the agent appended. Deleting, moving or duplicating a page no longer makes your next edit overwrite a different page.
+- The agent's file edits now start from the file as it is on disk, refuse files longer than it can read (60,000 characters) or that aren't UTF-8, and won't overwrite a file that changed after the edit was drafted.
+- Undoing a file move no longer overwrites a file that has since been created at the original location.
+- A page with a NUL character in its title no longer stops terminals from starting while it's the active tab.
+- A page could hang the browser with a URL built to make research-entity extraction quadratic.
+
 ### Fixed
 - The Browse and Research layout presets no longer switch off the ambient connections rail (and its system monitor). Applying either preset had turned the rail off and persisted that, so it stayed hidden afterwards. Develop still gives the width to the editor and terminal.
 

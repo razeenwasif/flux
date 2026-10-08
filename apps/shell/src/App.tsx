@@ -70,10 +70,12 @@ import {
   onPermissionAsk,
   onVaultSaved,
   onVaultSavePrompt,
+  onVaultFillRequest,
   onSentinelInputWarning,
   onFindResult,
   onFullscreenChanged,
   onShortcut,
+  onPageShortcut,
   onOpenUrl,
   onTabLoaded,
   onTabTitle,
@@ -216,6 +218,7 @@ import {
   activePanel,
   activePanelId,
   activePanelIdB,
+  tilePanes,
   setActivePanelId,
   setActivePanelIdB,
   calendarPopOpen,
@@ -227,6 +230,7 @@ import {
   pageOverlayActive,
   pushPermAsk,
   setSavePrompt,
+  setFillRequest,
   wsPanelOpen,
 } from "./store";
 import { createWebviewTiling } from "./tiling";
@@ -513,6 +517,9 @@ const App: Component = () => {
     );
     // Sentinel captured a manually-typed login (#61) — raise the save bar.
     holdListener(onVaultSavePrompt(setSavePrompt));
+    // A page's fill chip asked to autofill. Confirm in the chrome first: any
+    // script on the page can fake the in-page click.
+    holdListener(onVaultFillRequest(setFillRequest));
     // A password field took focus on an impersonating site (ADR 0013, Pillar 1).
     // Raise the existing chrome-layer phishing banner — it already names the
     // brand and offers a safe exit — but now BEFORE the first keystroke. This
@@ -612,6 +619,20 @@ const App: Component = () => {
     });
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
     holdListener(onShortcut((a) => dispatch(a)));
+    // Chords forwarded by a page's shortcuts.js. Any page can call chrome_key
+    // with no keypress, so only honour a surface the user can be typing in: the
+    // active tab, a pane of its split, or an open web panel.
+    holdListener(
+      onPageShortcut((source, action) => {
+        const [kind, raw] = source.split("-");
+        const id = Number(raw);
+        const visible =
+          kind === "tab"
+            ? id === activeId() || !!tilePanes()?.some((t) => t.id === id)
+            : kind === "panel" && (id === activePanelId() || id === activePanelIdB());
+        if (visible) dispatch(action);
+      }),
+    );
     // A page left HTML5 fullscreen (video): wry restored the webview to fill the
     // window, covering the chrome. Re-tile to put it back in the content card —
     // twice, since wry's restore can land just after the event fires.

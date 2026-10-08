@@ -63,11 +63,14 @@ pub const PANE_SESSION: u64 = 0;
 /// jump, copy-last-output). Re-sources the user's own startup files first.
 const BASH_INTEGRATION: &str = include_str!("../assets/shell-integration.bash");
 
-/// One live PTY. Every field is behind a `Mutex` so `Session` is `Sync` and
-/// can live in the shared map (the PTY handles themselves are `Send`-only).
+/// One live PTY. Every field is `Sync` (the PTY handles behind a `Mutex`) so
+/// `Session` can live in the shared map (the PTY handles themselves are `Send`-only).
 struct Session {
     master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    /// The PTY's stdin, drained by a per-session writer thread. When the
+    /// foreground program isn't reading, a full input queue blocks that thread
+    /// rather than the main thread `terminal_write` runs on.
+    input: std::sync::mpsc::Sender<Vec<u8>>,
     child: Mutex<Box<dyn Child + Send>>,
     /// Resolved when the session was spawned, so a close tears down exactly what
     /// that session created — re-reading the setting could disagree with it.
@@ -223,10 +226,15 @@ pub fn terminal_spawn(
     let mut cwd: Option<String> = None;
     if let Some(id) = state.active_tab() {
         if let Some(tab) = state.tabs.get(&id) {
+            // The page controls these (document.title, dom_publish). A NUL in an
+            // env value makes every spawn fail ("nul byte found in provided
+            // data") while that page is the active tab, so strip it.
+            let url = tab.url.replace('\0', "");
+            let title = tab.title.replace('\0', "");
             cmd.env("FLUX_TAB_ID", id.to_string());
-            cmd.env("FLUX_TAB_URL", &tab.url);
-            cmd.env("FLUX_TAB_TITLE", &tab.title);
-            if let Some(host) = tab.url.split('/').nth(2) {
+            cmd.env("FLUX_TAB_URL", &url);
+            cmd.env("FLUX_TAB_TITLE", &title);
+            if let Some(host) = url.split('/').nth(2) {
                 let dir = format!("{}/flux/{host}", downloads_dir());
                 cmd.env("FLUX_TAB_DIR", &dir);
             }
@@ -281,16 +289,33 @@ pub fn terminal_spawn(
         .master
         .try_clone_reader()
         .map_err(|e| format!("reader: {e}"))?;
-    let writer = pair
+    let mut writer = pair
         .master
         .take_writer()
         .map_err(|e| format!("writer: {e}"))?;
+    let (input, input_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::Builder::new()
+        .name(format!("flux-pty-writer-{session}"))
+        .spawn(move || {
+            // One queue and one consumer keep keystrokes in order. Ends when the
+            // session (the only Sender) is dropped, or the PTY is gone.
+            for chunk in input_rx {
+                if writer
+                    .write_all(&chunk)
+                    .and_then(|()| writer.flush())
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .map_err(|e| format!("pty writer thread: {e}"))?;
 
     manager.sessions.lock().insert(
         session,
         Arc::new(Session {
             master: Mutex::new(pair.master),
-            writer: Mutex::new(writer),
+            input,
             child: Mutex::new(child),
             mode,
         }),
@@ -348,9 +373,12 @@ pub fn terminal_write(
         let sessions = manager.sessions.lock();
         sessions.get(&session).cloned().ok_or("no such terminal session")?
     };
-    let mut w = s.writer.lock();
-    w.write_all(&data).map_err(|e| e.to_string())?;
-    w.flush().map_err(|e| e.to_string())
+    // Never block here: this sync command runs on the main thread, and a write
+    // to a PTY whose program isn't reading stdin (a paste into `tail -f`) blocks
+    // until it reads, which froze the whole browser.
+    s.input
+        .send(data)
+        .map_err(|_| "terminal session has exited".to_string())
 }
 
 /// Resize the PTY (fit-addon / window resize on the frontend).

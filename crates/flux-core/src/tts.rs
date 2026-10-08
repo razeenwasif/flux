@@ -293,6 +293,9 @@ fn is_plausible_el_key(token: &str) -> bool {
 /// Store (or, with an empty string, clear) the ElevenLabs API key in the keyring.
 #[tauri::command]
 pub fn elevenlabs_set_key(key: String) -> Result<(), String> {
+    if !crate::vault::HAS_OS_KEYCHAIN {
+        return Err("no OS keychain on this platform, so the key can't be saved".into());
+    }
     let entry = keyring::Entry::new(EL_SERVICE, EL_ACCOUNT).map_err(|e| e.to_string())?;
     let key = normalize_el_key(&key);
     if key.is_empty() {
@@ -638,6 +641,9 @@ fn parse_fish_voice_ref(input: &str) -> String {
 /// Store (or, with an empty string, clear) the Fish Audio API key in the keyring.
 #[tauri::command]
 pub fn fishaudio_set_key(key: String) -> Result<(), String> {
+    if !crate::vault::HAS_OS_KEYCHAIN {
+        return Err("no OS keychain on this platform, so the key can't be saved".into());
+    }
     let entry = keyring::Entry::new(FISH_SERVICE, EL_ACCOUNT).map_err(|e| e.to_string())?;
     let key = normalize_el_key(&key);
     let _ = entry.delete_credential();

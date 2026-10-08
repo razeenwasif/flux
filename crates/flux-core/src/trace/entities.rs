@@ -8,6 +8,9 @@ use super::store::{Entity, EntityKind};
 
 /// Cap per visit so a references page can't spray hundreds of entities.
 const MAX_ENTITIES: usize = 12;
+/// Longest DOI suffix accepted (real ones are far shorter). Bounds the scan on
+/// a page-controlled URL, which reaches here on the main thread.
+const MAX_DOI_SUFFIX: usize = 256;
 
 /// Extract entities from a page. `url` matches are marked `primary` (the page
 /// *is* the thing); `text` matches are mentions. Primaries win dedup and sort
@@ -28,6 +31,12 @@ fn push_entity(out: &mut Vec<Entity>, kind: EntityKind, value: String, primary: 
     }
     if let Some(e) = out.iter_mut().find(|e| e.kind == kind && e.value == value) {
         e.primary |= primary; // primary wins on dedup
+        return;
+    }
+    // Past the cap, `extract_entities` truncates everything anyway (URL primaries
+    // are scanned first), so stop growing: the dedup scan above stays O(cap)
+    // rather than O(n²) over a URL stuffed with distinct ids.
+    if out.len() >= MAX_ENTITIES {
         return;
     }
     out.push(Entity {
@@ -148,7 +157,7 @@ fn scan_doi(hay: &str, i: usize) -> Option<(String, usize)> {
     }
     j += 1;
     let suf_start = j;
-    while j < n {
+    while j < n && j - suf_start <= MAX_DOI_SUFFIX {
         let c = b[j];
         let ok = c.is_ascii_alphanumeric()
             || matches!(
@@ -160,6 +169,14 @@ fn scan_doi(hay: &str, i: usize) -> Option<(String, usize)> {
         }
         j += 1;
     }
+    if j - suf_start > MAX_DOI_SUFFIX {
+        return None;
+    }
+    // Paren balance, tracked as ')' is trimmed. Recounting the suffix for every
+    // trimmed ')' was O(n²) on a run of closing parens, and only ')' is ever
+    // trimmed, so these counts match the old recount at each step.
+    let opens = b[suf_start..j].iter().filter(|&&c| c == b'(').count();
+    let mut closes = b[suf_start..j].iter().filter(|&&c| c == b')').count();
     // Trim trailing punctuation that's almost certainly sentence/markup, not DOI.
     let mut end = j;
     loop {
@@ -167,12 +184,11 @@ fn scan_doi(hay: &str, i: usize) -> Option<(String, usize)> {
             break;
         }
         let c = b[end - 1];
-        let trim = matches!(c, b'.' | b',' | b';' | b':')
-            || (c == b')' && {
-                let suffix = &hay[suf_start..end];
-                suffix.matches('(').count() < suffix.matches(')').count()
-            });
+        let trim = matches!(c, b'.' | b',' | b';' | b':') || (c == b')' && opens < closes);
         if trim {
+            if c == b')' {
+                closes -= 1;
+            }
             end -= 1;
         } else {
             break;
@@ -255,6 +271,28 @@ fn scan_owner_name(hay: &str, i: usize) -> Option<(String, usize)> {
 mod tests {
     use super::super::store::{EdgeKind, ForgetScope, TraceStore};
     use super::*;
+
+    #[test]
+    fn hostile_urls_extract_in_linear_time() {
+        // A run of ')' after a DOI used to be trimmed with a full recount per
+        // paren (O(n²)), and thousands of distinct ids made dedup O(n²), all on
+        // the main thread inside the trace write lock.
+        let parens = format!("https://x.com/?10.1234/x{}", ")".repeat(200_000));
+        let many: String = (0..100_000).map(|i| format!("10.1234/a{i}&")).collect();
+        let start = std::time::Instant::now();
+        let _ = extract_entities(&parens, "");
+        let e = extract_entities(&format!("https://x.com/?{many}"), "");
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "took {:?}",
+            start.elapsed()
+        );
+        assert_eq!(e.len(), MAX_ENTITIES);
+        // Balanced parens inside a real DOI are kept; a trailing stray one isn't.
+        let e = extract_entities("", "doi 10.1016/s0140-6736(20)30183-5).");
+        assert!(e.iter().any(|x| x.value == "10.1016/s0140-6736(20)30183-5"));
+    }
+
     #[test]
     fn extracts_and_normalizes_entities() {
         // arXiv: URL is primary, version stripped; text mention is not primary.

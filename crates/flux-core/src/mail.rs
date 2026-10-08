@@ -131,11 +131,22 @@ fn decode_q(s: &str) -> Vec<u8> {
                 i += 1;
             }
             b'=' if i + 2 < b.len() => {
-                match u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                    Ok(v) => out.push(v),
-                    Err(_) => out.push(b'='),
+                // Decode the bytes rather than slicing `s`: the two bytes after
+                // '=' can sit inside a multi-byte char ("=a€"), and a str slice
+                // there panics, which aborts Flux on a hostile subject line.
+                let hex = |c: u8| (c as char).to_digit(16);
+                match (hex(b[i + 1]), hex(b[i + 2])) {
+                    (Some(h), Some(l)) => {
+                        out.push((h * 16 + l) as u8);
+                        i += 3;
+                    }
+                    // Not an escape: keep the '=' and rescan what follows rather
+                    // than dropping two bytes of real text.
+                    _ => {
+                        out.push(b'=');
+                        i += 1;
+                    }
                 }
-                i += 3;
             }
             c => {
                 out.push(c);
@@ -206,6 +217,9 @@ pub async fn mail_connect(
     email: String,
     password: String,
 ) -> Result<(), String> {
+    if !crate::vault::HAS_OS_KEYCHAIN {
+        return Err("no OS keychain on this platform, so the app password can't be saved".into());
+    }
     let cfg = MailConfig {
         host: host.trim().to_string(),
         port,
@@ -379,6 +393,17 @@ mod tests {
         assert_eq!(decode_words(exotic), exotic);
         // Malformed input must not panic or truncate the rest.
         assert_eq!(decode_words("=?UTF-8?B?broken"), "=?UTF-8?B?broken");
+    }
+
+    #[test]
+    fn q_decoding_survives_multibyte_text_after_an_equals_sign() {
+        // Raw 8-bit text inside a Q-word used to be sliced mid-character, which
+        // panicked (and aborted Flux) on every mail refresh.
+        assert_eq!(decode_q("x=€"), "x=€".as_bytes());
+        assert_eq!(decode_q("=日x"), "=日x".as_bytes());
+        // A non-hex escape keeps the text after it instead of dropping 2 bytes.
+        assert_eq!(decode_q("a=zzb"), b"a=zzb");
+        assert_eq!(decode_q("caf=C3=A9"), "café".as_bytes());
     }
 
     #[test]

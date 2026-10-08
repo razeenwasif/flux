@@ -39,6 +39,9 @@ fn open_peek(app: &AppHandle, url: &str) -> Result<(), String> {
         return Err("can only peek web pages".into());
     }
     let parsed: tauri::Url = url.parse().map_err(|_| format!("invalid URL: {url}"))?;
+    if crate::webview::is_app_origin(&parsed) {
+        return Err("can only peek web pages".into()); // e.g. http://tauri.localhost
+    }
     let n = PEEK_SEQ.fetch_add(1, Ordering::Relaxed);
     let label = format!("peek-{n}");
     // Cosmetic element-hiding (#57): inject the per-page shields CSS so a blocked
@@ -52,6 +55,7 @@ fn open_peek(app: &AppHandle, url: &str) -> Result<(), String> {
         .center()
         .always_on_top(true)
         .initialization_script(PEEK_JS)
+        .on_navigation(|u| !crate::webview::is_app_origin(u))
         .on_page_load(move |webview, payload| {
             let css = app_for_load
                 .try_state::<crate::shields::ShieldsState>()
@@ -110,6 +114,11 @@ pub async fn chrome_peek_url(app: AppHandle, url: String) -> Result<(), String> 
 pub fn peek_promote(app: AppHandle, window: Window, url: String) -> Result<(), String> {
     if !is_peek(&window) {
         return Err("not a peek window".into());
+    }
+    // `url` comes from the page and becomes a new tab via flux://open-url.
+    match url.parse::<tauri::Url>() {
+        Ok(u) if matches!(u.scheme(), "http" | "https") && !crate::webview::is_app_origin(&u) => {}
+        _ => return Err("can only promote web pages".into()),
     }
     app.emit("flux://open-url", (url, false))
         .map_err(|e| e.to_string())?;

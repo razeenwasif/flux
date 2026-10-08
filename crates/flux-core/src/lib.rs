@@ -1104,8 +1104,6 @@ pub fn run(intent: cli::LaunchIntent) {
                     vault::vault_fill_page,
                     vault::vault_suggest_password,
                     vault::vault_save_from_page,
-                    vault::vault_page_matches,
-                    vault::vault_fill_page_id,
                     vault::vault_offer_save,
                     vault::vault_probe_report,
                     sentinel::sentinel_input_focus,

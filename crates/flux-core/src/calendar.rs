@@ -136,9 +136,11 @@ impl CalStore {
         remote_tombs: &crate::tombstone::Tombstones,
     ) -> usize {
         use crate::tombstone::{merge_into, suppressed};
+        // Lock order is feeds -> tombstones, as in every mutation and save().
+        // Taking tombstones first here deadlocked auto-sync against the UI thread.
+        let mut feeds = self.feeds.write();
         let mut tombs = self.tombstones.write();
         merge_into(&mut tombs, remote_tombs);
-        let mut feeds = self.feeds.write();
         // A feed has no timestamp of its own; subscriptions are effectively
         // timeless, so any tombstone for the URL removes it.
         feeds.retain(|f| !suppressed(&tombs, &f.url, u64::MAX));
@@ -252,9 +254,11 @@ impl LocalEventStore {
         remote_tombs: &crate::tombstone::Tombstones,
     ) -> usize {
         use crate::tombstone::{merge_into, suppressed};
+        // Lock order is items -> tombstones, as in every mutation and save().
+        // Taking tombstones first here deadlocked auto-sync against the UI thread.
+        let mut items = self.items.write();
         let mut tombs = self.tombstones.write();
         merge_into(&mut tombs, remote_tombs);
-        let mut items = self.items.write();
         items.retain(|e| !suppressed(&tombs, &event_key(e), u64::MAX));
         let mut added = 0;
         for r in remote {

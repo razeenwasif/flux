@@ -27,7 +27,12 @@ const ACCOUNT: &str = "api-key";
 fn normalize(raw: &str) -> String {
     let mut k = raw.trim();
     for p in ["x-goog-api-key:", "api-key:", "api_key=", "key=", "key:"] {
-        if k.len() >= p.len() && k[..p.len()].eq_ignore_ascii_case(p) {
+        // `get`, not `k[..p.len()]`: a paste with a multi-byte char across that
+        // byte (a masked "••••" value, curly quotes) made the slice panic, which
+        // aborts the browser.
+        if k.get(..p.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(p))
+        {
             k = k[p.len()..].trim();
         }
     }
@@ -62,6 +67,9 @@ fn stored_key() -> Option<String> {
 /// session's escalation — see `RoutingBackend::set_cloud`.
 #[tauri::command]
 pub fn gemini_set_key(key: String) -> Result<(), String> {
+    if !crate::vault::HAS_OS_KEYCHAIN {
+        return Err("no OS keychain on this platform, so the key can't be saved".into());
+    }
     let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
     let key = normalize(&key);
     if key.is_empty() {
@@ -196,6 +204,19 @@ mod tests {
             "",
             "blank stays blank so it reads as a clear"
         );
+    }
+
+    #[test]
+    fn normalize_does_not_panic_on_multibyte_pastes() {
+        // Byte 4, 8 or 15 falls inside a multi-byte char in each of these.
+        for raw in [
+            "••••••••••••••••",
+            "APIキー: AIzaTESTKEY",
+            "“AIzaTESTKEY”",
+            "AIzaSyB…Xyz4",
+        ] {
+            let _ = normalize(raw);
+        }
     }
 
     #[test]

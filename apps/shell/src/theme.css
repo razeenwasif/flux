@@ -3195,6 +3195,21 @@ body.resizing .panel-edge-resize::after {
 .perm-btn.dismiss:hover {
   color: var(--flux-text);
 }
+/* Inert until armed (see VaultFillBar): a page can't time a bar under a click. */
+.perm-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.perm-select {
+  flex: none;
+  max-width: 240px;
+  padding: 3px 6px;
+  border-radius: 7px;
+  border: 1px solid var(--glass-rim-soft);
+  background: var(--flux-surface-2);
+  color: var(--flux-text);
+  font-size: 12px;
+}
 
 /* ── Launcher column (#149) ───────────────────────────────────────────────────
    Flux pages over terminal apps, vertical, left of the calendar/mail column.

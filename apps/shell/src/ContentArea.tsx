@@ -6,6 +6,7 @@
 import ClockAlarm from "./ClockAlarm";
 import PermissionBar from "./PermissionBar";
 import SavePasswordBar from "./SavePasswordBar";
+import VaultFillBar from "./VaultFillBar";
 import {
   APPS_URL,
   ARCHIVE_URL,
@@ -235,6 +236,7 @@ const ContentArea: Component<{
         sibling — never an overlay over the native webview. */}
       <PermissionBar />
       <SavePasswordBar />
+      <VaultFillBar />
       <ClockAlarm />
       {/* Sentinel phishing warning (ADR 0013) — a sibling strip above the card,
           in the chrome layer the page can't spoof. */}

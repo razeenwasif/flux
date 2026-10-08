@@ -133,6 +133,7 @@ import type {
   VaultStatus as GenVaultStatus,
   VaultDiag as GenVaultDiag,
   VaultSavePrompt as GenVaultSavePrompt,
+  VaultFillRequest as GenVaultFillRequest,
   WebPanel as GenWebPanel,
   Workspace as GenWorkspace,
   LaunchIntent as GenLaunchIntent,
@@ -243,6 +244,7 @@ export type SitePerm = GenSitePerm;
 export type CredentialMeta = GenCredentialMeta;
 export type VaultStatus = GenVaultStatus;
 export type VaultSavePrompt = GenVaultSavePrompt;
+export type VaultFillRequest = GenVaultFillRequest;
 export type ExtContentScript = GenContentScript;
 export type ExtManifest = GenManifest;
 export type InstalledExt = GenInstalledExt;
@@ -651,6 +653,11 @@ export const onExtOpenTab = (cb: (url: string) => void): Promise<UnlistenFn> =>
 /** An app keyboard chord forwarded from a focused tab webview (BACKLOG #18). */
 export const onShortcut = (cb: (action: string) => void): Promise<UnlistenFn> =>
   listen<string>("flux://shortcut", (e) => cb(e.payload));
+/** A chord a page's shortcuts.js forwarded via `chrome_key`, tagged with the
+ *  calling webview's label (`tab-N` / `panel-N`) so the chrome can ignore
+ *  background tabs and closed panels. */
+export const onPageShortcut = (cb: (source: string, action: string) => void): Promise<UnlistenFn> =>
+  listen<[string, string]>("flux://page-shortcut", (e) => cb(e.payload[0], e.payload[1]));
 
 /** A page webview left HTML5 fullscreen — re-tile so it stops covering the chrome. */
 export const onFullscreenChanged = (cb: (fullscreen: boolean) => void): Promise<UnlistenFn> =>
@@ -1054,6 +1061,10 @@ export const onVaultSaved = (cb: (host: string) => void): Promise<UnlistenFn> =>
 /** Fires when the page sentinel captures a manually-typed login worth saving. */
 export const onVaultSavePrompt = (cb: (p: VaultSavePrompt) => void): Promise<UnlistenFn> =>
   listen<VaultSavePrompt>("flux://vault-save-prompt", (e) => cb(e.payload));
+/** A page's fill chip asked to autofill. Metadata only: the password is injected
+ *  by `vaultFill` once the user confirms in the chrome's fill bar. */
+export const onVaultFillRequest = (cb: (r: VaultFillRequest) => void): Promise<UnlistenFn> =>
+  listen<VaultFillRequest>("flux://vault-fill-request", (e) => cb(e.payload));
 /** Fires when a password field takes focus on a site that impersonates a brand
  *  you value (ADR 0013, Pillar 1) — the earliest possible warning, before the
  *  first keystroke. Payload: [tabId, host, verdict]. */

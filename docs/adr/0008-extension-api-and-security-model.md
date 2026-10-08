@@ -106,7 +106,7 @@ per call by the broker. Initial set:
 |---|---|
 | `dom:read` | read the content script's own page DOM via `flux.dom` |
 | `dom:write` | mutate it |
-| `tabs` | `flux.tabs` query/open/navigate |
+| `tabs` | `flux.tabs` query/open/navigate (http/https URLs only: `javascript:` would be script, the `dom:write` grant) |
 | `storage` | `flux.storage` — a per-extension KV namespace |
 | `ui:panel` | contribute a side panel |
 | `ui:toolbar` | a toolbar button |

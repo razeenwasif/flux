@@ -61,10 +61,8 @@ impl SentinelAudit {
             return;
         }
         let Some(path) = &self.path else { return };
-        let Some((json, was_plaintext)) = crate::trace::sealed::load_string(path) else {
-            return;
-        };
-        let Ok(loaded) = serde_json::from_str::<AuditData>(&json) else {
+        let Some((loaded, was_plaintext)) = crate::trace::sealed::load_json::<AuditData>(path)
+        else {
             return;
         };
         if was_plaintext {

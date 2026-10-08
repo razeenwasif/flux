@@ -194,10 +194,7 @@ impl TraceStore {
     pub fn hydrate(&self) {
         self.initialized.call_once(|| {
             let Some(path) = &self.path else { return };
-            let Some((json, was_plaintext)) = super::sealed::load_string(path) else {
-                return;
-            };
-            let Some(loaded) = serde_json::from_str::<TraceData>(&json).ok() else {
+            let Some((loaded, was_plaintext)) = super::sealed::load_json::<TraceData>(path) else {
                 return;
             };
             if was_plaintext {

@@ -52,6 +52,13 @@ default (E2E sync is a separate item, #62).
   document (never blindly into cross-origin iframes — anti-clickjacking).
 - Fill on **explicit user action** (click an affordance / pick an entry), never
   silent auto-submit.
+- The user action is a click in the **chrome**, not the page. The in-page chip,
+  `passwords.js` and the IPC bridge share one JS world with every script the
+  page loads, so a click there proves nothing: `vault_fill_page` only raises a
+  "Fill password?" bar (which picks among several matching logins), and the
+  password is injected once the user confirms there. Page-callable commands
+  return no usernames, and a page can't write the vault either:
+  `vault_save_from_page` stages the save behind the "Save password?" bar.
 - Implemented over the same JS-injection path Flux already uses (`eval` into the
   tab webview), gated like other privileged surfaces.
 

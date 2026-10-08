@@ -289,6 +289,7 @@ pub async fn agent_write_text_file(
 ) -> Result<(), String> {
     store.check(&path)?;
     let target = resolve(&path).to_string_lossy().into_owned();
+    crate::files::ensure_fully_readable(target.clone()).await?;
     crate::files::write_text_file(target, content).await
 }
 

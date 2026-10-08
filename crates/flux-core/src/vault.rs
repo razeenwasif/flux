@@ -237,7 +237,23 @@ fn obtain_key(dir: &Path) -> (Option<[u8; 32]>, &'static str) {
     }
 }
 
+/// Whether `keyring` has a real OS secret store on this target. Everywhere else
+/// (notably Android) keyring 3 silently uses its in-memory mock: every `Entry`
+/// starts empty and `set_password` "succeeds" without storing anything, so a key
+/// kept there is gone at exit and the data sealed with it can never be opened.
+pub(crate) const HAS_OS_KEYCHAIN: bool = cfg!(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "openbsd"
+));
+
 fn keychain_key() -> Result<[u8; 32], String> {
+    if !HAS_OS_KEYCHAIN {
+        return Err("no OS keychain on this platform".into());
+    }
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string())?;
     match entry.get_password() {
         Ok(hex) => decode_key(&hex),
@@ -263,20 +279,24 @@ fn file_key(dir: &Path) -> Result<[u8; 32], String> {
         }
     }
     let k = flux_vault::new_key();
-    std::fs::write(&p, k).map_err(|e| e.to_string())?;
+    // Atomic: a torn key.bin would be re-minted next launch, orphaning the vault.
+    crate::persist::write_atomic(&p, &k).map_err(|e| e.to_string())?;
     set_owner_only(&p);
     Ok(k)
 }
 
 /// Store the data key in the keychain (preferred) or a 0600 key file.
 fn store_key(dir: &Path, dk: &[u8; 32]) -> &'static str {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT) {
-        if entry.set_password(&encode_key(dk)).is_ok() {
-            return "keychain";
+    if HAS_OS_KEYCHAIN {
+        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT) {
+            if entry.set_password(&encode_key(dk)).is_ok() {
+                return "keychain";
+            }
         }
     }
     let p = dir.join("key.bin");
-    if std::fs::write(&p, dk).is_ok() {
+    // fsync + rename: this may be about to become the key's only copy.
+    if crate::persist::write_atomic(&p, dk).is_ok() {
         set_owner_only(&p);
         return "file";
     }
@@ -332,7 +352,7 @@ fn read_meta(dir: &Path) -> Meta {
 fn write_meta(dir: &Path, meta: &Meta) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let s = serde_json::to_string_pretty(meta).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("meta.json"), s).map_err(|e| e.to_string())
+    crate::persist::write_atomic(&dir.join("meta.json"), s.as_bytes()).map_err(|e| e.to_string())
 }
 
 fn read_never_save(dir: &Path) -> HashSet<String> {
@@ -420,7 +440,13 @@ pub fn vault_unlock(state: State<'_, VaultState>, password: String) -> Result<()
         .map_err(|_| "wrong master password".to_string())?;
     let vault = match std::fs::read(&state.path) {
         Ok(blob) if !blob.is_empty() => Vault::decrypt(&dk, &blob).map_err(|e| e.to_string())?,
-        _ => Vault::default(),
+        Ok(_) => Vault::default(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vault::default(),
+        // Same rule as `hydrate_keychain`: any other read failure (EMFILE late in
+        // a long session, an antivirus or backup lock, EIO) keeps the vault
+        // locked. Unlocking an empty vault here let the next save seal it over
+        // vault.bin and destroy every stored credential.
+        Err(e) => return Err(format!("couldn't read the vault: {e}")),
     };
     *state.open.write() = Some(Unlocked {
         vault,
@@ -452,11 +478,12 @@ pub fn vault_set_master_password(
     };
     let wrap = flux_vault::wrap_key(&password, &dk).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(&wrap).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&state.dir).map_err(|e| e.to_string())?;
-    std::fs::write(state.dir.join("keywrap.json"), json).map_err(|e| e.to_string())?;
-    purge_key(&state.dir); // DK now recoverable only via the password
-    *state.protection.write() = Protection::Password;
-    *state.source.write() = "password";
+    // keywrap.json becomes (on a change, already is) the data key's only copy:
+    // replace it atomically so a crash leaves the old wrap or the new one, never
+    // a torn file, and record password mode before removing the other copies.
+    let wrap_path = state.dir.join("keywrap.json");
+    crate::persist::write_atomic(&wrap_path, json.as_bytes()).map_err(|e| e.to_string())?;
+    set_owner_only(&wrap_path);
     write_meta(
         &state.dir,
         &Meta {
@@ -464,6 +491,9 @@ pub fn vault_set_master_password(
             autolock_minutes: state.autolock_min.load(Ordering::Relaxed),
         },
     )?;
+    purge_key(&state.dir); // DK now recoverable only via the password
+    *state.protection.write() = Protection::Password;
+    *state.source.write() = "password";
     Ok(())
 }
 
@@ -486,16 +516,28 @@ pub fn vault_disable_master_password(
         return Err("wrong master password".into());
     }
     let source = store_key(&state.dir, &dk);
-    let _ = std::fs::remove_file(state.dir.join("keywrap.json"));
-    *state.protection.write() = Protection::Keychain;
-    *state.source.write() = source;
-    write_meta(
+    if source == "none" {
+        // Neither the keychain nor key.bin took the key, so keywrap.json is still
+        // its only durable copy: keep it, and keep password mode.
+        return Err(
+            "couldn't store the vault key in the OS keychain or a key file; the master password is still set"
+                .into(),
+        );
+    }
+    if let Err(e) = write_meta(
         &state.dir,
         &Meta {
             protection: "keychain".into(),
             autolock_minutes: state.autolock_min.load(Ordering::Relaxed),
         },
-    )?;
+    ) {
+        // Still password mode on disk: don't leave the data key at rest beside it.
+        purge_key(&state.dir);
+        return Err(e);
+    }
+    let _ = std::fs::remove_file(state.dir.join("keywrap.json"));
+    *state.protection.write() = Protection::Keychain;
+    *state.source.write() = source;
     Ok(())
 }
 
@@ -798,14 +840,34 @@ pub fn vault_fill(
 // tab is identified from the webview's OWN label (`tab-{id}`) — page-supplied
 // ids are never trusted, so a page can only ever act on itself.
 
-/// What the sentinel needs to decide which chip to show on a login form.
+/// What the sentinel needs to decide which chip to show on a login form. No
+/// usernames: every script on the page can read this, and the chrome's fill bar
+/// is where the user sees which login will be used.
 #[derive(serde::Serialize, Clone, specta::Type)]
 pub struct PageVaultInfo {
     pub unlocked: bool,
     /// Saved credentials matching the calling tab's host.
     pub count: u32,
-    /// Username of the first match, for the chip label ("Fill · user@…").
+}
+
+/// One login the chrome's fill bar can offer. Metadata only: the password stays
+/// in Rust until the user confirms and `vault_fill` injects it.
+#[derive(serde::Serialize, Clone, specta::Type)]
+pub struct FillChoice {
+    pub id: String,
     pub username: String,
+    pub name: String,
+}
+
+/// The chrome's "Fill password?" bar payload: a page asked to autofill.
+#[derive(serde::Serialize, Clone, specta::Type)]
+pub struct VaultFillRequest {
+    /// The tab that asked. `vault_fill` fills only that tab, and only while it is
+    /// still on a host the chosen login matches.
+    pub tab: u64,
+    pub host: String,
+    /// Logins matching `host`, best first.
+    pub choices: Vec<FillChoice>,
 }
 
 /// Why autofill did (or didn't) offer on a page — the answer to "the key icon
@@ -1020,7 +1082,6 @@ pub fn vault_page_info(
     let locked_out = PageVaultInfo {
         unlocked: false,
         count: 0,
-        username: String::new(),
     };
     let Ok(_tab) = caller_tab(&webview) else {
         return locked_out;
@@ -1034,35 +1095,52 @@ pub fn vault_page_info(
         return locked_out;
     }
     state
-        .read_open(|v| {
-            let matches = v.matches(&host);
-            PageVaultInfo {
-                unlocked: true,
-                count: matches.len() as u32,
-                username: matches
-                    .first()
-                    .map(|c| c.username.clone())
-                    .unwrap_or_default(),
-            }
+        .read_open(|v| PageVaultInfo {
+            unlocked: true,
+            count: v.matches(&host).len() as u32,
         })
         .unwrap_or(locked_out)
 }
 
-/// Fill the calling tab's login form with its best-matching credential —
-/// the sentinel chip's click action. Same injection path as `vault_fill`
-/// (the password goes Rust → page, never through the chrome).
+/// The sentinel chip's click action: ask the user, in the chrome, to fill this
+/// tab. The click proves nothing. The chip, `passwords.js` and the IPC bridge
+/// share one JS world with every script the page loads, so any of them can call
+/// this. A password therefore reaches the page only after the user confirms in
+/// the chrome's fill bar, which calls the chrome-only `vault_fill` (it re-checks
+/// the secure origin, the firewall, the host match and that the URL is stable).
+/// Every refusal returns the same error, so probing it tells a page nothing.
 #[tauri::command]
 pub fn vault_fill_page(
     app: AppHandle,
     webview: tauri::Webview,
     state: State<'_, VaultState>,
 ) -> Result<(), String> {
-    let tab = caller_tab(&webview)?;
-    let host = webview_secure_host(&webview)?;
-    let id = state
-        .read_open(|v| v.matches(&host).first().map(|c| c.id.clone()))?
-        .ok_or_else(|| format!("no credential matches {host}"))?;
-    vault_fill(app, state, tab, id)
+    let refused = || "autofill unavailable".to_string();
+    let tab = caller_tab(&webview).map_err(|_| refused())?;
+    let host = webview_secure_host(&webview).map_err(|_| refused())?;
+    if crate::sentinel::credential_origin_risk(&app, &host).is_some() {
+        return Err(refused());
+    }
+    let choices: Vec<FillChoice> = state
+        .read_open(|v| {
+            v.matches(&host)
+                .into_iter()
+                .map(|c| FillChoice {
+                    id: c.id.clone(),
+                    username: c.username.clone(),
+                    name: c.name.clone(),
+                })
+                .collect()
+        })
+        .map_err(|_| refused())?;
+    if choices.is_empty() {
+        return Err(refused());
+    }
+    let _ = app.emit(
+        "flux://vault-fill-request",
+        VaultFillRequest { tab, host, choices },
+    );
+    Ok(())
 }
 
 /// A strong password for a registration form (#61 follow-up). Requires the
@@ -1074,8 +1152,12 @@ pub fn vault_suggest_password(state: State<'_, VaultState>) -> Result<String, St
     Ok(flux_vault::generate_password(20))
 }
 
-/// Save a credential the sentinel captured on registration submit. Host comes
-/// from the calling tab (label-derived), never from the page.
+/// Stage a credential the sentinel captured on registration submit and ask the
+/// user to keep it (the chrome's save bar, then `vault_save_confirm`). Host comes
+/// from the calling tab (label-derived), never from the page. Any script on the
+/// page can call this, so it never writes the vault itself: a direct upsert let a
+/// page replace the saved password for this host (same `stable_id` as a confirmed
+/// save) or flood the vault with re-seals and fsyncs on the main thread.
 #[tauri::command]
 pub fn vault_save_from_page(
     app: AppHandle,
@@ -1092,79 +1174,41 @@ pub fn vault_save_from_page(
     if host.is_empty() {
         return Err("no host".into());
     }
-    let url = format!("https://{host}");
-    let cred = Credential {
-        id: Credential::stable_id(&host, &username, &url),
-        name: host.clone(),
-        urls: vec![url],
-        username,
-        password,
-        totp: String::new(),
-        notes: String::new(),
-        created_ms: 0,
-    };
-    state.write_open(|v| v.upsert(cred))?;
-    // Nudge the chrome (toast + Passwords popover refresh).
-    let _ = app.emit("flux://vault-saved", host);
-    Ok(())
-}
-
-// ─── Credential picker (#61 follow-up: multiple matches) ─────────────────────
-
-/// One candidate credential for the calling tab's host — metadata only (the id
-/// is opaque; no URLs or secrets leave Rust). Feeds the in-page picker menu when
-/// more than one login matches.
-#[derive(serde::Serialize, Clone, specta::Type)]
-pub struct PageMatch {
-    pub id: String,
-    pub username: String,
-    pub name: String,
-}
-
-/// Every saved credential matching the calling tab's host (for the picker).
-/// Empty when the vault is locked or nothing matches.
-#[tauri::command]
-pub fn vault_page_matches(
-    app: AppHandle,
-    webview: tauri::Webview,
-    state: State<'_, VaultState>,
-) -> Vec<PageMatch> {
-    let Ok(_tab) = caller_tab(&webview) else {
-        return Vec::new();
-    };
-    let Ok(host) = webview_secure_host(&webview) else {
-        return Vec::new();
-    };
-    // Same firewall as the chip: offer no picker on an impersonating host.
+    // Same firewall as `vault_offer_save`: never stage (and so never whitewash)
+    // a host that impersonates a brand the user values.
     if crate::sentinel::credential_origin_risk(&app, &host).is_some() {
-        return Vec::new();
+        return Err("saving is blocked on this site".into());
     }
-    state
-        .read_open(|v| {
-            v.matches(&host)
-                .into_iter()
-                .map(|c| PageMatch {
-                    id: c.id.clone(),
-                    username: c.username.clone(),
-                    name: c.name.clone(),
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Fill the calling tab with a *specific* credential the user picked. `vault_fill`
-/// re-derives the host from the tab label and refuses any id that doesn't match
-/// it, so a page can't coax a fill for an unrelated credential.
-#[tauri::command]
-pub fn vault_fill_page_id(
-    app: AppHandle,
-    webview: tauri::Webview,
-    state: State<'_, VaultState>,
-    id: String,
-) -> Result<(), String> {
-    let tab = caller_tab(&webview)?;
-    vault_fill(app, state, tab, id)
+    // No never-save skip here: the user just accepted a generated password, and
+    // dropping it silently would lock them out of the new account.
+    let (already, update) = state.read_open(|v| {
+        let m = v.matches(&host);
+        let already = m
+            .iter()
+            .any(|c| c.username == username && c.password == password);
+        (
+            already,
+            !already && m.iter().any(|c| c.username == username),
+        )
+    })?;
+    if already {
+        return Ok(()); // identical credential already stored
+    }
+    *state.pending_save.write() = Some(PendingSave {
+        host: host.clone(),
+        username: username.clone(),
+        password: Zeroizing::new(password),
+    });
+    let _ = app.emit(
+        "flux://vault-save-prompt",
+        VaultSavePrompt {
+            host,
+            username,
+            update,
+            warning: None,
+        },
+    );
+    Ok(())
 }
 
 // ─── Save prompt for manually-typed logins (#61 follow-up) ───────────────────

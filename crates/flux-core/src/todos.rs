@@ -95,9 +95,11 @@ impl TodoStore {
     /// carries a ticked box, a rename or a changed due date across.
     pub fn merge(&self, remote: Vec<Todo>, remote_tombs: &crate::tombstone::Tombstones) -> usize {
         use crate::tombstone::{merge_into, suppressed};
+        // Lock order is items -> tombstones, as in every mutation and save().
+        // Taking tombstones first here deadlocked auto-sync against the UI thread.
+        let mut items = self.items.write();
         let mut tombs = self.tombstones.write();
         merge_into(&mut tombs, remote_tombs);
-        let mut items = self.items.write();
         items.retain(|t| !suppressed(&tombs, &todo_key(&t.profile, &t.title), t.updated_ms));
         let mut added = 0;
         for r in remote {

@@ -214,7 +214,7 @@ impl BrokerState {
                 Ok(Value::Array(tabs))
             }
             ("tabs", "open") => {
-                let url = arg_str(args, "url")?.to_string();
+                let url = arg_web_url(args)?;
                 // The shell owns webview geometry, so opening is an intent it acts on.
                 app.emit("flux://ext-open-tab", url)
                     .map_err(|e| e.to_string())?;
@@ -222,10 +222,10 @@ impl BrokerState {
             }
             ("tabs", "navigate") => {
                 let tab = arg_tab(args)?;
-                let url = arg_str(args, "url")?;
-                crate::webview::eval(app, tab, &format!("location.assign({})", json_str(url)))?;
+                let url = arg_web_url(args)?;
+                crate::webview::eval(app, tab, &format!("location.assign({})", json_str(&url)))?;
                 if let Some(mut t) = app.state::<FluxState>().tabs.get_mut(&tab) {
-                    t.url = url.to_string();
+                    t.url = url;
                 }
                 Ok(Value::Bool(true))
             }
@@ -255,6 +255,18 @@ fn arg_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| format!("missing string arg `{key}`"))
+}
+/// The `url` arg, accepted only as an absolute http(s) URL. A `tabs` grant is
+/// navigation, not script: `location.assign("javascript:…")` would run code in
+/// the target tab's origin (what `dom:write` gates), and `tabs.open` with a
+/// `file:` or `flux:` URL would open local files or internal pages.
+fn arg_web_url(args: &Value) -> Result<String, String> {
+    let raw = arg_str(args, "url")?;
+    let url = tauri::Url::parse(raw).map_err(|_| format!("invalid url {raw:?}"))?;
+    match url.scheme() {
+        "http" | "https" => Ok(url.to_string()),
+        scheme => Err(format!("permission denied: {scheme}: URLs")),
+    }
 }
 fn arg_tab(args: &Value) -> Result<TabId, String> {
     args.get("tabId")
@@ -314,6 +326,26 @@ pub fn ext_broker_call(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tab_urls_must_be_web_urls() {
+        let ok = |u: &str| arg_web_url(&json!({ "url": u }));
+        assert_eq!(
+            ok("https://example.com/a").unwrap(),
+            "https://example.com/a"
+        );
+        assert!(ok("http://localhost:3000").is_ok());
+        for bad in [
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "file:///etc/passwd",
+            "flux://passwords",
+            "data:text/html,<script>x</script>",
+            "not a url",
+        ] {
+            assert!(ok(bad).is_err(), "{bad} should be refused");
+        }
+    }
 
     #[test]
     fn grant_model_is_deny_by_default() {

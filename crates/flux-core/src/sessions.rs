@@ -120,9 +120,11 @@ impl SessionStore {
         remote_tombs: &crate::tombstone::Tombstones,
     ) -> usize {
         use crate::tombstone::{merge_into, suppressed};
+        // Lock order is items -> tombstones, as in every mutation and save().
+        // Taking tombstones first here deadlocked auto-sync against the UI thread.
+        let mut items = self.items.write();
         let mut tombs = self.tombstones.write();
         merge_into(&mut tombs, remote_tombs);
-        let mut items = self.items.write();
         items.retain(|s| !suppressed(&tombs, &s.name, s.created_ms));
         let mut added = 0;
         for r in remote {

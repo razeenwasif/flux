@@ -137,12 +137,17 @@ fn apply(
             let store = app
                 .try_state::<crate::scribe::ScribeStore>()
                 .ok_or("Scribe isn't available")?;
-            let mut nb = store.load(&notebook).ok_or("no such notebook")?;
-            nb.pages.push(crate::scribe::Page::document(&title, &body));
-            let id = nb.id.clone();
-            store.save(nb);
+            let page = crate::scribe::Page::document(&title, &body);
+            // In place and marked, not load-push-save: an editor with this
+            // notebook open still holds the copy it loaded, and its next
+            // autosave must not read this page's absence as a delete.
+            store.update_outside_editor(&notebook, |nb| {
+                let id = page.id.clone();
+                nb.pages.push(page);
+                Ok(id)
+            })?;
             fresh.touch("scribe");
-            Ok(format!("flux://scribe#{id}"))
+            Ok(format!("flux://scribe#{notebook}"))
         }
 
         NoteAction::AppendPage {
@@ -153,17 +158,19 @@ fn apply(
             let store = app
                 .try_state::<crate::scribe::ScribeStore>()
                 .ok_or("Scribe isn't available")?;
-            let mut nb = store.load(&notebook).ok_or("no such notebook")?;
-            let target = nb
-                .pages
-                .iter_mut()
-                .find(|p| p.id == page)
-                .ok_or("no such page in that notebook")?;
-            crate::scribe::append_prose(target, &body)?;
-            let id = nb.id.clone();
-            store.save(nb);
+            // Same: an open editor's older copy of this page must not be put
+            // back over the appended prose.
+            store.update_outside_editor(&notebook, |nb| {
+                let target = nb
+                    .pages
+                    .iter_mut()
+                    .find(|p| p.id == page)
+                    .ok_or("no such page in that notebook")?;
+                crate::scribe::append_prose(target, &body)?;
+                Ok(page.clone())
+            })?;
             fresh.touch("scribe");
-            Ok(format!("flux://scribe#{id}"))
+            Ok(format!("flux://scribe#{notebook}"))
         }
     }
 }

@@ -199,7 +199,10 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     }
   };
   const setMaster = async () => {
-    if (!mpw() || (protection() !== "password" && mpw() !== mpw2())) {
+    // Always confirm, including on a change: vault_set_master_password re-wraps
+    // the data key under exactly what was typed and deletes every other copy, so
+    // an unconfirmed typo would lock the vault for good.
+    if (!mpw() || mpw() !== mpw2()) {
       setMsg("passwords don't match");
       return;
     }
@@ -569,17 +572,15 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
                   onInput={(e) => setMpw(e.currentTarget.value)}
                 />
               </label>
-              <Show when={protection() !== "password"}>
-                <label class="vault-field">
-                  <span>Confirm</span>
-                  <input
-                    class="vault-input"
-                    type="password"
-                    value={mpw2()}
-                    onInput={(e) => setMpw2(e.currentTarget.value)}
-                  />
-                </label>
-              </Show>
+              <label class="vault-field">
+                <span>{protection() === "password" ? "Confirm new password" : "Confirm"}</span>
+                <input
+                  class="vault-input"
+                  type="password"
+                  value={mpw2()}
+                  onInput={(e) => setMpw2(e.currentTarget.value)}
+                />
+              </label>
               <div class="vault-row">
                 <button class="vault-btn primary" onClick={() => void setMaster()}>
                   {protection() === "password" ? "Change password" : "Set master password"}

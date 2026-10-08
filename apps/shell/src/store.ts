@@ -1180,6 +1180,10 @@ export function removePermAsk(id: number): void {
 // content card like the permission bar. The captured password stays in Rust.
 const [savePrompt, setSavePrompt] = createSignal<import("./ipc").VaultSavePrompt | null>(null);
 export { savePrompt, setSavePrompt };
+// A page asked to autofill (latest wins). Holds no secret: confirming in the fill
+// bar calls vault_fill, which re-checks the origin, the firewall and the host.
+const [fillRequest, setFillRequest] = createSignal<import("./ipc").VaultFillRequest | null>(null);
+export { fillRequest, setFillRequest };
 
 // ─── Overlay registry ────────────────────────────────────────────────────────
 // THE single source of truth for "an HTML overlay must cover the page area".

@@ -84,12 +84,28 @@ impl Credential {
             return false;
         }
         self.urls.iter().any(|u| {
-            let ph = host_of(u);
+            let ph = web_host_of(u);
             !ph.is_empty()
                 && (ph == host
                     || host.ends_with(&format!(".{ph}"))
                     || ph.ends_with(&format!(".{host}")))
         })
+    }
+}
+
+/// The host a stored URL may autofill on. Only web origins have one:
+/// `android://<hash>@com.pkg`, `androidapp://com.pkg` and `iosapp://…` name app
+/// packages in reverse-DNS order, and reading one as a domain let a page on
+/// `android.shopping` match the `com.amazon.mShop.android.shopping` login.
+/// Scheme-less entries ("github.com") stay web hosts.
+fn web_host_of(url: &str) -> String {
+    match url.trim().split_once("://") {
+        Some((scheme, _))
+            if !scheme.eq_ignore_ascii_case("https") && !scheme.eq_ignore_ascii_case("http") =>
+        {
+            String::new()
+        }
+        _ => host_of(url),
     }
 }
 
@@ -976,6 +992,37 @@ mod tests {
         assert!(!c.matches_host("github.com.evil.com"));
         assert!(!c.matches_host("notgithub.com"));
         assert!(!c.matches_host(""));
+    }
+
+    #[test]
+    fn app_package_uris_never_match_web_hosts() {
+        // Chrome and Bitwarden exports store app logins as reverse-DNS package
+        // names, which a registrable domain could otherwise "parent-match".
+        let c = Credential {
+            id: "1".into(),
+            name: "Amazon".into(),
+            urls: vec![
+                "android://AbC123==@com.amazon.mShop.android.shopping/".into(),
+                "androidapp://com.squareup.cash".into(),
+                "iosapp://com.example.app".into(),
+            ],
+            username: "me".into(),
+            password: String::new(),
+            totp: String::new(),
+            notes: String::new(),
+            created_ms: 0,
+        };
+        assert!(!c.matches_host("android.shopping"));
+        assert!(!c.matches_host("shop.android.shopping"));
+        assert!(!c.matches_host("squareup.cash"));
+        assert!(!c.matches_host("example.app"));
+        // Web and scheme-less URLs still match.
+        let web = Credential {
+            urls: vec!["github.com".into(), "HTTPS://gitlab.com/x".into()],
+            ..c
+        };
+        assert!(web.matches_host("github.com"));
+        assert!(web.matches_host("gitlab.com"));
     }
 
     #[test]

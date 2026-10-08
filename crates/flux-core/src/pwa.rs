@@ -100,6 +100,7 @@ fn open_window(app: &AppHandle, pwa: &PwaApp) -> Result<(), String> {
     WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(&pwa.name)
         .inner_size(1100.0, 800.0)
+        .on_navigation(|u| !crate::webview::is_app_origin(u))
         .build()
         .map_err(|e| format!("open app window: {e}"))?;
     Ok(())
@@ -112,8 +113,12 @@ pub fn pwa_list(store: State<'_, PwaStore>) -> Vec<PwaApp> {
     store.list()
 }
 
+/// Async on purpose, like `peek_open`: a sync command runs on the main thread,
+/// and building a `WebviewWindow` there deadlocks on Windows (WebView2 needs
+/// that thread's message loop to finish creating the window). It also keeps
+/// `persist()`'s fsync off the UI thread.
 #[tauri::command]
-pub fn pwa_install(
+pub async fn pwa_install(
     app: AppHandle,
     store: State<'_, PwaStore>,
     url: String,
@@ -127,8 +132,9 @@ pub fn pwa_install(
     Ok(pwa)
 }
 
+/// Async for the same reason as [`pwa_install`].
 #[tauri::command]
-pub fn pwa_launch(app: AppHandle, store: State<'_, PwaStore>, id: u64) -> Result<(), String> {
+pub async fn pwa_launch(app: AppHandle, store: State<'_, PwaStore>, id: u64) -> Result<(), String> {
     let pwa = store.get(id).ok_or("app not found")?;
     open_window(&app, &pwa)
 }

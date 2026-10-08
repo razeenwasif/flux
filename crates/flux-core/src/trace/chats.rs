@@ -63,10 +63,7 @@ impl TraceChats {
             return;
         }
         let Some(path) = &self.path else { return };
-        let Some((json, was_plaintext)) = super::sealed::load_string(path) else {
-            return;
-        };
-        let Some(loaded) = serde_json::from_str::<ChatData>(&json).ok() else {
+        let Some((loaded, was_plaintext)) = super::sealed::load_json::<ChatData>(path) else {
             return;
         };
         if was_plaintext {

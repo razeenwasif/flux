@@ -285,36 +285,36 @@ fn fetch_text(url: &str) -> Result<String, String> {
 
 /// Strip HTML to whitespace-collapsed text (drops script/style/comments).
 fn html_to_text(html: &str) -> String {
+    // Lowercase once. ASCII lowercasing keeps byte lengths, so every index found
+    // in `lower` is a char boundary in `html`. The old per-tag `rest[..9]` was a
+    // byte slice that panicked (aborting Flux) whenever byte 9 fell inside a
+    // multi-byte char (`<li>Привет`, `<br>日本語`), and re-lowercasing the rest
+    // of the document for every <script>/<style> made extraction quadratic.
+    let lower = html.to_ascii_lowercase();
     let mut out = String::with_capacity(html.len() / 2);
-    let mut rest = html;
-    while let Some(lt) = rest.find('<') {
-        out.push_str(&rest[..lt]);
-        rest = &rest[lt..];
-        let head = rest[..rest.len().min(9)].to_ascii_lowercase();
-        if head.starts_with("<script") {
-            rest = skip_to(rest, "</script>");
-        } else if head.starts_with("<style") {
-            rest = skip_to(rest, "</style>");
-        } else if rest.starts_with("<!--") {
-            rest = rest.find("-->").map(|e| &rest[e + 3..]).unwrap_or("");
-        } else if let Some(gt) = rest.find('>') {
+    let mut pos = 0;
+    while let Some(off) = html[pos..].find('<') {
+        let lt = pos + off;
+        out.push_str(&html[pos..lt]);
+        let tail = &lower[lt..];
+        pos = if tail.starts_with("<script") {
+            tail.find("</script>")
+                .map_or(html.len(), |i| lt + i + "</script>".len())
+        } else if tail.starts_with("<style") {
+            tail.find("</style>")
+                .map_or(html.len(), |i| lt + i + "</style>".len())
+        } else if tail.starts_with("<!--") {
+            tail.find("-->").map_or(html.len(), |i| lt + i + 3)
+        } else if let Some(gt) = tail.find('>') {
             out.push(' '); // a tag boundary is a word boundary
-            rest = &rest[gt + 1..];
+            lt + gt + 1
         } else {
-            rest = "";
-        }
+            html.len()
+        };
     }
-    out.push_str(rest);
+    out.push_str(&html[pos..]);
     let decoded = decode_entities(&out);
     decoded.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn skip_to<'a>(rest: &'a str, end_lower: &str) -> &'a str {
-    let low = rest.to_ascii_lowercase();
-    match low.find(end_lower) {
-        Some(i) => &rest[i + end_lower.len()..],
-        None => "",
-    }
 }
 
 fn decode_entities(s: &str) -> String {
@@ -518,6 +518,16 @@ mod tests {
         assert!(t.contains("Hello world & more"));
         assert!(!t.contains("alert"));
         assert!(!t.contains("color:red"));
+    }
+
+    #[test]
+    fn html_to_text_handles_multibyte_text_right_after_a_tag() {
+        // Byte 9 falls inside a multi-byte char in each of these, which used to
+        // panic and abort the browser.
+        assert_eq!(html_to_text("<li>Привет мир</li>"), "Привет мир");
+        assert_eq!(html_to_text("<br>日本語"), "日本語");
+        assert_eq!(html_to_text("<p>Hi 👋</p>"), "Hi 👋");
+        assert_eq!(html_to_text("<SCRIPT>x()</SCRIPT><em>don’t</em>"), "don’t");
     }
 
     #[test]

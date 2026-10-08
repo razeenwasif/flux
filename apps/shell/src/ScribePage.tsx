@@ -185,12 +185,13 @@ const ScribePage: Component = () => {
   };
 
   /** The page's content is now a document blob (html + ink objects), still
-   *  stored in the same opaque field. */
-  const onContent = (json: string) => {
+   *  stored in the same opaque field. Addressed by page id, not index: by the
+   *  time an emit lands (a blur, an async drawing insert, KaTeX's first load),
+   *  the current index can name a different page. */
+  const onContent = (pageId: string, json: string) => {
     const cur = notebook();
     if (!cur) return;
-    const idx = pageIndex();
-    const pages2 = cur.pages.map((p, i) => (i === idx ? { ...p, strokes: json, ts: Date.now() } : p));
+    const pages2 = cur.pages.map((p) => (p.id === pageId ? { ...p, strokes: json, ts: Date.now() } : p));
     persist({ ...cur, pages: pages2 });
   };
 
@@ -286,7 +287,16 @@ const ScribePage: Component = () => {
     const cur = notebook();
     if (!cur) return;
     if (cur.pages.length <= 1) {
-      onContent(""); // last page: clear rather than leave an empty notebook
+      // Last page: clear rather than leave an empty notebook. The blank page
+      // gets a new id so the editor really remounts; keeping the id kept the
+      // old editor up, and its next emit wrote the "cleared" content back.
+      const old = cur.pages[0];
+      if (!old) return;
+      persist({
+        ...cur,
+        pages: [{ ...old, id: `pg-${Date.now().toString(36)}`, strokes: "", ts: Date.now() }],
+        deleted_pages: { ...(cur.deleted_pages ?? {}), [old.id]: Date.now() },
+      });
       return;
     }
     if (!window.confirm("Delete this page?")) return;
@@ -605,17 +615,26 @@ const ScribePage: Component = () => {
           </Show>
 
           <div class="scribe-canvas-col">
-            {/* Keyed on notebook+page so flipping remounts the engine (fresh camera
-                + undo history) and loads that page's strokes. */}
-            <Show when={`${notebook()!.id}:${pageIndex()}`} keyed>
-              <ScribeDoc
-                content={curPage()?.strokes ?? ""}
-                onChange={onContent}
-                template={curPage()?.template ?? "plain"}
-                zoom={zoom()}
-                onScale={setScale}
-                api={(a) => (docApi = a)}
-              />
+            {/* Keyed on notebook + page *id*, so flipping remounts the engine (fresh
+                camera + undo history) and loads that page's strokes. Not the
+                index: deleting a page, moving a neighbour into this slot or
+                duplicating the page before it keeps the index but changes the
+                page, and ScribeDoc reads `content` once, so the old editor stayed
+                up and its next emit overwrote whichever page held the slot. */}
+            <Show when={curPage() ? `${notebook()!.id}:${curPage()!.id}` : undefined} keyed>
+              {(_key) => {
+                const pageId = curPage()!.id;
+                return (
+                  <ScribeDoc
+                    content={curPage()?.strokes ?? ""}
+                    onChange={(json) => onContent(pageId, json)}
+                    template={curPage()?.template ?? "plain"}
+                    zoom={zoom()}
+                    onScale={setScale}
+                    api={(a) => (docApi = a)}
+                  />
+                );
+              }}
             </Show>
             <div class="scribe-zoom">
               <button title="Show/hide the page rail" onClick={() => setRailOpen((v) => !v)}>

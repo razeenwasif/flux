@@ -51,6 +51,20 @@ pub(crate) fn cap_utf8(mut s: String, max: usize) -> String {
     s
 }
 
+/// The longest prefix of `s` that fits in `max` bytes and ends on a UTF-8
+/// boundary. `&s[..max]` panics when byte `max` is mid-character, and the
+/// release profile is `panic = "abort"`, so a page's text would crash Flux.
+pub(crate) fn utf8_prefix(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// Longest we'll wait for a page to answer a refresh request.
 ///
 /// A page that doesn't answer isn't broken — it may have no capture script
@@ -267,10 +281,56 @@ pub fn dom_publish_internal(
 /// detects Flux's chord set and calls this; we re-emit it to the chrome, which
 /// dispatches the same action it would for a chrome-focused keypress. Like
 /// `dom_publish`, this is a `fluxtab` plugin command so remote pages may call it.
+///
+/// Any page can call it directly, with no keypress, so only the chords
+/// `shortcuts.js` produces get through, and the caller's label travels with the
+/// event: the chrome, which knows what's on screen, drops chords from background
+/// tabs and closed panels (a hidden page could otherwise close tab after tab).
 #[tauri::command]
-pub fn chrome_key(app: AppHandle, action: String) -> Result<(), String> {
-    app.emit("flux://shortcut", action)
-        .map_err(|e| e.to_string())
+pub fn chrome_key(app: AppHandle, webview: tauri::Webview, action: String) -> Result<(), String> {
+    if !is_page_shortcut(&action) {
+        return Err("not a Flux shortcut".into());
+    }
+    app.emit(
+        "flux://page-shortcut",
+        (webview.label().to_string(), action),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// The actions `shortcuts.js` can forward. Keep in step with its `actionFor`.
+const PAGE_SHORTCUTS: &[&str] = &[
+    "new-tab",
+    "close-tab",
+    "toggle-sidebar",
+    "focus-address",
+    "palette",
+    "find",
+    "reload",
+    "toggle-terminal",
+    "zoom-in",
+    "zoom-out",
+    "zoom-reset",
+    "bookmark-page",
+    "next-tab",
+    "prev-tab",
+    "reopen-tab",
+    "toggle-agent",
+    "toggle-editor",
+    "save-to-omni",
+    "shell-history",
+    "spotlight",
+    "focus-mode",
+    "back",
+    "forward",
+    "devtools",
+];
+
+fn is_page_shortcut(action: &str) -> bool {
+    PAGE_SHORTCUTS.contains(&action)
+        || action
+            .strip_prefix("tab-")
+            .is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9']))
 }
 
 /// A page-initiated new window (window.open / target="_blank" / modified click),
@@ -280,6 +340,13 @@ pub fn chrome_key(app: AppHandle, action: String) -> Result<(), String> {
 /// `fluxtab` plugin command so remote pages may call it.
 #[tauri::command]
 pub fn chrome_open_url(app: AppHandle, url: String, background: bool) -> Result<(), String> {
+    // Page-supplied: a page must never open Flux's own, fully privileged origin.
+    if url
+        .parse::<tauri::Url>()
+        .is_ok_and(|u| crate::webview::is_app_origin(&u))
+    {
+        return Err("refusing to open Flux's own origin".into());
+    }
     app.emit("flux://open-url", (url, background))
         .map_err(|e| e.to_string())
 }
@@ -393,6 +460,28 @@ pub(crate) fn dirs_download() -> String {
 mod tests {
     use super::*;
     use crate::state::{FluxState, TabKind, TabMeta};
+
+    #[test]
+    fn chrome_key_allows_exactly_the_chords_shortcuts_js_forwards() {
+        let js = include_str!("../assets/shortcuts.js");
+        for part in js.split("return \"").skip(1) {
+            let action = part.split('"').next().unwrap();
+            if action == "tab-" {
+                continue; // "tab-" + digit, checked below
+            }
+            assert!(
+                is_page_shortcut(action),
+                "{action} from shortcuts.js is rejected"
+            );
+        }
+        for n in 1..=9 {
+            assert!(is_page_shortcut(&format!("tab-{n}")));
+        }
+        // Chrome actions a page has no business triggering stay out.
+        for bad in ["new-terminal", "tab-0", "tab-10", "tab-", ""] {
+            assert!(!is_page_shortcut(bad), "{bad:?} should be rejected");
+        }
+    }
 
     #[test]
     fn tab_metadata_read_does_not_deadlock_with_mutation() {

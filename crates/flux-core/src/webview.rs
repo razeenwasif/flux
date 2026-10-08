@@ -17,6 +17,19 @@
 //! browsing commands report unavailability, `eval`/`round_window_corners` no-op.
 //! Real mobile browsing (a single swapped WebView) is Milestone 2.
 
+/// URLs Tauri treats as the app's own *local* origin (`Webview::is_local_url`):
+/// the `tauri` protocol (`tauri://localhost`, or `http(s)://tauri.localhost` on
+/// Windows) and, in dev builds, the Vite `devUrl`. A document there may call
+/// every app command, `run_shell` included (with no app ACL manifest, local
+/// origins skip the ACL), so no webview hosting remote content may ever load one.
+pub(crate) fn is_app_origin(u: &tauri::Url) -> bool {
+    matches!(u.scheme(), "tauri" | "ipc")
+        || matches!(u.host_str(), Some("tauri.localhost" | "ipc.localhost"))
+        || (tauri::is_dev()
+            && matches!(u.host_str(), Some("localhost" | "127.0.0.1"))
+            && u.port() == Some(1420))
+}
+
 #[cfg(desktop)]
 mod real {
     use tauri::webview::{PageLoadEvent, Webview, WebviewBuilder};
@@ -81,7 +94,13 @@ mod real {
     }
 
     fn parse_url(url: &str) -> Result<Url, String> {
-        Url::parse(url).map_err(|e| format!("bad url {url:?}: {e}"))
+        let u = Url::parse(url).map_err(|e| format!("bad url {url:?}: {e}"))?;
+        if super::is_app_origin(&u) {
+            return Err(format!(
+                "refusing to load Flux's own origin in a page webview: {url:?}"
+            ));
+        }
+        Ok(u)
     }
 
     /// Create the child webview for a Browser tab at the given rect (logical px,
@@ -163,6 +182,9 @@ mod real {
         let mut builder = WebviewBuilder::new(label(tab_id), WebviewUrl::External(target))
             .incognito(private)
             .initialization_script(&init)
+            // Pages navigate themselves (`location = …`, redirects), so the
+            // parse_url check has to gate every later navigation too.
+            .on_navigation(|u| !super::is_app_origin(u))
             .on_document_title_changed(move |webview, title| {
                 let Ok(url) = webview.url() else {
                     return;
@@ -772,7 +794,8 @@ mod real {
             ])
         );
         let mut builder = WebviewBuilder::new(panel_label(panel_id), WebviewUrl::External(target))
-            .initialization_script(&init);
+            .initialization_script(&init)
+            .on_navigation(|u| !super::is_app_origin(u));
         #[cfg(target_os = "macos")]
         if let Some(user_agent) = crate::browser_identity::user_agent() {
             builder = builder.user_agent(user_agent);
@@ -1553,5 +1576,30 @@ mod capture_js_tests {
             CAPTURE_JS.contains("recapture: send"),
             "recapture must send immediately, not schedule a debounced publish"
         );
+    }
+}
+
+#[cfg(test)]
+mod app_origin_tests {
+    use super::is_app_origin;
+
+    #[test]
+    fn recognizes_flux_own_origin_and_nothing_else() {
+        for u in [
+            "tauri://localhost/",
+            "http://tauri.localhost/",
+            "https://tauri.localhost/index.html",
+            "ipc://localhost/cmd",
+        ] {
+            assert!(is_app_origin(&u.parse().unwrap()), "{u} is the app origin");
+        }
+        for u in [
+            "https://example.com/",
+            "http://localhost:3000/",
+            "https://tauri.localhost.evil.com/",
+            "https://evil.com/tauri.localhost",
+        ] {
+            assert!(!is_app_origin(&u.parse().unwrap()), "{u} is a web page");
+        }
     }
 }

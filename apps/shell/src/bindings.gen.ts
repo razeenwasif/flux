@@ -272,6 +272,15 @@ export type VaultStatus = { available: boolean; locked: boolean; protection: str
  */
 export type VaultSavePrompt = { host: string; username: string; update: boolean; warning: Verdict | null }
 /**
+ * One login the chrome's fill bar can offer. Metadata only: the password stays
+ * in Rust until the user confirms and `vault_fill` injects it.
+ */
+export type FillChoice = { id: string; username: string; name: string }
+/**
+ * The chrome's "Fill password?" bar payload: a page asked to autofill.
+ */
+export type VaultFillRequest = { tab: number; host: string; choices: FillChoice[] }
+/**
  * Why autofill did (or didn't) offer on a page — the answer to "the key icon
  * never appeared and I don't know why".
  * 

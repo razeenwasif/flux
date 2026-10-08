@@ -10,6 +10,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::dom::cap_utf8;
 use crate::prefetch::PrefetchModel;
 use crate::state::TabId;
 
@@ -107,20 +108,15 @@ impl HibernateState {
                 return Err("url in hibernate state too long".into());
             }
         }
+        // These strings come from the page. `String::truncate` panics when the
+        // cut lands mid-character, which aborts the browser, so cap on a char
+        // boundary instead.
         for field in &mut self.f {
-            if field.id.len() > 256 {
-                field.id.truncate(256);
-            }
-            if field.name.len() > 256 {
-                field.name.truncate(256);
-            }
-            if field.field_type.len() > 64 {
-                field.field_type.truncate(64);
-            }
-            if let Some(v) = &mut field.v {
-                if v.len() > 65536 {
-                    v.truncate(65536);
-                }
+            field.id = cap_utf8(std::mem::take(&mut field.id), 256);
+            field.name = cap_utf8(std::mem::take(&mut field.name), 256);
+            field.field_type = cap_utf8(std::mem::take(&mut field.field_type), 64);
+            if let Some(v) = field.v.take() {
+                field.v = Some(cap_utf8(v, 65536));
             }
         }
         Ok(())
@@ -318,5 +314,29 @@ mod tests {
         assert!(!ranked[0].protected);
         // …but the small bonus still nudges its score down a touch.
         assert!(ranked[0].score < 1000.0);
+    }
+
+    #[test]
+    fn validate_limits_caps_page_strings_on_char_boundaries() {
+        // Byte 256 / 64 / 65536 each land inside a 2-byte 'é'.
+        let field = FormFieldState {
+            id: format!("{}é", "a".repeat(255)),
+            name: format!("{}é", "b".repeat(255)),
+            field_type: format!("{}é", "t".repeat(63)),
+            v: Some(format!("{}é", "v".repeat(65535))),
+            c: None,
+        };
+        let mut st = HibernateState {
+            u: None,
+            x: None,
+            y: None,
+            f: vec![field],
+        };
+        st.validate_limits().unwrap();
+        let f = &st.f[0];
+        assert_eq!(f.id.len(), 255);
+        assert_eq!(f.name.len(), 255);
+        assert_eq!(f.field_type.len(), 63);
+        assert_eq!(f.v.as_deref().map(str::len), Some(65535));
     }
 }
