@@ -270,6 +270,15 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
               return;
             }
             await webviewSetBounds(id, r);
+            // Again after that await: a hibernate, workspace switch or close in
+            // the meantime called forgetWebview and is destroying this webview.
+            // Recording it as opened would leave the tab "live" with no webview
+            // behind it, so every later show and navigate was a silent no-op.
+            if (!openingWebviews.has(id)) {
+              shown.delete(id);
+              await webviewHibernate(id);
+              return;
+            }
             openingWebviews.delete(id);
             openedWebviews.add(id);
             if (overlayActive() || uiDragging()) {
