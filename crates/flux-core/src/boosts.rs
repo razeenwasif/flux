@@ -216,9 +216,18 @@ impl BoostStore {
     }
 }
 
-/// Re-apply a host's enabled CSS boosts to the active webview now (instant
-/// feedback after authoring / toggling, without a reload).
-fn reinject_active(app: &AppHandle, host: &str) {
+/// The CSS a page should be showing: its own host's enabled boosts, the same
+/// thing a reload injects (`on_page_load` in webview.rs).
+fn page_css(store: &BoostStore, page_url: &str) -> String {
+    store.injection_for(&host_of(page_url)).0
+}
+
+/// Re-apply the active page's enabled CSS boosts now (instant feedback after
+/// authoring / toggling, without a reload). The host comes from the page, not
+/// the edited boost: that can belong to another site ("All sites"), be a base
+/// domain while the tab is on a subdomain, or (after a slow `boost_author`) the
+/// user may have switched tabs.
+fn reinject_active(app: &AppHandle) {
     let Some(state) = app.try_state::<crate::state::FluxState>() else {
         return;
     };
@@ -231,7 +240,10 @@ fn reinject_active(app: &AppHandle, host: &str) {
     let Some(wv) = app.get_webview(&format!("tab-{tab}")) else {
         return;
     };
-    let (css, _js) = store.injection_for(host);
+    let Ok(url) = wv.url() else {
+        return;
+    };
+    let css = page_css(&store, url.as_str());
     if let Ok(lit) = serde_json::to_string(&css) {
         let _ = wv.eval(format!(
             "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-boost');\
@@ -267,15 +279,16 @@ pub fn boost_save(
     js: String,
     enabled: bool,
 ) -> Boost {
-    let b = store.save(id, host.clone(), name, css, js, enabled);
-    reinject_active(&app, &host);
+    let b = store.save(id, host, name, css, js, enabled);
+    reinject_active(&app);
     b
 }
 
 #[tauri::command]
 pub fn boost_delete(app: AppHandle, store: State<'_, BoostStore>, id: u64, host: String) {
+    let _ = host; // kept in the IPC signature; the active page decides what to re-inject
     store.delete(id);
-    reinject_active(&app, &host);
+    reinject_active(&app);
 }
 
 #[tauri::command]
@@ -286,8 +299,9 @@ pub fn boost_set_enabled(
     host: String,
     enabled: bool,
 ) {
+    let _ = host; // kept in the IPC signature; the active page decides what to re-inject
     store.set_enabled(id, enabled);
-    reinject_active(&app, &host);
+    reinject_active(&app);
 }
 
 /// Ask the local agent to write a CSS boost for the active page from a
@@ -313,8 +327,8 @@ pub async fn boost_author(app: AppHandle, instruction: String) -> Result<Boost, 
     }
     let name = instruction.chars().take(60).collect::<String>();
     let store = app.state::<BoostStore>();
-    let boost = store.save(None, host.clone(), name, css, String::new(), true);
-    reinject_active(&app, &host);
+    let boost = store.save(None, host, name, css, String::new(), true);
+    reinject_active(&app);
     Ok(boost)
 }
 
@@ -433,5 +447,30 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(saved.len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn live_css_follows_the_page_not_the_edited_boost() {
+        let s = BoostStore::default();
+        for (host, css) in [
+            ("github.com", "body{dark}"),
+            ("gist.github.com", "main{wide}"),
+            ("example.com", "p{ex}"),
+        ] {
+            s.save(
+                None,
+                host.into(),
+                "n".into(),
+                css.into(),
+                String::new(),
+                true,
+            );
+        }
+        // Toggling the example.com boost ("All sites"), or the base-domain
+        // github.com one, while on a gist page re-injects the gist page's own CSS:
+        // both github boosts, and nothing from another site.
+        let css = page_css(&s, "https://gist.github.com/someone/123");
+        assert!(css.contains("body{dark}") && css.contains("main{wide}"));
+        assert!(!css.contains("p{ex}"));
     }
 }
