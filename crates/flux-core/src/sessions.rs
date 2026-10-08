@@ -187,7 +187,9 @@ impl SessionStore {
     }
 }
 
-/// Snapshot the current real web tabs (skips terminal/files + flux:// pages).
+/// Snapshot the current real web tabs (skips terminal/files + flux:// pages,
+/// and private tabs: ephemeral by contract (see `FluxState::persist`), so never
+/// in a named session, the daily snapshots or, through sync, another device).
 pub(crate) fn snapshot(state: &FluxState) -> Vec<SavedTab> {
     // id → name, resolved once: a session spans every workspace, so this would
     // otherwise be a linear scan per tab.
@@ -199,7 +201,7 @@ pub(crate) fn snapshot(state: &FluxState) -> Vec<SavedTab> {
     state
         .ordered_tabs()
         .into_iter()
-        .filter(|t| matches!(t.kind, TabKind::Browser) && t.url.starts_with("http"))
+        .filter(|t| matches!(t.kind, TabKind::Browser) && !t.private && t.url.starts_with("http"))
         .map(|t| SavedTab {
             url: t.url,
             title: t.title,
@@ -379,6 +381,33 @@ mod tests {
         let s = store.save("Research".into(), vec![]);
         store.delete(s.id);
         assert!(store.tombstones().contains_key("Research"));
+    }
+
+    #[test]
+    fn private_tabs_never_reach_a_snapshot() {
+        let state = FluxState::new();
+        for (id, private) in [(1, false), (2, true)] {
+            state.tabs.insert(
+                id,
+                crate::state::TabMeta {
+                    id,
+                    kind: TabKind::Browser,
+                    url: format!("https://{id}.example/"),
+                    title: String::new(),
+                    pinned: false,
+                    cluster: None,
+                    group: None,
+                    folder: None,
+                    custom_title: None,
+                    workspace: 1,
+                    private,
+                    container: 0,
+                },
+            );
+            state.order_push(id);
+        }
+        let urls: Vec<_> = snapshot(&state).into_iter().map(|t| t.url).collect();
+        assert_eq!(urls, ["https://1.example/"]);
     }
 
     #[test]
