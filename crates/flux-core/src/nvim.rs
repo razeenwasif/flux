@@ -171,7 +171,7 @@ fn spawn_client(sock: &str, expression: &str) -> Result<std::process::Output, St
     if !socket_is_ours(sock) {
         return Err("not connected".into());
     }
-    let mut cmd = Command::new("nvim");
+    let mut cmd = Command::new(nvim_program());
     cmd.args(["--server", sock, "--remote-expr", expression]);
     run_bounded(cmd)
 }
@@ -189,6 +189,46 @@ fn socket_is_ours(sock: &str) -> bool {
         (Ok(s), Ok(h)) => s.file_type().is_socket() && s.uid() == h.uid(),
         _ => false,
     }
+}
+
+/// The `nvim` the editor column's shell runs, resolved once.
+///
+/// The column starts nvim in a PTY running the user's shell, whose PATH is
+/// Flux's own plus whatever the user's startup files add. This client is
+/// spawned by Flux itself, and a Dock-launched macOS app has launchd's PATH
+/// (`/usr/bin:/bin:/usr/sbin:/sbin`): no Homebrew, MacPorts or nix nvim. So ask
+/// the shell. `-lic` reads both the login files (`~/.zprofile`, where Homebrew's
+/// installer puts `brew shellenv`) and the rc files (`~/.zshrc`, `~/.bashrc`).
+/// Falls back to the bare name, which is what this always ran.
+#[cfg(not(windows))]
+fn nvim_program() -> &'static str {
+    static NVIM: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NVIM.get_or_init(|| {
+        // The same choice as `terminal::default_shell`.
+        let shell = std::env::var("FLUX_SHELL")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| std::env::var("SHELL").ok())
+            .unwrap_or_else(|| "/bin/sh".into());
+        let mut cmd = Command::new(shell);
+        cmd.args(["-lic", "command -v nvim"]);
+        run_bounded(cmd)
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| last_absolute_path(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or_else(|| "nvim".to_string())
+    })
+}
+
+/// The last line that is an absolute path: startup files are free to print
+/// banners, and `command -v` reports an alias as its definition.
+#[cfg(not(windows))]
+fn last_absolute_path(out: &str) -> Option<String> {
+    out.lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with('/'))
+        .last()
+        .map(str::to_string)
 }
 
 /// On the Windows build the editor was started from the MSYS2 terminal, so the
@@ -509,5 +549,19 @@ mod tests {
         assert!(!socket_is_ours(&path(&file)));
         assert!(!socket_is_ours(&path(&dir.join("missing.sock"))));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_shells_nvim_is_read_past_any_banner() {
+        // What `$SHELL -lic 'command -v nvim'` prints when an rc file greets you.
+        let out = "Welcome back!\n  /opt/homebrew/bin/nvim  \n";
+        assert_eq!(
+            last_absolute_path(out).as_deref(),
+            Some("/opt/homebrew/bin/nvim")
+        );
+        // Not found, or only an alias: fall back to the bare name.
+        assert_eq!(last_absolute_path(""), None);
+        assert_eq!(last_absolute_path("alias nvim='nvim -u NONE'\n"), None);
     }
 }
