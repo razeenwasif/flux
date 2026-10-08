@@ -46,7 +46,8 @@ pub struct TraceChats {
     inner: RwLock<ChatData>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
-    hydrated: AtomicBool,
+    /// The one-time disk load; concurrent callers wait for it (see snapshots.rs).
+    hydrated: std::sync::OnceLock<()>,
 }
 
 impl TraceChats {
@@ -59,9 +60,10 @@ impl TraceChats {
 
     /// Load from disk, exactly once (lazy, race-proof — see [`TraceStore::hydrate`]).
     pub fn hydrate(&self) {
-        if self.hydrated.swap(true, Ordering::AcqRel) {
-            return;
-        }
+        self.hydrated.get_or_init(|| self.load());
+    }
+
+    fn load(&self) {
         let Some(path) = &self.path else { return };
         let Some((loaded, was_plaintext)) = super::sealed::load_json::<ChatData>(path) else {
             return;

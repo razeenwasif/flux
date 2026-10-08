@@ -53,7 +53,10 @@ pub struct TraceDrafts {
     inner: RwLock<DraftData>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
-    hydrated: AtomicBool,
+    /// The one-time disk load; concurrent callers wait for it (see snapshots.rs).
+    /// A `put` or toggle that ran first made the loader drop the file, opt-in
+    /// setting included.
+    hydrated: std::sync::OnceLock<()>,
 }
 
 impl TraceDrafts {
@@ -66,9 +69,10 @@ impl TraceDrafts {
 
     /// Load from disk, exactly once (lazy, race-proof — see `TraceStore::hydrate`).
     pub fn hydrate(&self) {
-        if self.hydrated.swap(true, Ordering::AcqRel) {
-            return;
-        }
+        self.hydrated.get_or_init(|| self.load());
+    }
+
+    fn load(&self) {
         let Some(path) = &self.path else { return };
         let Some((loaded, was_plaintext)) = super::sealed::load_json::<DraftData>(path) else {
             return;
@@ -321,5 +325,48 @@ mod tests {
         s.forget_visits(&std::collections::HashSet::from([1]));
         assert!(s.get(1).is_empty());
         assert!(!s.get(2).is_empty(), "unrelated visit kept");
+    }
+
+    #[test]
+    fn a_put_racing_the_boot_hydrate_keeps_drafts_and_the_opt_in() {
+        // A draft arriving while the boot thread loads drafts.json must wait for
+        // the load: the loader used to drop the whole file (opt-in included) if
+        // anything had been put first.
+        let dir = std::env::temp_dir().join(format!("flux-drafts-race-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("drafts.json");
+        let old = DraftData {
+            enabled: true,
+            // Under the visit cap, so the new draft evicts nothing.
+            drafts: (0..200)
+                .map(|v| {
+                    let d = Draft {
+                        field: "comment".into(),
+                        text: "d".repeat(1000),
+                        ms: 1,
+                    };
+                    (v, vec![d])
+                })
+                .collect(),
+        };
+        // Legacy plaintext, so loading it never touches the keychain.
+        std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        for _ in 0..20 {
+            let s = std::sync::Arc::new(TraceDrafts::empty(path.clone()));
+            let go = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let boot = {
+                let (s, go) = (s.clone(), go.clone());
+                std::thread::spawn(move || {
+                    go.wait();
+                    s.hydrate();
+                })
+            };
+            go.wait();
+            s.put(9999, "comment".into(), "a fresh draft".into());
+            boot.join().unwrap();
+            assert!(s.enabled(), "the opt-in survives");
+            assert_eq!(s.get(0).len(), 1, "loaded drafts survive");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

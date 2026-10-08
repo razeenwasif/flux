@@ -86,7 +86,10 @@ pub struct TraceSnapshots {
     embedder: std::sync::Arc<std::sync::OnceLock<crate::embedding::Embedder>>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
-    hydrated: AtomicBool,
+    /// The one-time disk load. Concurrent callers WAIT for it (as with
+    /// `TraceStore`'s `Once`): an `add` that ran on the not-yet-loaded store
+    /// made the loader discard the whole corpus for the next flush to seal.
+    hydrated: std::sync::OnceLock<()>,
     /// Bumped on every `add`/`forget_visits` change — the KB auto-reindex
     /// debouncer watches this to fold settled browsing into the `web` source.
     generation: std::sync::atomic::AtomicU64,
@@ -99,7 +102,7 @@ impl TraceSnapshots {
             embedder: std::sync::Arc::new(std::sync::OnceLock::new()),
             path: Some(path),
             dirty: AtomicBool::new(false),
-            hydrated: AtomicBool::new(false),
+            hydrated: std::sync::OnceLock::new(),
             generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -113,9 +116,10 @@ impl TraceSnapshots {
     /// Load from disk, exactly once (lazily invoked from every entry point, same
     /// race-proofing as [`TraceStore::hydrate`]).
     pub fn hydrate(&self) {
-        if self.hydrated.swap(true, Ordering::AcqRel) {
-            return;
-        }
+        self.hydrated.get_or_init(|| self.load());
+    }
+
+    fn load(&self) {
         let Some(path) = &self.path else { return };
         let Some((loaded, was_plaintext)) = super::sealed::load_json::<SnapshotData>(path) else {
             return;
@@ -277,7 +281,7 @@ impl TraceSnapshots {
             embedder: std::sync::Arc::new(cell),
             path: None,
             dirty: AtomicBool::new(false),
-            hydrated: AtomicBool::new(true),
+            hydrated: std::sync::OnceLock::from(()),
             generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -413,5 +417,50 @@ mod tests {
         }
         assert_eq!(snaps.inner.read().snapshots.len(), MAX_SNAPSHOTS);
         assert!(snaps.get(first).is_none(), "oldest snapshot was evicted");
+    }
+
+    #[test]
+    fn an_add_racing_the_boot_hydrate_keeps_the_corpus() {
+        // A dwell capture landing while the boot thread loads snapshots.json
+        // must wait for the load, not add to the empty store (the loader then
+        // discarded every snapshot, and new ids collided with persisted ones).
+        let dir = std::env::temp_dir().join(format!("flux-snaps-race-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("snapshots.json");
+        let old = SnapshotData {
+            snapshots: (0..300)
+                .map(|i| Snapshot {
+                    id: i,
+                    visit_id: i,
+                    url: format!("https://{i}.dev/"),
+                    title: String::new(),
+                    saved_ms: 1,
+                    text: "t".repeat(200),
+                    embedding: Vec::new(),
+                    embedder: crate::embedding::Embedder::Hash,
+                })
+                .collect(),
+            next_id: 300,
+        };
+        // Legacy plaintext, so loading it never touches the keychain.
+        std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        for _ in 0..20 {
+            let snaps = std::sync::Arc::new(TraceSnapshots::empty(path.clone()));
+            let _ = snaps.embedder_cell().set(crate::embedding::Embedder::Hash);
+            let go = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let boot = {
+                let (snaps, go) = (snaps.clone(), go.clone());
+                std::thread::spawn(move || {
+                    go.wait();
+                    snaps.hydrate();
+                })
+            };
+            go.wait();
+            let id = snaps.add(999, "https://new/".into(), "N".into(), "n".into(), vec![]);
+            boot.join().unwrap();
+            assert_eq!(id, 300, "ids continue from the persisted next_id");
+            assert_eq!(snaps.web_docs().len(), 301, "the loaded corpus survives");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
