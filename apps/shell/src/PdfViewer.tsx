@@ -28,7 +28,14 @@ import {
 import { ocrAvailable, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
 import { ocrDocument } from "./pdftext";
 import { tabs, updateTabTitle } from "./store";
-import { DEFAULT_SCALE, loadDocState, saveDocState, type PdfBookmark, type PdfComment } from "./pdfstate";
+import {
+  DEFAULT_SCALE,
+  loadDocState,
+  saveDocState,
+  viewerSrc,
+  type PdfBookmark,
+  type PdfComment,
+} from "./pdfstate";
 
 // ─── Annotation model (all geometry in PDF points, origin top-left, y-down) ──
 type Tool = "pan" | "highlight" | "pen" | "text" | "rect" | "arrow" | "erase";
@@ -186,18 +193,9 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   // Drag context for the in-progress annotation.
   let drag: { page: number; rect: DOMRect; w: number; h: number } | null = null;
 
-  const parseSrc = () => {
-    // THIS tab's url — not the active tab's. Reading activeTab() here is what
-    // made every PDF tab render whichever file was opened last.
-    const url = tabs().find((t) => t.id === props.tabId)?.url ?? "";
-    const q = url.split("?")[1] ?? "";
-    const s = new URLSearchParams(q).get("src");
-    try {
-      return s ? decodeURIComponent(s) : "";
-    } catch {
-      return s ?? "";
-    }
-  };
+  // THIS tab's url — not the active tab's. Reading activeTab() here is what
+  // made every PDF tab render whichever file was opened last.
+  const parseSrc = () => viewerSrc(tabs().find((t) => t.id === props.tabId)?.url ?? "");
   const filename = () => {
     const tail = (src().split(/[?#]/)[0] ?? "").split("/").pop() || "PDF";
     try {
