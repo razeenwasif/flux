@@ -257,7 +257,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
     }, 600_000),
   );
   const [picker, setPicker] = createSignal(false);
-  const [address, setAddress] = createSignal("");
+  // null = not editing: show the active tab's URL. "" is a real (emptied) edit
+  // and must stay empty instead of snapping back to the URL.
+  const [address, setAddress] = createSignal<string | null>(null);
   const [panel, setPanel] = createSignal<FooterPanel>(null);
   // Split-view picker (#43 follow-up) — choose which open tab tiles beside this one.
   // Store-backed so the webview-gating effects can hide the page beneath it.
@@ -801,7 +803,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
   // Show the "Ask Omni" affordance for a real query (not a URL / flux:// page).
   const canAsk = () => {
-    const q = address().trim();
+    const q = (address() ?? "").trim();
     return q.length > 2 && !q.startsWith("flux://") && !/^[a-z]+:\/\//i.test(q);
   };
 
@@ -876,7 +878,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const chooseSuggestion = async (s: Suggestion) => {
     closeSuggest();
     clearOmniAns();
-    setAddress("");
+    setAddress(null);
     if (s.url) props.onNavigate(s.url);
     else {
       const { url } = await searchResolve(s.label);
@@ -888,7 +890,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const n = suggestions().length;
     if (e.key === "Enter" && e.altKey) {
       e.preventDefault();
-      startOmniAnswer(address());
+      startOmniAnswer(address() ?? "");
     } else if (e.key === "ArrowDown" && n) {
       e.preventDefault();
       setSelIdx((i) => (i + 1) % n);
@@ -898,6 +900,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     } else if (e.key === "Escape") {
       closeSuggest();
       clearOmniAns();
+      setAddress(null); // revert to the page URL
     } else if (e.key === "Enter") {
       const s = suggestions()[selIdx()];
       if (s) {
@@ -911,9 +914,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
     e.preventDefault();
     closeSuggest();
     clearOmniAns();
-    const v = address().trim();
+    const v = (address() ?? "").trim();
     if (!v) return;
-    setAddress("");
+    setAddress(null);
     // `flux://…` internal pages (e.g. the Omni dashboard) bypass search.
     if (v.startsWith("flux://")) {
       props.onNavigate(v);
@@ -1114,7 +1117,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <input
             id="flux-address"
             class="address"
-            value={address() || currentUrl()}
+            value={address() ?? currentUrl()}
             onInput={(e) => onAddressInput(e.currentTarget.value)}
             onFocus={(e) => {
               e.currentTarget.select();
@@ -1222,12 +1225,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   class="omni-sug omni-ask"
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    startOmniAnswer(address());
+                    startOmniAnswer(address() ?? "");
                   }}
                 >
                   <span class="omni-sug-icon">✦</span>
                   <span class="omni-sug-text">
-                    <span class="omni-sug-label">Ask Omni: {address().trim()}</span>
+                    <span class="omni-sug-label">Ask Omni: {(address() ?? "").trim()}</span>
                     <span class="omni-sug-sub">grounded answer from your index · Alt+Enter</span>
                   </span>
                 </button>
