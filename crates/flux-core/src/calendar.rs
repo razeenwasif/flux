@@ -481,8 +481,8 @@ const MAX_OCCURRENCES: usize = 400;
 
 /// Parse all VEVENTs into the widget's events, expanding RRULE recurrences within
 /// the window. Handles FREQ=DAILY/WEEKLY/MONTHLY with INTERVAL/COUNT/UNTIL,
-/// BYDAY (weekly), and EXDATE — which covers essentially all Google-Calendar
-/// recurring events.
+/// BYDAY (weekly, and monthly with its ordinal and BYSETPOS), and EXDATE —
+/// which covers essentially all Google-Calendar recurring events.
 fn parse_events(ics: &str, cal_name: &str, utc_offset_min: i64) -> Vec<CalEvent> {
     parse_events_at_tz(ics, cal_name, today_epoch_days(), utc_offset_min)
 }
@@ -934,6 +934,12 @@ fn emit_occurrences(
     let mut count: Option<usize> = None;
     let mut until: Option<i64> = None;
     let mut bydays: Vec<i64> = Vec::new();
+    // BYDAY with its ordinal kept — `2TU` → (2, Tue), `-1FR` → (-1, Fri) — which
+    // is what a MONTHLY rule means by it.
+    let mut byday_ord: Vec<(i64, i64)> = Vec::new();
+    // BYSETPOS picks among a month's BYDAY candidates (`BYDAY=MO,TU,WE,TH,FR;
+    // BYSETPOS=-1` is "the last weekday of the month").
+    let mut bysetpos: Vec<i64> = Vec::new();
     for part in rrule.split(';') {
         let Some((k, v)) = part.split_once('=') else {
             continue;
@@ -951,10 +957,18 @@ fn emit_occurrences(
             "INTERVAL" => interval = v.parse().unwrap_or(1).max(1),
             "COUNT" => count = v.parse().ok(),
             "UNTIL" => until = parse_dt(v).map(|p| p.days),
-            "BYDAY" => bydays = v.split(',').filter_map(parse_weekday).collect(),
+            "BYDAY" => {
+                bydays = v.split(',').filter_map(parse_weekday).collect();
+                byday_ord = v.split(',').filter_map(parse_byday_ord).collect();
+            }
+            "BYSETPOS" => bysetpos = v.split(',').filter_map(|p| p.trim().parse().ok()).collect(),
             _ => {}
         }
     }
+    // COUNT is counted in date order, so a week's days must be visited in it
+    // (Google writes "every weekday" as `BYDAY=FR,MO,TH,TU,WE`).
+    bydays.sort_unstable();
+    bydays.dedup();
     let until = until.unwrap_or(hi).min(hi);
     let mut emitted = 0usize;
     let mut cap = MAX_OCCURRENCES;
@@ -1028,19 +1042,43 @@ fn emit_occurrences(
                     i = (lo_month - start_month) / interval;
                 }
             }
-            loop {
+            'months: loop {
                 let total = (y * 12 + (m as i64 - 1)) + i * interval;
                 let (yy, mm) = (total.div_euclid(12), (total.rem_euclid(12) + 1) as u32);
-                let dd = d.min(days_in_month(yy, mm));
-                let day = days_from_civil(yy, mm, dd);
-                if day > until || cap == 0 {
+                if days_from_civil(yy, mm, 1) > until || cap == 0 {
                     break;
                 }
-                if !bump(day, out) {
-                    break;
+                // `BYDAY=2TU` is "the second Tuesday", not DTSTART's day-of-month.
+                let mut days: Vec<i64> = if byday_ord.is_empty() {
+                    vec![days_from_civil(yy, mm, d.min(days_in_month(yy, mm)))]
+                } else {
+                    byday_ord
+                        .iter()
+                        .flat_map(|&(n, wd)| month_bydays(yy, mm, n, wd))
+                        .map(|dd| days_from_civil(yy, mm, dd))
+                        .collect()
+                };
+                days.sort_unstable();
+                days.dedup();
+                if !byday_ord.is_empty() && !bysetpos.is_empty() {
+                    let all = std::mem::take(&mut days);
+                    days = bysetpos.iter().filter_map(|&p| nth_of(&all, p)).collect();
+                    days.sort_unstable();
+                    days.dedup();
+                }
+                for day in days {
+                    if day < s.days {
+                        continue; // before DTSTART in its first month
+                    }
+                    if day > until || !bump(day, out) {
+                        break 'months;
+                    }
+                    cap -= 1;
+                    if cap == 0 {
+                        break 'months;
+                    }
                 }
                 i += 1;
-                cap -= 1;
             }
         }
         "YEARLY" => {
@@ -1078,6 +1116,39 @@ fn parse_weekday(tok: &str) -> Option<i64> {
         "SA" => 6,
         _ => return None,
     })
+}
+
+/// BYDAY token with its ordinal: `2TU` → (2, 2), `-1FR` → (-1, 5), `MO` → (0, 1).
+fn parse_byday_ord(tok: &str) -> Option<(i64, i64)> {
+    let t = tok.trim();
+    let split = t.find(|c: char| c.is_ascii_alphabetic())?;
+    let n = match t[..split].trim_start_matches('+') {
+        "" => 0,
+        s => s.parse().ok()?,
+    };
+    Some((n, parse_weekday(&t[split..])?))
+}
+
+/// The `n`th element (1-based; negative counts from the end), if there is one.
+fn nth_of<T: Copy>(all: &[T], n: i64) -> Option<T> {
+    let idx = if n > 0 {
+        usize::try_from(n - 1).ok()?
+    } else {
+        let back = usize::try_from(n.unsigned_abs()).ok()?;
+        all.len().checked_sub(back)?
+    };
+    all.get(idx).copied()
+}
+
+/// Days of month `m` falling on weekday `wd`: the `n`th one (counted from the
+/// end when negative), or all of them when `n == 0`.
+fn month_bydays(y: i64, m: u32, n: i64, wd: i64) -> Vec<u32> {
+    let first = 1 + (wd - weekday(days_from_civil(y, m, 1))).rem_euclid(7) as u32;
+    let all: Vec<u32> = (first..=days_in_month(y, m)).step_by(7).collect();
+    if n == 0 {
+        return all;
+    }
+    nth_of(&all, n).into_iter().collect()
 }
 
 /// Weekday of an epoch-day index, 0=Sunday..6=Saturday.
@@ -1773,6 +1844,40 @@ LOCATION:Room 4\r\nEND:VEVENT";
         assert!(ev
             .iter()
             .all(|e| e.summary == "Class" && e.date != "2026-06-03"));
+    }
+
+    fn dates_of(ics: &str) -> Vec<String> {
+        let ev = parse_events_at(ics, "W", day(2026, 6, 1));
+        ev.into_iter().map(|e| e.date).collect()
+    }
+
+    #[test]
+    fn monthly_byday_means_the_nth_weekday() {
+        // Google's "Monthly on the second Tuesday", not "the 9th of each month".
+        let second_tue = "BEGIN:VEVENT\r\nSUMMARY:Dept\r\nDTSTART:20260609T100000\r\n\
+RRULE:FREQ=MONTHLY;BYDAY=2TU;COUNT=3\r\nEND:VEVENT";
+        assert_eq!(
+            dates_of(second_tue),
+            ["2026-06-09", "2026-07-14", "2026-08-11"]
+        );
+        // Outlook's "last weekday of the month" is one day a month, not twenty.
+        let last_weekday = "BEGIN:VEVENT\r\nSUMMARY:Report\r\nDTSTART:20260630T090000\r\n\
+RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1;COUNT=3\r\nEND:VEVENT";
+        assert_eq!(
+            dates_of(last_weekday),
+            ["2026-06-30", "2026-07-31", "2026-08-31"]
+        );
+    }
+
+    #[test]
+    fn weekly_count_follows_the_calendar_not_the_byday_order() {
+        // Google writes "every weekday" as FR,MO,TH,TU,WE.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Gym\r\nDTSTART:20260601T070000\r\n\
+RRULE:FREQ=WEEKLY;BYDAY=FR,MO,TH,TU,WE;COUNT=7\r\nEND:VEVENT";
+        let mut got = dates_of(ics);
+        got.sort();
+        let want = ["01", "02", "03", "04", "05", "08", "09"].map(|d| format!("2026-06-{d}"));
+        assert_eq!(got, want);
     }
 
     #[test]
