@@ -1779,6 +1779,11 @@ const App: Component = () => {
     });
     return (320 * 10000) / Math.min(...rects.map((r) => r.width)) + 24;
   }, 0);
+  /** The narrowest the page card may get. fitLayout sheds columns to keep it,
+   *  and the editor seam (ContentArea) must not drag the page below it. */
+  const pageMinimum = createMemo(() =>
+    Math.max(activeTab()?.url === SETTINGS_URL ? 720 : 560, tileMinimum()),
+  );
   const layoutIntent = () => ({
     sidebar: sidebarOpen(),
     agent: agentOpen(),
@@ -1802,8 +1807,7 @@ const App: Component = () => {
         bars: false,
         editor: false,
       };
-    const pageMinimum = Math.max(activeTab()?.url === SETTINGS_URL ? 720 : 560, tileMinimum());
-    return fitLayout(winW(), pageMinimum, editorColRatio(), want, {
+    return fitLayout(winW(), pageMinimum(), editorColRatio(), want, {
       sidebar: sidebarW(),
       stack: stackW(),
       panel: panelWidth(),
@@ -1986,6 +1990,7 @@ const App: Component = () => {
       </Show>
       <ContentArea
         editorVisible={responsive().editor}
+        pageMinimum={pageMinimum()}
         onNavigate={go}
         onNewTerminal={() => void openTab("terminal")}
         onToggleAgent={() => setAgentOpen(true)}
