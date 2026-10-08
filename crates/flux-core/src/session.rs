@@ -4,7 +4,8 @@
 //! too — a tiny JSON file in the app data dir, rewritten whenever tabs change
 //! (create/close/pin/focus/navigate). On boot `FluxState::restore` reads it back
 //! so you "continue where you left off". Best-effort throughout: a missing or
-//! corrupt file just yields an empty session, never an error.
+//! corrupt file just yields an empty session, never an error (a corrupt one is
+//! copied aside first, since the next tab change rewrites the file).
 
 use std::path::Path;
 
@@ -44,10 +45,7 @@ pub struct Session {
 }
 
 pub fn load(path: &Path) -> Session {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    crate::persist::load_json_or_quarantine(path).unwrap_or_default()
 }
 
 pub fn save(path: &Path, session: &Session) {
@@ -106,6 +104,25 @@ mod tests {
         assert!(load(Path::new("/no/such/flux-session.json"))
             .tabs
             .is_empty());
+    }
+
+    #[test]
+    fn a_session_from_a_newer_build_is_kept_aside() {
+        let dir = std::env::temp_dir().join(format!("flux-sess-{}-c", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session.json");
+        // A tab kind this build doesn't know fails the whole parse.
+        let newer = r#"{"tabs":[{"id":1,"kind":"hologram","url":"x","title":"",
+            "pinned":false,"cluster":null}],"active":1,"next_id":2}"#;
+        std::fs::write(&path, newer).unwrap();
+        assert!(load(&path).tabs.is_empty());
+        let kept: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
+        assert_eq!(kept.len(), 2, "the file and its copy");
+        assert!(kept
+            .iter()
+            .all(|e| std::fs::read_to_string(e.path()).unwrap() == newer));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

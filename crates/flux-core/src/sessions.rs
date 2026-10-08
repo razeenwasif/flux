@@ -66,16 +66,17 @@ pub struct SessionStore {
 impl SessionStore {
     pub fn restore(path: PathBuf) -> Self {
         // Tolerant load: `{items,tombstones}` envelope or a legacy bare array.
-        let (items, tombstones) = std::fs::read_to_string(&path)
-            .ok()
-            .map(|s| match serde_json::from_str::<Persisted>(&s) {
-                Ok(p) => (p.items, p.tombstones),
-                Err(_) => (
-                    serde_json::from_str::<Vec<SavedSession>>(&s).unwrap_or_default(),
-                    Default::default(),
-                ),
-            })
-            .unwrap_or_default();
+        // Neither: kept aside, or the next save would replace every named
+        // session with an empty list.
+        let (items, tombstones) = crate::persist::load_or_quarantine(&path, |b| {
+            match serde_json::from_slice::<Persisted>(b) {
+                Ok(p) => Ok((p.items, p.tombstones)),
+                Err(e) => serde_json::from_slice::<Vec<SavedSession>>(b)
+                    .map(|legacy| (legacy, Default::default()))
+                    .map_err(|_| e.to_string()),
+            }
+        })
+        .unwrap_or_default();
         let next = items.iter().map(|s| s.id).max().map(|m| m + 1).unwrap_or(1);
         Self {
             items: RwLock::new(items),
@@ -229,10 +230,7 @@ pub struct SnapshotStore {
 
 impl SnapshotStore {
     pub fn restore(path: PathBuf) -> Self {
-        let snaps = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let snaps = crate::persist::load_json_or_quarantine(&path).unwrap_or_default();
         Self {
             snaps: RwLock::new(snaps),
             path: Some(path),
