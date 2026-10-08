@@ -4,9 +4,14 @@
 //! the webview CSP doesn't block `http://localhost`) and forward each frame over a
 //! Tauri Channel. If the helper isn't running we start it once and retry.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::ipc::Channel;
+
+/// At most one helper launch per this long. The frontend reconnects every ~7 s
+/// while music plays, and a missing helper used to be re-spawned on every try.
+const START_EVERY: Duration = Duration::from_secs(60);
+static LAST_START: parking_lot::Mutex<Option<Instant>> = parking_lot::Mutex::new(None);
 
 fn base() -> String {
     std::env::var("FLUX_AUDIOVIZ_URL")
@@ -18,8 +23,16 @@ fn base() -> String {
 }
 
 /// Best-effort launch of the helper (it backgrounds itself by being long-running;
-/// we spawn-and-don't-wait, like the other managed services).
+/// we spawn-and-don't-wait, like the other managed services). Reaped, so a helper
+/// that exits, or a missing one (`sh -lc audioviz` → 127), leaves no zombie.
 fn start_helper() {
+    {
+        let mut last = LAST_START.lock();
+        if last.is_some_and(|t| t.elapsed() < START_EVERY) {
+            return;
+        }
+        *last = Some(Instant::now());
+    }
     let cmd = std::env::var("FLUX_AUDIOVIZ_START")
         .ok()
         .filter(|v| !v.trim().is_empty())
@@ -33,7 +46,9 @@ fn start_helper() {
         use std::os::windows::process::CommandExt;
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let _ = c.spawn();
+    if let Err(e) = crate::exec::spawn_reaped(&mut c) {
+        tracing::debug!(target: "flux::audioviz", error = %e, "couldn't start the audioviz helper");
+    }
 }
 
 /// Stream audio levels to `on_frame` as JSON strings (`{e,bass,mid,treble}`) until
