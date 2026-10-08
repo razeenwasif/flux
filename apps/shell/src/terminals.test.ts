@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { activeTerminalText, registerTerminal, setActiveTerminal, unregisterTerminal } from "./terminals";
+import {
+  activeTerminalText,
+  clipBlock,
+  registerTerminal,
+  setActiveTerminal,
+  unregisterTerminal,
+} from "./terminals";
 
 /** Enough of xterm for the registry: a buffer of lines it can read back. */
 function fakeTerm(lines: string[]) {
@@ -69,5 +75,29 @@ describe("terminal registry", () => {
     registerTerminal(SHELL, fakeTerm(["shell"]), true);
     unregisterTerminal(SHELL);
     expect(activeTerminalText()?.session).toBe(EDITOR);
+  });
+});
+
+describe("a failed command's block, for Explain/Fix", () => {
+  it("is passed whole when it fits", () => {
+    expect(clipBlock(["$ ls nope", "ls: nope: No such file or directory"])).toBe(
+      "$ ls nope\nls: nope: No such file or directory",
+    );
+  });
+
+  it("keeps the command and the error that ends a long run", () => {
+    // A two-line prompt (starship's default) puts the command on the 3rd row:
+    // the OSC 133 A mark lands on the blank row before it.
+    const lines = [
+      "",
+      "~/proj on main",
+      "❯ cargo build",
+      ...Array.from({ length: 120 }, (_, i) => `warning: unused variable \`x${i}\` --> src/lib.rs:${i}:9`),
+      "error[E0308]: mismatched types",
+    ];
+    const out = clipBlock(lines);
+    expect(out.length).toBeLessThanOrEqual(4000);
+    expect(out).toContain("❯ cargo build");
+    expect(out.endsWith("error[E0308]: mismatched types")).toBe(true);
   });
 });

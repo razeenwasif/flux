@@ -96,6 +96,19 @@ export function activeTerminalLinesFrom(startLine: number, maxLines = 200): stri
   return lines.join("\n");
 }
 
+/** A finished command's rows (prompt, command, output) as text for the agent,
+ *  within `max` characters. Over budget it keeps the first rows AND the end:
+ *  compilers, test runners and tracebacks print the decisive error last, so the
+ *  head alone gave Explain/Fix the warnings but not the failure. Three rows, not
+ *  one: the OSC 133 A mark lands before PS1 prints, so a multi-line prompt
+ *  (starship's default, p10k) puts the command on the 2nd or 3rd row. */
+export function clipBlock(lines: string[], max = 4000): string {
+  const text = lines.join("\n");
+  if (text.length <= max) return text;
+  const head = lines.slice(0, 3).join("\n").slice(0, 600);
+  return `${head}\n…\n${text.slice(-(max - head.length - 3))}`;
+}
+
 /** Type a command into the active terminal and run it (Enter = `\r`). Opens a
  *  terminal first if none is live. Returns the session it ran in, or null if no
  *  terminal could be brought up. */

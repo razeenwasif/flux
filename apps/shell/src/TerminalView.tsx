@@ -24,7 +24,13 @@ import {
   termPersist,
   type TermPersist,
 } from "./ipc";
-import { registerTerminal, setActiveTerminal, takePendingCommand, unregisterTerminal } from "./terminals";
+import {
+  clipBlock,
+  registerTerminal,
+  setActiveTerminal,
+  takePendingCommand,
+  unregisterTerminal,
+} from "./terminals";
 import { openTab } from "./store";
 import { speak, stopSpeaking } from "./speak";
 import LiquidBackground from "./LiquidBackground";
@@ -307,7 +313,9 @@ const TerminalView: Component<{
       const lines: string[] = [];
       for (let i = prev; i < cur; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? "");
       while (lines.length && !lines[lines.length - 1]!.trim()) lines.pop();
-      return lines.join("\n").slice(0, 4000);
+      // Head AND tail when it's long: the error a build or test run ends on is
+      // what Explain/Fix are about, and the first 4000 chars cut it off.
+      return clipBlock(lines);
     };
     // Explain the failure (chat) — shown in an overlay.
     explainRef = () => {
