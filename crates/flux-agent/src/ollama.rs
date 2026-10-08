@@ -291,10 +291,28 @@ const DEFAULT_NUM_CTX: u32 = 4096;
 pub(crate) const MAX_AUTO_CTX: u32 = 16384;
 
 /// An explicit user override, which always wins over auto-sizing.
+///
+/// `num_ctx` in `FLUX_OLLAMA_OPTIONS` counts too, and wins: `merge_options`
+/// lets it override what we send, so the room arithmetic must use the same
+/// number — and it is the knob the "no room left" error tells the user to turn.
 fn num_ctx_override() -> Option<u32> {
-    std::env::var("FLUX_OLLAMA_NUM_CTX")
-        .ok()
-        .and_then(|s| s.parse().ok())
+    pick_num_ctx(
+        extra_options().as_ref(),
+        std::env::var("FLUX_OLLAMA_NUM_CTX").ok().as_deref(),
+    )
+}
+
+/// [`num_ctx_override`]'s precedence, pure so it's testable without touching the
+/// process environment: OPTIONS first, as `merge_options` applies it on the wire.
+fn pick_num_ctx(
+    options: Option<&serde_json::Map<String, serde_json::Value>>,
+    num_ctx_env: Option<&str>,
+) -> Option<u32> {
+    options
+        .and_then(|o| o.get("num_ctx"))
+        .and_then(|n| n.as_u64())
+        .and_then(|n| u32::try_from(n).ok())
+        .or_else(|| num_ctx_env.and_then(|s| s.parse().ok()))
 }
 
 /// The context window a request will get: the user's override, else the ceiling
@@ -977,6 +995,25 @@ mod tests {
         assert_eq!(merged["num_ctx"], 8192, "extra options override defaults");
         assert_eq!(merged["draft_model"], "gemma4:2b", "new knobs pass through");
         assert_eq!(merged["temperature"], 0.1, "untouched defaults survive");
+    }
+
+    /// The "no room left" error tells the user to set `num_ctx` in
+    /// FLUX_OLLAMA_OPTIONS, and that is what Ollama receives — so the room
+    /// arithmetic has to use it too, or following the advice changes nothing.
+    #[test]
+    fn options_num_ctx_drives_the_context_arithmetic() {
+        let opts = |v: serde_json::Value| v.as_object().cloned();
+        let big = opts(serde_json::json!({ "num_ctx": 32768 }));
+        assert_eq!(pick_num_ctx(big.as_ref(), None), Some(32768));
+        // The same precedence as on the wire: OPTIONS beats FLUX_OLLAMA_NUM_CTX.
+        assert_eq!(pick_num_ctx(big.as_ref(), Some("8192")), Some(32768));
+        let sent = merge_options(serde_json::json!({ "num_ctx": 8192 }), big.clone());
+        assert_eq!(sent["num_ctx"], 32768);
+        // Without it, the dedicated variable still applies; with neither,
+        // nothing overrides auto-sizing.
+        let other = opts(serde_json::json!({ "temperature": 0.2 }));
+        assert_eq!(pick_num_ctx(other.as_ref(), Some("8192")), Some(8192));
+        assert_eq!(pick_num_ctx(None, None), None);
     }
 
     #[test]
