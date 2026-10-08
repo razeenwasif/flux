@@ -189,6 +189,11 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   let pdfDoc: any = null;
   const canvases: (HTMLCanvasElement | undefined)[] = [];
   let renderToken = 0;
+  /** Pages within ~1.5 viewports of the visible area, the only ones that hold a
+   *  bitmap: each is w×h×4 bytes at scale × DPR (≈11 MB for A4 at 2x), so painting
+   *  a 300-page paper eagerly pinned gigabytes, and every zoom step redid it all. */
+  const nearPages = new Set<number>();
+  let io: IntersectionObserver | undefined;
   let annotId = 1;
   // Drag context for the in-progress annotation.
   let drag: { page: number; rect: DOMRect; w: number; h: number } | null = null;
@@ -370,7 +375,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     const canvas = canvases[pageNo - 1];
     if (!pdfDoc || !canvas) return;
     const page = await pdfDoc.getPage(pageNo);
-    if (token !== renderToken) return;
+    if (token !== renderToken || !nearPages.has(pageNo)) return; // superseded, or scrolled away
     // PDF.js throws on a second render() into a canvas it is still painting, and
     // Ctrl+wheel starts a new pass per tick: cancel the superseded one first (it
     // also stops drawing before the canvas is resized under it).
@@ -389,6 +394,25 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       if ((e as { name?: string } | null)?.name !== "RenderingCancelledException") throw e;
     } finally {
       if (renderTasks[pageNo - 1] === task) renderTasks[pageNo - 1] = undefined;
+    }
+  };
+  /** IntersectionObserver callback: paint a page as it comes near, free it once far. */
+  const onNear = (entries: IntersectionObserverEntry[]) => {
+    for (const e of entries) {
+      const p = pageEls.indexOf(e.target as HTMLDivElement) + 1;
+      if (p <= 0) continue;
+      if (e.isIntersecting) {
+        if (nearPages.has(p)) continue;
+        nearPages.add(p);
+        if (ready()) void renderPage(p, renderToken).catch(() => {});
+      } else if (nearPages.delete(p)) {
+        renderTasks[p - 1]?.cancel();
+        const c = canvases[p - 1];
+        if (c) {
+          c.width = 0; // releases the backing store now; re-rendered on approach
+          c.height = 0;
+        }
+      }
     }
   };
 
@@ -430,7 +454,8 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   };
 
   onMount(load);
-  // Re-render every page when the doc reloads or the zoom changes.
+  // Re-render the pages near the viewport when the doc reloads or the zoom
+  // changes; the observer (onNear) paints the rest as they come near.
   createEffect(() => {
     if (!ready()) return;
     docVersion();
@@ -438,9 +463,11 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     pages();
     const token = ++renderToken;
     void (async () => {
-      for (const p of pages()) {
+      for (const p of [...nearPages].sort((a, b) => a - b)) {
         if (token !== renderToken) return;
-        await renderPage(p, token);
+        if (!nearPages.has(p)) continue; // scrolled away meanwhile
+        // One page that fails (or is cancelled by a reload) must not stop the rest.
+        await renderPage(p, token).catch(() => {});
       }
       if (token !== renderToken) return;
       // The page wrappers are sized from `dims × scale`, so they have their
@@ -453,7 +480,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
         if (want > 1 || anchorOnRerender) scrollToPage(want, "auto");
         anchorOnRerender = false;
       });
-    })().catch(() => {}); // a render cancelled by destroy() on reload / unmount
+    })();
   });
 
   // ── Scroll position ────────────────────────────────────────────────────────
@@ -1348,6 +1375,8 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
           onScroll={onScroll}
           ref={(el) => {
             wrapEl = el;
+            io = new IntersectionObserver(onNear, { root: el, rootMargin: "150% 0px" });
+            onCleanup(() => io?.disconnect());
             // Registered by hand and non-passive: a passive listener cannot
             // preventDefault, and without that the engine zooms the whole
             // chrome out from under the document.
@@ -1363,7 +1392,14 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
               return (
                 <div
                   class="pdf-page-wrap"
-                  ref={(el) => (pageEls[p - 1] = el)}
+                  ref={(el) => {
+                    pageEls[p - 1] = el;
+                    io?.observe(el);
+                    onCleanup(() => {
+                      io?.unobserve(el);
+                      nearPages.delete(p); // a page-op removed this page
+                    });
+                  }}
                   style={{ width: `${cssW()}px`, height: `${cssH()}px` }}
                 >
                   <canvas class="pdf-page" ref={(el) => (canvases[p - 1] = el)} />
