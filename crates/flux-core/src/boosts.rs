@@ -6,7 +6,7 @@
 //! agent-authored path (it can't execute/exfiltrate); JS boosts are supported in
 //! the store for power users to add by hand, but the agent only ever writes CSS.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::RwLock;
@@ -69,15 +69,59 @@ impl Default for BoostStore {
     }
 }
 
+/// Move a boosts.json that can't be loaded aside, so the next save can't replace
+/// the user's boosts with an empty list. `false` if it couldn't be moved: the
+/// caller must then not save at all this run.
+fn set_aside(path: &Path, why: &str) -> bool {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    let mut name = path
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(".unreadable-{ms}"));
+    let aside = path.with_file_name(name);
+    match std::fs::rename(path, &aside) {
+        Ok(()) => {
+            tracing::error!(
+                target: "flux::boosts",
+                path = %path.display(),
+                aside = %aside.display(),
+                "boosts {why}; moved aside instead of being overwritten"
+            );
+            true
+        }
+        Err(e) => {
+            tracing::error!(
+                target: "flux::boosts",
+                path = %path.display(),
+                "boosts {why} and couldn't be moved aside ({e}); left untouched and not saved this run"
+            );
+            false
+        }
+    }
+}
+
 impl BoostStore {
+    /// Load the store. One bad entry fails the whole file (and hand-editing it is
+    /// how JS boosts get added), so a file that won't load is set aside rather
+    /// than silently treated as empty and overwritten by the next save.
     pub fn restore(path: PathBuf) -> Self {
-        let boosts: Vec<Boost> = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let (boosts, saving) = match std::fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice::<Vec<Boost>>(&bytes) {
+                Ok(boosts) => (boosts, true),
+                Err(e) => (Vec::new(), set_aside(&path, &format!("didn't parse ({e})"))),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
+            Err(e) => (
+                Vec::new(),
+                set_aside(&path, &format!("couldn't be read ({e})")),
+            ),
+        };
         let next = boosts.iter().map(|b| b.id).max().unwrap_or(0) + 1;
         Self {
-            path: Some(path),
+            path: saving.then_some(path),
             inner: RwLock::new(boosts),
             next_id: AtomicU64::new(next),
         }
@@ -350,5 +394,44 @@ mod tests {
         assert_eq!(s.list().len(), 1);
         s.set_enabled(b.id, false);
         assert_eq!(s.injection_for("a.com").0, "");
+    }
+
+    #[test]
+    fn unparseable_store_is_set_aside_not_overwritten() {
+        let dir = std::env::temp_dir().join(format!("flux-boosts-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("boosts.json");
+        // A hand-added JS boost without `enabled` fails the whole file.
+        let original = br#"[{"id":7,"host":"a.com","name":"js","js":"alert(1)"}]"#;
+        std::fs::write(&path, original).unwrap();
+
+        let s = BoostStore::restore(path.clone());
+        assert!(s.list().is_empty());
+        s.save(
+            None,
+            "b.com".into(),
+            "new".into(),
+            "x{}".into(),
+            String::new(),
+            true,
+        );
+
+        let aside: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("boosts.json.unreadable-")
+            })
+            .collect();
+        assert_eq!(aside.len(), 1, "the unparseable file is kept");
+        assert_eq!(std::fs::read(aside[0].path()).unwrap(), original);
+        // The new boost still saves, to the usual file.
+        let saved: Vec<Boost> =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
