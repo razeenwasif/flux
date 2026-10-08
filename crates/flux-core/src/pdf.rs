@@ -265,6 +265,20 @@ mod tests {
     }
 
     #[test]
+    fn reopening_a_pdf_keeps_its_ocr_transcript() {
+        // A 35-slide deck whose text layer covers 2 slides: the OCR run stored
+        // all 35, and the next open's text-layer publish used to replace them.
+        let store = PdfStore::default();
+        store.put(doc("all 35 slides", true));
+        assert!(!store.put(doc("slides 1-2", false)));
+        let kept = &store.list()[0];
+        assert!(kept.ocr && kept.text == "all 35 slides");
+        // A fresh OCR run still replaces the old one.
+        assert!(store.put(doc("all 35 slides, re-read", true)));
+        assert_eq!(store.list()[0].text, "all 35 slides, re-read");
+    }
+
+    #[test]
     fn the_store_persists_and_restores() {
         let dir = std::env::temp_dir().join(format!("flux-pdf-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -352,8 +366,9 @@ impl PdfStore {
     }
 
     /// Record a document in memory; persist with [`Self::persist`]. False when
-    /// nothing changed: every open re-publishes the same text, and re-stamping
-    /// `ts` (the KB's change key) re-embedded it and rewrote the whole store.
+    /// nothing was stored: every open re-publishes the same text, and
+    /// re-stamping `ts` (the KB's change key) re-embedded it and rewrote the
+    /// whole store.
     fn put(&self, doc: PdfDoc) -> bool {
         {
             let mut docs = self.docs.write();
@@ -361,6 +376,12 @@ impl PdfStore {
                 .get(&doc.src)
                 .is_some_and(|d| d.ocr == doc.ocr && d.title == doc.title && d.text == doc.text)
             {
+                return false;
+            }
+            // The OCR pass reads every page; a partly-scanned file's text layer
+            // only some. Re-opening the file republishes the text layer, which
+            // must not replace the OCR transcript the user waited for.
+            if !doc.ocr && docs.get(&doc.src).is_some_and(|d| d.ocr) {
                 return false;
             }
             docs.insert(doc.src.clone(), doc);
