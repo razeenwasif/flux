@@ -11,7 +11,7 @@
 //! Merge is an additive union (bookmarks by url+folder, sessions by name) — no
 //! deletion propagation in v1. Manual "Sync now".
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::aead::Aead;
@@ -73,6 +73,18 @@ fn sealed_part(blob: &[u8]) -> &[u8] {
     // A short or truncated file takes `open`'s "blob too short" error: slicing
     // past the end would panic, and release builds abort on panic.
     blob.get(MAGIC.len() + SALT_LEN..).unwrap_or(&[])
+}
+
+/// The blob, `None` only when there isn't one yet. Any other read failure (a
+/// cloud placeholder that can't download offline, a file the sync client has
+/// locked) is an error: read as "absent", it minted a fresh sync identity on
+/// unlock and pushed over the remote blob without ever merging it.
+fn read_blob(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    match std::fs::read(path) {
+        Ok(b) => Ok(Some(b)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("can't read {}: {e}", path.display())),
+    }
 }
 
 /// Most history to ship in the blob (bounded so a big local history doesn't bloat
@@ -289,7 +301,7 @@ pub fn sync_unlock(
         return Err("enter a passphrase".into());
     }
     let blob_path = state.blob_path().ok_or("set a sync folder first")?;
-    let existing = std::fs::read(&blob_path).ok();
+    let existing = read_blob(&blob_path)?;
     // Say what's wrong with a file that isn't a sync blob at all, rather than
     // "wrong passphrase" (an interrupted copy, a cloud placeholder, a stray).
     if existing.as_deref().is_some_and(|b| read_salt(b).is_none()) {
@@ -352,7 +364,7 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
         calendars_added: 0,
         pushed: true,
     };
-    if let Ok(blob) = std::fs::read(&blob_path) {
+    if let Some(blob) = read_blob(&blob_path)? {
         report.had_remote = true;
         let plain = open(&key, sealed_part(&blob))?;
         let remote: Payload =
@@ -515,6 +527,26 @@ mod tests {
             assert_eq!(read_salt(blob), None);
             assert!(open(&key, sealed_part(blob)).is_err());
         }
+    }
+
+    #[test]
+    fn only_a_missing_blob_reads_as_absent() {
+        let dir = std::env::temp_dir().join(format!("flux-sync-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(BLOB_NAME);
+        assert_eq!(
+            read_blob(&path),
+            Ok(None),
+            "first device: nothing there yet"
+        );
+        // There but unreadable (here a directory in its place) is not absent.
+        std::fs::create_dir(&path).unwrap();
+        assert!(read_blob(&path).is_err());
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, b"blob").unwrap();
+        assert_eq!(read_blob(&path), Ok(Some(b"blob".to_vec())));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
