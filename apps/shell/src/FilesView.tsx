@@ -517,6 +517,7 @@ const FilesView: Component<{
         const reply = await agentChat(
           `Summarize the following file concisely — a couple of sentences, plus key points as bullets if useful. Do not repeat the file verbatim.\n\nFile: ${att.name}\n\n${att.text.slice(0, 24_000)}`,
         );
+        if (ai()?.title !== title) return; // dismissed while the model was thinking
         setAi({ title, state: "ok", text: reply.trim() });
       } catch (e) {
         setAi({ title, state: "error", err: String(e) });
@@ -527,6 +528,10 @@ const FilesView: Component<{
   const renameByContent = (entry: FileEntry) => {
     setMenu(null);
     const title = `Suggest a name — ${entry.name}`;
+    // Pin the folder now: the model can take a while, and by the time the confirm
+    // appears the user may be in another folder with a file of the same name,
+    // which `cwd()` read at confirm time would then rename.
+    const dir = cwd();
     setAi({ title, state: "loading" });
     void (async () => {
       try {
@@ -535,6 +540,8 @@ const FilesView: Component<{
         const reply = await agentChat(
           `Suggest ONE short, descriptive filename in kebab-case (lowercase words joined by hyphens, no spaces, no extension, at most 5 words) for the file below, based on its content. Reply with ONLY the filename — nothing else.\n\n${att.text.slice(0, 12_000)}`,
         );
+        // Dismissed while the model was thinking: don't pop a rename up later.
+        if (ai()?.title !== title) return;
         const ext = extOf(entry.name);
         const suggested = safeBaseName(reply) + (ext ? "." + ext : "");
         if (suggested === entry.name) {
@@ -550,7 +557,7 @@ const FilesView: Component<{
           onYes: async () => {
             setConfirm(null);
             try {
-              await fsRename(joinPath(cwd(), entry.name), joinPath(cwd(), suggested));
+              await fsRename(joinPath(dir, entry.name), joinPath(dir, suggested));
               await refresh();
               toast(`Renamed to ${suggested}`);
             } catch (e) {
