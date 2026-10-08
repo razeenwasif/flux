@@ -223,6 +223,9 @@ pub struct ScribeStore {
     /// notebooks reach the knowledge base without a manual reindex — and, by
     /// waiting for it to settle, without re-embedding on every autosave.
     generation: AtomicU64,
+    /// Held across each notebook write, so an older copy can never land after
+    /// a newer one (see `flush`). Lock order: `io`, then `books`.
+    io: parking_lot::Mutex<()>,
 }
 
 impl ScribeStore {
@@ -250,6 +253,7 @@ impl ScribeStore {
             dir: Some(dir),
             seq: AtomicU64::new(0),
             generation: AtomicU64::new(0),
+            io: parking_lot::Mutex::new(()),
         }
     }
 
@@ -296,7 +300,7 @@ impl ScribeStore {
         id: &str,
         f: impl FnOnce(&mut Notebook) -> Result<String, String>,
     ) -> Result<(), String> {
-        let nb = {
+        {
             let mut books = self.books.write();
             let nb = books.get_mut(id).ok_or("no such notebook")?;
             let had: HashSet<String> = nb.pages.iter().map(|p| p.id.clone()).collect();
@@ -313,9 +317,10 @@ impl ScribeStore {
                 .or_default()
                 .entry(page)
                 .or_insert(how);
-            nb.clone()
-        };
-        self.write(&nb);
+        }
+        // Through `flush`, so an autosave's write still in flight can't land
+        // its older copy over this one.
+        self.flush(id);
         self.touch();
         Ok(())
     }
@@ -367,8 +372,16 @@ impl ScribeStore {
 
     /// Replace a notebook wholesale (the frontend's debounced autosave). Bumps
     /// `ts` so the shelf reorders to most-recently-touched.
-    pub fn save(&self, mut nb: Notebook) {
+    pub fn save(&self, nb: Notebook) {
+        let id = self.save_in_memory(nb);
+        self.flush(&id);
+    }
+
+    /// `save` without the disk write: the cheap, order-sensitive half, which
+    /// `scribe_save` keeps on the UI thread so saves apply in IPC order.
+    pub fn save_in_memory(&self, mut nb: Notebook) -> String {
         nb.ts = now_ms();
+        let id = nb.id.clone();
         {
             // One guard across working out the deletions and replacing the
             // book, so a merge or an agent write can't land in between and be
@@ -410,10 +423,22 @@ impl ScribeStore {
                     nb.deleted_pages.entry(k.clone()).or_insert(*v);
                 }
             }
-            books.insert(nb.id.clone(), nb.clone());
+            books.insert(id.clone(), nb);
         }
-        self.write(&nb);
         self.touch();
+        id
+    }
+
+    /// Write a notebook's current in-memory state. Under `io`, and reading the
+    /// newest state only then, so flushes that run late or out of order still
+    /// leave the latest version on disk. No `books` guard is held while it
+    /// serializes and fsyncs.
+    pub fn flush(&self, id: &str) {
+        let _io = self.io.lock();
+        let Some(nb) = self.books.read().get(id).cloned() else {
+            return;
+        };
+        self.write(&nb);
     }
 
     /// Fold a notebook read off disk into what's in memory.
@@ -513,12 +538,13 @@ impl ScribeStore {
 
     /// Write the merged state back, so the other device converges on it too.
     pub fn rewrite(&self, id: &str) {
-        if let Some(nb) = self.books.read().get(id) {
-            self.write(nb);
-        }
+        // Not from under `books`: an fsync there stalls the UI thread's saves.
+        self.flush(id);
     }
 
     pub fn delete(&self, id: &str) {
+        // Under `io`, so a flush already under way can't write the file back.
+        let _io = self.io.lock();
         self.books.write().remove(id);
         if let Some(dir) = &self.dir {
             let _ = std::fs::remove_file(dir.join(format!("{id}.json")));
@@ -760,14 +786,24 @@ pub fn scribe_create(
 /// Debounced from the frontend at ~500 ms, so this runs constantly while you
 /// write. It only *marks* the source; the rebuild waits for the edits to stop
 /// (see `kbfresh`), and skips pages whose mtime hasn't moved.
+///
+/// A sync command runs on the UI thread, so only the in-memory merge happens
+/// here, which keeps saves in IPC order. Serializing the notebook (multi-MB:
+/// its ink is base64 PNGs) and the fsync run on the blocking pool.
 #[tauri::command]
 pub fn scribe_save(
+    app: tauri::AppHandle,
     store: State<'_, ScribeStore>,
     fresh: State<'_, Arc<crate::kbfresh::KbFreshness>>,
     notebook: Notebook,
 ) {
-    store.save(notebook);
+    let id = store.save_in_memory(notebook);
     fresh.touch("scribe");
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(store) = app.try_state::<ScribeStore>() {
+            store.flush(&id);
+        }
+    });
 }
 
 #[tauri::command]
@@ -1241,6 +1277,35 @@ mod tests {
         assert!(got.pages[0].strokes.contains("pen"));
         assert_eq!(reopened.list()[0].page_count, 2);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_late_flush_writes_the_newest_save_and_never_a_deleted_notebook() {
+        // `scribe_save` merges on the UI thread and flushes on the blocking
+        // pool, so flushes can run late and out of order.
+        let dir = scratch("flush");
+        let store = ScribeStore::restore(dir.clone());
+        let mut nb = store.create("Calculus".into(), None);
+        let file = dir.join(format!("{}.json", nb.id));
+        let on_disk = || {
+            let raw = std::fs::read_to_string(&file).unwrap();
+            serde_json::from_str::<Notebook>(&raw).unwrap().pages[0].strokes.clone()
+        };
+        nb.pages[0].strokes = "[1]".into();
+        let id = store.save_in_memory(nb.clone());
+        nb.pages[0].strokes = "[2]".into();
+        store.save_in_memory(nb);
+        assert_eq!(on_disk(), "[]", "the UI-thread half doesn't write");
+        // The first save's flush runs after the second's: still the newest.
+        store.flush(&id);
+        store.flush(&id);
+        assert_eq!(on_disk(), "[2]");
+
+        // A flush still queued when the notebook is deleted doesn't bring it back.
+        store.delete(&id);
+        store.flush(&id);
+        assert!(!file.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
