@@ -250,8 +250,9 @@ pub fn note_action_schema() -> serde_json::Value {
 
 /// Execution-layer destructive-action deny-list (BACKLOG #104). Matched
 /// case-insensitively as substrings — in Rust against the action's
-/// selector+reason, and in the injected click JS against the resolved element's
-/// accessible name (aria-label / text / value / title). One source of truth so
+/// selector+reason, and in the injected click JS against every naming source
+/// (aria-label / aria-labelledby / text / value / title / alt) of the resolved
+/// element and of the control the click activates. One source of truth so
 /// the two layers can never drift. Deliberately excludes "unsubscribe" — the
 /// canonical *wanted* agent task — and other benign verbs.
 pub const DESTRUCTIVE_TERMS: &[&str] = &[
@@ -263,6 +264,7 @@ pub const DESTRUCTIVE_TERMS: &[&str] = &[
     "wipe",
     "erase",
     "place order",
+    "place your order",
     "buy now",
     "pay now",
     "complete purchase",
@@ -2343,6 +2345,13 @@ mod tests {
             reason: "Place order to complete checkout".into(),
         };
         assert_eq!(pay.is_destructive(), Some("place order"));
+
+        // Amazon's checkout button doesn't contain "place order".
+        let amazon = AgentAction::Click {
+            selector: "input[name='placeYourOrder1']".into(),
+            reason: "Place your order".into(),
+        };
+        assert_eq!(amazon.is_destructive(), Some("place your order"));
 
         // The headline use case must NOT be flagged.
         let unsub = AgentAction::Click {
