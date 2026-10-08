@@ -562,7 +562,10 @@ mod tests {
         {
             std::os::unix::fs::symlink(&secret, ext.join("link.css")).unwrap();
             std::fs::write(ext.join(MANIFEST_FILE), manifest(r#""link.css""#)).unwrap();
-            assert!(reg.install(&ext).is_err(), "a symlink out of the bundle is refused");
+            assert!(
+                reg.install(&ext).is_err(),
+                "a symlink out of the bundle is refused"
+            );
         }
 
         // An entry that predates the install check is still confined on read.

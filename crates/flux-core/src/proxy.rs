@@ -202,6 +202,9 @@ mod tests {
         // Unblocks the listener if the request went anywhere else.
         let _ = std::net::TcpStream::connect(("127.0.0.1", port));
         let request = seen.join().unwrap();
-        assert!(request.starts_with("GET http://flux.invalid/favicon.ico "), "{request}");
+        assert!(
+            request.starts_with("GET http://flux.invalid/favicon.ico "),
+            "{request}"
+        );
     }
 }

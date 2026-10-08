@@ -62,7 +62,13 @@ impl HttpsState {
         let mut allow_http: Vec<String> = self.allow_http.iter().map(|e| e.key().clone()).collect();
         allow_http.sort();
         let enabled = self.enabled.load(Ordering::Relaxed);
-        crate::persist::save_json_pretty(path, &Saved { enabled, allow_http });
+        crate::persist::save_json_pretty(
+            path,
+            &Saved {
+                enabled,
+                allow_http,
+            },
+        );
     }
 
     /// If this `http://` URL should be upgraded, return its `https://` form.
@@ -183,7 +189,9 @@ mod tests {
         assert_eq!(s.upgrade("http://static.oldcdn.example/app.js", page), None);
         // ...other pages' don't.
         let other = Some("https://new.example/");
-        assert!(s.upgrade("http://static.oldcdn.example/app.js", other).is_some());
+        assert!(s
+            .upgrade("http://static.oldcdn.example/app.js", other)
+            .is_some());
 
         // IPv6 hosts match the shell's bracketed `URL.hostname`.
         s.allow_http.insert("[2001:db8::1]".into(), ());

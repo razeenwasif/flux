@@ -1006,7 +1006,12 @@ mod tests {
         // to the end of the notebook on each sync.
         let store = ScribeStore::default();
         let order = |s: &ScribeStore| -> Vec<String> {
-            s.load("n1").unwrap().pages.into_iter().map(|p| p.id).collect()
+            s.load("n1")
+                .unwrap()
+                .pages
+                .into_iter()
+                .map(|p| p.id)
+                .collect()
         };
         store.merge_notebook(nb(
             "n1",
@@ -1017,10 +1022,16 @@ mod tests {
         store.merge_notebook(nb(
             "n1",
             40,
-            vec![pg("intro", 40, "I fixed"), pg("l1", 20, "L1"), pg("l2", 30, "L2")],
+            vec![
+                pg("intro", 40, "I fixed"),
+                pg("l1", 20, "L1"),
+                pg("l2", 30, "L2"),
+            ],
         ));
         assert_eq!(order(&store), ["intro", "l1", "l2"]);
-        assert!(store.load("n1").unwrap().pages[0].strokes.contains("I fixed"));
+        assert!(store.load("n1").unwrap().pages[0]
+            .strokes
+            .contains("I fixed"));
 
         // A ↑/↓ move leaves `ts` alone; our own write coming back keeps it.
         let mut moved = store.load_for_editor("n1").unwrap();
@@ -1298,7 +1309,9 @@ mod tests {
         let file = dir.join(format!("{}.json", nb.id));
         let on_disk = || {
             let raw = std::fs::read_to_string(&file).unwrap();
-            serde_json::from_str::<Notebook>(&raw).unwrap().pages[0].strokes.clone()
+            serde_json::from_str::<Notebook>(&raw).unwrap().pages[0]
+                .strokes
+                .clone()
         };
         nb.pages[0].strokes = "[1]".into();
         let id = store.save_in_memory(nb.clone());

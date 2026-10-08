@@ -408,7 +408,11 @@ mod tests {
 
     #[test]
     fn only_public_addresses_count_as_public() {
-        for ip in ["93.184.216.34", "2606:2800:220:1::1", "::ffff:93.184.216.34"] {
+        for ip in [
+            "93.184.216.34",
+            "2606:2800:220:1::1",
+            "::ffff:93.184.216.34",
+        ] {
             assert!(is_public(ip.parse().unwrap()), "{ip}");
         }
         for ip in [
@@ -434,7 +438,12 @@ mod tests {
     fn page_chosen_icon_urls_cannot_reach_the_lan() {
         let public: IpAddr = "93.184.216.34".parse().unwrap();
         // Another host (an icon href, a redirect hop) on loopback or the LAN.
-        for netloc in ["127.0.0.1:8080", "192.168.1.1:80", "[::1]:443", "169.254.169.254:80"] {
+        for netloc in [
+            "127.0.0.1:8080",
+            "192.168.1.1:80",
+            "[::1]:443",
+            "169.254.169.254:80",
+        ] {
             let err = icon_addrs(netloc, "example.com", &[public]).unwrap_err();
             assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied, "{netloc}");
         }
@@ -463,7 +472,11 @@ mod tests {
             f.set_modified(t0 + Duration::from_secs(i)).unwrap();
         }
         prune_disk(&dir, 20);
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 12, "under the cap");
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            12,
+            "under the cap"
+        );
 
         prune_disk(&dir, 10);
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 9);

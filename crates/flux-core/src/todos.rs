@@ -202,7 +202,10 @@ impl TodoStore {
     /// unique), since the tombstone would delete it too. Takes `items` from the
     /// caller's guard: lock order is items -> tombstones.
     fn retire_key(&self, items: &[Todo], old_key: String, at: u64) {
-        if !items.iter().any(|t| todo_key(&t.profile, &t.title) == old_key) {
+        if !items
+            .iter()
+            .any(|t| todo_key(&t.profile, &t.title) == old_key)
+        {
             self.tombstones.write().insert(old_key, at);
         }
     }
@@ -448,7 +451,9 @@ mod tests {
         // retiring the old one, the other device kept its copy and published
         // it back: both names on both devices.
         let a = TodoStore::default();
-        let t = a.add("read ch3".into(), String::new(), "Uni".into()).unwrap();
+        let t = a
+            .add("read ch3".into(), String::new(), "Uni".into())
+            .unwrap();
         let published = a.list();
         let b = TodoStore::default();
         b.merge(published.clone(), &Default::default());
@@ -473,12 +478,16 @@ mod tests {
     #[test]
     fn a_moved_task_neither_comes_back_nor_vanishes() {
         let a = TodoStore::default();
-        let t = a.add("readings".into(), String::new(), "Uni".into()).unwrap();
+        let t = a
+            .add("readings".into(), String::new(), "Uni".into())
+            .unwrap();
         let published = a.list();
         // A "readings" in Personal was deleted after this task was last edited
         // (stamped explicitly: here it would all land in one millisecond).
         a.items.write()[0].updated_ms = 1;
-        a.tombstones.write().insert(todo_key("Personal", "readings"), 2);
+        a.tombstones
+            .write()
+            .insert(todo_key("Personal", "readings"), 2);
 
         a.set_profile(t.id, "Personal".into());
         // The Uni copy still in the sync blob arrives with the next merge.

@@ -202,7 +202,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         let p = dir.join("reminders.json");
-        assert!(read_store(&p).unwrap().is_empty(), "no file is no reminders");
+        assert!(
+            read_store(&p).unwrap().is_empty(),
+            "no file is no reminders"
+        );
         std::fs::write(&p, "  ").unwrap();
         assert!(read_store(&p).unwrap().is_empty());
         // A hand edit left a trailing comma: adding one reminder used to save
@@ -223,7 +226,11 @@ mod tests {
             fired: false,
             created: 0,
         };
-        let on_disk = [at("due", Some(100)), at("later", Some(5_000)), at("todo", None)];
+        let on_disk = [
+            at("due", Some(100)),
+            at("later", Some(5_000)),
+            at("todo", None),
+        ];
         let mut announced = Vec::new();
         let mut tick = |now: i64| {
             let mut due = Vec::new();

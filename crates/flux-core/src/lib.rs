@@ -331,7 +331,11 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
     );
     // Content-blocker shields: the filter engine + per-site policy (#57).
     let filters_dir = app.path().app_data_dir().ok().map(|d| d.join("filters"));
-    let shields_prefs = app.path().app_data_dir().ok().map(|d| d.join("shields.json"));
+    let shields_prefs = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|d| d.join("shields.json"));
     app.manage(boot_phase("shields.init", boot_started, || {
         let shields = shields::ShieldsState::new(filters_dir);
         match shields_prefs {
@@ -366,7 +370,12 @@ fn init_privacy(app: &tauri::App, boot_started: std::time::Instant) {
     );
     // Per-site cookie flags (clear-on-close, #58).
     app.manage(
-        match app.path().app_data_dir().ok().map(|d| d.join("clear-on-close.json")) {
+        match app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|d| d.join("clear-on-close.json"))
+        {
             Some(p) => cookies::CookieState::restore(p),
             None => cookies::CookieState::new(),
         },
@@ -845,13 +854,12 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                         // Ollama came up), or the Ollama model behind it did, a
                         // single-source reindex would clear every source and
                         // rebuild only `web` — heal by rebuilding all.
-                        let source = if kb.embedder() != embedding::current()
-                            || kb.embed_model_stale()
-                        {
-                            None
-                        } else {
-                            Some("web".to_string())
-                        };
+                        let source =
+                            if kb.embedder() != embedding::current() || kb.embed_model_stale() {
+                                None
+                            } else {
+                                Some("web".to_string())
+                            };
                         // A None source rebuilds every corpus, which is why the
                         // whole set is gathered in one place (see `corpora`).
                         match kb.reindex(source, corpora(&handle)) {

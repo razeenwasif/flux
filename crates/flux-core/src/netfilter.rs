@@ -236,7 +236,8 @@ mod mac {
             }
             let ident = nsstring("flux-shields");
             let json_ns = nsstring(&json);
-            let block = ConcreteBlock::new(|list: *mut Object, err: *mut Object| compiled(list, err));
+            let block =
+                ConcreteBlock::new(|list: *mut Object, err: *mut Object| compiled(list, err));
             let block = block.copy();
             let _: () = msg_send![store,
                 compileContentRuleListForIdentifier: ident

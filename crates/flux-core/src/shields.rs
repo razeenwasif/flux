@@ -591,12 +591,18 @@ mod tests {
         s.off_for.insert("broken.example".into(), ());
         s.save_prefs();
         let back = ShieldsState::new(None).with_prefs(path.clone());
-        assert!(back.status().sites_off.contains(&"broken.example".to_string()));
+        assert!(back
+            .status()
+            .sites_off
+            .contains(&"broken.example".to_string()));
         assert!(back.enabled.load(Ordering::Relaxed));
 
         back.enabled.store(false, Ordering::Relaxed);
         back.save_prefs();
-        assert!(!ShieldsState::new(None).with_prefs(path).enabled.load(Ordering::Relaxed));
+        assert!(!ShieldsState::new(None)
+            .with_prefs(path)
+            .enabled
+            .load(Ordering::Relaxed));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
