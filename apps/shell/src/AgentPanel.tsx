@@ -2962,9 +2962,12 @@ const AgentPanel: Component = () => {
 
   /** Apply a proposal the user approved. */
   const applyNote = async (idx: number, proposal: NoteProposal): Promise<void> => {
+    // Retire the buttons BEFORE the write: an append isn't idempotent, so a
+    // double-click wrote the same section twice.
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
     try {
       const path = await noteApply(proposal.action);
-      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, noteDone: path, pending: false } : it)));
+      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, noteDone: path } : it)));
       resolveChainGate(idx, true, `Written to ${path}.`);
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
@@ -3454,14 +3457,18 @@ const AgentPanel: Component = () => {
                           </div>
                         }
                       >
-                        <div class="agent-approve">
-                          <button class="agent-approve-yes" onClick={() => void applyNote(i(), item.note!)}>
-                            ✓ Add to my notes
-                          </button>
-                          <button class="agent-approve-no" onClick={() => discardNote(i())}>
-                            Discard
-                          </button>
-                        </div>
+                        {/* `pending`, not just `!noteDone`: a reopened chat stores
+                            pending=false, and its stale proposal must not write. */}
+                        <Show when={item.pending}>
+                          <div class="agent-approve">
+                            <button class="agent-approve-yes" onClick={() => void applyNote(i(), item.note!)}>
+                              ✓ Add to my notes
+                            </button>
+                            <button class="agent-approve-no" onClick={() => discardNote(i())}>
+                              Discard
+                            </button>
+                          </div>
+                        </Show>
                       </Show>
                     </div>
                   </Show>
