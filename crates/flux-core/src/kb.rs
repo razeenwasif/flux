@@ -91,6 +91,11 @@ struct KbData {
     generation: u64,
     #[serde(default)]
     vecs_hash: Option<u64>,
+    /// The Ollama model behind a `Model` corpus: two models can share a width,
+    /// so `embedder` alone can't tell their vector spaces apart. Empty = unknown
+    /// (written before this was recorded), adopted rather than rebuilt.
+    #[serde(default)]
+    embed_model: String,
 }
 
 fn hash_bytes(b: &[u8]) -> u64 {
@@ -112,6 +117,7 @@ impl Default for KbData {
             config: HashMap::new(),
             generation: 0,
             vecs_hash: None,
+            embed_model: String::new(),
         }
     }
 }
@@ -426,6 +432,19 @@ fn build_embedder(
     }
 }
 
+/// A `Model` corpus built with another Ollama model than `model`: its vectors
+/// live in a different space, even at the same width, so scoring a query (or
+/// appending new chunks) against them gives plausible-looking garbage.
+fn other_model(d: &KbData, current: Embedder, model: &str) -> bool {
+    current == Embedder::Model
+        && d.embedder == Embedder::Model
+        && !d.embed_model.is_empty()
+        && d.embed_model != model
+}
+
+const MODEL_CHANGED: &str =
+    "the embedding model changed since this index was built — Reindex all to re-embed";
+
 fn embedder_name(e: Embedder) -> &'static str {
     match e {
         Embedder::Model => "model",
@@ -710,6 +729,14 @@ impl KbStore {
         self.data.read().embedder
     }
 
+    /// Is the corpus on `Model`, but built with another Ollama model than the
+    /// one configured now (`FLUX_EMBED_MODEL`)? Only a full rebuild can fix it.
+    pub fn embed_model_stale(&self) -> bool {
+        self.hydrate();
+        let d = self.data.read();
+        other_model(&d, d.embedder, &flux_agent::ollama::embed_model())
+    }
+
     /// Remove specific docs (and their chunks) from a source, persisting if
     /// anything went. The privacy cascade for `trace_forget` (ADR 0011): a
     /// forgotten page must leave the KB immediately, not at the next reindex.
@@ -773,16 +800,30 @@ impl KbStore {
             (d.embedder, d.chunks.is_empty())
         };
         let embedder = build_embedder(source.is_some(), stored, corpus_empty, embedding::current);
-        let embedder_changed = embedder != stored;
+        // Same kind, but `FLUX_EMBED_MODEL` now names another model: a different
+        // vector space, so it re-embeds like an embedder switch.
+        let model = match embedder {
+            Embedder::Model => flux_agent::ollama::embed_model(),
+            Embedder::Hash => String::new(),
+        };
+        let model_switch = other_model(&self.data.read(), embedder, &model);
+        if model_switch && source.is_some() && !corpus_empty {
+            // Like an embedder switch, that has to cover every source.
+            return Err(MODEL_CHANGED.into());
+        }
+        let embedder_changed = embedder != stored || model_switch;
         if embedder_changed && !corpus_empty && embedding::embed_with("flux", embedder).is_none() {
             // `current()` is a cached /api/tags probe, and a listed model can
             // still fail to embed: don't trade a working corpus for that.
             return Err("embedding model listed but not answering; kept the existing index".into());
         }
-        if embedder_changed {
+        {
             let mut d = self.data.write();
-            d.clear_corpus();
-            d.embedder = embedder;
+            if embedder_changed {
+                d.clear_corpus();
+                d.embedder = embedder;
+            }
+            d.embed_model = model;
         }
 
         for src in targets {
@@ -988,7 +1029,15 @@ impl KbStore {
         sources: Option<Vec<String>>,
     ) -> Result<Vec<KbHit>, String> {
         self.hydrate();
-        let embedder = self.data.read().embedder;
+        let embedder = {
+            let d = self.data.read();
+            // The width check below can't catch a same-width model; refuse
+            // rather than rank in the wrong vector space.
+            if other_model(&d, d.embedder, &flux_agent::ollama::embed_model()) {
+                return Err(MODEL_CHANGED.into());
+            }
+            d.embedder
+        };
         let qv = embedding::embed_with(query, embedder).ok_or("embedding model unavailable")?;
         let d = self.data.read();
         let allow = sources.as_ref();
@@ -2242,6 +2291,46 @@ mod tests {
         assert_eq!(build_embedder(true, Hash, true, || Model), Model);
         assert_eq!(build_embedder(false, Hash, false, || Model), Model);
         assert_eq!(build_embedder(false, Model, false, || Hash), Hash);
+    }
+
+    #[test]
+    fn a_changed_embedding_model_is_refused_rather_than_mixed() {
+        // embeddinggemma and nomic-embed-text are both 768-d: nothing about the
+        // vectors' width says they come from different models.
+        let mut d = KbData {
+            embedder: Embedder::Model,
+            embed_model: "embeddinggemma".into(),
+            ..Default::default()
+        };
+        assert!(!other_model(&d, Embedder::Model, "embeddinggemma"));
+        assert!(other_model(&d, Embedder::Model, "nomic-embed-text"));
+        // Written before the model was recorded: adopted, not rebuilt.
+        d.embed_model.clear();
+        assert!(!other_model(&d, Embedder::Model, "nomic-embed-text"));
+
+        // A corpus built with some model other than the configured one.
+        let dir = std::env::temp_dir().join(format!("flux-kb-model-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+        store
+            .reindex_source("onyx", Embedder::Hash, three_docs())
+            .unwrap();
+        {
+            let mut d = store.data.write();
+            d.embedder = Embedder::Model;
+            d.embed_model = "flux-test-not-the-configured-model".into();
+        }
+        assert!(store.embed_model_stale());
+        let err = store.query("rust borrowing", 5, None).err().unwrap();
+        assert!(err.contains("Reindex all"), "{err}");
+        // A one-source build can't re-embed the others, so it refuses as well,
+        // leaving the corpus as it was.
+        assert!(store
+            .reindex(Some("web".into()), Corpora::default())
+            .is_err());
+        assert_eq!(store.data.read().docs.len(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
