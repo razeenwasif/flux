@@ -30,6 +30,13 @@ prompt setup. (The same snippet lives at
 > hand-rolled replacement on Windows should do the same, or start bash with `-l`
 > instead.
 
+> macOS: terminals there start a *login* shell, since an app launched from the
+> Dock has launchd's bare `PATH` and only the login files build the real one.
+> Flux starts zsh (and fish, sh, ksh, …) with `-l`. For bash it passes
+> `FLUX_LOGIN_SHELL=1`, and the snippet then reads what a login bash reads —
+> `/etc/profile`, then the first of `~/.bash_profile`, `~/.bash_login` and
+> `~/.profile` — instead of `~/.bashrc`.
+
 ## zsh — manual
 
 Add to your `~/.zshrc`:

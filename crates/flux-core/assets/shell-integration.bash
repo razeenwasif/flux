@@ -28,9 +28,26 @@ if [ -n "${FLUX_MSYS_PROFILE:-}" ] && [ -r /etc/profile ]; then
   . /etc/profile
 fi
 
-# Re-source the user's normal config (system-wide first, then per-user).
-[ -r /etc/bash.bashrc ] && . /etc/bash.bashrc
-[ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+# macOS: terminals there start a *login* shell, because a Dock-launched app has
+# launchd's bare PATH and only the login files build the real one (/etc/profile
+# runs path_helper; ~/.bash_profile is where Homebrew's installer puts `brew
+# shellenv`). Flux sets FLUX_LOGIN_SHELL, and this reads what a login bash
+# reads, in its order. A profile sources ~/.bashrc itself if it wants it.
+if [ -n "${FLUX_LOGIN_SHELL:-}" ]; then
+  unset FLUX_LOGIN_SHELL
+  [ -r /etc/profile ] && . /etc/profile
+  if [ -r "$HOME/.bash_profile" ]; then
+    . "$HOME/.bash_profile"
+  elif [ -r "$HOME/.bash_login" ]; then
+    . "$HOME/.bash_login"
+  elif [ -r "$HOME/.profile" ]; then
+    . "$HOME/.profile"
+  fi
+else
+  # Re-source the user's normal config (system-wide first, then per-user).
+  [ -r /etc/bash.bashrc ] && . /etc/bash.bashrc
+  [ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+fi
 
 # Install the OSC 133 hook once.
 if [ -z "${FLUX_OSC133:-}" ]; then

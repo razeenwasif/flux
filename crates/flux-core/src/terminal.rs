@@ -274,6 +274,12 @@ pub fn terminal_spawn(
             cmd.env("FLUX_MSYS_PROFILE", "1");
         }
     }
+    // macOS bash: `--rcfile` makes it non-login, so this tells the snippet to
+    // read the login files itself; see [`bash_startup_args`].
+    #[cfg(target_os = "macos")]
+    if startup.iter().any(|a| a == "--rcfile") {
+        cmd.env("FLUX_LOGIN_SHELL", "1");
+    }
 
     tracing::info!(target: "flux::term", session, %shell, %cwd, cols, rows, "spawning shell");
     let child = pair
@@ -683,7 +689,7 @@ fn integration_rcfile_arg() -> Option<String> {
 }
 
 /// How to start `shell` so it comes up configured: the OSC 133 rcfile when the
-/// integration is on, and on Windows a login shell when it isn't.
+/// integration is on, and on Windows and macOS a login shell when it isn't.
 ///
 /// The Windows half is the subtle one. `--rcfile` makes bash a *non-login*
 /// interactive shell, and on MSYS2 that never runs `/etc/profile` — the script
@@ -692,8 +698,28 @@ fn integration_rcfile_arg() -> Option<String> {
 /// on it. The two flags can't be combined either: bash ignores `--rcfile` for a
 /// login shell. So Flux sets `FLUX_MSYS_PROFILE` in the environment and the
 /// integration snippet sources `/etc/profile` itself, before anything else.
+///
+/// macOS needs a login shell too: a Dock-launched app has launchd's bare `PATH`
+/// (`/usr/bin:/bin:/usr/sbin:/sbin`), and only the login files build the real
+/// one — /etc/zprofile runs path_helper, and ~/.zprofile is where Homebrew's
+/// installer puts `brew shellenv`. Every terminal there starts one, so the
+/// shells known to take `-l` for it get it; bash with the rcfile gets
+/// `FLUX_LOGIN_SHELL`, and the snippet reads the login files itself.
 fn bash_startup_args(shell: &str) -> Vec<String> {
     if !shell_is_bash(shell) {
+        #[cfg(target_os = "macos")]
+        if std::path::Path::new(shell)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| {
+                matches!(
+                    s,
+                    "zsh" | "fish" | "sh" | "dash" | "ksh" | "mksh" | "tcsh" | "csh"
+                )
+            })
+        {
+            return vec!["-l".to_string()];
+        }
         return Vec::new();
     }
     if integration_enabled() {
@@ -701,11 +727,11 @@ fn bash_startup_args(shell: &str) -> Vec<String> {
             return vec!["--rcfile".to_string(), rc];
         }
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         vec!["-l".to_string()]
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Vec::new()
     }
@@ -1189,7 +1215,56 @@ mod tests {
         assert!(rc.starts_with('/'), "rcfile must be POSIX for bash: {rc}");
         // Anything that isn't bash is launched as-is: no flags it doesn't have.
         assert!(bash_startup_args("pwsh.exe").is_empty());
+        #[cfg(not(target_os = "macos"))]
         assert!(bash_startup_args("/bin/zsh").is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_shells_start_as_login_shells() {
+        // launchd's PATH is bare; only the login files build the real one.
+        assert_eq!(bash_startup_args("/bin/zsh"), vec!["-l".to_string()]);
+        assert_eq!(
+            bash_startup_args("/opt/homebrew/bin/fish"),
+            vec!["-l".to_string()]
+        );
+        // Not known to take `-l` that way: nothing it might reject.
+        assert!(bash_startup_args("/opt/homebrew/bin/elvish").is_empty());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_snippet_reads_the_login_files_when_asked_to() {
+        let home = std::env::temp_dir().join(format!("flux-term-login-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let rc = home.join("rc.bash");
+        std::fs::write(&rc, BASH_INTEGRATION).unwrap();
+        std::fs::write(home.join(".bash_profile"), "FROM=profile\n").unwrap();
+        std::fs::write(home.join(".bashrc"), "FROM=bashrc\n").unwrap();
+        let read = |login: bool| {
+            let mut bash = std::process::Command::new("bash");
+            bash.env_clear()
+                .env("HOME", &home)
+                .env("PATH", "/usr/bin:/bin")
+                .arg("--rcfile")
+                .arg(&rc)
+                .args(["-i", "-c", "echo \"from=$FROM\""])
+                .stdin(std::process::Stdio::null());
+            if login {
+                bash.env("FLUX_LOGIN_SHELL", "1");
+            }
+            let out = bash.output().unwrap();
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .find_map(|l| l.strip_prefix("from="))
+                .map(str::to_string)
+        };
+        // What a login bash reads (a profile sources ~/.bashrc itself if it
+        // wants it), and otherwise ~/.bashrc as before.
+        assert_eq!(read(true).as_deref(), Some("profile"));
+        assert_eq!(read(false).as_deref(), Some("bashrc"));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[cfg(windows)]
