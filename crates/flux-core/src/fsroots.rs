@@ -151,19 +151,53 @@ impl RootsStore {
     }
 }
 
-/// Resolve a path as far as the OS allows, then normalise what's left.
+/// Resolve a path the way the OS will when it's opened, then normalise what's left.
+///
+/// `canonicalize` follows the kernel's rules: components left to right, and a
+/// symlink is followed *before* a `..` after it applies. So the path is
+/// canonicalized as written. Folding `..` textually first turned `root/link/../x`
+/// into `root/x`, a different file from the `<link target>/../x` the reader then
+/// opened. A path that doesn't exist yet canonicalizes its longest existing
+/// prefix, still as written; only the missing tail is folded textually, and the
+/// result is resolved again, because folding can land back on existing components
+/// (`missing/../link/x`) whose links the first pass never reached.
+fn resolve(p: &str) -> PathBuf {
+    let raw = PathBuf::from(expand_home(p));
+    let mut existing = raw.as_path();
+    let mut tail = Vec::new();
+    loop {
+        if let Ok(c) = std::fs::canonicalize(existing) {
+            let mut out = strip_verbatim(c);
+            if tail.is_empty() {
+                return out;
+            }
+            for part in tail.iter().rev() {
+                out.push(part);
+            }
+            return resolve_folded(&lexical(&out));
+        }
+        match (existing.parent(), existing.components().next_back()) {
+            (Some(parent), Some(last)) if !parent.as_os_str().is_empty() => {
+                tail.push(last.as_os_str());
+                existing = parent;
+            }
+            _ => return resolve_folded(&lexical(&raw)),
+        }
+    }
+}
+
+/// Resolve a path with no `..` left in it as far as the OS allows, then normalise
+/// what's left.
 ///
 /// `canonicalize` is preferred because it resolves symlinks/junctions, but it fails on a
 /// path that doesn't exist yet. By walking up to the nearest existing ancestor directory
 /// and canonicalizing that, symlinks/junctions in the path prefix are properly resolved
 /// instead of falling back to raw lexical normalization that could escape allowed roots.
-fn resolve(p: &str) -> PathBuf {
-    let expanded = expand_home(p);
-    let path = lexical(Path::new(&expanded));
-    if let Ok(c) = std::fs::canonicalize(&path) {
+fn resolve_folded(path: &Path) -> PathBuf {
+    if let Ok(c) = std::fs::canonicalize(path) {
         return strip_verbatim(c);
     }
-    let mut ancestor = path.as_path();
+    let mut ancestor = path;
     let mut trailing = Vec::new();
     while let Some(parent) = ancestor.parent() {
         if let Some(file_name) = ancestor.file_name() {
@@ -181,7 +215,7 @@ fn resolve(p: &str) -> PathBuf {
         }
         ancestor = parent;
     }
-    path
+    path.to_path_buf()
 }
 
 /// `~/x` → `$HOME/x`. The agent and the user both write `~`.
@@ -337,7 +371,10 @@ pub async fn agent_pdf_fetch(
     url: String,
 ) -> Result<tauri::ipc::Response, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
-        store.check(&url)?;
+        // Judge the path `pdf_fetch` will actually open (`file://` stripped, `%20`
+        // decoded), not the URL text: `<root>/my%20link/../x.pdf` otherwise passes
+        // as a missing `my%20link`, and the reader opens `<root>/my link/../x.pdf`.
+        store.check(&crate::pdf::file_url_to_path(&url))?;
     }
     crate::pdf::pdf_fetch(url).await
 }
@@ -448,6 +485,22 @@ mod tests {
         assert!(
             !contains(&root, &link.join("nonexistent_new_file.txt").to_string_lossy()),
             "a nonexistent file through an escaping link must not escape allowed roots"
+        );
+
+        // The kernel applies a `..` after a link to the link's *target*:
+        // `escape/../sibling.txt` opens `<base>/sibling.txt`, outside the root.
+        std::fs::write(base.join("sibling.txt"), "outside").unwrap();
+        let through = format!("{}/../sibling.txt", link.to_string_lossy());
+        assert!(
+            !contains(&root, &through),
+            "link/.. must be judged where the kernel resolves it, not textually"
+        );
+        // …and a `..` folded over a missing component must not skip the link
+        // reached after it.
+        let folded = format!("{root}/missing/../escape/new.txt");
+        assert!(
+            !contains(&root, &folded),
+            "a link reached after a folded `..` is still resolved"
         );
 
         let _ = std::fs::remove_dir_all(&base);

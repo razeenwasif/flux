@@ -158,7 +158,7 @@ fn fetch_file(url: &str) -> FluxResult<Vec<u8>> {
 /// Best-effort `file://` URL (or bare path) → filesystem path. Handles
 /// `file://localhost/…`, the Windows `file:///C:/…` leading-slash quirk, and
 /// `%20` spaces. Not a full RFC-8089 parser — enough for opening local PDFs.
-fn file_url_to_path(url: &str) -> String {
+pub(crate) fn file_url_to_path(url: &str) -> String {
     let mut p = url.to_string();
     if let Some(rest) = p.strip_prefix("file://") {
         p = rest.strip_prefix("localhost").unwrap_or(rest).to_string();
