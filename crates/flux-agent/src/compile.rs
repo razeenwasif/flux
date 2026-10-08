@@ -104,11 +104,29 @@ pub fn to_js(action: &AgentAction) -> String {
             r#"(() => {{
   {prelude}
   __el.focus();
-  /* Native setter + input event → works with React/Vue controlled inputs. */
-  const proto = Object.getPrototypeOf(__el);
-  const set = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-  if (set) set.call(__el, {text}); else __el.value = {text};
-  __el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+  const __text = {text};
+  if (__el.isContentEditable) {{
+    /* Rich editors (webmail compose, chat boxes, Notion) have no `value`, so an
+       assignment is an invisible expando. Replace the content through the
+       editor's own input pipeline (beforeinput/input) so its model updates. */
+    getSelection()?.selectAllChildren(__el);
+    if (!document.execCommand('insertText', false, __text)) {{
+      __el.textContent = __text;
+      __el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: __text }}));
+    }}
+  }} else if ('value' in __el) {{
+    /* Native setter + input event → works with React/Vue controlled inputs. */
+    const proto = Object.getPrototypeOf(__el);
+    const set = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    if (set) set.call(__el, __text); else __el.value = __text;
+    __el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+    __el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+  }} else {{
+    /* Neither an editor nor a form control: say so rather than claim 'typed'. */
+    __el.style.cssText = __old;
+    window.__FLUX__?.report('not_typable', {sel});
+    return;
+  }}
   __el.style.cssText = __old;
   window.__FLUX__?.report('typed', {sel});
 }})();"#,
@@ -216,5 +234,25 @@ mod tests {
         assert!(js.contains("__el.closest("));
         assert!(js.contains("__lbl(__ctl)"));
         assert!(js.contains("\"place your order\""));
+    }
+
+    /// Webmail and chat composers are contenteditable `<div>`s with no `value`:
+    /// the old template set an invisible expando there and still reported
+    /// "typed", so the next step clicked Send on an empty reply.
+    #[test]
+    fn type_drives_contenteditable_editors_and_never_fakes_success() {
+        let js = AgentAction::Type {
+            selector: "div[aria-label='Message Body']".into(),
+            text: "I'll be there at 3".into(),
+        }
+        .to_js();
+        let editable = js.find("__el.isContentEditable").expect("editors handled");
+        let setter = js.find("set.call(").unwrap();
+        assert!(editable < setter, "editors go before the value setter");
+        assert!(js.contains("execCommand('insertText', false, __text)"));
+        // Anything that is neither an editor nor a form control says so.
+        assert!(js.contains("report('not_typable'"));
+        // The text is still embedded only as a JSON string literal.
+        assert!(js.contains(r#"const __text = "I'll be there at 3";"#));
     }
 }
