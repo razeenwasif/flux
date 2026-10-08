@@ -5,6 +5,7 @@
 //! anyone else. Falls back to the letter glyph when a site has no usable icon.
 
 use std::io::Read;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -77,7 +78,7 @@ pub async fn favicon(
     let h = host.clone();
     let dir = cache.dir.clone();
     let fetched = tauri::async_runtime::spawn_blocking(move || {
-        let data = try_fetch(&h)?;
+        let data = try_fetch(&icon_agent(&h), &h)?;
         if let Some(dir) = dir {
             let _ = std::fs::create_dir_all(&dir);
             let _ = std::fs::write(dir.join(format!("{}.txt", sanitize(&h))), &data);
@@ -112,13 +113,94 @@ fn prune_disk(dir: &Path, cap: usize) {
     }
 }
 
+/// Agent for one host's icon fetch. The icon URL is page-chosen (`<link
+/// rel=icon href>`) and redirects can go anywhere, so every connection, each
+/// redirect hop included, is checked when it resolves: see [`icon_addrs`].
+fn icon_agent(host: &str) -> ureq::Agent {
+    // The browsed host may be an intranet site. Look it up once and pin it, so
+    // a second (rebinding) answer can't move it inward mid-fetch.
+    let pinned = (host, 443)
+        .to_socket_addrs()
+        .map(|it| pin(it.map(|a| a.ip())))
+        .unwrap_or_default();
+    let host = host.to_string();
+    ureq::AgentBuilder::new()
+        .resolver(move |netloc: &str| icon_addrs(netloc, &host, &pinned))
+        .build()
+}
+
+/// The browsed host's addresses, as resolved once. A genuine intranet host
+/// resolves only inward; one that mixes public and inward answers keeps only
+/// the public ones, or a crafted answer could put a loopback address beside
+/// the server that sends the redirect.
+fn pin(addrs: impl Iterator<Item = IpAddr>) -> Vec<IpAddr> {
+    let mut v: Vec<IpAddr> = addrs.collect();
+    if v.iter().any(|ip| is_public(*ip)) {
+        v.retain(|ip| is_public(*ip));
+    }
+    v
+}
+
+/// Where an icon request to `netloc` (`name:port`) may connect: the browsed
+/// `host` goes to its `pinned` addresses (it may be on the LAN, like the tab
+/// showing it); any other host only to public addresses. Otherwise a visited
+/// site could point its icon, or a redirect, at the router or a local service.
+fn icon_addrs(netloc: &str, host: &str, pinned: &[IpAddr]) -> std::io::Result<Vec<SocketAddr>> {
+    let addrs: Vec<SocketAddr> = match netloc.rsplit_once(':') {
+        Some((name, port)) if name.eq_ignore_ascii_case(host) => {
+            let port = port
+                .parse()
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+            pinned.iter().map(|ip| SocketAddr::new(*ip, port)).collect()
+        }
+        _ => netloc
+            .to_socket_addrs()?
+            .filter(|a| is_public(a.ip()))
+            .collect(),
+    };
+    if addrs.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "icon host has no public address",
+        ));
+    }
+    Ok(addrs)
+}
+
+/// Not loopback, private (RFC 1918 / unique-local), link-local, CGNAT,
+/// unspecified or broadcast.
+fn is_public(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xc0) == 64)) // CGNAT 100.64/10
+        }
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_public(IpAddr::V4(v4)),
+            None => {
+                let s0 = v6.segments()[0];
+                !(v6.is_loopback()
+                    || v6.is_unspecified()
+                    || (s0 & 0xfe00) == 0xfc00 // unique-local fc00::/7
+                    || (s0 & 0xffc0) == 0xfe80) // link-local fe80::/10
+            }
+        },
+    }
+}
+
 /// `/favicon.ico`, then the root page's declared `<link rel="…icon">`.
-fn try_fetch(host: &str) -> Option<String> {
-    if let Some(d) = fetch_icon(&format!("https://{host}/favicon.ico")) {
+fn try_fetch(agent: &ureq::Agent, host: &str) -> Option<String> {
+    if let Some(d) = fetch_icon(agent, &format!("https://{host}/favicon.ico")) {
         return Some(d);
     }
-    if let Some(href) = root_icon_href(host) {
-        if let Some(d) = fetch_icon(&resolve(host, &href)) {
+    if let Some(href) = root_icon_href(agent, host) {
+        if let Some(d) = fetch_icon(agent, &resolve(host, &href)) {
             return Some(d);
         }
     }
@@ -129,8 +211,9 @@ fn try_fetch(host: &str) -> Option<String> {
 /// page or 403 to non-browser agents, which would fail icon detection.
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 
-fn fetch_icon(url: &str) -> Option<String> {
-    let resp = ureq::get(url)
+fn fetch_icon(agent: &ureq::Agent, url: &str) -> Option<String> {
+    let resp = agent
+        .get(url)
         .set("User-Agent", UA)
         .set(
             "Accept",
@@ -215,8 +298,9 @@ fn image_mime(buf: &[u8], ct: &str) -> Option<String> {
     None
 }
 
-fn root_icon_href(host: &str) -> Option<String> {
-    let html = ureq::get(&format!("https://{host}/"))
+fn root_icon_href(agent: &ureq::Agent, host: &str) -> Option<String> {
+    let html = agent
+        .get(&format!("https://{host}/"))
         .set("User-Agent", UA)
         .timeout(Duration::from_secs(5))
         .call()
@@ -306,6 +390,52 @@ mod tests {
             attr(r#"link rel='shortcut icon' href='//cdn/x.png'"#, "href").as_deref(),
             Some("//cdn/x.png")
         );
+    }
+
+    #[test]
+    fn only_public_addresses_count_as_public() {
+        for ip in ["93.184.216.34", "2606:2800:220:1::1", "::ffff:93.184.216.34"] {
+            assert!(is_public(ip.parse().unwrap()), "{ip}");
+        }
+        for ip in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "255.255.255.255",
+            "::1",
+            "::",
+            "fd00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+        ] {
+            assert!(!is_public(ip.parse().unwrap()), "{ip}");
+        }
+    }
+
+    #[test]
+    fn page_chosen_icon_urls_cannot_reach_the_lan() {
+        let public: IpAddr = "93.184.216.34".parse().unwrap();
+        // Another host (an icon href, a redirect hop) on loopback or the LAN.
+        for netloc in ["127.0.0.1:8080", "192.168.1.1:80", "[::1]:443", "169.254.169.254:80"] {
+            let err = icon_addrs(netloc, "example.com", &[public]).unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied, "{netloc}");
+        }
+        assert!(icon_addrs("93.184.216.34:443", "example.com", &[public]).is_ok());
+        // The browsed host keeps its pinned addresses, an intranet one too, on any port.
+        let lan: IpAddr = "10.0.0.5".parse().unwrap();
+        let got = icon_addrs("wiki.corp.example:8080", "wiki.corp.example", &[lan]).unwrap();
+        assert_eq!(got, vec![SocketAddr::new(lan, 8080)]);
+        // Pinned means no second lookup: a host that resolved to nothing stays unreachable.
+        assert!(icon_addrs("example.com:443", "example.com", &[]).is_err());
+
+        // A host answering both public and loopback keeps only the public address.
+        let loopback: IpAddr = "127.0.0.1".parse().unwrap();
+        assert_eq!(pin([loopback, public].into_iter()), vec![public]);
+        assert_eq!(pin([lan].into_iter()), vec![lan]);
     }
 
     #[test]
