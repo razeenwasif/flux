@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -44,7 +45,10 @@ pub struct SentinelAudit {
     inner: RwLock<AuditData>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
-    hydrated: AtomicBool,
+    /// The one-time disk load. Concurrent callers WAIT for it (as with
+    /// `TraceStore`'s `Once`): a `record` that ran on the not-yet-loaded log
+    /// made the loader discard the whole history.
+    hydrated: OnceLock<()>,
 }
 
 impl SentinelAudit {
@@ -57,9 +61,10 @@ impl SentinelAudit {
 
     /// Load from disk exactly once (lazy, race-proof — mirrors the trace stores).
     pub fn hydrate(&self) {
-        if self.hydrated.swap(true, Ordering::AcqRel) {
-            return;
-        }
+        self.hydrated.get_or_init(|| self.load());
+    }
+
+    fn load(&self) {
         let Some(path) = &self.path else { return };
         let Some((loaded, was_plaintext)) = crate::trace::sealed::load_json::<AuditData>(path)
         else {
@@ -136,6 +141,48 @@ mod tests {
         let list = a.list();
         assert_eq!(list.len(), MAX_ENTRIES, "log is capped");
         assert_eq!(list[0].action, format!("click {}", MAX_ENTRIES + 4), "newest first");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_record_racing_the_boot_hydrate_keeps_the_history() {
+        // The boot thread hydrates while an agent action is recorded: the
+        // record must wait for the load, not land in the still-empty log (the
+        // loader then discarded the whole history for the next flush to seal).
+        let dir = std::env::temp_dir().join(format!("flux-audit-race-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("audit.json");
+        let entry = |action: String| AuditEntry {
+            ms: 1,
+            tab: 1,
+            action,
+            destructive: None,
+            confirmed: true,
+        };
+        let old = AuditData {
+            entries: (0..MAX_ENTRIES)
+                .map(|i| entry(format!("old {i}")))
+                .collect(),
+        };
+        // Legacy plaintext, so loading it never touches the keychain.
+        std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        for _ in 0..20 {
+            let a = std::sync::Arc::new(SentinelAudit::empty(path.clone()));
+            let go = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let boot = {
+                let (a, go) = (a.clone(), go.clone());
+                std::thread::spawn(move || {
+                    go.wait();
+                    a.hydrate();
+                })
+            };
+            go.wait();
+            a.record(entry("new".into()));
+            boot.join().unwrap();
+            let list = a.list();
+            assert_eq!(list.len(), MAX_ENTRIES, "the loaded history survives");
+            assert_eq!(list[0].action, "new");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
