@@ -186,6 +186,9 @@ const StartPage: Component<{
     }
   };
   const [scratch, setScratch] = createSignal("");
+  // Read-only until the saved note has loaded: an edit before then would be
+  // debounced into a noteSet that replaces the whole note with the new keystrokes.
+  const [scratchReady, setScratchReady] = createSignal(false);
   let scratchTimer: number | undefined;
   // Raw feed+local events; `events()` below is the filtered view every consumer
   // reads, so the calendar picker applies to the month dots, the day list and
@@ -198,8 +201,13 @@ const StartPage: Component<{
   };
   /** Calendars present in the data, for the picker. */
   const homeCalendars = createMemo(() => [...new Set(allEvents().map((e) => e.calendar))].sort());
+  // A saved pick for a calendar that's no longer in the data (unsubscribed,
+  // imported into "Flux", or its feed failed this fetch) must not blank the
+  // widget: with one calendar left, the picker that could reset it is hidden.
+  // The stored choice is kept, so it applies again when that calendar returns.
+  const activeHomeCal = () => (homeCalendars().includes(homeCal()) ? homeCal() : "");
   const events = createMemo<CalEvent[]>(() => {
-    const f = homeCal();
+    const f = activeHomeCal();
     return f ? allEvents().filter((e) => e.calendar === f) : allEvents();
   });
   const [addingCal, setAddingCal] = createSignal(false);
@@ -282,6 +290,10 @@ const StartPage: Component<{
     id: number | null;
     title: string;
     date: string;
+    /** For a recurring local event, the day of the occurrence the editor was
+     *  opened on: `id` is the whole series', and `date` starts out as this day,
+     *  not the series' own first day. null for one-off and new events. */
+    occurrence: string | null;
     start: string;
     end: string;
     location: string;
@@ -321,6 +333,15 @@ const StartPage: Component<{
 
   onMount(async () => {
     visibleInterval(() => setNow(new Date()), 1000);
+    // Scratchpad, persisted via the notes store. Before any await: it's a local
+    // read and the pad is read-only until it lands, so it mustn't queue behind
+    // the network fetches below (ipapi.co / open-meteo have no timeout).
+    noteGet(SCRATCH_KEY)
+      .then((t) => {
+        setScratch(t ?? "");
+        setScratchReady(true);
+      })
+      .catch((e) => console.error("scratchpad load", e));
     void omniStats()
       .then(setOmni)
       .catch(() => {}); // #97 glance widget (best-effort)
@@ -365,31 +386,45 @@ const StartPage: Component<{
       })
       .catch(() => {});
 
-    // Scratchpad — persisted via the notes store.
-    noteGet(SCRATCH_KEY)
-      .then((t) => setScratch(t ?? ""))
-      .catch(() => {});
-
     // Calendar events (#114) from subscribed ICS feeds + local tasks.
     loadEvents();
     refreshTodos();
   });
 
-  const loadEvents = () =>
+  // cal_events re-fetches every ICS feed (seconds) and snapshots the local
+  // events when it starts, so overlapping calls can resolve out of order and an
+  // older snapshot would overwrite a newer edit. Only the latest call may land.
+  let eventsSeq = 0;
+  const loadEvents = () => {
+    const seq = ++eventsSeq;
     void calEvents()
-      .then((e) => setAllEvents(e ?? []))
+      .then((e) => {
+        if (seq === eventsSeq) setAllEvents(e ?? []);
+      })
       .catch(() => {});
+  };
   const refreshTodos = () =>
     void todosList()
       .then((t) => setTodos(t ?? []))
       .catch(() => {});
 
   const onScratch = (text: string) => {
+    if (!scratchReady()) return;
     setScratch(text);
     clearTimeout(scratchTimer);
-    scratchTimer = window.setTimeout(() => void noteSet(SCRATCH_KEY, text).catch(() => {}), 400);
+    scratchTimer = window.setTimeout(() => {
+      scratchTimer = undefined;
+      void noteSet(SCRATCH_KEY, text).catch((e) => console.error("scratchpad save", e));
+    }, 400);
   };
-  onCleanup(() => clearTimeout(scratchTimer));
+  // The page unmounts on every tab switch, ⌘W or navigation, so leaving inside
+  // the debounce window must flush the pending text, not cancel it.
+  onCleanup(() => {
+    if (scratchTimer === undefined) return;
+    clearTimeout(scratchTimer);
+    scratchTimer = undefined;
+    void noteSet(SCRATCH_KEY, scratch()).catch((e) => console.error("scratchpad save", e));
+  });
 
   const monthLabel = () => now().toLocaleDateString([], { month: "long", year: "numeric" });
   const monthCells = (): (number | null)[] => {
@@ -616,6 +651,7 @@ const StartPage: Component<{
       id: null,
       title: "",
       date,
+      occurrence: null,
       start: minToHHMM(s),
       end: minToHHMM(Math.min(s + 60, 23 * 60 + 59)),
       location: "",
@@ -631,6 +667,7 @@ const StartPage: Component<{
       id: e.editable ? e.id : null,
       title: e.summary,
       date: e.date,
+      occurrence: e.editable && e.rrule ? e.date : null,
       start: e.time,
       end: e.end,
       location: e.location,
@@ -665,7 +702,14 @@ const StartPage: Component<{
       notes: d.notes,
       rrule: d.rrule,
     };
-    const p = d.id != null ? calEventUpdate(d.id, fields) : calEventAdd(fields);
+    // Sending a series occurrence's day would re-anchor the whole series on it:
+    // every earlier occurrence vanishes and a COUNT series runs past its end. So
+    // a series keeps its own start unless the day was actually changed here.
+    const keepAnchor = d.occurrence != null && d.rrule !== "" && d.date === d.occurrence;
+    const p =
+      d.id != null
+        ? calEventUpdate(d.id, keepAnchor ? { ...fields, date: undefined } : fields)
+        : calEventAdd(fields);
     void p
       .then(() => {
         setEditing(null);
@@ -676,6 +720,12 @@ const StartPage: Component<{
   const deleteEvent = () => {
     const d = editing();
     if (!d || d.id == null) return;
+    // The id is the series': this removes every occurrence, not just this one.
+    if (
+      d.occurrence != null &&
+      !window.confirm(`Delete every occurrence of “${d.title}”? This can't be undone.`)
+    )
+      return;
     void calEventDelete(d.id)
       .then(() => {
         setEditing(null);
@@ -710,7 +760,8 @@ const StartPage: Component<{
         0,
         24 * 60 - durMin,
       );
-      const date = calDays()[idx]!;
+      // A series occurrence only moves in time (see `up`), so it keeps its column.
+      const date = ev.rrule ? ev.date : calDays()[idx]!;
       if (Math.abs(me.clientY - e.clientY) > 3 || Math.abs(me.clientX - e.clientX) > 3) dragMoved = true;
       setDrag({ id: ev.id, title: ev.summary, date, startMin: sm, durMin });
     };
@@ -720,10 +771,16 @@ const StartPage: Component<{
       const d = drag();
       setDrag(null);
       if (dragMoved && d) {
+        // `durMin` is the box drawn on the grid (50 min with no end, never under
+        // 20), not the stored duration: keep the real one, capped at 23:59 since
+        // "24:00" isn't a valid time. No (or no positive) end: leave it as it is.
+        const realDur = ev.end ? minsOf(ev.end) - startMin : 0;
         void calEventUpdate(d.id, {
-          date: d.date,
+          // A series occurrence carries the series id: sending its day would
+          // re-anchor every occurrence on it, so a series keeps its start date.
+          date: ev.rrule ? undefined : d.date,
           start: minToHHMM(d.startMin),
-          end: minToHHMM(d.startMin + d.durMin),
+          end: realDur > 0 ? minToHHMM(Math.min(d.startMin + realDur, 23 * 60 + 59)) : undefined,
         })
           .then(() => loadEvents())
           .catch((err) => console.error("move event", err));
@@ -1405,6 +1462,7 @@ const StartPage: Component<{
             </div>
             <textarea
               class="start-scratch"
+              readOnly={!scratchReady()}
               value={scratch()}
               onInput={(e) => onScratch(e.currentTarget.value)}
               placeholder="Jot a quick note, todo, or link… saved automatically."
@@ -1424,7 +1482,7 @@ const StartPage: Component<{
                   <select
                     class="cal-filter"
                     title="Show one calendar, or all of them"
-                    value={homeCal()}
+                    value={activeHomeCal()}
                     onChange={(e) => pickHomeCal(e.currentTarget.value)}
                   >
                     <option value="">All calendars</option>
@@ -1879,6 +1937,7 @@ const StartPage: Component<{
                 <Show when={expandedWidget() === "scratch"}>
                   <textarea
                     class="start-scratch widget-modal-scratch"
+                    readOnly={!scratchReady()}
                     value={scratch()}
                     onInput={(e) => onScratch(e.currentTarget.value)}
                     spellcheck={false}

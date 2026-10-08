@@ -4,7 +4,7 @@
  * match the current site with a one-click Fill, plus unlock/lock and a link to
  * the full-page manager (flux://passwords) for browsing/editing everything.
  */
-import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount, untrack, type Component } from "solid-js";
 
 import { visibleInterval } from "./poll";
 import {
@@ -55,19 +55,23 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
         .catch(() => setMatches([]));
     else setMatches([]);
   };
-  onMount(async () => {
-    const unLocked = await onVaultLocked(() => refresh());
-    const unReady = await onVaultReady(() => refresh());
+  onMount(() => {
+    // Cleanup is wired before anything resolves: after an `await` there is no
+    // owner, so an onCleanup there never ran, and this remounts with the footer.
+    const subs = [onVaultLocked(() => refresh()), onVaultReady(() => refresh())];
     onCleanup(() => {
-      unLocked();
-      unReady();
+      for (const p of subs) void p.then((un) => un()).catch(() => {});
     });
   });
   // Poll for host matches only while the popover is open (was an always-on 2.5s
   // timer). The locked-state badge stays fresh via the onVaultLocked event.
   createEffect(() => {
     if (!open()) return;
-    visibleInterval(refresh, 2500);
+    // visibleInterval runs `refresh` right away, inside this effect: tracked,
+    // its reads of activeTab()/status() became dependencies, and every
+    // vault_status reply is a new object, so the poll re-ran back to back.
+    // untrack keeps the owner, so visibleInterval's cleanup still binds here.
+    untrack(() => visibleInterval(refresh, 2500));
   });
 
   /** Copy a credential's password to the clipboard. The fallback for pages the
@@ -166,10 +170,7 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
       <button
         classList={{ "icon-btn": true, active: open() }}
         title={locked() ? "Passwords (locked)" : "Passwords"}
-        onClick={() => {
-          setOpen((v) => !v);
-          if (!open()) refresh();
-        }}
+        onClick={() => setOpen((v) => !v)}
       >
         {locked() ? "🔒" : "🔑"}
       </button>

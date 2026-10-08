@@ -79,20 +79,23 @@ const SyncPage: Component = () => {
         setFolder(s.folder ?? "");
       })
       .catch(() => {});
-  onMount(async () => {
+  onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Sync");
     refresh();
-    // Reflect background (auto) syncs live.
-    const offDone = await onSyncDone((r) => {
-      setErr(null);
-      setMsg(`Auto-synced — ${summary(r)}`);
-      refresh();
-    });
-    const offErr = await onSyncError((e) => setErr(`Auto-sync: ${e}`));
+    // Reflect background (auto) syncs live. Cleanup is wired before anything
+    // resolves: after an `await` there is no owner, so an onCleanup there never
+    // ran and every visit leaked both listeners.
+    const subs = [
+      onSyncDone((r) => {
+        setErr(null);
+        setMsg(`Auto-synced — ${summary(r)}`);
+        refresh();
+      }),
+      onSyncError((e) => setErr(`Auto-sync: ${e}`)),
+    ];
     onCleanup(() => {
-      offDone();
-      offErr();
+      for (const p of subs) void p.then((un) => un()).catch(() => {});
     });
   });
 

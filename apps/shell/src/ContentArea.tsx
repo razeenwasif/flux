@@ -135,9 +135,12 @@ const ContentArea: Component<{
   // Dismissal is keyed to the URL, so it resets on navigation rather than
   // silencing the explainer for the rest of the session.
   const [policyDismissed, setPolicyDismissed] = createSignal("");
-  const policyPage = createMemo(() => {
+  /** The policy-like URL the explainer is offered for, or "". The banner is
+   *  keyed on it: its results describe ONE document, so another policy page
+   *  (same tab or a tab switch) must get a fresh banner, not the last one's. */
+  const policyUrl = createMemo(() => {
     const u = activeTab()?.url ?? "";
-    return u.startsWith("http") && POLICY_RE.test(u) && policyDismissed() !== u;
+    return u.startsWith("http") && POLICY_RE.test(u) && policyDismissed() !== u ? u : "";
   });
   // Keyed by id (primitive) so the list is stable across unrelated tab updates.
   /** Pane and seam geometry in PERCENT of the card — the same `tileRects` the
@@ -247,17 +250,13 @@ const ContentArea: Component<{
       <Show when={activeConsent()}>
         {(c) => (
           <Suspense>
-            <ConsentBanner
-              consent={c()}
-              tabId={activeId() ?? -1}
-              onDismiss={() => setConsent(activeId() ?? -1, null)}
-            />
+            <ConsentBanner consent={c()} tabId={activeId() ?? -1} onDismiss={(id) => setConsent(id, null)} />
           </Suspense>
         )}
       </Show>
       {/* Policy / ToS explainer (ADR 0013, M5). The trigger is a cheap URL
           heuristic — it only decides whether to OFFER; the model runs on click. */}
-      <Show when={policyPage()} keyed>
+      <Show when={policyUrl()} keyed>
         <Suspense>
           <PolicyFlagsBanner onDismiss={() => setPolicyDismissed(activeTab()?.url ?? "")} />
         </Suspense>
