@@ -8,6 +8,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import captureJs from "../../../crates/flux-core/assets/capture.js?raw";
+import consentJs from "../../../crates/flux-core/assets/consent.js?raw";
+import explainRs from "../../../crates/flux-core/src/sentinel/explain.rs?raw";
 
 /** Run an injected script with `globals` standing in for the browser's. Timers
  *  are not stubbed here: they resolve to the (fakeable) real ones. */
@@ -95,5 +97,63 @@ describe("capture.js", () => {
       { kind: "blocked_destructive", detail: "delete", format: "", payload: "" },
       { kind: "extract", detail: "", format: "csv", payload: "a,b" },
     ]);
+  });
+});
+
+describe("consent.js", () => {
+  // The click vocabulary exactly as Rust bakes it in (REJECT_TERMS).
+  const start = explainRs.indexOf("pub const REJECT_TERMS");
+  const terms = [...explainRs.slice(start, explainRs.indexOf("];", start)).matchAll(/"([^"]+)"/g)].map(
+    (m) => m[1],
+  );
+
+  /** `banner`: inside a consent container; `dialog`: inside a dialog with this text. */
+  type Control = { id: string; label: string; banner?: boolean; dialog?: string };
+  const clickedOn = (controls: Control[]) => {
+    const clicked: string[] = [];
+    const els = controls.map((c) => ({
+      getAttribute: (n: string) => (n === "aria-label" ? c.label : null),
+      getBoundingClientRect: () => ({ width: 10, height: 10 }),
+      closest: (sel: string) =>
+        sel.includes("dialog") ? (c.dialog == null ? null : { innerText: c.dialog }) : c.banner ? {} : null,
+      click: () => clicked.push(c.id),
+    }));
+    runPageScript(consentJs.replace("__FLUX_REJECT_TERMS__", JSON.stringify(terms)), {
+      document: { querySelectorAll: () => els },
+    });
+    return clicked;
+  };
+
+  it("never clicks an unrelated control when the banner's wording is unknown", () => {
+    expect(terms).toContain("decline");
+    const page = [
+      { id: "banner", label: "Manage options", banner: true },
+      { id: "invite", label: "Decline" },
+      { id: "headline", label: "Stocks decline as rates rise" },
+      { id: "invite-dialog", label: "Decline", dialog: "Team sync, Thursday 10:00" },
+    ];
+    expect(clickedOn(page)).toEqual([]);
+  });
+
+  it("clicks the reject control the banner itself offers", () => {
+    expect(clickedOn([{ id: "invite", label: "Decline" }, { id: "cmp", label: "Decline", banner: true }])).toEqual([
+      "cmp",
+    ]);
+    expect(
+      clickedOn([
+        { id: "invite", label: "Decline" },
+        { id: "cmp", label: "Decline", dialog: "We and our partners use cookies" },
+      ]),
+    ).toEqual(["cmp"]);
+    expect(
+      clickedOn([
+        { id: "article", label: "Why you should reject all cookies today" },
+        { id: "cmp", label: "Reject all and close", banner: true },
+      ]),
+    ).toEqual(["cmp"]);
+  });
+
+  it("still matches an exact multi-word phrase anywhere on the page", () => {
+    expect(clickedOn([{ id: "unmarked-banner", label: "Reject all" }])).toEqual(["unmarked-banner"]);
   });
 });
