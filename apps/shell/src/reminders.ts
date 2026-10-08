@@ -106,16 +106,23 @@ export function parseWhen(input: string, now: number): { text: string; due: numb
     if (ap === "am" && h === 12) h = 0;
     const d = new Date(now);
     d.setHours(h, min, 0, 0);
-    let due = d.getTime();
-    if (day === "tomorrow") due += 864e5;
-    else if (due <= now) due += 864e5; // already past today → tomorrow
+    // Tomorrow, or already past today. By CALENDAR day, not 24h of ms: across a
+    // DST change that lands an hour off the wall-clock time asked for. setHours
+    // again pins it even if today's H:MM fell in the spring-forward gap.
+    if (day === "tomorrow" || d.getTime() <= now) {
+      d.setDate(d.getDate() + 1);
+      d.setHours(h, min, 0, 0);
+    }
+    const due = d.getTime();
     text = strip(text, at[0]!);
     return { text, due };
   }
 
-  // bare "tomorrow" → 9am tomorrow
+  // bare "tomorrow" → 9am tomorrow. The next calendar day: late in the evening
+  // before spring-forward, now + 24h is already the day after (that day is 23h).
   if (/\btomorrow\b/.test(lower)) {
-    const d = new Date(now + 864e5);
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
     d.setHours(9, 0, 0, 0);
     text = strip(text, "tomorrow");
     return { text, due: d.getTime() };
