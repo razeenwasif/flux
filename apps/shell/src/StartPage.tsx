@@ -387,10 +387,18 @@ const StartPage: Component<{
     refreshTodos();
   });
 
-  const loadEvents = () =>
+  // cal_events re-fetches every ICS feed (seconds) and snapshots the local
+  // events when it starts, so overlapping calls can resolve out of order and an
+  // older snapshot would overwrite a newer edit. Only the latest call may land.
+  let eventsSeq = 0;
+  const loadEvents = () => {
+    const seq = ++eventsSeq;
     void calEvents()
-      .then((e) => setAllEvents(e ?? []))
+      .then((e) => {
+        if (seq === eventsSeq) setAllEvents(e ?? []);
+      })
       .catch(() => {});
+  };
   const refreshTodos = () =>
     void todosList()
       .then((t) => setTodos(t ?? []))
