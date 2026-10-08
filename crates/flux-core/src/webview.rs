@@ -222,6 +222,13 @@ mod real {
                 PageLoadEvent::Started => "started",
                 PageLoadEvent::Finished => "finished",
             };
+            // Bind hibernation captures (#45) to the committed document:
+            // `Started` is the commit event on every backend.
+            if matches!(payload.event(), PageLoadEvent::Started) {
+                if let Some(s) = app_for_load.try_state::<crate::hibernate::HibernateStore>() {
+                    s.note_commit(tab_id, payload.url());
+                }
+            }
             let url = payload.url().to_string();
             // Cosmetic filtering (#57): inject element-hiding CSS for this page,
             // so blocked ad slots / leftover placeholders don't leave gaps. Works
