@@ -669,12 +669,14 @@ pub async fn spotify_launch() -> Result<String, String> {
 /// the no-active-device auto-start). Idempotent — safe to call repeatedly.
 #[cfg(desktop)]
 fn launch_audiopulse() -> Result<String, String> {
+    // Held across check → spawn → store. Released in between, two concurrent
+    // callers (a double-clicked play that 404s twice, or Launch racing a
+    // command's auto-start) both saw "not running" and both launched one.
+    let mut g = AUDIOPULSE.lock().unwrap_or_else(|e| e.into_inner());
     // Already running? (the child is alive if try_wait → Ok(None))
-    if let Ok(mut g) = AUDIOPULSE.lock() {
-        if let Some((_, child)) = g.as_mut() {
-            if matches!(child.try_wait(), Ok(None)) {
-                return Ok("AudioPulse is already running.".to_string());
-            }
+    if let Some((_, child)) = g.as_mut() {
+        if matches!(child.try_wait(), Ok(None)) {
+            return Ok("AudioPulse is already running.".to_string());
         }
     }
     let mut cmd = audiopulse_command()?;
@@ -700,9 +702,7 @@ fn launch_audiopulse() -> Result<String, String> {
             while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
         });
     }
-    if let Ok(mut g) = AUDIOPULSE.lock() {
-        *g = Some((pair.master, child));
-    }
+    *g = Some((pair.master, child));
     Ok("▶ Launched AudioPulse — give it a second to come online.".to_string())
 }
 
