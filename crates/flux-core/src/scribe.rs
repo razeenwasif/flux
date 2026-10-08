@@ -464,8 +464,9 @@ impl ScribeStore {
         merged
             .pages
             .retain(|p| merged.deleted_pages.get(&p.id).is_none_or(|&d| d < p.ts));
-        // Keep a stable reading order rather than merge order.
-        merged.pages.sort_by_key(|p| p.ts);
+        // The local page order is the user's (pages new here were appended
+        // above). No sort by `ts`: it's the last *edit*, so that moved each
+        // edited page to the end and undid ↑/↓ moves on every sync.
         // Metadata follows whichever notebook was touched last.
         if incoming.ts > merged.ts {
             merged.name = incoming.name;
@@ -951,8 +952,38 @@ mod tests {
         assert_eq!(
             ids,
             vec!["a", "mine", "theirs"],
-            "both survive, in time order"
+            "both survive, ours first"
         );
+    }
+
+    #[test]
+    fn merging_keeps_the_page_order() {
+        // `ts` is a page's last edit, so sorting by it sent every edited page
+        // to the end of the notebook on each sync.
+        let store = ScribeStore::default();
+        let order = |s: &ScribeStore| -> Vec<String> {
+            s.load("n1").unwrap().pages.into_iter().map(|p| p.id).collect()
+        };
+        store.merge_notebook(nb(
+            "n1",
+            30,
+            vec![pg("intro", 10, "I"), pg("l1", 20, "L1"), pg("l2", 30, "L2")],
+        ));
+        // The other device fixes a typo on the first page.
+        store.merge_notebook(nb(
+            "n1",
+            40,
+            vec![pg("intro", 40, "I fixed"), pg("l1", 20, "L1"), pg("l2", 30, "L2")],
+        ));
+        assert_eq!(order(&store), ["intro", "l1", "l2"]);
+        assert!(store.load("n1").unwrap().pages[0].strokes.contains("I fixed"));
+
+        // A ↑/↓ move leaves `ts` alone; our own write coming back keeps it.
+        let mut moved = store.load_for_editor("n1").unwrap();
+        moved.pages.swap(1, 2);
+        store.save(moved);
+        assert!(!store.merge_notebook(store.load("n1").unwrap()));
+        assert_eq!(order(&store), ["intro", "l2", "l1"]);
     }
 
     #[test]
