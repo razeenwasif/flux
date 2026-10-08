@@ -494,16 +494,23 @@ pub async fn tabs_recluster(app: AppHandle, state: State<'_, FluxState>) -> Resu
         .await
         .map_err(|e| e.to_string())?;
 
-    for (tab, tag) in assignments {
-        if let Some(mut meta) = state.tabs.get_mut(&tab) {
-            meta.cluster = Some(crate::state::ClusterTag {
-                id: tag.id,
-                color: tag.color,
-            });
-        }
-    }
+    apply_clusters(&state, assignments);
     app.emit("flux://clusters-updated", ())
         .map_err(|e| e.to_string())
+}
+
+/// Replace every tab's cluster with this run's assignment, `None` if it had
+/// none. Cluster ids are positional per run, so a tag left on a tab outside the
+/// run (hibernated, restored from disk) would name a different topic now.
+fn apply_clusters(state: &FluxState, assignments: Vec<(TabId, flux_embed::ClusterTag)>) {
+    let fresh: std::collections::HashMap<TabId, flux_embed::ClusterTag> =
+        assignments.into_iter().collect();
+    for mut meta in state.tabs.iter_mut() {
+        meta.cluster = fresh.get(&meta.id).map(|tag| crate::state::ClusterTag {
+            id: tag.id,
+            color: tag.color,
+        });
+    }
 }
 
 #[cfg(test)]
@@ -551,5 +558,51 @@ mod tests {
         assert_eq!(cwd_of(Some("/Users/u/code/flux")), "/Users/u/code/flux");
         assert_eq!(cwd_of(None), crate::dom::dirs_download());
         assert_eq!(cwd_of(Some("  ")), crate::dom::dirs_download());
+    }
+
+    #[test]
+    fn group_by_topic_only_groups_this_runs_tabs_in_this_workspace() {
+        let state = FluxState::new();
+        let open = || {
+            create_tab(
+                &state,
+                TabKind::Browser,
+                Some("https://x.example/".into()),
+                None,
+                None,
+                false,
+            )
+            .id
+        };
+        let (a, b, hibernated, elsewhere, parked) = (open(), open(), open(), open(), open());
+        let other_ws = state.workspace_create("Other".into(), 0);
+        state.set_tab_workspace(elsewhere, other_ws);
+        let folder = state.folder_create("Later".into());
+        state.set_tab_folder(parked, Some(folder));
+        // Everything carries yesterday's topic 0…
+        let topic0 = flux_embed::ClusterTag { id: 0, color: 1 };
+        apply_clusters(
+            &state,
+            [a, b, hibernated, elsewhere, parked]
+                .map(|t| (t, topic0))
+                .to_vec(),
+        );
+        assert_eq!(state.groups_from_clusters(), 1);
+        let grouped: Vec<TabId> = state
+            .ordered_tabs()
+            .into_iter()
+            .filter(|t| t.group.is_some())
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(
+            grouped,
+            [a, b, hibernated],
+            "never across workspaces or out of a folder"
+        );
+
+        // …and today's run only sees `a` and `b`: the stale tag must not join them.
+        apply_clusters(&state, vec![(a, topic0), (b, topic0)]);
+        assert!(state.tabs.get(&hibernated).unwrap().cluster.is_none());
+        assert!(state.tabs.get(&elsewhere).unwrap().cluster.is_none());
     }
 }

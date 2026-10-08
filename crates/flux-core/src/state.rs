@@ -501,8 +501,11 @@ impl FluxState {
         use std::collections::HashMap;
         // cluster id → (color, tab ids)
         let mut by_cluster: HashMap<u32, (u32, Vec<TabId>)> = HashMap::new();
+        let ws = self.active_workspace();
         for t in self.tabs.iter() {
-            if t.pinned {
+            // Groups render per workspace, and a folder tab is never in a strip
+            // group (see `set_tab_workspace` / `set_tab_folder`).
+            if t.pinned || t.workspace != ws || t.folder.is_some() {
                 continue;
             }
             if let Some(c) = t.cluster {
