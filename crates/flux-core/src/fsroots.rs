@@ -70,9 +70,23 @@ impl RootsStore {
     fn hydrate(&self) {
         self.initialized.call_once(|| {
             let Some(p) = &self.path else { return };
-            if let Ok(s) = std::fs::read_to_string(p) {
-                if let Ok(v) = serde_json::from_str::<AgentRoots>(&s) {
-                    *self.state.lock() = v;
+            match std::fs::read_to_string(p).map(|s| serde_json::from_str::<AgentRoots>(&s)) {
+                Ok(Ok(v)) => *self.state.lock() = v,
+                // Never configured: the documented default (off).
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                // The user configured *some* allowance we can't read. Fail closed
+                // (gate on, nothing allowed, and `check` says how to fix it)
+                // rather than open the whole disk.
+                _ => {
+                    tracing::error!(
+                        target: "flux::fsroots",
+                        path = %p.display(),
+                        "agent file access settings are unreadable; access is blocked until they're saved again"
+                    );
+                    *self.state.lock() = AgentRoots {
+                        enabled: true,
+                        roots: Vec::new(),
+                    };
                 }
             }
         });
@@ -451,6 +465,34 @@ mod tests {
         for h in handles {
             h.join().unwrap();
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_allowance_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("flux_roots_corrupt_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent-roots.json");
+        // Never configured: off, as documented.
+        assert!(RootsStore::empty(path.clone()).check("/anywhere").is_ok());
+
+        // A hand-added Windows root with single backslashes is invalid JSON. The
+        // user turned the gate on; it must not silently come back off.
+        std::fs::write(&path, r#"{"enabled": true, "roots": ["C:\Projects"]}"#).unwrap();
+        let s = RootsStore::empty(path.clone());
+        let err = s.check("/anywhere").unwrap_err();
+        assert!(err.contains("Settings"), "{err}");
+
+        // Saving from Settings replaces the unreadable file.
+        s.set(AgentRoots {
+            enabled: true,
+            roots: vec!["/home/me".into()],
+        });
+        assert_eq!(
+            RootsStore::empty(path).get().roots,
+            vec!["/home/me".to_string()]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
