@@ -117,6 +117,16 @@ const InternalPage: Component<InternalPageProps> = (props) => {
     // A page that publishes a better snapshot than its own DOM must opt out
     // here, not hope to win a timing fight.
     if (t.url.startsWith(PDF_URL)) return;
+    // Throttled, never dropped: a change inside the floor is published once the
+    // floor has passed. Returning outright lost whatever a page rendered within
+    // 5 s of its previous publish for as long as the page then stayed still.
+    // Checked before innerText, which forces a layout over up to 40 k chars.
+    const wait = MIN_INTERVAL_MS - (Date.now() - lastAt);
+    if (wait > 0) {
+      clearTimeout(timer);
+      timer = window.setTimeout(publish, wait);
+      return;
+    }
     const text = Array.from(host.children)
       .map((c) => (c as HTMLElement).innerText ?? "")
       .join("\n")
@@ -124,7 +134,7 @@ const InternalPage: Component<InternalPageProps> = (props) => {
       .slice(0, MAX_TEXT);
     // Unchanged text is not worth an IPC round trip, and a live-updating page
     // would otherwise republish on every tick.
-    if (!text || text === lastText || Date.now() - lastAt < MIN_INTERVAL_MS) return;
+    if (!text || text === lastText) return;
     lastText = text;
     lastAt = Date.now();
     void domPublishInternal(t.id, t.url, text).catch(() => {});
