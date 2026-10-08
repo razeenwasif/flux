@@ -191,6 +191,21 @@ fn wsl_bash(script: &str, path_arg: &str, what: &str) -> Result<Vec<u8>, String>
     Ok(out.stdout)
 }
 
+/// Canonicalize a path *inside WSL*: `~`, `..` and symlinks resolved exactly as
+/// the bridge's readers will meet them (`-m`: the leaf need not exist yet). The
+/// agent's folder gate needs it, because Windows' own `canonicalize` can't see
+/// into WSL.
+#[cfg(windows)]
+pub(crate) fn wsl_realpath(p: &str) -> Result<String, String> {
+    let script = format!("{WSL_PRELUDE}realpath -m -- \"$p\"");
+    let out = String::from_utf8_lossy(&wsl_bash(&script, p, p)?).into_owned();
+    let r = out.strip_suffix('\n').unwrap_or(&out);
+    if r.is_empty() {
+        return Err(format!("can't resolve {p} in WSL"));
+    }
+    Ok(r.to_string())
+}
+
 /// Read a file's **bytes** out of WSL.
 ///
 /// Base64 in transit, deliberately: a PDF is binary, and piping raw bytes back

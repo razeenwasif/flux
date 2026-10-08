@@ -118,7 +118,29 @@ impl RootsStore {
                     .into(),
             );
         }
-        if cfg.roots.iter().any(|r| contains(r, path)) {
+        // On Windows a `/…` or `~…` path is read *inside WSL* (`files::read_bytes_any`),
+        // where `~` is the Linux home and links are Linux links, but `resolve` would
+        // judge a Windows path (`~` → %USERPROFILE%, `/home` → `C:\home`): a
+        // different file from the one read. So resolve it where it will be read,
+        // against roots written the same (WSL) way, and keep WSL roots from
+        // admitting the Windows path that shares their spelling.
+        #[cfg(windows)]
+        let inside = if crate::files::is_wsl_path(path) {
+            let target = PathBuf::from(crate::files::wsl_realpath(path)?);
+            cfg.roots
+                .iter()
+                .filter(|r| crate::files::is_wsl_path(r))
+                .filter_map(|r| crate::files::wsl_realpath(r).ok())
+                .any(|r| target.starts_with(r))
+        } else {
+            cfg.roots
+                .iter()
+                .filter(|r| !crate::files::is_wsl_path(r))
+                .any(|r| contains(r, path))
+        };
+        #[cfg(not(windows))]
+        let inside = cfg.roots.iter().any(|r| contains(r, path));
+        if inside {
             return Ok(());
         }
         Err(format!(
