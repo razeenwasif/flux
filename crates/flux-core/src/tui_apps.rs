@@ -126,18 +126,19 @@ impl TuiAppsStore {
         }
         let Some(path) = &self.path else { return };
 
-        let mut had_file = false;
-        let mut version = 0u32;
-        let mut apps: Vec<TuiApp> = Vec::new();
-        if let Ok(s) = std::fs::read_to_string(path) {
-            had_file = true;
-            if let Ok(f) = serde_json::from_str::<TuiAppsFile>(&s) {
-                version = f.seed_version;
-                apps = f.apps;
-            } else if let Ok(v) = serde_json::from_str::<Vec<TuiApp>>(&s) {
-                apps = v; // legacy bare-array format → seed_version 0
+        // A file in neither shape (or unreadable) is kept aside and treated as
+        // absent: the defaults seeded below are saved over it.
+        let loaded = crate::persist::load_or_quarantine(path, |b| {
+            match serde_json::from_slice::<TuiAppsFile>(b) {
+                Ok(f) => Ok((f.seed_version, f.apps)),
+                // legacy bare-array format → seed_version 0
+                Err(e) => serde_json::from_slice::<Vec<TuiApp>>(b)
+                    .map(|v| (0, v))
+                    .map_err(|_| e.to_string()),
             }
-        }
+        });
+        let had_file = loaded.is_some();
+        let (mut version, mut apps) = loaded.unwrap_or_default();
 
         let mut changed = false;
         if !had_file {
@@ -222,6 +223,24 @@ mod tests {
         let apps = store.list();
         assert_eq!(apps.len(), seed_defaults().len());
         assert!(apps.iter().any(|a| a.id == "lazygit" && a.cmd == "lazygit"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unparseable_launcher_is_kept_before_reseeding() {
+        let dir = std::env::temp_dir().join(format!("flux-tuiapps-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tui-apps.json");
+        std::fs::write(&path, "{ not json").unwrap();
+        let apps = TuiAppsStore::empty(path).list();
+        assert_eq!(apps.len(), seed_defaults().len());
+        let kept = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().contains(".unreadable-"))
+            .expect("the user's file is kept");
+        assert_eq!(std::fs::read_to_string(kept.path()).unwrap(), "{ not json");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

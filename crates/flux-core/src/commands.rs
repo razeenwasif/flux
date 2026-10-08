@@ -65,6 +65,8 @@ pub fn shell_snapshot(state: State<'_, FluxState>) -> ShellSnapshot {
 /// Register a new tab of either kind. For Browser tabs the frontend creates
 /// the child webview (labelled `tab-{id}`) once this returns; for Terminal
 /// tabs flux-core spawns a PTY session (BACKLOG #3) with `terminal_env`.
+/// `background` (middle/Ctrl-click, a page's window.open, session restore)
+/// leaves the active tab where it is.
 #[tauri::command]
 pub fn tab_create(
     state: State<'_, FluxState>,
@@ -72,14 +74,40 @@ pub fn tab_create(
     url: Option<String>,
     private: Option<bool>,
     container: Option<u32>,
+    background: Option<bool>,
+) -> TabMeta {
+    create_tab(
+        &state,
+        kind,
+        url,
+        private,
+        container,
+        background.unwrap_or(false),
+    )
+}
+
+/// `tab_create` minus the Tauri plumbing, so it can be tested.
+fn create_tab(
+    state: &FluxState,
+    kind: TabKind,
+    url: Option<String>,
+    private: Option<bool>,
+    container: Option<u32>,
+    background: bool,
 ) -> TabMeta {
     let id = state.alloc_tab_id();
     let (url, title) = match kind {
         // No url → the Flux start page (the frontend renders the dashboard and
         // opens no webview for `flux://start`).
         TabKind::Browser => (url.unwrap_or_else(|| "flux://start".into()), String::new()),
-        // Terminal tabs carry their cwd in `url`; title mirrors the shell.
-        TabKind::Terminal => (crate::dom::dirs_download(), format!("term #{id}")),
+        // Terminal tabs carry their cwd in `url` (Files' "Open terminal here",
+        // TUI launchers); Downloads only when none was given. Title mirrors
+        // the shell.
+        TabKind::Terminal => (
+            url.filter(|u| !u.trim().is_empty())
+                .unwrap_or_else(crate::dom::dirs_download),
+            format!("term #{id}"),
+        ),
         // Files tabs carry their cwd in `url`; start at home.
         TabKind::Files => {
             let start = url.unwrap_or_else(crate::files::home_dir);
@@ -106,7 +134,12 @@ pub fn tab_create(
     };
     state.tabs.insert(id, meta.clone());
     state.order_push(id);
-    state.set_active_tab(id);
+    // The agent, archive, macros, sentinel and the terminal's active.json all
+    // read this pointer: a tab opened in the background must not retarget them
+    // while the user is still looking at the old one.
+    if !background {
+        state.set_active_tab(id);
+    }
     state.persist();
     meta
 }
@@ -461,14 +494,115 @@ pub async fn tabs_recluster(app: AppHandle, state: State<'_, FluxState>) -> Resu
         .await
         .map_err(|e| e.to_string())?;
 
-    for (tab, tag) in assignments {
-        if let Some(mut meta) = state.tabs.get_mut(&tab) {
-            meta.cluster = Some(crate::state::ClusterTag {
-                id: tag.id,
-                color: tag.color,
-            });
-        }
-    }
+    apply_clusters(&state, assignments);
     app.emit("flux://clusters-updated", ())
         .map_err(|e| e.to_string())
+}
+
+/// Replace every tab's cluster with this run's assignment, `None` if it had
+/// none. Cluster ids are positional per run, so a tag left on a tab outside the
+/// run (hibernated, restored from disk) would name a different topic now.
+fn apply_clusters(state: &FluxState, assignments: Vec<(TabId, flux_embed::ClusterTag)>) {
+    let fresh: std::collections::HashMap<TabId, flux_embed::ClusterTag> =
+        assignments.into_iter().collect();
+    for mut meta in state.tabs.iter_mut() {
+        meta.cluster = fresh.get(&meta.id).map(|tag| crate::state::ClusterTag {
+            id: tag.id,
+            color: tag.color,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_background_tab_leaves_the_active_tab_alone() {
+        let state = FluxState::new();
+        let open = |url: &str, background| {
+            create_tab(
+                &state,
+                TabKind::Browser,
+                Some(url.into()),
+                None,
+                None,
+                background,
+            )
+        };
+        let a = open("https://a.example/", false);
+        assert_eq!(state.active_tab(), Some(a.id));
+        let b = open("https://b.example/", true);
+        assert!(state.tabs.contains_key(&b.id));
+        assert_eq!(
+            state.active_tab(),
+            Some(a.id),
+            "the page the user is on stays active"
+        );
+    }
+
+    #[test]
+    fn a_terminal_tab_starts_in_the_directory_it_was_opened_for() {
+        let state = FluxState::new();
+        let cwd_of = |url: Option<&str>| {
+            create_tab(
+                &state,
+                TabKind::Terminal,
+                url.map(str::to_string),
+                None,
+                None,
+                false,
+            )
+            .url
+        };
+        assert_eq!(cwd_of(Some("/Users/u/code/flux")), "/Users/u/code/flux");
+        assert_eq!(cwd_of(None), crate::dom::dirs_download());
+        assert_eq!(cwd_of(Some("  ")), crate::dom::dirs_download());
+    }
+
+    #[test]
+    fn group_by_topic_only_groups_this_runs_tabs_in_this_workspace() {
+        let state = FluxState::new();
+        let open = || {
+            create_tab(
+                &state,
+                TabKind::Browser,
+                Some("https://x.example/".into()),
+                None,
+                None,
+                false,
+            )
+            .id
+        };
+        let (a, b, hibernated, elsewhere, parked) = (open(), open(), open(), open(), open());
+        let other_ws = state.workspace_create("Other".into(), 0);
+        state.set_tab_workspace(elsewhere, other_ws);
+        let folder = state.folder_create("Later".into());
+        state.set_tab_folder(parked, Some(folder));
+        // Everything carries yesterday's topic 0…
+        let topic0 = flux_embed::ClusterTag { id: 0, color: 1 };
+        apply_clusters(
+            &state,
+            [a, b, hibernated, elsewhere, parked]
+                .map(|t| (t, topic0))
+                .to_vec(),
+        );
+        assert_eq!(state.groups_from_clusters(), 1);
+        let grouped: Vec<TabId> = state
+            .ordered_tabs()
+            .into_iter()
+            .filter(|t| t.group.is_some())
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(
+            grouped,
+            [a, b, hibernated],
+            "never across workspaces or out of a folder"
+        );
+
+        // …and today's run only sees `a` and `b`: the stale tag must not join them.
+        apply_clusters(&state, vec![(a, topic0), (b, topic0)]);
+        assert!(state.tabs.get(&hibernated).unwrap().cluster.is_none());
+        assert!(state.tabs.get(&elsewhere).unwrap().cluster.is_none());
+    }
 }

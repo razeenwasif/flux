@@ -30,6 +30,11 @@ struct Entry {
 #[derive(Default)]
 pub struct HibernateStore {
     entries: DashMap<TabId, Entry>,
+    /// Origin of each tab's last *committed* document, as the engine reported
+    /// it at `PageLoadEvent::Started` (the commit event on every backend). Not
+    /// `Webview::url()`: WebKit reports the *provisional* URL there while the
+    /// old, still-scriptable document is alive.
+    committed: DashMap<TabId, String>,
 }
 
 impl HibernateStore {
@@ -65,8 +70,42 @@ impl HibernateStore {
         }
     }
 
+    /// Record the origin of the document `id` just committed.
+    pub fn note_commit(&self, id: TabId, url: &tauri::Url) {
+        self.committed
+            .insert(id, url.origin().ascii_serialization());
+    }
+
+    /// Store state a page captured, once it is bound to the page that sent it.
+    /// `u` is page-supplied and is the only same-page check `__fluxRestore`
+    /// makes (a missing `u` skips it), so require it, and require its origin to
+    /// be the tab's committed document: a page must not stash values labelled
+    /// for another site, navigate there, and have the wake reload fill them in.
+    fn capture_checked(&self, id: TabId, state: &str) -> Result<(), String> {
+        let mut captured: HibernateState =
+            serde_json::from_str(state).map_err(|e| e.to_string())?;
+        captured.validate_limits()?;
+        let committed = self
+            .committed
+            .get(&id)
+            .map(|o| o.value().clone())
+            .ok_or("no committed page for this tab")?;
+        let claimed = captured
+            .u
+            .as_deref()
+            .and_then(|u| tauri::Url::parse(u).ok())
+            .map(|u| u.origin().ascii_serialization());
+        if committed == "null" || claimed.as_deref() != Some(committed.as_str()) {
+            return Err("hibernate state does not match the committed page".into());
+        }
+        let safe_json = serde_json::to_string(&captured).map_err(|e| e.to_string())?;
+        self.capture(id, safe_json);
+        Ok(())
+    }
+
     pub fn remove(&self, id: TabId) {
         self.entries.remove(&id);
+        self.committed.remove(&id);
     }
 }
 
@@ -146,11 +185,7 @@ pub fn hibernate_capture(
             return Err("tab_id mismatch with caller webview".into());
         }
     }
-    let mut captured: HibernateState = serde_json::from_str(&state).map_err(|e| e.to_string())?;
-    captured.validate_limits()?;
-    let safe_json = serde_json::to_string(&captured).map_err(|e| e.to_string())?;
-    store.capture(tab, safe_json);
-    Ok(())
+    store.capture_checked(tab, &state)
 }
 
 // ─── Belady/Markov eviction ranking (BACKLOG #106) ───────────────────────────
@@ -314,6 +349,35 @@ mod tests {
         assert!(!ranked[0].protected);
         // …but the small bonus still nudges its score down a touch.
         assert!(ranked[0].score < 1000.0);
+    }
+
+    #[test]
+    fn capture_is_bound_to_the_committed_page() {
+        let store = HibernateStore::new();
+        let state =
+            |u: &str| format!(r#"{{"u":{u},"f":[{{"name":"iban","type":"text","v":"X"}}]}}"#);
+        // Nothing committed yet: there is no page to bind the state to.
+        assert!(store
+            .capture_checked(1, &state(r#""https://evil.example/""#))
+            .is_err());
+        store.note_commit(1, &"https://evil.example/home".parse().unwrap());
+        // Labelled for another site, or not labelled at all: refused.
+        for u in [r#""https://bank.example/transfer""#, "null"] {
+            assert!(store.capture_checked(1, &state(u)).is_err(), "{u}");
+        }
+        store.mark_wake(1);
+        assert_eq!(store.take_for_restore(1), None, "nothing was stored");
+        // The page's own state, on any path of its origin (SPA routes), is kept.
+        store
+            .capture_checked(1, &state(r#""https://evil.example/other""#))
+            .unwrap();
+        store.mark_wake(1);
+        assert!(store.take_for_restore(1).is_some());
+        // An opaque origin (data:, file:) never matches anything.
+        store.note_commit(2, &"data:text/html,hi".parse().unwrap());
+        assert!(store
+            .capture_checked(2, &state(r#""data:text/html,hi""#))
+            .is_err());
     }
 
     #[test]

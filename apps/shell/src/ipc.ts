@@ -281,12 +281,20 @@ export type AgentAction = GenAgentAction;
 
 // ─── Commands ────────────────────────────────────────────────────────────
 
-export const tabCreate = (kind: TabKind, url?: string, isPrivate?: boolean, container?: number) =>
+/** `background`: don't move the backend's active tab (the UI isn't switching to it). */
+export const tabCreate = (
+  kind: TabKind,
+  url?: string,
+  isPrivate?: boolean,
+  container?: number,
+  background?: boolean,
+) =>
   invoke<TabMeta>("tab_create", {
     kind,
     url: url ?? null,
     private: isPrivate ?? null,
     container: container ?? null,
+    background: background ?? null,
   });
 export const shellSnapshot = () => invoke<ShellSnapshot>("shell_snapshot");
 // ─── Multi-account containers (BACKLOG #59) — Container type from bindings.gen ──
@@ -639,6 +647,13 @@ export const domPublishInternal = (tabId: number, url: string, text: string) =>
 
 export const onAgentStatus = (cb: (s: AgentStatus) => void): Promise<UnlistenFn> =>
   listen<AgentStatus>("flux://agent-status", (e) => cb(e.payload));
+
+/** Outcome of a compiled agent action, reported by the page itself:
+ *  [tabId, kind, detail, format, payload]. Untrusted: any page can send one. */
+export const onAgentReport = (
+  cb: (tabId: number, kind: string, detail: string, format: string, payload: string) => void,
+): Promise<UnlistenFn> =>
+  listen<[number, string, string, string, string]>("flux://agent-report", (e) => cb(...e.payload));
 
 export const onClustersUpdated = (cb: () => void): Promise<UnlistenFn> =>
   listen("flux://clusters-updated", () => cb());

@@ -57,6 +57,9 @@ pub struct HistoryStore {
     entries: RwLock<HashMap<String, HistoryEntry>>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
+    /// Set once `hydrate` has run. Until then the map holds only this
+    /// session's visits, which must never be written over history.json.
+    hydrated: AtomicBool,
 }
 
 impl HistoryStore {
@@ -73,6 +76,7 @@ impl HistoryStore {
             entries: RwLock::new(HashMap::new()),
             path: Some(path),
             dirty: AtomicBool::new(false),
+            hydrated: AtomicBool::new(false),
         }
     }
 
@@ -80,6 +84,11 @@ impl HistoryStore {
     /// (never clobbers an entry already recorded since boot), so it's safe to run
     /// after the store is live. Does not mark the store dirty.
     pub fn hydrate(&self) {
+        self.load_from_disk();
+        self.hydrated.store(true, Ordering::Release);
+    }
+
+    fn load_from_disk(&self) {
         let Some(path) = &self.path else { return };
         let Some(loaded) = std::fs::read_to_string(path)
             .ok()
@@ -274,6 +283,14 @@ impl HistoryStore {
         let snapshot: Vec<HistoryEntry> = self.entries.read().values().cloned().collect();
         crate::persist::save_json(path, &snapshot);
     }
+
+    /// The exit flush: `persist_if_dirty`, but never before `hydrate` has run
+    /// (the boot thread may still be loading a large history.json).
+    pub fn persist_if_hydrated(&self) {
+        if self.hydrated.load(Ordering::Acquire) {
+            self.persist_if_dirty();
+        }
+    }
 }
 
 // ─── commands ────────────────────────────────────────────────────────────────
@@ -387,6 +404,28 @@ mod tests {
             "search must work on loaded entries"
         );
         assert_eq!(b.search("example.com", 10).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_exit_flush_never_writes_an_unhydrated_store() {
+        let dir = std::env::temp_dir().join(format!("flux-hist-exit-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("history.json");
+        let first = HistoryStore::restore(path.clone());
+        first.record("https://old.example/", "Old");
+        first.persist_if_dirty();
+
+        // A visit recorded (and a quit) before the boot thread loaded the file.
+        let early = HistoryStore::empty(path.clone());
+        early.record("https://new.example/", "New");
+        early.persist_if_hydrated();
+        let on_disk = || HistoryStore::restore(path.clone()).entries.read().len();
+        assert_eq!(on_disk(), 1, "history.json was not replaced by one visit");
+
+        early.hydrate();
+        early.persist_if_hydrated();
+        assert_eq!(on_disk(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

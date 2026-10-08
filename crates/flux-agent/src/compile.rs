@@ -18,7 +18,10 @@ fn js_str(s: &str) -> String {
 /// `__el` is in scope for the action body that follows.
 fn highlight_prelude(selector: &str) -> String {
     format!(
-        r#"const __el = document.querySelector({sel});
+        r#"let __el;
+  /* An invalid selector (a model's jQuery-style `:contains()`) throws, and the
+     action died before any report call. */
+  try {{ __el = document.querySelector({sel}); }} catch (_) {{ window.__FLUX__?.report('bad_selector', {sel}); return; }}
   if (!__el) {{ window.__FLUX__?.report('not_found', {sel}); return; }}
   __el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
   const __old = __el.style.cssText;
@@ -89,8 +92,8 @@ pub fn to_js(action: &AgentAction) -> String {
     ? rows.map(r => r.map(c => '"' + c.replaceAll('"', '""') + '"').join(',')).join('\n')
     : JSON.stringify(rows);
   __el.style.cssText = __old;
-  /* Hand the payload back to Rust via the capture bridge; flux-core routes
-     it to the terminal pane / a download, per the user's sink choice. */
+  /* Hand the payload back to Rust via the capture bridge; flux-core passes
+     it on to the agent panel, which shows it in the feed. */
   window.__FLUX__?.deliver('extract', fmt, out);
 }})();"#,
             prelude = highlight_prelude(selector),
@@ -254,5 +257,26 @@ mod tests {
         assert!(js.contains("report('not_typable'"));
         // The text is still embedded only as a JSON string literal.
         assert!(js.contains(r#"const __text = "I'll be there at 3";"#));
+    }
+
+    /// `querySelector` throws on an invalid selector, so an unguarded lookup
+    /// killed the action before it could report anything.
+    #[test]
+    fn invalid_selector_reports_instead_of_throwing() {
+        let js = AgentAction::Click {
+            selector: "a:contains('Next')".into(),
+            reason: "go".into(),
+        }
+        .to_js();
+        let lookup = js.find("document.querySelector(").unwrap();
+        let guard = js.find("try {").unwrap();
+        assert!(guard < lookup, "the lookup must be inside the try");
+        assert!(js.contains("report('bad_selector'"));
+        let caught = js.find("report('bad_selector'").unwrap();
+        let missing = js.find("report('not_found'").unwrap();
+        assert!(
+            caught < missing,
+            "a throwing lookup reports before the null check"
+        );
     }
 }

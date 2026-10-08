@@ -97,6 +97,7 @@ import {
   calEventUpdate,
   calEventDelete,
   onAgentStatus,
+  onAgentReport,
   type AgentAction,
   type NextStep,
   type AgentStatus,
@@ -476,6 +477,42 @@ const AgentPanel: Component = () => {
   onMount(async () => {
     const unlisten = await onAgentStatus(setStatus);
     onCleanup(unlisten);
+  });
+
+  // What the page reported for a compiled action (flux-agent compile.rs).
+  // agent_run_action returns once the script is injected, so this is the only
+  // place a blocked or not-found click, or an extract payload, arrives. Any page
+  // can call the bridge: accept one report, only from the tab an action just
+  // ran on, and only known kinds (never page-supplied text) reach the planner.
+  const OK_OUTCOMES = new Set(["clicked", "typed", "extract"]);
+  const FAIL_OUTCOMES = new Set(["not_found", "bad_selector", "blocked_destructive", "refused"]);
+  const awaitingReport = new Map<number, number>(); // tab → accept until (ms)
+  const agentOutcome = new Map<number, string>();
+  const expectReport = (tabId: number | undefined, action: AgentAction) => {
+    if (tabId == null) return;
+    agentOutcome.delete(tabId);
+    // A reveal that works reports nothing.
+    if (action.action !== "reveal") awaitingReport.set(tabId, Date.now() + 5000);
+  };
+  onMount(() => {
+    let unlisten: (() => void) | undefined;
+    void onAgentReport((tabId, kind, detail, format, payload) => {
+      if (!OK_OUTCOMES.has(kind) && !FAIL_OUTCOMES.has(kind)) return;
+      const until = awaitingReport.get(tabId);
+      awaitingReport.delete(tabId);
+      if (until == null || Date.now() > until) return;
+      agentOutcome.set(tabId, kind);
+      if (kind === "extract") {
+        const shown = payload.length > 20_000 ? `${payload.slice(0, 20_000)}\n…` : payload;
+        setFeed((f) => [...f, { role: "action", text: `Extracted table (${format}):\n${shown}` }]);
+      } else if (FAIL_OUTCOMES.has(kind)) {
+        const why = kind.replace(/_/g, " ");
+        setFeed((f) => [...f, { role: "error", text: `✕ Not done (${why}): ${detail.slice(0, 200)}` }]);
+      }
+    }).then((u) => {
+      unlisten = u;
+    });
+    onCleanup(() => unlisten?.());
   });
 
   // Auto-scroll the feed to the latest message.
@@ -2705,6 +2742,7 @@ const AgentPanel: Component = () => {
   const approve = async (idx: number, action: AgentAction, tabId?: number, expectedUrl?: string) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
     setBusy(true);
+    expectReport(tabId ?? activeId() ?? undefined, action);
     try {
       await agentRunAction(action, tabId, expectedUrl);
       setFeed((f) => [...f, { role: "action", text: `✓ ${describeAction(action)}` }]);
@@ -3132,6 +3170,7 @@ const AgentPanel: Component = () => {
         // Run the approved step, record it, let the page settle before re-planning.
         const stepTabId = activeId() ?? undefined;
         const stepUrl = tabs().find((t) => t.id === stepTabId)?.url;
+        expectReport(stepTabId, action);
         setBusy(true);
         try {
           await agentRunAction(action, stepTabId, stepUrl);
@@ -3141,6 +3180,13 @@ const AgentPanel: Component = () => {
           setBusy(false);
         }
         await new Promise((r) => setTimeout(r, 1200));
+        // The page's own report (blocked, not found) lands after the click's
+        // 180 ms highlight: don't let the planner build on a step that never ran.
+        const outcome = stepTabId != null ? agentOutcome.get(stepTabId) : undefined;
+        if (outcome && FAIL_OUTCOMES.has(outcome)) {
+          const what = describeAction(action).replace(/^✓ /, "");
+          history[history.length - 1] = `✕ FAILED (${outcome.replace(/_/g, " ")}): ${what}`;
+        }
       }
       setFeed((f) => [...f, { role: "task", text: `Reached the ${MAX_TASK_STEPS}-step limit — stopping.` }]);
     } catch (err) {

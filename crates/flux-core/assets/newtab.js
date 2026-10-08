@@ -40,6 +40,20 @@
   //    a live opener for OAuth handshakes — are out of scope here.)
   var nativeOpen = window.open;
   window.open = function (url, target, features) {
+    var t = target == null ? "" : String(target).toLowerCase();
+    // _self / _top / _parent navigate this browsing context, not a new window.
+    if (t === "_self" || t === "_top" || t === "_parent") {
+      try {
+        return nativeOpen.apply(window, arguments);
+      } catch (e) {
+        return null;
+      }
+    }
+    // Popup-blocker parity: a scripted open with no live user gesture (onload
+    // pop-unders, timers, ad scripts) is refused as every browser refuses it,
+    // instead of becoming a focused Flux tab.
+    var ua = navigator.userActivation;
+    if (ua && !ua.isActive) return null;
     if (url && fluxOpen(String(url), false)) {
       return {
         closed: false,

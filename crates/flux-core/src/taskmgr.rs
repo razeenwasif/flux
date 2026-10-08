@@ -369,14 +369,30 @@ pub struct GpuInfo {
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
-#[tauri::command]
-pub fn tasks_list(state: State<'_, TaskManager>) -> Vec<ProcInfo> {
-    state.list()
+/// Run `f` on the blocking pool. A sync command runs on the UI thread, and
+/// `list` refreshes every process (tens of ms, every 2 s while the page is
+/// open); `stats` and `kill` share its `sys` lock, so left there they would
+/// only wait on it instead.
+async fn off_ui_thread<T: Send + 'static>(
+    app: tauri::AppHandle,
+    f: impl FnOnce(&TaskManager) -> T + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        f(&app.state::<TaskManager>())
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn tasks_stats(state: State<'_, TaskManager>) -> SysStats {
-    state.stats()
+pub async fn tasks_list(app: tauri::AppHandle) -> Result<Vec<ProcInfo>, String> {
+    off_ui_thread(app, TaskManager::list).await
+}
+
+#[tauri::command]
+pub async fn tasks_stats(app: tauri::AppHandle) -> Result<SysStats, String> {
+    off_ui_thread(app, TaskManager::stats).await
 }
 
 /// Mounted filesystems, for the task manager's disk card.
@@ -386,8 +402,8 @@ pub fn tasks_disks(state: State<'_, TaskManager>) -> Vec<DiskInfo> {
 }
 
 #[tauri::command]
-pub fn tasks_kill(state: State<'_, TaskManager>, pid: u32) -> bool {
-    state.kill(pid)
+pub async fn tasks_kill(app: tauri::AppHandle, pid: u32) -> Result<bool, String> {
+    off_ui_thread(app, move |tm| tm.kill(pid)).await
 }
 
 /// Live GPU stats via `nvidia-smi` (NVIDIA only). Empty on other GPUs / no driver

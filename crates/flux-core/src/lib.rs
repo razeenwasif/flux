@@ -772,6 +772,16 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             if let Some(dr) = handle.try_state::<trace::TraceDrafts>() {
                 dr.hydrate();
             }
+            // Persistence gets its own thread: `kb.reindex` below can run for
+            // minutes (a full rebuild re-embeds every corpus), and while it did,
+            // nothing in the Trail, chats, drafts or audit log was flushed.
+            {
+                let handle = handle.clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    flush_trail_stores(&handle);
+                });
+            }
             // Debounced KB auto-reindex of the `web` source (#136 payoff): fold
             // settled browsing into the Notebook without a manual ↻ Reindex.
             // "Settled" = the snapshot generation is unchanged for one full tick
@@ -801,26 +811,11 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             let mut pdf_seen: u64 = 0;
             let mut pdf_indexed: u64 = 0;
             let mut pdf_bootstrapped = false;
+            if !autoindex {
+                return;
+            }
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(60));
-                if let Some(t) = handle.try_state::<trace::TraceStore>() {
-                    t.persist_if_dirty();
-                }
-                if let Some(s) = handle.try_state::<trace::TraceSnapshots>() {
-                    s.persist_if_dirty();
-                }
-                if let Some(c) = handle.try_state::<trace::TraceChats>() {
-                    c.persist_if_dirty();
-                }
-                if let Some(dr) = handle.try_state::<trace::TraceDrafts>() {
-                    dr.persist_if_dirty();
-                }
-                if let Some(au) = handle.try_state::<sentinel::SentinelAudit>() {
-                    au.persist_if_dirty();
-                }
-                if !autoindex {
-                    continue;
-                }
                 if let (Some(s), Some(kb)) = (
                     handle.try_state::<trace::TraceSnapshots>(),
                     handle.try_state::<kb::KbStore>(),
@@ -828,29 +823,32 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                     let generation = s.generation();
                     let settled = generation == last_seen && generation != last_indexed;
                     last_seen = generation;
-                    if !settled {
-                        continue;
-                    }
-                    // If the embedder changed since the corpus was built (e.g.
-                    // Ollama came up), or the Ollama model behind it did, only a
-                    // full rebuild can re-embed it — heal by rebuilding all.
-                    let source = if kb.embedder() != embedding::current() || kb.embed_model_stale()
-                    {
-                        None
-                    } else {
-                        Some("web".to_string())
-                    };
-                    // A None source rebuilds every corpus, which is why the
-                    // whole set is gathered in one place (see `corpora`).
-                    match kb.reindex(source, corpora(&handle)) {
-                        Ok(_) => {
-                            last_indexed = generation;
-                            tracing::info!(target: "flux::kb", generation, "auto-indexed browsing into the web source");
-                        }
-                        // Busy (a manual reindex is running) or a source failed —
-                        // leave last_indexed behind so the next settled tick retries.
-                        Err(e) => {
-                            tracing::debug!(target: "flux::kb", "web auto-reindex skipped: {e}")
+                    // Not `continue` when unsettled: that skipped the PDF and
+                    // Scribe blocks below on almost every tick.
+                    if settled {
+                        // If the embedder changed since the corpus was built (e.g.
+                        // Ollama came up), or the Ollama model behind it did, a
+                        // single-source reindex would clear every source and
+                        // rebuild only `web` — heal by rebuilding all.
+                        let source = if kb.embedder() != embedding::current()
+                            || kb.embed_model_stale()
+                        {
+                            None
+                        } else {
+                            Some("web".to_string())
+                        };
+                        // A None source rebuilds every corpus, which is why the
+                        // whole set is gathered in one place (see `corpora`).
+                        match kb.reindex(source, corpora(&handle)) {
+                            Ok(_) => {
+                                last_indexed = generation;
+                                tracing::info!(target: "flux::kb", generation, "auto-indexed browsing into the web source");
+                            }
+                            // Busy (a manual reindex is running) or a source failed —
+                            // leave last_indexed behind so the next settled tick retries.
+                            Err(e) => {
+                                tracing::debug!(target: "flux::kb", "web auto-reindex skipped: {e}")
+                            }
                         }
                     }
                 }
@@ -918,6 +916,27 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 }
             }
         });
+    }
+}
+
+/// Write whichever Trail stores and the Sentinel audit log have unsaved
+/// changes. They are otherwise only kept in memory; each write is skipped
+/// unless dirty.
+fn flush_trail_stores(app: &tauri::AppHandle) {
+    if let Some(t) = app.try_state::<trace::TraceStore>() {
+        t.persist_if_dirty();
+    }
+    if let Some(s) = app.try_state::<trace::TraceSnapshots>() {
+        s.persist_if_dirty();
+    }
+    if let Some(c) = app.try_state::<trace::TraceChats>() {
+        c.persist_if_dirty();
+    }
+    if let Some(dr) = app.try_state::<trace::TraceDrafts>() {
+        dr.persist_if_dirty();
+    }
+    if let Some(au) = app.try_state::<sentinel::SentinelAudit>() {
+        au.persist_if_dirty();
     }
 }
 
@@ -1092,6 +1111,7 @@ pub fn run(intent: cli::LaunchIntent) {
                     broker::ext_broker_call,
                     dom::chrome_key,
                     dom::find_result,
+                    dom::agent_report,
                     dom::reader_publish,
                     hibernate::hibernate_capture,
                     // Page-callable and therefore MUST live in the fluxtab plugin
@@ -1552,8 +1572,28 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_watch,
             files::fs_unwatch,
         ])
-        .run(context)
-        .expect("error while running Flux");
+        .build(context)
+        .expect("error while building Flux")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                flush_on_exit(app);
+            }
+        });
+}
+
+/// Final write for the stores that otherwise persist only on 60 s timers, so a
+/// normal quit doesn't drop the last minute of history, Trail visits, chats,
+/// drafts and audit entries, or bring back a just-cleared history or a
+/// forgotten site.
+fn flush_on_exit(app: &tauri::AppHandle) {
+    // Tab changes are written by a background thread that exit would cut off.
+    if let Some(s) = app.try_state::<state::FluxState>() {
+        s.persist_blocking();
+    }
+    if let Some(h) = app.try_state::<history::HistoryStore>() {
+        h.persist_if_hydrated();
+    }
+    flush_trail_stores(app);
 }
 
 /// Android entry point (ADR 0012, rung C). The generated Gradle project's JNI
