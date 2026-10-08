@@ -1781,10 +1781,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </Show>
               {/* Both pages must be tileable — the same rule the ◫ and the picker
                   use. This was gated on "is a real web page" too, so a Flux page
-                  never offered it either. */}
-              <Show when={activeTab() != null && activeId() !== t().id}>
+                  never offered it either. Not offered for a tab already tiled
+                  with the current one: toggleTiled would take it OUT, dissolving
+                  a two-pane split. A full split disables it, as in the picker. */}
+              <Show when={activeTab() != null && activeId() !== t().id && !tileSel().includes(t().id)}>
                 <div class="ctx-sep" />
                 <button
+                  disabled={tileSel().length >= MAX_PANES}
                   onClick={() => {
                     toggleTiled(t().id);
                     closeCtx();
