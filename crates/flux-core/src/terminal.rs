@@ -223,7 +223,6 @@ pub fn terminal_spawn(
     // accept those, and the CLI on the other side is the same binary either way.
     let rpc_dir = app.state::<crate::rpc::RpcDir>();
     cmd.env("FLUX_RPC_DIR", rpc_dir.dir().to_string_lossy().as_ref());
-    let mut cwd: Option<String> = None;
     if let Some(id) = state.active_tab() {
         if let Some(tab) = state.tabs.get(&id) {
             // The page controls these (document.title, dom_publish). A NUL in an
@@ -238,10 +237,6 @@ pub fn terminal_spawn(
                 let dir = format!("{}/flux/{host}", downloads_dir());
                 cmd.env("FLUX_TAB_DIR", &dir);
             }
-            // A Terminal tab stores its working dir in `url`; start there.
-            if tab.url.starts_with('/') || tab.url.starts_with('~') {
-                cwd = Some(tab.url.clone());
-            }
         }
     }
     // Every FLUX_* var above crosses into the shell by itself: MSYS2 bash is a
@@ -250,7 +245,7 @@ pub fn terminal_spawn(
     // OS with a separate environment.)
 
     // The stored directory is in the *shell's* vocabulary — it was typed in one.
-    let cwd = cwd.map(|c| shell_dir_to_native(&c));
+    let cwd = tab_start_dir(&state, session).map(|c| shell_dir_to_native(&c));
 
     // Only set a cwd that actually exists — an invalid cwd makes spawn fail.
     let tab_cwd = cwd.is_some();
@@ -360,6 +355,17 @@ pub fn terminal_spawn(
 
     tracing::info!(target: "flux::term", session, cols, rows, "spawned PTY");
     Ok(())
+}
+
+/// Where a session's shell starts: a Terminal tab stores its working dir in
+/// `url`. Looked up by the session's *own* id, not by whichever tab is active
+/// when the view mounts (every restored terminal tab mounts at boot). Pane,
+/// editor and TUI sessions aren't tabs, so they keep the home-dir default the
+/// editor column relies on.
+fn tab_start_dir(state: &FluxState, session: u64) -> Option<String> {
+    let tab = state.tabs.get(&session)?;
+    let is_dir = tab.url.starts_with('/') || tab.url.starts_with('~');
+    (tab.kind == crate::state::TabKind::Terminal && is_dir).then(|| tab.url.clone())
 }
 
 /// Write keystrokes / pasted text to the session's stdin.
@@ -995,6 +1001,29 @@ mod tests {
             "the pattern must require dtach before the socket: {pat}"
         );
         assert_ne!(pat, dtach_socket(42), "never kill on the bare path");
+    }
+
+    #[test]
+    fn a_terminal_starts_in_its_own_tabs_directory() {
+        let state = FluxState::new();
+        let tab = |id: u64, kind: &str, url: &str| -> crate::state::TabMeta {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "kind": kind, "url": url, "title": "", "pinned": false,
+            }))
+            .unwrap()
+        };
+        state.tabs.insert(1, tab(1, "browser", "https://a.test/"));
+        state.tabs.insert(2, tab(2, "terminal", "/srv/project"));
+        state.tabs.insert(3, tab(3, "files", "/srv/elsewhere"));
+        // A restored session with a web page active: the terminal tab still
+        // starts where it was, not in the active tab's (or no) directory.
+        state.set_active_tab(1);
+        assert_eq!(tab_start_dir(&state, 2).as_deref(), Some("/srv/project"));
+        // Non-tab sessions keep the home default, whichever tab is active.
+        state.set_active_tab(2);
+        assert_eq!(tab_start_dir(&state, PANE_SESSION), None);
+        assert_eq!(tab_start_dir(&state, 0xd000_0000), None);
+        assert_eq!(tab_start_dir(&state, 3), None);
     }
 
     #[test]
