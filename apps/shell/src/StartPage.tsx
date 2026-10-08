@@ -771,12 +771,16 @@ const StartPage: Component<{
       const d = drag();
       setDrag(null);
       if (dragMoved && d) {
+        // `durMin` is the box drawn on the grid (50 min with no end, never under
+        // 20), not the stored duration: keep the real one, capped at 23:59 since
+        // "24:00" isn't a valid time. No (or no positive) end: leave it as it is.
+        const realDur = ev.end ? minsOf(ev.end) - startMin : 0;
         void calEventUpdate(d.id, {
           // A series occurrence carries the series id: sending its day would
           // re-anchor every occurrence on it, so a series keeps its start date.
           date: ev.rrule ? undefined : d.date,
           start: minToHHMM(d.startMin),
-          end: minToHHMM(d.startMin + d.durMin),
+          end: realDur > 0 ? minToHHMM(Math.min(d.startMin + realDur, 23 * 60 + 59)) : undefined,
         })
           .then(() => loadEvents())
           .catch((err) => console.error("move event", err));
