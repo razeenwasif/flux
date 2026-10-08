@@ -290,6 +290,10 @@ const StartPage: Component<{
     id: number | null;
     title: string;
     date: string;
+    /** For a recurring local event, the day of the occurrence the editor was
+     *  opened on: `id` is the whole series', and `date` starts out as this day,
+     *  not the series' own first day. null for one-off and new events. */
+    occurrence: string | null;
     start: string;
     end: string;
     location: string;
@@ -647,6 +651,7 @@ const StartPage: Component<{
       id: null,
       title: "",
       date,
+      occurrence: null,
       start: minToHHMM(s),
       end: minToHHMM(Math.min(s + 60, 23 * 60 + 59)),
       location: "",
@@ -662,6 +667,7 @@ const StartPage: Component<{
       id: e.editable ? e.id : null,
       title: e.summary,
       date: e.date,
+      occurrence: e.editable && e.rrule ? e.date : null,
       start: e.time,
       end: e.end,
       location: e.location,
@@ -696,7 +702,14 @@ const StartPage: Component<{
       notes: d.notes,
       rrule: d.rrule,
     };
-    const p = d.id != null ? calEventUpdate(d.id, fields) : calEventAdd(fields);
+    // Sending a series occurrence's day would re-anchor the whole series on it:
+    // every earlier occurrence vanishes and a COUNT series runs past its end. So
+    // a series keeps its own start unless the day was actually changed here.
+    const keepAnchor = d.occurrence != null && d.rrule !== "" && d.date === d.occurrence;
+    const p =
+      d.id != null
+        ? calEventUpdate(d.id, keepAnchor ? { ...fields, date: undefined } : fields)
+        : calEventAdd(fields);
     void p
       .then(() => {
         setEditing(null);
@@ -707,6 +720,12 @@ const StartPage: Component<{
   const deleteEvent = () => {
     const d = editing();
     if (!d || d.id == null) return;
+    // The id is the series': this removes every occurrence, not just this one.
+    if (
+      d.occurrence != null &&
+      !window.confirm(`Delete every occurrence of “${d.title}”? This can't be undone.`)
+    )
+      return;
     void calEventDelete(d.id)
       .then(() => {
         setEditing(null);
@@ -741,7 +760,8 @@ const StartPage: Component<{
         0,
         24 * 60 - durMin,
       );
-      const date = calDays()[idx]!;
+      // A series occurrence only moves in time (see `up`), so it keeps its column.
+      const date = ev.rrule ? ev.date : calDays()[idx]!;
       if (Math.abs(me.clientY - e.clientY) > 3 || Math.abs(me.clientX - e.clientX) > 3) dragMoved = true;
       setDrag({ id: ev.id, title: ev.summary, date, startMin: sm, durMin });
     };
@@ -752,7 +772,9 @@ const StartPage: Component<{
       setDrag(null);
       if (dragMoved && d) {
         void calEventUpdate(d.id, {
-          date: d.date,
+          // A series occurrence carries the series id: sending its day would
+          // re-anchor every occurrence on it, so a series keeps its start date.
+          date: ev.rrule ? undefined : d.date,
           start: minToHHMM(d.startMin),
           end: minToHHMM(d.startMin + d.durMin),
         })

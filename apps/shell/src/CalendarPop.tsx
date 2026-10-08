@@ -484,7 +484,10 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     }
     try {
       const id = editing();
-      if (id && id > 0) await calEventUpdate(id, fields);
+      // The form has no date field, so an edit never moves the event. Sending
+      // `selected()` (the clicked occurrence's day) re-anchored a recurring
+      // series on it, dropping every earlier occurrence.
+      if (id && id > 0) await calEventUpdate(id, { ...fields, date: undefined });
       else await calEventAdd(fields);
       setEditing(null);
       await refresh();
