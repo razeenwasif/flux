@@ -305,3 +305,35 @@ describe("passwords.js: strong-password suggestion", () => {
     ]);
   });
 });
+
+describe("passwords.js: vault probes", () => {
+  it("a 'nothing to fill' answer is not asked again on every DOM change", async () => {
+    const form = new Form([new Input("email", "email"), new Input("password", "password")]);
+    const page = load([form], { vault_page_info: { unlocked: false, count: 0 } });
+    await page.settle();
+    expect(page.calls("vault_page_info")).toHaveLength(1);
+
+    // A clock, a carousel, a live feed: the DOM never stops changing.
+    for (let i = 0; i < 5; i++) {
+      page.mutate();
+      page.tick();
+      await page.settle();
+    }
+    expect(page.calls("vault_page_info")).toHaveLength(1);
+    expect(page.chip()).toBeNull();
+  });
+
+  it("focusing a field asks again, so unlocking the vault later still offers", async () => {
+    const user = new Input("email", "email");
+    const form = new Form([user, new Input("password", "password")]);
+    const answers: Record<string, unknown> = { vault_page_info: { unlocked: false, count: 0 } };
+    const page = load([form], answers);
+    await page.settle();
+
+    answers.vault_page_info = { unlocked: true, count: 1 };
+    page.focus(user);
+    await page.settle();
+    expect(page.calls("vault_page_info")).toHaveLength(2);
+    expect(page.chip()).toContain("Fill saved login");
+  });
+});

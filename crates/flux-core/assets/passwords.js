@@ -249,9 +249,17 @@
     call("vault_fill_page").catch(function () {});
   }
 
+  // Anchors Rust already answered "nothing to fill" for. Without this, every
+  // debounced DOM mutation asked again: a main-thread IPC every 0.6-1.8 s per
+  // tab for the page's lifetime. Entries die with their element (a re-render
+  // asks again), and focusing an input clears them (the vault may be unlocked
+  // by then).
+  var probedEmpty = new WeakSet();
+
   // `weakReg`: the form only reads like a sign-up (see registrationSignal), so
   // it gets the strong-password chip only when nothing is saved for this host.
   function offerFill(pw, weakReg) {
+    if (probedEmpty.has(pw)) { reason("probe-failed"); return; }
     call("vault_page_info").then(function (info) {
       if (dismissed) { reason("dismissed"); return; }
       if (pw.value) { reason("field-prefilled"); return; } // re-check: probe was async
@@ -262,6 +270,7 @@
       if (!info || !info.unlocked || !info.count) {
         // Sign-up wording and no saved login here: a sign-up form after all.
         if (weakReg && info && info.unlocked) { reason("registration"); offerSuggest(pw); return; }
+        probedEmpty.add(pw);
         reason("probe-failed");
         return;
       }
@@ -406,8 +415,12 @@
   }
   if (document.documentElement) watchDom();
   else addEventListener("DOMContentLoaded", watchDom, { once: true });
+  // Any input, not just a password box: a two-step sign-in anchors on its
+  // username field. Focus is the cue to ask Rust again where it said no.
   addEventListener("focusin", function (e) {
-    if (e.target && e.target.matches && e.target.matches('input[type="password"]')) queueScan();
+    if (!e.target || e.target.tagName !== "INPUT") return;
+    probedEmpty = new WeakSet();
+    queueScan();
   }, true);
   if (document.readyState === "loading") addEventListener("DOMContentLoaded", queueScan);
   else queueScan();
