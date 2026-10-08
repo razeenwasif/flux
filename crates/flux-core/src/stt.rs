@@ -128,7 +128,7 @@ pub async fn stt_whisper(pcm_b64: String, sample_rate: f32) -> Result<String, St
         let model = whisper_model()?;
         let path = temp_wav();
         write_wav_16k(&path, &pcm16)?;
-        let result = Command::new(whisper_bin())
+        let result = crate::exec::no_console(&mut Command::new(whisper_bin()))
             .args([
                 "-m",
                 &model,

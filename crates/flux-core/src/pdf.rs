@@ -240,6 +240,57 @@ mod tests {
         );
         assert_eq!(file_url_to_path("/plain/path.pdf"), "/plain/path.pdf");
     }
+
+    fn doc(text: &str, ocr: bool) -> PdfDoc {
+        PdfDoc {
+            src: "/home/u/lecture.pdf".into(),
+            title: "Lecture".into(),
+            text: text.into(),
+            ts: 1,
+            ocr,
+        }
+    }
+
+    #[test]
+    fn reopening_an_unchanged_pdf_is_not_a_change() {
+        // Every open re-publishes the text; a new `ts` re-embedded it in the KB
+        // and rewrote the whole store each time.
+        let store = PdfStore::default();
+        assert!(store.put(doc("slide 1", false)));
+        let g = store.generation();
+        assert!(!store.put(doc("slide 1", false)));
+        assert_eq!(store.generation(), g);
+        assert!(store.put(doc("slide 1, revised", false)));
+        assert!(store.generation() > g);
+    }
+
+    #[test]
+    fn reopening_a_pdf_keeps_its_ocr_transcript() {
+        // A 35-slide deck whose text layer covers 2 slides: the OCR run stored
+        // all 35, and the next open's text-layer publish used to replace them.
+        let store = PdfStore::default();
+        store.put(doc("all 35 slides", true));
+        assert!(!store.put(doc("slides 1-2", false)));
+        let kept = &store.list()[0];
+        assert!(kept.ocr && kept.text == "all 35 slides");
+        // A fresh OCR run still replaces the old one.
+        assert!(store.put(doc("all 35 slides, re-read", true)));
+        assert_eq!(store.list()[0].text, "all 35 slides, re-read");
+    }
+
+    #[test]
+    fn the_store_persists_and_restores() {
+        let dir = std::env::temp_dir().join(format!("flux-pdf-store-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pdf-text.json");
+        let store = PdfStore::restore(path.clone());
+        store.put(doc("slide 1", false));
+        store.persist();
+        let back = PdfStore::restore(path);
+        assert_eq!(back.list().len(), 1);
+        assert_eq!(back.list()[0].text, "slide 1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // ─── Extracted text ──────────────────────────────────────────────────────────
@@ -286,6 +337,9 @@ pub struct PdfStore {
     /// Bumped on every write, so the KB indexer can tell when to re-embed
     /// without re-reading the whole store.
     generation: std::sync::atomic::AtomicU64,
+    /// Held across snapshot + write, so persists that overlap on the blocking
+    /// pool land in order and the file always ends at the newest state.
+    persist_lock: parking_lot::Mutex<()>,
 }
 
 impl PdfStore {
@@ -299,6 +353,7 @@ impl PdfStore {
             docs: RwLock::new(docs),
             path: Some(path),
             generation: std::sync::atomic::AtomicU64::new(0),
+            persist_lock: parking_lot::Mutex::new(()),
         }
     }
 
@@ -310,13 +365,44 @@ impl PdfStore {
         self.docs.read().values().cloned().collect()
     }
 
-    fn put(&self, doc: PdfDoc) {
-        self.docs.write().insert(doc.src.clone(), doc);
+    /// Record a document in memory; persist with [`Self::persist`]. False when
+    /// nothing was stored: every open re-publishes the same text, and
+    /// re-stamping `ts` (the KB's change key) re-embedded it and rewrote the
+    /// whole store.
+    fn put(&self, doc: PdfDoc) -> bool {
+        {
+            let mut docs = self.docs.write();
+            if docs
+                .get(&doc.src)
+                .is_some_and(|d| d.ocr == doc.ocr && d.title == doc.title && d.text == doc.text)
+            {
+                return false;
+            }
+            // The OCR pass reads every page; a partly-scanned file's text layer
+            // only some. Re-opening the file republishes the text layer, which
+            // must not replace the OCR transcript the user waited for.
+            if !doc.ocr && docs.get(&doc.src).is_some_and(|d| d.ocr) {
+                return false;
+            }
+            docs.insert(doc.src.clone(), doc);
+        }
         self.generation
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if let Some(p) = &self.path {
-            let all: Vec<PdfDoc> = self.docs.read().values().cloned().collect();
-            crate::persist::save_json(p, &all);
+        true
+    }
+
+    /// Rewrite the store file: O(every PDF ever read) plus an fsync, so never on
+    /// the UI thread. Serialized from borrows rather than a deep clone of every
+    /// document's text, and written with no lock on the documents held.
+    fn persist(&self) {
+        let Some(p) = &self.path else { return };
+        let _order = self.persist_lock.lock();
+        let json = {
+            let docs = self.docs.read();
+            serde_json::to_vec(&docs.values().collect::<Vec<_>>())
+        };
+        if let Ok(json) = json {
+            let _ = crate::persist::write_atomic(p, &json);
         }
     }
 }
@@ -402,7 +488,7 @@ pub fn pdf_publish_text(
     }
 
     if let Some(store) = app.try_state::<PdfStore>() {
-        store.put(PdfDoc {
+        let changed = store.put(PdfDoc {
             src: src.clone(),
             title: title.clone(),
             text: text.clone(),
@@ -412,6 +498,17 @@ pub fn pdf_publish_text(
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0),
         });
+        // This command runs on the UI thread; the rewrite scales with every PDF
+        // ever read (+ an fsync), so it goes to the blocking pool. The insert
+        // above stays here, in IPC order.
+        if changed {
+            let handle = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Some(store) = handle.try_state::<PdfStore>() {
+                    store.persist();
+                }
+            });
+        }
     }
 
     // A deck whose later slides are images extracts fine for the first few and

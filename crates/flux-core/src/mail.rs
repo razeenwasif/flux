@@ -22,7 +22,8 @@
 //! is one TLS handshake.
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -82,16 +83,21 @@ pub fn decode_words(input: &str) -> String {
     while let Some(start) = rest.find("=?") {
         out.push_str(&rest[..start]);
         let after = &rest[start + 2..];
-        // charset?enc?payload?=
-        let Some(end) = after.find("?=") else {
+        // charset?enc?payload?= -- find the two inner '?' first and only then
+        // the terminator: a Q payload that starts with "=XX" would otherwise
+        // end the word at the "Q?=" right after the encoding letter.
+        let bounds = after.find('?').and_then(|q1| {
+            let q2 = q1 + 1 + after[q1 + 1..].find('?')?;
+            let end = q2 + 1 + after[q2 + 1..].find("?=")?;
+            Some((q1, q2, end))
+        });
+        let Some((q1, q2, end)) = bounds else {
             out.push_str(&rest[start..]);
             return out;
         };
-        let word = &after[..end];
-        let mut parts = word.splitn(3, '?');
-        let charset = parts.next().unwrap_or("").to_ascii_lowercase();
-        let enc = parts.next().unwrap_or("").to_ascii_uppercase();
-        let payload = parts.next().unwrap_or("");
+        let charset = after[..q1].to_ascii_lowercase();
+        let enc = after[q1 + 1..q2].to_ascii_uppercase();
+        let payload = &after[q2 + 1..end];
         let bytes = match enc.as_str() {
             "B" => {
                 use base64::Engine as _;
@@ -177,14 +183,41 @@ fn utf8(b: &[u8]) -> String {
     String::from_utf8_lossy(b).to_string()
 }
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Per read/write. Without it a server that stops answering (or a socket left
+/// half-open by sleep) parked a blocking-pool thread forever, and the pane's
+/// 2-minute poll added another each time.
+const IO_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// TCP to the server, bounded: `connect` per address, as `TcpStream::connect`
+/// does, but with a timeout, and with read/write timeouts that rustls and imap
+/// inherit.
+fn connect(host: &str, port: u16) -> Result<TcpStream, String> {
+    let mut last_err = String::from("no address");
+    let addrs = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("connect {host}:{port}: {e}"))?;
+    for addr in addrs {
+        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+            Ok(tcp) => {
+                tcp.set_read_timeout(Some(IO_TIMEOUT))
+                    .and_then(|()| tcp.set_write_timeout(Some(IO_TIMEOUT)))
+                    .map_err(|e| format!("socket: {e}"))?;
+                return Ok(tcp);
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(format!("connect {host}:{port}: {last_err}"))
+}
+
 /// Connect, log in, and hand the session to `f`. Always logs out.
 fn with_session<T>(
     cfg: &MailConfig,
     pass: &str,
     f: impl FnOnce(&mut imap::Session<Box<dyn ReadWrite>>) -> Result<T, String>,
 ) -> Result<T, String> {
-    let tcp = TcpStream::connect((cfg.host.as_str(), cfg.port))
-        .map_err(|e| format!("connect {}:{}: {e}", cfg.host, cfg.port))?;
+    let tcp = connect(&cfg.host, cfg.port)?;
     let connector = rustls_connector::RustlsConnectorConfig::new_with_platform_verifier()
         .with_webpki_root_certs()
         .connector_with_no_client_auth()
@@ -289,20 +322,47 @@ pub async fn mail_mark_all_read(app: AppHandle) -> Result<u32, String> {
             if unseen.is_empty() {
                 return Ok(0);
             }
-            // One STORE for the whole set: a request per message would be slow
-            // on a big inbox and could half-succeed.
-            let uids = unseen
-                .iter()
-                .map(|u| u.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            s.uid_store(&uids, "+FLAGS (\\Seen)")
-                .map_err(|e| format!("mark read: {e}"))?;
+            // As few STOREs as the server's line limit allows (usually one): a
+            // request per message would be slow on a big inbox. Setting \Seen
+            // is idempotent, so a run that stops partway is safe to repeat.
+            // .SILENT: no per-message FETCH echo to parse.
+            for set in uid_sets(unseen.iter().copied(), 500) {
+                s.uid_store(&set, "+FLAGS.SILENT (\\Seen)")
+                    .map_err(|e| format!("mark read: {e}"))?;
+            }
             Ok(u32::try_from(unseen.len()).unwrap_or(u32::MAX))
         })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// UID sets for `UID STORE`: runs collapsed to ranges ("4001:4900"), at most
+/// `per_command` of them per set. A flat list of 10k+ UIDs overran server line
+/// limits (Dovecot's is 64 KB) and the whole command was refused.
+fn uid_sets(uids: impl IntoIterator<Item = u32>, per_command: usize) -> Vec<String> {
+    let mut sorted: Vec<u32> = uids.into_iter().collect();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut ranges: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < sorted.len() {
+        let start = sorted[i];
+        while i + 1 < sorted.len() && sorted[i].checked_add(1) == Some(sorted[i + 1]) {
+            i += 1;
+        }
+        let end = sorted[i];
+        ranges.push(if start == end {
+            start.to_string()
+        } else {
+            format!("{start}:{end}")
+        });
+        i += 1;
+    }
+    ranges
+        .chunks(per_command.max(1))
+        .map(|c| c.join(","))
+        .collect()
 }
 
 /// The newest `limit` messages in INBOX, newest first, with unread flagged.
@@ -396,6 +456,20 @@ mod tests {
     }
 
     #[test]
+    fn q_words_that_start_with_an_escape_decode_whole() {
+        // The "?=" of "Q?=C3" used to end the word before its text began.
+        assert_eq!(decode_words("=?UTF-8?Q?=C3=89t=C3=A9?="), "Été");
+        assert_eq!(
+            decode_words("=?utf-8?Q?=F0=9F=8E=89_Party_on_Friday?="),
+            "🎉 Party on Friday"
+        );
+        assert_eq!(
+            format_from(Some("=?UTF-8?Q?=C3=89lodie?="), None, None),
+            "Élodie"
+        );
+    }
+
+    #[test]
     fn q_decoding_survives_multibyte_text_after_an_equals_sign() {
         // Raw 8-bit text inside a Q-word used to be sliced mid-character, which
         // panicked (and aborted Flux) on every mail refresh.
@@ -404,6 +478,30 @@ mod tests {
         // A non-hex escape keeps the text after it instead of dropping 2 bytes.
         assert_eq!(decode_q("a=zzb"), b"a=zzb");
         assert_eq!(decode_q("caf=C3=A9"), "café".as_bytes());
+    }
+
+    #[test]
+    fn mark_all_read_sends_ranges_in_bounded_commands() {
+        assert_eq!(uid_sets([7, 3, 4, 5, 9, 10, 4], 500), ["3:5,7,9:10"]);
+        let top = uid_sets([u32::MAX - 1, u32::MAX], 500);
+        assert_eq!(top, ["4294967294:4294967295"], "no overflow at the top");
+        // A big unread backlog is usually one run, so one short command...
+        assert_eq!(uid_sets(1..=12_000, 500), ["1:12000"]);
+        // ...and a scattered one is split, rather than one 80 KB line.
+        let every_other = uid_sets((1..=12_000).step_by(2), 500);
+        assert_eq!(every_other.len(), 12);
+        assert!(every_other.iter().all(|s| s.len() < 16 * 1024));
+    }
+
+    #[test]
+    fn imap_sockets_time_out_rather_than_block_forever() {
+        // Connects into the listener's backlog; nothing ever answers, which is
+        // exactly the stalled server that used to pin a thread per poll.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let tcp = connect("127.0.0.1", port).unwrap();
+        assert_eq!(tcp.read_timeout().unwrap(), Some(IO_TIMEOUT));
+        assert_eq!(tcp.write_timeout().unwrap(), Some(IO_TIMEOUT));
     }
 
     #[test]

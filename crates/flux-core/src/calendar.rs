@@ -9,7 +9,9 @@
 //! The parser is a lean hand-rolled iCalendar scanner (VEVENT, line-unfolding,
 //! DATE vs DATE-TIME). To stay timezone-bug-free it keeps each event's date/time
 //! in the feed's own calendar terms (a `YYYY-MM-DD` string + `HH:MM`) rather than
-//! converting to epoch — which is exactly what a month-grid widget needs.
+//! converting to epoch — which is exactly what a month-grid widget needs. A UTC
+//! (`…Z`) time is the exception: its own terms are UTC, so it is moved onto the
+//! viewer's clock (the UI passes its offset).
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -32,7 +34,8 @@ pub struct CalFeed {
     pub name: String,
 }
 
-/// One event, in the feed's own calendar terms (no tz conversion).
+/// One event, in the feed's own calendar terms (no tz conversion, bar a UTC
+/// `…Z` time, which is shown on the viewer's clock).
 #[derive(Serialize, Clone, specta::Type)]
 pub struct CalEvent {
     pub calendar: String,
@@ -80,6 +83,12 @@ pub struct LocalEvent {
     /// before recurrence existed load as one-off.
     #[serde(default)]
     pub rrule: String,
+    /// Last add/edit on this device (ms), compared against tombstones on sync
+    /// exactly as `Todo::updated_ms` is. Events saved before this existed are
+    /// stamped in `restore`, so tombstones they predate (which `merge` never
+    /// enforced) don't retroactively delete them.
+    #[serde(default)]
+    pub updated_ms: u64,
 }
 
 #[derive(Default)]
@@ -231,9 +240,16 @@ impl LocalEventStore {
             items: serde_json::from_str(&raw).unwrap_or_default(),
             tombstones: Default::default(),
         });
-        let next = p.items.iter().map(|e| e.id).max().unwrap_or(0) + 1;
+        let mut items = p.items;
+        let now = now_ms();
+        for e in &mut items {
+            if e.updated_ms == 0 {
+                e.updated_ms = now;
+            }
+        }
+        let next = items.iter().map(|e| e.id).max().unwrap_or(0) + 1;
         Self {
-            items: RwLock::new(p.items),
+            items: RwLock::new(items),
             tombstones: RwLock::new(p.tombstones),
             next_id: AtomicU64::new(next),
             path: Some(path),
@@ -245,8 +261,9 @@ impl LocalEventStore {
     }
 
     /// Merge remote events, keyed by date + start + title. An event both
-    /// devices have is left alone: there's no per-event timestamp to decide
-    /// which edit is newer, so the safe move is to keep what's here rather than
+    /// devices have is left alone: `updated_ms` only orders it against
+    /// deletions (older events are stamped when loaded, so it can't say whose
+    /// wording is newer), so the safe move is to keep what's here rather than
     /// let whichever device synced last silently overwrite the other's wording.
     pub fn merge(
         &self,
@@ -259,11 +276,11 @@ impl LocalEventStore {
         let mut items = self.items.write();
         let mut tombs = self.tombstones.write();
         merge_into(&mut tombs, remote_tombs);
-        items.retain(|e| !suppressed(&tombs, &event_key(e), u64::MAX));
+        items.retain(|e| !suppressed(&tombs, &event_key(e), e.updated_ms));
         let mut added = 0;
         for r in remote {
             let key = event_key(&r);
-            if suppressed(&tombs, &key, u64::MAX) || items.iter().any(|e| event_key(e) == key) {
+            if suppressed(&tombs, &key, r.updated_ms) || items.iter().any(|e| event_key(e) == key) {
                 continue;
             }
             items.push(LocalEvent {
@@ -302,10 +319,41 @@ impl LocalEventStore {
             location,
             notes,
             rrule,
+            updated_ms: now_ms(),
         };
-        self.items.write().push(ev.clone());
+        let mut items = self.items.write();
+        // Re-creating an event un-buries its key, as re-adding a bookmark does.
+        self.tombstones.write().remove(&event_key(&ev));
+        items.push(ev.clone());
+        drop(items);
         self.save();
         ev
+    }
+
+    /// Insert a batch (an import) under one lock and with one save — not a full
+    /// rewrite + fsync of the store per event. Each is stamped and un-buried as
+    /// `add` does. Returns how many were added.
+    pub fn add_many(&self, evs: Vec<LocalEvent>) -> u32 {
+        if evs.is_empty() {
+            return 0;
+        }
+        let n = evs.len() as u32;
+        let now = now_ms();
+        let mut items = self.items.write();
+        let mut tombs = self.tombstones.write();
+        for ev in evs {
+            let ev = LocalEvent {
+                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                updated_ms: now,
+                ..ev
+            };
+            tombs.remove(&event_key(&ev));
+            items.push(ev);
+        }
+        drop(tombs);
+        drop(items);
+        self.save();
+        n
     }
 
     /// Overwrite only the fields that are `Some` (so a drag can move just date/time).
@@ -324,6 +372,7 @@ impl LocalEventStore {
         let out = {
             let mut items = self.items.write();
             let e = items.iter_mut().find(|e| e.id == id)?;
+            let old_key = event_key(e);
             if let Some(v) = title {
                 e.title = v;
             }
@@ -345,7 +394,21 @@ impl LocalEventStore {
             if let Some(v) = rrule {
                 e.rrule = v;
             }
-            e.clone()
+            e.updated_ms = now_ms();
+            let out = e.clone();
+            let new_key = event_key(&out);
+            if new_key != old_key {
+                let mut tombs = self.tombstones.write();
+                tombs.remove(&new_key);
+                // The key is this event's identity in the sync blob and on other
+                // devices: without a tombstone the old slot is re-added by the
+                // next merge as a duplicate. Not while an identical event still
+                // holds that key here, or the tombstone would delete it too.
+                if !items.iter().any(|o| event_key(o) == old_key) {
+                    tombs.insert(old_key, out.updated_ms);
+                }
+            }
+            out
         };
         self.save();
         Some(out)
@@ -389,13 +452,25 @@ fn fetch_ics(url: &str) -> Result<String, String> {
         .set("User-Agent", "Mozilla/5.0")
         .call()
         .map_err(|e| e.to_string())?;
+    read_ics(resp.into_reader())
+}
+
+/// A feed body, read up to the cap. One that doesn't fit is an error rather
+/// than a prefix: every VEVENT past the cut would vanish while an import still
+/// reported success.
+fn read_ics(body: impl Read) -> Result<String, String> {
     let mut buf = Vec::new();
-    resp.into_reader()
-        .take(MAX_ICS_BYTES + 1)
+    body.take(MAX_ICS_BYTES + 1)
         .read_to_end(&mut buf)
         .map_err(|e| e.to_string())?;
     if buf.is_empty() {
         return Err("empty response".into());
+    }
+    if buf.len() as u64 > MAX_ICS_BYTES {
+        return Err(format!(
+            "calendar feed is larger than {} MB",
+            MAX_ICS_BYTES / 1024 / 1024
+        ));
     }
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
@@ -432,29 +507,52 @@ const MAX_OCCURRENCES: usize = 400;
 
 /// Parse all VEVENTs into the widget's events, expanding RRULE recurrences within
 /// the window. Handles FREQ=DAILY/WEEKLY/MONTHLY with INTERVAL/COUNT/UNTIL,
-/// BYDAY (weekly), and EXDATE — which covers essentially all Google-Calendar
-/// recurring events.
-fn parse_events(ics: &str, cal_name: &str) -> Vec<CalEvent> {
-    parse_events_at(ics, cal_name, today_epoch_days())
+/// BYDAY (weekly, and monthly with its ordinal and BYSETPOS), and EXDATE —
+/// which covers essentially all Google-Calendar recurring events.
+fn parse_events(ics: &str, cal_name: &str, utc_offset_min: i64) -> Vec<CalEvent> {
+    parse_events_at_tz(ics, cal_name, today_epoch_days(), utc_offset_min)
 }
 
+#[cfg(test)]
 fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
+    parse_events_at_tz(ics, cal_name, today, 0)
+}
+
+fn parse_events_at_tz(ics: &str, cal_name: &str, today: i64, utc_offset_min: i64) -> Vec<CalEvent> {
     let lo = today - WINDOW_BACK_DAYS;
     let hi = today + WINDOW_FWD_DAYS;
+    let mut vevents = Vec::new();
+    for_each_vevent(ics, utc_offset_min, |v| vevents.push(v));
+    // A modified instance of a series is its own VEVENT (same UID plus a
+    // RECURRENCE-ID naming the occurrence it replaces). Suppress that original
+    // occurrence, or a meeting moved for one week shows at both times.
+    let mut overridden: std::collections::HashMap<String, Vec<i64>> = Default::default();
+    for v in &vevents {
+        if let Some(day) = v.recurrence_id.filter(|_| !v.uid.is_empty()) {
+            overridden.entry(v.uid.clone()).or_default().push(day);
+        }
+    }
     let mut out = Vec::new();
-    for_each_vevent(ics, |v| {
-        let Vevent {
-            title,
-            location,
-            end_time,
-            start,
-            rrule,
-            exdates,
-        } = v;
+    for v in vevents {
+        let mut exdates = v.exdates;
+        if v.recurrence_id.is_none() && !v.rrule.is_empty() {
+            if let Some(days) = overridden.get(&v.uid) {
+                exdates.extend_from_slice(days);
+            }
+        }
         emit_occurrences(
-            &title, &location, &end_time, &start, &rrule, &exdates, cal_name, lo, hi, &mut out,
+            &v.title,
+            &v.location,
+            &v.end_time,
+            &v.start,
+            &v.rrule,
+            &exdates,
+            cal_name,
+            lo,
+            hi,
+            &mut out,
         );
-    });
+    }
     out
 }
 
@@ -468,31 +566,45 @@ struct Vevent {
     start: DtParts,
     rrule: String,
     exdates: Vec<i64>,
+    /// `UID`, shared by a series and its modified instances.
+    uid: String,
+    /// `RECURRENCE-ID`: the occurrence (epoch day) this VEVENT replaces.
+    recurrence_id: Option<i64>,
 }
 
 /// Scan an ICS document and hand each complete VEVENT to `f`. Shared by the
 /// occurrence expander (the calendar grid) and the importer (feed → editable
 /// local events), so both read exactly the same fields the same way.
-fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
+/// `utc_offset_min` (minutes east of UTC) places `…Z` start/end times on the
+/// viewer's clock; see `parse_dt_tz`.
+fn for_each_vevent(ics: &str, utc_offset_min: i64, mut f: impl FnMut(Vevent)) {
     let unfolded = unfold(ics);
 
     let mut in_event = false;
+    // Depth of sub-components (VALARM…) inside the current VEVENT; their
+    // properties belong to them, not to the event.
+    let mut nested = 0u32;
     let mut summary = String::new();
     let mut location = String::new();
     let mut start: Option<DtParts> = None;
     let mut end_time = String::new();
     let mut rrule = String::new();
     let mut exdates: Vec<i64> = Vec::new();
+    let mut uid = String::new();
+    let mut recurrence_id: Option<i64> = None;
 
     for line in unfolded.lines() {
         let line = line.trim_end_matches('\r');
         if line == "BEGIN:VEVENT" {
             in_event = true;
+            nested = 0;
             summary.clear();
             location.clear();
             end_time.clear();
             rrule.clear();
             exdates.clear();
+            uid.clear();
+            recurrence_id = None;
             start = None;
             continue;
         }
@@ -509,12 +621,28 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
                     start: s,
                     rrule: rrule.clone(),
                     exdates: exdates.clone(),
+                    uid: uid.clone(),
+                    recurrence_id,
                 });
             }
             in_event = false;
             continue;
         }
         if !in_event {
+            continue;
+        }
+        // An email reminder (`BEGIN:VALARM … ACTION:EMAIL … SUMMARY:Alarm
+        // notification`) comes after the event's own SUMMARY; without this it
+        // retitled the event.
+        if line.starts_with("BEGIN:") {
+            nested += 1;
+            continue;
+        }
+        if line.starts_with("END:") {
+            nested = nested.saturating_sub(1);
+            continue;
+        }
+        if nested > 0 {
             continue;
         }
         let Some(colon) = line.find(':') else {
@@ -525,9 +653,18 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
         match name {
             "SUMMARY" => summary = decode_text(value),
             "LOCATION" => location = decode_text(value),
-            "DTSTART" => start = parse_dt(value),
-            "DTEND" => end_time = parse_dt(value).map(|p| p.time).unwrap_or_default(),
+            // `…Z` start/end times are shown on the viewer's clock. EXDATE,
+            // RECURRENCE-ID (and UNTIL) stay as written: the rule is expanded in
+            // DTSTART's own terms (RFC 5545) and each occurrence moved on output.
+            "DTSTART" => start = parse_dt_tz(value, utc_offset_min),
+            "DTEND" => {
+                end_time = parse_dt_tz(value, utc_offset_min)
+                    .map(|p| p.time)
+                    .unwrap_or_default()
+            }
             "RRULE" => rrule = value.to_string(),
+            "UID" => uid = value.to_string(),
+            "RECURRENCE-ID" => recurrence_id = parse_dt(value).map(|p| p.days),
             "EXDATE" => {
                 for part in value.split(',') {
                     if let Some(p) = parse_dt(part) {
@@ -546,12 +683,13 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
 ///
 /// This is a **copy, not a link**: the source calendar's later edits won't follow.
 /// EXDATEs are dropped (LocalEvent has no exception list), so a cancelled
-/// occurrence of a recurring series reappears — worth knowing before importing a
-/// calendar full of exceptions.
-fn ics_to_local_events(ics: &str) -> Vec<LocalEvent> {
+/// occurrence of a recurring series reappears, and a moved one (RECURRENCE-ID)
+/// shows at both times — worth knowing before importing a calendar full of
+/// exceptions.
+fn ics_to_local_events(ics: &str, utc_offset_min: i64) -> Vec<LocalEvent> {
     let mut out = Vec::new();
-    for_each_vevent(ics, |v| {
-        let (y, m, d) = civil_from_days(v.start.days);
+    for_each_vevent(ics, utc_offset_min, |v| {
+        let (y, m, d) = civil_from_days(v.start.days + v.start.shift);
         out.push(LocalEvent {
             id: 0, // assigned by the store on insert
             title: v.title,
@@ -560,23 +698,74 @@ fn ics_to_local_events(ics: &str) -> Vec<LocalEvent> {
             end: v.end_time,
             location: v.location,
             notes: String::new(),
-            rrule: v.rrule,
+            rrule: shift_rrule(&v.rrule, v.start.shift),
+            updated_ms: 0, // stamped by the store on insert
         });
     });
     out
 }
 
+/// Restate an RRULE whose series start moved `shift` days when its UTC DTSTART
+/// became local time: BYDAY weekdays move with it (any ordinal prefix is kept)
+/// and UNTIL becomes the matching local date. The nearest expressible rule:
+/// exact for most, approximate for e.g. a monthly `2TU`. `shift == 0` → as is.
+fn shift_rrule(rrule: &str, shift: i64) -> String {
+    if shift == 0 || rrule.is_empty() {
+        return rrule.to_string();
+    }
+    const WD: [&str; 7] = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+    let shift_day = |tok: &str| -> String {
+        let t = tok.trim();
+        match t.find(|c: char| c.is_ascii_alphabetic()) {
+            Some(i) => match parse_weekday(&t[i..]) {
+                Some(wd) => format!("{}{}", &t[..i], WD[(wd + shift).rem_euclid(7) as usize]),
+                None => t.to_string(),
+            },
+            None => t.to_string(),
+        }
+    };
+    rrule
+        .split(';')
+        .map(|part| match part.split_once('=') {
+            Some((k, v)) if k.eq_ignore_ascii_case("BYDAY") => {
+                let days: Vec<String> = v.split(',').map(shift_day).collect();
+                format!("{k}={}", days.join(","))
+            }
+            Some((k, v)) if k.eq_ignore_ascii_case("UNTIL") => match parse_dt(v) {
+                Some(p) => {
+                    let (y, m, d) = civil_from_days(p.days + shift);
+                    format!("{k}={y:04}{m:02}{d:02}")
+                }
+                None => part.to_string(),
+            },
+            _ => part.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
 /// A parsed DTSTART: calendar date pieces + the time-of-day + epoch-day index.
 #[derive(Clone)]
 struct DtParts {
-    days: i64,    // days since 1970-01-01
-    time: String, // "HH:MM" or "" (all-day)
+    days: i64,    // days since 1970-01-01, as written (the UTC date for `…Z`)
+    time: String, // "HH:MM" (the viewer's clock for `…Z`) or "" (all-day)
     hhmm: u64,    // HHMM as a number for the sort key (0 for all-day)
+    /// Days to add to `days` (and to every occurrence expanded from it) to get
+    /// the viewer's date: ±1 when a `…Z` time crosses local midnight, else 0.
+    shift: i64,
 }
 
 /// `DTSTART`/`EXDATE` value → DtParts. Handles `20260619`, `20260619T100000Z`,
-/// `20260619T100000`. `None` if it isn't a date.
+/// `20260619T100000`. `None` if it isn't a date. Times are kept as written.
 fn parse_dt(value: &str) -> Option<DtParts> {
+    parse_dt_tz(value, 0)
+}
+
+/// As `parse_dt`, but a UTC time (trailing `Z`) is moved onto the viewer's
+/// clock (`utc_offset_min` minutes east of UTC). `days` stays as written so the
+/// RRULE and EXDATE still match; the day crossed into is reported in `shift`.
+/// Floating and `TZID=` values are already wall-clock and stay as written.
+fn parse_dt_tz(value: &str, utc_offset_min: i64) -> Option<DtParts> {
     let v: String = value
         .chars()
         .take_while(|c| c.is_ascii_digit() || *c == 'T')
@@ -589,18 +778,32 @@ fn parse_dt(value: &str) -> Option<DtParts> {
     let m: u32 = digits[4..6].parse().ok()?;
     let d: u32 = digits[6..8].parse().ok()?;
     let has_time = v.contains('T') && digits.len() >= 12;
-    let (time, hhmm) = if has_time {
+    // `v` is an ASCII prefix of `value`, so this slice is on a char boundary.
+    let utc = matches!(value[v.len()..].chars().next(), Some('Z' | 'z'));
+    let (time, hhmm, shift) = if !has_time {
+        (String::new(), 0, 0)
+    } else if utc {
+        let hh: i64 = digits[8..10].parse().ok()?;
+        let mm: i64 = digits[10..12].parse().ok()?;
+        let mins = hh * 60 + mm + utc_offset_min;
+        let local = mins.rem_euclid(1440);
+        (
+            format!("{:02}:{:02}", local / 60, local % 60),
+            (local / 60 * 100 + local % 60) as u64,
+            mins.div_euclid(1440),
+        )
+    } else {
         (
             format!("{}:{}", &digits[8..10], &digits[10..12]),
             digits[8..12].parse().unwrap_or(0),
+            0,
         )
-    } else {
-        (String::new(), 0)
     };
     Some(DtParts {
         days: days_from_civil(y, m, d),
         time,
         hhmm,
+        shift,
     })
 }
 
@@ -682,6 +885,7 @@ fn local_dtparts(date: &str, start: &str) -> Option<DtParts> {
         days: days_from_civil(y, m, d),
         time: start.to_string(),
         hhmm,
+        shift: 0,
     })
 }
 
@@ -738,9 +942,12 @@ fn emit_occurrences(
     hi: i64,
     out: &mut Vec<CalEvent>,
 ) {
+    // The rule, its window and EXDATE all work in DTSTART's own terms;
+    // `s.shift` then moves each occurrence to the viewer's date (a `…Z` start).
+    let (lo, hi) = (lo - s.shift, hi - s.shift);
     let push = |day: i64, out: &mut Vec<CalEvent>| {
         if day >= lo && day <= hi && !exdates.contains(&day) {
-            out.push(make_event(day, s, title, location, end, cal));
+            out.push(make_event(day + s.shift, s, title, location, end, cal));
         }
     };
     if rrule.is_empty() {
@@ -753,6 +960,12 @@ fn emit_occurrences(
     let mut count: Option<usize> = None;
     let mut until: Option<i64> = None;
     let mut bydays: Vec<i64> = Vec::new();
+    // BYDAY with its ordinal kept — `2TU` → (2, Tue), `-1FR` → (-1, Fri) — which
+    // is what a MONTHLY rule means by it.
+    let mut byday_ord: Vec<(i64, i64)> = Vec::new();
+    // BYSETPOS picks among a month's BYDAY candidates (`BYDAY=MO,TU,WE,TH,FR;
+    // BYSETPOS=-1` is "the last weekday of the month").
+    let mut bysetpos: Vec<i64> = Vec::new();
     for part in rrule.split(';') {
         let Some((k, v)) = part.split_once('=') else {
             continue;
@@ -770,10 +983,18 @@ fn emit_occurrences(
             "INTERVAL" => interval = v.parse().unwrap_or(1).max(1),
             "COUNT" => count = v.parse().ok(),
             "UNTIL" => until = parse_dt(v).map(|p| p.days),
-            "BYDAY" => bydays = v.split(',').filter_map(parse_weekday).collect(),
+            "BYDAY" => {
+                bydays = v.split(',').filter_map(parse_weekday).collect();
+                byday_ord = v.split(',').filter_map(parse_byday_ord).collect();
+            }
+            "BYSETPOS" => bysetpos = v.split(',').filter_map(|p| p.trim().parse().ok()).collect(),
             _ => {}
         }
     }
+    // COUNT is counted in date order, so a week's days must be visited in it
+    // (Google writes "every weekday" as `BYDAY=FR,MO,TH,TU,WE`).
+    bydays.sort_unstable();
+    bydays.dedup();
     let until = until.unwrap_or(hi).min(hi);
     let mut emitted = 0usize;
     let mut cap = MAX_OCCURRENCES;
@@ -847,19 +1068,43 @@ fn emit_occurrences(
                     i = (lo_month - start_month) / interval;
                 }
             }
-            loop {
+            'months: loop {
                 let total = (y * 12 + (m as i64 - 1)) + i * interval;
                 let (yy, mm) = (total.div_euclid(12), (total.rem_euclid(12) + 1) as u32);
-                let dd = d.min(days_in_month(yy, mm));
-                let day = days_from_civil(yy, mm, dd);
-                if day > until || cap == 0 {
+                if days_from_civil(yy, mm, 1) > until || cap == 0 {
                     break;
                 }
-                if !bump(day, out) {
-                    break;
+                // `BYDAY=2TU` is "the second Tuesday", not DTSTART's day-of-month.
+                let mut days: Vec<i64> = if byday_ord.is_empty() {
+                    vec![days_from_civil(yy, mm, d.min(days_in_month(yy, mm)))]
+                } else {
+                    byday_ord
+                        .iter()
+                        .flat_map(|&(n, wd)| month_bydays(yy, mm, n, wd))
+                        .map(|dd| days_from_civil(yy, mm, dd))
+                        .collect()
+                };
+                days.sort_unstable();
+                days.dedup();
+                if !byday_ord.is_empty() && !bysetpos.is_empty() {
+                    let all = std::mem::take(&mut days);
+                    days = bysetpos.iter().filter_map(|&p| nth_of(&all, p)).collect();
+                    days.sort_unstable();
+                    days.dedup();
+                }
+                for day in days {
+                    if day < s.days {
+                        continue; // before DTSTART in its first month
+                    }
+                    if day > until || !bump(day, out) {
+                        break 'months;
+                    }
+                    cap -= 1;
+                    if cap == 0 {
+                        break 'months;
+                    }
                 }
                 i += 1;
-                cap -= 1;
             }
         }
         "YEARLY" => {
@@ -897,6 +1142,39 @@ fn parse_weekday(tok: &str) -> Option<i64> {
         "SA" => 6,
         _ => return None,
     })
+}
+
+/// BYDAY token with its ordinal: `2TU` → (2, 2), `-1FR` → (-1, 5), `MO` → (0, 1).
+fn parse_byday_ord(tok: &str) -> Option<(i64, i64)> {
+    let t = tok.trim();
+    let split = t.find(|c: char| c.is_ascii_alphabetic())?;
+    let n = match t[..split].trim_start_matches('+') {
+        "" => 0,
+        s => s.parse().ok()?,
+    };
+    Some((n, parse_weekday(&t[split..])?))
+}
+
+/// The `n`th element (1-based; negative counts from the end), if there is one.
+fn nth_of<T: Copy>(all: &[T], n: i64) -> Option<T> {
+    let idx = if n > 0 {
+        usize::try_from(n - 1).ok()?
+    } else {
+        let back = usize::try_from(n.unsigned_abs()).ok()?;
+        all.len().checked_sub(back)?
+    };
+    all.get(idx).copied()
+}
+
+/// Days of month `m` falling on weekday `wd`: the `n`th one (counted from the
+/// end when negative), or all of them when `n == 0`.
+fn month_bydays(y: i64, m: u32, n: i64, wd: i64) -> Vec<u32> {
+    let first = 1 + (wd - weekday(days_from_civil(y, m, 1))).rem_euclid(7) as u32;
+    let all: Vec<u32> = (first..=days_in_month(y, m)).step_by(7).collect();
+    if n == 0 {
+        return all;
+    }
+    nth_of(&all, n).into_iter().collect()
 }
 
 /// Weekday of an epoch-day index, 0=Sunday..6=Saturday.
@@ -953,6 +1231,11 @@ fn today_epoch_days() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| (d.as_secs() / 86_400) as i64)
         .unwrap_or(0)
+}
+
+/// The UI's UTC offset (minutes east), bounded to the real range (±14 h).
+fn utc_offset(tz_offset_min: Option<i32>) -> i64 {
+    i64::from(tz_offset_min.unwrap_or(0).clamp(-14 * 60, 14 * 60))
 }
 
 /// Decode the iCalendar text escapes (`\n`, `\,`, `\;`, `\\`).
@@ -1020,6 +1303,9 @@ pub async fn cal_import_feed(
     store: State<'_, CalStore>,
     local: State<'_, LocalEventStore>,
     id: u64,
+    // Minutes east of UTC (`-new Date().getTimezoneOffset()`): `…Z` feed times
+    // are imported on this clock. Omitted → 0 (as written).
+    tz_offset_min: Option<i32>,
 ) -> Result<(u32, u32), String> {
     let feed = store
         .list()
@@ -1030,7 +1316,7 @@ pub async fn cal_import_feed(
     let ics = tauri::async_runtime::spawn_blocking(move || fetch_ics(&url))
         .await
         .map_err(|e| e.to_string())??;
-    let candidates = ics_to_local_events(&ics);
+    let candidates = ics_to_local_events(&ics, utc_offset(tz_offset_min));
     if candidates.is_empty() {
         return Err("no events found in that calendar".into());
     }
@@ -1040,26 +1326,13 @@ pub async fn cal_import_feed(
         .into_iter()
         .map(|e| (e.title, e.date, e.start))
         .collect();
-    let (mut imported, mut skipped) = (0u32, 0u32);
-    for ev in candidates {
-        if existing.contains(&(ev.title.clone(), ev.date.clone(), ev.start.clone())) {
-            skipped += 1;
-            continue;
-        }
-        let LocalEvent {
-            title,
-            date,
-            start,
-            end,
-            location,
-            notes,
-            rrule,
-            ..
-        } = ev;
-        local.add(title, date, start, end, location, notes, rrule);
-        imported += 1;
-    }
-    Ok((imported, skipped))
+    let total = candidates.len() as u32;
+    let fresh: Vec<LocalEvent> = candidates
+        .into_iter()
+        .filter(|ev| !existing.contains(&(ev.title.clone(), ev.date.clone(), ev.start.clone())))
+        .collect();
+    let imported = local.add_many(fresh);
+    Ok((imported, total - imported))
 }
 
 /// Fetch + parse every subscribed calendar; returns events sorted by date. A
@@ -1068,14 +1341,25 @@ pub async fn cal_import_feed(
 pub async fn cal_events(
     store: State<'_, CalStore>,
     local: State<'_, LocalEventStore>,
+    // Minutes east of UTC: `…Z` feed times are shown on this clock.
+    tz_offset_min: Option<i32>,
 ) -> Result<Vec<CalEvent>, String> {
     let feeds = store.list();
     let locals = local.list();
+    let off = utc_offset(tz_offset_min);
     tauri::async_runtime::spawn_blocking(move || {
         let mut all = Vec::new();
         for f in &feeds {
-            if let Ok(ics) = fetch_ics(&f.url) {
-                all.extend(parse_events(&ics, &f.name));
+            match fetch_ics(&f.url) {
+                Ok(ics) => all.extend(parse_events(&ics, &f.name, off)),
+                // Skipped so one dead feed doesn't blank the widget. Logged by
+                // name only: ureq's error text embeds the request URL, which is
+                // the calendar's secret address, and flux.log is on disk.
+                Err(_) => tracing::warn!(
+                    target: "flux::calendar",
+                    feed = %f.name,
+                    "calendar feed skipped"
+                ),
             }
         }
         // Cap the (potentially huge) ICS set first, then always keep local events
@@ -1198,7 +1482,7 @@ BEGIN:VEVENT\r\nSUMMARY:Optimization lecture\r\nDTSTART:20260302T090000Z\r\nDTEN
 LOCATION:Hall A\r\nRRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=12\r\nEND:VEVENT\r\n\
 BEGIN:VEVENT\r\nSUMMARY:Careers fair\r\nDTSTART;VALUE=DATE:20260310\r\nEND:VEVENT\r\n\
 END:VCALENDAR";
-        let evs = ics_to_local_events(ics);
+        let evs = ics_to_local_events(ics, 0);
         assert_eq!(evs.len(), 2, "one event per VEVENT");
 
         let lecture = evs.iter().find(|e| e.title.starts_with("Optim")).unwrap();
@@ -1229,6 +1513,30 @@ END:VCALENDAR";
         expand_local(&saved, day(2026, 3, 1), day(2026, 6, 1), &mut out);
         assert_eq!(out.len(), 12, "recurrence survives the round-trip");
         assert!(out.iter().all(|e| e.editable), "must be editable");
+    }
+
+    #[test]
+    fn an_oversized_feed_is_refused_not_truncated() {
+        let feed = |n: u64| std::io::repeat(b'x').take(n);
+        let full = read_ics(feed(MAX_ICS_BYTES)).unwrap();
+        assert_eq!(full.len() as u64, MAX_ICS_BYTES, "the cap itself fits");
+        // Past the cap, every VEVENT after the cut used to vanish silently.
+        assert!(read_ics(feed(MAX_ICS_BYTES + 1)).is_err());
+        assert!(read_ics(feed(0)).is_err(), "empty is still an error");
+    }
+
+    #[test]
+    fn an_import_lands_as_one_batch_of_editable_events() {
+        let s = LocalEventStore::default();
+        let old = event_at(&s, "Team sync", "2026-06-19", "10:00");
+        s.remove(old.id);
+        assert_eq!(s.add_many(ics_to_local_events(ICS, 0)), 2);
+        let got = s.list();
+        assert_eq!(got.len(), 2);
+        assert!(got[0].id != got[1].id && got.iter().all(|e| e.id > old.id));
+        // Importing a deleted event again un-buries it, as re-creating it does.
+        s.merge(Vec::new(), &Default::default());
+        assert_eq!(s.list().len(), 2, "the old tombstone deleted the import");
     }
 
     #[test]
@@ -1265,6 +1573,94 @@ END:VCALENDAR";
         assert!(store.list().is_empty());
     }
 
+    fn event_at(s: &LocalEventStore, title: &str, date: &str, start: &str) -> LocalEvent {
+        let blank = String::new;
+        s.add(
+            title.into(),
+            date.into(),
+            start.into(),
+            blank(),
+            blank(),
+            blank(),
+            blank(),
+        )
+    }
+
+    fn move_to(s: &LocalEventStore, id: u64, date: &str, start: &str) {
+        let (date, start) = (Some(date.into()), Some(start.into()));
+        s.update(id, None, date, start, None, None, None, None)
+            .unwrap();
+    }
+
+    #[test]
+    fn moving_an_event_does_not_duplicate_it_on_sync() {
+        // date|start|title is the sync key, so a drag changes it. The blob still
+        // holds the old slot this device pushed, and without a tombstone the next
+        // merge put it straight back as a second event.
+        let a = LocalEventStore::default();
+        let e = event_at(&a, "Dentist", "2026-06-26", "09:00");
+        let published = a.list();
+        move_to(&a, e.id, "2026-06-27", "10:00");
+        a.merge(published.clone(), &a.tombstones());
+        assert_eq!(a.list().len(), 1, "the old slot came back");
+
+        // A device still holding the old copy drops it rather than keeping both.
+        let b = LocalEventStore::default();
+        b.merge(published, &Default::default());
+        b.merge(a.list(), &a.tombstones());
+        let got = b.list();
+        assert_eq!(got.len(), 1, "both copies kept");
+        assert_eq!(got[0].date, "2026-06-27");
+        assert_eq!(got[0].start, "10:00");
+
+        // Moving one of two identical events must not bury the other.
+        let c = LocalEventStore::default();
+        let first = event_at(&c, "Lunch", "2026-07-01", "12:00");
+        event_at(&c, "Lunch", "2026-07-01", "12:00");
+        move_to(&c, first.id, "2026-07-01", "13:00");
+        c.merge(Vec::new(), &c.tombstones());
+        assert_eq!(c.list().len(), 2);
+    }
+
+    #[test]
+    fn deletes_propagate_and_a_re_created_event_survives() {
+        let a = LocalEventStore::default();
+        let e = event_at(&a, "Standup", "2026-07-01", "09:00");
+        let published = a.list();
+        let b = LocalEventStore::default();
+        b.merge(published.clone(), &Default::default());
+        a.remove(e.id);
+        b.merge(a.list(), &a.tombstones());
+        assert!(b.list().is_empty(), "the delete was undone");
+        b.merge(published, &Default::default());
+        assert!(b.list().is_empty(), "a stale copy resurrected it");
+
+        // Re-created later (stamped explicitly: the delete and the re-add land in
+        // one millisecond here, which no person ever manages).
+        let deleted_at = a.tombstones()["2026-07-01|09:00|Standup"];
+        event_at(&a, "Standup", "2026-07-01", "09:00");
+        a.items.write()[0].updated_ms = deleted_at + 1000;
+        b.merge(a.list(), &a.tombstones());
+        assert_eq!(b.list().len(), 1, "the old tombstone buried the new event");
+    }
+
+    #[test]
+    fn tombstones_from_before_timestamps_do_not_delete_on_upgrade() {
+        // `merge` never enforced tombstones before `updated_ms`, so a store can
+        // hold one for an event re-created afterwards. Loading must not turn it
+        // into a delete.
+        let dir = std::env::temp_dir().join(format!("flux-cal-legacy-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("cal_events.json");
+        let legacy = r#"{"items":[{"id":1,"title":"Standup","date":"2026-07-01","start":"09:00",
+            "end":"","location":"","notes":""}],"tombstones":{"2026-07-01|09:00|Standup":1000}}"#;
+        std::fs::write(&path, legacy).unwrap();
+        let s = LocalEventStore::restore(path);
+        s.merge(Vec::new(), &Default::default());
+        assert_eq!(s.list().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn local_event_sort_key_matches_ics() {
         // A 10:00 local event must sort exactly like the equivalent ICS occurrence.
@@ -1277,6 +1673,7 @@ END:VCALENDAR";
             location: String::new(),
             notes: String::new(),
             rrule: String::new(),
+            updated_ms: 0,
         });
         assert_eq!(cal.sort_key, 202606191000);
         assert!(cal.editable);
@@ -1323,6 +1720,7 @@ END:VCALENDAR";
             location: String::new(),
             notes: String::new(),
             rrule: String::new(),
+            updated_ms: 0,
         };
         let (lo, hi) = (day(2026, 6, 1), day(2026, 12, 1));
         let mut out = Vec::new();
@@ -1357,6 +1755,83 @@ END:VCALENDAR";
         assert_eq!(ev[1].date, "2026-06-20");
         assert_eq!(ev[1].time, ""); // all-day
         assert_eq!(ev[1].calendar, "Work");
+    }
+
+    #[test]
+    fn utc_times_land_on_the_viewer_s_clock_and_date() {
+        // Google writes one-off timed events in UTC: 23:00Z on the 19th is 09:00
+        // on the 20th in Sydney (UTC+10) and 18:00 on the 19th in New York.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Supervisor\r\nDTSTART:20260619T230000Z\r\n\
+DTEND:20260620T000000Z\r\nEND:VEVENT";
+        let syd = &parse_events_at_tz(ics, "W", day(2026, 6, 15), 600)[0];
+        assert_eq!(syd.date, "2026-06-20");
+        assert_eq!((syd.time.as_str(), syd.end.as_str()), ("09:00", "10:00"));
+        assert_eq!(syd.sort_key, 202606200900);
+        let nyc = &parse_events_at_tz(ics, "W", day(2026, 6, 15), -300)[0];
+        assert_eq!(nyc.date, "2026-06-19");
+        assert_eq!(nyc.time, "18:00");
+
+        // Floating and TZID times are wall-clock already.
+        let tzid = "BEGIN:VEVENT\r\nSUMMARY:Lab\r\nDTSTART;TZID=Australia/Sydney:20260619T090000\r\nEND:VEVENT";
+        let lab = &parse_events_at_tz(tzid, "W", day(2026, 6, 15), 600)[0];
+        assert_eq!(lab.date, "2026-06-19");
+        assert_eq!(lab.time, "09:00");
+    }
+
+    #[test]
+    fn a_utc_series_keeps_its_weekdays_and_exdates() {
+        // Mondays at 23:00Z are Tuesdays at 09:00 in Sydney. The rule expands on
+        // the written (UTC) dates and each occurrence moves, so BYDAY, COUNT and
+        // EXDATE still match.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Seminar\r\nDTSTART:20260601T230000Z\r\n\
+RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=3\r\nEXDATE:20260608T230000Z\r\nEND:VEVENT";
+        let ev = parse_events_at_tz(ics, "W", day(2026, 6, 1), 600);
+        let dates: Vec<&str> = ev.iter().map(|e| e.date.as_str()).collect();
+        assert_eq!(dates, vec!["2026-06-02", "2026-06-16"]);
+        assert!(ev.iter().all(|e| e.time == "09:00"));
+
+        // Imported, it becomes the same series in local terms.
+        let local = &ics_to_local_events(ics, 600)[0];
+        assert_eq!(local.date, "2026-06-02");
+        assert_eq!(local.start, "09:00");
+        assert_eq!(local.rrule, "FREQ=WEEKLY;BYDAY=TU;COUNT=3");
+        assert_eq!(
+            shift_rrule("FREQ=MONTHLY;BYDAY=-1SU;UNTIL=20261231T230000Z", -1),
+            "FREQ=MONTHLY;BYDAY=-1SA;UNTIL=20261230"
+        );
+    }
+
+    #[test]
+    fn a_moved_occurrence_shows_once_at_its_new_time() {
+        // "Edit only this event": the series, plus an override VEVENT with the
+        // same UID and a RECURRENCE-ID naming the occurrence it replaces. The
+        // alarm's own UID (iCloud writes one) must not stand in for the event's.
+        let ics = "BEGIN:VEVENT\r\nUID:standup@x\r\nSUMMARY:Standup\r\n\
+DTSTART:20260601T090000\r\nRRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4\r\n\
+BEGIN:VALARM\r\nUID:alarm-1\r\nACTION:DISPLAY\r\nTRIGGER:-PT10M\r\nEND:VALARM\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:standup@x\r\nRECURRENCE-ID:20260615T090000\r\nSUMMARY:Standup\r\n\
+DTSTART:20260615T150000\r\nEND:VEVENT";
+        let ev = parse_events_at(ics, "W", day(2026, 6, 1));
+        let moved: Vec<&str> = ev
+            .iter()
+            .filter(|e| e.date == "2026-06-15")
+            .map(|e| e.time.as_str())
+            .collect();
+        assert_eq!(moved, vec!["15:00"], "shown at both times");
+        assert_eq!(ev.len(), 4, "the other weeks are untouched");
+    }
+
+    #[test]
+    fn an_alarm_does_not_retitle_its_event() {
+        // Google's email reminder carries its own SUMMARY, after the event's.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Thesis meeting\r\nDTSTART:20260619T100000\r\n\
+BEGIN:VALARM\r\nACTION:EMAIL\r\nDESCRIPTION:This is an event reminder\r\n\
+SUMMARY:Alarm notification\r\nTRIGGER:-P0DT0H30M0S\r\nEND:VALARM\r\n\
+LOCATION:Room 4\r\nEND:VEVENT";
+        let ev = parse_events_at(ics, "W", day(2026, 6, 15));
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].summary, "Thesis meeting");
+        assert_eq!(ev[0].location, "Room 4", "the event's own lines after it");
     }
 
     #[test]
@@ -1396,6 +1871,40 @@ END:VCALENDAR";
         assert!(ev
             .iter()
             .all(|e| e.summary == "Class" && e.date != "2026-06-03"));
+    }
+
+    fn dates_of(ics: &str) -> Vec<String> {
+        let ev = parse_events_at(ics, "W", day(2026, 6, 1));
+        ev.into_iter().map(|e| e.date).collect()
+    }
+
+    #[test]
+    fn monthly_byday_means_the_nth_weekday() {
+        // Google's "Monthly on the second Tuesday", not "the 9th of each month".
+        let second_tue = "BEGIN:VEVENT\r\nSUMMARY:Dept\r\nDTSTART:20260609T100000\r\n\
+RRULE:FREQ=MONTHLY;BYDAY=2TU;COUNT=3\r\nEND:VEVENT";
+        assert_eq!(
+            dates_of(second_tue),
+            ["2026-06-09", "2026-07-14", "2026-08-11"]
+        );
+        // Outlook's "last weekday of the month" is one day a month, not twenty.
+        let last_weekday = "BEGIN:VEVENT\r\nSUMMARY:Report\r\nDTSTART:20260630T090000\r\n\
+RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1;COUNT=3\r\nEND:VEVENT";
+        assert_eq!(
+            dates_of(last_weekday),
+            ["2026-06-30", "2026-07-31", "2026-08-31"]
+        );
+    }
+
+    #[test]
+    fn weekly_count_follows_the_calendar_not_the_byday_order() {
+        // Google writes "every weekday" as FR,MO,TH,TU,WE.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Gym\r\nDTSTART:20260601T070000\r\n\
+RRULE:FREQ=WEEKLY;BYDAY=FR,MO,TH,TU,WE;COUNT=7\r\nEND:VEVENT";
+        let mut got = dates_of(ics);
+        got.sort();
+        let want = ["01", "02", "03", "04", "05", "08", "09"].map(|d| format!("2026-06-{d}"));
+        assert_eq!(got, want);
     }
 
     #[test]

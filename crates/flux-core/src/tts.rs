@@ -52,7 +52,7 @@ pub async fn voice_speak(text: String) -> Result<String, String> {
             return Err("nothing to speak".into());
         }
         let model = piper_model()?;
-        let mut child = Command::new(piper_bin())
+        let mut child = crate::exec::no_console(&mut Command::new(piper_bin()))
             .args(["--model", &model, "--output_file", "-"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

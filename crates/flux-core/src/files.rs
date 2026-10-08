@@ -177,7 +177,7 @@ const WSL_PRELUDE: &str = r#"p="$1"; case "$p" in "~") p="$HOME";; "~/"*) p="$HO
 /// works through a folder).
 #[cfg(windows)]
 fn wsl_bash(script: &str, path_arg: &str, what: &str) -> Result<Vec<u8>, String> {
-    let out = std::process::Command::new("wsl.exe")
+    let out = crate::exec::no_console(&mut std::process::Command::new("wsl.exe"))
         .args(["--", "bash", "-c", script, "flux", path_arg])
         .output()
         .map_err(|e| format!("couldn't reach {what} via WSL: {e}"))?;
@@ -1521,7 +1521,7 @@ fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
         // is empty, which `cat >` turns into an ambiguous-redirect failure at
         // best. This runs on an approved edit, so it must land where promised.
         let script = format!("{WSL_PRELUDE}cat > \"$p\"");
-        let mut child = std::process::Command::new("wsl.exe")
+        let mut child = crate::exec::no_console(&mut std::process::Command::new("wsl.exe"))
             .args(["--", "bash", "-c", &script, "flux", p])
             .stdin(std::process::Stdio::piped())
             .spawn()
