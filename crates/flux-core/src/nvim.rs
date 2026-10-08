@@ -164,9 +164,31 @@ fn query(session: u64, expression: &'static str) -> Result<String, String> {
 /// Run the nvim client where the editor actually lives.
 #[cfg(not(windows))]
 fn spawn_client(sock: &str, expression: &str) -> Result<std::process::Output, String> {
+    // `/tmp/flux-nvim-<n>.sock` is a predictable name in a directory every local
+    // user can write. Only talk to a socket *we* own: otherwise the reply (handed
+    // to the agent as "your unsaved buffer") and the RPC channel itself belong to
+    // whoever planted it.
+    if !socket_is_ours(sock) {
+        return Err("not connected".into());
+    }
     let mut cmd = Command::new("nvim");
     cmd.args(["--server", sock, "--remote-expr", expression]);
     run_bounded(cmd)
+}
+
+/// The path is a socket (not a link to one) owned by whoever owns `$HOME`: this
+/// user, without needing a uid lookup. The sticky `/tmp` keeps anyone else from
+/// swapping it out after this check.
+#[cfg(not(windows))]
+fn socket_is_ours(sock: &str) -> bool {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let Some(home) = std::env::var_os("HOME") else {
+        return false;
+    };
+    match (std::fs::symlink_metadata(sock), std::fs::metadata(home)) {
+        (Ok(s), Ok(h)) => s.file_type().is_socket() && s.uid() == h.uid(),
+        _ => false,
+    }
 }
 
 /// On the Windows build the editor was started from the MSYS2 terminal, so the
@@ -460,5 +482,32 @@ mod tests {
                 assert!(!e.contains(banned), "{e:?} contains {banned:?}");
             }
         }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn only_a_socket_of_our_own_is_spoken_to() {
+        // The editor's socket sits at a predictable path in the shared /tmp, so
+        // anything else found there (a planted file, a link) is not our editor.
+        let dir = std::env::temp_dir().join(format!("flux-nvim-own-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("s.sock");
+        let _server = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        let path = |p: &std::path::Path| p.to_string_lossy().into_owned();
+        if std::env::var_os("HOME").is_some() {
+            assert!(socket_is_ours(&path(&sock)));
+        }
+        let link = dir.join("link.sock");
+        std::os::unix::fs::symlink(&sock, &link).unwrap();
+        assert!(
+            !socket_is_ours(&path(&link)),
+            "a link to a socket is not one"
+        );
+        let file = dir.join("file.sock");
+        std::fs::write(&file, b"").unwrap();
+        assert!(!socket_is_ours(&path(&file)));
+        assert!(!socket_is_ours(&path(&dir.join("missing.sock"))));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
