@@ -29,13 +29,29 @@ const MAX_CHARS = 60_000;
 const OCR_PAGE_CAP = 40;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let pdfjs: any = null;
-const ensurePdfjs = async () => {
-  if (pdfjs) return pdfjs;
-  pdfjs = await import("pdfjs-dist");
-  const PdfWorker = (await import("pdfjs-dist/build/pdf.worker.min.mjs?worker")).default;
-  pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
-  return pdfjs;
+let pdfjsReady: Promise<{ lib: any; worker: any }> | null = null;
+/** PDF.js plus ONE app-wide worker, shared by the viewer and the agent (the viewer
+ *  used to spawn one per mount, and it remounts on every switch to its tab). Each
+ *  document gets the worker passed explicitly, so PDF.js never owns it: destroy()
+ *  frees that document alone, without terminating the worker or racing `fromPort`
+ *  on it. `fromPort`, not `new PDFWorker`: pdfjs-dist 4.10 types the
+ *  constructor's `port` as null-only. A promise, so two first calls share one. */
+const ensurePdfjs = () =>
+  (pdfjsReady ??= (async () => {
+    const lib = await import("pdfjs-dist");
+    const PdfWorker = (await import("pdfjs-dist/build/pdf.worker.min.mjs?worker")).default;
+    return { lib, worker: lib.PDFWorker.fromPort({ port: new PdfWorker() }) };
+  })().catch((e) => {
+    pdfjsReady = null; // let a later call retry a failed chunk load
+    throw e;
+  }));
+
+/** Open a document on the shared worker. The caller owns it and must destroy()
+ *  it: the worker keeps an undestroyed document's bytes and parsed objects. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const openPdf = async (data: Uint8Array): Promise<any> => {
+  const { lib, worker } = await ensurePdfjs();
+  return lib.getDocument({ data, worker }).promise;
 };
 
 /**
@@ -124,8 +140,22 @@ export async function readPdfText(
 ): Promise<PdfText> {
   const buf = await fetch(path);
   if (!buf || buf.byteLength === 0) throw new Error(`Couldn't read ${path}`);
-  const lib = await ensurePdfjs();
-  const doc = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
+  const doc = await openPdf(new Uint8Array(buf));
+  try {
+    return await extractText(doc, onOcr, canOcr);
+  } finally {
+    // An agent pass over a folder of PDFs otherwise kept every one of them
+    // resident in the worker for the rest of the session.
+    void doc.destroy().catch(() => {});
+  }
+}
+
+async function extractText(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  doc: any,
+  onOcr: ((page: number, total: number) => void) | undefined,
+  canOcr: boolean,
+): Promise<PdfText> {
   const parts: string[] = [];
   let chars = 0;
   let pagesWithText = 0;

@@ -26,7 +26,7 @@ import {
   type Component,
 } from "solid-js";
 import { ocrAvailable, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
-import { ocrDocument } from "./pdftext";
+import { ocrDocument, openPdf } from "./pdftext";
 import { tabs, updateTabTitle } from "./store";
 import {
   DEFAULT_SCALE,
@@ -211,15 +211,17 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   };
 
   // ── PDF.js load + render ───────────────────────────────────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let pdfjs: any = null;
-  const ensurePdfjs = async () => {
-    if (pdfjs) return pdfjs;
-    pdfjs = await import("pdfjs-dist");
-    const PdfWorker = (await import("pdfjs-dist/build/pdf.worker.min.mjs?worker")).default;
-    pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
-    return pdfjs;
-  };
+  // One app-wide worker (pdftext.ts `openPdf`). Each mount used to spawn a new
+  // one, terminate none and destroy no document, so every visit to the tab and
+  // every page-op leaked a worker or a full copy of the document.
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+    renderToken++; // stop a render pass still in flight
+    const doc = pdfDoc;
+    pdfDoc = null;
+    void doc?.destroy().catch(() => {}); // also ends an orphaned OCR loop at its next getPage
+  });
 
   /** Matches the Rust-side cap; stopping here avoids extracting pages whose text
    *  would only be truncated on arrival. */
@@ -228,8 +230,17 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   /** (Re)load the viewer from a byte buffer (initial load + after a page-op). */
   const loadBytes = async (bytes: Uint8Array) => {
     working = bytes;
-    const lib = await ensurePdfjs();
-    pdfDoc = await lib.getDocument({ data: bytes.slice() }).promise;
+    const next = await openPdf(bytes.slice());
+    if (disposed) {
+      void next.destroy().catch(() => {}); // unmounted while it parsed
+      return;
+    }
+    // A page-op / form apply supersedes the document: free the old copy, and stop
+    // the render pass that was drawing it.
+    const prev = pdfDoc;
+    pdfDoc = next;
+    renderToken++;
+    void prev?.destroy().catch(() => {});
     const n = pdfDoc.numPages;
     const ds: Dims[] = [];
     for (let i = 1; i <= n; i++) {
@@ -422,7 +433,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
         if (want > 1 || anchorOnRerender) scrollToPage(want, "auto");
         anchorOnRerender = false;
       });
-    })();
+    })().catch(() => {}); // a render cancelled by destroy() on reload / unmount
   });
 
   // ── Scroll position ────────────────────────────────────────────────────────
@@ -1656,7 +1667,7 @@ const PageThumb: Component<{ pageNo: number; getDoc: () => unknown; version: num
       canvas.height = vp.height;
       const ctx = canvas.getContext("2d");
       if (ctx) await page.render({ canvasContext: ctx, viewport: vp }).promise;
-    })();
+    })().catch(() => {}); // the document was replaced (page-op) or destroyed mid-render
   });
   return <canvas class="pdf-thumb-canvas" ref={(el) => (canvas = el)} />;
 };
