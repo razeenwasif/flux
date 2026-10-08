@@ -825,7 +825,9 @@ const App: Component = () => {
                 .catch(() => {});
             }, 1500);
             const prev = prevUrlByTab.get(tabId);
-            if (prev && prev !== url && prev.startsWith("http")) {
+            // Private browsing must not train the (shared, all-tabs) model.
+            const isPrivate = tabs().find((t) => t.id === tabId)?.private === true;
+            if (!isPrivate && prev && prev !== url && prev.startsWith("http")) {
               void prefetchRecord(prev, url).catch(() => {});
             }
             prevUrlByTab.set(tabId, url);

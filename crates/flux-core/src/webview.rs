@@ -575,27 +575,61 @@ mod real {
         Ok(())
     }
 
+    /// The hints a page on `page_host` may be shown: its own host and subdomains
+    /// (`www.` ignored). The injected tags are readable by the page's scripts while
+    /// the hints are learned from the user's cross-site (even typed) navigation,
+    /// so anything else would leak it. "Hosts the page links to" is no filter: a
+    /// page can plant hidden links to any host it wants to probe.
+    fn same_site_hints(page_host: &str, hosts: Vec<String>) -> Vec<String> {
+        let site = page_host.strip_prefix("www.").unwrap_or(page_host);
+        let subdomain = format!(".{site}");
+        hosts
+            .into_iter()
+            .filter(|h| {
+                let h = h.to_ascii_lowercase();
+                h == site || h.ends_with(&subdomain)
+            })
+            .collect()
+    }
+
     /// Speculative preconnect (BACKLOG #103): inject `<link rel="preconnect">` tags
     /// for the predicted next hosts into the active page, so the engine's own
     /// network stack opens DNS+TCP+TLS to them ahead of the likely next navigation.
-    /// Hosts come from the prefetch model's confidence-gated hints; idempotent
-    /// (skips a host already preconnected this page).
+    /// Hosts come from the prefetch model's confidence-gated hints, cut down to the
+    /// page's own site ([`same_site_hints`]); idempotent (skips a host already
+    /// preconnected this page).
     #[tauri::command]
     pub async fn webview_preconnect(
         app: AppHandle,
         tab_id: TabId,
         hosts: Vec<String>,
     ) -> Result<(), String> {
-        if hosts.is_empty() {
+        // Private tabs never get speculative hints (#59).
+        let private = app
+            .try_state::<crate::state::FluxState>()
+            .and_then(|s| s.tabs.get(&tab_id).map(|t| t.private))
+            .unwrap_or(false);
+        if hosts.is_empty() || private {
             return Ok(());
         }
         let Some(wv) = app.get_webview(&label(tab_id)) else {
             return Ok(());
         };
-        // Hosts are JSON-encoded → injection-safe inside the script literal.
+        let Some(page_host) = wv.url().ok().and_then(|u| u.host_str().map(str::to_owned)) else {
+            return Ok(());
+        };
+        let hosts = same_site_hints(&page_host, hosts);
+        if hosts.is_empty() {
+            return Ok(());
+        }
+        // JSON-encoded → injection-safe inside the script literal.
         let json = serde_json::to_string(&hosts).map_err(|e| e.to_string())?;
+        let page = serde_json::to_string(&page_host).map_err(|e| e.to_string())?;
+        // The hostname check drops the script if the tab navigated to another
+        // site after `url()` was read.
         let js = format!(
             r#"(() => {{
+  if (location.hostname !== {page}) return;
   const seen = (window.__fluxPreconnect ||= new Set());
   for (const h of {json}) {{
     if (!h || seen.has(h)) continue;
@@ -603,7 +637,8 @@ mod real {
     for (const rel of ['preconnect', 'dns-prefetch']) {{
       const l = document.createElement('link');
       l.rel = rel; l.href = 'https://' + h; l.crossOrigin = '';
-      document.head.appendChild(l);
+      const t = document.head || document.documentElement;
+      if (t) t.appendChild(l);
     }}
   }}
 }})();"#
@@ -1380,6 +1415,35 @@ mod real {
                     );
                 }
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod preconnect_tests {
+        use super::same_site_hints;
+
+        fn hints(page: &str, hosts: &[&str]) -> Vec<String> {
+            same_site_hints(page, hosts.iter().map(|h| h.to_string()).collect())
+        }
+
+        #[test]
+        fn a_page_only_sees_hints_for_its_own_site() {
+            let learned = [
+                "bank.example",
+                "cdn.news.example",
+                "news.example",
+                "evilnews.example",
+            ];
+            assert_eq!(
+                hints("www.news.example", &learned),
+                ["cdn.news.example", "news.example"]
+            );
+            // A sibling subdomain may be someone else's site (user pages, blogs).
+            assert!(hints("alice.pages.example", &["bob.pages.example"]).is_empty());
+            assert_eq!(
+                hints("news.example", &["CDN.News.Example"]),
+                ["CDN.News.Example"]
+            );
         }
     }
 
