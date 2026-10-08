@@ -214,6 +214,23 @@ struct Pending {
     paths: Vec<String>,
 }
 
+impl Pending {
+    /// Add to the queue (a union): clearing cookies, then the cache, in two
+    /// clicks must clear both.
+    fn merge(&mut self, keys: Vec<String>, paths: Vec<String>) {
+        for k in keys {
+            if !self.keys.contains(&k) {
+                self.keys.push(k);
+            }
+        }
+        for p in paths {
+            if !self.paths.contains(&p) {
+                self.paths.push(p);
+            }
+        }
+    }
+}
+
 fn read_pending_file() -> Pending {
     marker_path()
         .and_then(|p| std::fs::read_to_string(p).ok())
@@ -292,18 +309,16 @@ pub fn storage_clear(app: AppHandle, keys: Vec<String>) -> Result<String, String
         });
     }
     let p = marker_path().ok_or("no app data directory")?;
-    if let Some(dir) = p.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let json = serde_json::to_string(&Pending {
-        keys: known.clone(),
-        paths,
-    })
-    .map_err(|e| e.to_string())?;
-    std::fs::write(&p, json).map_err(|e| format!("couldn't queue the clear: {e}"))?;
+    // Merge, don't replace: a second clear used to silently cancel the first.
+    // Atomic, so the boot pass never reads a torn marker as "nothing queued".
+    let mut pending = read_pending_file();
+    pending.merge(known, paths);
+    let json = serde_json::to_string(&pending).map_err(|e| e.to_string())?;
+    crate::persist::write_atomic(&p, json.as_bytes())
+        .map_err(|e| format!("couldn't queue the clear: {e}"))?;
     Ok(format!(
         "{} queued — deleted next time Flux starts.",
-        known.len()
+        pending.keys.len()
     ))
 }
 
@@ -444,5 +459,21 @@ mod tests {
         // A profile without this layout (WebKit) leaves nothing to queue.
         assert!(clear_targets(&[dir.join("webkit")], &["cookies".into()]).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn queued_clears_accumulate() {
+        // Clear cookies, then (the picks reset) service workers: both stay queued.
+        let mut p = Pending::default();
+        p.merge(vec!["cookies".into()], vec!["/p/Default/Network".into()]);
+        p.merge(
+            vec!["serviceworkers".into(), "cookies".into()],
+            vec![
+                "/p/Default/Service Worker".into(),
+                "/p/Default/Network".into(),
+            ],
+        );
+        assert_eq!(p.keys, ["cookies", "serviceworkers"]);
+        assert_eq!(p.paths, ["/p/Default/Network", "/p/Default/Service Worker"]);
     }
 }
