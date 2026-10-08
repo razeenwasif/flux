@@ -9,7 +9,7 @@
  * the same engine for paged, disk-backed course notebooks — `ScribePage`.)
  */
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
-import { askText } from "./ask";
+import { askConfirm, askText } from "./ask";
 
 import InkCanvas, { type Stroke } from "./InkCanvas";
 import { WHITEBOARD_URL } from "./ipc";
@@ -90,18 +90,27 @@ const WhiteboardPage: Component = () => {
       scheduleSave();
     }
   };
-  const deleteBoard = () => {
+  const deleteBoard = async () => {
+    // The board asked about, not whichever one is shown once the dialog closes.
+    const { id, name, strokes } = board();
     if (boards().length <= 1) {
       // Last board: clear it rather than leaving the page empty — but ask, like
       // deleting any other board. This bypasses the canvas's undo history, so
       // Ctrl+Z can't bring the drawing back.
-      if (board().strokes.length && !window.confirm(`Clear “${board().name}”?`)) return;
-      setStrokes([]);
+      if (
+        strokes.length &&
+        !(await askConfirm({
+          title: `Clear “${name}”?`,
+          hint: "Undo can't bring the drawing back.",
+          confirm: "Clear",
+        }))
+      )
+        return;
+      if (boardId() === id) setStrokes([]);
       return;
     }
-    if (!window.confirm(`Delete “${board().name}”?`)) return;
-    const gone = boardId();
-    setBoards((bs) => bs.filter((b) => b.id !== gone));
+    if (!(await askConfirm({ title: `Delete “${name}”?`, confirm: "Delete" }))) return;
+    setBoards((bs) => bs.filter((b) => b.id !== id));
     setBoardId(boards()[0]!.id);
     scheduleSave();
   };

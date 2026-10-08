@@ -61,6 +61,7 @@ import LiquidBackground from "./LiquidBackground";
 import Calculator from "./Calculator";
 import ClockWidget from "./ClockWidget";
 import Converter from "./Converter";
+import { askConfirm } from "./ask";
 
 /** Hostname without `www.`, best-effort. */
 function hostOf(url: string): string {
@@ -717,13 +718,17 @@ const StartPage: Component<{
       })
       .catch((err) => console.error("save event", err));
   };
-  const deleteEvent = () => {
+  const deleteEvent = async () => {
     const d = editing();
     if (!d || d.id == null) return;
     // The id is the series': this removes every occurrence, not just this one.
     if (
       d.occurrence != null &&
-      !window.confirm(`Delete every occurrence of “${d.title}”? This can't be undone.`)
+      !(await askConfirm({
+        title: `Delete every occurrence of “${d.title}”?`,
+        hint: "This can't be undone.",
+        confirm: "Delete all",
+      }))
     )
       return;
     void calEventDelete(d.id)
