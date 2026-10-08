@@ -161,6 +161,7 @@ import {
   createMemo,
   createSignal,
   lazy,
+  on,
   onCleanup,
   onMount,
   type Component,
@@ -386,24 +387,55 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [macrosLoaded, setMacrosLoaded] = createSignal(false);
   const [passwordsLoaded, setPasswordsLoaded] = createSignal(false);
   // Per-page notes (#53): the popover edits the active page's note (auto-saved).
+  // It stays open across tab switches and navigation, so the text is tied to the
+  // page it was loaded for: an edit is saved there, and a new page under the
+  // popover gets its own note loaded rather than inheriting the previous text.
   const [noteText, setNoteText] = createSignal("");
+  // Read-only until the page's note has loaded, so nothing typed can start from
+  // the previous page's text.
+  const [noteLoaded, setNoteLoaded] = createSignal(false);
   let noteTimer: number | undefined;
+  let noteUrl: string | null = null;
+  let notePending: { url: string; text: string } | null = null;
+  const flushNote = () => {
+    clearTimeout(noteTimer);
+    const p = notePending;
+    notePending = null;
+    if (p) void noteSet(p.url, p.text).catch(() => {});
+  };
   const loadNote = () => {
+    flushNote(); // the previous page's last edit is written, not dropped
     const t = activeTab();
-    if (t?.kind === "browser" && !isStartUrl(t.url))
-      void noteGet(t.url)
-        .then(setNoteText)
-        .catch(() => setNoteText(""));
-    else setNoteText("");
+    const url = t?.kind === "browser" && !isStartUrl(t.url) ? t.url : null;
+    noteUrl = url;
+    setNoteLoaded(false);
+    setNoteText("");
+    if (!url) return;
+    const show = (s: string) => {
+      if (noteUrl !== url) return; // the popover has moved to another page since
+      setNoteText(s);
+      setNoteLoaded(true);
+    };
+    void noteGet(url)
+      .then(show)
+      .catch(() => show(""));
   };
   const saveNote = (text: string) => {
     setNoteText(text);
-    const t = activeTab();
-    if (!t) return;
-    const url = t.url;
+    if (!noteUrl) return;
+    notePending = { url: noteUrl, text };
     clearTimeout(noteTimer);
-    noteTimer = window.setTimeout(() => void noteSet(url, text).catch(() => {}), 400);
+    noteTimer = window.setTimeout(flushNote, 400);
   };
+  // Reload whenever the page under the open popover changes. Keyed on the URL
+  // string, so a title tick (a fresh activeTab object) can't reload the note
+  // being typed.
+  const noteTarget = createMemo(() => (panel() === "notes" ? (activeTab()?.url ?? "") : null));
+  createEffect(
+    on(noteTarget, (url) => {
+      if (url != null) loadNote();
+    }),
+  );
   // Active page's per-host zoom (#36), reactive via the zoom store.
   const activeZoom = (): number => {
     const t = activeTab();
@@ -2225,10 +2257,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <button
             classList={{ "icon-btn": true, active: panel() === "notes" }}
             title="Note for this page"
-            onClick={() => {
-              openPanel("notes");
-              loadNote();
-            }}
+            onClick={() => openPanel("notes")}
           >
             <Icon name="note" />
           </button>
@@ -2676,6 +2705,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   class="note-area"
                   placeholder="Jot a note — saved locally for this page…"
                   value={noteText()}
+                  readOnly={!noteLoaded()}
                   onInput={(e) => saveNote(e.currentTarget.value)}
                 />
               </Show>
