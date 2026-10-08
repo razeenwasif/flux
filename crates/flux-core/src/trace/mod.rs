@@ -241,6 +241,7 @@ pub fn trace_drafts(drafts: State<'_, TraceDrafts>, visit_id: VisitId) -> Vec<Dr
 /// credentials for (e.g. writing a GitHub issue), which is the feature's point.
 #[tauri::command]
 pub fn draft_publish(
+    webview: tauri::Webview,
     trace: State<'_, TraceStore>,
     drafts: State<'_, TraceDrafts>,
     state: State<'_, crate::state::FluxState>,
@@ -248,6 +249,16 @@ pub fn draft_publish(
     field: String,
     text: String,
 ) -> Result<(), String> {
+    // Bind the claimed tab to the calling webview, as dom_publish does: the
+    // label is Flux's own (`tab-{id}`), so a page can't plant, overwrite or
+    // evict drafts on another tab's visit by sending its id.
+    let caller = webview
+        .label()
+        .strip_prefix("tab-")
+        .and_then(|s| s.parse::<TabId>().ok());
+    if caller != Some(tab_id) {
+        return Err("tab_id does not match the calling tab".into());
+    }
     if !drafts.enabled() {
         return Ok(()); // toggled off after page load — drop silently
     }
