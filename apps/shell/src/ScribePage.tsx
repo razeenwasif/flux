@@ -362,10 +362,17 @@ const ScribePage: Component = () => {
   const doTranscribe = async () => {
     const cur = notebook();
     if (!cur) return;
+    const idx = pageIndex();
     setOcrBusy(true);
     setOcrErr("");
     try {
-      setOcr(await scribeTranscribe(cur.id, pageIndex()));
+      // The backend reads page `idx` from its own copy, which trails the editor
+      // by the autosave debounce (clicking this button just restarted it, via
+      // the editor's blur). Write first, or it reads an older notebook: one
+      // without the drawing just inserted, or with the pages in another order.
+      if (saveState() !== "saved" && !(await flush()))
+        throw new Error("Not transcribed: the page couldn't be saved first.");
+      setOcr(await scribeTranscribe(cur.id, idx));
     } catch (e) {
       setOcrErr(String(e).replace(/^Error:\s*/, ""));
     }
