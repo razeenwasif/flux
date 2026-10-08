@@ -58,9 +58,17 @@ export const parseDoc = (raw: string): DocModel => {
   } catch {
     return { v: 2, html: "", objects: [] };
   }
-  if (v && typeof v === "object" && (v as DocModel).v === 2) {
-    const d = v as DocModel;
-    return { v: 2, html: d.html ?? "", objects: d.objects ?? [] };
+  // A document is any object with an `html` string, `v` or not: the agent's
+  // `Page::document` (notewrite NewPage) writes `{"html": …}` alone, which Rust's
+  // page_text already reads as one. Keyed on `v === 2`, such a page opened
+  // blank, and the first keystroke saved that blank over it.
+  const d = v as Partial<DocModel> | null;
+  if (d && typeof d === "object" && !Array.isArray(d) && (d.v === 2 || typeof d.html === "string")) {
+    return {
+      v: 2,
+      html: typeof d.html === "string" ? d.html : "",
+      objects: Array.isArray(d.objects) ? d.objects : [],
+    };
   }
   // Legacy: a bare Stroke[]. Typed blocks become paragraphs (in reading order),
   // and the ink is flattened into a single full-page object.
