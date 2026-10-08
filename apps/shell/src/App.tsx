@@ -1761,6 +1761,24 @@ const App: Component = () => {
   };
 
   const BARS_W = 54;
+  // The split's own floor (each pane at least 320px), sized from the panes
+  // actually on screen and held while a seam is dragged: setTileRatio rewrites
+  // the group on every pointermove, and re-fitting the shell grid mid-gesture
+  // shed and restored whole columns, moving the card out from under the rect
+  // the seam handler measured at pointerdown. Re-evaluated on release.
+  const tileMinimum = createMemo((prev: number) => {
+    const group = tileGroup();
+    const panes = tilePanes();
+    if (!group || !panes) return 0;
+    if (splitDragging()) return prev;
+    const rects = tileRects({
+      ...group,
+      n: panes.length,
+      rect: { x: 0, y: 0, width: 10000, height: 10000 },
+      gap: 0,
+    });
+    return (320 * 10000) / Math.min(...rects.map((r) => r.width)) + 24;
+  }, 0);
   const layoutIntent = () => ({
     sidebar: sidebarOpen(),
     agent: agentOpen(),
@@ -1784,17 +1802,7 @@ const App: Component = () => {
         bars: false,
         editor: false,
       };
-    const group = tileGroup();
-    let pageMinimum = activeTab()?.url === SETTINGS_URL ? 720 : 560;
-    if (group) {
-      const rects = tileRects({
-        ...group,
-        n: group.tabs.length,
-        rect: { x: 0, y: 0, width: 10000, height: 10000 },
-        gap: 0,
-      });
-      pageMinimum = Math.max(pageMinimum, (320 * 10000) / Math.min(...rects.map((r) => r.width)) + 24);
-    }
+    const pageMinimum = Math.max(activeTab()?.url === SETTINGS_URL ? 720 : 560, tileMinimum());
     return fitLayout(winW(), pageMinimum, editorColRatio(), want, {
       sidebar: sidebarW(),
       stack: stackW(),
