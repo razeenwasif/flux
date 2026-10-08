@@ -186,6 +186,9 @@ const StartPage: Component<{
     }
   };
   const [scratch, setScratch] = createSignal("");
+  // Read-only until the saved note has loaded: an edit before then would be
+  // debounced into a noteSet that replaces the whole note with the new keystrokes.
+  const [scratchReady, setScratchReady] = createSignal(false);
   let scratchTimer: number | undefined;
   // Raw feed+local events; `events()` below is the filtered view every consumer
   // reads, so the calendar picker applies to the month dots, the day list and
@@ -326,6 +329,15 @@ const StartPage: Component<{
 
   onMount(async () => {
     visibleInterval(() => setNow(new Date()), 1000);
+    // Scratchpad, persisted via the notes store. Before any await: it's a local
+    // read and the pad is read-only until it lands, so it mustn't queue behind
+    // the network fetches below (ipapi.co / open-meteo have no timeout).
+    noteGet(SCRATCH_KEY)
+      .then((t) => {
+        setScratch(t ?? "");
+        setScratchReady(true);
+      })
+      .catch((e) => console.error("scratchpad load", e));
     void omniStats()
       .then(setOmni)
       .catch(() => {}); // #97 glance widget (best-effort)
@@ -370,11 +382,6 @@ const StartPage: Component<{
       })
       .catch(() => {});
 
-    // Scratchpad — persisted via the notes store.
-    noteGet(SCRATCH_KEY)
-      .then((t) => setScratch(t ?? ""))
-      .catch(() => {});
-
     // Calendar events (#114) from subscribed ICS feeds + local tasks.
     loadEvents();
     refreshTodos();
@@ -390,6 +397,7 @@ const StartPage: Component<{
       .catch(() => {});
 
   const onScratch = (text: string) => {
+    if (!scratchReady()) return;
     setScratch(text);
     clearTimeout(scratchTimer);
     scratchTimer = window.setTimeout(() => void noteSet(SCRATCH_KEY, text).catch(() => {}), 400);
@@ -1410,6 +1418,7 @@ const StartPage: Component<{
             </div>
             <textarea
               class="start-scratch"
+              readOnly={!scratchReady()}
               value={scratch()}
               onInput={(e) => onScratch(e.currentTarget.value)}
               placeholder="Jot a quick note, todo, or link… saved automatically."
@@ -1884,6 +1893,7 @@ const StartPage: Component<{
                 <Show when={expandedWidget() === "scratch"}>
                   <textarea
                     class="start-scratch widget-modal-scratch"
+                    readOnly={!scratchReady()}
                     value={scratch()}
                     onInput={(e) => onScratch(e.currentTarget.value)}
                     spellcheck={false}
