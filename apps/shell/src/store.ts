@@ -1485,10 +1485,16 @@ export async function closeTab(id: number): Promise<void> {
   setHibernated(id, false);
   await webviewClose(id); // tear down the native webview (no-op for terminal tabs)
   await tabClose(id);
-  // If we closed the active tab, fall back to the last remaining tab.
+  // If we closed the active tab, fall back to the last remaining tab of the
+  // workspace on screen, preferring the strip over folder-parked tabs. tabs() is
+  // the global order across every workspace (new tabs are appended), so its last
+  // entry was routinely another workspace's tab, shown in this one's card. With
+  // nothing left here, open a fresh tab in it, as switchWorkspace does.
   if (activeId() === id) {
-    const remaining = tabs().filter((t) => t.id !== id);
-    setActiveId(remaining.at(-1)?.id ?? null);
+    const here = tabs().filter((t) => t.id !== id && t.workspace === activeWorkspace());
+    const next = here.filter((t) => t.folder == null).at(-1) ?? here.at(-1);
+    if (next) setActiveId(next.id);
+    else await openTab("browser").catch(() => setActiveId(null)); // activates it
   }
   await refreshTabs();
   forgetTabWebview(id); // gone from tabs(), so no tiler re-run can reopen it
