@@ -280,8 +280,13 @@ const ScribeDoc: Component<Props> = (props) => {
   const [mathHtml, setMathHtml] = createSignal("");
   const [mathErr, setMathErr] = createSignal("");
   let previewTimer: number | undefined;
+  // Where the caret was when the editor opened for a new equation.
+  let mathCaret: Range | null = null;
 
   const promptForMath = (el?: HTMLElement) => {
+    const sel = window.getSelection();
+    const r = !el && sel?.rangeCount ? sel.getRangeAt(0) : null;
+    mathCaret = r && body.contains(r.commonAncestorContainer) ? r.cloneRange() : null;
     setMathEdit({ el: el ?? null, display: el ? el.dataset.display === "1" : true });
     setMathTex(el?.dataset.tex ?? "");
     setMathHtml("");
@@ -290,6 +295,17 @@ const ScribeDoc: Component<Props> = (props) => {
   const closeMath = () => {
     clearTimeout(previewTimer);
     setMathEdit(null);
+    // Back to the page, where the caret was. The editor took focus, and focusing
+    // the page alone puts the caret at its very start (Blink and WebKit don't
+    // restore a contenteditable's selection), so a new equation landed there.
+    const r = mathCaret;
+    mathCaret = null;
+    if (r) {
+      body.focus();
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+    }
   };
 
   // Preview, debounced — KaTeX on every keystroke of a long formula is wasted
@@ -738,7 +754,10 @@ const ScribeDoc: Component<Props> = (props) => {
 
               <textarea
                 class="mathed-src"
-                autofocus
+                // Not `autofocus`: it's skipped for an element inserted while
+                // something else has focus (HTML's "flush autofocus candidates"),
+                // and after Ctrl+M that's the page, which then got the typing.
+                ref={(el) => requestAnimationFrame(() => el.focus())}
                 spellcheck={false}
                 placeholder="\\int_0^1 x^2\\,dx = \\frac{1}{3}"
                 value={mathTex()}
