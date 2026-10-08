@@ -653,16 +653,26 @@ const AgentPanel: Component = () => {
   let audioCtx: AudioContext | null = null;
   let recNode: ScriptProcessorNode | null = null;
   let pcmChunks: Float32Array[] = [];
+  /** Bumped on press and on release: a press whose getUserMedia resolves after
+   *  the release (permission sheet, quick tap) is stale and must not record. */
+  let pttToken = 0;
   const startRec = async () => {
     if (recording() || working() || taskRunning()) return;
+    const tok = ++pttToken;
+    let stream: MediaStream;
     try {
-      micStream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: false }));
+      stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: false }));
     } catch {
       setFeed((f) => [...f, { role: "error", text: "Microphone access was denied." }]);
       return;
     }
+    if (tok !== pttToken) {
+      stream.getTracks().forEach((t) => t.stop()); // released before the mic opened
+      return;
+    }
+    micStream = stream;
     audioCtx = new AudioContext();
-    const src = audioCtx.createMediaStreamSource(micStream);
+    const src = audioCtx.createMediaStreamSource(stream);
     recNode = audioCtx.createScriptProcessor(4096, 1, 1);
     pcmChunks = [];
     recNode.onaudioprocess = (e) => pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
@@ -677,6 +687,7 @@ const AgentPanel: Component = () => {
     return btoa(s);
   };
   const stopRec = async () => {
+    pttToken++; // cancels a press still waiting on getUserMedia
     if (!recording()) return;
     setRecording(false);
     const rate = audioCtx?.sampleRate ?? 48000;
@@ -3666,9 +3677,7 @@ const AgentPanel: Component = () => {
                 void startRec();
               }}
               onPointerUp={() => void stopRec()}
-              onPointerLeave={() => {
-                if (recording()) void stopRec();
-              }}
+              onPointerLeave={() => void stopRec()}
             >
               🎤
             </button>
