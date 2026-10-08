@@ -8,6 +8,7 @@
  */
 import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
+  SYNC_URL,
   onSyncDone,
   onSyncError,
   syncLock,
@@ -19,7 +20,7 @@ import {
   type SyncReport,
   type SyncStatus,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 
 /**
  * What actually happened, in words that distinguish the three outcomes.
@@ -80,8 +81,7 @@ const SyncPage: Component = () => {
       })
       .catch(() => {});
   onMount(async () => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Sync");
+    titleInternalTab(SYNC_URL, "Sync");
     refresh();
     // Reflect background (auto) syncs live.
     const offDone = await onSyncDone((r) => {
