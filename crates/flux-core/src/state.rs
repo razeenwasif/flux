@@ -275,14 +275,16 @@ impl FluxState {
                 color: 0x9d8df1,
             });
         }
-        let next_ws = workspaces.iter().map(|w| w.id).max().unwrap_or(1) as u64 + 1;
+        let next_ws = (workspaces.iter().map(|w| w.id).max().unwrap_or(1) as u64 + 1)
+            .max(session.next_workspace_id as u64);
         let active_ws = if workspaces.iter().any(|w| w.id == session.active_workspace) {
             session.active_workspace
         } else {
             workspaces[0].id
         };
         let next_panel = session.panels.iter().map(|p| p.id).max().unwrap_or(0) as u64 + 1;
-        let next_container = session.containers.iter().map(|c| c.id).max().unwrap_or(0) as u64 + 1;
+        let max_container = session.containers.iter().map(|c| c.id).max().unwrap_or(0);
+        let next_container = (max_container as u64 + 1).max(session.next_container_id as u64);
         Self {
             active_tab: AtomicU64::new(active),
             next_tab_id: AtomicU64::new(next),
@@ -688,6 +690,8 @@ impl FluxState {
             active_workspace: self.active_workspace.load(Ordering::Acquire) as u32,
             panels: self.panels.read().clone(),
             containers: self.containers.read().clone(),
+            next_workspace_id: self.next_workspace_id.load(Ordering::Relaxed) as u32,
+            next_container_id: self.next_container_id.load(Ordering::Relaxed) as u32,
         };
         crate::session::save(path, &session);
     }

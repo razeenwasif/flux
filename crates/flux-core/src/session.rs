@@ -42,6 +42,13 @@ pub struct Session {
     /// Multi-account containers (BACKLOG #59).
     #[serde(default)]
     pub containers: Vec<Container>,
+    /// Id counters, persisted rather than re-derived from the largest surviving
+    /// id: Trail visits are scoped by workspace id and a container's cookie jar
+    /// is `containers/<id>`, so a reused id inherited a deleted one's data.
+    #[serde(default)]
+    pub next_workspace_id: u32,
+    #[serde(default)]
+    pub next_container_id: u32,
 }
 
 pub fn load(path: &Path) -> Session {
@@ -89,6 +96,8 @@ mod tests {
                 active_workspace: 1,
                 panels: vec![],
                 containers: vec![],
+                next_workspace_id: 0,
+                next_container_id: 0,
             },
         );
         let loaded = load(&path);
@@ -141,6 +150,8 @@ mod tests {
                 active_workspace: 1,
                 panels: vec![],
                 containers: vec![],
+                next_workspace_id: 0,
+                next_container_id: 0,
             },
         );
         let state = FluxState::restore(path.clone());
@@ -150,6 +161,23 @@ mod tests {
             state.alloc_tab_id() >= 8,
             "next id must clear every restored id"
         );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_deleted_workspace_or_container_id_is_never_handed_out_again() {
+        let path = std::env::temp_dir().join(format!("flux-sess-{}-d.json", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let state = FluxState::restore(path.clone());
+        let trip = state.workspace_create("Trip".into(), 0);
+        let work_jar = state.container_create("Work".into(), 0);
+        state.workspace_delete(trip);
+        state.container_delete(work_jar);
+        state.persist();
+
+        let state = FluxState::restore(path.clone());
+        assert!(state.workspace_create("Work".into(), 0) > trip);
+        assert!(state.container_create("Shopping".into(), 0) > work_jar);
         let _ = std::fs::remove_file(&path);
     }
 }
