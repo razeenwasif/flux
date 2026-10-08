@@ -92,6 +92,11 @@ impl MacroState {
         self.is_recording() && self.tab.load(Ordering::Relaxed) == tab
     }
 
+    /// The tab the current (or last) recording is bound to.
+    fn recorded_tab(&self) -> Option<TabId> {
+        Some(self.tab.load(Ordering::Relaxed)).filter(|&t| t != 0)
+    }
+
     /// Start recording `tab` (the active tab), seeded with `initial`.
     pub fn start(&self, initial: Option<Step>, tab: Option<TabId>) {
         let mut buf = Vec::new();
@@ -203,10 +208,11 @@ fn js(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
 
-/// Flip the recording flag in the active tab live, so the recorder starts/stops
-/// without a reload (new pages stamp it from backend state at init).
-fn set_page_flag(app: &AppHandle, on: bool) {
-    let Some(tab) = app.state::<crate::state::FluxState>().active_tab() else {
+/// Flip the recording flag in the recorded tab's current page live, so the
+/// recorder starts/stops without a reload. Every later page the tab loads gets
+/// it from `webview_open`'s page-load hook.
+fn set_page_flag(app: &AppHandle, tab: Option<TabId>, on: bool) {
+    let Some(tab) = tab else {
         return;
     };
     if let Some(wv) = app.get_webview(&format!("tab-{tab}")) {
@@ -238,8 +244,9 @@ pub fn macro_start_record(app: AppHandle, state: State<'_, MacroState>) {
         .active_snapshot()
         .filter(|s| s.url.starts_with("http"))
         .map(|s| Step::Navigate { url: s.url.clone() });
-    state.start(initial, flux.active_tab());
-    set_page_flag(&app, true);
+    let tab = flux.active_tab();
+    state.start(initial, tab);
+    set_page_flag(&app, tab, true);
 }
 
 #[tauri::command]
@@ -248,13 +255,15 @@ pub fn macro_stop_record(
     state: State<'_, MacroState>,
     name: String,
 ) -> Option<Macro> {
-    set_page_flag(&app, false);
+    // The recorded tab, not the active one: the user may have switched tabs
+    // since, and a page left armed keeps sending every click and typed value.
+    set_page_flag(&app, state.recorded_tab(), false);
     state.stop(name)
 }
 
 #[tauri::command]
 pub fn macro_cancel_record(app: AppHandle, state: State<'_, MacroState>) {
-    set_page_flag(&app, false);
+    set_page_flag(&app, state.recorded_tab(), false);
     state.cancel();
 }
 
@@ -462,9 +471,12 @@ mod tests {
     #[test]
     fn only_the_recorded_tab_is_recorded() {
         let s = MacroState::default();
+        assert_eq!(s.recorded_tab(), None);
         s.start(None, Some(3));
         assert!(s.is_recording_tab(3));
         assert!(!s.is_recording_tab(4), "a background tab isn't the flow");
+        // Stop/Cancel disarm this tab, whichever one is active by then.
+        assert_eq!(s.recorded_tab(), Some(3));
         s.cancel();
         assert!(!s.is_recording_tab(3));
     }

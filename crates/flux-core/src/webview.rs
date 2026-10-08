@@ -89,6 +89,17 @@ mod real {
     /// or one-click autofill via the fluxtab vault_* page commands.
     const PASSWORDS_JS: &str = include_str!("../assets/passwords.js");
 
+    /// The live page toggles, for a tab's newly loaded document: through the
+    /// setters darkmode.js and nav.js define, and the flag macro-record.js reads
+    /// on every event, so they apply after those scripts have run.
+    fn live_flags_js(dark: bool, hints: bool, gestures: bool, recording: bool) -> String {
+        format!(
+            "window.__FLUX_MACRO_REC__={recording};\
+             window.__fluxDark&&window.__fluxDark({dark});\
+             window.__fluxNavSet&&window.__fluxNavSet({hints},{gestures});"
+        )
+    }
+
     fn label(tab: TabId) -> String {
         format!("tab-{tab}")
     }
@@ -146,9 +157,11 @@ mod real {
                 )
             })
             .unwrap_or_default();
+        // Only the tab being recorded: an armed recorder in any other tab sends
+        // its every click and typed value, for nothing.
         let macro_flag = if app
             .try_state::<crate::macros::MacroState>()
-            .map(|s| s.is_recording())
+            .map(|s| s.is_recording_tab(tab_id))
             .unwrap_or(false)
         {
             "window.__FLUX_MACRO_REC__ = true;\n"
@@ -257,6 +270,22 @@ mod real {
                     let _ = webview.eval(&bjs);
                 }
             }
+            // The init script stamps the dark-mode, nav and macro-recorder flags
+            // once, when this webview is built, and replays that stamp for every
+            // page the tab loads. Re-assert the live values in each new document,
+            // or a toggle made since (and a recording's armed recorder) is lost on
+            // the next navigation. On both events: on WebView2 a script run at
+            // commit may land before the init script does.
+            let dark = app_for_load
+                .try_state::<crate::darkmode::DarkState>()
+                .is_some_and(|s| s.is_on());
+            let (hints, gestures) = app_for_load
+                .try_state::<crate::nav::NavState>()
+                .map_or((false, false), |s| (s.hints(), s.gestures()));
+            let recording = app_for_load
+                .try_state::<crate::macros::MacroState>()
+                .is_some_and(|s| s.is_recording_tab(tab_id));
+            let _ = webview.eval(live_flags_js(dark, hints, gestures, recording));
             // Extension content scripts (#93/#94): inject the CSS + JS of every
             // enabled extension whose @match patterns hit this URL, at the right
             // phase (document_start vs document_end/idle). With the broker present
@@ -1267,7 +1296,7 @@ mod real {
     pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
     #[cfg(test)]
     mod script_join_tests {
-        use super::{filter_scripts, join_page_scripts};
+        use super::{filter_scripts, join_page_scripts, live_flags_js};
         use super::{
             CAPTURE_JS, DARKMODE_JS, DRAFTS_JS, HIBERNATE_JS, MACRO_REC_JS, NAV_JS, NEWTAB_JS,
             PANEL_BADGE_JS, PASSWORDS_JS, PIP_JS, SHORTCUTS_JS,
@@ -1364,6 +1393,26 @@ mod real {
                     );
                 }
             }
+        }
+
+        /// A tab's init script replays the toggles stamped when its webview was
+        /// built, so each page load re-asserts the live ones. Those calls are
+        /// guarded: if a name drifted they would be silent no-ops, and every
+        /// toggle (and a recording's recorder) would revert on the next page.
+        #[test]
+        fn page_loads_reassert_the_live_toggles() {
+            let js = live_flags_js(false, true, false, true);
+            assert!(js.contains("window.__FLUX_MACRO_REC__=true;"), "{js}");
+            // Off too: the init script may have stamped it on.
+            assert!(js.contains("window.__fluxDark(false)"), "{js}");
+            assert!(js.contains("window.__fluxNavSet(true,false)"), "{js}");
+            let js = live_flags_js(true, false, false, false);
+            assert!(js.contains("window.__FLUX_MACRO_REC__=false;"), "{js}");
+            assert!(js.contains("window.__fluxDark(true)"), "{js}");
+            assert!(DARKMODE_JS.contains("window.__fluxDark = function"));
+            assert!(NAV_JS.contains("window.__fluxNavSet = function"));
+            // Read per event, not once at init, so setting it later arms the page.
+            assert!(MACRO_REC_JS.contains("return !!window.__FLUX_MACRO_REC__;"));
         }
     }
 } // mod real

@@ -23,12 +23,14 @@ impl DarkState {
     }
 }
 
-/// Toggle force-dark on every live tab webview, right now. New tabs pick the
-/// state up from the init script's `__FLUX_DARK__` flag.
+/// Toggle force-dark on every live tab and web panel, right now. New tabs pick
+/// the state up from the init script's `__FLUX_DARK__` flag, and each page a tab
+/// loads later from its page-load hook.
 pub fn apply(app: &AppHandle, on: bool) {
     let js = format!("window.__fluxDark&&window.__fluxDark({on})");
     for (label, wv) in app.webviews() {
-        if label.starts_with("tab-") {
+        // Web panels get darkmode.js and the boot flag too (panel_open).
+        if label.starts_with("tab-") || label.starts_with("panel-") {
             let _ = wv.eval(&js);
         }
     }
