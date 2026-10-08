@@ -811,24 +811,25 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const gen = ++omniGen;
     window.clearTimeout(omniDismissTimer);
     setOmniAns({ text: "", sources: [], streaming: true });
+    // Settle the card however the stream ends: a `done` frame, the command
+    // resolving without one (Omni hung up or timed out mid-answer), or an error.
+    const finish = (ms: number) => {
+      if (gen !== omniGen) return;
+      setOmniAns((a) => (a ? { ...a, streaming: false } : a));
+      window.clearTimeout(omniDismissTimer);
+      omniDismissTimer = window.setTimeout(() => {
+        if (gen === omniGen) clearOmniAns();
+      }, ms);
+    };
     void omniAnswer(query, (e) => {
       if (gen !== omniGen) return; // a newer ask superseded this stream
       if (e.type === "sources") setOmniAns((a) => (a ? { ...a, sources: e.sources } : a));
       else if (e.type === "token") setOmniAns((a) => (a ? { ...a, text: a.text + e.text } : a));
-      else if (e.type === "done") {
-        setOmniAns((a) => (a ? { ...a, streaming: false } : a));
-        omniDismissTimer = window.setTimeout(() => {
-          if (gen === omniGen) clearOmniAns();
-        }, 9000);
-      }
-    }).catch(() => {
-      if (gen === omniGen) {
-        setOmniAns((a) => (a ? { ...a, streaming: false } : a));
-        omniDismissTimer = window.setTimeout(() => {
-          if (gen === omniGen) clearOmniAns();
-        }, 5000);
-      }
-    });
+      else if (e.type === "done") finish(9000);
+    }).then(
+      () => finish(9000),
+      () => finish(5000),
+    );
   };
 
   const addressSearch = latestQuery(
