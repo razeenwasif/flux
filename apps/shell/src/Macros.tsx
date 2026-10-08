@@ -7,6 +7,7 @@
  */
 import { For, Show, createEffect, createSignal, type Component } from "solid-js";
 
+import { keepSame } from "./keepSame";
 import { visibleInterval } from "./poll";
 import {
   macroCancelRecord,
@@ -29,9 +30,12 @@ const Macros: Component<{ initialOpen?: boolean }> = (props) => {
   const [running, setRunning] = createSignal<number | null>(null);
   const [edit, setEdit] = createSignal<number | null>(null);
 
+  // keepSame: this polls every 2 s (700 ms while recording), and swapping in fresh
+  // objects remounted every row — an open rename input included, which lost focus
+  // and reverted to the stored name mid-typing.
   const refresh = () => {
     void macrosList()
-      .then(setList)
+      .then((l) => setList((prev) => keepSame(prev, l)))
       .catch(() => {});
     void macrosStatus()
       .then((s) => {

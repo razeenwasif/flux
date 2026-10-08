@@ -46,6 +46,15 @@ describe("keepSame", () => {
     expect(next[2]).toBe(added);
   });
 
+  it("compares nested content, not just the top-level fields", () => {
+    type Macro = { id: number; name: string; steps: { kind: string }[] };
+    const shown: Macro[] = [{ id: 7, name: "login", steps: [{ kind: "navigate" }] }];
+    const same = keepSame(shown, [{ id: 7, name: "login", steps: [{ kind: "navigate" }] }]);
+    expect(same[0]).toBe(shown[0]);
+    const grown = [{ id: 7, name: "login", steps: [{ kind: "navigate" }, { kind: "click" }] }];
+    expect(keepSame(shown, grown)[0]).toBe(grown[0]);
+  });
+
   it("takes everything from the poll when nothing was shown yet", () => {
     const polled: Row[] = [{ id: 1, name: "a", enabled: false }];
     expect(keepSame([], polled)[0]).toBe(polled[0]);
