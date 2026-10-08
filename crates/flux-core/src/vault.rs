@@ -96,7 +96,11 @@ impl VaultState {
             .join("vault");
         let path = dir.join("vault.bin");
         let meta = read_meta(&dir);
-        let password_mode = meta.protection == "password" && dir.join("keywrap.json").is_file();
+        // keywrap.json is what makes a vault password-protected; only an explicit
+        // "keychain" in meta (a disable that couldn't remove it) overrides it. A
+        // missing or unreadable meta.json must not boot such a vault in keychain
+        // mode, which has no key for it.
+        let password_mode = dir.join("keywrap.json").is_file() && meta.protection != "keychain";
         let never_save = read_never_save(&dir);
 
         Self {
@@ -121,7 +125,7 @@ impl VaultState {
         if *self.protection.read() == Protection::Password || self.open.read().is_some() {
             return;
         }
-        let (open, source) = match obtain_key(&self.dir) {
+        let (open, source) = match obtain_key(&self.dir, keychain_key()) {
             (Some(dk), src) => {
                 let vault_res = match std::fs::read(&self.path) {
                     Ok(blob) if !blob.is_empty() => {
@@ -230,18 +234,50 @@ impl VaultState {
 
 // ─── key acquisition (keychain mode) ─────────────────────────────────────────
 
-fn obtain_key(dir: &Path) -> (Option<[u8; 32]>, &'static str) {
-    match keychain_key() {
-        Ok(k) => return (Some(k), "keychain"),
+/// The data key: the keychain's (`keychain` is [`keychain_key`]'s answer), else
+/// an existing key.bin, else, only when there is no vault yet, a new one.
+fn obtain_key(
+    dir: &Path,
+    keychain: Result<Option<[u8; 32]>, String>,
+) -> (Option<[u8; 32]>, &'static str) {
+    match &keychain {
+        Ok(Some(k)) => return (Some(*k), "keychain"),
+        Ok(None) => {}
         Err(e) => tracing::warn!(target: "flux::vault", "OS keychain unavailable: {e}"),
     }
-    match file_key(dir) {
-        Ok(k) => (Some(k), "file"),
-        Err(e) => {
-            tracing::error!(target: "flux::vault", "no vault key (keychain + file failed): {e}");
-            (None, "none")
-        }
+    // An empty keychain doesn't mean a first run: key.bin sealed the vault on
+    // any boot when the keychain wasn't available.
+    if let Some(k) = read_file_key(dir) {
+        return (Some(k), "file");
     }
+    // A new key can't open an existing vault, and once in the keychain it would
+    // shadow the real key on every later boot.
+    if vault_on_disk(dir) {
+        tracing::error!(target: "flux::vault", "the vault's key is missing; not minting a new one");
+        return (None, "none");
+    }
+    let k = flux_vault::new_key();
+    // The keychain only if it answered above.
+    let source = if keychain.is_ok() {
+        store_key(dir, &k)
+    } else {
+        store_key_file(dir, &k)
+    };
+    if source == "none" {
+        tracing::error!(target: "flux::vault", "no vault key (keychain + file failed)");
+        return (None, "none");
+    }
+    (Some(k), source)
+}
+
+/// Is there already a vault a new key would orphan? An empty vault.bin holds
+/// nothing; one we can't even stat is assumed to hold something.
+fn vault_on_disk(dir: &Path) -> bool {
+    let sealed = match std::fs::metadata(dir.join("vault.bin")) {
+        Ok(m) => m.len() > 0,
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    };
+    sealed || dir.join("keywrap.json").is_file()
 }
 
 /// Whether `keyring` has a real OS secret store on this target. Everywhere else
@@ -257,39 +293,22 @@ pub(crate) const HAS_OS_KEYCHAIN: bool = cfg!(any(
     target_os = "openbsd"
 ));
 
-fn keychain_key() -> Result<[u8; 32], String> {
+/// The keychain's copy of the data key; `Ok(None)` when it has none.
+fn keychain_key() -> Result<Option<[u8; 32]>, String> {
     if !HAS_OS_KEYCHAIN {
         return Err("no OS keychain on this platform".into());
     }
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string())?;
     match entry.get_password() {
-        Ok(hex) => decode_key(&hex),
-        Err(keyring::Error::NoEntry) => {
-            let k = flux_vault::new_key();
-            entry
-                .set_password(&encode_key(&k))
-                .map_err(|e| e.to_string())?;
-            Ok(k)
-        }
+        Ok(hex) => decode_key(&hex).map(Some),
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
 }
 
-fn file_key(dir: &Path) -> Result<[u8; 32], String> {
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let p = dir.join("key.bin");
-    if let Ok(b) = std::fs::read(&p) {
-        if b.len() == 32 {
-            let mut k = [0u8; 32];
-            k.copy_from_slice(&b);
-            return Ok(k);
-        }
-    }
-    let k = flux_vault::new_key();
-    // Atomic: a torn key.bin would be re-minted next launch, orphaning the vault.
-    crate::persist::write_atomic(&p, &k).map_err(|e| e.to_string())?;
-    set_owner_only(&p);
-    Ok(k)
+/// key.bin's key, if there is a well-formed one.
+fn read_file_key(dir: &Path) -> Option<[u8; 32]> {
+    std::fs::read(dir.join("key.bin")).ok()?.try_into().ok()
 }
 
 /// Store the data key in the keychain (preferred) or a 0600 key file.
@@ -301,6 +320,11 @@ fn store_key(dir: &Path, dk: &[u8; 32]) -> &'static str {
             }
         }
     }
+    store_key_file(dir, dk)
+}
+
+/// [`store_key`]'s 0600 key file on its own.
+fn store_key_file(dir: &Path, dk: &[u8; 32]) -> &'static str {
     let p = dir.join("key.bin");
     // fsync + rename: this may be about to become the key's only copy.
     if crate::persist::write_atomic(&p, dk).is_ok() {
@@ -1393,5 +1417,27 @@ mod activity_tests {
         assert_eq!(s.last_activity.load(Ordering::Relaxed), u64::MAX);
         s.read_open(|_| ()).unwrap();
         assert_ne!(s.last_activity.load(Ordering::Relaxed), u64::MAX);
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_keychain_never_shadows_an_existing_vault() {
+        let dir = std::env::temp_dir().join(format!("flux-vault-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("vault.bin"), b"sealed").unwrap();
+        // Sealed on a boot without a keychain: key.bin holds the real key.
+        std::fs::write(dir.join("key.bin"), [9u8; 32]).unwrap();
+        assert_eq!(obtain_key(&dir, Ok(None)), (Some([9u8; 32]), "file"));
+        // No key anywhere for an existing vault: fail closed, mint nothing.
+        std::fs::remove_file(dir.join("key.bin")).unwrap();
+        assert_eq!(obtain_key(&dir, Ok(None)), (None, "none"));
+        assert_eq!(obtain_key(&dir, Err("unavailable".into())), (None, "none"));
+        assert!(!dir.join("key.bin").exists(), "nothing minted");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
