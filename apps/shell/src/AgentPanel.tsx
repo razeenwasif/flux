@@ -2534,6 +2534,16 @@ const AgentPanel: Component = () => {
       // "/act <…>" (or /do) drives a page action; everything else is chat,
       // grounded in the active page or all open tabs per the scope toggle.
       const act = p.match(/^\/(?:act|do)\s+([\s\S]+)/i);
+      // Re-resolve the page's thread now: pageThread is refreshed only when the
+      // active TAB changes, so after an in-tab navigation it still names the
+      // previous page's visit. A page with no Visit falls back to page chat.
+      let thread: TabThread | null = null;
+      if (!act?.[1] && scope() === "thread") {
+        const tid = activeId();
+        thread = tid != null ? await traceTabThread(tid).catch(() => null) : null;
+        setPageThread(thread);
+        if (!thread) setScope("page");
+      }
       if (act?.[1]) {
         // Plan first, then PREVIEW — nothing touches the page until you approve (#8).
         const targetTabId = activeId();
@@ -2554,11 +2564,11 @@ const AgentPanel: Component = () => {
             },
           ]);
         }
-      } else if (scope() === "thread" && pageThread()) {
+      } else if (thread) {
         // The page's PERSISTENT thread (ADR 0011): route through trace_chat_send
         // so both sides land in the visit's thread — the same conversation the
         // Trail shows, continued from here.
-        const vid = pageThread()!.visit_id;
+        const vid = thread.visit_id;
         const gen = ++replyGen;
         const idx = feed().length;
         setFeed((f) => [...f, { role: "assistant", text: "" }]);
