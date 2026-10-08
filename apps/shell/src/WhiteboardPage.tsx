@@ -91,7 +91,10 @@ const WhiteboardPage: Component = () => {
   };
   const deleteBoard = () => {
     if (boards().length <= 1) {
-      // Last board: clear it rather than leaving the page empty.
+      // Last board: clear it rather than leaving the page empty — but ask, like
+      // deleting any other board. This bypasses the canvas's undo history, so
+      // Ctrl+Z can't bring the drawing back.
+      if (board().strokes.length && !window.confirm(`Clear “${board().name}”?`)) return;
       setStrokes([]);
       return;
     }
