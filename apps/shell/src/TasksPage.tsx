@@ -216,12 +216,33 @@ const TasksPage: Component = () => {
     return f ? sorted().filter((p) => p.name === f) : sorted();
   });
 
+  // Ending a task is SIGKILL / TerminateProcess (sysinfo `Process::kill`), and the
+  // list re-sorts under the cursor every 2s, so ✕ only arms a kill: a bar outside
+  // the list names the exact process and asks first. In-page rather than
+  // window.confirm, which answers "Cancel" without showing anything on macOS.
+  const [pendingKill, setPendingKill] = createSignal<ProcInfo | null>(null);
+  const [killNote, setKillNote] = createSignal("");
+  const procLabel = (p: ProcInfo) => `${p.name || "(unknown)"} (PID ${p.pid})`;
+  const arm = (p: ProcInfo) => {
+    setKillNote("");
+    setPendingKill(p);
+  };
   const end = async (p: ProcInfo) => {
-    if (p.current && !window.confirm("End the main Flux process? This quits the browser.")) return;
+    setPendingKill(null);
+    // The pid is from a poll that may predate the confirmation: don't kill a
+    // process that has since taken it over.
+    const now = procs().find((q) => q.pid === p.pid);
+    if (now && now.name !== p.name) {
+      setKillNote(`PID ${p.pid} now belongs to ${now.name || "another process"}. Nothing was ended.`);
+      return;
+    }
     setBusy(p.pid);
     try {
-      await tasksKill(p.pid);
+      const ok = await tasksKill(p.pid);
+      if (!ok) setKillNote(`Couldn't end ${procLabel(p)}: it may have exited, or it needs elevated rights.`);
       refresh();
+    } catch (e) {
+      setKillNote(`Couldn't end ${procLabel(p)}: ${String(e)}`);
     } finally {
       setBusy(null);
     }
@@ -470,6 +491,32 @@ const TasksPage: Component = () => {
         </For>
       </div>
 
+      <Show when={pendingKill()}>
+        {(p) => (
+          <div class="tm-verdict bad">
+            <span class="tm-verdict-dot" />
+            <strong>{p().current ? "End the main Flux process?" : `Force-quit ${procLabel(p())}?`}</strong>
+            <span class="tm-verdict-why">
+              {p().current
+                ? "This quits the browser."
+                : "It gets no chance to save: unsaved work in it is lost."}
+            </span>
+            <button class="audit-btn danger" onClick={() => void end(p())}>
+              End task
+            </button>
+            <button class="audit-btn" onClick={() => setPendingKill(null)}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </Show>
+      <Show when={killNote()}>
+        <div class="tm-verdict warn" title="Dismiss" onClick={() => setKillNote("")}>
+          <span class="tm-verdict-dot" />
+          <span class="tm-verdict-why">{killNote()}</span>
+        </div>
+      </Show>
+
       {/* Process list */}
       <div class="tm-proc">
         <div class="tm-row tm-header">
@@ -494,12 +541,7 @@ const TasksPage: Component = () => {
                   <span class="tm-pid">{p.pid}</span>
                   <span classList={{ "tm-cpu": true, hot: p.cpu >= 25 }}>{p.cpu.toFixed(1)}%</span>
                   <span class="tm-mem">{p.mem_mb} MB</span>
-                  <button
-                    class="tm-kill"
-                    disabled={busy() === p.pid}
-                    onClick={() => void end(p)}
-                    title="End task"
-                  >
+                  <button class="tm-kill" disabled={busy() === p.pid} onClick={() => arm(p)} title="End task">
                     ✕
                   </button>
                 </div>
