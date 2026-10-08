@@ -92,7 +92,8 @@ impl TodoStore {
 
     /// Merge remote tasks in. Deletions win by tombstone; for a task both
     /// devices have, the **newer** `updated_ms` wins outright — that's what
-    /// carries a ticked box, a rename or a changed due date across.
+    /// carries a ticked box or a changed due date across. A rename or a move
+    /// arrives as a new key plus a tombstone for the old one (`retire_key`).
     pub fn merge(&self, remote: Vec<Todo>, remote_tombs: &crate::tombstone::Tombstones) -> usize {
         use crate::tombstone::{merge_into, suppressed};
         // Lock order is items -> tombstones, as in every mutation and save().
@@ -174,6 +175,7 @@ impl TodoStore {
         let Some(t) = items.iter_mut().find(|t| t.id == id) else {
             return false;
         };
+        let old_key = todo_key(&t.profile, &t.title);
         if let Some(v) = title {
             let v = v.trim();
             // An empty title would leave an unclickable ghost row; keep the old.
@@ -185,9 +187,24 @@ impl TodoStore {
             t.due = v.trim().to_string();
         }
         t.updated_ms = now_ms();
+        let (new_key, at) = (todo_key(&t.profile, &t.title), t.updated_ms);
+        if new_key != old_key {
+            self.retire_key(&items, old_key, at);
+        }
         drop(items);
         self.save();
         true
+    }
+
+    /// A rename or a move changed a task's sync key: tombstone the old key, or
+    /// the copy still in the sync blob comes back as a second task under the
+    /// old name. Not while another task here has that key (titles needn't be
+    /// unique), since the tombstone would delete it too. Takes `items` from the
+    /// caller's guard: lock order is items -> tombstones.
+    fn retire_key(&self, items: &[Todo], old_key: String, at: u64) {
+        if !items.iter().any(|t| todo_key(&t.profile, &t.title) == old_key) {
+            self.tombstones.write().insert(old_key, at);
+        }
     }
 
     /// Reorder the tasks named in `ids` to that sequence, in place.
@@ -226,9 +243,20 @@ impl TodoStore {
 
     /// Move a task to another list.
     pub fn set_profile(&self, id: u64, profile: String) {
-        if let Some(t) = self.items.write().iter_mut().find(|t| t.id == id) {
+        let mut items = self.items.write();
+        if let Some(t) = items.iter_mut().find(|t| t.id == id) {
+            let old_key = todo_key(&t.profile, &t.title);
             t.profile = profile.trim().to_string();
+            // Stamped like every other change. Unstamped, a tombstone for the
+            // same title in the new list, newer than the task's last edit,
+            // dropped it at the next merge.
+            t.updated_ms = now_ms();
+            let (new_key, at) = (todo_key(&t.profile, &t.title), t.updated_ms);
+            if new_key != old_key {
+                self.retire_key(&items, old_key, at);
+            }
         }
+        drop(items);
         self.save();
     }
 
@@ -408,6 +436,55 @@ mod tests {
         b.add("readings".into(), String::new(), "Personal".into());
         b.merge(a.list(), &Default::default());
         assert_eq!(b.list().len(), 2);
+    }
+
+    fn titles(s: &TodoStore) -> Vec<String> {
+        s.list().into_iter().map(|t| t.title).collect()
+    }
+
+    #[test]
+    fn a_rename_reaches_the_other_device_as_a_rename() {
+        // List + title is the sync key, so a rename is a new key. With nothing
+        // retiring the old one, the other device kept its copy and published
+        // it back: both names on both devices.
+        let a = TodoStore::default();
+        let t = a.add("read ch3".into(), String::new(), "Uni".into()).unwrap();
+        let published = a.list();
+        let b = TodoStore::default();
+        b.merge(published.clone(), &Default::default());
+
+        assert!(a.edit(t.id, Some("read ch3-4".into()), None));
+        b.merge(a.list(), &a.tombstones());
+        assert_eq!(titles(&b), ["read ch3-4"]);
+        // The old name still in the sync blob doesn't come back here either.
+        a.merge(published, &Default::default());
+        assert_eq!(titles(&a), ["read ch3-4"]);
+
+        // Titles needn't be unique: renaming one of two "revise" tasks must not
+        // tombstone the name the other still has.
+        let s = TodoStore::default();
+        let one = s.add("revise".into(), String::new(), "Uni".into()).unwrap();
+        s.add("revise".into(), String::new(), "Uni".into());
+        s.edit(one.id, Some("revise ch1".into()), None);
+        s.merge(Vec::new(), &Default::default());
+        assert_eq!(titles(&s), ["revise ch1", "revise"]);
+    }
+
+    #[test]
+    fn a_moved_task_neither_comes_back_nor_vanishes() {
+        let a = TodoStore::default();
+        let t = a.add("readings".into(), String::new(), "Uni".into()).unwrap();
+        let published = a.list();
+        // A "readings" in Personal was deleted after this task was last edited
+        // (stamped explicitly: here it would all land in one millisecond).
+        a.items.write()[0].updated_ms = 1;
+        a.tombstones.write().insert(todo_key("Personal", "readings"), 2);
+
+        a.set_profile(t.id, "Personal".into());
+        // The Uni copy still in the sync blob arrives with the next merge.
+        a.merge(published, &Default::default());
+        let lists: Vec<String> = a.list().into_iter().map(|t| t.profile).collect();
+        assert_eq!(lists, ["Personal"], "moved, not dropped or duplicated");
     }
     use super::*;
 
