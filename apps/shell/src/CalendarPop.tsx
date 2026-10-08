@@ -385,15 +385,21 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
       .then(setEvents)
       .catch(() => {})
       .finally(() => setLoading(false));
+  /** The docked pane's root, so a docked calendar answers only its own Escape. */
+  let paneEl: HTMLDivElement | undefined;
   onMount(() => {
     void refresh();
     refreshTodos();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        if (editing() !== null) setEditing(null);
-        else setCalendarPopOpen(false);
-      }
+      // defaultPrevented: an Escape a field inside already handled (task rename).
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      // Docked, this is a layout column rather than a modal: an Escape meant for
+      // the URL bar, a page load or another field must not close (and persist
+      // closed) the column.
+      if (props.docked && !(e.target instanceof Node && paneEl?.contains(e.target))) return;
+      e.preventDefault();
+      if (editing() !== null) setEditing(null);
+      else setCalendarPopOpen(false);
     };
     window.addEventListener("keydown", onKey);
     onCleanup(() => window.removeEventListener("keydown", onKey));
@@ -502,7 +508,9 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
    *  stays visible), while the overlay portals over the card with a backdrop. */
   const Frame: Component<{ children?: JSX.Element }> = (f) =>
     props.docked ? (
-      <div class="cal-pane docked">{f.children}</div>
+      <div ref={paneEl} class="cal-pane docked">
+        {f.children}
+      </div>
     ) : (
       <Portal>
         <div class="cal-pane-backdrop" onClick={() => setCalendarPopOpen(false)} />
@@ -862,7 +870,10 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                           onInput={(e) => setEditText(e.currentTarget.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") commitEdit();
-                            else if (e.key === "Escape") setEditTask(null);
+                            else if (e.key === "Escape") {
+                              e.preventDefault(); // handled here: don't also close the calendar
+                              setEditTask(null);
+                            }
                           }}
                           onBlur={commitEdit}
                         />
