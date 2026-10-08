@@ -9,7 +9,9 @@
 //! The parser is a lean hand-rolled iCalendar scanner (VEVENT, line-unfolding,
 //! DATE vs DATE-TIME). To stay timezone-bug-free it keeps each event's date/time
 //! in the feed's own calendar terms (a `YYYY-MM-DD` string + `HH:MM`) rather than
-//! converting to epoch — which is exactly what a month-grid widget needs.
+//! converting to epoch — which is exactly what a month-grid widget needs. A UTC
+//! (`…Z`) time is the exception: its own terms are UTC, so it is moved onto the
+//! viewer's clock (the UI passes its offset).
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -32,7 +34,8 @@ pub struct CalFeed {
     pub name: String,
 }
 
-/// One event, in the feed's own calendar terms (no tz conversion).
+/// One event, in the feed's own calendar terms (no tz conversion, bar a UTC
+/// `…Z` time, which is shown on the viewer's clock).
 #[derive(Serialize, Clone, specta::Type)]
 pub struct CalEvent {
     pub calendar: String,
@@ -480,15 +483,20 @@ const MAX_OCCURRENCES: usize = 400;
 /// the window. Handles FREQ=DAILY/WEEKLY/MONTHLY with INTERVAL/COUNT/UNTIL,
 /// BYDAY (weekly), and EXDATE — which covers essentially all Google-Calendar
 /// recurring events.
-fn parse_events(ics: &str, cal_name: &str) -> Vec<CalEvent> {
-    parse_events_at(ics, cal_name, today_epoch_days())
+fn parse_events(ics: &str, cal_name: &str, utc_offset_min: i64) -> Vec<CalEvent> {
+    parse_events_at_tz(ics, cal_name, today_epoch_days(), utc_offset_min)
 }
 
+#[cfg(test)]
 fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
+    parse_events_at_tz(ics, cal_name, today, 0)
+}
+
+fn parse_events_at_tz(ics: &str, cal_name: &str, today: i64, utc_offset_min: i64) -> Vec<CalEvent> {
     let lo = today - WINDOW_BACK_DAYS;
     let hi = today + WINDOW_FWD_DAYS;
     let mut vevents = Vec::new();
-    for_each_vevent(ics, |v| vevents.push(v));
+    for_each_vevent(ics, utc_offset_min, |v| vevents.push(v));
     // A modified instance of a series is its own VEVENT (same UID plus a
     // RECURRENCE-ID naming the occurrence it replaces). Suppress that original
     // occurrence, or a meeting moved for one week shows at both times.
@@ -541,7 +549,9 @@ struct Vevent {
 /// Scan an ICS document and hand each complete VEVENT to `f`. Shared by the
 /// occurrence expander (the calendar grid) and the importer (feed → editable
 /// local events), so both read exactly the same fields the same way.
-fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
+/// `utc_offset_min` (minutes east of UTC) places `…Z` start/end times on the
+/// viewer's clock; see `parse_dt_tz`.
+fn for_each_vevent(ics: &str, utc_offset_min: i64, mut f: impl FnMut(Vevent)) {
     let unfolded = unfold(ics);
 
     let mut in_event = false;
@@ -617,8 +627,15 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
         match name {
             "SUMMARY" => summary = decode_text(value),
             "LOCATION" => location = decode_text(value),
-            "DTSTART" => start = parse_dt(value),
-            "DTEND" => end_time = parse_dt(value).map(|p| p.time).unwrap_or_default(),
+            // `…Z` start/end times are shown on the viewer's clock. EXDATE,
+            // RECURRENCE-ID (and UNTIL) stay as written: the rule is expanded in
+            // DTSTART's own terms (RFC 5545) and each occurrence moved on output.
+            "DTSTART" => start = parse_dt_tz(value, utc_offset_min),
+            "DTEND" => {
+                end_time = parse_dt_tz(value, utc_offset_min)
+                    .map(|p| p.time)
+                    .unwrap_or_default()
+            }
             "RRULE" => rrule = value.to_string(),
             "UID" => uid = value.to_string(),
             "RECURRENCE-ID" => recurrence_id = parse_dt(value).map(|p| p.days),
@@ -643,10 +660,10 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
 /// occurrence of a recurring series reappears, and a moved one (RECURRENCE-ID)
 /// shows at both times — worth knowing before importing a calendar full of
 /// exceptions.
-fn ics_to_local_events(ics: &str) -> Vec<LocalEvent> {
+fn ics_to_local_events(ics: &str, utc_offset_min: i64) -> Vec<LocalEvent> {
     let mut out = Vec::new();
-    for_each_vevent(ics, |v| {
-        let (y, m, d) = civil_from_days(v.start.days);
+    for_each_vevent(ics, utc_offset_min, |v| {
+        let (y, m, d) = civil_from_days(v.start.days + v.start.shift);
         out.push(LocalEvent {
             id: 0, // assigned by the store on insert
             title: v.title,
@@ -655,24 +672,74 @@ fn ics_to_local_events(ics: &str) -> Vec<LocalEvent> {
             end: v.end_time,
             location: v.location,
             notes: String::new(),
-            rrule: v.rrule,
+            rrule: shift_rrule(&v.rrule, v.start.shift),
             updated_ms: 0, // stamped by the store on insert
         });
     });
     out
 }
 
+/// Restate an RRULE whose series start moved `shift` days when its UTC DTSTART
+/// became local time: BYDAY weekdays move with it (any ordinal prefix is kept)
+/// and UNTIL becomes the matching local date. The nearest expressible rule:
+/// exact for most, approximate for e.g. a monthly `2TU`. `shift == 0` → as is.
+fn shift_rrule(rrule: &str, shift: i64) -> String {
+    if shift == 0 || rrule.is_empty() {
+        return rrule.to_string();
+    }
+    const WD: [&str; 7] = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+    let shift_day = |tok: &str| -> String {
+        let t = tok.trim();
+        match t.find(|c: char| c.is_ascii_alphabetic()) {
+            Some(i) => match parse_weekday(&t[i..]) {
+                Some(wd) => format!("{}{}", &t[..i], WD[(wd + shift).rem_euclid(7) as usize]),
+                None => t.to_string(),
+            },
+            None => t.to_string(),
+        }
+    };
+    rrule
+        .split(';')
+        .map(|part| match part.split_once('=') {
+            Some((k, v)) if k.eq_ignore_ascii_case("BYDAY") => {
+                let days: Vec<String> = v.split(',').map(shift_day).collect();
+                format!("{k}={}", days.join(","))
+            }
+            Some((k, v)) if k.eq_ignore_ascii_case("UNTIL") => match parse_dt(v) {
+                Some(p) => {
+                    let (y, m, d) = civil_from_days(p.days + shift);
+                    format!("{k}={y:04}{m:02}{d:02}")
+                }
+                None => part.to_string(),
+            },
+            _ => part.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
 /// A parsed DTSTART: calendar date pieces + the time-of-day + epoch-day index.
 #[derive(Clone)]
 struct DtParts {
-    days: i64,    // days since 1970-01-01
-    time: String, // "HH:MM" or "" (all-day)
+    days: i64,    // days since 1970-01-01, as written (the UTC date for `…Z`)
+    time: String, // "HH:MM" (the viewer's clock for `…Z`) or "" (all-day)
     hhmm: u64,    // HHMM as a number for the sort key (0 for all-day)
+    /// Days to add to `days` (and to every occurrence expanded from it) to get
+    /// the viewer's date: ±1 when a `…Z` time crosses local midnight, else 0.
+    shift: i64,
 }
 
 /// `DTSTART`/`EXDATE` value → DtParts. Handles `20260619`, `20260619T100000Z`,
-/// `20260619T100000`. `None` if it isn't a date.
+/// `20260619T100000`. `None` if it isn't a date. Times are kept as written.
 fn parse_dt(value: &str) -> Option<DtParts> {
+    parse_dt_tz(value, 0)
+}
+
+/// As `parse_dt`, but a UTC time (trailing `Z`) is moved onto the viewer's
+/// clock (`utc_offset_min` minutes east of UTC). `days` stays as written so the
+/// RRULE and EXDATE still match; the day crossed into is reported in `shift`.
+/// Floating and `TZID=` values are already wall-clock and stay as written.
+fn parse_dt_tz(value: &str, utc_offset_min: i64) -> Option<DtParts> {
     let v: String = value
         .chars()
         .take_while(|c| c.is_ascii_digit() || *c == 'T')
@@ -685,18 +752,32 @@ fn parse_dt(value: &str) -> Option<DtParts> {
     let m: u32 = digits[4..6].parse().ok()?;
     let d: u32 = digits[6..8].parse().ok()?;
     let has_time = v.contains('T') && digits.len() >= 12;
-    let (time, hhmm) = if has_time {
+    // `v` is an ASCII prefix of `value`, so this slice is on a char boundary.
+    let utc = matches!(value[v.len()..].chars().next(), Some('Z' | 'z'));
+    let (time, hhmm, shift) = if !has_time {
+        (String::new(), 0, 0)
+    } else if utc {
+        let hh: i64 = digits[8..10].parse().ok()?;
+        let mm: i64 = digits[10..12].parse().ok()?;
+        let mins = hh * 60 + mm + utc_offset_min;
+        let local = mins.rem_euclid(1440);
+        (
+            format!("{:02}:{:02}", local / 60, local % 60),
+            (local / 60 * 100 + local % 60) as u64,
+            mins.div_euclid(1440),
+        )
+    } else {
         (
             format!("{}:{}", &digits[8..10], &digits[10..12]),
             digits[8..12].parse().unwrap_or(0),
+            0,
         )
-    } else {
-        (String::new(), 0)
     };
     Some(DtParts {
         days: days_from_civil(y, m, d),
         time,
         hhmm,
+        shift,
     })
 }
 
@@ -778,6 +859,7 @@ fn local_dtparts(date: &str, start: &str) -> Option<DtParts> {
         days: days_from_civil(y, m, d),
         time: start.to_string(),
         hhmm,
+        shift: 0,
     })
 }
 
@@ -834,9 +916,12 @@ fn emit_occurrences(
     hi: i64,
     out: &mut Vec<CalEvent>,
 ) {
+    // The rule, its window and EXDATE all work in DTSTART's own terms;
+    // `s.shift` then moves each occurrence to the viewer's date (a `…Z` start).
+    let (lo, hi) = (lo - s.shift, hi - s.shift);
     let push = |day: i64, out: &mut Vec<CalEvent>| {
         if day >= lo && day <= hi && !exdates.contains(&day) {
-            out.push(make_event(day, s, title, location, end, cal));
+            out.push(make_event(day + s.shift, s, title, location, end, cal));
         }
     };
     if rrule.is_empty() {
@@ -1051,6 +1136,11 @@ fn today_epoch_days() -> i64 {
         .unwrap_or(0)
 }
 
+/// The UI's UTC offset (minutes east), bounded to the real range (±14 h).
+fn utc_offset(tz_offset_min: Option<i32>) -> i64 {
+    i64::from(tz_offset_min.unwrap_or(0).clamp(-14 * 60, 14 * 60))
+}
+
 /// Decode the iCalendar text escapes (`\n`, `\,`, `\;`, `\\`).
 fn decode_text(s: &str) -> String {
     s.replace("\\n", " ")
@@ -1116,6 +1206,9 @@ pub async fn cal_import_feed(
     store: State<'_, CalStore>,
     local: State<'_, LocalEventStore>,
     id: u64,
+    // Minutes east of UTC (`-new Date().getTimezoneOffset()`): `…Z` feed times
+    // are imported on this clock. Omitted → 0 (as written).
+    tz_offset_min: Option<i32>,
 ) -> Result<(u32, u32), String> {
     let feed = store
         .list()
@@ -1126,7 +1219,7 @@ pub async fn cal_import_feed(
     let ics = tauri::async_runtime::spawn_blocking(move || fetch_ics(&url))
         .await
         .map_err(|e| e.to_string())??;
-    let candidates = ics_to_local_events(&ics);
+    let candidates = ics_to_local_events(&ics, utc_offset(tz_offset_min));
     if candidates.is_empty() {
         return Err("no events found in that calendar".into());
     }
@@ -1164,14 +1257,17 @@ pub async fn cal_import_feed(
 pub async fn cal_events(
     store: State<'_, CalStore>,
     local: State<'_, LocalEventStore>,
+    // Minutes east of UTC: `…Z` feed times are shown on this clock.
+    tz_offset_min: Option<i32>,
 ) -> Result<Vec<CalEvent>, String> {
     let feeds = store.list();
     let locals = local.list();
+    let off = utc_offset(tz_offset_min);
     tauri::async_runtime::spawn_blocking(move || {
         let mut all = Vec::new();
         for f in &feeds {
             match fetch_ics(&f.url) {
-                Ok(ics) => all.extend(parse_events(&ics, &f.name)),
+                Ok(ics) => all.extend(parse_events(&ics, &f.name, off)),
                 // Skipped so one dead feed doesn't blank the widget. Logged by
                 // name only: ureq's error text embeds the request URL, which is
                 // the calendar's secret address, and flux.log is on disk.
@@ -1302,7 +1398,7 @@ BEGIN:VEVENT\r\nSUMMARY:Optimization lecture\r\nDTSTART:20260302T090000Z\r\nDTEN
 LOCATION:Hall A\r\nRRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=12\r\nEND:VEVENT\r\n\
 BEGIN:VEVENT\r\nSUMMARY:Careers fair\r\nDTSTART;VALUE=DATE:20260310\r\nEND:VEVENT\r\n\
 END:VCALENDAR";
-        let evs = ics_to_local_events(ics);
+        let evs = ics_to_local_events(ics, 0);
         assert_eq!(evs.len(), 2, "one event per VEVENT");
 
         let lecture = evs.iter().find(|e| e.title.starts_with("Optim")).unwrap();
@@ -1561,6 +1657,50 @@ END:VCALENDAR";
         assert_eq!(ev[1].date, "2026-06-20");
         assert_eq!(ev[1].time, ""); // all-day
         assert_eq!(ev[1].calendar, "Work");
+    }
+
+    #[test]
+    fn utc_times_land_on_the_viewer_s_clock_and_date() {
+        // Google writes one-off timed events in UTC: 23:00Z on the 19th is 09:00
+        // on the 20th in Sydney (UTC+10) and 18:00 on the 19th in New York.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Supervisor\r\nDTSTART:20260619T230000Z\r\n\
+DTEND:20260620T000000Z\r\nEND:VEVENT";
+        let syd = &parse_events_at_tz(ics, "W", day(2026, 6, 15), 600)[0];
+        assert_eq!(syd.date, "2026-06-20");
+        assert_eq!((syd.time.as_str(), syd.end.as_str()), ("09:00", "10:00"));
+        assert_eq!(syd.sort_key, 202606200900);
+        let nyc = &parse_events_at_tz(ics, "W", day(2026, 6, 15), -300)[0];
+        assert_eq!(nyc.date, "2026-06-19");
+        assert_eq!(nyc.time, "18:00");
+
+        // Floating and TZID times are wall-clock already.
+        let tzid = "BEGIN:VEVENT\r\nSUMMARY:Lab\r\nDTSTART;TZID=Australia/Sydney:20260619T090000\r\nEND:VEVENT";
+        let lab = &parse_events_at_tz(tzid, "W", day(2026, 6, 15), 600)[0];
+        assert_eq!(lab.date, "2026-06-19");
+        assert_eq!(lab.time, "09:00");
+    }
+
+    #[test]
+    fn a_utc_series_keeps_its_weekdays_and_exdates() {
+        // Mondays at 23:00Z are Tuesdays at 09:00 in Sydney. The rule expands on
+        // the written (UTC) dates and each occurrence moves, so BYDAY, COUNT and
+        // EXDATE still match.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Seminar\r\nDTSTART:20260601T230000Z\r\n\
+RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=3\r\nEXDATE:20260608T230000Z\r\nEND:VEVENT";
+        let ev = parse_events_at_tz(ics, "W", day(2026, 6, 1), 600);
+        let dates: Vec<&str> = ev.iter().map(|e| e.date.as_str()).collect();
+        assert_eq!(dates, vec!["2026-06-02", "2026-06-16"]);
+        assert!(ev.iter().all(|e| e.time == "09:00"));
+
+        // Imported, it becomes the same series in local terms.
+        let local = &ics_to_local_events(ics, 600)[0];
+        assert_eq!(local.date, "2026-06-02");
+        assert_eq!(local.start, "09:00");
+        assert_eq!(local.rrule, "FREQ=WEEKLY;BYDAY=TU;COUNT=3");
+        assert_eq!(
+            shift_rrule("FREQ=MONTHLY;BYDAY=-1SU;UNTIL=20261231T230000Z", -1),
+            "FREQ=MONTHLY;BYDAY=-1SA;UNTIL=20261230"
+        );
     }
 
     #[test]

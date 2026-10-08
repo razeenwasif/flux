@@ -1226,9 +1226,12 @@ export const calRemove = (id: number) => invoke<void>("cal_remove", { id });
 /** Copy a subscribed calendar's events into Flux's own editable events (a
  *  subscribed ICS is read-only). Recurring events import as one series with
  *  their RRULE. Safe to re-run — returns `[imported, skippedAsDuplicates]`. */
-export const calImportFeed = (id: number) => invoke<[number, number]>("cal_import_feed", { id });
-/** Fetch + parse all subscribed calendars (+ local events), sorted by date. */
-export const calEvents = () => invoke<CalEvent[]>("cal_events");
+export const calImportFeed = (id: number) =>
+  invoke<[number, number]>("cal_import_feed", { id, tzOffsetMin: -new Date().getTimezoneOffset() });
+/** Fetch + parse all subscribed calendars (+ local events), sorted by date.
+ *  Feed times written in UTC come back on this machine's clock. */
+export const calEvents = () =>
+  invoke<CalEvent[]>("cal_events", { tzOffsetMin: -new Date().getTimezoneOffset() });
 
 // ─── Local (editable) calendar events (BACKLOG #114) ─────────────────────────
 /** List just the on-device events (no ICS overlay) — used by the agent. */

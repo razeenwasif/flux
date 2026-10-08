@@ -205,7 +205,8 @@ export type ArchiveMeta = { id: number; url: string; title: string; saved_ms: nu
  */
 export type CalFeed = { id: number; url: string; name: string }
 /**
- * One event, in the feed's own calendar terms (no tz conversion).
+ * One event, in the feed's own calendar terms (no tz conversion, bar a UTC
+ * `…Z` time, which is shown on the viewer's clock).
  */
 export type CalEvent = { calendar: string; summary: string; date: string; time: string; end: string; location: string; sort_key: number; id: number; editable: boolean; notes: string; rrule?: string }
 /**
