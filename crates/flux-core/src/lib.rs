@@ -772,6 +772,16 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             if let Some(dr) = handle.try_state::<trace::TraceDrafts>() {
                 dr.hydrate();
             }
+            // Persistence gets its own thread: `kb.reindex` below can run for
+            // minutes (a full rebuild re-embeds every corpus), and while it did,
+            // nothing in the Trail, chats, drafts or audit log was flushed.
+            {
+                let handle = handle.clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    flush_trail_stores(&handle);
+                });
+            }
             // Debounced KB auto-reindex of the `web` source (#136 payoff): fold
             // settled browsing into the Notebook without a manual ↻ Reindex.
             // "Settled" = the snapshot generation is unchanged for one full tick
@@ -801,26 +811,11 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
             let mut pdf_seen: u64 = 0;
             let mut pdf_indexed: u64 = 0;
             let mut pdf_bootstrapped = false;
+            if !autoindex {
+                return;
+            }
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(60));
-                if let Some(t) = handle.try_state::<trace::TraceStore>() {
-                    t.persist_if_dirty();
-                }
-                if let Some(s) = handle.try_state::<trace::TraceSnapshots>() {
-                    s.persist_if_dirty();
-                }
-                if let Some(c) = handle.try_state::<trace::TraceChats>() {
-                    c.persist_if_dirty();
-                }
-                if let Some(dr) = handle.try_state::<trace::TraceDrafts>() {
-                    dr.persist_if_dirty();
-                }
-                if let Some(au) = handle.try_state::<sentinel::SentinelAudit>() {
-                    au.persist_if_dirty();
-                }
-                if !autoindex {
-                    continue;
-                }
                 if let (Some(s), Some(kb)) = (
                     handle.try_state::<trace::TraceSnapshots>(),
                     handle.try_state::<kb::KbStore>(),
@@ -917,6 +912,27 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                 }
             }
         });
+    }
+}
+
+/// Write whichever Trail stores and the Sentinel audit log have unsaved
+/// changes. They are otherwise only kept in memory; each write is skipped
+/// unless dirty.
+fn flush_trail_stores(app: &tauri::AppHandle) {
+    if let Some(t) = app.try_state::<trace::TraceStore>() {
+        t.persist_if_dirty();
+    }
+    if let Some(s) = app.try_state::<trace::TraceSnapshots>() {
+        s.persist_if_dirty();
+    }
+    if let Some(c) = app.try_state::<trace::TraceChats>() {
+        c.persist_if_dirty();
+    }
+    if let Some(dr) = app.try_state::<trace::TraceDrafts>() {
+        dr.persist_if_dirty();
+    }
+    if let Some(au) = app.try_state::<sentinel::SentinelAudit>() {
+        au.persist_if_dirty();
     }
 }
 
