@@ -1180,12 +1180,32 @@ impl<'a> TopK<'a> {
 fn chunk_text(body: &str) -> Vec<String> {
     const TARGET_WORDS: usize = 200;
     const MAX_CHUNKS: usize = 200;
+    // CRLF text has no "\n\n" and no "---\n": normalised, it splits into
+    // paragraphs and loses its frontmatter like any other note.
+    let normalized;
+    let body = if body.contains('\r') {
+        normalized = body.replace("\r\n", "\n");
+        normalized.as_str()
+    } else {
+        body
+    };
     let body = strip_frontmatter(body);
     let mut chunks = Vec::new();
     let mut cur = String::new();
     let mut words = 0usize;
-    for para in body.split("\n\n") {
+    // A paragraph longer than a chunk (a PDF page, a <div>-built web page, a
+    // note without blank lines) is cut into TARGET_WORDS windows: embedded
+    // whole, everything past the model's context window was never seen.
+    let paras = body.split("\n\n").flat_map(|para| {
         let para = para.trim();
+        let ws: Vec<&str> = para.split_whitespace().collect();
+        if ws.len() > TARGET_WORDS {
+            ws.chunks(TARGET_WORDS).map(|w| w.join(" ")).collect()
+        } else {
+            vec![para.to_string()]
+        }
+    });
+    for para in paras {
         if para.is_empty() {
             continue;
         }
@@ -1200,7 +1220,7 @@ fn chunk_text(body: &str) -> Vec<String> {
         if !cur.is_empty() {
             cur.push_str("\n\n");
         }
-        cur.push_str(para);
+        cur.push_str(&para);
         words += w;
     }
     if !cur.trim().is_empty() && chunks.len() < MAX_CHUNKS {
@@ -2102,6 +2122,34 @@ mod tests {
         let chunks = chunk_text(body);
         assert!(!chunks.is_empty());
         assert!(chunks.iter().all(|c| !c.contains("tags:")));
+    }
+
+    #[test]
+    fn crlf_notes_and_long_paragraphs_split_into_chunk_sized_pieces() {
+        // A CRLF note (Windows editor, Windows-side vault) has no "\n\n" at all,
+        // and was one paragraph — frontmatter included.
+        let crlf = "---\r\ntags:\r\n  - x\r\n---\r\n\r\n".to_string()
+            + &(0..300)
+                .map(|i| format!("para{i} word word"))
+                .collect::<Vec<_>>()
+                .join("\r\n\r\n");
+        let chunks = chunk_text(&crlf);
+        assert!(chunks.len() > 1, "split on CRLF paragraphs");
+        assert!(
+            chunks.iter().all(|c| !c.contains("tags:")),
+            "frontmatter dropped"
+        );
+
+        // One paragraph of 1,000 words (a PDF page, a <div>-only article): the
+        // embedder's context window ended long before the text did.
+        let page = (0..1000)
+            .map(|i| format!("w{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let chunks = chunk_text(&page);
+        assert_eq!(chunks.len(), 5);
+        assert!(chunks.iter().all(|c| c.split_whitespace().count() <= 200));
+        assert!(chunks[4].ends_with("w999"), "the tail is indexed too");
     }
 
     #[test]
