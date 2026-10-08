@@ -56,6 +56,22 @@ function targetSession(): number | null {
   return activeSession ?? (registry.size ? [...registry.keys()].pop()! : null);
 }
 
+/** PTYs that run a program, not a prompt: the nvim column (0xd0000000+,
+ *  editorboot) and floating TUI panes (0xe0000000+, store). Readable, but a key
+ *  typed there is that program's command. The terminal column's split shells
+ *  start at 0xf0000000 and stay writable. */
+const runsProgram = (s: number) => s >= 0xd000_0000 && s < 0xf000_0000;
+
+/** Where a shell command may be typed: the read target when it's a shell, else
+ *  the most recently registered shell — never nvim or a TUI app, which are in
+ *  the registry (and can be the read target) too. */
+function shellSession(): number | null {
+  const s = targetSession();
+  if (s != null && !runsProgram(s)) return s;
+  const shells = [...registry.keys()].filter((k) => !runsProgram(k));
+  return shells.length ? shells[shells.length - 1]! : null;
+}
+
 /** Recent scrollback of the active terminal (trailing blank lines trimmed). */
 export function activeTerminalText(maxLines = 400): { session: number; text: string } | null {
   const session = targetSession();
@@ -73,18 +89,19 @@ export function activeTerminalText(maxLines = 400): { session: number; text: str
 
 /** Absolute buffer row of the cursor (where the prompt sits) — the baseline to read
  *  only a command's new output. NOT buffer length: on a fresh terminal the prompt is
- *  near the top with empty rows below, so length-1 points below the output. */
+ *  near the top with empty rows below, so length-1 points below the output. Read
+ *  from the shell `runInActiveTerminal` types into, not an editor or TUI pane. */
 export function activeTerminalCursorLine(): number {
-  const s = targetSession();
+  const s = shellSession();
   const term = s != null ? registry.get(s) : null;
   if (!term) return 0;
   const buf = term.buffer.active;
   return buf.baseY + buf.cursorY;
 }
 
-/** Active terminal's lines from `startLine` to the end (capped, trailing blanks trimmed). */
+/** Active shell's lines from `startLine` to the end (capped, trailing blanks trimmed). */
 export function activeTerminalLinesFrom(startLine: number, maxLines = 200): string {
-  const s = targetSession();
+  const s = shellSession();
   const term = s != null ? registry.get(s) : null;
   if (!term) return "";
   const buf = term.buffer.active;
@@ -96,34 +113,48 @@ export function activeTerminalLinesFrom(startLine: number, maxLines = 200): stri
   return lines.join("\n");
 }
 
-/** Type a command into the active terminal and run it (Enter = `\r`). Opens a
- *  terminal first if none is live. Returns the session it ran in, or null if no
- *  terminal could be brought up. */
+/** A finished command's rows (prompt, command, output) as text for the agent,
+ *  within `max` characters. Over budget it keeps the first rows AND the end:
+ *  compilers, test runners and tracebacks print the decisive error last, so the
+ *  head alone gave Explain/Fix the warnings but not the failure. Three rows, not
+ *  one: the OSC 133 A mark lands before PS1 prints, so a multi-line prompt
+ *  (starship's default, p10k) puts the command on the 2nd or 3rd row. */
+export function clipBlock(lines: string[], max = 4000): string {
+  const text = lines.join("\n");
+  if (text.length <= max) return text;
+  const head = lines.slice(0, 3).join("\n").slice(0, 600);
+  return `${head}\n…\n${text.slice(-(max - head.length - 3))}`;
+}
+
+/** Type a command into the active shell and run it (Enter = `\r`). Opens a
+ *  terminal first if no shell is live — the nvim column or a TUI pane doesn't
+ *  count: typed there, the command's letters are that program's keys. Returns
+ *  the session it ran in, or null if no terminal could be brought up. */
 export async function runInActiveTerminal(cmd: string): Promise<number | null> {
-  const wasOpen = hasTerminal();
+  const wasOpen = shellSession() != null;
   if (!wasOpen) openTerminalFn?.();
   // The terminal mounts, then spawns its PTY asynchronously (registerTerminal runs
   // before terminalSpawn resolves), so wait for a live term, then let the backend
   // PTY settle before the first write if we had to open it.
-  for (let i = 0; i < 30 && !hasTerminal(); i++) await new Promise((r) => setTimeout(r, 100));
-  if (!hasTerminal()) return null;
+  for (let i = 0; i < 30 && shellSession() == null; i++) await new Promise((r) => setTimeout(r, 100));
+  if (shellSession() == null) return null;
   if (!wasOpen) await new Promise((r) => setTimeout(r, 500));
-  const s = targetSession();
+  const s = shellSession();
   if (s == null) return null;
   await terminalWrite(s, new TextEncoder().encode(cmd + "\r"));
   return s;
 }
 
-/** Insert a command at the active terminal's prompt WITHOUT running it (no `\r`),
- *  so the user can review/edit before pressing Enter. Opens a terminal if none is
- *  live. Returns the session, or null if no terminal could be brought up. */
+/** Insert a command at the active shell's prompt WITHOUT running it (no `\r`),
+ *  so the user can review/edit before pressing Enter. Opens a terminal if no
+ *  shell is live. Returns the session, or null if no terminal could be brought up. */
 export async function insertInActiveTerminal(cmd: string): Promise<number | null> {
-  const wasOpen = hasTerminal();
+  const wasOpen = shellSession() != null;
   if (!wasOpen) openTerminalFn?.();
-  for (let i = 0; i < 30 && !hasTerminal(); i++) await new Promise((r) => setTimeout(r, 100));
-  if (!hasTerminal()) return null;
+  for (let i = 0; i < 30 && shellSession() == null; i++) await new Promise((r) => setTimeout(r, 100));
+  if (shellSession() == null) return null;
   if (!wasOpen) await new Promise((r) => setTimeout(r, 500));
-  const s = targetSession();
+  const s = shellSession();
   if (s == null) return null;
   await terminalWrite(s, new TextEncoder().encode(cmd));
   return s;

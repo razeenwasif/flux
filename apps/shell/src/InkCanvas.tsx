@@ -110,26 +110,33 @@ export const wrapText = (s: TextStroke): Line[] => {
   }
   return out;
 };
-/** Rendered width of the widest line (for bounds when there's no wrap width). */
-const textWidth = (s: TextStroke, lines: Line[]): number => {
-  if (s.w) return s.w;
+/** Rendered width of the widest line. */
+const inkWidth = (s: TextStroke, lines: Line[]): number => {
   const ctx = measurer();
   ctx.font = fontOf(s);
   const indent = listIndent(s);
   return lines.reduce((m, l) => Math.max(m, indent + ctx.measureText(l.text).width), 0);
 };
-/** The block's box in world units. */
-export const textBox = (s: TextStroke): Box => {
+/** The block's width: its wrap width, or the widest line when it has none. */
+const textWidth = (s: TextStroke, lines: Line[]): number => (s.w ? s.w : inkWidth(s, lines));
+/** A block's box in world units, as wide as `width` says. */
+const blockBox = (s: TextStroke, width: (s: TextStroke, lines: Line[]) => number): Box => {
   const lines = wrapText(s);
   const fs = fontSizeOf(s);
   const lh = lineHeightOf(s);
   return {
     x0: s.at.x,
     y0: s.at.y - fs,
-    x1: s.at.x + textWidth(s, lines),
+    x1: s.at.x + width(s, lines),
     y1: s.at.y + (lines.length - 1) * lh + fs * 0.25,
   };
 };
+/** The block's box in world units. */
+export const textBox = (s: TextStroke): Box => blockBox(s, textWidth);
+/** Only what a block paints: every laid-out line, as wide as the widest one.
+ *  The eraser and the PNG crop use this — `textBox` spans the wrap width, which
+ *  reaches the page margin however short the text is. */
+export const inkBox = (s: TextStroke): Box => blockBox(s, inkWidth);
 
 /** Every point that defines a stroke — the basis of bounds, lasso hit-testing
  *  and the writing caret. Text is approximated from its anchor + glyph width. */
@@ -312,6 +319,19 @@ type Props = {
   api?: (a: InkApi) => void;
   /** Current zoom, whenever it changes — so the host can show a percentage. */
   onZoom?: (z: number) => void;
+};
+
+/** Whether a key went to someone's text entry rather than the canvas: an input,
+ *  the pt picker, or a contenteditable such as a Scribe page. The canvas's
+ *  shortcuts listen on `window`, and a flux:// side panel can mount it in the
+ *  same document as that page, where a typed "t" opened this canvas's text box
+ *  and stole the caret (and Ctrl+Z / Backspace were taken too). */
+export const typingInto = (target: EventTarget | null): boolean => {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  return (
+    el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || !!el.isContentEditable
+  );
 };
 
 /** Draw one stroke in world coordinates. Pure (ctx + stroke only), so the
@@ -696,14 +716,11 @@ const InkCanvas: Component<Props> = (props) => {
         const y0 = Math.min(s.a.y, s.b.y) - tol,
           y1 = Math.max(s.a.y, s.b.y) + tol;
         if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1) return i;
-      } else if (
-        s.t === "text" &&
-        p.x >= s.at.x - tol &&
-        p.x <= s.at.x + s.text.length * s.size * 0.6 + tol &&
-        p.y >= s.at.y - s.size &&
-        p.y <= s.at.y + tol
-      ) {
-        return i;
+      } else if (s.t === "text") {
+        // The painted lines, all of them: a first-line estimate couldn't erase
+        // wrapped lines, and reached far past the end of short ones.
+        const b = inkBox(s);
+        if (p.x >= b.x0 - tol && p.x <= b.x1 + tol && p.y >= b.y0 - tol && p.y <= b.y1 + tol) return i;
       }
     }
     return -1;
@@ -958,11 +975,14 @@ const InkCanvas: Component<Props> = (props) => {
       list: listOn(),
     };
     if (idx >= 0) {
-      // Keep the original colour/size unless the style changed under it.
+      // Keep the original colour/size: only the words, style and list flag are
+      // edited here. Taking them from `block` repainted and resized the block in
+      // whatever the palette and pt picker happened to show.
       const prev = strokes()[idx] as TextStroke;
-      commit(strokes().map((st, i) => (i === idx ? { ...prev, ...block, at: prev.at } : st)));
-      const b = textBox({ ...prev, ...block, at: prev.at });
-      setCaret({ x: prev.at.x, y: b.y1 + lineHeightOf(block) });
+      const next: TextStroke = { ...prev, ...block, color: prev.color, size: prev.size, at: prev.at };
+      commit(strokes().map((st, i) => (i === idx ? next : st)));
+      const b = textBox(next);
+      setCaret({ x: prev.at.x, y: b.y1 + lineHeightOf(next) });
       return;
     }
     commit([...strokes(), block]);
@@ -1006,12 +1026,17 @@ const InkCanvas: Component<Props> = (props) => {
   const undo = () => {
     const prev = undoStack.pop();
     if (!prev) return;
+    // The selection is indices into the array being replaced; in the other one
+    // they name different strokes (un-erasing shifts everything after it), so
+    // Delete or a drag would hit strokes nobody selected.
+    clearSel();
     redoStack.push(props.strokes);
     props.onChange(prev);
   };
   const redo = () => {
     const next = redoStack.pop();
     if (!next) return;
+    clearSel();
     undoStack.push(props.strokes);
     props.onChange(next);
   };
@@ -1048,8 +1073,11 @@ const InkCanvas: Component<Props> = (props) => {
       for (const s of ss) {
         if (isPath(s)) s.pts.forEach(feed);
         else if (s.t === "text") {
-          feed(s.at);
-          feed({ x: s.at.x + s.text.length * s.size * 0.6, y: s.at.y - s.size });
+          // Every laid-out line and the heading's full height — not just the
+          // first baseline, which cut wrapped and multi-line text out of the PNG.
+          const tb = inkBox(s);
+          feed({ x: tb.x0, y: tb.y0 });
+          feed({ x: tb.x1, y: tb.y1 });
         } else {
           feed(s.a);
           feed(s.b);
@@ -1128,8 +1156,7 @@ const InkCanvas: Component<Props> = (props) => {
     props.onZoom?.(cam.z);
     const onKey = (e: KeyboardEvent) => {
       if (textAt()) return; // typing in the text input
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (typingInto(e.target)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         e.shiftKey ? redo() : undo();
@@ -1176,10 +1203,12 @@ const InkCanvas: Component<Props> = (props) => {
   const textScreen = () => {
     const at = textAt();
     if (!at) return { left: "0px", top: "0px" };
+    // An edited block keeps its own colour and size, so preview it in those.
+    const editing = editIdx() >= 0 ? (strokes()[editIdx()] as TextStroke | undefined) : undefined;
     const probe: TextStroke = {
       t: "text",
-      color: color(),
-      size: ptUnits(),
+      color: editing?.color ?? color(),
+      size: editing?.size ?? ptUnits(),
       at,
       text: "",
       w: wrapWidthAt(at.x),
@@ -1194,7 +1223,7 @@ const InkCanvas: Component<Props> = (props) => {
       "font-size": `${fs * cam.z}px`,
       "line-height": `${lineHeightOf(probe) * cam.z}px`,
       "font-weight": textStyle() === "body" ? "400" : textStyle() === "h2" ? "600" : "700",
-      color: color(),
+      color: probe.color,
     };
   };
 

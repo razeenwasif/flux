@@ -24,7 +24,13 @@ import {
   termPersist,
   type TermPersist,
 } from "./ipc";
-import { registerTerminal, setActiveTerminal, takePendingCommand, unregisterTerminal } from "./terminals";
+import {
+  clipBlock,
+  registerTerminal,
+  setActiveTerminal,
+  takePendingCommand,
+  unregisterTerminal,
+} from "./terminals";
 import { openTab } from "./store";
 import { speak, stopSpeaking } from "./speak";
 import LiquidBackground from "./LiquidBackground";
@@ -130,6 +136,10 @@ const TerminalView: Component<{
   const [aiText, setAiText] = createSignal<string | null>(null);
   let explainRef: (() => void) | undefined;
   let fixRef: (() => void) | undefined;
+  // The agent request the overlay is waiting on. ✕ and every new Explain/Fix
+  // bump it, so an answer that lands after that is dropped: it no longer
+  // reopens the overlay, speaks, or types into the prompt.
+  let aiReq = 0;
 
   // Re-fit whenever this terminal becomes *visible* — it was hidden
   // (display:none) in the keep-alive layer (#73), so xterm has to re-measure now
@@ -307,7 +317,9 @@ const TerminalView: Component<{
       const lines: string[] = [];
       for (let i = prev; i < cur; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? "");
       while (lines.length && !lines[lines.length - 1]!.trim()) lines.pop();
-      return lines.join("\n").slice(0, 4000);
+      // Head AND tail when it's long: the error a build or test run ends on is
+      // what Explain/Fix are about, and the first 4000 chars cut it off.
+      return clipBlock(lines);
     };
     // Explain the failure (chat) — shown in an overlay.
     explainRef = () => {
@@ -316,18 +328,24 @@ const TerminalView: Component<{
         flash("Nothing to explain yet");
         return;
       }
+      const req = ++aiReq;
       setAiText(null);
       setAiBusy(true);
       void agentChat(
         `A shell command just failed in my terminal. Explain briefly why, and how to fix it. Command and output:\n\n${block}`,
       )
         .then((r) => {
+          if (req !== aiReq) return; // dismissed (✕) or superseded
           const t = r.trim() || "(no response)";
           setAiText(t);
           void speak(t);
         })
-        .catch((e) => setAiText(`Couldn't reach the agent: ${e}`))
-        .finally(() => setAiBusy(false));
+        .catch((e) => {
+          if (req === aiReq) setAiText(`Couldn't reach the agent: ${e}`);
+        })
+        .finally(() => {
+          if (req === aiReq) setAiBusy(false);
+        });
     };
     // Propose a corrected command and type it at the prompt (review + Enter to run).
     fixRef = () => {
@@ -336,11 +354,29 @@ const TerminalView: Component<{
         flash("Nothing to fix yet");
         return;
       }
+      const req = ++aiReq;
+      // The prompt as it is now: which prompt, which screen, where the cursor is
+      // and what its row says. Typing, pasting or running something while the
+      // model thinks changes it, and the ^U below would then erase that line or
+      // key into whatever is running.
+      const promptState = () => {
+        const b = term.buffer.active;
+        const row = b.baseY + b.cursorY;
+        const l = live();
+        const text = b.getLine(row)?.translateToString(true) ?? "";
+        return `${l[l.length - 1]?.marker.id ?? -1}|${b.type}|${row}|${b.cursorX}|${text}`;
+      };
+      const asked = promptState();
       setAiBusy(true);
       void agentShellPlan(
         `Fix this failing shell command. Reply with ONLY the corrected command.\n\n${block}`,
       )
         .then((cmd) => {
+          if (req !== aiReq) return; // dismissed (✕) or superseded
+          if (promptState() !== asked) {
+            flash("Fix not typed — the prompt changed while waiting");
+            return;
+          }
           const fix = cmd?.trim() ?? "";
           // The model's input is terminal output, which untrusted text can steer.
           // A CR or LF inside the reply is accept-line for readline/ZLE, so the
@@ -363,8 +399,12 @@ const TerminalView: Component<{
             flash("No fix suggested");
           }
         })
-        .catch((e) => flash(String(e)))
-        .finally(() => setAiBusy(false));
+        .catch((e) => {
+          if (req === aiReq) flash(String(e));
+        })
+        .finally(() => {
+          if (req === aiReq) setAiBusy(false);
+        });
     };
 
     const jumpPrompt = (dir: -1 | 1) => {
@@ -562,6 +602,7 @@ const TerminalView: Component<{
             <button
               class="term-ai-close"
               onClick={() => {
+                aiReq++; // drop the pending answer: no reopen, no speech, no typing
                 stopSpeaking();
                 setAiText(null);
                 setAiBusy(false);
