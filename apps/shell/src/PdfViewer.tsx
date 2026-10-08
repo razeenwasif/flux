@@ -364,17 +364,32 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     }
   };
 
+  /** The in-flight render per canvas, so a newer pass can cancel it. */
+  const renderTasks: ({ cancel: () => void } | undefined)[] = [];
   const renderPage = async (pageNo: number, token: number) => {
     const canvas = canvases[pageNo - 1];
     if (!pdfDoc || !canvas) return;
     const page = await pdfDoc.getPage(pageNo);
     if (token !== renderToken) return;
+    // PDF.js throws on a second render() into a canvas it is still painting, and
+    // Ctrl+wheel starts a new pass per tick: cancel the superseded one first (it
+    // also stops drawing before the canvas is resized under it).
+    renderTasks[pageNo - 1]?.cancel();
     const dpr = window.devicePixelRatio || 1;
     const vp = page.getViewport({ scale: scale() * dpr });
     canvas.width = vp.width;
     canvas.height = vp.height;
     const ctx = canvas.getContext("2d");
-    if (ctx) await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    if (!ctx) return;
+    const task = page.render({ canvasContext: ctx, viewport: vp });
+    renderTasks[pageNo - 1] = task;
+    try {
+      await task.promise;
+    } catch (e) {
+      if ((e as { name?: string } | null)?.name !== "RenderingCancelledException") throw e;
+    } finally {
+      if (renderTasks[pageNo - 1] === task) renderTasks[pageNo - 1] = undefined;
+    }
   };
 
   const load = async () => {
