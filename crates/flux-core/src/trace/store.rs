@@ -19,6 +19,9 @@ pub type VisitId = u64;
 /// (capture.js republishes on SPA mutations / dwell) — refresh, don't fork a
 /// node. Mirrors `history::VISIT_DEDUP_MS`.
 const VISIT_DEDUP_MS: u64 = 30_000;
+/// While a page keeps republishing, refresh its `last_ms` at most this often:
+/// every refresh dirties the multi-MB sealed trace.json.
+const LAST_MS_REFRESH_MS: u64 = 5 * 60_000;
 
 /// Bound the store; evict the oldest visits (and their edges) beyond this. The
 /// lightweight metadata is cheap, but not unbounded.
@@ -160,6 +163,10 @@ struct TraceData {
 pub struct TraceStore {
     inner: RwLock<TraceData>,
     by_tab: RwLock<HashMap<TabId, VisitId>>,
+    /// Last publish time per tab (session-only, like `by_tab`). "Returned after
+    /// a gap" is judged on this, not on `last_ms` (which the fast path leaves
+    /// alone), so a page that keeps mutating doesn't gain a hit every 30 s.
+    last_pub: RwLock<HashMap<TabId, u64>>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
     initialized: std::sync::Once,
@@ -170,6 +177,7 @@ impl Default for TraceStore {
         Self {
             inner: RwLock::new(TraceData::default()),
             by_tab: RwLock::new(HashMap::new()),
+            last_pub: RwLock::new(HashMap::new()),
             path: None,
             dirty: AtomicBool::new(false),
             initialized: std::sync::Once::new(),
@@ -231,6 +239,17 @@ impl TraceStore {
         self.hydrate();
         let now = now_ms();
         let prev = self.by_tab.read().get(&tab).copied();
+        // Still publishing (no 30 s quiet gap on this tab): the same stay.
+        let continuing = self
+            .last_pub
+            .write()
+            .insert(tab, now)
+            .is_some_and(|t| now.saturating_sub(t) < VISIT_DEDUP_MS);
+        let window = if continuing {
+            LAST_MS_REFRESH_MS
+        } else {
+            VISIT_DEDUP_MS
+        };
 
         // Fast path under a READ lock: the tab is still on the same URL within
         // the dedup window and nothing meaningful changed — take no write lock
@@ -242,7 +261,7 @@ impl TraceStore {
             let d = self.inner.read();
             if let Some(v) = d.visits.iter().find(|v| v.id == pid) {
                 if v.url == url
-                    && now.saturating_sub(v.last_ms) < VISIT_DEDUP_MS
+                    && now.saturating_sub(v.last_ms) < window
                     && (title.trim().is_empty() || title == v.title)
                 {
                     return Some(pid);
@@ -257,7 +276,7 @@ impl TraceStore {
         if let Some(pid) = prev {
             if let Some(v) = d.visits.iter_mut().find(|v| v.id == pid) {
                 if v.url == url {
-                    if now.saturating_sub(v.last_ms) >= VISIT_DEDUP_MS {
+                    if !continuing && now.saturating_sub(v.last_ms) >= VISIT_DEDUP_MS {
                         v.hits += 1; // returned to the same page after a gap
                     }
                     v.last_ms = now;
@@ -333,6 +352,7 @@ impl TraceStore {
     /// can't inherit a stale nav edge.
     pub fn tab_closed(&self, tab: TabId) {
         self.by_tab.write().remove(&tab);
+        self.last_pub.write().remove(&tab);
     }
 
     /// The tab's current visit id, if any — the dwell-capture target.
@@ -341,17 +361,20 @@ impl TraceStore {
     }
 
     /// Attach a dwell snapshot to a visit (idempotent — a second call is ignored
-    /// so re-capture can't thrash the pointer).
-    pub fn attach_snapshot(&self, visit: VisitId, snapshot_id: u64) {
+    /// so re-capture can't thrash the pointer). Returns the visit's snapshot id
+    /// afterwards (this one, or an earlier capture's), or `None` if the visit is
+    /// gone.
+    pub fn attach_snapshot(&self, visit: VisitId, snapshot_id: u64) -> Option<u64> {
         self.hydrate();
         let mut d = self.inner.write();
-        if let Some(v) = d.visits.iter_mut().find(|v| v.id == visit) {
-            if v.snapshot_id.is_none() {
-                v.snapshot_id = Some(snapshot_id);
-                drop(d);
-                self.dirty.store(true, Ordering::Relaxed);
-            }
+        let v = d.visits.iter_mut().find(|v| v.id == visit)?;
+        if let Some(existing) = v.snapshot_id {
+            return Some(existing);
         }
+        v.snapshot_id = Some(snapshot_id);
+        drop(d);
+        self.dirty.store(true, Ordering::Relaxed);
+        Some(snapshot_id)
     }
 
     /// Add derived (non-Nav) edges — semantic neighbours, citations, implements
@@ -621,6 +644,12 @@ impl TraceStore {
             .cloned()
     }
 
+    /// Ids of every visit still in the Trail (the forget sweep keeps these).
+    pub fn live_ids(&self) -> std::collections::HashSet<VisitId> {
+        self.hydrate();
+        self.inner.read().visits.iter().map(|v| v.id).collect()
+    }
+
     /// Visits (optionally time-windowed by `last_ms`) plus the edges among them.
     pub fn graph(&self, after_ms: Option<u64>, before_ms: Option<u64>) -> TraceGraph {
         self.graph_scoped(after_ms, before_ms, None, None)
@@ -637,10 +666,25 @@ impl TraceStore {
         task_id: Option<u32>,
         task: Option<&str>,
     ) -> TraceGraph {
+        self.graph_newest(after_ms, before_ms, task_id, task, None)
+    }
+
+    /// `graph_scoped`, keeping only the newest `limit` visits (by `last_ms`) and
+    /// the edges among them. They're picked before anything is cloned, so a
+    /// renderer that draws ~1200 nodes doesn't have 50k visits cloned and
+    /// serialized on the UI thread only to throw all but those away.
+    pub fn graph_newest(
+        &self,
+        after_ms: Option<u64>,
+        before_ms: Option<u64>,
+        task_id: Option<u32>,
+        task: Option<&str>,
+        limit: Option<usize>,
+    ) -> TraceGraph {
         self.hydrate();
         let d = self.inner.read();
         let scoped = task_id.is_some() || task.is_some();
-        let visits: Vec<Visit> = d
+        let mut picked: Vec<&Visit> = d
             .visits
             .iter()
             .filter(|v| {
@@ -656,8 +700,12 @@ impl TraceStore {
                     _ => task.is_some_and(|t| v.why.task.as_deref() == Some(t)),
                 }
             })
-            .cloned()
             .collect();
+        if let Some(n) = limit.filter(|&n| picked.len() > n) {
+            picked.sort_unstable_by_key(|v| std::cmp::Reverse(v.last_ms));
+            picked.truncate(n);
+        }
+        let visits: Vec<Visit> = picked.into_iter().cloned().collect();
         let keep: std::collections::HashSet<VisitId> = visits.iter().map(|v| v.id).collect();
         let edges: Vec<Edge> = d
             .edges
@@ -752,8 +800,13 @@ impl TraceStore {
             return;
         }
         let Some(path) = &self.path else { return };
-        let d = self.inner.read();
-        super::sealed::save_json_sealed(path, &*d);
+        // Hold the read lock only to serialize: a writer queued behind it
+        // (`record`, from dom_publish on the UI thread) used to wait out the
+        // seal and the fsync'd write. Releasing it early is safe because the
+        // flush thread is this file's only writer, so saves can't reorder.
+        if !super::sealed::save_sealed_with(path, || serde_json::to_vec(&*self.inner.read())) {
+            self.dirty.store(true, Ordering::Relaxed); // retry on the next flush
+        }
     }
 }
 
@@ -811,6 +864,28 @@ mod tests {
 
         // Unscoped still returns everything.
         assert_eq!(s.graph(None, None).visits.len(), 4);
+    }
+
+    #[test]
+    fn graph_newest_keeps_the_newest_visits_and_only_their_edges() {
+        let s = TraceStore::default();
+        let _a = s.record(1, "https://a.com/", "A", None, None).unwrap();
+        let b = s.record(1, "https://b.com/", "B", None, None).unwrap();
+        let c = s.record(1, "https://c.com/", "C", None, None).unwrap();
+        for (i, v) in s.inner.write().visits.iter_mut().enumerate() {
+            v.last_ms = i as u64 + 1;
+        }
+        let g = s.graph_newest(None, None, None, None, Some(2));
+        let ids: Vec<VisitId> = g.visits.iter().map(|v| v.id).collect();
+        assert_eq!(ids, vec![c, b], "newest first");
+        // a→b went with a; b→c stays.
+        assert_eq!(g.edges.len(), 1);
+        assert_eq!((g.edges[0].from, g.edges[0].to), (b, c));
+        // Within the limit, nothing is dropped.
+        assert_eq!(
+            s.graph_newest(None, None, None, None, Some(3)).visits.len(),
+            3
+        );
     }
 
     #[test]
@@ -955,6 +1030,36 @@ mod tests {
         s.record(1, "https://a.com/", "A v2", None, None).unwrap();
         assert!(s.dirty.load(Ordering::Relaxed));
         assert_eq!(s.visit(s.current_visit(1).unwrap()).unwrap().title, "A v2");
+    }
+
+    #[test]
+    fn a_page_that_keeps_publishing_gains_no_hits() {
+        // capture.js republishes a mutating page every ~400ms; the visit's
+        // last_ms ages past the 30s window, but there was never a gap.
+        let s = TraceStore::default();
+        let v = s.record(1, "https://a.com/", "A", None, None).unwrap();
+        let age = |s: &TraceStore, ms: u64| s.inner.write().visits[0].last_ms -= ms;
+        for _ in 0..3 {
+            age(&s, 31_000);
+            s.dirty.store(false, Ordering::Relaxed);
+            s.record(1, "https://a.com/", "A", None, None);
+            assert!(
+                !s.dirty.load(Ordering::Relaxed),
+                "no rewrite while it stays"
+            );
+        }
+        assert_eq!(s.visit(v).unwrap().hits, 1, "no gap, so no new hit");
+        // Past the refresh interval, last_ms catches up — still without a hit.
+        age(&s, LAST_MS_REFRESH_MS);
+        s.record(1, "https://a.com/", "A", None, None);
+        assert!(s.dirty.load(Ordering::Relaxed));
+        assert!(now_ms().saturating_sub(s.visit(v).unwrap().last_ms) < VISIT_DEDUP_MS);
+        assert_eq!(s.visit(v).unwrap().hits, 1);
+        // A real quiet gap on the tab, then a publish: a return, so a hit.
+        s.last_pub.write().insert(1, now_ms() - VISIT_DEDUP_MS);
+        age(&s, VISIT_DEDUP_MS);
+        s.record(1, "https://a.com/", "A", None, None);
+        assert_eq!(s.visit(v).unwrap().hits, 2);
     }
 
     #[test]

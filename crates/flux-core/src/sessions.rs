@@ -172,11 +172,15 @@ impl SessionStore {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let snapshot = Persisted {
-            items: self.items.read().clone(),
-            tombstones: self.tombstones.read().clone(),
-        };
-        crate::persist::save_json(path, &snapshot);
+        // Guards held across the write (see BookmarkStore::save): a sync merge's
+        // older snapshot can't be renamed over a just-saved session.
+        crate::persist::save_json(
+            path,
+            &Persisted {
+                items: self.items.read().clone(),
+                tombstones: self.tombstones.read().clone(),
+            },
+        );
     }
 }
 

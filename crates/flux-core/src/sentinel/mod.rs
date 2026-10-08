@@ -261,16 +261,26 @@ async fn consent_check(
     let Some(snap) = snap else {
         return Ok(None);
     };
-    let text = snap.text.to_string();
-    if !explain::looks_like_consent(&text) {
+    if !explain::looks_like_consent(&snap.text) {
         return Ok(None);
     }
     let summary =
         "This page is asking you to accept cookies and data sharing with its partners.".to_string();
+    // A banner is per-site boilerplate: explain it once per site, not on every
+    // page view (this pass runs on every navigation). Keyed by the full host:
+    // the last-two-labels registrable would lump every `*.co.uk` site together.
+    let site = host_of(&snap.url);
+    if let Some(insight) = consent_insights()
+        .lock()
+        .ok()
+        .and_then(|c| c.get(&site).cloned())
+    {
+        return Ok(Some(Explainer { summary, insight }));
+    }
     // Hand the model the banner's own words; it explains what "Accept" enables.
     let banner = format!(
         "A cookie consent banner says: {}",
-        text.chars().take(1500).collect::<String>()
+        snap.text.chars().take(1500).collect::<String>()
     );
     let insight = tauri::async_runtime::spawn_blocking(move || {
         crate::agent_bridge::planner().explain_privacy(&banner)
@@ -278,7 +288,21 @@ async fn consent_check(
     .await
     .map_err(|e| e.to_string())?
     .unwrap_or_default();
+    if !insight.is_empty() {
+        if let Ok(mut c) = consent_insights().lock() {
+            if c.len() >= 256 {
+                c.clear(); // crude bound, like verdict_cache
+            }
+            c.insert(site, insight.clone());
+        }
+    }
     Ok(Some(Explainer { summary, insight }))
+}
+
+/// Per-site consent insight memo, bounded like [`verdict_cache`].
+fn consent_insights() -> &'static Mutex<HashMap<String, String>> {
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, String>>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Click the page's genuine "reject / necessary only" control (ADR 0013,
@@ -414,7 +438,9 @@ fn has_credential_field(html: &str) -> bool {
 
 /// Fold the model's content judgment into the deterministic verdict (ADR 0013,
 /// Pillar 1 M3). The model may **confirm/escalate** (→ High, with its reason) or
-/// **clear a false positive** (→ None); "suspicious" keeps the deterministic
+/// **clear a false positive** (→ None) — but only a weak edit-distance one: on a
+/// structural High (homoglyph fold, brand embedding) "legitimate" softens the
+/// warning to Low and never removes it. "suspicious" keeps the deterministic
 /// verdict and annotates it. Fail-safe: this is only reached when the model
 /// actually answered — a model that's down never removes protection.
 fn fold_judgment(
@@ -430,7 +456,14 @@ fn fold_judgment(
         .map(|r| format!("Flux read the page: {}", r.trim()))
         .collect();
     match j.verdict.as_str() {
-        "legitimate" => None,
+        "legitimate" if deterministic.confidence == phishing::Confidence::Low => None,
+        // The model reads only attacker-controlled text (no logos, and maybe an
+        // injected instruction), so it can't erase a structural signal that no
+        // legitimate site produces. Its say-so isn't shown as a reason either.
+        "legitimate" => Some(phishing::Verdict {
+            confidence: phishing::Confidence::Low,
+            ..deterministic
+        }),
         "phishing" => {
             let mut reasons = agent_reasons;
             reasons.extend(deterministic.reasons);
@@ -532,7 +565,13 @@ pub async fn sentinel_after_load(
     url: String,
     title: String,
 ) -> Result<LoadAssessment, String> {
-    let snap = state.active_snapshot();
+    // This runs for every tab that finishes loading, background ones included,
+    // but `active_snapshot` is the focused tab's page. Judge only a snapshot of
+    // the page asked about: another tab's banner would be attached to this tab,
+    // and its "Refuse" would click a reject/decline control on a page with none.
+    let snap = state
+        .active_snapshot()
+        .filter(|s| host_of(&s.url) == host_of(&url));
     Ok(LoadAssessment {
         phishing: verify_url(&app, snap.clone(), &url, title).await?,
         consent: consent_check(snap).await?,
@@ -587,6 +626,21 @@ mod tests {
     #[test]
     fn model_legitimate_clears_the_false_positive() {
         assert!(fold_judgment(low(), &judge("legitimate", &[])).is_none());
+    }
+
+    #[test]
+    fn model_legitimate_cannot_erase_a_structural_high() {
+        // paypa1.com folds onto "paypal": the page's own text talking the model
+        // into "legitimate" may soften the warning, never remove it.
+        let high = Verdict {
+            resembles: "paypal".into(),
+            reasons: vec!["“paypa1.com” uses look-alike characters to spell “paypal”".into()],
+            confidence: Confidence::High,
+        };
+        let v = fold_judgment(high, &judge("legitimate", &["this is PayPal's real login"]))
+            .expect("still flagged");
+        assert_eq!(v.confidence, Confidence::Low);
+        assert!(v.reasons.iter().all(|r| !r.contains("Flux read the page")));
     }
 
     #[test]

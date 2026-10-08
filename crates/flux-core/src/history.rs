@@ -100,14 +100,23 @@ impl HistoryStore {
             return;
         }
         let now = now_ms();
-        // Fast path under a READ lock: a URL already seen within the dedup window
-        // is the same visit — nothing meaningful changed, so take no write lock and
-        // leave `dirty` alone. Without this, an actively-mutating page (capture.js
-        // republishes every ~400ms) kept history perpetually dirty, rewriting the
-        // whole ~2 MB file every 60s for a page you're just sitting on.
-        if let Some(en) = self.entries.read().get(url) {
-            if now.saturating_sub(en.last_visit_ms) < VISIT_DEDUP_MS {
-                return;
+        // Fast path: a URL already seen within the dedup window is the same visit
+        // (capture.js republishes every ~400ms on a mutating page), so leave
+        // `dirty` alone — otherwise history.json is rewritten every 60s for a page
+        // you're just sitting on. But SLIDE the window: anchored at the first
+        // publish, every 30s on the page counted as a new visit (+1 day of
+        // frecency) and re-dirtied the store. The newer time rides along with the
+        // next real save. A changed title falls through (SPA navigations set
+        // <title> after the URL).
+        {
+            let mut e = self.entries.write();
+            if let Some(en) = e.get_mut(url) {
+                if now.saturating_sub(en.last_visit_ms) < VISIT_DEDUP_MS
+                    && (title.trim().is_empty() || title == en.title)
+                {
+                    en.last_visit_ms = now;
+                    return;
+                }
             }
         }
         {
@@ -324,6 +333,38 @@ mod tests {
         assert_eq!(h.entries.read().len(), 1);
         h.clear();
         assert!(h.entries.read().is_empty());
+    }
+
+    #[test]
+    fn a_page_that_keeps_republishing_is_one_visit() {
+        let h = HistoryStore::default();
+        h.record("https://a.com", "Alpha");
+        h.dirty.store(false, Ordering::Relaxed);
+        let age = |h: &HistoryStore| {
+            now_ms().saturating_sub(h.entries.read()["https://a.com"].last_visit_ms)
+        };
+        // Publishes 20s apart, 40s in all: still the same visit, because each
+        // publish slides the window instead of leaving it at the first one.
+        for _ in 0..2 {
+            h.entries
+                .write()
+                .get_mut("https://a.com")
+                .unwrap()
+                .last_visit_ms -= 20_000;
+            h.record("https://a.com", "Alpha");
+            assert!(age(&h) < 20_000, "the window slid forward");
+        }
+        assert_eq!(h.entries.read()["https://a.com"].visits, 1);
+        assert!(
+            !h.dirty.load(Ordering::Relaxed),
+            "a republish doesn't dirty"
+        );
+
+        // A title set after the URL (SPA navigation) is picked up, not a visit.
+        h.record("https://a.com", "Alpha Inbox");
+        assert_eq!(h.entries.read()["https://a.com"].title, "Alpha Inbox");
+        assert_eq!(h.entries.read()["https://a.com"].visits, 1);
+        assert_eq!(h.search("inbox", 10).len(), 1);
     }
 
     #[test]

@@ -436,10 +436,12 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       if (endMs() != null) before = end;
     }
     try {
-      const g = await traceGraph(after, before);
+      const g = await traceGraph(after, before, undefined, undefined, 1200);
       // Cap what the O(n²) force-sim chews on: past ~1200 nodes a frame stops
       // being interactive, so render the most recent slice (narrow the time
-      // window to explore older branches).
+      // window to explore older branches). The backend already sent only that
+      // slice (so a 50k-visit Trail isn't serialized just to be dropped); this
+      // stays as a guard.
       let vs = g.visits;
       if (vs.length > 1200) vs = [...vs].sort((a, b) => b.last_ms - a.last_ms).slice(0, 1200);
       const idx = new Map<number, number>();

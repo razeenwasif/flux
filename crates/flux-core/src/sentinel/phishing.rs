@@ -65,6 +65,13 @@ const BRAND_OWNED: &[&str] = &[
     "paypal.com", "paypalobjects.com", "stripe.com", "linkedin.com",
     "dropbox.com", "dropboxstatic.com", "adobe.com", "adobelogin.com",
     "netflix.com", "spotify.com", "twitch.tv", "discord.com", "reddit.com",
+    // Secondary domains the compound rule would otherwise flag HIGH (and the
+    // credential firewall then refuse to autofill on): Steam's own store and
+    // community sign-in, Discord's CDN, and the like.
+    "steampowered.com", "steamcommunity.com", "steamstatic.com",
+    "discordapp.com", "discordapp.net", "youtubekids.com",
+    "youtube-nocookie.com", "githubstatus.com", "redditinc.com",
+    "redditmedia.com", "redditstatic.com", "dropboxusercontent.com",
 ];
 
 /// Is this registrable domain one the brand itself owns?
@@ -291,6 +298,13 @@ mod tests {
             "raw.githubusercontent.com",
             "www.paypalobjects.com",
             "appleid.apple.com",
+            "store.steampowered.com",
+            "steamcommunity.com",
+            "cdn.discordapp.com",
+            "www.youtubekids.com",
+            "www.youtube-nocookie.com",
+            "www.githubstatus.com",
+            "dl.dropboxusercontent.com",
         ] {
             assert!(
                 assess(host, &seed()).is_none(),
@@ -308,6 +322,12 @@ mod tests {
         assert!(assess("microsoftonline-secure.com", &seed()).is_some());
         // Homoglyphs of the brand itself are caught.
         assert_eq!(assess("rnicrosoft.com", &seed()).unwrap().resembles, "microsoft");
+        // Owning steamcommunity.com doesn't excuse the classic Steam lure.
+        let v = assess("steamcommunlty.com", &seed()).unwrap();
+        assert_eq!(
+            (v.resembles.as_str(), v.confidence),
+            ("steam", Confidence::High)
+        );
 
         // KNOWN GAP (pre-existing, not introduced by BRAND_OWNED): a homoglyph of
         // a brand's *other* owned domain slips through, because only SEED_BRANDS

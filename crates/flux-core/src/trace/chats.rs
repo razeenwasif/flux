@@ -46,7 +46,8 @@ pub struct TraceChats {
     inner: RwLock<ChatData>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
-    hydrated: AtomicBool,
+    /// The one-time disk load; concurrent callers wait for it (see snapshots.rs).
+    hydrated: std::sync::OnceLock<()>,
 }
 
 impl TraceChats {
@@ -59,9 +60,10 @@ impl TraceChats {
 
     /// Load from disk, exactly once (lazy, race-proof — see [`TraceStore::hydrate`]).
     pub fn hydrate(&self) {
-        if self.hydrated.swap(true, Ordering::AcqRel) {
-            return;
-        }
+        self.hydrated.get_or_init(|| self.load());
+    }
+
+    fn load(&self) {
         let Some(path) = &self.path else { return };
         let Some((loaded, was_plaintext)) = super::sealed::load_json::<ChatData>(path) else {
             return;
@@ -132,13 +134,28 @@ impl TraceChats {
         }
     }
 
+    /// Drop the threads of visits not in `live` (forgotten or evicted).
+    pub fn retain_live(&self, live: &std::collections::HashSet<VisitId>) {
+        self.hydrate();
+        let mut d = self.inner.write();
+        let before = d.chats.len();
+        d.chats.retain(|vid, _| live.contains(vid));
+        if d.chats.len() != before {
+            drop(d);
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+    }
+
     pub fn persist_if_dirty(&self) {
         if !self.dirty.swap(false, Ordering::Relaxed) {
             return;
         }
         let Some(path) = &self.path else { return };
-        let d = self.inner.read();
-        super::sealed::save_json_sealed(path, &*d);
+        // Lock held only to serialize (see `TraceStore::persist_if_dirty`); the
+        // flush thread is this file's only writer.
+        if !super::sealed::save_sealed_with(path, || serde_json::to_vec(&*self.inner.read())) {
+            self.dirty.store(true, Ordering::Relaxed); // retry on the next flush
+        }
     }
 }
 
