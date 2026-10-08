@@ -197,6 +197,13 @@ function stopBeeping(): void {
 // stands itself down as soon as the last piece of work clears.
 let driver = 0;
 let booted = false;
+/** Wall-clock ms of the previous tick, so an alarm whose minute fell between two
+ *  ticks (a throttled or suspended window, App Nap, sleep) still rings on the
+ *  next one. Reset when the driver arms, so arming never replays old minutes. */
+let lastTickMs = 0;
+/** How far back a tick looks for a missed alarm minute. Beyond this (a laptop
+ *  woken hours later) it stays missed rather than ringing a morning's worth. */
+const ALARM_CATCH_UP_MIN = 10;
 
 /** True while a timer, a snooze, or an enabled alarm could still fire. */
 function hasPendingWork(): boolean {
@@ -208,11 +215,23 @@ function syncDriver(): void {
   // answer here would be about an empty store.
   if (!booted) return;
   const want = hasPendingWork();
-  if (want && !driver) driver = window.setInterval(clockTick, 500);
-  else if (!want && driver) {
+  if (want && !driver) {
+    lastTickMs = 0;
+    driver = window.setInterval(clockTick, 500);
+  } else if (!want && driver) {
     clearInterval(driver);
     driver = 0;
   }
+}
+
+/** Epoch minute of the latest local `HH:MM` at or before `nowMs` (yesterday's
+ *  when today's is still ahead, so 23:59 is caught by a tick at 00:03). */
+function lastOccurrence(time: string, nowMs: number): number {
+  const [hh, mm] = time.split(":").map(Number);
+  const at = new Date(nowMs);
+  at.setHours(hh!, mm!, 0, 0);
+  if (at.getTime() > nowMs) at.setDate(at.getDate() - 1);
+  return Math.floor(at.getTime() / 60_000);
 }
 
 export function startClockDriver(): void {
@@ -230,12 +249,20 @@ function clockTick(): void {
     ring("alarm", s.label);
   }
 
-  const now = new Date();
-  const hhmm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  const minKey = Math.floor(Date.now() / 60_000);
+  // An alarm used to ring only if a tick landed inside its exact minute, so any
+  // gap in the ticks silently skipped it until the next day. Check every minute
+  // since the previous tick instead: normally just this one.
+  const nowMs = Date.now();
+  const minKey = Math.floor(nowMs / 60_000);
+  const fromMin = lastTickMs
+    ? Math.min(minKey, Math.max(Math.floor(lastTickMs / 60_000) + 1, minKey - ALARM_CATCH_UP_MIN))
+    : minKey;
+  lastTickMs = nowMs;
   for (const a of alarms()) {
-    if (a.enabled && a.time === hhmm && a.lastMin !== minKey) {
-      setAlarms((list) => list.map((x) => (x.id === a.id ? { ...x, lastMin: minKey } : x)));
+    if (!a.enabled) continue;
+    const at = lastOccurrence(a.time, nowMs);
+    if (at >= fromMin && a.lastMin !== at) {
+      setAlarms((list) => list.map((x) => (x.id === a.id ? { ...x, lastMin: at } : x)));
       persist();
       ring("alarm", a.label || `Alarm · ${a.time}`);
     }
