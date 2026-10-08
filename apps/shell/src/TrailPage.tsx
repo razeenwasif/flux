@@ -391,11 +391,11 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
     let acc = "";
     try {
       await traceChatSend(vid, msg, (e) => {
-        if (chatFor !== vid) return; // user selected another node mid-stream
-        if (e.kind === "token") {
-          acc += e.text;
-          setChatStream(acc);
-        }
+        if (e.kind !== "token") return;
+        // Always accumulate: the reply must stay whole while another node is
+        // selected. Only the live view is gated on the current selection.
+        acc += e.text;
+        if (chatFor === vid) setChatStream(acc);
       });
       if (chatFor === vid) {
         setChatMsgs((m) => [...m, { role: "assistant", text: acc, ms: Date.now() }]);
