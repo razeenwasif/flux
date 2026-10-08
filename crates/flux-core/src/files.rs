@@ -320,13 +320,39 @@ fn wsl_list_dir(p: &str) -> Result<DirListing, String> {
 
 /// Read a file's bytes from wherever it actually lives.
 pub(crate) fn read_bytes_any(p: &str) -> Result<Vec<u8>, String> {
+    read_bytes_capped(p, u64::MAX).map(|(bytes, _)| bytes)
+}
+
+/// [`read_bytes_any`], stopping after `max` bytes. Returns the bytes read and the
+/// file's full length.
+///
+/// Only a regular file is read: a device never ends (`/dev/zero` grew the buffer
+/// until the process died) and a FIFO blocks the thread forever, and a size check
+/// stops neither, since both report a length of 0. `metadata` comes first
+/// because opening a FIFO would itself block.
+fn read_bytes_capped(p: &str, max: u64) -> Result<(Vec<u8>, u64), String> {
+    use std::io::Read as _;
     #[cfg(windows)]
     if is_wsl_path(p) {
-        return wsl_read_bytes(p);
+        // The bridge still ships the whole file; only what's kept is capped.
+        let mut all = wsl_read_bytes(p)?;
+        let total = all.len() as u64;
+        if total > max {
+            all.truncate(max as usize);
+        }
+        return Ok((all, total));
     }
     #[cfg(not(windows))]
     let p = &expand_home(&native_path(p));
-    std::fs::read(p).map_err(|e| format!("can't read {p}: {e}"))
+    let meta = std::fs::metadata(p).map_err(|e| format!("can't read {p}: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("can't read {p}: not a regular file"));
+    }
+    let mut buf = Vec::with_capacity(meta.len().min(max) as usize);
+    std::fs::File::open(p)
+        .and_then(|f| f.take(max).read_to_end(&mut buf))
+        .map_err(|e| format!("can't read {p}: {e}"))?;
+    Ok((buf, meta.len()))
 }
 
 /// `~/x` → `$HOME/x`. Windows has its own expansion inside the WSL bridge.
@@ -1416,6 +1442,11 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
             .unwrap_or("")
             .to_ascii_lowercase();
         let meta = std::fs::metadata(p).map_err(|e| format!("can't read {name}: {e}"))?;
+        // A device reports length 0 and never ends (`/dev/zero`), and a FIFO
+        // blocks forever: neither is stopped by the size cap below.
+        if !meta.is_file() {
+            return Err(format!("can't attach {name} — not a regular file"));
+        }
         if meta.len() > 20 * 1024 * 1024 {
             return Err(format!("{name} is too large (max 20 MB)"));
         }
@@ -1463,6 +1494,13 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
                 | "swift"
                 | "kt"
         );
+        // Decide before reading: the Files preview pane calls this for every
+        // selected file, and a 20 MB video was read in full just to be refused.
+        if image_mime.is_none() && !is_text {
+            return Err(format!(
+                "can't attach {name} — only images and text files are supported"
+            ));
+        }
         let bytes = std::fs::read(p).map_err(|e| format!("can't read {name}: {e}"))?;
         if let Some(mime) = image_mime {
             let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -1474,7 +1512,7 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
                 text: String::new(),
                 data_url,
             })
-        } else if is_text {
+        } else {
             Ok(DroppedAttachment {
                 kind: "text".into(),
                 name,
@@ -1482,10 +1520,6 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
                 text: String::from_utf8_lossy(&bytes).into_owned(),
                 data_url: String::new(),
             })
-        } else {
-            Err(format!(
-                "can't attach {name} — only images and text files are supported"
-            ))
         }
     })
     .await
@@ -1503,27 +1537,26 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
         if p.is_empty() {
             return Err("no file path given".into());
         }
-        let raw: String = read_text_raw(p)?;
-        if raw.chars().count() > READ_TEXT_CAP {
+        // A multi-GB log must not be read whole to keep its head: no file can
+        // need more bytes than this for `READ_TEXT_CAP` characters.
+        let (bytes, total) = read_bytes_capped(p, READ_TEXT_MAX_BYTES)?;
+        let raw = String::from_utf8_lossy(&bytes);
+        if raw.chars().count() > READ_TEXT_CAP || (bytes.len() as u64) < total {
             let head: String = raw.chars().take(READ_TEXT_CAP).collect();
-            Ok(format!("{head}\n…(truncated; {} bytes total)", raw.len()))
+            Ok(format!("{head}\n…(truncated; {total} bytes total)"))
         } else {
-            Ok(raw)
+            Ok(raw.into_owned())
         }
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// Read a file as text from wherever it lives. Both platforms go through the one
-/// byte reader (which owns the WSL bridge on Windows); the only difference left
-/// is that text is lossy-decoded and bytes aren't.
-fn read_text_raw(p: &str) -> Result<String, String> {
-    Ok(String::from_utf8_lossy(&read_bytes_any(p)?).into_owned())
-}
-
 /// Most characters `read_text_file` hands the agent before truncating.
 pub(crate) const READ_TEXT_CAP: usize = 60_000;
+
+/// The most bytes [`READ_TEXT_CAP`] characters of UTF-8 can take (4 per char).
+const READ_TEXT_MAX_BYTES: u64 = READ_TEXT_CAP as u64 * 4;
 
 /// Refuse to overwrite a file the agent can only have seen part of. The edit
 /// flow writes `read_text_file`'s output back with the edits applied: past
@@ -1531,18 +1564,26 @@ pub(crate) const READ_TEXT_CAP: usize = 60_000;
 /// non-UTF-8 bytes it's a lossy U+FFFD copy. Either write destroys data.
 pub(crate) async fn ensure_fully_readable(path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let bytes = match read_bytes_any(&path) {
-            Ok(b) => b,
+        let too_long = || {
+            format!(
+                "{path} is longer than the {READ_TEXT_CAP} characters the agent can read, so it won't overwrite the rest"
+            )
+        };
+        // Bounded like the read itself: past `READ_TEXT_MAX_BYTES` the file is
+        // too long whatever it holds, so that's all that needs reading.
+        let (bytes, total) = match read_bytes_capped(&path, READ_TEXT_MAX_BYTES) {
+            Ok(r) => r,
             Err(_) if !Path::new(&path).exists() => return Ok(()), // a new file
             Err(e) => return Err(e),
         };
+        if (bytes.len() as u64) < total {
+            return Err(too_long());
+        }
         let text = std::str::from_utf8(&bytes).map_err(|_| {
             format!("{path} isn't valid UTF-8, so an edit would corrupt the bytes the agent couldn't read")
         })?;
         if text.chars().count() > READ_TEXT_CAP {
-            return Err(format!(
-                "{path} is longer than the {READ_TEXT_CAP} characters the agent can read, so it won't overwrite the rest"
-            ));
+            return Err(too_long());
         }
         Ok(())
     })
@@ -1947,6 +1988,69 @@ mod undo_tests {
         assert_eq!(std::fs::read(base.join("a.txt")).unwrap(), b"a.txt");
         assert!(!dest.join("a.txt").exists());
         assert_eq!(std::fs::read(dest.join("b.txt")).unwrap(), b"already here");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod bounded_read_tests {
+    use super::*;
+
+    /// Run `f` on its own thread, giving up after `secs`: the bugs under test
+    /// are reads that never return.
+    fn within<T: Send + 'static>(secs: u64, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(secs)).ok()
+    }
+
+    #[test]
+    fn devices_and_fifos_are_refused_without_being_read() {
+        // `/dev/zero` reports a length of 0 and never ends.
+        let zero = within(5, || read_bytes_capped("/dev/zero", 16).is_err());
+        assert_eq!(zero, Some(true));
+        let attach = within(5, || {
+            tauri::async_runtime::block_on(attachment_read("/dev/zero".into())).is_err()
+        });
+        assert_eq!(attach, Some(true));
+
+        // Opening a FIFO with no writer blocks, so it must be refused unopened.
+        let base = std::env::temp_dir().join(format!("flux_fifo_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let fifo = base.join("pipe.txt");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .is_ok_and(|s| s.success());
+        if made {
+            let p = fifo.to_string_lossy().into_owned();
+            let refused = within(5, move || read_bytes_capped(&p, 16).is_err());
+            assert_eq!(refused, Some(true));
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_long_file_is_read_only_as_far_as_the_cap() {
+        let base = std::env::temp_dir().join(format!("flux_capped_read_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let p = base.join("big.log");
+        let total = READ_TEXT_MAX_BYTES as usize + 1000;
+        std::fs::write(&p, vec![b'a'; total]).unwrap();
+        let path = p.to_string_lossy().into_owned();
+
+        let (bytes, len) = read_bytes_capped(&path, 100).unwrap();
+        assert_eq!((bytes.len(), len), (100, total as u64));
+
+        let text = tauri::async_runtime::block_on(read_text_file(path.clone())).unwrap();
+        assert!(text.starts_with(&"a".repeat(READ_TEXT_CAP)));
+        assert!(text.ends_with(&format!("(truncated; {total} bytes total)")));
+        // The edit gate refuses it, again without reading it whole.
+        assert!(tauri::async_runtime::block_on(ensure_fully_readable(path)).is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 }
