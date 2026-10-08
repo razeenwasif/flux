@@ -862,8 +862,16 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                         </span>
                       }
                     >
-                      {/* Inline rename + due date; Enter or blur saves, Esc abandons. */}
-                      <span class="cal-task-edit">
+                      {/* Inline rename + due date; Enter or leaving the editor saves, Esc abandons. */}
+                      <span
+                        class="cal-task-edit"
+                        /* Commit when focus leaves the editor as a whole: a blur per
+                           input closed it as focus moved from title to due date. */
+                        onFocusOut={(e) => {
+                          const next = e.relatedTarget;
+                          if (!(next instanceof Node && e.currentTarget.contains(next))) commitEdit();
+                        }}
+                      >
                         <input
                           value={editText()}
                           autofocus
@@ -875,7 +883,6 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                               setEditTask(null);
                             }
                           }}
-                          onBlur={commitEdit}
                         />
                         <input
                           type="date"
@@ -883,7 +890,6 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                           value={editDue()}
                           onInput={(e) => setEditDue(e.currentTarget.value)}
                           onKeyDown={(e) => e.key === "Enter" && commitEdit()}
-                          onBlur={commitEdit}
                         />
                       </span>
                     </Show>
