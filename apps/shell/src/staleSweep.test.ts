@@ -27,8 +27,8 @@ const store = vi.hoisted(() => ({
   updateBranchSummary: vi.fn(),
 }));
 const ipc = vi.hoisted(() => ({
-  agentChat: vi.fn(() => Promise.resolve("A thread")),
-  agentChatTabs: vi.fn(() => Promise.resolve("A thread")),
+  agentChat: vi.fn((_prompt: string) => Promise.resolve("A thread")),
+  agentChatTabs: vi.fn((_prompt: string, _tabIds: number[]) => Promise.resolve("A thread")),
   traceBranches: vi.fn(() => Promise.resolve([[1, 2, 3], [4], [5]])),
 }));
 vi.mock("./store", () => store);
@@ -51,6 +51,19 @@ describe("runStaleSweep", () => {
     expect(store.closeTab).not.toHaveBeenCalled();
     expect(store.closeTabs).toHaveBeenCalledTimes(1);
     expect(store.closeTabs).toHaveBeenCalledWith([1, 2, 3, 4, 5]);
+  });
+
+  it("names the branch from its titles alone, never from the page the user is on", async () => {
+    // agent_chat re-snapshots the ACTIVE tab and appends its text to the prompt;
+    // agent_chat_tabs with no ids is a page-free chat.
+    await runStaleSweep(Date.now());
+
+    expect(ipc.agentChat).not.toHaveBeenCalled();
+    expect(ipc.agentChatTabs).toHaveBeenCalledTimes(1);
+    const [prompt, tabIds] = ipc.agentChatTabs.mock.calls[0]!;
+    expect(tabIds).toEqual([]);
+    expect(prompt).toContain("- A1\n- A2\n- A3");
+    await vi.waitFor(() => expect(store.updateBranchSummary).toHaveBeenCalledWith("branch-1", "A thread"));
   });
 
   it("closes nothing when no tab is stale", async () => {

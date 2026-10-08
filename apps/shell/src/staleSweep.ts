@@ -7,7 +7,7 @@
  * asynchronously), restorable as a set. Loners fall back to the flat per-tab
  * archived list. Gentle: at most one branch + a few singles per sweep.
  */
-import { agentChat, traceBranches } from "./ipc";
+import { agentChatTabs, traceBranches } from "./ipc";
 import {
   activeWorkspaceName,
   archiveBranchRecord,
@@ -48,8 +48,12 @@ export async function runStaleSweep(now: number): Promise<void> {
       toClose.push(...members.map((t) => t.id));
       // Name the rabbit hole (best-effort, local Gemma; placeholder until then).
       const titles = members.map((t) => `- ${t.title || t.url}`).join("\n");
-      void agentChat(
+      // Not agentChat: that re-snapshots the ACTIVE page and appends up to 32 KB
+      // of it to the prompt, and a background sweep must never ship whatever the
+      // user is reading. With no tab ids this is a page-free chat on the titles.
+      void agentChatTabs(
         `These pages were one research thread that is now archived. In at most 10 words, name the thread — output ONLY the name, no quotes, no period:\n${titles}`,
+        [],
       )
         .then((r) => {
           const s =
