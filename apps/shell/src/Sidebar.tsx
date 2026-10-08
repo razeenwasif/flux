@@ -639,9 +639,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
           const fy = (e.clientY - r.top) / r.height;
           const dragged = tabs().find((t) => t.id === d);
           const bothPages = dragged?.kind === "browser" && p.tab.kind === "browser";
-          if (fx > 0.6 && bothPages)
+          if (fx > 0.6 && bothPages) {
+            // setTile() rebuilds the *active* tab's group. Make the drop target
+            // active first, so an unrelated split on screen isn't the one replaced.
+            void focusTab(p.tab.id);
             setTile([p.tab.id, d], "cols"); // right side → split (#43)
-          else if (fy > 0.25 && fy < 0.75)
+          } else if (fy > 0.25 && fy < 0.75)
             void groupWithTab(d, p.tab.id); // center → group
           else void reorderTabs(d, p.tab.id, fy >= 0.75); // top/bottom → reorder
         }
@@ -699,7 +702,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
         title="Exit split view"
         onClick={(e) => {
           e.stopPropagation();
-          clearTile();
+          // Exit THIS split. clearTile() only knows the active tab's group, so on
+          // any other pair it dissolved the wrong split or did nothing.
+          for (const id of groupOf(p.members[0]!.id)?.tabs ?? []) untile(id);
         }}
       >
         ⤢
