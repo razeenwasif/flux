@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import captureJs from "../../../crates/flux-core/assets/capture.js?raw";
 import consentJs from "../../../crates/flux-core/assets/consent.js?raw";
+import navJs from "../../../crates/flux-core/assets/nav.js?raw";
 import explainRs from "../../../crates/flux-core/src/sentinel/explain.rs?raw";
 
 /** Run an injected script with `globals` standing in for the browser's. Timers
@@ -155,5 +156,56 @@ describe("consent.js", () => {
 
   it("still matches an exact multi-word phrase anywhere on the page", () => {
     expect(clickedOn([{ id: "unmarked-banner", label: "Reject all" }])).toEqual(["unmarked-banner"]);
+  });
+});
+
+describe("nav.js", () => {
+  const loadNav = (activeElement: unknown) => {
+    const handlers = new Map<string, (e: unknown) => void>();
+    const scrolled: number[] = [];
+    runPageScript(navJs, {
+      window: { __FLUX_NAV__: { hints: true, gestures: false } },
+      document: { activeElement, querySelectorAll: () => [], body: { scrollHeight: 1000 } },
+      addEventListener: (type: string, cb: (e: unknown) => void) => handlers.set(type, cb),
+      innerHeight: 800,
+      innerWidth: 1200,
+      scrollBy: (_x: number, y: number) => scrolled.push(y),
+      scrollTo: () => {},
+    });
+    /** Press `key` on the element `path[0]`; returns whether the page lost it. */
+    const press = (key: string, path: unknown[]) => {
+      let prevented = false;
+      handlers.get("keydown")!({
+        key,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        target: path[path.length - 1],
+        composedPath: () => path,
+        preventDefault: () => {
+          prevented = true;
+        },
+      });
+      return prevented;
+    };
+    return { press, scrolled };
+  };
+
+  it("leaves keys alone while typing in a shadow-DOM input", () => {
+    // document.activeElement is the shadow *host*, not the focused <input>.
+    const input = { tagName: "INPUT" };
+    const host = { tagName: "SL-INPUT", shadowRoot: { activeElement: input } };
+    const page = loadNav(host);
+    expect(page.press("f", [input, host])).toBe(false);
+    expect(page.press("j", [input, host])).toBe(false);
+    expect(page.scrolled).toEqual([]);
+  });
+
+  it("still acts on keys when nothing editable has focus", () => {
+    const body = { tagName: "BODY" };
+    const page = loadNav(body);
+    expect(page.press("f", [body])).toBe(true);
+    page.press("j", [body]);
+    expect(page.scrolled).toEqual([64]);
   });
 });
