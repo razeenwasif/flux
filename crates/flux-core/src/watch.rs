@@ -422,27 +422,37 @@ fn diff(baseline: &str, current: &str) -> (Vec<String>, Vec<String>) {
     let kind = embedding::current();
     let old_v = embedding::embed_batch(&old_p, kind).unwrap_or_default();
     let new_v = embedding::embed_batch(&new_p, kind).unwrap_or_default();
-    if new_v.len() != new_p.len() {
-        return (Vec::new(), Vec::new()); // embedding failed; report nothing rather than noise
+    compare(&old_p, &old_v, &new_p, &new_v)
+}
+
+/// The rest of [`diff`], once both sides are embedded (no vectors for a side
+/// whose batch failed).
+fn compare(
+    old_p: &[String],
+    old_v: &[Vec<f32>],
+    new_p: &[String],
+    new_v: &[Vec<f32>],
+) -> (Vec<String>, Vec<String>) {
+    // Either side failing reports nothing rather than noise. Scored against no
+    // baseline vectors, every new passage read as "added", and a change
+    // notification fired for a page that hadn't changed.
+    if new_v.len() != new_p.len() || old_v.len() != old_p.len() {
+        return (Vec::new(), Vec::new());
     }
     let added: Vec<String> = new_p
         .iter()
         .enumerate()
-        .filter(|(i, _)| max_cos(&new_v[*i], &old_v) < MATCH_THRESHOLD)
+        .filter(|(i, _)| max_cos(&new_v[*i], old_v) < MATCH_THRESHOLD)
         .map(|(_, p)| p.clone())
         .take(MAX_REPORTED)
         .collect();
-    let removed: Vec<String> = if old_v.len() == old_p.len() {
-        old_p
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| max_cos(&old_v[*i], &new_v) < MATCH_THRESHOLD)
-            .map(|(_, p)| p.clone())
-            .take(MAX_REPORTED)
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let removed: Vec<String> = old_p
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| max_cos(&old_v[*i], new_v) < MATCH_THRESHOLD)
+        .map(|(_, p)| p.clone())
+        .take(MAX_REPORTED)
+        .collect();
     (added, removed)
 }
 
@@ -690,6 +700,20 @@ mod tests {
         let ids: Vec<u64> = adds.into_iter().map(|a| a.join().unwrap().id).collect();
         assert_eq!(store.list().len(), 1);
         assert_eq!(ids[0], ids[1], "both clicks get the same watch");
+    }
+
+    #[test]
+    fn a_failed_embedding_on_either_side_reports_no_change() {
+        let old_p = vec!["our refund policy allows cancellation within thirty days".to_string()];
+        let new_p = vec!["we launched an enterprise tier with single sign on".to_string()];
+        let v = vec![vec![1.0_f32, 0.0]];
+        let nothing = (Vec::<String>::new(), Vec::<String>::new());
+        // The baseline's batch failing (Ollama restarting, say) used to score
+        // every new passage against nothing: the whole page "added".
+        assert_eq!(compare(&old_p, &[], &new_p, &v), nothing);
+        assert_eq!(compare(&old_p, &v, &new_p, &[]), nothing);
+        // A baseline too short for a passage is still "nothing before".
+        assert_eq!(compare(&[], &[], &new_p, &v).0, new_p);
     }
 
     #[test]
