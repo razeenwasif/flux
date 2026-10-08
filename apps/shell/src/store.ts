@@ -1529,7 +1529,14 @@ const readJson = <T>(key: string, fallback: T): T => {
 };
 let accessMap: Record<string, number> = readJson(ACCESS_KEY, {});
 export const lastAccessForUrl = (url: string): number => accessMap[url] ?? 0;
-const saveAccess = () => localStorage.setItem(ACCESS_KEY, JSON.stringify(accessMap));
+const saveAccess = () => {
+  try {
+    localStorage.setItem(ACCESS_KEY, JSON.stringify(accessMap));
+  } catch {
+    /* quota / private mode: the in-memory map still serves this session, and a
+       throw here would escape the reactive flush that called touchTabUrl */
+  }
+};
 /** Record that a tab's URL was just visited (so it's not considered stale). */
 export function touchTabUrl(url: string): void {
   if (!url || url === START_URL) return;
@@ -1541,6 +1548,18 @@ export function touchTabUrl(url: string): void {
 export function seedTabAccess(urls: string[]): void {
   const now = Date.now();
   let changed = false;
+  // Only open tabs are ever looked up (staleTabIds, the split picker), so drop
+  // URLs no open tab holds; otherwise the map gains a key per page ever viewed
+  // and every touch re-serializes all of it. Skipped while `urls` is empty
+  // (before the first refreshTabs) so boot doesn't wipe the persisted times.
+  if (urls.length) {
+    const open = new Set(urls);
+    for (const u of Object.keys(accessMap))
+      if (!open.has(u)) {
+        delete accessMap[u];
+        changed = true;
+      }
+  }
   for (const u of urls)
     if (u && u !== START_URL && accessMap[u] == null) {
       accessMap[u] = now;
