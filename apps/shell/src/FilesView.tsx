@@ -55,6 +55,23 @@ import { openTab } from "./store";
 
 const ROW_H = 30;
 
+/** Per-id queue for fs_watch / fs_unwatch. fs_watch builds its watcher off-thread
+ *  and inserts it when done, while fs_unwatch is immediate, so an unmount's
+ *  unwatch (or a later navigation's watch) could overtake an earlier watch and
+ *  leave an orphaned or stale-folder watcher. Module-level so a remounted view
+ *  with the same id (a tab switched back to, the Files popout) joins the queue. */
+const watchQueue = new Map<number, Promise<void>>();
+function queueWatch(id: number, op: () => Promise<unknown>): void {
+  const next = (watchQueue.get(id) ?? Promise.resolve()).then(op).then(
+    () => {},
+    () => {},
+  );
+  watchQueue.set(id, next);
+  void next.then(() => {
+    if (watchQueue.get(id) === next) watchQueue.delete(id);
+  });
+}
+
 type SortKey = "name" | "size" | "modified";
 type Clipboard = { mode: "copy" | "cut"; paths: string[] } | null;
 type Menu = { x: number; y: number; entry: FileEntry | null } | null;
@@ -120,6 +137,9 @@ const FilesView: Component<{
   let noticeTimer: number | undefined;
   let unlistenFs: (() => void) | undefined;
   let watchTimer: number | undefined;
+  /** Set on unmount. Async work (the first listing, the fs-changed listener, a
+   *  file op's refresh) can finish after cleanup and must not re-arm anything. */
+  let disposed = false;
 
   // Navigation history (per Files tab).
   let back: string[] = [];
@@ -143,6 +163,7 @@ const FilesView: Component<{
   /** A soft refresh was asked for while a full load was in flight. */
   let softAfterLoad = false;
   const load = async (path: string, selectName?: string) => {
+    if (disposed) return; // a file op's refresh landing after unmount would re-watch
     const gen = ++loadGen;
     setLoading(true);
     setError(null);
@@ -154,7 +175,7 @@ const FilesView: Component<{
           setListing({ path: m.path, parent: m.parent, entries: [] });
           setCwd(m.path);
           props.onPathChange(m.path);
-          void fsWatch(props.id, m.path).catch(() => {}); // live watch (#85)
+          queueWatch(props.id, () => fsWatch(props.id, m.path)); // live watch (#85), in order
           setSelected(selectName ? new Set([selectName]) : new Set<string>());
           setCursor(-1);
           anchor = -1;
@@ -255,18 +276,25 @@ const FilesView: Component<{
 
   onMount(async () => {
     await load(props.path);
+    if (disposed) return;
     setPlaces(await fsQuickLocations().catch(() => []));
     // Live watch: re-list (debounced) when the shown directory changes on disk.
-    unlistenFs = await onFsChanged((p) => {
+    const un = await onFsChanged((p) => {
       if (p !== cwd()) return;
       clearTimeout(watchTimer);
       watchTimer = window.setTimeout(() => void softRefresh(), 180);
     }).catch(() => undefined);
+    // Unmounted while the (possibly long) first listing streamed in: onCleanup
+    // has already run, so a listener kept now would never be removed.
+    if (disposed) un?.();
+    else unlistenFs = un;
   });
   onCleanup(() => {
+    disposed = true;
+    loadGen++; // drop a still-streaming listing: its `head` would re-watch after the unwatch below
     unlistenFs?.();
     clearTimeout(watchTimer);
-    void fsUnwatch(props.id).catch(() => {});
+    queueWatch(props.id, () => fsUnwatch(props.id));
   });
 
   // Filter (hidden + search) then sort (folders first, then the chosen key).
