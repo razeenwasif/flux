@@ -541,7 +541,13 @@ pub async fn sentinel_after_load(
     url: String,
     title: String,
 ) -> Result<LoadAssessment, String> {
-    let snap = state.active_snapshot();
+    // This runs for every tab that finishes loading, background ones included,
+    // but `active_snapshot` is the focused tab's page. Judge only a snapshot of
+    // the page asked about: another tab's banner would be attached to this tab,
+    // and its "Refuse" would click a reject/decline control on a page with none.
+    let snap = state
+        .active_snapshot()
+        .filter(|s| host_of(&s.url) == host_of(&url));
     Ok(LoadAssessment {
         phishing: verify_url(&app, snap.clone(), &url, title).await?,
         consent: consent_check(snap).await?,
