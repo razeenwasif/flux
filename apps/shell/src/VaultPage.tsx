@@ -78,18 +78,21 @@ const VaultPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       .then(setList)
       .catch(() => setList([]));
   };
-  onMount(async () => {
+  onMount(() => {
     const id = activeId();
     if (id != null) updateTabTitle(id, "Passwords");
     visibleInterval(refresh, 4000);
-    const unLocked = await onVaultLocked(() => {
-      setPw(null);
-      refresh();
-    });
-    const unReady = await onVaultReady(() => refresh());
+    // Cleanup is wired before anything resolves: after an `await` there is no
+    // owner, so an onCleanup there never ran and every visit leaked both listeners.
+    const subs = [
+      onVaultLocked(() => {
+        setPw(null);
+        refresh();
+      }),
+      onVaultReady(() => refresh()),
+    ];
     onCleanup(() => {
-      unLocked();
-      unReady();
+      for (const p of subs) void p.then((un) => un()).catch(() => {});
     });
   });
 

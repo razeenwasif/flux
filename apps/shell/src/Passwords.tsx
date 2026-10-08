@@ -55,12 +55,12 @@ const Passwords: Component<{ initialOpen?: boolean }> = (props) => {
         .catch(() => setMatches([]));
     else setMatches([]);
   };
-  onMount(async () => {
-    const unLocked = await onVaultLocked(() => refresh());
-    const unReady = await onVaultReady(() => refresh());
+  onMount(() => {
+    // Cleanup is wired before anything resolves: after an `await` there is no
+    // owner, so an onCleanup there never ran, and this remounts with the footer.
+    const subs = [onVaultLocked(() => refresh()), onVaultReady(() => refresh())];
     onCleanup(() => {
-      unLocked();
-      unReady();
+      for (const p of subs) void p.then((un) => un()).catch(() => {});
     });
   });
   // Poll for host matches only while the popover is open (was an always-on 2.5s
