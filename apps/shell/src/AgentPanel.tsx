@@ -102,6 +102,7 @@ import {
   type AgentStatus,
 } from "./ipc";
 import { looksLikeNoteWrite } from "./noteintent";
+import { isCaptureRequest, isOnyxSave, savesLastAnswer } from "./onyxintent";
 import { looksAgentic } from "./agentintent";
 import { joinPath, resolveAgentPath } from "./agentpaths";
 import { parseSummarise, summariseRequest } from "./agentsteps";
@@ -1899,8 +1900,7 @@ const AgentPanel: Component = () => {
    * Rust reads the already-captured DOM text.
    */
   const tryCapturePage = async (text: string): Promise<boolean> => {
-    if (!/\b(capture|transcript|lecture)\b/i.test(text)) return false;
-    if (!/\b(capture|save|file|add)\b/i.test(text)) return false;
+    if (!isCaptureRequest(text)) return false;
     const folderInText = text.match(/\bonyx\/\s*([^#\n:]+?)(?=\s+as\s|\s*[#:]|\s*$)/i)?.[1]?.trim();
     const folder = folderInText || localStorage.getItem(folderKey()) || undefined;
     const tags = (text.match(/#[\w-]+/g) ?? []).join(" ");
@@ -1931,11 +1931,12 @@ const AgentPanel: Component = () => {
     return true;
   };
 
-  // "save (this answer | <text>) to onyx[/<folder>] [#tags] [as <title>]" → write
-  // a note to the vault (#118). The folder is spelled as a path (`onyx/Optimization`)
-  // rather than "in <x>" — "in" is far too common in prose to parse safely.
+  // "save (that | this answer) to onyx[/<folder>] [#tags] [as <title>]" or "save to
+  // onyx[/<folder>]: <text>" → write a note to the vault (#118). The folder is spelled
+  // as a path (`onyx/Optimization`) rather than "in <x>" — "in" is far too common in
+  // prose to parse safely.
   const trySaveToOnyx = async (text: string): Promise<boolean> => {
-    if (!/\bonyx\b/i.test(text) || !/\b(save|note|remember|add|write)\b/i.test(text)) return false;
+    if (!isOnyxSave(text)) return false;
     // `onyx/<folder>` up to a #tag, an "as <title>", a colon, or end of line.
     const folderInText = text.match(/\bonyx\/\s*([^#\n:]+?)(?=\s+as\s|\s*[#:]|\s*$)/i)?.[1]?.trim();
     const folder = folderInText || localStorage.getItem(folderKey()) || undefined;
@@ -1945,7 +1946,7 @@ const AgentPanel: Component = () => {
     text = text.replace(/#[\w-]+/g, " ").replace(/\bonyx\/\s*[^#\n:]+/i, "onyx");
     const asTitle = text.match(/\bas\s+"?([^"\n]+?)"?\s*$/i)?.[1]?.trim();
     let content = "";
-    if (/\b(that|this answer|the answer|your answer|last answer)\b/i.test(text)) {
+    if (savesLastAnswer(text)) {
       content = [...feed()].reverse().find((it) => it.role === "assistant")?.text ?? "";
       if (!content.trim()) {
         setFeed((f) => [
@@ -1958,9 +1959,9 @@ const AgentPanel: Component = () => {
         return true;
       }
     } else {
-      // Everything after "… to onyx" (minus a trailing "as <title>") is the note body.
+      // Everything after "… to/in onyx" (minus a trailing "as <title>") is the note body.
       content = text
-        .replace(/^.*?\bto\s+onyx\b/i, "")
+        .replace(/^.*?\b(?:to|in|into)\s+onyx\b/i, "")
         .replace(/\bas\s+"?[^"\n]+"?\s*$/i, "")
         .replace(/^[\s:–-]+/, "")
         .trim();
@@ -2556,9 +2557,11 @@ const AgentPanel: Component = () => {
       // Write access to the user's corpora (#118): clip to Scroll / save to Onyx.
       if (await tryClipToScroll(p)) return;
       // Before the generic Onyx save: "save this lecture to onyx" is a page
-      // capture, not a note dictated in the prompt.
-      if (await tryCapturePage(p)) return;
-      if (await trySaveToOnyx(p)) return;
+      // capture, not a note dictated in the prompt. `pc`: both gates are
+      // ^-anchored. The save stays reachable after the note planner declines:
+      // it never sees the last answer, so "save that to Onyx" has no other path.
+      if (await tryCapturePage(pc)) return;
+      if (await trySaveToOnyx(pc)) return;
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
