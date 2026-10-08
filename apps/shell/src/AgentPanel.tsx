@@ -1340,7 +1340,13 @@ const AgentPanel: Component = () => {
   const lastCtxFile = () =>
     [...ctxFiles()]
       .reverse()
-      .find((f) => !["terminal", "css-vars", "app-state"].includes(f.path) && !f.path.startsWith("inspect:"));
+      // "editor"/"selection" are pseudo-paths too (a buffer or a snippet, not a
+      // file on disk): an edit planned against them can never be written.
+      .find(
+        (f) =>
+          !["terminal", "css-vars", "app-state", "editor", "selection"].includes(f.path) &&
+          !f.path.startsWith("inspect:"),
+      );
 
   // "edit <file>: <instruction>" / "change it to …" → propose search/replace edits,
   // show a diff, and write only on approval (apply happens client-side).
