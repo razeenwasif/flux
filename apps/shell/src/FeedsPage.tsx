@@ -35,16 +35,25 @@ const FeedsPage: Component = () => {
   const [error, setError] = createSignal("");
   const [draft, setDraft] = createSignal("");
 
+  // Feeds are fetched live, so "All feeds" (every subscription) can take far
+  // longer than one feed: drop any response a newer pick has superseded.
+  let itemsGen = 0;
   const loadItems = (id: number | null) => {
+    const mine = ++itemsGen;
     setLoading(true);
     setError("");
     feedItems(id ?? 0)
-      .then((r) => setItems(r ?? []))
+      .then((r) => {
+        if (mine === itemsGen) setItems(r ?? []);
+      })
       .catch((e) => {
+        if (mine !== itemsGen) return;
         setItems([]);
         setError(String(e));
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (mine === itemsGen) setLoading(false);
+      });
   };
 
   const refreshFeeds = async () => {
