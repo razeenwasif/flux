@@ -1082,7 +1082,15 @@ fn check_not_descendant(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 fn copy_recursive_inner(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if std::fs::symlink_metadata(src)?.is_dir() {
+    let meta = std::fs::symlink_metadata(src)?;
+    // A link to a directory, or a dangling link, can't be "copied as its
+    // target": `fs::copy` rejects both, which aborted the whole tree copy (or
+    // cross-device move) half done. Recreate the link itself; a link to a
+    // regular file still copies its target's bytes, as before.
+    if meta.file_type().is_symlink() && !std::fs::metadata(src).is_ok_and(|m| m.is_file()) {
+        return copy_link(src, dst);
+    }
+    if meta.is_dir() {
         std::fs::create_dir(dst)?;
         for ent in std::fs::read_dir(src)? {
             let ent = ent?;
@@ -1094,7 +1102,24 @@ fn copy_recursive_inner(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Recursive copy (dir trees included); symlinks are copied as their target.
+/// Recreate the symlink `src` at `dst`, pointing where `src` points.
+fn copy_link(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let target = std::fs::read_link(src)?;
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(&target, dst);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileTypeExt;
+        if std::fs::symlink_metadata(src)?.file_type().is_symlink_dir() {
+            std::os::windows::fs::symlink_dir(&target, dst)
+        } else {
+            std::os::windows::fs::symlink_file(&target, dst)
+        }
+    }
+}
+
+/// Recursive copy (dir trees included). A symlink to a file is copied as its
+/// target; one to a directory, or a dangling one, is recreated as a link.
 fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     check_not_descendant(src, dst)?;
     copy_recursive_inner(src, dst)
@@ -1751,6 +1776,44 @@ mod stream_tests {
         let target = sub.join("base_copy");
         let res = copy_recursive(&base, &target);
         assert!(res.is_err(), "should reject copying directory into its descendant");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_keeps_directory_and_dangling_links_as_links() {
+        // A venv's `lib64 -> lib` and an editor's dangling `.#lock` made
+        // `fs::copy` fail half-way through the tree.
+        let base = std::env::temp_dir().join(format!("flux_copy_links_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let src = base.join("venv");
+        std::fs::create_dir_all(src.join("lib")).unwrap();
+        std::fs::write(src.join("lib").join("site.py"), b"x").unwrap();
+        std::fs::write(src.join("README"), b"readme").unwrap();
+        std::os::unix::fs::symlink("lib", src.join("lib64")).unwrap();
+        std::os::unix::fs::symlink("nowhere", src.join(".#lock")).unwrap();
+        std::os::unix::fs::symlink("README", src.join("readme-link")).unwrap();
+
+        let dst = base.join("venv copy");
+        copy_recursive(&src, &dst).unwrap();
+
+        assert_eq!(
+            std::fs::read_link(dst.join("lib64")).unwrap(),
+            Path::new("lib")
+        );
+        assert_eq!(
+            std::fs::read_link(dst.join(".#lock")).unwrap(),
+            Path::new("nowhere")
+        );
+        assert_eq!(
+            std::fs::read(dst.join("lib").join("site.py")).unwrap(),
+            b"x"
+        );
+        // A link to a regular file is still copied as its target's bytes.
+        assert!(std::fs::symlink_metadata(dst.join("readme-link"))
+            .unwrap()
+            .is_file());
+        assert_eq!(std::fs::read(dst.join("readme-link")).unwrap(), b"readme");
         let _ = std::fs::remove_dir_all(&base);
     }
 }
