@@ -435,20 +435,35 @@ pub fn terminal_kill(
             None => (None, None),
         }
     };
-    if let Some(s) = s {
-        let _ = s.child.lock().kill();
-    }
     // Nothing left to persist for a terminal the user deliberately closed.
     let mode = mode.unwrap_or_default();
-    if mode.live {
-        if let Some(eng) = live_engine() {
-            kill_live_session(session, eng);
+    // The session is already out of the map; the rest can block, and a sync
+    // command runs on the main thread. Killing the shell waits up to 200 ms for
+    // it to take its SIGHUP, and on Windows the first live teardown resolves
+    // `pkill`/`rm` through an MSYS login shell.
+    std::thread::spawn(move || {
+        if let Some(s) = s {
+            end_shell(&mut **s.child.lock());
         }
-    }
-    if mode.transcript {
-        remove_transcript(&app, session);
-    }
+        if mode.live {
+            if let Some(eng) = live_engine() {
+                kill_live_session(session, eng);
+            }
+        }
+        if mode.transcript {
+            remove_transcript(&app, session);
+        }
+    });
     Ok(())
+}
+
+/// Kill a session's shell and reap it. portable-pty sends SIGHUP and falls
+/// back to SIGKILL after a grace period, and nothing waited on a shell that
+/// needed the SIGKILL: it stayed a zombie for the rest of Flux's life.
+fn end_shell(child: &mut dyn Child) {
+    if child.kill().is_ok() {
+        let _ = child.wait();
+    }
 }
 
 /// What a terminal keeps across a Flux restart. The two halves are independent:
@@ -680,7 +695,9 @@ fn command_available(cmd: &str) -> bool {
 }
 
 /// Run a command inside the shell's world — MSYS2 on Windows, locally on Unix —
-/// without a `sh -c` wrapper. Best-effort and fire-and-forget.
+/// without a `sh -c` wrapper. Best-effort, and waited on: a dropped `Child` is
+/// never reaped (each one stayed a zombie), and `rm` must follow `pkill`. Only
+/// the teardown thread calls this, so the wait costs the UI nothing.
 ///
 /// **The missing wrapper is the point.** These commands carry a socket path as an
 /// argument and one of them is `pkill -f`, which matches on the whole command
@@ -703,11 +720,11 @@ fn run_in_shell_world(args: &[&str]) {
         let _ = c
             .args(rest)
             .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-            .spawn();
+            .status();
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new(program).args(rest).spawn();
+        let _ = std::process::Command::new(program).args(rest).status();
     }
 }
 
@@ -1001,6 +1018,45 @@ mod tests {
             "the pattern must require dtach before the socket: {pat}"
         );
         assert_ne!(pat, dtach_socket(42), "never kill on the bare path");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_closed_shell_is_reaped_even_after_the_sigkill_fallback() {
+        use std::io::BufRead;
+        // Ignoring SIGHUP forces portable-pty's SIGKILL fallback, after which
+        // nothing used to wait on the shell: a zombie per closed terminal.
+        let mut sh = std::process::Command::new("sh")
+            .args(["-c", "trap '' HUP; echo ready; exec sleep 30"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut ready = String::new();
+        std::io::BufReader::new(sh.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        let pid = sh.id().to_string();
+        end_shell(&mut sh);
+        // Nothing at all is left under that pid, not even a zombie.
+        let ps = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid])
+            .output()
+            .unwrap();
+        let stat = String::from_utf8_lossy(&ps.stdout);
+        assert_eq!(stat.trim(), "", "pid {pid} was left behind");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn shell_world_commands_finish_before_returning() {
+        // Waited on, so reaped: these used to be spawned and dropped.
+        let dir = std::env::temp_dir().join(format!("flux-term-wait-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let done = dir.join("done");
+        let script = format!("sleep 0.2; touch '{}'", done.display());
+        run_in_shell_world(&["sh", "-c", &script]);
+        assert!(done.exists(), "returned before the command finished");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
