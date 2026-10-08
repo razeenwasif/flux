@@ -32,7 +32,9 @@ export const PanelIcon: Component<{ url: string }> = (props) => {
 export const Favicon: Component<{ tab: TabMeta }> = (props) => {
   const host = (): string | null => {
     const t = props.tab;
-    if (t.kind !== "browser" || isStartUrl(t.url)) return null;
+    // Private tabs never reach the favicon fetcher: it requests the icon outside
+    // the private session and caches `<host>.txt` on disk for good.
+    if (t.kind !== "browser" || t.private || isStartUrl(t.url)) return null;
     try {
       return new URL(t.url).hostname.replace(/^www\./, "") || null;
     } catch {
