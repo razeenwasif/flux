@@ -21,7 +21,15 @@
  */
 import { type Component, Show, createSignal, createEffect, onCleanup, lazy, Suspense } from "solid-js";
 
-import { BOOT_CMD, bootCommand, exitAction, sessionFor, setEditorSession, socketPath } from "./editorboot";
+import {
+  BOOT_CMD,
+  QUICK_EXIT_MS,
+  bootCommand,
+  exitAction,
+  sessionFor,
+  setEditorSession,
+  socketPath,
+} from "./editorboot";
 import { onTermExit } from "./ipc";
 import { setPendingCommand } from "./terminals";
 
@@ -50,6 +58,9 @@ const EditorColumn: Component<{ visible: boolean }> = (props) => {
   // When this generation's PTY came up, so an instant exit can be told apart
   // from the user quitting a session they'd actually been using.
   let spawnedAt = Date.now();
+  // Quick exits in a row: a slow shell rc can carry a missing editor past the
+  // instant-exit check, so a run of them is a failure too (see exitAction).
+  let quickExits = 0;
 
   const boot = (gen: number) => {
     // Queue before the view mounts — TerminalView consumes this the moment its
@@ -87,8 +98,11 @@ const EditorColumn: Component<{ visible: boolean }> = (props) => {
       // Only this generation's exit counts. A relaunch has already moved
       // `session()` on, so the dying PTY's own exit event can't retrigger one.
       if (disposed || exited !== mine) return;
-      if (exitAction(Date.now() - spawnedAt) === "fail") {
-        setFailed(`\`${BOOT_CMD}\` exited immediately — is it on the terminal shell's PATH?`);
+      const uptime = Date.now() - spawnedAt;
+      const action = exitAction(uptime, quickExits);
+      quickExits = action === "relaunch" && uptime < QUICK_EXIT_MS ? quickExits + 1 : 0;
+      if (action === "fail") {
+        setFailed(`\`${BOOT_CMD}\` exited right after starting — is it on the terminal shell's PATH?`);
         return;
       }
       // Quitting from inside the column should hand the caret straight back to
