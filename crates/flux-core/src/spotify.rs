@@ -9,10 +9,12 @@
 //!
 //! Token handling is lazy + robust: try the cached access token; on 401 refresh
 //! it via the refresh-token + client id (PKCE public client, no secret, like
-//! AudioPulse) and retry once. The refreshed token is held in memory — we never
-//! rewrite AudioPulse's token file.
+//! AudioPulse) and retry. Spotify rotates a PKCE client's refresh token on every
+//! refresh and revokes the old one, so refreshes are serialized, a newer token
+//! AudioPulse wrote is adopted instead of spending the refresh token again, and
+//! a rotated pair is merged back into AudioPulse's token file.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 // The AudioPulse launcher runs a TUI in a headless PTY — desktop-only (ADR 0012:
 // `portable-pty`'s `termios` doesn't build for Android, and there's no local
@@ -32,6 +34,9 @@ const API: &str = "https://api.spotify.com/v1";
 
 /// In-memory refreshed access token (avoids a refresh per call).
 static ACCESS: RwLock<Option<String>> = RwLock::new(None);
+/// Serializes refreshes: the refresh token is single-use, so two calls that 401
+/// together (the bubble's poll and a command) must not both spend it.
+static REFRESH_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// UI-set config-dir override (Settings → Integrations), checked before the env
 /// var. Lets the user paste the `\\wsl.localhost\<distro>\…` path once.
@@ -167,9 +172,26 @@ fn current_access() -> Result<String, String> {
     Ok(read_creds()?.0)
 }
 
-/// Refresh the access token (refresh-token grant, public client). Caches it.
-fn refresh() -> Result<String, String> {
-    let (_, rt, cid) = read_creds()?;
+/// A new access token after `stale` got a 401 (refresh-token grant, public
+/// client). Caches it. The flag says whether it was just minted: `false` means
+/// an already-refreshed token was adopted, which may have expired since.
+fn refresh(stale: &str) -> Result<(String, bool), String> {
+    let _gate = REFRESH_GATE.lock().unwrap_or_else(|e| e.into_inner());
+    // Another call refreshed while this one waited for the gate.
+    if let Some(t) = ACCESS.read().ok().and_then(|g| g.clone()) {
+        if t != stale {
+            return Ok((t, false));
+        }
+    }
+    let (file_at, rt, cid) = read_creds()?;
+    // AudioPulse refreshed on its own: adopt its token rather than spend the
+    // refresh token out from under it.
+    if file_at != stale {
+        if let Ok(mut g) = ACCESS.write() {
+            *g = Some(file_at.clone());
+        }
+        return Ok((file_at, false));
+    }
     if rt.is_empty() || cid.is_empty() {
         return Err("can't refresh the Spotify token (AudioPulse hasn't stored a refresh token / client id)".into());
     }
@@ -187,10 +209,62 @@ fn refresh() -> Result<String, String> {
         .and_then(|x| x.as_str())
         .ok_or("no access_token in the refresh response")?
         .to_string();
+    // The old refresh token is revoked now. Without the new one on disk,
+    // AudioPulse (and our own next refresh) would be left with a dead token.
+    if let Some(new_rt) = v
+        .get("refresh_token")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        if let Some(Err(e)) =
+            ap_config_dir().map(|d| store_rotated(&d.join("token.json"), &at, new_rt))
+        {
+            tracing::warn!(target: "flux::spotify", error = %e, "couldn't save the rotated Spotify refresh token");
+        }
+    }
     if let Ok(mut g) = ACCESS.write() {
         *g = Some(at.clone());
     }
-    Ok(at)
+    Ok((at, true))
+}
+
+/// Merge a rotated token pair into AudioPulse's token.json, keeping its other
+/// fields. An atomic replace whose temp file gets the original's mode from the
+/// start (normally 0600): this is a long-lived credential, and
+/// `persist::write_atomic` would create it with the umask default.
+fn store_rotated(path: &Path, access: &str, refresh: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    let obj = v
+        .as_object_mut()
+        .ok_or_else(|| std::io::Error::other("token.json isn't a JSON object"))?;
+    obj.insert("access_token".into(), json!(access));
+    obj.insert("refresh_token".into(), json!(refresh));
+    let mut name = path
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(".flux-{}.tmp", std::process::id()));
+    let tmp = path.with_file_name(name);
+    let _ = std::fs::remove_file(&tmp); // left over from a crash
+    let written = (|| {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+            opts.mode(std::fs::metadata(path)?.mode() & 0o777);
+        }
+        let mut f = opts.open(&tmp)?;
+        f.write_all(&serde_json::to_vec(&v)?)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 /// One Web API call with a 401-refresh-retry. Returns the JSON body (or `None`
@@ -201,11 +275,17 @@ fn api(
     query: &[(&str, &str)],
     body: Option<Value>,
 ) -> Result<Option<Value>, String> {
-    for attempt in 0..2u8 {
+    // The token the last attempt was refused with, and whether the refresh that
+    // replaced it minted a new one (or only adopted an existing one).
+    let mut stale = String::new();
+    let mut minted = false;
+    for attempt in 0..3u8 {
         let token = if attempt == 0 {
             current_access()?
         } else {
-            refresh()?
+            let (token, fresh) = refresh(&stale)?;
+            minted = fresh;
+            token
         };
         let url = format!("{API}{path}");
         let ag = http();
@@ -233,7 +313,12 @@ fn api(
                 }
                 return Ok(resp.into_json::<Value>().ok());
             }
-            Err(ureq::Error::Status(401, _)) if attempt == 0 => continue, // expired → refresh + retry
+            // Expired → refresh + retry; once more if the refresh only adopted a
+            // token (AudioPulse's) that has expired as well.
+            Err(ureq::Error::Status(401, _)) if attempt == 0 || !minted => {
+                stale = token;
+                continue;
+            }
             Err(ureq::Error::Status(404, _)) => {
                 // No active device — auto-start AudioPulse (idempotent) so the
                 // retry works once its Connect device registers.
@@ -788,4 +873,81 @@ pub async fn spotify_now_playing() -> Result<String, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("flux-spotify-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn rotated_tokens_are_merged_into_token_json() {
+        let dir = scratch("rotate");
+        let path = dir.join("token.json");
+        std::fs::write(
+            &path,
+            r#"{"access_token":"A1","token_type":"Bearer","refresh_token":"R1","expiry":"2026-01-01T00:00:00Z"}"#,
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+
+        store_rotated(&path, "A2", "R2").unwrap();
+
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["access_token"], "A2");
+        assert_eq!(v["refresh_token"], "R2");
+        // AudioPulse's own fields survive the merge.
+        assert_eq!(v["token_type"], "Bearer");
+        assert_eq!(v["expiry"], "2026-01-01T00:00:00Z");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(
+                mode, 0o600,
+                "the credential must not become readable by others"
+            );
+        }
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "no temp file left"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn refresh_adopts_a_newer_token_instead_of_spending_the_refresh_token() {
+        let dir = scratch("adopt");
+        // No config.json, so no client id: reaching the real refresh fails here
+        // instead of calling out.
+        std::fs::write(
+            dir.join("token.json"),
+            r#"{"access_token":"A2","refresh_token":"R2"}"#,
+        )
+        .unwrap();
+        spotify_set_dir(dir.to_string_lossy().into_owned());
+
+        // AudioPulse wrote A2 since A1 was refused: adopt it, nothing spent.
+        assert_eq!(refresh("A1"), Ok(("A2".to_string(), false)));
+        // A2 refused too, and nothing newer anywhere: only now spend the token.
+        assert!(refresh("A2").unwrap_err().contains("can't refresh"));
+        // Another call refreshed while this one waited: reuse its token.
+        *ACCESS.write().unwrap() = Some("A3".into());
+        assert_eq!(refresh("A2"), Ok(("A3".to_string(), false)));
+
+        spotify_set_dir(String::new());
+        *ACCESS.write().unwrap() = None;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
