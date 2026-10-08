@@ -250,6 +250,11 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     setDims(ds);
     setNumPages(n);
     setPages(Array.from({ length: n }, (_, i) => i + 1));
+    // <For> drops a deleted page's wrapper but its ref stays in these arrays: a
+    // detached node measures top 0, so pageFromScroll() reported page n+1 on
+    // every scroll, and its full-size canvas could never be collected.
+    pageEls.length = n;
+    canvases.length = n;
     setReady(true);
     setDocVersion((v) => v + 1);
     void publishText();
@@ -443,11 +448,14 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
 
   /** Scroll so `n`'s top edge sits just under the viewport top. */
   const scrollToPage = (n: number, behavior: ScrollBehavior = "smooth") => {
-    const el = pageEls[Math.min(Math.max(1, n), Math.max(1, numPages())) - 1];
+    // Clamped for the readout too: after deleting the page you were on, the
+    // re-anchor asks for a page that no longer exists.
+    const p = Math.min(Math.max(1, n), Math.max(1, numPages()));
+    const el = pageEls[p - 1];
     if (!el || !wrapEl) return;
     const delta = el.getBoundingClientRect().top - wrapEl.getBoundingClientRect().top;
     wrapEl.scrollTo({ top: wrapEl.scrollTop + delta - 8, behavior });
-    setCurPage(n);
+    setCurPage(p);
   };
 
   /** Which page is under the top of the viewport — the last one that has
