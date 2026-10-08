@@ -136,8 +136,10 @@ struct Config {
 pub struct SyncState {
     config_path: Option<PathBuf>,
     folder: RwLock<Option<PathBuf>>,
-    key: RwLock<Option<[u8; 32]>>,
-    salt: RwLock<Option<[u8; SALT_LEN]>>,
+    /// The derived key and the blob salt it came from, under one lock: unlocks
+    /// run off the main thread and can overlap, and a key paired with another
+    /// unlock's salt would seal a blob no device can ever open again.
+    key: RwLock<Option<([u8; 32], [u8; SALT_LEN])>>,
     last_ms: RwLock<u64>,
     auto: std::sync::atomic::AtomicBool,
     /// Hash of the last payload we wrote, so an idle auto-sync doesn't rewrite
@@ -197,7 +199,6 @@ impl SyncState {
             config_path: Some(config_path),
             folder: RwLock::new(cfg.folder.map(PathBuf::from)),
             key: RwLock::new(None),
-            salt: RwLock::new(None),
             last_ms: RwLock::new(cfg.last_ms),
             auto: std::sync::atomic::AtomicBool::new(cfg.auto),
             last_push: RwLock::new(None),
@@ -268,14 +269,12 @@ pub fn sync_set_folder(state: State<'_, SyncState>, path: String) {
     };
     // Folder changed → must unlock again (salt may differ).
     *state.key.write() = None;
-    *state.salt.write() = None;
     state.persist_config();
 }
 
 #[tauri::command]
 pub fn sync_lock(state: State<'_, SyncState>) {
     *state.key.write() = None;
-    *state.salt.write() = None;
 }
 
 /// Derive + verify the key from the passphrase, and say whether this created a
@@ -297,11 +296,16 @@ pub fn sync_lock(state: State<'_, SyncState>) {
 /// and the UI warns, rather than leaving the user to work out why "0 merged"
 /// never becomes anything else.
 #[tauri::command]
-pub fn sync_unlock(
-    app: AppHandle,
-    state: State<'_, SyncState>,
-    passphrase: String,
-) -> Result<bool, String> {
+pub async fn sync_unlock(app: AppHandle, passphrase: String) -> Result<bool, String> {
+    // Reading (maybe first downloading) the blob from a cloud folder, Argon2id
+    // and a full AEAD open: none of it on the main thread.
+    tauri::async_runtime::spawn_blocking(move || unlock_blocking(&app, &passphrase))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn unlock_blocking(app: &AppHandle, passphrase: &str) -> Result<bool, String> {
+    let state = app.state::<SyncState>();
     if passphrase.is_empty() {
         return Err("enter a passphrase".into());
     }
@@ -320,14 +324,13 @@ pub fn sync_unlock(
         Some(s) => s,
         None => rand::random(), // first device into this folder
     };
-    let key = derive_key(&passphrase, &salt)?;
+    let key = derive_key(passphrase, &salt)?;
     // If there's an existing blob, the passphrase must open it.
     if let Some(blob) = &existing {
         open(&key, sealed_part(blob))
             .map_err(|_| "wrong passphrase for this sync folder".to_string())?;
     }
-    *state.salt.write() = Some(salt);
-    *state.key.write() = Some(key);
+    *state.key.write() = Some((key, salt));
     // With auto on, pull right away so unlocking a device catches it up.
     if state.auto() {
         let app = app.clone();
@@ -342,11 +345,10 @@ pub fn sync_unlock(
 fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     let state = app.state::<SyncState>();
     let _one_at_a_time = state.run_lock.lock();
-    let key = state
+    let (key, salt) = state
         .key
         .read()
         .ok_or("unlock sync with your passphrase first")?;
-    let salt = state.salt.read().ok_or("unlock first")?;
     let blob_path = state.blob_path().ok_or("set a sync folder first")?;
 
     let bookmarks = app.state::<crate::bookmarks::BookmarkStore>();
@@ -438,8 +440,12 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 #[tauri::command]
-pub fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
-    run_sync(&app)
+pub async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
+    // Read (maybe first download), merge, re-seal and write the blob in a
+    // synced folder: none of it on the main thread.
+    tauri::async_runtime::spawn_blocking(move || run_sync(&app))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Turn the periodic background sync on/off (#62). When on, Flux re-syncs every
