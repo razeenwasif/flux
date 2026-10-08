@@ -8,7 +8,7 @@
  * named boards persisted to localStorage as compact stroke JSON. (Scribe reuses
  * the same engine for paged, disk-backed course notebooks — `ScribePage`.)
  */
-import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import { askText } from "./ask";
 
 import InkCanvas, { type Stroke } from "./InkCanvas";
@@ -26,12 +26,25 @@ const loadBoards = (): Board[] => {
   }
 };
 
+// One copy per window, shared by every mounted whiteboard: a tab and a
+// flux://whiteboard side panel (or two split panes) run in the same document,
+// where no `storage` event passes between them. With a copy each, every save
+// wrote one instance's whole array over the other's strokes.
+const [boards, setBoards] = createSignal<Board[]>(loadBoards());
+let saveTimer = 0;
+
 const WhiteboardPage: Component = () => {
-  const [boards, setBoards] = createSignal<Board[]>(loadBoards());
   const [boardId, setBoardId] = createSignal(boards()[0]!.id);
   const board = () => boards().find((b) => b.id === boardId()) ?? boards()[0]!;
+  // The other instance may delete the board this one shows. Follow to a live
+  // board, remounting the engine: its undo history belongs to the deleted one,
+  // and an undo would otherwise write those strokes over this board.
+  createEffect(() => {
+    const bs = boards();
+    const first = bs[0];
+    if (first && !bs.some((b) => b.id === boardId())) setBoardId(first.id);
+  });
 
-  let saveTimer = 0;
   const scheduleSave = () => {
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
@@ -58,9 +71,11 @@ const WhiteboardPage: Component = () => {
     scheduleSave();
   };
   const renameBoard = async () => {
+    // The board asked about, not whichever one is shown once the dialog closes.
+    const id = boardId();
     const name = await askText({ title: "Board name", value: board().name, confirm: "Rename" });
     if (name) {
-      setBoards((bs) => bs.map((b) => (b.id === boardId() ? { ...b, name } : b)));
+      setBoards((bs) => bs.map((b) => (b.id === id ? { ...b, name } : b)));
       scheduleSave();
     }
   };
