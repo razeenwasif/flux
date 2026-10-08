@@ -110,26 +110,33 @@ export const wrapText = (s: TextStroke): Line[] => {
   }
   return out;
 };
-/** Rendered width of the widest line (for bounds when there's no wrap width). */
-const textWidth = (s: TextStroke, lines: Line[]): number => {
-  if (s.w) return s.w;
+/** Rendered width of the widest line. */
+const inkWidth = (s: TextStroke, lines: Line[]): number => {
   const ctx = measurer();
   ctx.font = fontOf(s);
   const indent = listIndent(s);
   return lines.reduce((m, l) => Math.max(m, indent + ctx.measureText(l.text).width), 0);
 };
-/** The block's box in world units. */
-export const textBox = (s: TextStroke): Box => {
+/** The block's width: its wrap width, or the widest line when it has none. */
+const textWidth = (s: TextStroke, lines: Line[]): number => (s.w ? s.w : inkWidth(s, lines));
+/** A block's box in world units, as wide as `width` says. */
+const blockBox = (s: TextStroke, width: (s: TextStroke, lines: Line[]) => number): Box => {
   const lines = wrapText(s);
   const fs = fontSizeOf(s);
   const lh = lineHeightOf(s);
   return {
     x0: s.at.x,
     y0: s.at.y - fs,
-    x1: s.at.x + textWidth(s, lines),
+    x1: s.at.x + width(s, lines),
     y1: s.at.y + (lines.length - 1) * lh + fs * 0.25,
   };
 };
+/** The block's box in world units. */
+export const textBox = (s: TextStroke): Box => blockBox(s, textWidth);
+/** Only what a block paints: every laid-out line, as wide as the widest one.
+ *  The eraser and the PNG crop use this — `textBox` spans the wrap width, which
+ *  reaches the page margin however short the text is. */
+export const inkBox = (s: TextStroke): Box => blockBox(s, inkWidth);
 
 /** Every point that defines a stroke — the basis of bounds, lasso hit-testing
  *  and the writing caret. Text is approximated from its anchor + glyph width. */
@@ -696,14 +703,11 @@ const InkCanvas: Component<Props> = (props) => {
         const y0 = Math.min(s.a.y, s.b.y) - tol,
           y1 = Math.max(s.a.y, s.b.y) + tol;
         if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1) return i;
-      } else if (
-        s.t === "text" &&
-        p.x >= s.at.x - tol &&
-        p.x <= s.at.x + s.text.length * s.size * 0.6 + tol &&
-        p.y >= s.at.y - s.size &&
-        p.y <= s.at.y + tol
-      ) {
-        return i;
+      } else if (s.t === "text") {
+        // The painted lines, all of them: a first-line estimate couldn't erase
+        // wrapped lines, and reached far past the end of short ones.
+        const b = inkBox(s);
+        if (p.x >= b.x0 - tol && p.x <= b.x1 + tol && p.y >= b.y0 - tol && p.y <= b.y1 + tol) return i;
       }
     }
     return -1;
@@ -1048,8 +1052,11 @@ const InkCanvas: Component<Props> = (props) => {
       for (const s of ss) {
         if (isPath(s)) s.pts.forEach(feed);
         else if (s.t === "text") {
-          feed(s.at);
-          feed({ x: s.at.x + s.text.length * s.size * 0.6, y: s.at.y - s.size });
+          // Every laid-out line and the heading's full height — not just the
+          // first baseline, which cut wrapped and multi-line text out of the PNG.
+          const tb = inkBox(s);
+          feed({ x: tb.x0, y: tb.y0 });
+          feed({ x: tb.x1, y: tb.y1 });
         } else {
           feed(s.a);
           feed(s.b);
