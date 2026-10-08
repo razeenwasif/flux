@@ -358,6 +358,18 @@ pub async fn agent_write_text_file(
     content: String,
 ) -> Result<(), String> {
     store.check(&path)?;
+    // A WSL-bridge path (`/home/…`, `~/…`) on Windows is read *inside WSL*, which
+    // Windows-side `resolve` can't see: it rewrote `/home/me/x` to `C:\home\me\x`
+    // (the write failed) and `~/x` to the *Windows* home (the write landed on a
+    // different file from the one the edit was drafted from). Write it the way
+    // it was read.
+    #[cfg(windows)]
+    let target = if crate::files::is_wsl_path(&path) {
+        path
+    } else {
+        resolve(&path).to_string_lossy().into_owned()
+    };
+    #[cfg(not(windows))]
     let target = resolve(&path).to_string_lossy().into_owned();
     crate::files::ensure_fully_readable(target.clone()).await?;
     crate::files::write_text_file(target, content).await

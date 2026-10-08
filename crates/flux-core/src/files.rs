@@ -1654,13 +1654,10 @@ fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
 
 #[cfg(not(windows))]
 fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
-    let expanded = if let Some(rest) = p.strip_prefix("~/") {
-        std::env::var("HOME")
-            .map(|h| format!("{h}/{rest}"))
-            .unwrap_or_else(|_| p.to_string())
-    } else {
-        p.to_string()
-    };
+    // The same translation the reader applies (`read_bytes_capped`): under WSL a
+    // `C:\…` path is `/mnt/c/…`. Without it an edit drafted from the real file was
+    // written to a new file literally named `C:\…` in the working directory.
+    let expanded = expand_home(&native_path(p));
     std::fs::write(&expanded, content).map_err(|e| format!("can't write {p}: {e}"))
 }
 
