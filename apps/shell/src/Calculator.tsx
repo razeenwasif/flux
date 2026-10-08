@@ -27,15 +27,12 @@ function tokenize(src: string): Tok[] {
     }
     if (/[0-9.]/.test(c)) {
       let j = i + 1;
-      while (
-        j < s.length &&
-        /[0-9.eE]/.test(s[j]!) &&
-        !(/[eE]/.test(s[j]!) && !/[0-9.]/.test(s[j + 1] ?? ""))
-      ) {
-        // allow 1e3 but not a trailing 'e' that's the constant
-        if (/[eE]/.test(s[j]!) && !/[-+0-9]/.test(s[j + 1] ?? "")) break;
-        j++;
-      }
+      while (j < s.length && /[0-9.]/.test(s[j]!)) j++;
+      // Exponent (1e3, 1.5e+12, 3e-7) only when digits follow, so a bare `e` is
+      // still the constant. fmtResult() emits the signed form, so without the
+      // sign a result shown in exponent notation couldn't be calculated with.
+      const exp = /^[eE][-+]?\d+/.exec(s.slice(j));
+      if (exp) j += exp[0].length;
       out.push({ t: "num", v: Number(s.slice(i, j)) });
       i = j;
       continue;
@@ -73,7 +70,7 @@ const FN: Record<string, (x: number) => number> = {
 const TRIG_IN = new Set(["sin", "cos", "tan"]);
 const TRIG_OUT = new Set(["asin", "acos", "atan"]);
 
-function evaluate(src: string, deg: boolean, ans: number): number {
+export function evaluate(src: string, deg: boolean, ans: number): number {
   const toks = tokenize(src);
   let p = 0;
   const peek = () => toks[p];
@@ -174,7 +171,7 @@ function evaluate(src: string, deg: boolean, ans: number): number {
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-const fmtResult = (n: number): string => {
+export const fmtResult = (n: number): string => {
   if (!Number.isFinite(n)) return "Error";
   if (Math.abs(n) >= 1e12 || (n !== 0 && Math.abs(n) < 1e-6))
     return n.toExponential(6).replace(/\.?0+e/, "e");
