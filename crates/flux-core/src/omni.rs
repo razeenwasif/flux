@@ -211,10 +211,12 @@ pub fn maybe_auto_ingest(app: &AppHandle, url: &str, title: &str, text: &str) {
     if text.chars().count() < MIN_INGEST_CHARS {
         return; // thin page (login screen, app shell) — not worth indexing
     }
+    let Some(base) = app.state::<SearchState>().omni_ingest_base() else {
+        return; // no local Omni configured — never ship page text to a search engine
+    };
     let Some(slot) = ingest.claim(url) else {
         return; // this page is still posting, or Omni is behind — best-effort
     };
-    let base = app.state::<SearchState>().omni_base();
     post_page(slot, base, title.to_string(), text.to_string());
 }
 
@@ -237,6 +239,11 @@ pub async fn omni_ingest_active(
     search: State<'_, SearchState>,
     flux: State<'_, FluxState>,
 ) -> Result<String, String> {
+    // The base follows the default search engine, so check it is really an Omni
+    // before any page text goes anywhere (see `omni_ingest_base`).
+    let base = search.omni_ingest_base().ok_or(
+        "Omni isn't configured — set FLUX_OMNI_URL or make a local Omni your default engine",
+    )?;
     let snap = flux
         .active_snapshot()
         .ok_or("no active tab page captured yet")?;
@@ -245,7 +252,6 @@ pub async fn omni_ingest_active(
         .get(&snap.tab)
         .map(|t| t.title.clone())
         .unwrap_or_default();
-    let base = search.omni_base();
     let body = json!({ "url": snap.url, "title": title, "text": &*snap.text }).to_string();
     tauri::async_runtime::spawn_blocking(move || {
         ureq::post(&format!("{base}/ingest"))
