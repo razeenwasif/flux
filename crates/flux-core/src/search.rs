@@ -118,6 +118,7 @@ pub fn search_resolve(state: State<'_, SearchState>, input: String) -> Resolutio
 pub async fn search_suggest(
     state: State<'_, SearchState>,
     tabs: State<'_, crate::state::FluxState>,
+    proxy: State<'_, crate::proxy::ProxyState>,
     query: String,
     enabled: bool,
     tab_id: crate::state::TabId,
@@ -134,8 +135,13 @@ pub async fn search_suggest(
     let Some(url) = state.suggest_url(q) else {
         return Ok(vec![]);
     };
+    // Keystrokes go to the engine through the user's proxy (#63), or not at all.
+    let Some(agent) = proxy.agent_builder().map(|b| b.build()) else {
+        return Ok(vec![]);
+    };
     let body = tauri::async_runtime::spawn_blocking(move || {
-        ureq::get(&url)
+        agent
+            .get(&url)
             .timeout(Duration::from_secs(4))
             .call()
             .ok()?

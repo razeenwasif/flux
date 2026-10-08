@@ -50,6 +50,25 @@ impl ProxyState {
         (matches!(u.scheme(), "http" | "socks5") && u.host_str().is_some() && u.port().is_some())
             .then_some(u)
     }
+
+    /// A `ureq` agent builder for a Rust-side fetch on the tabs' network path.
+    /// See [`agent_builder`].
+    pub fn agent_builder(&self) -> Option<ureq::AgentBuilder> {
+        agent_builder(self.parsed().as_ref())
+    }
+}
+
+/// A `ureq` agent builder that goes through `proxy` (a [`ProxyState::parsed`]
+/// value), or `None` for a proxy ureq can't speak: SOCKS5, since it's built
+/// without `socks-proxy`. On `None` the caller must skip the request, because
+/// a direct one hands the site the address the proxy was set up to hide.
+pub fn agent_builder(proxy: Option<&Url>) -> Option<ureq::AgentBuilder> {
+    let builder = ureq::AgentBuilder::new();
+    match proxy {
+        None => Some(builder),
+        Some(u) if u.scheme() == "http" => Some(builder.proxy(ureq::Proxy::new(u.as_str()).ok()?)),
+        Some(_) => None,
+    }
 }
 
 /// Validate a user-supplied proxy URL the way `parsed()` will accept it.
@@ -99,5 +118,37 @@ mod tests {
         assert!(s.parsed().is_none());
         assert!(validate("ftp://x:1").is_err());
         assert!(validate("socks5://127.0.0.1:1080").is_ok());
+    }
+
+    #[test]
+    fn rust_side_fetches_go_through_the_proxy_or_not_at_all() {
+        let s = ProxyState::default();
+        assert!(s.agent_builder().is_some(), "no proxy: direct");
+        // ureq can't speak SOCKS here, so no fetch at all, never a direct one.
+        s.store(Some("socks5://127.0.0.1:9150".into()));
+        assert!(s.agent_builder().is_none());
+
+        // An HTTP proxy (a local listener standing in) receives the request.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 512];
+            let n = conn.read(&mut buf).unwrap_or(0);
+            let _ = conn.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
+            String::from_utf8_lossy(&buf[..n]).into_owned()
+        });
+        s.store(Some(format!("http://127.0.0.1:{port}")));
+        let agent = s
+            .agent_builder()
+            .unwrap()
+            .timeout(std::time::Duration::from_secs(5))
+            .build();
+        let _ = agent.get("http://flux.invalid/favicon.ico").call();
+        // Unblocks the listener if the request went anywhere else.
+        let _ = std::net::TcpStream::connect(("127.0.0.1", port));
+        let request = seen.join().unwrap();
+        assert!(request.starts_with("GET http://flux.invalid/favicon.ico "), "{request}");
     }
 }

@@ -54,6 +54,7 @@ fn sanitize(host: &str) -> String {
 #[tauri::command]
 pub async fn favicon(
     cache: State<'_, FaviconCache>,
+    proxy: State<'_, crate::proxy::ProxyState>,
     host: String,
 ) -> Result<Option<String>, String> {
     let host = host.trim().trim_start_matches("www.").to_ascii_lowercase();
@@ -75,10 +76,17 @@ pub async fn favicon(
         }
     }
 
+    // The tabs' network path: through the user's proxy (#63) when one is set,
+    // never direct, which would hand each site the address the proxy hides.
+    let proxy = proxy.parsed();
+    let Some(builder) = crate::proxy::agent_builder(proxy.as_ref()) else {
+        return Ok(None);
+    };
+    let proxied = proxy.is_some();
     let h = host.clone();
     let dir = cache.dir.clone();
     let fetched = tauri::async_runtime::spawn_blocking(move || {
-        let data = try_fetch(&icon_agent(&h), &h)?;
+        let data = try_fetch(&icon_agent(builder, proxied, &h), &h)?;
         if let Some(dir) = dir {
             let _ = std::fs::create_dir_all(&dir);
             let _ = std::fs::write(dir.join(format!("{}.txt", sanitize(&h))), &data);
@@ -114,9 +122,15 @@ fn prune_disk(dir: &Path, cap: usize) {
 }
 
 /// Agent for one host's icon fetch. The icon URL is page-chosen (`<link
-/// rel=icon href>`) and redirects can go anywhere, so every connection, each
-/// redirect hop included, is checked when it resolves: see [`icon_addrs`].
-fn icon_agent(host: &str) -> ureq::Agent {
+/// rel=icon href>`) and redirects can go anywhere, so without a proxy every
+/// connection, each redirect hop included, is checked when it resolves: see
+/// [`icon_addrs`].
+fn icon_agent(builder: ureq::AgentBuilder, proxied: bool, host: &str) -> ureq::Agent {
+    // Through a proxy, every connection is to the proxy, which resolves names
+    // itself: a lookup here would leak them.
+    if proxied {
+        return builder.build();
+    }
     // The browsed host may be an intranet site. Look it up once and pin it, so
     // a second (rebinding) answer can't move it inward mid-fetch.
     let pinned = (host, 443)
@@ -124,7 +138,7 @@ fn icon_agent(host: &str) -> ureq::Agent {
         .map(|it| pin(it.map(|a| a.ip())))
         .unwrap_or_default();
     let host = host.to_string();
-    ureq::AgentBuilder::new()
+    builder
         .resolver(move |netloc: &str| icon_addrs(netloc, &host, &pinned))
         .build()
 }
