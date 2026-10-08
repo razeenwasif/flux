@@ -88,11 +88,19 @@ pub struct SystemStats {
 }
 
 /// CPU + memory + the heaviest processes — system awareness for the agent
-/// ("how's my CPU?", "what's using memory?"). Briefly blocks (~200 ms) to sample
-/// CPU usage over an interval.
+/// ("how's my CPU?", "what's using memory?"). Takes ~200 ms to sample CPU usage
+/// over an interval.
 #[tauri::command]
-pub fn system_stats(mon: State<'_, SysMon>) -> SystemStats {
-    let mut sys = mon.0.lock();
+pub async fn system_stats() -> Result<SystemStats, String> {
+    // A sync command runs on the UI thread: the 200 ms sample plus a full
+    // process scan froze every webview. Run it on the blocking pool with its own
+    // `System`, so `mem_status` (UI thread) never waits on SysMon's lock either.
+    tauri::async_runtime::spawn_blocking(|| sample_system_stats(&mut System::new()))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+fn sample_system_stats(sys: &mut System) -> SystemStats {
     // CPU% needs two samples spaced by an interval.
     sys.refresh_cpu_usage();
     std::thread::sleep(std::time::Duration::from_millis(200));
