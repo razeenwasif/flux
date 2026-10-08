@@ -161,6 +161,7 @@ import {
   createMemo,
   createSignal,
   lazy,
+  on,
   onCleanup,
   onMount,
   type Component,
@@ -256,7 +257,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
     }, 600_000),
   );
   const [picker, setPicker] = createSignal(false);
-  const [address, setAddress] = createSignal("");
+  // null = not editing: show the active tab's URL. "" is a real (emptied) edit
+  // and must stay empty instead of snapping back to the URL.
+  const [address, setAddress] = createSignal<string | null>(null);
   const [panel, setPanel] = createSignal<FooterPanel>(null);
   // Split-view picker (#43 follow-up) — choose which open tab tiles beside this one.
   // Store-backed so the webview-gating effects can hide the page beneath it.
@@ -386,24 +389,55 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [macrosLoaded, setMacrosLoaded] = createSignal(false);
   const [passwordsLoaded, setPasswordsLoaded] = createSignal(false);
   // Per-page notes (#53): the popover edits the active page's note (auto-saved).
+  // It stays open across tab switches and navigation, so the text is tied to the
+  // page it was loaded for: an edit is saved there, and a new page under the
+  // popover gets its own note loaded rather than inheriting the previous text.
   const [noteText, setNoteText] = createSignal("");
+  // Read-only until the page's note has loaded, so nothing typed can start from
+  // the previous page's text.
+  const [noteLoaded, setNoteLoaded] = createSignal(false);
   let noteTimer: number | undefined;
+  let noteUrl: string | null = null;
+  let notePending: { url: string; text: string } | null = null;
+  const flushNote = () => {
+    clearTimeout(noteTimer);
+    const p = notePending;
+    notePending = null;
+    if (p) void noteSet(p.url, p.text).catch(() => {});
+  };
   const loadNote = () => {
+    flushNote(); // the previous page's last edit is written, not dropped
     const t = activeTab();
-    if (t?.kind === "browser" && !isStartUrl(t.url))
-      void noteGet(t.url)
-        .then(setNoteText)
-        .catch(() => setNoteText(""));
-    else setNoteText("");
+    const url = t?.kind === "browser" && !isStartUrl(t.url) ? t.url : null;
+    noteUrl = url;
+    setNoteLoaded(false);
+    setNoteText("");
+    if (!url) return;
+    const show = (s: string) => {
+      if (noteUrl !== url) return; // the popover has moved to another page since
+      setNoteText(s);
+      setNoteLoaded(true);
+    };
+    void noteGet(url)
+      .then(show)
+      .catch(() => show(""));
   };
   const saveNote = (text: string) => {
     setNoteText(text);
-    const t = activeTab();
-    if (!t) return;
-    const url = t.url;
+    if (!noteUrl) return;
+    notePending = { url: noteUrl, text };
     clearTimeout(noteTimer);
-    noteTimer = window.setTimeout(() => void noteSet(url, text).catch(() => {}), 400);
+    noteTimer = window.setTimeout(flushNote, 400);
   };
+  // Reload whenever the page under the open popover changes. Keyed on the URL
+  // string, so a title tick (a fresh activeTab object) can't reload the note
+  // being typed.
+  const noteTarget = createMemo(() => (panel() === "notes" ? (activeTab()?.url ?? "") : null));
+  createEffect(
+    on(noteTarget, (url) => {
+      if (url != null) loadNote();
+    }),
+  );
   // Active page's per-host zoom (#36), reactive via the zoom store.
   const activeZoom = (): number => {
     const t = activeTab();
@@ -443,6 +477,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
+        // Cancel a rename first: unmounting its field fires blur on WebView2,
+        // which would otherwise commit it.
+        setEditWs(null);
         setWsPanelOpen(false);
       }
     };
@@ -465,6 +502,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [editContainer, setEditContainer] = createSignal<number | null>(null);
   const [editFolder, setEditFolder] = createSignal<number | null>(null);
   const [editTab, setEditTab] = createSignal<number | null>(null);
+  // The tab-rename draft lives outside the row: rows are keyed on TabMeta
+  // objects, so an update to the tab re-creates its row (and field) mid-edit.
+  const [tabDraft, setTabDraft] = createSignal("");
+  let tabDraftFrom = "";
+  const beginTabRename = (t: TabMeta) => {
+    tabDraftFrom = tabLabel(t);
+    setTabDraft(tabDraftFrom);
+    setEditTab(t.id);
+  };
   const openCtx = (e: MouseEvent, tab: TabMeta) => {
     e.preventDefault();
     setCtxTab(tab);
@@ -519,6 +565,39 @@ const Sidebar: Component<SidebarProps> = (props) => {
     void recolorWorkspace(w.id, WS_PALETTE[(i + 1) % WS_PALETTE.length]!);
   };
 
+  /** A tab row's inline rename field (its draft is `tabDraft`). */
+  const TabRename: Component<{ tab: TabMeta }> = (p) => {
+    // Disposal runs before the old field leaves the DOM, so this is already set
+    // when Chromium/WebView2 fires blur on it: a rebuilt row must not commit.
+    let disposed = false;
+    onCleanup(() => (disposed = true));
+    return (
+      <input
+        class="tab-rename"
+        value={tabDraft()}
+        // Focused on every mount rather than by autofocus, which Chromium honours
+        // once per document: a rebuilt row re-creates this field mid-edit.
+        ref={(el) => queueMicrotask(() => el.focus())}
+        onClick={(e) => e.stopPropagation()}
+        onInput={(e) => setTabDraft(e.currentTarget.value)}
+        onBlur={() => {
+          // Escape already cleared editTab; a disposed field is being rebuilt.
+          if (disposed || editTab() !== p.tab.id) return;
+          setEditTab(null);
+          const v = tabDraft().trim();
+          // Unchanged → no-op: committing the shown title would store it as a
+          // custom name and freeze the label across later navigations.
+          if (v !== tabDraftFrom.trim()) void renameTab(p.tab.id, v);
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") e.currentTarget.blur();
+          else if (e.key === "Escape") setEditTab(null);
+        }}
+      />
+    );
+  };
+
   // One tab row — reused for grouped + ungrouped lists.
   const TabRow: Component<{ tab: TabMeta }> = (p) => (
     <div
@@ -562,9 +641,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
           const fy = (e.clientY - r.top) / r.height;
           const dragged = tabs().find((t) => t.id === d);
           const bothPages = dragged?.kind === "browser" && p.tab.kind === "browser";
-          if (fx > 0.6 && bothPages)
+          if (fx > 0.6 && bothPages) {
+            // setTile() rebuilds the *active* tab's group. Make the drop target
+            // active first, so an unrelated split on screen isn't the one replaced.
+            void focusTab(p.tab.id);
             setTile([p.tab.id, d], "cols"); // right side → split (#43)
-          else if (fy > 0.25 && fy < 0.75)
+          } else if (fy > 0.25 && fy < 0.75)
             void groupWithTab(d, p.tab.id); // center → group
           else void reorderTabs(d, p.tab.id, fy >= 0.75); // top/bottom → reorder
         }
@@ -591,28 +673,14 @@ const Sidebar: Component<SidebarProps> = (props) => {
             class="title"
             onDblClick={(e) => {
               e.stopPropagation();
-              setEditTab(p.tab.id);
+              beginTabRename(p.tab);
             }}
           >
             {tabLabel(p.tab)}
           </span>
         }
       >
-        <input
-          class="tab-rename"
-          value={tabLabel(p.tab)}
-          autofocus
-          onClick={(e) => e.stopPropagation()}
-          onBlur={(e) => {
-            void renameTab(p.tab.id, e.currentTarget.value.trim());
-            setEditTab(null);
-          }}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") e.currentTarget.blur();
-            else if (e.key === "Escape") setEditTab(null);
-          }}
-        />
+        <TabRename tab={p.tab} />
       </Show>
       <button
         class="close"
@@ -636,7 +704,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
         title="Exit split view"
         onClick={(e) => {
           e.stopPropagation();
-          clearTile();
+          // Exit THIS split. clearTile() only knows the active tab's group, so on
+          // any other pair it dissolved the wrong split or did nothing.
+          for (const id of groupOf(p.members[0]!.id)?.tabs ?? []) untile(id);
         }}
       >
         ⤢
@@ -733,7 +803,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
   // Show the "Ask Omni" affordance for a real query (not a URL / flux:// page).
   const canAsk = () => {
-    const q = address().trim();
+    const q = (address() ?? "").trim();
     return q.length > 2 && !q.startsWith("flux://") && !/^[a-z]+:\/\//i.test(q);
   };
 
@@ -743,24 +813,25 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const gen = ++omniGen;
     window.clearTimeout(omniDismissTimer);
     setOmniAns({ text: "", sources: [], streaming: true });
+    // Settle the card however the stream ends: a `done` frame, the command
+    // resolving without one (Omni hung up or timed out mid-answer), or an error.
+    const finish = (ms: number) => {
+      if (gen !== omniGen) return;
+      setOmniAns((a) => (a ? { ...a, streaming: false } : a));
+      window.clearTimeout(omniDismissTimer);
+      omniDismissTimer = window.setTimeout(() => {
+        if (gen === omniGen) clearOmniAns();
+      }, ms);
+    };
     void omniAnswer(query, (e) => {
       if (gen !== omniGen) return; // a newer ask superseded this stream
       if (e.type === "sources") setOmniAns((a) => (a ? { ...a, sources: e.sources } : a));
       else if (e.type === "token") setOmniAns((a) => (a ? { ...a, text: a.text + e.text } : a));
-      else if (e.type === "done") {
-        setOmniAns((a) => (a ? { ...a, streaming: false } : a));
-        omniDismissTimer = window.setTimeout(() => {
-          if (gen === omniGen) clearOmniAns();
-        }, 9000);
-      }
-    }).catch(() => {
-      if (gen === omniGen) {
-        setOmniAns((a) => (a ? { ...a, streaming: false } : a));
-        omniDismissTimer = window.setTimeout(() => {
-          if (gen === omniGen) clearOmniAns();
-        }, 5000);
-      }
-    });
+      else if (e.type === "done") finish(9000);
+    }).then(
+      () => finish(9000),
+      () => finish(5000),
+    );
   };
 
   const addressSearch = latestQuery(
@@ -807,7 +878,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const chooseSuggestion = async (s: Suggestion) => {
     closeSuggest();
     clearOmniAns();
-    setAddress("");
+    setAddress(null);
     if (s.url) props.onNavigate(s.url);
     else {
       const { url } = await searchResolve(s.label);
@@ -819,7 +890,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const n = suggestions().length;
     if (e.key === "Enter" && e.altKey) {
       e.preventDefault();
-      startOmniAnswer(address());
+      startOmniAnswer(address() ?? "");
     } else if (e.key === "ArrowDown" && n) {
       e.preventDefault();
       setSelIdx((i) => (i + 1) % n);
@@ -829,6 +900,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     } else if (e.key === "Escape") {
       closeSuggest();
       clearOmniAns();
+      setAddress(null); // revert to the page URL
     } else if (e.key === "Enter") {
       const s = suggestions()[selIdx()];
       if (s) {
@@ -842,9 +914,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
     e.preventDefault();
     closeSuggest();
     clearOmniAns();
-    const v = address().trim();
+    const v = (address() ?? "").trim();
     if (!v) return;
-    setAddress("");
+    setAddress(null);
     // `flux://…` internal pages (e.g. the Omni dashboard) bypass search.
     if (v.startsWith("flux://")) {
       props.onNavigate(v);
@@ -1045,7 +1117,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <input
             id="flux-address"
             class="address"
-            value={address() || currentUrl()}
+            value={address() ?? currentUrl()}
             onInput={(e) => onAddressInput(e.currentTarget.value)}
             onFocus={(e) => {
               e.currentTarget.select();
@@ -1153,12 +1225,12 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   class="omni-sug omni-ask"
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    startOmniAnswer(address());
+                    startOmniAnswer(address() ?? "");
                   }}
                 >
                   <span class="omni-sug-icon">✦</span>
                   <span class="omni-sug-text">
-                    <span class="omni-sug-label">Ask Omni: {address().trim()}</span>
+                    <span class="omni-sug-label">Ask Omni: {(address() ?? "").trim()}</span>
                     <span class="omni-sug-sub">grounded answer from your index · Alt+Enter</span>
                   </span>
                 </button>
@@ -1586,6 +1658,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                           autofocus
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => {
+                            if (editGroup() !== g.id) return; // Escape cancelled it
                             const v = e.currentTarget.value.trim();
                             if (v) void renameGroup(g.id, v);
                             setEditGroup(null);
@@ -1665,9 +1738,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </button>
               <button
                 onClick={() => {
-                  const id = t().id;
+                  const tab = t();
                   closeCtx();
-                  setEditTab(id);
+                  beginTabRename(tab);
                 }}
               >
                 Rename tab
@@ -1708,10 +1781,13 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </Show>
               {/* Both pages must be tileable — the same rule the ◫ and the picker
                   use. This was gated on "is a real web page" too, so a Flux page
-                  never offered it either. */}
-              <Show when={activeTab() != null && activeId() !== t().id}>
+                  never offered it either. Not offered for a tab already tiled
+                  with the current one: toggleTiled would take it OUT, dissolving
+                  a two-pane split. A full split disables it, as in the picker. */}
+              <Show when={activeTab() != null && activeId() !== t().id && !tileSel().includes(t().id)}>
                 <div class="ctx-sep" />
                 <button
+                  disabled={tileSel().length >= MAX_PANES}
                   onClick={() => {
                     toggleTiled(t().id);
                     closeCtx();
@@ -1953,6 +2029,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                       autofocus
                       onClick={(e) => e.stopPropagation()}
                       onBlur={(e) => {
+                        if (editWs() !== w.id) return; // Escape cancelled it
                         const v = e.currentTarget.value.trim();
                         if (v) void renameWorkspace(w.id, v);
                         setEditWs(null);
@@ -2028,6 +2105,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                         autofocus
                         onClick={(e) => e.stopPropagation()}
                         onBlur={(e) => {
+                          if (editFolder() !== f.id) return; // Escape cancelled it
                           const v = e.currentTarget.value.trim();
                           if (v) void renameFolder(f.id, v);
                           setEditFolder(null);
@@ -2225,10 +2303,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <button
             classList={{ "icon-btn": true, active: panel() === "notes" }}
             title="Note for this page"
-            onClick={() => {
-              openPanel("notes");
-              loadNote();
-            }}
+            onClick={() => openPanel("notes")}
           >
             <Icon name="note" />
           </button>
@@ -2351,6 +2426,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                         autofocus
                         onClick={(e) => e.stopPropagation()}
                         onBlur={(e) => {
+                          if (editContainer() !== c.id) return; // Escape cancelled it
                           const v = e.currentTarget.value.trim();
                           if (v) void renameContainer(c.id, v);
                           setEditContainer(null);
@@ -2676,6 +2752,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
                   class="note-area"
                   placeholder="Jot a note — saved locally for this page…"
                   value={noteText()}
+                  readOnly={!noteLoaded()}
                   onInput={(e) => saveNote(e.currentTarget.value)}
                 />
               </Show>

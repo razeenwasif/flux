@@ -1,4 +1,5 @@
 import { launcherOpen } from "./launcherOpen";
+import { linkMenuOpen } from "./linkMenu";
 /**
  * Shared tab store. Module-level Solid signals: the tab strip, pinned rail,
  * and web area all read the same source of truth, so a pin/focus mutation is
@@ -1210,7 +1211,8 @@ export const pageOverlayActive = (): boolean =>
   trackerGraphOpen() ||
   playgroundOpen() ||
   openAppIds().length > 0 ||
-  tuiPanes().length > 0;
+  tuiPanes().length > 0 ||
+  linkMenuOpen();
 export function setMapQuery(q: string): void {
   setMapQueryRaw(q);
   localStorage.setItem("flux.map.query", q);
@@ -1445,6 +1447,15 @@ export async function reopenClosedTab(): Promise<void> {
   await openTab("browser", last.url);
 }
 
+/** tiling.ts keeps its own record of which tab webviews exist (openedWebviews,
+ *  shown). A webview destroyed here must leave that record too, or the tiler
+ *  keeps "showing" (and go() keeps "navigating") a webview that is gone. App
+ *  wires this once to the tiler's forgetWebview. */
+let forgetTabWebview: (id: number) => void = () => {};
+export function setTabWebviewForgetter(fn: (id: number) => void): void {
+  forgetTabWebview = fn;
+}
+
 export async function closeTab(id: number): Promise<void> {
   // QoL: always keep a start tab around. Closing a browser tab when no *other*
   // flux://start tab is open converts this one into a fresh start tab instead of
@@ -1461,6 +1472,10 @@ export async function closeTab(id: number): Promise<void> {
     setHibernated(id, false);
     await webviewClose(id); // drop the page webview; start tabs have none
     updateTabUrl(id, START_URL);
+    // Forget only now that it is a start tab: paneLayout can no longer include
+    // it, so no tiler re-run can reopen the old page, and its next real URL takes
+    // the tiler's open path instead of a dead show/navigate.
+    forgetTabWebview(id);
     await tabSetUrl(id, START_URL, "New Tab").catch(() => {});
     await refreshTabs();
     return;
@@ -1470,12 +1485,19 @@ export async function closeTab(id: number): Promise<void> {
   setHibernated(id, false);
   await webviewClose(id); // tear down the native webview (no-op for terminal tabs)
   await tabClose(id);
-  // If we closed the active tab, fall back to the last remaining tab.
+  // If we closed the active tab, fall back to the last remaining tab of the
+  // workspace on screen, preferring the strip over folder-parked tabs. tabs() is
+  // the global order across every workspace (new tabs are appended), so its last
+  // entry was routinely another workspace's tab, shown in this one's card. With
+  // nothing left here, open a fresh tab in it, as switchWorkspace does.
   if (activeId() === id) {
-    const remaining = tabs().filter((t) => t.id !== id);
-    setActiveId(remaining.at(-1)?.id ?? null);
+    const here = tabs().filter((t) => t.id !== id && t.workspace === activeWorkspace());
+    const next = here.filter((t) => t.folder == null).at(-1) ?? here.at(-1);
+    if (next) setActiveId(next.id);
+    else await openTab("browser").catch(() => setActiveId(null)); // activates it
   }
   await refreshTabs();
+  forgetTabWebview(id); // gone from tabs(), so no tiler re-run can reopen it
 }
 
 // ─── Auto-archive stale tabs (#46) ──────────────────────────────────────────
@@ -1507,7 +1529,14 @@ const readJson = <T>(key: string, fallback: T): T => {
 };
 let accessMap: Record<string, number> = readJson(ACCESS_KEY, {});
 export const lastAccessForUrl = (url: string): number => accessMap[url] ?? 0;
-const saveAccess = () => localStorage.setItem(ACCESS_KEY, JSON.stringify(accessMap));
+const saveAccess = () => {
+  try {
+    localStorage.setItem(ACCESS_KEY, JSON.stringify(accessMap));
+  } catch {
+    /* quota / private mode: the in-memory map still serves this session, and a
+       throw here would escape the reactive flush that called touchTabUrl */
+  }
+};
 /** Record that a tab's URL was just visited (so it's not considered stale). */
 export function touchTabUrl(url: string): void {
   if (!url || url === START_URL) return;
@@ -1519,6 +1548,18 @@ export function touchTabUrl(url: string): void {
 export function seedTabAccess(urls: string[]): void {
   const now = Date.now();
   let changed = false;
+  // Only open tabs are ever looked up (staleTabIds, the split picker), so drop
+  // URLs no open tab holds; otherwise the map gains a key per page ever viewed
+  // and every touch re-serializes all of it. Skipped while `urls` is empty
+  // (before the first refreshTabs) so boot doesn't wipe the persisted times.
+  if (urls.length) {
+    const open = new Set(urls);
+    for (const u of Object.keys(accessMap))
+      if (!open.has(u)) {
+        delete accessMap[u];
+        changed = true;
+      }
+  }
   for (const u of urls)
     if (u && u !== START_URL && accessMap[u] == null) {
       accessMap[u] = now;

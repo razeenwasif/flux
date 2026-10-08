@@ -54,6 +54,7 @@ import {
   updateTabTitle,
   updateTabUrl,
 } from "./store";
+import { editorRatioAt } from "./layout";
 import { basename } from "./tabvisual";
 import { tileRects, tileSeams } from "./tiles";
 import {
@@ -96,6 +97,8 @@ const BookmarkBar = lazy(() => import("./BookmarkBar"));
  *  native child webview is positioned over (BACKLOG #2). */
 const ContentArea: Component<{
   editorVisible: boolean;
+  /** App's page minimum: the width fitLayout reserves for the page card. */
+  pageMinimum: number;
   onNavigate: (url: string) => void;
   onNewTerminal: () => void;
   onToggleAgent: () => void;
@@ -108,12 +111,6 @@ const ContentArea: Component<{
   // Once started, keep the editor alive while layouts temporarily hide it.
   const editorMounted = createMemo((was: boolean) => was || props.editorVisible, false);
 
-  /** Smallest either half of the row may be dragged to, in px. */
-  const EDITOR_MIN_PX = 220;
-  /** Width of `.editor-seam`; it sits between the halves, so the card ends one
-   *  seam short of where the pointer is. Kept in sync with the CSS. */
-  const EDITOR_SEAM_PX = 8;
-
   /** Drag the seam between the page and the editor. Sets `splitDragging` for the
    *  duration: a native webview is an OS layer that would otherwise swallow the
    *  pointer, so the tiling engine hides the page while the seam tracks it. */
@@ -124,12 +121,7 @@ const ContentArea: Component<{
     const move = (ev: PointerEvent) => {
       const r = rowEl.getBoundingClientRect();
       if (r.width <= 0) return;
-      // Clamp in px, not ratio: on a narrow window a "10%" floor is still too
-      // small to use, and both halves have to stay usable. The card's left
-      // clamp carries the seam, since the card ends where the seam begins.
-      const min = Math.min(EDITOR_MIN_PX, r.width / 3);
-      const x = Math.min(r.right - min, Math.max(r.left + min + EDITOR_SEAM_PX, ev.clientX));
-      setEditorColRatio((r.right - x) / r.width);
+      setEditorColRatio(editorRatioAt(r, ev.clientX, props.pageMinimum));
     };
     const up = () => {
       setSplitDragging(false);
@@ -403,7 +395,12 @@ const ContentArea: Component<{
           <div
             class="editor-seam"
             title="Drag to resize · double-click for an even split"
-            onDblClick={() => setEditorColRatio(0.5)}
+            onDblClick={() => {
+              // Even, unless that squeezes the page below its minimum: the same
+              // clamp as the drag, or the editor and this seam would vanish.
+              const r = rowEl.getBoundingClientRect();
+              if (r.width > 0) setEditorColRatio(editorRatioAt(r, r.left + r.width / 2, props.pageMinimum));
+            }}
             onPointerDown={startEditorDrag}
           />
         </Show>

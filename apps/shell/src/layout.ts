@@ -142,3 +142,24 @@ export function fitLayout(
   }
   return out;
 }
+
+/** Smallest either half of the page/editor row may be dragged to, in px. */
+export const EDITOR_MIN_PX = 220;
+/** Width of `.editor-seam`; it sits between the halves, so the card ends one
+ *  seam short of where the pointer is. Kept in sync with the CSS. */
+export const EDITOR_SEAM_PX = 8;
+
+/** The editor's share of the row with its seam dragged to `x`. Clamped in px,
+ *  not ratio: on a narrow window a "10%" floor is still too small to use, and
+ *  both halves have to stay usable. The page half also keeps `pageMinimum`, the
+ *  width fitLayout reserves for it: past that, fitLayout drops the editor column
+ *  mid-drag (taking the seam with it) and the persisted ratio kept it hidden on
+ *  every launch. */
+export function editorRatioAt(row: { left: number; width: number }, x: number, pageMinimum: number): number {
+  const min = Math.min(EDITOR_MIN_PX, row.width / 3);
+  const page = Math.max(min, Math.min(pageMinimum, row.width - min - EDITOR_SEAM_PX));
+  const right = row.left + row.width;
+  // The card's clamp carries the seam, since the card ends where the seam begins.
+  const at = Math.min(right - min, Math.max(row.left + page + EDITOR_SEAM_PX, x));
+  return (right - at) / row.width;
+}
