@@ -278,6 +278,7 @@ import {
   setOAuth,
   setSensitive,
   setConsent,
+  setTabWebviewForgetter,
   windowAcrylic,
 } from "./store";
 
@@ -458,6 +459,9 @@ const App: Component = () => {
     forceRelayout,
     paneLayout,
   } = createWebviewTiling({ overlayActive, uiDragging, focusMode });
+  // closeTab (store.ts) destroys webviews itself; keep the tiler's liveness
+  // bookkeeping in step, or a converted "New Tab" could never load a page again.
+  setTabWebviewForgetter(forgetWebview);
   // Last finished URL per tab — the "from" of the next navigation, for training
   // the predictive-prefetch Markov model (#103).
   const prevUrlByTab = new Map<number, string>();

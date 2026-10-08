@@ -1447,6 +1447,15 @@ export async function reopenClosedTab(): Promise<void> {
   await openTab("browser", last.url);
 }
 
+/** tiling.ts keeps its own record of which tab webviews exist (openedWebviews,
+ *  shown). A webview destroyed here must leave that record too, or the tiler
+ *  keeps "showing" (and go() keeps "navigating") a webview that is gone. App
+ *  wires this once to the tiler's forgetWebview. */
+let forgetTabWebview: (id: number) => void = () => {};
+export function setTabWebviewForgetter(fn: (id: number) => void): void {
+  forgetTabWebview = fn;
+}
+
 export async function closeTab(id: number): Promise<void> {
   // QoL: always keep a start tab around. Closing a browser tab when no *other*
   // flux://start tab is open converts this one into a fresh start tab instead of
@@ -1463,6 +1472,10 @@ export async function closeTab(id: number): Promise<void> {
     setHibernated(id, false);
     await webviewClose(id); // drop the page webview; start tabs have none
     updateTabUrl(id, START_URL);
+    // Forget only now that it is a start tab: paneLayout can no longer include
+    // it, so no tiler re-run can reopen the old page, and its next real URL takes
+    // the tiler's open path instead of a dead show/navigate.
+    forgetTabWebview(id);
     await tabSetUrl(id, START_URL, "New Tab").catch(() => {});
     await refreshTabs();
     return;
@@ -1478,6 +1491,7 @@ export async function closeTab(id: number): Promise<void> {
     setActiveId(remaining.at(-1)?.id ?? null);
   }
   await refreshTabs();
+  forgetTabWebview(id); // gone from tabs(), so no tiler re-run can reopen it
 }
 
 // ─── Auto-archive stale tabs (#46) ──────────────────────────────────────────
