@@ -16,6 +16,7 @@ import {
   type SitePerm,
 } from "./ipc";
 import { permissionHost } from "./permissionHost";
+import { isWindows } from "./platform";
 import { activeId, updateTabTitle } from "./store";
 
 const KINDS: { kind: PermKind; label: string; icon: string }[] = [
@@ -102,6 +103,12 @@ const PermissionsPage: Component = () => {
         <div class="res-note">
           Camera, microphone, location, and notification access per site. A saved <b>Allow</b> or
           <b> Block</b> is applied automatically; <b>Ask</b> lets the page prompt you normally.
+          {/* Rules are applied only by WebView2's permission handler (permissions.rs). */}
+          <Show when={!isWindows}>
+            {" "}
+            <b>Not enforced on this platform yet</b> — the web engine handles these requests itself, so saved
+            rules have no effect here.
+          </Show>
         </div>
 
         {/* Add a rule manually */}

@@ -12,6 +12,7 @@ import { For, Show, createSignal, onCleanup, onMount, type Component } from "sol
 import { terminalScreenReader, setTerminalScreenReader } from "./terminalAccessibility";
 import { settingsWriter } from "./settingsWriter";
 import { protectionMetrics, requestControlsHint } from "./protectionStatus";
+import { isWindows } from "./platform";
 import type { ShieldsStatus } from "./ipc";
 import { Row, Toggle } from "./SettingsControls";
 import SettingsNavigator, { Section } from "./SettingsNavigator";
@@ -1055,8 +1056,20 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           >
             <Toggle on={draftsOn()} disabled={controlsDisabled()} onClick={toggleDrafts} />
           </Row>
-          <Row label="Block camera / mic / location" hint="Auto-deny these permission prompts globally.">
-            <Toggle on={blockPerms()} disabled={controlsDisabled()} onClick={toggleBlockPerms} />
+          {/* Only WebView2's permission handler (permissions.rs) applies this. */}
+          <Row
+            label="Block camera / mic / location"
+            hint={
+              isWindows
+                ? "Auto-deny these permission prompts globally."
+                : "Enforced on Windows only — on this platform the web engine handles these requests itself."
+            }
+          >
+            <Toggle
+              on={blockPerms()}
+              disabled={controlsDisabled() || !isWindows}
+              onClick={toggleBlockPerms}
+            />
           </Row>
           <Row
             label="Per-site permissions"
