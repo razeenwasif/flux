@@ -199,6 +199,9 @@ mod tests {
         assert!(js.contains("report('bad_selector'"));
         let caught = js.find("report('bad_selector'").unwrap();
         let missing = js.find("report('not_found'").unwrap();
-        assert!(caught < missing, "a throwing lookup reports before the null check");
+        assert!(
+            caught < missing,
+            "a throwing lookup reports before the null check"
+        );
     }
 }
