@@ -192,32 +192,49 @@ fn luhn_valid(digits: &[u8]) -> bool {
     sum % 10 == 0
 }
 
-/// Does `text` contain something shaped like a real card number: a 13–19 digit
-/// run (spaces/dashes allowed) that passes Luhn? Structural rejection — such a
-/// value never reaches the store.
+/// Does `text` contain something shaped like a real card number: 13–19 digits
+/// (spaces/dashes allowed between groups) that pass Luhn? Structural rejection —
+/// such a value never reaches the store. Every group-aligned span of 13–19
+/// digits is tested, not just the whole run, so a neighbouring group ("4111 1111
+/// 1111 1111 12/25", "qty 2 4539 …") can't push the run past Luhn.
 fn contains_pan(text: &str) -> bool {
-    let mut run: Vec<u8> = Vec::with_capacity(20);
-    let check = |run: &mut Vec<u8>| {
-        let hit = (13..=19).contains(&run.len()) && luhn_valid(run);
-        run.clear();
-        hit
-    };
+    fn spans_pan(run: &[u8], groups: &[usize]) -> bool {
+        groups.iter().enumerate().any(|(i, &s)| {
+            groups[i + 1..]
+                .iter()
+                .copied()
+                .chain(std::iter::once(run.len()))
+                .take_while(|&e| e - s <= 19)
+                .any(|e| e - s >= 13 && luhn_valid(&run[s..e]))
+        })
+    }
+    let mut run: Vec<u8> = Vec::with_capacity(32);
+    let mut groups: Vec<usize> = Vec::new(); // offsets in `run` where a group starts
+    let mut in_group = false;
     for c in text.bytes() {
         if c.is_ascii_digit() {
+            if !in_group {
+                groups.push(run.len());
+                in_group = true;
+            }
             run.push(c);
-            if run.len() > 19 {
-                run.remove(0); // sliding window over very long digit runs
-                if (13..=19).contains(&run.len()) && luhn_valid(&run) {
-                    return true;
-                }
+            // A very long unbroken digit string: sliding 19-digit window, as before.
+            let g = groups[groups.len() - 1];
+            if run.len() - g > 19 && luhn_valid(&run[run.len() - 19..]) {
+                return true;
             }
         } else if c == b' ' || c == b'-' {
-            continue; // grouping separators inside a card number
-        } else if check(&mut run) {
-            return true;
+            in_group = false; // grouping separator inside a card number
+        } else {
+            if spans_pan(&run, &groups) {
+                return true;
+            }
+            run.clear();
+            groups.clear();
+            in_group = false;
         }
     }
-    check(&mut run)
+    spans_pan(&run, &groups)
 }
 
 /// Field names that must never be captured, whatever the page claims the input
@@ -295,6 +312,17 @@ mod tests {
             "my card is 4539 1488 0343 6467 thanks",
             "4539-1488-0343-6467",
             "pay 4111111111111111 now please",
+        ] {
+            assert!(redact("comment", v).is_none(), "{v}");
+        }
+        // …including when another digit group (expiry, CVV, a quantity) sits
+        // next to it and the whole run no longer passes Luhn.
+        for v in [
+            "card 4111 1111 1111 1111 12/25 cvv 123",
+            "4111 1111 1111 1111 12/25 123",
+            "4539 1488 0343 6467 0926",
+            "qty 2 4539 1488 0343 6467 please",
+            "visa 4111111111111111 12 27",
         ] {
             assert!(redact("comment", v).is_none(), "{v}");
         }
