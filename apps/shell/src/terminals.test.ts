@@ -1,12 +1,18 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { terminalWrite } from "./ipc";
 import {
   activeTerminalText,
   clipBlock,
+  insertInActiveTerminal,
   registerTerminal,
+  runInActiveTerminal,
   setActiveTerminal,
+  setTerminalOpener,
   unregisterTerminal,
 } from "./terminals";
+
+vi.mock("./ipc", () => ({ terminalWrite: vi.fn(async () => {}) }));
 
 /** Enough of xterm for the registry: a buffer of lines it can read back. */
 function fakeTerm(lines: string[]) {
@@ -26,11 +32,19 @@ function fakeTerm(lines: string[]) {
 // The registry is module state, so each test starts from a known set.
 const SHELL = 1;
 const EDITOR = 0xd000_0000;
+const TUI_PANE = 0xe000_0001;
+const COLUMN = 0; // PANE_SESSION
 
 beforeEach(() => {
-  unregisterTerminal(SHELL);
-  unregisterTerminal(EDITOR);
+  for (const s of [SHELL, EDITOR, TUI_PANE, COLUMN]) unregisterTerminal(s);
+  setTerminalOpener(() => {});
+  vi.mocked(terminalWrite).mockClear();
 });
+afterEach(() => vi.useRealTimers());
+
+/** Every (session, text) typed into a PTY so far. */
+const typedInto = () =>
+  vi.mocked(terminalWrite).mock.calls.map(([s, bytes]) => [s, new TextDecoder().decode(bytes)]);
 
 describe("terminal registry", () => {
   it("does not let an unfocused pane steal the agent's read target", () => {
@@ -99,5 +113,37 @@ describe("a failed command's block, for Explain/Fix", () => {
     expect(out.length).toBeLessThanOrEqual(4000);
     expect(out).toContain("❯ cargo build");
     expect(out.endsWith("error[E0308]: mismatched types")).toBe(true);
+  });
+});
+
+describe("typing a command into a terminal", () => {
+  it("goes to the shell, not the editor the user last clicked into", async () => {
+    registerTerminal(SHELL, fakeTerm(["$ "]), true);
+    registerTerminal(EDITOR, fakeTerm(["  1 fn main() {"]), false);
+    setActiveTerminal(EDITOR);
+    // nvim in normal mode would have taken "cargo test" as commands.
+    expect(await runInActiveTerminal("cargo test")).toBe(SHELL);
+    expect(typedInto()).toEqual([[SHELL, "cargo test\r"]]);
+    // Reading still follows focus: the agent can read the editor.
+    expect(activeTerminalText()?.session).toBe(EDITOR);
+  });
+
+  it("never goes to a TUI pane, whose letters are its commands", async () => {
+    registerTerminal(SHELL, fakeTerm(["$ "]), true);
+    registerTerminal(TUI_PANE, fakeTerm(["lazygit"]), true);
+    expect(await insertInActiveTerminal("git status")).toBe(SHELL);
+    expect(typedInto()).toEqual([[SHELL, "git status"]]);
+  });
+
+  it("opens a terminal when only the editor is up", async () => {
+    vi.useFakeTimers();
+    registerTerminal(EDITOR, fakeTerm(["  1 fn main() {"]), false);
+    const open = vi.fn(() => registerTerminal(COLUMN, fakeTerm(["$ "]), true));
+    setTerminalOpener(open);
+    const ran = runInActiveTerminal("ls");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await ran).toBe(COLUMN);
+    expect(open).toHaveBeenCalledOnce();
+    expect(typedInto()).toEqual([[COLUMN, "ls\r"]]);
   });
 });
