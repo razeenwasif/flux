@@ -159,6 +159,9 @@ pub fn terminal_spawn(
     let engine = if mode.live { live_engine() } else { None };
     let tmux_name = format!("flux-{session}");
     let sock = dtach_socket(session);
+    // Nowhere private for dtach's socket: a plain shell, as without dtach.
+    let engine = engine.filter(|e| *e != LiveEngine::Dtach || sock.is_some());
+    let sock = sock.unwrap_or_default();
     // `-z` so dtach doesn't act on ^Z and `-E` so it claims no detach key: with
     // xterm.js as the emulator, the broker should be invisible to keystrokes.
     // `-r winch` asks the program to redraw by resizing it rather than injecting
@@ -557,11 +560,62 @@ fn live_engine() -> Option<LiveEngine> {
     })
 }
 
-/// The dtach socket for a session. `/tmp` rather than `$XDG_RUNTIME_DIR` because
-/// the path is resolved by dtach itself — on Windows that's the MSYS runtime,
-/// which knows `/tmp` (the install's `tmp\`) but not the variable.
-fn dtach_socket(session: u64) -> String {
-    format!("/tmp/flux-term-{session}.sock")
+/// The dtach socket for a session, or `None` with nowhere private to put it.
+///
+/// On Windows it's `/tmp`, because the path is resolved by dtach itself through
+/// the MSYS runtime, which knows `/tmp` (the install's `tmp\`) but not
+/// `$XDG_RUNTIME_DIR`. On Unix `/tmp` is shared by every local user, and
+/// `dtach -A` attaches to whatever already listens at the path.
+fn dtach_socket(session: u64) -> Option<String> {
+    let name = format!("flux-term-{session}.sock");
+    #[cfg(windows)]
+    {
+        Some(format!("/tmp/{name}"))
+    }
+    #[cfg(not(windows))]
+    {
+        Some(
+            private_runtime_dir()?
+                .join(name)
+                .to_string_lossy()
+                .into_owned(),
+        )
+    }
+}
+
+/// A `flux` directory no other local user can write, for the dtach sockets and
+/// the bash rcfile: in a shared `/tmp` anyone can plant, swap or link a fixed
+/// name first. `$XDG_RUNTIME_DIR` (Linux) and macOS's per-user `$TMPDIR` are
+/// 0700; without either, `~/.cache`. Short, too: a socket path has to fit in
+/// 104 bytes on macOS.
+#[cfg(not(windows))]
+fn private_runtime_dir() -> Option<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let home_cache = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"));
+    [
+        std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
+        Some(std::env::temp_dir()),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|d| is_private_dir(d))
+    .chain(home_cache)
+    .map(|d| d.join("flux"))
+    .find(|d| {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(d)
+            .is_ok()
+    })
+}
+
+/// A directory only its owner can create entries in (not `/tmp`'s 1777).
+#[cfg(not(windows))]
+fn is_private_dir(dir: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    dir.is_absolute()
+        && std::fs::metadata(dir).is_ok_and(|m| m.is_dir() && m.permissions().mode() & 0o022 == 0)
 }
 
 /// Pattern identifying a session's dtach master for `pkill -f`.
@@ -599,6 +653,12 @@ fn shell_is_bash(shell: &str) -> bool {
 fn integration_rcfile() -> Option<std::path::PathBuf> {
     static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
     PATH.get_or_init(|| {
+        // Every Flux bash sources this file. In a shared `/tmp/flux/`, another
+        // user could own the directory and swap it, or plant a link we'd write
+        // through. (Windows' temp dir is per-user already.)
+        #[cfg(not(windows))]
+        let dir = private_runtime_dir()?;
+        #[cfg(windows)]
         let dir = std::env::temp_dir().join("flux");
         std::fs::create_dir_all(&dir).ok()?;
         let p = dir.join("shell-integration.bash");
@@ -741,12 +801,13 @@ fn kill_live_session(session: u64, engine: LiveEngine) {
             run_in_shell_world(&["tmux", "kill-session", "-t", &name]);
         }
         LiveEngine::Dtach => {
-            let sock = dtach_socket(session);
             let pattern = dtach_kill_pattern(session);
             run_in_shell_world(&["pkill", "-f", &pattern]);
             // Unlink separately: a stale socket makes the next `-A` attach to a
             // session with no master instead of creating a fresh one.
-            run_in_shell_world(&["rm", "-f", &sock]);
+            if let Some(sock) = dtach_socket(session) {
+                run_in_shell_world(&["rm", "-f", &sock]);
+            }
         }
     }
 }
@@ -1017,7 +1078,35 @@ mod tests {
             pat.starts_with("dtach"),
             "the pattern must require dtach before the socket: {pat}"
         );
-        assert_ne!(pat, dtach_socket(42), "never kill on the bare path");
+        assert_ne!(Some(pat), dtach_socket(42), "never kill on the bare path");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn sockets_and_the_rcfile_live_where_no_one_else_can_write() {
+        use std::os::unix::fs::PermissionsExt;
+        // `/tmp`'s own mode: anyone can create entries, so it doesn't qualify.
+        let dir = std::env::temp_dir().join(format!("flux-term-private-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o1777)).unwrap();
+        assert!(!is_private_dir(&dir));
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(is_private_dir(&dir));
+        assert!(!is_private_dir(std::path::Path::new("relative")));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        if let Some(sock) = dtach_socket(0xf000_0001) {
+            let parent = std::path::Path::new(&sock).parent().unwrap();
+            assert!(is_private_dir(parent), "shared socket dir: {sock}");
+            assert!(sock.len() < 104, "too long for a socket path: {sock}");
+        }
+        if let Some(rc) = integration_rcfile() {
+            assert!(
+                is_private_dir(rc.parent().unwrap()),
+                "shared rcfile: {rc:?}"
+            );
+        }
     }
 
     #[cfg(not(windows))]
