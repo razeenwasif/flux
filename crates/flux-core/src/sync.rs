@@ -17,7 +17,7 @@ use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit};
 use argon2::Argon2;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
@@ -148,6 +148,10 @@ pub struct SyncState {
     /// blob that's ~10 MB/hour of churn per device, plus a full copy in
     /// versioning history each time, all for no change at all.
     last_push: RwLock<Option<u64>>,
+    /// One `run_sync` at a time: "Sync now", the 3-minute timer and the
+    /// post-unlock / auto-on kicks all run it, and overlapping runs could
+    /// interleave their pull-merge-push cycles and their writes of the blob.
+    run_lock: Mutex<()>,
 }
 
 #[derive(Serialize, specta::Type)]
@@ -197,6 +201,7 @@ impl SyncState {
             last_ms: RwLock::new(cfg.last_ms),
             auto: std::sync::atomic::AtomicBool::new(cfg.auto),
             last_push: RwLock::new(None),
+            run_lock: Mutex::new(()),
         }
     }
 
@@ -336,6 +341,7 @@ pub fn sync_unlock(
 /// can call it too — both resolve the stores off the `app` handle.
 fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     let state = app.state::<SyncState>();
+    let _one_at_a_time = state.run_lock.lock();
     let key = state
         .key
         .read()
@@ -410,12 +416,9 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&salt);
     out.extend_from_slice(&sealed);
-    if let Some(dir) = blob_path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("sync folder: {e}"))?;
-    }
-    let tmp = blob_path.with_extension("enc.tmp");
-    std::fs::write(&tmp, &out).map_err(|e| format!("write: {e}"))?;
-    std::fs::rename(&tmp, &blob_path).map_err(|e| format!("commit: {e}"))?;
+    // Unique staging name + fsync + rename (creating the folder if needed): a
+    // published blob is always whole, never another writer's half-written file.
+    crate::persist::write_atomic(&blob_path, &out).map_err(|e| format!("write: {e}"))?;
 
     *state.last_push.write() = Some(digest);
     *state.last_ms.write() = now_ms();
