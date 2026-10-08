@@ -225,7 +225,9 @@ impl OllamaBackend {
                 // Fail fast if no server is listening (e.g. Ollama not running
                 // / wrong host) instead of hanging…
                 .timeout_connect(Duration::from_secs(5))
-                // …but allow many seconds for the model to actually generate.
+                // …but allow a cold model load and a long prompt eval before the
+                // first token. Every reply is streamed, so this bounds a stall,
+                // not the total generation time.
                 .timeout_read(Duration::from_secs(180))
                 .build(),
             endpoint: endpoint(),
@@ -496,7 +498,8 @@ fn generate_body_capped(
     body
 }
 
-/// Interpret a non-streaming `/api/generate` reply.
+/// Interpret an `/api/generate` reply, as [`read_stream`] folds it (the whole
+/// text plus the final chunk's `done_reason`).
 ///
 /// Ollama reports **why** it stopped. `done_reason:"length"` means the token cap
 /// was hit, so the JSON is cut off mid-token — the caller would otherwise see an
@@ -619,11 +622,16 @@ impl OllamaBackend {
         let structured = format.is_some();
         let mut cap = STRUCTURED_PREDICT_CAP;
         loop {
+            // Streamed, then folded back into one reply. With `stream:false`
+            // Ollama writes nothing until generation ends, so the 180 s read
+            // timeout was a deadline on the WHOLE generation (plus any cold
+            // load), which the upper retry rungs can't meet on a slower GPU.
+            // Streamed, each chunk resets it: it only bounds a stall.
             let body = generate_body_capped(
                 &active_model(),
                 prompt,
                 format.clone(),
-                false,
+                true,
                 structured.then_some(cap),
             );
             let resp = self
@@ -631,9 +639,7 @@ impl OllamaBackend {
                 .post(&url)
                 .send_json(body)
                 .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
-            let value: serde_json::Value = resp
-                .into_json()
-                .map_err(|e| AgentError::Inference(format!("ollama response decode: {e}")))?;
+            let value = read_stream(std::io::BufReader::new(resp.into_reader()), &mut |_| {})?;
 
             // Free-text replies are streamed elsewhere and aren't grammar-bound,
             // so a cap hit there is a genuine stop, not a broken payload.
@@ -1048,6 +1054,87 @@ mod tests {
         let b = generate_body("gemma4:12b-it-qat", "hello", None, false);
         assert!(b.get("format").is_none()); // no JSON constraint for chat
         assert_eq!(b["options"]["temperature"], 0.6);
+    }
+
+    /// A loopback stand-in for Ollama: answers each connection with the next
+    /// canned NDJSON body, and passes back the request body it received.
+    fn fake_ollama(
+        replies: Vec<&'static str>,
+    ) -> (OllamaBackend, std::sync::mpsc::Receiver<serde_json::Value>) {
+        use std::io::{BufRead, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for reply in replies {
+                let (mut sock, _) = listener.accept().unwrap();
+                let mut reader = std::io::BufReader::new(sock.try_clone().unwrap());
+                let (mut len, mut line) = (0, String::new());
+                // Headers end at the bare "\r\n".
+                while reader.read_line(&mut line).unwrap() > 2 {
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap();
+                    }
+                    line.clear();
+                }
+                let mut body = vec![0; len];
+                reader.read_exact(&mut body).unwrap();
+                let _ = tx.send(serde_json::from_slice(&body).unwrap());
+                write!(
+                    sock,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .unwrap();
+            }
+        });
+        let backend = OllamaBackend {
+            agent: ureq::AgentBuilder::new()
+                .timeout_read(Duration::from_secs(10))
+                .build(),
+            endpoint,
+        };
+        (backend, rx)
+    }
+
+    /// With `stream:false` Ollama writes nothing until generation ends, so the
+    /// 180 s read timeout capped the WHOLE generation, and the upper retry rungs
+    /// couldn't finish in time on a slower GPU. Streamed, each chunk resets it.
+    #[test]
+    fn structured_calls_stream_and_fold_the_reply() {
+        let schema = serde_json::json!({ "type": "object" });
+        let (backend, rx) = fake_ollama(vec![
+            // Cut off at the cap: the retry ladder must still see `done_reason`.
+            concat!(
+                r#"{"response":"{\"a\":","done":false}"#,
+                "\n",
+                r#"{"response":"","done":true,"done_reason":"length"}"#,
+                "\n"
+            ),
+            concat!(
+                r#"{"response":"{\"a\":","done":false}"#,
+                "\n",
+                r#"{"response":"1}","done":false}"#,
+                "\n",
+                r#"{"response":"","done":true,"done_reason":"stop"}"#,
+                "\n"
+            ),
+        ]);
+        assert_eq!(backend.complete("act", Some(&schema)).unwrap(), "{\"a\":1}");
+        let first = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let retry = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        for sent in [&first, &retry] {
+            assert_eq!(
+                sent["stream"], true,
+                "a non-streamed call races the read timeout"
+            );
+            assert_eq!(sent["format"], schema);
+        }
+        assert!(
+            retry["options"]["num_predict"].as_i64() > first["options"]["num_predict"].as_i64(),
+            "the retry asked for more room"
+        );
     }
 
     /// Ollama reports a failure after streaming began as an `{"error": …}` line
