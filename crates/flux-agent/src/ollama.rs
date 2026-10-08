@@ -543,6 +543,58 @@ fn read_generate_response_capped(
         .ok_or_else(|| AgentError::Inference(format!("ollama: no `response` field in {value}")))
 }
 
+/// Fold a `stream:true` `/api/generate` reply — newline-delimited JSON objects,
+/// each `{ "response": "<chunk>", "done": … }` — relaying each chunk to
+/// `on_token`. Returns the final chunk (which carries `done_reason`) with
+/// `response` replaced by the whole text: the shape of a `stream:false` reply.
+///
+/// Once streaming has started, Ollama reports a failure (runner crash, OOM, a
+/// cancelled load) as an `{"error": …}` line on a stream that already returned
+/// 200, and a complete stream always ends with `done:true`. So an error line, or
+/// a stream that closes without `done`, is an error — not a short answer.
+/// Pure over the reader, so it's testable without a server.
+fn read_stream(
+    mut reader: impl std::io::BufRead,
+    on_token: &mut dyn FnMut(&str),
+) -> Result<serde_json::Value, AgentError> {
+    let mut full = String::new();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break, // stream closed
+            Ok(_) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                // A malformed chunk shouldn't abort a good stream; skip it.
+                let Ok(mut value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+                    continue;
+                };
+                if let Some(err) = value.get("error").and_then(|e| e.as_str()) {
+                    return Err(AgentError::Inference(format!("ollama: {err}")));
+                }
+                if let Some(tok) = value.get("response").and_then(|v| v.as_str()) {
+                    if !tok.is_empty() {
+                        full.push_str(tok);
+                        on_token(tok);
+                    }
+                }
+                // `get` only finds `done` on an object, so the insert can't panic.
+                if value.get("done").and_then(|d| d.as_bool()).unwrap_or(false) {
+                    value["response"] = serde_json::Value::String(full);
+                    return Ok(value);
+                }
+            }
+            Err(e) => return Err(AgentError::Inference(format!("ollama stream read: {e}"))),
+        }
+    }
+    Err(AgentError::Inference(
+        "ollama: the reply stream closed before generation finished".into(),
+    ))
+}
+
 impl OllamaBackend {
     /// One structured/free-text completion, retrying a **truncated** structured
     /// reply with a larger token ceiling.
@@ -632,52 +684,27 @@ impl OllamaBackend {
         }
     }
 
-    /// Stream a free-text completion: `/api/generate` with `stream:true` returns
-    /// newline-delimited JSON objects, each `{ "response": "<chunk>", "done": … }`.
-    /// We relay each chunk to `on_token` and accumulate the full text (BACKLOG #82).
+    /// Stream a free-text completion, relaying each chunk to `on_token` and
+    /// accumulating the full text (BACKLOG #82). Tokens already relayed stay on
+    /// screen when the stream fails; the caller also gets the error, so a cut-off
+    /// reply isn't presented (or saved) as a complete one. See [`read_stream`].
     fn generate_stream(
         &self,
         prompt: &str,
         on_token: &mut dyn FnMut(&str),
     ) -> Result<String, AgentError> {
-        use std::io::BufRead;
         let url = format!("{}/api/generate", self.endpoint);
         let resp = self
             .agent
             .post(&url)
             .send_json(generate_body(&active_model(), prompt, None, true))
             .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
-
-        let mut reader = std::io::BufReader::new(resp.into_reader());
-        let mut full = String::new();
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match reader.read_line(&mut line) {
-                Ok(0) => break, // stream closed
-                Ok(_) => {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    // A malformed chunk shouldn't abort a good stream; skip it.
-                    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
-                        continue;
-                    };
-                    if let Some(tok) = value.get("response").and_then(|v| v.as_str()) {
-                        if !tok.is_empty() {
-                            full.push_str(tok);
-                            on_token(tok);
-                        }
-                    }
-                    if value.get("done").and_then(|d| d.as_bool()).unwrap_or(false) {
-                        break;
-                    }
-                }
-                Err(e) => return Err(AgentError::Inference(format!("ollama stream read: {e}"))),
-            }
-        }
-        Ok(full)
+        let value = read_stream(std::io::BufReader::new(resp.into_reader()), on_token)?;
+        Ok(value
+            .get("response")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_owned())
     }
 }
 
@@ -1021,6 +1048,46 @@ mod tests {
         let b = generate_body("gemma4:12b-it-qat", "hello", None, false);
         assert!(b.get("format").is_none()); // no JSON constraint for chat
         assert_eq!(b["options"]["temperature"], 0.6);
+    }
+
+    /// Ollama reports a failure after streaming began as an `{"error": …}` line
+    /// on a 200 stream. Skipping it returned half a sentence (or "") as a
+    /// finished answer, which the Trail chat then saved as one.
+    #[test]
+    fn a_stream_that_errors_or_stops_short_is_an_error() {
+        let fold = |body: &str| {
+            let mut toks: Vec<String> = Vec::new();
+            let r = read_stream(body.as_bytes(), &mut |t| toks.push(t.to_owned()));
+            (r, toks)
+        };
+
+        // A complete stream: chunks relayed, the final chunk carries the text.
+        let (r, toks) = fold(
+            "{\"response\":\"Hel\",\"done\":false}\n\
+             not json\n\
+             {\"response\":\"lo\",\"done\":false}\n\
+             {\"response\":\"\",\"done\":true,\"done_reason\":\"stop\"}\n",
+        );
+        let v = r.unwrap();
+        assert_eq!(toks, ["Hel", "lo"]);
+        assert_eq!(v["response"], "Hello");
+        assert_eq!(v["done_reason"], "stop");
+
+        // A mid-generation failure: what arrived stays relayed, but it's an error.
+        let (r, toks) = fold(
+            "{\"response\":\"Hal\",\"done\":false}\n\
+             {\"error\":\"model runner has unexpectedly stopped\"}\n",
+        );
+        assert_eq!(toks, ["Hal"]);
+        assert!(r.unwrap_err().to_string().contains("unexpectedly stopped"));
+
+        // A stream that ends without `done:true` never finished.
+        let (r, _) = fold("{\"response\":\"Hal\",\"done\":false}\n");
+        assert!(r
+            .unwrap_err()
+            .to_string()
+            .contains("before generation finished"));
+        assert!(fold("").0.is_err());
     }
 
     /// ureq 2 has no default read timeout: a listener that accepts and never
