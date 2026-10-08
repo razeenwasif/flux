@@ -255,11 +255,7 @@ const ContentArea: Component<{
       <Show when={activeConsent()}>
         {(c) => (
           <Suspense>
-            <ConsentBanner
-              consent={c()}
-              tabId={activeId() ?? -1}
-              onDismiss={() => setConsent(activeId() ?? -1, null)}
-            />
+            <ConsentBanner consent={c()} tabId={activeId() ?? -1} onDismiss={(id) => setConsent(id, null)} />
           </Suspense>
         )}
       </Show>
