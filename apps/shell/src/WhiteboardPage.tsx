@@ -12,7 +12,8 @@ import { For, Show, createSignal, onCleanup, onMount, type Component } from "sol
 import { askText } from "./ask";
 
 import InkCanvas, { type Stroke } from "./InkCanvas";
-import { activeId, updateTabTitle } from "./store";
+import { WHITEBOARD_URL } from "./ipc";
+import { titleInternalTab } from "./store";
 
 type Board = { id: string; name: string; ts: number; strokes: Stroke[] };
 
@@ -78,8 +79,7 @@ const WhiteboardPage: Component = () => {
   };
 
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Whiteboard");
+    titleInternalTab(WHITEBOARD_URL, "Whiteboard");
     onCleanup(() => {
       window.clearTimeout(saveTimer);
       try {

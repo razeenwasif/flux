@@ -61,6 +61,7 @@ import {
   searchEngines,
   searchSetDefault,
   SESSIONS_URL,
+  SETTINGS_URL,
   shieldsSetEnabled,
   shieldsSetSite,
   shieldsStatus,
@@ -150,8 +151,7 @@ import {
   vimHints,
   windowAcrylic,
   setWindowAcrylic,
-  activeId,
-  updateTabTitle,
+  titleInternalTab,
 } from "./store";
 
 const TRACKING_LABELS = ["Off", "Basic", "Balanced", "Strict"];
@@ -661,8 +661,7 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   };
 
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Settings");
+    titleInternalTab(SETTINGS_URL, "Settings");
     void loadCore();
     refreshVoices();
     try {

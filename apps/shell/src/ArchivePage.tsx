@@ -6,6 +6,7 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import {
+  ARCHIVE_URL,
   archiveDelete,
   archiveGet,
   archiveList,
@@ -13,7 +14,7 @@ import {
   type ArchiveEntry,
   type ArchiveMeta,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
@@ -41,8 +42,7 @@ const ArchivePage: Component<{ onNavigate: (url: string) => void }> = (props) =>
       .catch(() => setRows([]));
   };
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Archive");
+    titleInternalTab(ARCHIVE_URL, "Archive");
     refresh("");
   });
   const onInput = (q: string) => {

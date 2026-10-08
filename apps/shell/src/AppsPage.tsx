@@ -4,8 +4,8 @@
  * app"; relaunch or remove them here.
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
-import { pwaLaunch, pwaList, pwaRemove, type PwaApp } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { APPS_URL, pwaLaunch, pwaList, pwaRemove, type PwaApp } from "./ipc";
+import { titleInternalTab } from "./store";
 
 function hostOf(url: string): string {
   try {
@@ -25,8 +25,7 @@ const AppsPage: Component = () => {
       .then((a) => setApps(a ?? []))
       .catch(() => {});
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Apps");
+    titleInternalTab(APPS_URL, "Apps");
     refresh();
   });
   const remove = (id: number) => void pwaRemove(id).then(refresh);

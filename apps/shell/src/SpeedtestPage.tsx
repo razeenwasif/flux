@@ -5,8 +5,8 @@
  * from streamed interim throughput; upload + ping fill in on completion.
  */
 import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
-import { netspeedRun, onNetspeedProgress, type SpeedResult } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { SPEEDTEST_URL, netspeedRun, onNetspeedProgress, type SpeedResult } from "./ipc";
+import { titleInternalTab } from "./store";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 const PHASE_LABEL: Record<string, string> = {
@@ -65,8 +65,7 @@ const SpeedtestPage: Component = () => {
   let unlisten: UnlistenFn | undefined;
 
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Speed Test");
+    titleInternalTab(SPEEDTEST_URL, "Speed Test");
     void onNetspeedProgress((p) => {
       setPhase(p.phase);
       if (p.phase === "download" && p.mbps > 0) setLiveDown(p.mbps);

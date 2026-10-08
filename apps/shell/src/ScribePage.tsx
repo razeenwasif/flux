@@ -14,6 +14,7 @@ import { askText } from "./ask";
 import { renderStrokesScaled, type InkTemplate, type Stroke } from "./InkCanvas";
 import ScribeDoc, { DOC_H, DOC_W, parseDoc } from "./ScribeDoc";
 import {
+  SCRIBE_URL,
   scribeCreate,
   scribeDelete,
   scribeList,
@@ -25,7 +26,7 @@ import {
   type Notebook,
   type NotebookMeta,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 
 // A4 portrait at ~150dpi — a familiar page shape with room for long derivations.
 const PAGE_W = 1240;
@@ -136,8 +137,7 @@ const ScribePage: Component = () => {
   };
 
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Scribe");
+    titleInternalTab(SCRIBE_URL, "Scribe");
     void refreshShelf();
     // Ctrl/⌘+S saves now — the reflex everyone has, and it shouldn't open the
     // browser's save dialog over a notebook.
@@ -200,8 +200,7 @@ const ScribePage: Component = () => {
       const nb = await scribeLoad(id);
       setNotebook(nb);
       setPageIndex(0);
-      const at = activeId();
-      if (at != null) updateTabTitle(at, `Scribe · ${nb.name}`);
+      titleInternalTab(SCRIBE_URL, `Scribe · ${nb.name}`);
     } catch (e) {
       setShelfErr(String(e).replace(/^Error:\s*/, ""));
     }
@@ -239,8 +238,7 @@ const ScribePage: Component = () => {
     if (saveState() !== "saved") await flush();
     setNotebook(null);
     void refreshShelf();
-    const at = activeId();
-    if (at != null) updateTabTitle(at, "Scribe");
+    titleInternalTab(SCRIBE_URL, "Scribe");
   };
 
   const addPage = (template: InkTemplate) => {
@@ -312,8 +310,7 @@ const ScribePage: Component = () => {
     const name = await askText({ title: "Notebook name", value: cur.name, confirm: "Rename" });
     if (name) {
       persist({ ...cur, name });
-      const at = activeId();
-      if (at != null) updateTabTitle(at, `Scribe · ${name}`);
+      titleInternalTab(SCRIBE_URL, `Scribe · ${name}`);
     }
   };
 
