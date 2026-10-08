@@ -270,6 +270,7 @@ import {
   tabs,
   touchTabUrl,
   seedTabAccess,
+  pinnedTabs,
   unpinnedTabs,
   updateTabUrl,
   updateTabTitle,
@@ -1746,7 +1747,10 @@ const App: Component = () => {
       default:
         if (action.startsWith("tab-")) {
           const n = Number(action.slice(4));
-          const list = tabs();
+          // The strip on screen: this workspace's pinned rail, then its other
+          // tabs. tabs() is the global list (every workspace, folder-parked tabs
+          // too), so Ctrl+N focused tabs from workspaces you weren't in.
+          const list = [...pinnedTabs(), ...unpinnedTabs()];
           // Ctrl+1..8 → that position; Ctrl+9 → last tab (browser convention).
           const t = n === 9 ? list.at(-1) : list[n - 1];
           if (t) void focusTab(t.id);
