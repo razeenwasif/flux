@@ -239,9 +239,11 @@ pub fn dom_publish(
         crate::rpc::publish_active(&app);
     }
 
-    // Capture navigations into an in-progress macro recording (#67).
+    // Capture navigations into an in-progress macro recording (#67), from the
+    // tab being recorded only: every open tab re-publishes on its own DOM
+    // mutations, and a background tab's page isn't a step of this flow.
     if let Some(m) = app.try_state::<crate::macros::MacroState>() {
-        if m.is_recording() {
+        if m.is_recording_tab(tab_id) {
             if let Some(snap) = state.dom_cache.get(&tab_id) {
                 if snap.url.starts_with("http") {
                     m.push(crate::macros::Step::Navigate {

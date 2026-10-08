@@ -15,6 +15,8 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
+use crate::state::TabId;
+
 /// One recorded action. Tagged enum → clean JSON for the UI + persistence.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -40,6 +42,9 @@ pub struct MacroState {
     recording: RwLock<Option<Vec<Step>>>,
     /// Mirror of `recording.is_some()` for cheap reads (init-script stamp).
     active: AtomicBool,
+    /// The tab being recorded: the active one when Record was pressed (0 = none).
+    /// A macro replays in a single tab, so no other page's steps belong in it.
+    tab: AtomicU64,
 }
 
 #[derive(Serialize, specta::Type)]
@@ -56,6 +61,7 @@ impl Default for MacroState {
             next_id: AtomicU64::new(1),
             recording: RwLock::new(None),
             active: AtomicBool::new(false),
+            tab: AtomicU64::new(0),
         }
     }
 }
@@ -73,6 +79,7 @@ impl MacroState {
             next_id: AtomicU64::new(next),
             recording: RwLock::new(None),
             active: AtomicBool::new(false),
+            tab: AtomicU64::new(0),
         }
     }
 
@@ -80,25 +87,45 @@ impl MacroState {
         self.active.load(Ordering::Relaxed)
     }
 
-    pub fn start(&self, initial: Option<Step>) {
+    /// Is a recording running, and is `tab` the tab it's recording?
+    pub fn is_recording_tab(&self, tab: TabId) -> bool {
+        self.is_recording() && self.tab.load(Ordering::Relaxed) == tab
+    }
+
+    /// Start recording `tab` (the active tab), seeded with `initial`.
+    pub fn start(&self, initial: Option<Step>, tab: Option<TabId>) {
         let mut buf = Vec::new();
         if let Some(s) = initial {
             buf.push(s);
         }
+        self.tab.store(tab.unwrap_or(0), Ordering::Relaxed);
         *self.recording.write() = Some(buf);
         self.active.store(true, Ordering::Relaxed);
     }
 
-    /// Append a step if recording, collapsing redundant consecutive entries:
-    /// duplicate navigations, and repeated types into the same field (keep last).
+    /// Append a step if recording, collapsing redundant entries: a navigation
+    /// to the page the flow is already on, and repeated types into the same
+    /// field (keep last).
     pub fn push(&self, step: Step) {
         if !self.active.load(Ordering::Relaxed) {
             return;
         }
         let mut g = self.recording.write();
         let Some(buf) = g.as_mut() else { return };
+        // `dom_publish` reports the page again on every DOM mutation, so a click
+        // or keystroke that only changes the page arrives as a "navigation" to
+        // the URL the flow is already on. Recorded, replay would reload the page
+        // between steps and throw away what the step before it did.
+        if let Step::Navigate { url } = &step {
+            let current = buf.iter().rev().find_map(|s| match s {
+                Step::Navigate { url } => Some(url),
+                _ => None,
+            });
+            if current == Some(url) {
+                return;
+            }
+        }
         match (&step, buf.last_mut()) {
-            (Step::Navigate { url }, Some(Step::Navigate { url: prev })) if url == prev => {}
             (Step::Type { selector, text }, Some(Step::Type { selector: ps, .. }))
                 if selector == ps =>
             {
@@ -203,12 +230,12 @@ pub fn macros_status(state: State<'_, MacroState>) -> MacroStatus {
 /// starts from the right place.
 #[tauri::command]
 pub fn macro_start_record(app: AppHandle, state: State<'_, MacroState>) {
-    let initial = app
-        .state::<crate::state::FluxState>()
+    let flux = app.state::<crate::state::FluxState>();
+    let initial = flux
         .active_snapshot()
         .filter(|s| s.url.starts_with("http"))
         .map(|s| Step::Navigate { url: s.url.clone() });
-    state.start(initial);
+    state.start(initial, flux.active_tab());
     set_page_flag(&app, true);
 }
 
@@ -305,9 +332,12 @@ mod tests {
     #[test]
     fn records_and_collapses_steps() {
         let s = MacroState::default();
-        s.start(Some(Step::Navigate {
-            url: "https://a.com".into(),
-        }));
+        s.start(
+            Some(Step::Navigate {
+                url: "https://a.com".into(),
+            }),
+            Some(1),
+        );
         s.push(Step::Navigate {
             url: "https://a.com".into(),
         }); // dup → collapsed
@@ -346,9 +376,50 @@ mod tests {
     }
 
     #[test]
+    fn a_page_republish_is_not_a_navigation() {
+        let nav = |u: &str| Step::Navigate { url: u.into() };
+        let click = |sel: &str| Step::Click {
+            selector: sel.into(),
+        };
+        let s = MacroState::default();
+        s.start(Some(nav("https://a.com/")), Some(1));
+        s.push(click("#q"));
+        // The click only changed the page, which re-published itself: replaying
+        // this as `location.assign` would reload away what the click did.
+        s.push(nav("https://a.com/"));
+        s.push(click("#go"));
+        s.push(nav("https://a.com/results"));
+        s.push(click("#home"));
+        // Back to A *is* a navigation: the flow was on the results page.
+        s.push(nav("https://a.com/"));
+        let m = s.stop("m".into()).unwrap();
+        assert_eq!(
+            m.steps,
+            vec![
+                nav("https://a.com/"),
+                click("#q"),
+                click("#go"),
+                nav("https://a.com/results"),
+                click("#home"),
+                nav("https://a.com/"),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_the_recorded_tab_is_recorded() {
+        let s = MacroState::default();
+        s.start(None, Some(3));
+        assert!(s.is_recording_tab(3));
+        assert!(!s.is_recording_tab(4), "a background tab isn't the flow");
+        s.cancel();
+        assert!(!s.is_recording_tab(3));
+    }
+
+    #[test]
     fn empty_recording_saves_nothing() {
         let s = MacroState::default();
-        s.start(None);
+        s.start(None, Some(1));
         assert!(s.stop("empty".into()).is_none());
         assert!(s.list().is_empty());
     }
@@ -356,9 +427,12 @@ mod tests {
     #[test]
     fn list_delete_rename() {
         let s = MacroState::default();
-        s.start(Some(Step::Click {
-            selector: "#a".into(),
-        }));
+        s.start(
+            Some(Step::Click {
+                selector: "#a".into(),
+            }),
+            Some(1),
+        );
         let m = s.stop("m1".into()).unwrap();
         s.rename(m.id, "renamed".into());
         assert_eq!(s.get(m.id).unwrap().name, "renamed");
