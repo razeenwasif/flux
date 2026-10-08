@@ -810,8 +810,15 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     return new Uint8Array(await doc.save());
   };
 
+  /** One page-op at a time: each starts from `working`, so a second click before
+   *  the first had reloaded began from the same bytes and silently discarded the
+   *  first one's result. Not queued: a queued op's page index would point at the
+   *  document as it was when clicked, not as the earlier op left it. */
+  const [pageOpBusy, setPageOpBusy] = createSignal(false);
   /** Burn current annotations, run a byte→byte transform, reload the viewer. */
   const applyPageOp = async (op: (bytes: Uint8Array) => Promise<Uint8Array>) => {
+    if (pageOpBusy()) return;
+    setPageOpBusy(true);
     try {
       let replaced = false;
       const burned = await burnAnnots(working, () => (replaced = true));
@@ -822,6 +829,8 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       if (replaced) flash(`Text-note characters the PDF font can't draw were written as "?".`);
     } catch (e) {
       flash(`Page operation failed: ${String(e)}`);
+    } finally {
+      setPageOpBusy(false);
     }
   };
 
@@ -1363,7 +1372,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       <Show when={mode() === "pages" && ready()}>
         <div class="pdf-pages-panel">
           <div class="pdf-pages-actions">
-            <button class="pdf-btn" onClick={() => mergeInput?.click()}>
+            <button class="pdf-btn" disabled={pageOpBusy()} onClick={() => mergeInput?.click()}>
               ＋ Merge PDF…
             </button>
             <input
@@ -1393,13 +1402,23 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
                   <PageThumb pageNo={p} getDoc={() => pdfDoc} version={docVersion()} />
                   <div class="pdf-thumb-bar">
                     <span class="pdf-thumb-no">{i() + 1}</span>
-                    <button class="pdf-thumb-btn" title="Rotate 90°" onClick={() => void rotatePage(i())}>
+                    <button
+                      class="pdf-thumb-btn"
+                      title="Rotate 90°"
+                      disabled={pageOpBusy()}
+                      onClick={() => void rotatePage(i())}
+                    >
                       ⟳
                     </button>
                     <button class="pdf-thumb-btn" title="Extract page" onClick={() => void extractPage(i())}>
                       ⤓
                     </button>
-                    <button class="pdf-thumb-btn danger" title="Delete page" onClick={() => deletePage(i())}>
+                    <button
+                      class="pdf-thumb-btn danger"
+                      title="Delete page"
+                      disabled={pageOpBusy()}
+                      onClick={() => deletePage(i())}
+                    >
                       ✕
                     </button>
                   </div>
