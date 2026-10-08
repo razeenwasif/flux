@@ -430,7 +430,7 @@ impl UndoOp {
     fn revert(self) -> Result<String, String> {
         match self {
             UndoOp::Rename { from, to } => {
-                if Path::new(&from).exists() {
+                if Path::new(&from).exists() && !same_entry(Path::new(&from), Path::new(&to)) {
                     return Err(format!("{} already exists", base_name(&from)));
                 }
                 std::fs::rename(&to, &from).map_err(|e| e.to_string())?;
@@ -492,6 +492,27 @@ impl UndoStack {
     }
     fn pop(&self) -> Option<UndoOp> {
         self.0.lock().pop()
+    }
+}
+
+/// Do `a` and `b` name the same directory entry? True for a case-only rename
+/// on a case-insensitive volume (APFS, NTFS), where `b.exists()` is answered by
+/// `a` itself. Unix compares the entries without following links, so a symlink
+/// is never mistaken for its target (renaming over the target would destroy it).
+fn same_entry(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        matches!(
+            (std::fs::symlink_metadata(a), std::fs::symlink_metadata(b)),
+            (Ok(x), Ok(y)) if x.dev() == y.dev() && x.ino() == y.ino()
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let fold = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_lowercase());
+        fold(a) == fold(b)
+            && matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
     }
 }
 
@@ -1190,7 +1211,8 @@ pub async fn fs_rename(undo: State<'_, UndoStack>, from: String, to: String) -> 
     let (f, t) = (from.clone(), to.clone());
     tauri::async_runtime::spawn_blocking(move || {
         let (fp, tp) = (Path::new(&f), Path::new(&t));
-        if tp.exists() {
+        // `foo.txt` → `Foo.txt` on APFS/NTFS: `tp` "exists" because it *is* `fp`.
+        if tp.exists() && !same_entry(fp, tp) {
             return Err(format!("{} already exists", clean(tp)));
         }
         std::fs::rename(fp, tp).map_err(|e| e.to_string())
@@ -1848,6 +1870,46 @@ mod undo_tests {
         assert!(op.revert().is_ok());
         assert_eq!(std::fs::read(&src).unwrap(), b"moved");
         assert!(!dst.exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_case_only_rename_is_not_a_name_clash() {
+        let base = std::env::temp_dir().join(format!("flux_case_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let lower = base.join("readme.md");
+        let upper = base.join("README.md");
+        let other = base.join("notes.md");
+        std::fs::write(&lower, b"x").unwrap();
+        std::fs::write(&other, b"y").unwrap();
+        // A different file is never the same entry, on any volume.
+        assert!(!same_entry(&lower, &other));
+        #[cfg(unix)]
+        {
+            let link = base.join("link.md");
+            std::os::unix::fs::symlink(&other, &link).unwrap();
+            assert!(!same_entry(&link, &other), "a link is not its target");
+        }
+        if !upper.exists() {
+            // A case-sensitive volume: the two spellings are two names.
+            let _ = std::fs::remove_dir_all(&base);
+            return;
+        }
+        // APFS/NTFS: `README.md` "exists" only because it is `readme.md`.
+        assert!(same_entry(&lower, &upper));
+        std::fs::rename(&lower, &upper).unwrap();
+        // …and undoing that rename is not refused as a clash either.
+        let op = UndoOp::Rename {
+            from: clean(&lower),
+            to: clean(&upper),
+        };
+        assert!(op.revert().is_ok());
+        let names: Vec<String> = std::fs::read_dir(&base)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"readme.md".to_string()), "{names:?}");
         let _ = std::fs::remove_dir_all(&base);
     }
 }
