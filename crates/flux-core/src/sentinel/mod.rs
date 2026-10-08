@@ -261,16 +261,26 @@ async fn consent_check(
     let Some(snap) = snap else {
         return Ok(None);
     };
-    let text = snap.text.to_string();
-    if !explain::looks_like_consent(&text) {
+    if !explain::looks_like_consent(&snap.text) {
         return Ok(None);
     }
     let summary =
         "This page is asking you to accept cookies and data sharing with its partners.".to_string();
+    // A banner is per-site boilerplate: explain it once per site, not on every
+    // page view (this pass runs on every navigation). Keyed by the full host:
+    // the last-two-labels registrable would lump every `*.co.uk` site together.
+    let site = host_of(&snap.url);
+    if let Some(insight) = consent_insights()
+        .lock()
+        .ok()
+        .and_then(|c| c.get(&site).cloned())
+    {
+        return Ok(Some(Explainer { summary, insight }));
+    }
     // Hand the model the banner's own words; it explains what "Accept" enables.
     let banner = format!(
         "A cookie consent banner says: {}",
-        text.chars().take(1500).collect::<String>()
+        snap.text.chars().take(1500).collect::<String>()
     );
     let insight = tauri::async_runtime::spawn_blocking(move || {
         crate::agent_bridge::planner().explain_privacy(&banner)
@@ -278,7 +288,21 @@ async fn consent_check(
     .await
     .map_err(|e| e.to_string())?
     .unwrap_or_default();
+    if !insight.is_empty() {
+        if let Ok(mut c) = consent_insights().lock() {
+            if c.len() >= 256 {
+                c.clear(); // crude bound, like verdict_cache
+            }
+            c.insert(site, insight.clone());
+        }
+    }
     Ok(Some(Explainer { summary, insight }))
+}
+
+/// Per-site consent insight memo, bounded like [`verdict_cache`].
+fn consent_insights() -> &'static Mutex<HashMap<String, String>> {
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, String>>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Click the page's genuine "reject / necessary only" control (ADR 0013,

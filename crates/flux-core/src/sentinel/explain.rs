@@ -49,11 +49,27 @@ pub const REJECT_TERMS: &[&str] = &[
     "decline",
 ];
 
+/// What a banner *says*, as opposed to the link names a site footer carries on
+/// every page ("Cookie Policy · Your Privacy Choices · Cookie Preferences").
+/// A match needs one of these, so a footer alone never reads as a banner.
+const CONSENT_VOICE: &[&str] = &[
+    "we use cookies",
+    "uses cookies",
+    "accept all",
+    "accept cookies",
+    "allow all",
+    "reject all",
+    "legitimate interest",
+    "consent to the use of cookies",
+];
+
 /// Does this page text look like it carries a consent banner? Requires two
-/// distinct phrases so an article *about* cookies doesn't trip it.
+/// distinct phrases so an article *about* cookies doesn't trip it, one of them
+/// in a banner's own voice so a footer's link list doesn't either.
 pub fn looks_like_consent(text: &str) -> bool {
     let t = text.to_lowercase();
-    CONSENT_PHRASES.iter().filter(|p| t.contains(**p)).count() >= 2
+    CONSENT_VOICE.iter().any(|p| t.contains(p))
+        && CONSENT_PHRASES.iter().filter(|p| t.contains(**p)).count() >= 2
 }
 
 /// The injectable reject script, with the Rust-owned vocabulary baked in.
@@ -181,6 +197,14 @@ mod tests {
             "This post explains how a cookie policy is written and why it matters."
         ));
         assert!(!looks_like_consent("Nothing to do with consent at all."));
+        // A footer's link list names the policy on every page but never asks.
+        assert!(!looks_like_consent(
+            "Privacy Policy · Cookie Policy · Your Privacy Choices · Cookie Preferences"
+        ));
+        // IAB TCF banners ("We and our partners … legitimate interest") still match.
+        assert!(looks_like_consent(
+            "We and our partners store and access information. Some rely on legitimate interest."
+        ));
     }
 
     #[test]
