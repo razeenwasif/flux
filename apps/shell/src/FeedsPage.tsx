@@ -5,18 +5,8 @@
  * feed's items on the right. Clicking an item opens it in a new browser tab.
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
-import {
-  FEEDS_URL,
-  feedAdd,
-  feedItems,
-  feedRemove,
-  feedsList,
-  tabCreate,
-  tabFocus,
-  type Feed,
-  type FeedItem,
-} from "./ipc";
-import { titleInternalTab } from "./store";
+import { FEEDS_URL, feedAdd, feedItems, feedRemove, feedsList, type Feed, type FeedItem } from "./ipc";
+import { openTab, titleInternalTab } from "./store";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
@@ -98,10 +88,11 @@ const FeedsPage: Component = () => {
   };
 
   const open = (link: string) => {
-    if (!link) return;
-    void tabCreate("browser", link)
-      .then((t) => t && tabFocus(t.id))
-      .catch(() => {});
+    // A feed item's link is remote, untrusted data: only web links open.
+    if (!/^https?:\/\//i.test(link)) return;
+    // Through the store: a bare tabCreate + tabFocus made the tab in the backend
+    // only, so the chrome's tabs() and activeId never heard of it.
+    void openTab("browser", link).catch(() => {});
   };
 
   const selTitle = () => {
