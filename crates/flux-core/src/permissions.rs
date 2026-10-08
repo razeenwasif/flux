@@ -305,13 +305,14 @@ mod win {
     use tauri::{AppHandle, Emitter, Manager};
     use webview2_com::Microsoft::Web::WebView2::Win32::{
         ICoreWebView2Deferral, ICoreWebView2PermissionRequestedEventArgs,
-        COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CAMERA,
+        ICoreWebView2PermissionRequestedEventArgs3, COREWEBVIEW2_PERMISSION_KIND,
+        COREWEBVIEW2_PERMISSION_KIND_CAMERA,
         COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ, COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION,
         COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
         COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DENY,
     };
     use webview2_com::PermissionRequestedEventHandler;
-    use windows::core::PWSTR;
+    use windows::core::{Interface, PWSTR};
 
     use super::{Effective, PermAsk, PermKind, PermState};
 
@@ -347,6 +348,14 @@ mod win {
             let handler =
                 PermissionRequestedEventHandler::create(Box::new(move |_sender, args| {
                     let Some(args) = args else { return Ok(()) };
+                    // PermState is the one store of decisions. WebView2 defaults
+                    // SavesInProfile to TRUE, saving every SetState (a one-off
+                    // answer too) in the profile, where it can stop future
+                    // PermissionRequested events and so outlive a revocation or
+                    // the global block here. Deferred Asks share these args.
+                    if let Ok(a3) = args.cast::<ICoreWebView2PermissionRequestedEventArgs3>() {
+                        let _ = a3.SetSavesInProfile(false);
+                    }
                     let Some(state) = app.try_state::<PermState>() else {
                         return Ok(());
                     };
