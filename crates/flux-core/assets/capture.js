@@ -22,6 +22,7 @@
   const invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
 
   let timer = 0;
+  let deadline = 0;
   const send = () => {
     if (!invoke) return;
     const s = snapshot();
@@ -38,10 +39,21 @@
     }).catch(() => {});
   };
 
+  // Debounce with a max wait: 400 ms of quiet, or at most every 2 s. A pure
+  // trailing debounce never fired on a page that mutates more often than every
+  // 400 ms (JS animations, tickers, progress bars), and the load publish shares
+  // the timer, so such a page was never captured at all.
+  const flush = () => {
+    clearTimeout(timer);
+    clearTimeout(deadline);
+    timer = deadline = 0;
+    send();
+  };
   const publish = () => {
     if (!invoke) return;
     clearTimeout(timer);
-    timer = setTimeout(send, 400); // debounce: SPA storms → at most ~2 snapshots/s
+    timer = setTimeout(flush, 400);
+    if (!deadline) deadline = setTimeout(flush, 2000);
   };
 
   // Capture on load + history navigation. The MutationObserver needs a DOM
