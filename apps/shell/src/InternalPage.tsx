@@ -100,6 +100,12 @@ const InternalPage: Component<InternalPageProps> = (props) => {
   const publish = () => {
     const t = tab();
     if (!t || !host) return;
+    // Only Flux's own DOM pages are published from here. For a web tab this host
+    // holds the "title / loading…" placeholder its native webview covers, and
+    // publishing that overwrote capture.js's real snapshot in dom_cache. A page
+    // shown in a web panel carries a synthetic negative id, which is not a TabId.
+    const internal = t.kind === "files" || (t.kind === "browser" && isInternalPage(t.url));
+    if (!internal || t.id < 0) return;
     // The PDF viewer publishes the DOCUMENT's text itself (`pdf_publish_text`),
     // and this would publish the *chrome* on top of it — filename, "3 / 35",
     // "140%", the mode buttons. That is exactly what the agent then reported it
