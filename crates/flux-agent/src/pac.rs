@@ -144,7 +144,10 @@ impl crate::AgentPlanner {
             "required": ["command", "explanation"]
         });
         let raw = self.backend.complete(&prompt, Some(&schema))?;
-        let v: serde_json::Value = serde_json::from_str(raw.trim())?;
+        // The shared extractor, like every other structured call: a strict
+        // whole-string parse fails on the chat-template residue models append
+        // after the object ("trailing characters").
+        let v: serde_json::Value = crate::parse_first_json(&raw)?;
         let command = v
             .get("command")
             .and_then(|c| c.as_str())
@@ -233,5 +236,37 @@ mod tests {
         if plan.command.is_empty() {
             assert!(plan.danger.is_none() && !plan.read_only);
         }
+    }
+
+    /// Live gemma appends chat-template residue after the object, and a strict
+    /// whole-string parse failed every `/pac` with "trailing characters".
+    #[test]
+    fn plan_pac_tolerates_residue_after_the_object() {
+        struct Residue;
+        impl crate::Inference for Residue {
+            fn complete(
+                &self,
+                _: &str,
+                _: Option<&serde_json::Value>,
+            ) -> Result<String, AgentError> {
+                Ok(concat!(
+                    r#"{"command":"pac solution export --name Contoso --path contoso.zip","#,
+                    r#""explanation":"Exports the Contoso solution."}"#,
+                    "\n    <|tool_response>"
+                )
+                .into())
+            }
+            fn chat(&self, _: &str) -> Result<String, AgentError> {
+                Ok(String::new())
+            }
+        }
+        let plan = AgentPlanner::new(Box::new(Residue))
+            .plan_pac("export my solution Contoso")
+            .unwrap();
+        assert_eq!(
+            plan.command,
+            "pac solution export --name Contoso --path contoso.zip"
+        );
+        assert!(plan.read_only && plan.danger.is_none());
     }
 }
