@@ -399,7 +399,20 @@ pub fn chrome_focus(app: AppHandle) {
 /// current step landed on a match. Re-emitted to the chrome's find bar. A
 /// `fluxtab` plugin command so the (remote) page may call it, like `dom_publish`.
 #[tauri::command]
-pub fn find_result(app: AppHandle, tab_id: TabId, count: usize, found: bool) -> Result<(), String> {
+pub fn find_result(
+    app: AppHandle,
+    webview: tauri::Webview,
+    tab_id: TabId,
+    count: usize,
+    found: bool,
+) -> Result<(), String> {
+    // Like `dom_publish`, a page reports for its own tab only.
+    let caller = caller_tab(&webview)?;
+    if caller != tab_id {
+        return Err(format!(
+            "tab_id mismatch: caller is {caller}, reported {tab_id}"
+        ));
+    }
     app.emit("flux://find-result", (tab_id, count, found))
         .map_err(|e| e.to_string())
 }
@@ -423,10 +436,19 @@ pub struct ReaderBlock {
 #[tauri::command]
 pub fn reader_publish(
     app: AppHandle,
+    webview: tauri::Webview,
     tab_id: TabId,
     title: String,
     blocks: Vec<ReaderBlock>,
 ) -> Result<(), String> {
+    // Like `dom_publish`, a page reports for its own tab only: any tab, panel
+    // or peek can call this, and the chrome opens its overlay on the result.
+    let caller = caller_tab(&webview)?;
+    if caller != tab_id {
+        return Err(format!(
+            "tab_id mismatch: caller is {caller}, reported {tab_id}"
+        ));
+    }
     app.emit("flux://reader", (tab_id, title, blocks))
         .map_err(|e| e.to_string())
 }
