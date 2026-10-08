@@ -640,6 +640,13 @@ export const domPublishInternal = (tabId: number, url: string, text: string) =>
 export const onAgentStatus = (cb: (s: AgentStatus) => void): Promise<UnlistenFn> =>
   listen<AgentStatus>("flux://agent-status", (e) => cb(e.payload));
 
+/** Outcome of a compiled agent action, reported by the page itself:
+ *  [tabId, kind, detail, format, payload]. Untrusted: any page can send one. */
+export const onAgentReport = (
+  cb: (tabId: number, kind: string, detail: string, format: string, payload: string) => void,
+): Promise<UnlistenFn> =>
+  listen<[number, string, string, string, string]>("flux://agent-report", (e) => cb(...e.payload));
+
 export const onClustersUpdated = (cb: () => void): Promise<UnlistenFn> =>
   listen("flux://clusters-updated", () => cb());
 

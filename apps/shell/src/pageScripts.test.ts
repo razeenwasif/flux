@@ -19,17 +19,20 @@ afterEach(() => vi.useRealTimers());
 describe("capture.js", () => {
   const loadCapture = () => {
     const sent: string[] = [];
+    const args: unknown[] = [];
     const listeners = new Map<string, () => void>();
     let observed: (() => void) | undefined;
-    runPageScript(captureJs, {
-      window: {
-        __TAURI_INTERNALS__: {
-          invoke: (cmd: string) => {
-            sent.push(cmd);
-            return Promise.resolve();
-          },
+    const window: Record<string, unknown> = {
+      __TAURI_INTERNALS__: {
+        invoke: (cmd: string, a: unknown) => {
+          sent.push(cmd);
+          args.push(a);
+          return Promise.resolve();
         },
       },
+    };
+    runPageScript(captureJs, {
+      window,
       document: {
         readyState: "complete",
         documentElement: { outerHTML: "<html></html>" },
@@ -45,7 +48,13 @@ describe("capture.js", () => {
         observe() {}
       },
     });
-    return { sent, load: () => listeners.get("load")!(), mutate: () => observed!() };
+    return {
+      sent,
+      args,
+      flux: window.__FLUX__ as Record<string, (...a: unknown[]) => void>,
+      load: () => listeners.get("load")!(),
+      mutate: () => observed!(),
+    };
   };
 
   it("still publishes a page that never stops mutating", () => {
@@ -73,5 +82,18 @@ describe("capture.js", () => {
     }
     vi.advanceTimersByTime(5000);
     expect(page.sent).toEqual(["plugin:fluxtab|dom_publish"]);
+  });
+
+  it("sends agent action outcomes through the fluxtab bridge", () => {
+    // A raw postMessage with a made-up `cmd` matched no command, so a blocked
+    // click or an extracted table never reached the chrome.
+    const page = loadCapture();
+    page.flux.report!("blocked_destructive", "delete");
+    page.flux.deliver!("extract", "csv", "a,b");
+    expect(page.sent).toEqual(["plugin:fluxtab|agent_report", "plugin:fluxtab|agent_report"]);
+    expect(page.args).toEqual([
+      { kind: "blocked_destructive", detail: "delete", format: "", payload: "" },
+      { kind: "extract", detail: "", format: "csv", payload: "a,b" },
+    ]);
   });
 });

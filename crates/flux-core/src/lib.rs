@@ -1091,6 +1091,7 @@ pub fn run(intent: cli::LaunchIntent) {
                     broker::ext_broker_call,
                     dom::chrome_key,
                     dom::find_result,
+                    dom::agent_report,
                     dom::reader_publish,
                     hibernate::hibernate_capture,
                     // Page-callable and therefore MUST live in the fluxtab plugin

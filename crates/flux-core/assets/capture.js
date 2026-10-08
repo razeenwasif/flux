@@ -94,11 +94,25 @@
     // a page can also finish rendering in the moment between the last mutation
     // and the question. Asking beats hoping the cache is current.
     recapture: send,
+    // Through the fluxtab plugin like every other page → Rust call: a raw
+    // postMessage with a made-up `cmd` matched no command and was dropped.
     report(kind, detail) {
-      window.__TAURI_INTERNALS__?.postMessage?.({ cmd: "flux-agent-report", tab: TAB_ID, kind, detail });
+      if (!invoke) return;
+      invoke("plugin:fluxtab|agent_report", {
+        kind: String(kind),
+        detail: String(detail ?? ""),
+        format: "",
+        payload: "",
+      }).catch(() => {});
     },
     deliver(kind, format, payload) {
-      window.__TAURI_INTERNALS__?.postMessage?.({ cmd: "flux-agent-deliver", tab: TAB_ID, kind, format, payload });
+      if (!invoke) return;
+      invoke("plugin:fluxtab|agent_report", {
+        kind: String(kind),
+        detail: "",
+        format: String(format),
+        payload: String(payload),
+      }).catch(() => {});
     },
   });
 })();

@@ -371,6 +371,38 @@ pub fn find_result(app: AppHandle, tab_id: TabId, count: usize, found: bool) -> 
         .map_err(|e| e.to_string())
 }
 
+/// Largest extract payload passed on to the chrome; a page builds it, so bound it.
+const MAX_AGENT_PAYLOAD: usize = 1024 * 1024;
+
+/// Outcome of a compiled agent action (flux-agent `compile.rs`), reported by the
+/// page: `clicked`, `typed`, `not_found`, `bad_selector`, `blocked_destructive`,
+/// `refused`, or `extract` with its `format` + `payload`. Re-emitted to the agent
+/// panel, which only accepts a report from a tab it just ran an action on: this
+/// is a `fluxtab` plugin command, so any page can call it. The tab comes from
+/// the calling webview's label, never from the page.
+#[tauri::command]
+pub fn agent_report(
+    app: AppHandle,
+    webview: tauri::Webview,
+    kind: String,
+    detail: String,
+    format: String,
+    payload: String,
+) -> Result<(), String> {
+    let tab = caller_tab(&webview)?;
+    app.emit(
+        "flux://agent-report",
+        (
+            tab,
+            cap_utf8(kind, 64),
+            cap_utf8(detail, 1024),
+            cap_utf8(format, 16),
+            cap_utf8(payload, MAX_AGENT_PAYLOAD),
+        ),
+    )
+    .map_err(|e| e.to_string())
+}
+
 /// One structured block of a reader-mode extraction (#41): a heading, paragraph,
 /// list item, quote, preformatted block, image caption, or image.
 #[derive(serde::Serialize, serde::Deserialize, Clone, specta::Type)]
