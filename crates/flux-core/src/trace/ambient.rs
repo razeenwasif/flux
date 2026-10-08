@@ -157,9 +157,11 @@ pub fn find_past_sightings(
         return Vec::new();
     }
     let mut hints: Vec<AmbientHint> = Vec::new();
-    snaps.for_each_snapshot(|visit_id, url, title, saved_ms, text| {
+    // Newest first, stopping at MAX_HINTS: only the newest sightings are kept,
+    // so the whole corpus is walked only when matches are scarce.
+    snaps.for_each_snapshot_newest_first(|visit_id, url, title, saved_ms, text| {
         if url == current_url || hints.iter().any(|h| h.visit_id == visit_id) {
-            return;
+            return true;
         }
         if let Some(sig) = sigs.iter().find(|s| contains_normalized(text, s)) {
             hints.push(AmbientHint {
@@ -171,6 +173,7 @@ pub fn find_past_sightings(
                 has_chat: false,
             });
         }
+        hints.len() < MAX_HINTS
     });
     // Newest first; same-millisecond captures tie-break by visit id (higher =
     // later visit), so the order is deterministic.
@@ -263,5 +266,25 @@ A plain paragraph that talks about exceptions in general terms.";
         assert!(hints.iter().all(|h| h.url != "https://same.example/q"));
         // No signatures → no scan, no hints.
         assert!(find_past_sightings(&snaps, &[], "https://x/").is_empty());
+    }
+
+    #[test]
+    fn sightings_are_the_newest_and_the_walk_stops_there() {
+        let snaps = TraceSnapshots::empty_for_tests();
+        let err = "TypeError: Cannot read properties of undefined (reading 'map')";
+        for v in 1..=6 {
+            let url = format!("https://{v}.example/");
+            snaps.add(v, url, String::new(), format!("log {err}"), vec![]);
+        }
+        let hints = find_past_sightings(&snaps, &error_signatures(err), "https://x/");
+        let ids: Vec<VisitId> = hints.iter().map(|h| h.visit_id).collect();
+        assert_eq!(ids, vec![6, 5, 4]);
+        // The walk runs newest first and ends as soon as the callback says so.
+        let mut seen = Vec::new();
+        snaps.for_each_snapshot_newest_first(|v, _, _, _, _| {
+            seen.push(v);
+            seen.len() < 2
+        });
+        assert_eq!(seen, vec![6, 5]);
     }
 }

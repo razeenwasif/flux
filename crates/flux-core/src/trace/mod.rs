@@ -189,12 +189,11 @@ pub async fn trace_snapshot(
 /// the snapshot-store scan only runs when the current page actually has one.
 /// Reads only local stores; never the network.
 #[tauri::command]
-pub fn trace_ambient(
-    snaps: State<'_, TraceSnapshots>,
-    chats: State<'_, TraceChats>,
+pub async fn trace_ambient(
+    app: tauri::AppHandle,
     state: State<'_, crate::state::FluxState>,
     tab_id: TabId,
-) -> Vec<AmbientHint> {
+) -> Result<Vec<AmbientHint>, String> {
     let Some((url, sigs)) = ({
         // Extract from the live DOM cache, dropping the guard before the scan.
         state
@@ -202,16 +201,24 @@ pub fn trace_ambient(
             .get(&tab_id)
             .map(|snap| (snap.url.clone(), ambient::error_signatures(&snap.text)))
     }) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     if sigs.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    let mut hints = ambient::find_past_sightings(&snaps, &sigs, &url);
-    for h in &mut hints {
-        h.has_chat = chats.has_thread(h.visit_id);
-    }
-    hints
+    // The scan can walk up to 1,500 × 20 KiB of snapshot text, and the
+    // Connections rail asks on every page publish: never on the UI thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager as _;
+        let mut hints = ambient::find_past_sightings(&app.state::<TraceSnapshots>(), &sigs, &url);
+        let chats = app.state::<TraceChats>();
+        for h in &mut hints {
+            h.has_chat = chats.has_thread(h.visit_id);
+        }
+        hints
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Is draft capture on? Asked once by the injected `drafts.js` at page load —

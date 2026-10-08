@@ -260,13 +260,19 @@ impl TraceSnapshots {
             .collect()
     }
 
-    /// Visit each stored snapshot's metadata + text without cloning the corpus —
-    /// the ambient watcher's scan path (`f(visit_id, url, title, saved_ms, text)`).
+    /// Visit each stored snapshot's metadata + text without cloning the corpus,
+    /// newest first (the vec is push-ordered) — the ambient watcher's scan path
+    /// (`f(visit_id, url, title, saved_ms, text)`, returning false to stop).
     /// The read lock is held for the whole walk; callers keep `f` cheap.
-    pub fn for_each_snapshot(&self, mut f: impl FnMut(VisitId, &str, &str, u64, &str)) {
+    pub fn for_each_snapshot_newest_first(
+        &self,
+        mut f: impl FnMut(VisitId, &str, &str, u64, &str) -> bool,
+    ) {
         self.hydrate();
-        for s in self.inner.read().snapshots.iter() {
-            f(s.visit_id, &s.url, &s.title, s.saved_ms, &s.text);
+        for s in self.inner.read().snapshots.iter().rev() {
+            if !f(s.visit_id, &s.url, &s.title, s.saved_ms, &s.text) {
+                break;
+            }
         }
     }
 
