@@ -93,10 +93,23 @@ const EL_SERVICE: &str = "flux.elevenlabs";
 const EL_ACCOUNT: &str = "api-key";
 const EL_API: &str = "https://api.elevenlabs.io/v1";
 
+/// One pooled agent for ElevenLabs and Fish Audio, so the voice preflight, the
+/// synthesis POST and the next reply reuse a keep-alive TLS connection instead
+/// of handshaking each time. Not `.timeout()`: in ureq 2 that is a whole-request
+/// deadline that also bounds reading the body, so long audio still streaming at
+/// 30 s was cut off (its credit spent anyway). Per-phase timeouts still fail a
+/// stalled server: 30 s without a byte.
 fn el_http() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(30))
-        .build()
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    AGENT
+        .get_or_init(|| {
+            ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(10))
+                .timeout_read(Duration::from_secs(30))
+                .timeout_write(Duration::from_secs(30))
+                .build()
+        })
+        .clone()
 }
 
 fn el_key() -> Result<String, String> {
