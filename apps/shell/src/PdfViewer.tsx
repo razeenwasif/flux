@@ -192,6 +192,8 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   const [widgets, setWidgets] = createSignal<WidgetBox[]>([]);
 
   let working: Uint8Array = new Uint8Array();
+  /** The bytes as fetched: what "Download original" saves. */
+  let original: Uint8Array = new Uint8Array();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let pdfDoc: any = null;
   const canvases: (HTMLCanvasElement | undefined)[] = [];
@@ -451,6 +453,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       // Raw ArrayBuffer straight from Rust — no atob, no intermediate binary
       // string, one copy. This is what makes large PDFs affordable.
       const bytes = new Uint8Array(buf);
+      original = bytes;
       await loadBytes(bytes);
       updateTabTitle(props.tabId, filename());
       setLoading(false);
@@ -1271,9 +1274,21 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
         >
           {saving() ? "…" : "Save"}
         </button>
-        <a class="pdf-btn" href={src()} download={filename()} title="Download original">
+        {/* Never <a href={src()} download>: a local path resolves against the
+            chrome's own origin, and engines ignore `download` on a cross-origin
+            link and navigate the whole chrome window to the remote URL. */}
+        <button
+          class="pdf-btn"
+          title="Save the original to Downloads"
+          disabled={!ready()}
+          onClick={() =>
+            void pdfSave(bytesToB64(original), filename())
+              .then((path) => flash(`Saved original → ${path}`))
+              .catch((e) => flash(`Download failed: ${String(e)}`))
+          }
+        >
           ↓
-        </a>
+        </button>
       </div>
 
       {/* Edit toolbar */}
