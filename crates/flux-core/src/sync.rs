@@ -70,7 +70,9 @@ fn read_salt(blob: &[u8]) -> Option<[u8; SALT_LEN]> {
     blob[MAGIC.len()..MAGIC.len() + SALT_LEN].try_into().ok()
 }
 fn sealed_part(blob: &[u8]) -> &[u8] {
-    &blob[MAGIC.len() + SALT_LEN..]
+    // A short or truncated file takes `open`'s "blob too short" error: slicing
+    // past the end would panic, and release builds abort on panic.
+    blob.get(MAGIC.len() + SALT_LEN..).unwrap_or(&[])
 }
 
 /// Most history to ship in the blob (bounded so a big local history doesn't bloat
@@ -288,6 +290,14 @@ pub fn sync_unlock(
     }
     let blob_path = state.blob_path().ok_or("set a sync folder first")?;
     let existing = std::fs::read(&blob_path).ok();
+    // Say what's wrong with a file that isn't a sync blob at all, rather than
+    // "wrong passphrase" (an interrupted copy, a cloud placeholder, a stray).
+    if existing.as_deref().is_some_and(|b| read_salt(b).is_none()) {
+        return Err(format!(
+            "{} isn't a Flux sync file (empty, truncated or foreign); move it aside and unlock again",
+            blob_path.display()
+        ));
+    }
     let fresh_identity = existing.as_deref().and_then(read_salt).is_none();
     let salt: [u8; SALT_LEN] = match existing.as_deref().and_then(read_salt) {
         Some(s) => s,
@@ -494,6 +504,17 @@ mod tests {
         assert_eq!(read_salt(&blob), Some(salt));
         assert_eq!(sealed_part(&blob), b"sealed");
         assert_eq!(read_salt(b"nope"), None);
+    }
+
+    #[test]
+    fn a_short_blob_is_an_error_not_a_panic() {
+        // An empty or truncated flux-sync.enc (an interrupted copy, a cloud
+        // placeholder) used to slice past its end and abort the browser.
+        let key = derive_key("pw", b"salt-salt-salt16").unwrap();
+        for blob in [&b""[..], MAGIC, &[0u8; MAGIC.len() + SALT_LEN + 4][..]] {
+            assert_eq!(read_salt(blob), None);
+            assert!(open(&key, sealed_part(blob)).is_err());
+        }
     }
 
     #[test]
