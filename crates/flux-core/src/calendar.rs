@@ -423,13 +423,25 @@ fn fetch_ics(url: &str) -> Result<String, String> {
         .set("User-Agent", "Mozilla/5.0")
         .call()
         .map_err(|e| e.to_string())?;
+    read_ics(resp.into_reader())
+}
+
+/// A feed body, read up to the cap. One that doesn't fit is an error rather
+/// than a prefix: every VEVENT past the cut would vanish while an import still
+/// reported success.
+fn read_ics(body: impl Read) -> Result<String, String> {
     let mut buf = Vec::new();
-    resp.into_reader()
-        .take(MAX_ICS_BYTES + 1)
+    body.take(MAX_ICS_BYTES + 1)
         .read_to_end(&mut buf)
         .map_err(|e| e.to_string())?;
     if buf.is_empty() {
         return Err("empty response".into());
+    }
+    if buf.len() as u64 > MAX_ICS_BYTES {
+        return Err(format!(
+            "calendar feed is larger than {} MB",
+            MAX_ICS_BYTES / 1024 / 1024
+        ));
     }
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
@@ -1109,8 +1121,16 @@ pub async fn cal_events(
     tauri::async_runtime::spawn_blocking(move || {
         let mut all = Vec::new();
         for f in &feeds {
-            if let Ok(ics) = fetch_ics(&f.url) {
-                all.extend(parse_events(&ics, &f.name));
+            match fetch_ics(&f.url) {
+                Ok(ics) => all.extend(parse_events(&ics, &f.name)),
+                // Skipped so one dead feed doesn't blank the widget. Logged by
+                // name only: ureq's error text embeds the request URL, which is
+                // the calendar's secret address, and flux.log is on disk.
+                Err(_) => tracing::warn!(
+                    target: "flux::calendar",
+                    feed = %f.name,
+                    "calendar feed skipped"
+                ),
             }
         }
         // Cap the (potentially huge) ICS set first, then always keep local events
@@ -1264,6 +1284,16 @@ END:VCALENDAR";
         expand_local(&saved, day(2026, 3, 1), day(2026, 6, 1), &mut out);
         assert_eq!(out.len(), 12, "recurrence survives the round-trip");
         assert!(out.iter().all(|e| e.editable), "must be editable");
+    }
+
+    #[test]
+    fn an_oversized_feed_is_refused_not_truncated() {
+        let feed = |n: u64| std::io::repeat(b'x').take(n);
+        let full = read_ics(feed(MAX_ICS_BYTES)).unwrap();
+        assert_eq!(full.len() as u64, MAX_ICS_BYTES, "the cap itself fits");
+        // Past the cap, every VEVENT after the cut used to vanish silently.
+        assert!(read_ics(feed(MAX_ICS_BYTES + 1)).is_err());
+        assert!(read_ics(feed(0)).is_err(), "empty is still an error");
     }
 
     #[test]
