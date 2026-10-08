@@ -1183,6 +1183,23 @@ const App: Component = () => {
     if (id === activeWorkspace()) return;
     const cur = activeId();
     if (cur != null) wsLastTab.set(activeWorkspace(), cur);
+    await workspaceSwitch(id).catch(() => {});
+    const members = tabs().filter((t) => t.workspace === id);
+    const target =
+      members.find((t) => t.id === wsLastTab.get(id)) ??
+      members[0] ??
+      // Empty workspace → a fresh tab, created in it (the backend switched
+      // above), in the background so focus moves only in the batch below.
+      (await openTab("browser", undefined, undefined, true).catch(() => null));
+    // Flip the view and the active tab together, and only then tear down. The
+    // tiling effect re-runs on activeWorkspace (via tilePanes), activeId and the
+    // overlay flags (the workspace panel closes mid-switch). While activeId still
+    // named the leaving tab, such a re-run re-opened the webview just hibernated
+    // and later showed it over the target, live in an inactive workspace.
+    batch(() => {
+      setActiveWorkspace(id);
+      if (target) void focusTab(target.id);
+    });
     for (const t of tabs()) {
       if (t.workspace !== id && (openedWebviews.has(t.id) || openingWebviews.has(t.id))) {
         forgetWebview(t.id);
@@ -1190,12 +1207,6 @@ const App: Component = () => {
         wv(webviewHibernate(t.id));
       }
     }
-    await workspaceSwitch(id).catch(() => {});
-    setActiveWorkspace(id);
-    const members = tabs().filter((t) => t.workspace === id);
-    const target = members.find((t) => t.id === wsLastTab.get(id)) ?? members[0];
-    if (target) void focusTab(target.id);
-    else void openTab("browser"); // empty workspace → a fresh tab (created in it)
   };
   const newWorkspace = async () => {
     const palette = [0x9d8df1, 0x5bc0eb, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
