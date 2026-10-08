@@ -213,6 +213,55 @@ pub struct FluxState {
     /// Where the session is persisted (BACKLOG #19). `None` → no persistence
     /// (tests / the `Default` impl).
     session_path: Option<std::path::PathBuf>,
+    /// Session writes leave the UI thread: `persist` runs in sync commands, and
+    /// the write ends in an fsync (F_FULLFSYNC on macOS). Snapshots go to a
+    /// writer thread numbered by `persist_seq` as taken; `persist_written` is
+    /// the newest one on disk, so a stale snapshot never lands after a newer one.
+    session_tx: Option<std::sync::mpsc::Sender<(u64, Vec<u8>)>>,
+    persist_seq: parking_lot::Mutex<u64>,
+    persist_written: Arc<parking_lot::Mutex<u64>>,
+}
+
+/// Write `json` to `path` unless a newer snapshot (`seq`) is already on disk.
+/// Holding `written` across the write serializes every session write.
+fn write_session_if_newer(
+    path: &std::path::Path,
+    written: &parking_lot::Mutex<u64>,
+    seq: u64,
+    json: &[u8],
+) {
+    let mut last = written.lock();
+    if seq > *last {
+        *last = seq;
+        if let Err(e) = crate::persist::write_atomic(path, json) {
+            tracing::warn!(target: "flux::session", "session save failed: {e}");
+        }
+    }
+}
+
+/// The session writer thread. A burst of snapshots (a restore opening tab
+/// after tab) collapses to the newest one queued. Ends when the state (the
+/// only Sender) is dropped.
+fn spawn_session_writer(
+    path: std::path::PathBuf,
+    written: Arc<parking_lot::Mutex<u64>>,
+) -> Option<std::sync::mpsc::Sender<(u64, Vec<u8>)>> {
+    let (tx, rx) = std::sync::mpsc::channel::<(u64, Vec<u8>)>();
+    std::thread::Builder::new()
+        .name("flux-session-writer".into())
+        .spawn(move || {
+            while let Ok(mut next) = rx.recv() {
+                // By seq, not arrival: two commands can send out of order.
+                for queued in rx.try_iter() {
+                    if queued.0 > next.0 {
+                        next = queued;
+                    }
+                }
+                write_session_if_newer(&path, &written, next.0, &next.1);
+            }
+        })
+        .ok()?;
+    Some(tx)
 }
 
 impl FluxState {
@@ -241,6 +290,9 @@ impl FluxState {
             containers: RwLock::new(Vec::new()),
             next_container_id: AtomicU64::new(1),
             session_path: None,
+            session_tx: None,
+            persist_seq: parking_lot::Mutex::new(0),
+            persist_written: Arc::new(parking_lot::Mutex::new(0)),
         }
     }
 
@@ -285,6 +337,8 @@ impl FluxState {
         let next_panel = session.panels.iter().map(|p| p.id).max().unwrap_or(0) as u64 + 1;
         let max_container = session.containers.iter().map(|c| c.id).max().unwrap_or(0);
         let next_container = (max_container as u64 + 1).max(session.next_container_id as u64);
+        let persist_written = Arc::new(parking_lot::Mutex::new(0));
+        let session_tx = spawn_session_writer(session_path.clone(), Arc::clone(&persist_written));
         Self {
             active_tab: AtomicU64::new(active),
             next_tab_id: AtomicU64::new(next),
@@ -304,6 +358,9 @@ impl FluxState {
             containers: RwLock::new(session.containers),
             next_container_id: AtomicU64::new(next_container),
             session_path: Some(session_path),
+            session_tx,
+            persist_seq: parking_lot::Mutex::new(0),
+            persist_written,
         }
     }
 
@@ -669,14 +726,48 @@ impl FluxState {
         self.tabs.get(&tab_id).map(|t| t.container).unwrap_or(0)
     }
 
-    /// Write the current tabs to disk (no-op without a `session_path`). Cheap —
-    /// the file is a few KB — and called after each tab mutation. Tabs are
-    /// ordered by id (== creation order) so restore preserves the tab strip.
+    /// Persist the session (no-op without a `session_path`). Called after each
+    /// tab mutation, from UI-thread commands, so only the snapshot and its JSON
+    /// (a few KB) happen here; the writer thread does the fsync'd write.
     pub fn persist(&self) {
         let Some(path) = &self.session_path else {
             return;
         };
-        let session = crate::session::Session {
+        let Some((seq, json)) = self.session_json() else {
+            return;
+        };
+        let unsent = match &self.session_tx {
+            Some(tx) => tx.send((seq, json)).err().map(|e| e.0),
+            None => Some((seq, json)),
+        };
+        // No writer thread (it couldn't be spawned, or died): write here instead.
+        if let Some((seq, json)) = unsent {
+            write_session_if_newer(path, &self.persist_written, seq, &json);
+        }
+    }
+
+    /// Write the session now, on this thread: for shutdown (`RunEvent::Exit`),
+    /// where a write still queued for the writer thread would be cut off.
+    pub fn persist_blocking(&self) {
+        let Some(path) = &self.session_path else {
+            return;
+        };
+        if let Some((seq, json)) = self.session_json() {
+            write_session_if_newer(path, &self.persist_written, seq, &json);
+        }
+    }
+
+    /// The current session as JSON, numbered in the order snapshots are taken.
+    fn session_json(&self) -> Option<(u64, Vec<u8>)> {
+        let mut seq = self.persist_seq.lock();
+        let json = serde_json::to_vec_pretty(&self.session_snapshot()).ok()?;
+        *seq += 1;
+        Some((*seq, json))
+    }
+
+    /// The tabs and everything around them, as `session.json` stores them.
+    fn session_snapshot(&self) -> crate::session::Session {
+        crate::session::Session {
             // Saved in display order, so a restart preserves the drag-reordered
             // strip (#30) — `restore` reads the sequence back as the order.
             // Private tabs (#59) are ephemeral — never written to disk.
@@ -695,8 +786,7 @@ impl FluxState {
             containers: self.containers.read().clone(),
             next_workspace_id: self.next_workspace_id.load(Ordering::Relaxed) as u32,
             next_container_id: self.next_container_id.load(Ordering::Relaxed) as u32,
-        };
-        crate::session::save(path, &session);
+        }
     }
 
     /// Allocate a fresh tab id. `Relaxed` is sufficient: ids only need to be
@@ -728,5 +818,56 @@ impl FluxState {
 impl Default for FluxState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("flux-state-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir.join("session.json")
+    }
+
+    #[test]
+    fn persist_does_not_wait_for_the_session_write() {
+        let path = scratch("persist");
+        let state = Arc::new(FluxState::restore(path.clone()));
+        state.workspace_create("Trip".into(), 0);
+        // Stands in for a slow fsync: no session write can finish while held.
+        let disk = state.persist_written.lock();
+        let (done, returned) = std::sync::mpsc::channel();
+        let st = Arc::clone(&state);
+        std::thread::spawn(move || {
+            st.persist();
+            let _ = done.send(());
+        });
+        assert!(
+            returned.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "persist() waited for the disk write"
+        );
+        assert!(!path.exists());
+        drop(disk);
+        // The writer thread still lands it.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !path.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let saved = crate::session::load(&path);
+        assert!(saved.workspaces.iter().any(|w| w.name == "Trip"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn an_older_session_snapshot_never_replaces_a_newer_one() {
+        let path = scratch("stale");
+        let written = parking_lot::Mutex::new(0);
+        write_session_if_newer(&path, &written, 2, b"newer");
+        write_session_if_newer(&path, &written, 1, b"older");
+        assert_eq!(std::fs::read(&path).unwrap(), b"newer");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

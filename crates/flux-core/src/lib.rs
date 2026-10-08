@@ -1583,6 +1583,10 @@ pub fn run(intent: cli::LaunchIntent) {
 /// drafts and audit entries, or bring back a just-cleared history or a
 /// forgotten site.
 fn flush_on_exit(app: &tauri::AppHandle) {
+    // Tab changes are written by a background thread that exit would cut off.
+    if let Some(s) = app.try_state::<state::FluxState>() {
+        s.persist_blocking();
+    }
     if let Some(h) = app.try_state::<history::HistoryStore>() {
         h.persist_if_hydrated();
     }

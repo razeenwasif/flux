@@ -173,7 +173,7 @@ mod tests {
         let work_jar = state.container_create("Work".into(), 0);
         state.workspace_delete(trip);
         state.container_delete(work_jar);
-        state.persist();
+        state.persist_blocking();
 
         let state = FluxState::restore(path.clone());
         assert!(state.workspace_create("Work".into(), 0) > trip);
