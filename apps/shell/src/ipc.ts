@@ -281,12 +281,20 @@ export type AgentAction = GenAgentAction;
 
 // ─── Commands ────────────────────────────────────────────────────────────
 
-export const tabCreate = (kind: TabKind, url?: string, isPrivate?: boolean, container?: number) =>
+/** `background`: don't move the backend's active tab (the UI isn't switching to it). */
+export const tabCreate = (
+  kind: TabKind,
+  url?: string,
+  isPrivate?: boolean,
+  container?: number,
+  background?: boolean,
+) =>
   invoke<TabMeta>("tab_create", {
     kind,
     url: url ?? null,
     private: isPrivate ?? null,
     container: container ?? null,
+    background: background ?? null,
   });
 export const shellSnapshot = () => invoke<ShellSnapshot>("shell_snapshot");
 // ─── Multi-account containers (BACKLOG #59) — Container type from bindings.gen ──

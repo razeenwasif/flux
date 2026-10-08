@@ -1364,7 +1364,7 @@ export async function openTab(
   isPrivate?: boolean,
   background?: boolean,
 ): Promise<TabMeta> {
-  const tab = await tabCreate(kind, url, isPrivate);
+  const tab = await tabCreate(kind, url, isPrivate, undefined, background);
   if (!background) setActiveId(tab.id); // background tabs (middle/Ctrl-click) don't steal focus
   await refreshTabs();
   return tab;

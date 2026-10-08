@@ -65,6 +65,8 @@ pub fn shell_snapshot(state: State<'_, FluxState>) -> ShellSnapshot {
 /// Register a new tab of either kind. For Browser tabs the frontend creates
 /// the child webview (labelled `tab-{id}`) once this returns; for Terminal
 /// tabs flux-core spawns a PTY session (BACKLOG #3) with `terminal_env`.
+/// `background` (middle/Ctrl-click, a page's window.open, session restore)
+/// leaves the active tab where it is.
 #[tauri::command]
 pub fn tab_create(
     state: State<'_, FluxState>,
@@ -72,6 +74,26 @@ pub fn tab_create(
     url: Option<String>,
     private: Option<bool>,
     container: Option<u32>,
+    background: Option<bool>,
+) -> TabMeta {
+    create_tab(
+        &state,
+        kind,
+        url,
+        private,
+        container,
+        background.unwrap_or(false),
+    )
+}
+
+/// `tab_create` minus the Tauri plumbing, so it can be tested.
+fn create_tab(
+    state: &FluxState,
+    kind: TabKind,
+    url: Option<String>,
+    private: Option<bool>,
+    container: Option<u32>,
+    background: bool,
 ) -> TabMeta {
     let id = state.alloc_tab_id();
     let (url, title) = match kind {
@@ -106,7 +128,12 @@ pub fn tab_create(
     };
     state.tabs.insert(id, meta.clone());
     state.order_push(id);
-    state.set_active_tab(id);
+    // The agent, archive, macros, sentinel and the terminal's active.json all
+    // read this pointer: a tab opened in the background must not retarget them
+    // while the user is still looking at the old one.
+    if !background {
+        state.set_active_tab(id);
+    }
     state.persist();
     meta
 }
@@ -471,4 +498,33 @@ pub async fn tabs_recluster(app: AppHandle, state: State<'_, FluxState>) -> Resu
     }
     app.emit("flux://clusters-updated", ())
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_background_tab_leaves_the_active_tab_alone() {
+        let state = FluxState::new();
+        let open = |url: &str, background| {
+            create_tab(
+                &state,
+                TabKind::Browser,
+                Some(url.into()),
+                None,
+                None,
+                background,
+            )
+        };
+        let a = open("https://a.example/", false);
+        assert_eq!(state.active_tab(), Some(a.id));
+        let b = open("https://b.example/", true);
+        assert!(state.tabs.contains_key(&b.id));
+        assert_eq!(
+            state.active_tab(),
+            Some(a.id),
+            "the page the user is on stays active"
+        );
+    }
 }
