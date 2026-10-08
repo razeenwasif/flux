@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fontSizeOf, inkBox, lineHeightOf, textBox, wrapText, type TextStroke } from "./InkCanvas";
+import {
+  fontSizeOf,
+  inkBox,
+  lineHeightOf,
+  textBox,
+  typingInto,
+  wrapText,
+  type TextStroke,
+} from "./InkCanvas";
 
 // Text layout measures glyphs on a canvas, and importing a Solid component
 // registers its delegated events on `window.document`; Node has neither. Stand
@@ -62,5 +70,26 @@ describe("what a text block paints (eraser target, PNG crop)", () => {
     // H1 renders at about twice the stored size.
     const s = padText("Limits", { style: "h1" });
     expect(inkBox(s).y0).toBeLessThanOrEqual(s.at.y - s.size * 2);
+  });
+});
+
+describe("canvas shortcuts", () => {
+  const el = (tagName: string, isContentEditable = false) => ({ tagName, isContentEditable }) as never;
+
+  it("leave other people's typing alone", () => {
+    // A Scribe page is a contenteditable DIV: with a whiteboard panel open in
+    // the same document, its "t" opened the board's text box and took the caret.
+    expect(typingInto(el("DIV", true))).toBe(true);
+    expect(typingInto(el("P", true))).toBe(true); // a paragraph inside the page
+    expect(typingInto(el("INPUT"))).toBe(true);
+    expect(typingInto(el("TEXTAREA"))).toBe(true);
+    expect(typingInto(el("SELECT"))).toBe(true); // the pt-size picker
+  });
+
+  it("still fire from the canvas, its buttons and the page background", () => {
+    expect(typingInto(el("CANVAS"))).toBe(false);
+    expect(typingInto(el("BUTTON"))).toBe(false);
+    expect(typingInto(el("BODY"))).toBe(false);
+    expect(typingInto(null)).toBe(false);
   });
 });

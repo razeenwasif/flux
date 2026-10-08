@@ -321,6 +321,19 @@ type Props = {
   onZoom?: (z: number) => void;
 };
 
+/** Whether a key went to someone's text entry rather than the canvas: an input,
+ *  the pt picker, or a contenteditable such as a Scribe page. The canvas's
+ *  shortcuts listen on `window`, and a flux:// side panel can mount it in the
+ *  same document as that page, where a typed "t" opened this canvas's text box
+ *  and stole the caret (and Ctrl+Z / Backspace were taken too). */
+export const typingInto = (target: EventTarget | null): boolean => {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  return (
+    el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || !!el.isContentEditable
+  );
+};
+
 /** Draw one stroke in world coordinates. Pure (ctx + stroke only), so the
  *  page thumbnails can reuse the exact renderer the canvas uses — a second
  *  implementation would drift from it. */
@@ -1143,8 +1156,7 @@ const InkCanvas: Component<Props> = (props) => {
     props.onZoom?.(cam.z);
     const onKey = (e: KeyboardEvent) => {
       if (textAt()) return; // typing in the text input
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (typingInto(e.target)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         e.shiftKey ? redo() : undo();
