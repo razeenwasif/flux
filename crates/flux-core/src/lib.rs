@@ -1569,8 +1569,24 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_watch,
             files::fs_unwatch,
         ])
-        .run(context)
-        .expect("error while running Flux");
+        .build(context)
+        .expect("error while building Flux")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                flush_on_exit(app);
+            }
+        });
+}
+
+/// Final write for the stores that otherwise persist only on 60 s timers, so a
+/// normal quit doesn't drop the last minute of history, Trail visits, chats,
+/// drafts and audit entries, or bring back a just-cleared history or a
+/// forgotten site.
+fn flush_on_exit(app: &tauri::AppHandle) {
+    if let Some(h) = app.try_state::<history::HistoryStore>() {
+        h.persist_if_hydrated();
+    }
+    flush_trail_stores(app);
 }
 
 /// Android entry point (ADR 0012, rung C). The generated Gradle project's JNI
