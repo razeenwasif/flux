@@ -235,7 +235,9 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: Inst
                 return win::Decision::Block;
             }
             if let Some(h) = policy_app.try_state::<crate::https::HttpsState>() {
-                if let Some(secure) = h.upgrade(url) {
+                // Subresources inherit the page's HTTP exception; navigations don't.
+                let page = (ty != "document").then_some(source);
+                if let Some(secure) = h.upgrade(url, page) {
                     return win::Decision::Redirect(secure);
                 }
             }

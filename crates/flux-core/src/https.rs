@@ -66,14 +66,25 @@ impl HttpsState {
     }
 
     /// If this `http://` URL should be upgraded, return its `https://` form.
-    /// `None` when disabled, already secure, loopback/`.local`, or allowlisted.
-    pub fn upgrade(&self, url: &str) -> Option<String> {
+    /// `None` when disabled, already secure, loopback/`.local`, or allowlisted:
+    /// the URL's own host, or for a subresource the page loading it (`page`).
+    /// Pass `page = None` for a document navigation, so an allowlisted page
+    /// can't keep its navigations to other sites on HTTP.
+    pub fn upgrade(&self, url: &str, page: Option<&str>) -> Option<String> {
         if !self.enabled.load(Ordering::Relaxed) {
             return None;
         }
         let rest = url.strip_prefix("http://")?;
-        let host = rest.split(['/', '?', '#', ':']).next().unwrap_or(rest);
+        let host = host_part(rest);
         if is_local(host) || self.allow_http.contains_key(host) {
+            return None;
+        }
+        // "Allow HTTP" on a page has to cover the http-only CDN it loads from,
+        // or the exception recovers nothing.
+        let page_host = page
+            .and_then(|p| p.split_once("://"))
+            .map(|(_, r)| host_part(r));
+        if page_host.is_some_and(|h| self.allow_http.contains_key(h)) {
             return None;
         }
         Some(format!("https://{rest}"))
@@ -92,6 +103,19 @@ pub struct HttpsStatus {
     pub enabled: bool,
     /// Hosts allowlisted to stay on HTTP.
     pub sites_allow_http: Vec<String>,
+}
+
+/// Host of the text after `scheme://`: userinfo and port stripped, IPv6
+/// brackets kept (`[::1]:8080/x` → `[::1]`), the way the shell's `URL.hostname`
+/// spells the hosts it allowlists.
+fn host_part(rest: &str) -> &str {
+    let auth = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let auth = auth.rsplit('@').next().unwrap_or(auth);
+    if auth.starts_with('[') {
+        auth.find(']').map_or(auth, |i| &auth[..=i])
+    } else {
+        auth.split(':').next().unwrap_or(auth)
+    }
 }
 
 /// Loopback / local hosts are never upgraded (no public HTTPS).
@@ -133,15 +157,16 @@ mod tests {
     #[test]
     fn upgrades_only_when_enabled() {
         let s = HttpsState::new();
-        assert_eq!(s.upgrade("http://example.com/x"), None); // off by default
+        assert_eq!(s.upgrade("http://example.com/x", None), None); // off by default
         s.enabled.store(true, Ordering::Relaxed);
         assert_eq!(
-            s.upgrade("http://example.com/x?q=1").as_deref(),
+            s.upgrade("http://example.com/x?q=1", None).as_deref(),
             Some("https://example.com/x?q=1")
         );
-        assert_eq!(s.upgrade("https://example.com/x"), None); // already secure
-        assert_eq!(s.upgrade("http://localhost:8080/x"), None); // loopback
-        assert_eq!(s.upgrade("http://127.0.0.1/x"), None);
+        assert_eq!(s.upgrade("https://example.com/x", None), None); // already secure
+        assert_eq!(s.upgrade("http://localhost:8080/x", None), None); // loopback
+        assert_eq!(s.upgrade("http://127.0.0.1/x", None), None);
+        assert_eq!(s.upgrade("http://[::1]:5173/x", None), None); // IPv6 loopback
     }
 
     #[test]
@@ -149,8 +174,20 @@ mod tests {
         let s = HttpsState::new();
         s.enabled.store(true, Ordering::Relaxed);
         s.allow_http.insert("old.example".into(), ());
-        assert_eq!(s.upgrade("http://old.example/p"), None); // allowlisted → stays http
-        assert!(s.upgrade("http://other.example/p").is_some());
+        assert_eq!(s.upgrade("http://old.example/p", None), None); // allowlisted → stays http
+        assert_eq!(s.upgrade("http://user:pw@old.example:8080/p", None), None);
+        assert!(s.upgrade("http://other.example/p", None).is_some());
+
+        // The allowlisted page's own http-only subresources stay on http...
+        let page = Some("http://old.example/p");
+        assert_eq!(s.upgrade("http://static.oldcdn.example/app.js", page), None);
+        // ...other pages' don't.
+        let other = Some("https://new.example/");
+        assert!(s.upgrade("http://static.oldcdn.example/app.js", other).is_some());
+
+        // IPv6 hosts match the shell's bracketed `URL.hostname`.
+        s.allow_http.insert("[2001:db8::1]".into(), ());
+        assert_eq!(s.upgrade("http://[2001:db8::1]:8080/", None), None);
     }
 
     #[test]
@@ -166,8 +203,8 @@ mod tests {
 
         let back = HttpsState::restore(path);
         assert!(back.enabled.load(Ordering::Relaxed));
-        assert_eq!(back.upgrade("http://old.example/p"), None);
-        assert!(back.upgrade("http://new.example/p").is_some());
+        assert_eq!(back.upgrade("http://old.example/p", None), None);
+        assert!(back.upgrade("http://new.example/p", None).is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
