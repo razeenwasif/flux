@@ -8,6 +8,7 @@
  */
 import { For, Show, createEffect, createSignal, type Component } from "solid-js";
 
+import { keepSame } from "./keepSame";
 import { visibleInterval } from "./poll";
 import {
   boostAuthor,
@@ -46,16 +47,18 @@ const Boosts: Component<{ initialOpen?: boolean }> = (props) => {
     const t = activeTab();
     return t && t.kind === "browser" && !isStartUrl(t.url) ? hostOf(t.url) : null;
   };
+  // keepSame: this runs every 2 s while the popover is open, and swapping in
+  // fresh objects remounted every Row — an open "Edit CSS" textarea included.
   const refresh = () => {
     const h = host();
     if (h)
       void boostsForHost(h)
-        .then(setList)
+        .then((l) => setList((prev) => keepSame(prev, l)))
         .catch(() => setList([]));
     else setList([]);
     if (allSites())
       void boostsList()
-        .then(setAllList)
+        .then((l) => setAllList((prev) => keepSame(prev, l)))
         .catch(() => setAllList([]));
   };
   // Reload when the popover opens or the site changes.
