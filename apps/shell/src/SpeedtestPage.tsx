@@ -56,6 +56,11 @@ const Gauge: Component<{ value: number; label: string; color: string; active: bo
   );
 };
 
+/** The run in flight, at module scope. Leaving the tab unmounts this page but not
+ *  the backend test; without this, a remount offered "Start" again and a second
+ *  concurrent run split the link and corrupted both results. */
+let inflight: Promise<SpeedResult> | null = null;
+
 const SpeedtestPage: Component = () => {
   const [running, setRunning] = createSignal(false);
   const [phase, setPhase] = createSignal("");
@@ -72,6 +77,8 @@ const SpeedtestPage: Component = () => {
       if (p.phase === "download" && p.mbps > 0) setLiveDown(p.mbps);
     }).then((u) => (unlisten = u));
     onCleanup(() => unlisten?.());
+    // A test started before this page was last unmounted: re-attach to it.
+    if (inflight) void run();
   });
 
   const run = async () => {
@@ -80,9 +87,16 @@ const SpeedtestPage: Component = () => {
     setError(null);
     setResult(null);
     setLiveDown(0);
-    setPhase("ping");
     try {
-      const r = await netspeedRun();
+      // Join a test already in flight rather than start a second one beside it;
+      // a joined run's phase comes from its progress events.
+      if (!inflight) {
+        setPhase("ping");
+        inflight = netspeedRun().finally(() => {
+          inflight = null;
+        });
+      }
+      const r = await inflight;
       if (r) setResult(r);
       else setError("No result — is the network reachable?");
     } catch (e) {
