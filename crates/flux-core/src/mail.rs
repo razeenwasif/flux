@@ -82,16 +82,21 @@ pub fn decode_words(input: &str) -> String {
     while let Some(start) = rest.find("=?") {
         out.push_str(&rest[..start]);
         let after = &rest[start + 2..];
-        // charset?enc?payload?=
-        let Some(end) = after.find("?=") else {
+        // charset?enc?payload?= -- find the two inner '?' first and only then
+        // the terminator: a Q payload that starts with "=XX" would otherwise
+        // end the word at the "Q?=" right after the encoding letter.
+        let bounds = after.find('?').and_then(|q1| {
+            let q2 = q1 + 1 + after[q1 + 1..].find('?')?;
+            let end = q2 + 1 + after[q2 + 1..].find("?=")?;
+            Some((q1, q2, end))
+        });
+        let Some((q1, q2, end)) = bounds else {
             out.push_str(&rest[start..]);
             return out;
         };
-        let word = &after[..end];
-        let mut parts = word.splitn(3, '?');
-        let charset = parts.next().unwrap_or("").to_ascii_lowercase();
-        let enc = parts.next().unwrap_or("").to_ascii_uppercase();
-        let payload = parts.next().unwrap_or("");
+        let charset = after[..q1].to_ascii_lowercase();
+        let enc = after[q1 + 1..q2].to_ascii_uppercase();
+        let payload = &after[q2 + 1..end];
         let bytes = match enc.as_str() {
             "B" => {
                 use base64::Engine as _;
@@ -393,6 +398,20 @@ mod tests {
         assert_eq!(decode_words(exotic), exotic);
         // Malformed input must not panic or truncate the rest.
         assert_eq!(decode_words("=?UTF-8?B?broken"), "=?UTF-8?B?broken");
+    }
+
+    #[test]
+    fn q_words_that_start_with_an_escape_decode_whole() {
+        // The "?=" of "Q?=C3" used to end the word before its text began.
+        assert_eq!(decode_words("=?UTF-8?Q?=C3=89t=C3=A9?="), "Été");
+        assert_eq!(
+            decode_words("=?utf-8?Q?=F0=9F=8E=89_Party_on_Friday?="),
+            "🎉 Party on Friday"
+        );
+        assert_eq!(
+            format_from(Some("=?UTF-8?Q?=C3=89lodie?="), None, None),
+            "Élodie"
+        );
     }
 
     #[test]
