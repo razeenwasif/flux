@@ -364,15 +364,24 @@ fn is_page_shortcut(action: &str) -> bool {
 /// `fluxtab` plugin command so remote pages may call it.
 #[tauri::command]
 pub fn chrome_open_url(app: AppHandle, url: String, background: bool) -> Result<(), String> {
-    // Page-supplied: a page must never open Flux's own, fully privileged origin.
-    if url
-        .parse::<tauri::Url>()
-        .is_ok_and(|u| crate::webview::is_app_origin(&u))
-    {
-        return Err("refusing to open Flux's own origin".into());
-    }
+    // `newtab.js` only forwards web URLs, but a page can call this directly.
+    let url = page_openable_url(&url)?;
     app.emit("flux://open-url", (url, background))
         .map_err(|e| e.to_string())
+}
+
+/// A URL a page may have the chrome open as a tab: http(s) only (never `file:`,
+/// a `flux://` internal page, `javascript:` or `data:`), never Flux's own
+/// origin, and normalized, so the chrome opens exactly the URL that was checked
+/// (pdf.rs, for one, routes on a case-sensitive `http` prefix). Shared with
+/// `peek_promote`, the other page-callable way into `flux://open-url`.
+pub(crate) fn page_openable_url(url: &str) -> Result<String, String> {
+    match url.parse::<tauri::Url>() {
+        Ok(u) if matches!(u.scheme(), "http" | "https") && !crate::webview::is_app_origin(&u) => {
+            Ok(u.to_string())
+        }
+        _ => Err("a page can only open web pages in a tab".into()),
+    }
 }
 
 /// Pull OS keyboard focus back to the chrome window. A focused native tab
@@ -542,6 +551,32 @@ mod tests {
         }
 
         assert_eq!(state.tabs.get(&42).unwrap().title, "New Title");
+    }
+
+    #[test]
+    fn pages_can_only_open_web_urls() {
+        assert_eq!(
+            page_openable_url("https://example.com/a?b=1").unwrap(),
+            "https://example.com/a?b=1"
+        );
+        // What's emitted is the parsed form, not the page's spelling of it.
+        assert_eq!(
+            page_openable_url("HTTPS://Example.com/x.pdf").unwrap(),
+            "https://example.com/x.pdf"
+        );
+        for bad in [
+            "file:///Users/me/.ssh/id_rsa",
+            "flux://pdf?src=file:///etc/hosts",
+            "flux://settings",
+            "javascript:alert(1)",
+            "data:text/html,<script>x</script>",
+            "http://tauri.localhost/",
+            "tauri://localhost/",
+            "/etc/hosts",
+            "not a url",
+        ] {
+            assert!(page_openable_url(bad).is_err(), "{bad} should be refused");
+        }
     }
 
     #[test]

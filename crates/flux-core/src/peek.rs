@@ -116,10 +116,7 @@ pub fn peek_promote(app: AppHandle, window: Window, url: String) -> Result<(), S
         return Err("not a peek window".into());
     }
     // `url` comes from the page and becomes a new tab via flux://open-url.
-    match url.parse::<tauri::Url>() {
-        Ok(u) if matches!(u.scheme(), "http" | "https") && !crate::webview::is_app_origin(&u) => {}
-        _ => return Err("can only promote web pages".into()),
-    }
+    let url = crate::dom::page_openable_url(&url)?;
     app.emit("flux://open-url", (url, false))
         .map_err(|e| e.to_string())?;
     // Surface the main window so the freshly-promoted tab is actually seen — the
