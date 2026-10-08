@@ -89,6 +89,17 @@ mod real {
     /// or one-click autofill via the fluxtab vault_* page commands.
     const PASSWORDS_JS: &str = include_str!("../assets/passwords.js");
 
+    /// The live page toggles, for a tab's newly loaded document: through the
+    /// setters darkmode.js and nav.js define, and the flag macro-record.js reads
+    /// on every event, so they apply after those scripts have run.
+    fn live_flags_js(dark: bool, hints: bool, gestures: bool, recording: bool) -> String {
+        format!(
+            "window.__FLUX_MACRO_REC__={recording};\
+             window.__fluxDark&&window.__fluxDark({dark});\
+             window.__fluxNavSet&&window.__fluxNavSet({hints},{gestures});"
+        )
+    }
+
     fn label(tab: TabId) -> String {
         format!("tab-{tab}")
     }
@@ -101,6 +112,18 @@ mod real {
             ));
         }
         Ok(u)
+    }
+
+    /// The WKWebView data store holding a container's jar (#59). WKWebView ignores
+    /// `data_directory` (wry uses the shared default store unless given an
+    /// identifier), so this is what isolates a container on macOS 14+; older
+    /// macOS still gets the default store. Derived from the id so the jar
+    /// survives restarts: changing it would sign every container out.
+    pub(crate) fn container_store_id(container: u32) -> [u8; 16] {
+        let mut id = [0u8; 16];
+        id[..8].copy_from_slice(b"fluxcont");
+        id[12..].copy_from_slice(&container.to_be_bytes());
+        id
     }
 
     /// Create the child webview for a Browser tab at the given rect (logical px,
@@ -146,9 +169,11 @@ mod real {
                 )
             })
             .unwrap_or_default();
+        // Only the tab being recorded: an armed recorder in any other tab sends
+        // its every click and typed value, for nothing.
         let macro_flag = if app
             .try_state::<crate::macros::MacroState>()
-            .map(|s| s.is_recording())
+            .map(|s| s.is_recording_tab(tab_id))
             .unwrap_or(false)
         {
             "window.__FLUX_MACRO_REC__ = true;\n"
@@ -171,8 +196,9 @@ mod real {
             ])
         );
 
-        // Private tabs (#59) use an in-memory session; container tabs (#59) use a
-        // per-container on-disk data dir → an isolated cookie/storage jar.
+        // Private tabs (#59) use an in-memory session; container tabs (#59) get an
+        // isolated cookie/storage jar: a per-container data dir, or on macOS a
+        // per-container data store.
         let (private, container) = app
             .try_state::<crate::state::FluxState>()
             .and_then(|s| s.tabs.get(&tab_id).map(|t| (t.private, t.container)))
@@ -204,16 +230,15 @@ mod real {
                 builder =
                     builder.data_directory(dir.join("containers").join(container.to_string()));
             }
+            // Apple only; the data dir above is the jar everywhere else.
+            builder = builder.data_store_identifier(container_store_id(container));
         }
         // Outbound proxy (#63), if configured — opt-in, so direct otherwise.
         #[cfg(target_os = "macos")]
         if let Some(user_agent) = crate::browser_identity::user_agent() {
             builder = builder.user_agent(user_agent);
         }
-        if let Some(proxy) = app
-            .try_state::<crate::proxy::ProxyState>()
-            .and_then(|s| s.parsed())
-        {
+        if let Some(proxy) = crate::proxy::for_webview(&app)? {
             builder = builder.proxy_url(proxy);
         }
         let builder = builder
@@ -222,6 +247,13 @@ mod real {
                 PageLoadEvent::Started => "started",
                 PageLoadEvent::Finished => "finished",
             };
+            // Bind hibernation captures (#45) to the committed document:
+            // `Started` is the commit event on every backend.
+            if matches!(payload.event(), PageLoadEvent::Started) {
+                if let Some(s) = app_for_load.try_state::<crate::hibernate::HibernateStore>() {
+                    s.note_commit(tab_id, payload.url());
+                }
+            }
             let url = payload.url().to_string();
             // Cosmetic filtering (#57): inject element-hiding CSS for this page,
             // so blocked ad slots / leftover placeholders don't leave gaps. Works
@@ -257,6 +289,22 @@ mod real {
                     let _ = webview.eval(&bjs);
                 }
             }
+            // The init script stamps the dark-mode, nav and macro-recorder flags
+            // once, when this webview is built, and replays that stamp for every
+            // page the tab loads. Re-assert the live values in each new document,
+            // or a toggle made since (and a recording's armed recorder) is lost on
+            // the next navigation. On both events: on WebView2 a script run at
+            // commit may land before the init script does.
+            let dark = app_for_load
+                .try_state::<crate::darkmode::DarkState>()
+                .is_some_and(|s| s.is_on());
+            let (hints, gestures) = app_for_load
+                .try_state::<crate::nav::NavState>()
+                .map_or((false, false), |s| (s.hints(), s.gestures()));
+            let recording = app_for_load
+                .try_state::<crate::macros::MacroState>()
+                .is_some_and(|s| s.is_recording_tab(tab_id));
+            let _ = webview.eval(live_flags_js(dark, hints, gestures, recording));
             // Extension content scripts (#93/#94): inject the CSS + JS of every
             // enabled extension whose @match patterns hit this URL, at the right
             // phase (document_start vs document_end/idle). With the broker present
@@ -556,27 +604,61 @@ mod real {
         Ok(())
     }
 
+    /// The hints a page on `page_host` may be shown: its own host and subdomains
+    /// (`www.` ignored). The injected tags are readable by the page's scripts while
+    /// the hints are learned from the user's cross-site (even typed) navigation,
+    /// so anything else would leak it. "Hosts the page links to" is no filter: a
+    /// page can plant hidden links to any host it wants to probe.
+    fn same_site_hints(page_host: &str, hosts: Vec<String>) -> Vec<String> {
+        let site = page_host.strip_prefix("www.").unwrap_or(page_host);
+        let subdomain = format!(".{site}");
+        hosts
+            .into_iter()
+            .filter(|h| {
+                let h = h.to_ascii_lowercase();
+                h == site || h.ends_with(&subdomain)
+            })
+            .collect()
+    }
+
     /// Speculative preconnect (BACKLOG #103): inject `<link rel="preconnect">` tags
     /// for the predicted next hosts into the active page, so the engine's own
     /// network stack opens DNS+TCP+TLS to them ahead of the likely next navigation.
-    /// Hosts come from the prefetch model's confidence-gated hints; idempotent
-    /// (skips a host already preconnected this page).
+    /// Hosts come from the prefetch model's confidence-gated hints, cut down to the
+    /// page's own site ([`same_site_hints`]); idempotent (skips a host already
+    /// preconnected this page).
     #[tauri::command]
     pub async fn webview_preconnect(
         app: AppHandle,
         tab_id: TabId,
         hosts: Vec<String>,
     ) -> Result<(), String> {
-        if hosts.is_empty() {
+        // Private tabs never get speculative hints (#59).
+        let private = app
+            .try_state::<crate::state::FluxState>()
+            .and_then(|s| s.tabs.get(&tab_id).map(|t| t.private))
+            .unwrap_or(false);
+        if hosts.is_empty() || private {
             return Ok(());
         }
         let Some(wv) = app.get_webview(&label(tab_id)) else {
             return Ok(());
         };
-        // Hosts are JSON-encoded → injection-safe inside the script literal.
+        let Some(page_host) = wv.url().ok().and_then(|u| u.host_str().map(str::to_owned)) else {
+            return Ok(());
+        };
+        let hosts = same_site_hints(&page_host, hosts);
+        if hosts.is_empty() {
+            return Ok(());
+        }
+        // JSON-encoded → injection-safe inside the script literal.
         let json = serde_json::to_string(&hosts).map_err(|e| e.to_string())?;
+        let page = serde_json::to_string(&page_host).map_err(|e| e.to_string())?;
+        // The hostname check drops the script if the tab navigated to another
+        // site after `url()` was read.
         let js = format!(
             r#"(() => {{
+  if (location.hostname !== {page}) return;
   const seen = (window.__fluxPreconnect ||= new Set());
   for (const h of {json}) {{
     if (!h || seen.has(h)) continue;
@@ -584,7 +666,8 @@ mod real {
     for (const rel of ['preconnect', 'dns-prefetch']) {{
       const l = document.createElement('link');
       l.rel = rel; l.href = 'https://' + h; l.crossOrigin = '';
-      document.head.appendChild(l);
+      const t = document.head || document.documentElement;
+      if (t) t.appendChild(l);
     }}
   }}
 }})();"#
@@ -800,10 +883,7 @@ mod real {
         if let Some(user_agent) = crate::browser_identity::user_agent() {
             builder = builder.user_agent(user_agent);
         }
-        if let Some(proxy) = app
-            .try_state::<crate::proxy::ProxyState>()
-            .and_then(|s| s.parsed())
-        {
+        if let Some(proxy) = crate::proxy::for_webview(&app)? {
             builder = builder.proxy_url(proxy); // #63
         }
         let scale = window.scale_factor().unwrap_or(1.0);
@@ -1267,7 +1347,7 @@ mod real {
     pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
     #[cfg(test)]
     mod script_join_tests {
-        use super::{filter_scripts, join_page_scripts};
+        use super::{filter_scripts, join_page_scripts, live_flags_js};
         use super::{
             CAPTURE_JS, DARKMODE_JS, DRAFTS_JS, HIBERNATE_JS, MACRO_REC_JS, NAV_JS, NEWTAB_JS,
             PANEL_BADGE_JS, PASSWORDS_JS, PIP_JS, SHORTCUTS_JS,
@@ -1364,6 +1444,71 @@ mod real {
                     );
                 }
             }
+        }
+
+        /// A tab's init script replays the toggles stamped when its webview was
+        /// built, so each page load re-asserts the live ones. Those calls are
+        /// guarded: if a name drifted they would be silent no-ops, and every
+        /// toggle (and a recording's recorder) would revert on the next page.
+        #[test]
+        fn page_loads_reassert_the_live_toggles() {
+            let js = live_flags_js(false, true, false, true);
+            assert!(js.contains("window.__FLUX_MACRO_REC__=true;"), "{js}");
+            // Off too: the init script may have stamped it on.
+            assert!(js.contains("window.__fluxDark(false)"), "{js}");
+            assert!(js.contains("window.__fluxNavSet(true,false)"), "{js}");
+            let js = live_flags_js(true, false, false, false);
+            assert!(js.contains("window.__FLUX_MACRO_REC__=false;"), "{js}");
+            assert!(js.contains("window.__fluxDark(true)"), "{js}");
+            assert!(DARKMODE_JS.contains("window.__fluxDark = function"));
+            assert!(NAV_JS.contains("window.__fluxNavSet = function"));
+            // Read per event, not once at init, so setting it later arms the page.
+            assert!(MACRO_REC_JS.contains("return !!window.__FLUX_MACRO_REC__;"));
+        }
+    }
+
+    #[cfg(test)]
+    mod preconnect_tests {
+        use super::same_site_hints;
+
+        fn hints(page: &str, hosts: &[&str]) -> Vec<String> {
+            same_site_hints(page, hosts.iter().map(|h| h.to_string()).collect())
+        }
+
+        #[test]
+        fn a_page_only_sees_hints_for_its_own_site() {
+            let learned = [
+                "bank.example",
+                "cdn.news.example",
+                "news.example",
+                "evilnews.example",
+            ];
+            assert_eq!(
+                hints("www.news.example", &learned),
+                ["cdn.news.example", "news.example"]
+            );
+            // A sibling subdomain may be someone else's site (user pages, blogs).
+            assert!(hints("alice.pages.example", &["bob.pages.example"]).is_empty());
+            assert_eq!(
+                hints("news.example", &["CDN.News.Example"]),
+                ["CDN.News.Example"]
+            );
+        }
+    }
+
+    #[cfg(test)]
+    mod container_store_tests {
+        use super::container_store_id;
+
+        #[test]
+        fn each_container_keeps_its_own_store() {
+            assert_ne!(container_store_id(1), container_store_id(2));
+            assert_ne!(container_store_id(1), container_store_id(1 << 24));
+            // Pinned: a different derivation would orphan every existing jar.
+            assert_eq!(
+                &container_store_id(0x0102_0304),
+                b"fluxcont\0\0\0\0\x01\x02\x03\x04"
+            );
         }
     }
 } // mod real

@@ -92,9 +92,18 @@ const TuiPane: Component<{ pane: TuiPaneRec; index: number }> = (props) => {
         </div>
         <div class="tuipane-body" classList={{ noevents: dragging() }}>
           {/* background=false: a floating pane must not hold its own WebGL2
-              context for the liquid backdrop (the terminal-splits rule). */}
+              context for the liquid backdrop (the terminal-splits rule).
+              persist="off": pane ids restart every launch and panes aren't
+              restored, so a live broker (`tmux -A` / `dtach -A`) reattached a
+              previous run's app and the queued command was typed into it — the
+              EditorColumn rule. */}
           <Suspense>
-            <TerminalView session={props.pane.session} active={isFocused()} background={false} />
+            <TerminalView
+              session={props.pane.session}
+              active={isFocused()}
+              background={false}
+              persist="off"
+            />
           </Suspense>
         </div>
         <For each={RESIZE_HANDLES}>

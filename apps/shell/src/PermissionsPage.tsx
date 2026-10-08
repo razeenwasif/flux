@@ -7,6 +7,7 @@
  */
 import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
 import {
+  PERMISSIONS_URL,
   permissionsClearAll,
   permissionsClearHost,
   permissionsList,
@@ -15,7 +16,9 @@ import {
   type PermKind,
   type SitePerm,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { permissionHost } from "./permissionHost";
+import { isWindows } from "./platform";
+import { titleInternalTab } from "./store";
 
 const KINDS: { kind: PermKind; label: string; icon: string }[] = [
   { kind: "camera", label: "Camera", icon: "📷" },
@@ -37,8 +40,7 @@ const PermissionsPage: Component = () => {
       .then((p) => setPerms(p ?? []))
       .catch(() => {});
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Site Permissions");
+    titleInternalTab(PERMISSIONS_URL, "Site Permissions");
     refresh();
   });
 
@@ -61,10 +63,7 @@ const PermissionsPage: Component = () => {
     refresh();
   };
   const addRule = async () => {
-    const host = newHost()
-      .trim()
-      .replace(/^https?:\/\//, "")
-      .replace(/\/.*$/, "");
+    const host = permissionHost(newHost());
     if (!host) return;
     await permissionsSet(host, newKind(), newDecision());
     setNewHost("");
@@ -104,6 +103,12 @@ const PermissionsPage: Component = () => {
         <div class="res-note">
           Camera, microphone, location, and notification access per site. A saved <b>Allow</b> or
           <b> Block</b> is applied automatically; <b>Ask</b> lets the page prompt you normally.
+          {/* Rules are applied only by WebView2's permission handler (permissions.rs). */}
+          <Show when={!isWindows}>
+            {" "}
+            <b>Not enforced on this platform yet</b> — the web engine handles these requests itself, so saved
+            rules have no effect here.
+          </Show>
         </div>
 
         {/* Add a rule manually */}

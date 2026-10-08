@@ -11,13 +11,13 @@
 //! Merge is an additive union (bookmarks by url+folder, sessions by name) — no
 //! deletion propagation in v1. Manual "Sync now".
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit};
 use argon2::Argon2;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
@@ -70,7 +70,21 @@ fn read_salt(blob: &[u8]) -> Option<[u8; SALT_LEN]> {
     blob[MAGIC.len()..MAGIC.len() + SALT_LEN].try_into().ok()
 }
 fn sealed_part(blob: &[u8]) -> &[u8] {
-    &blob[MAGIC.len() + SALT_LEN..]
+    // A short or truncated file takes `open`'s "blob too short" error: slicing
+    // past the end would panic, and release builds abort on panic.
+    blob.get(MAGIC.len() + SALT_LEN..).unwrap_or(&[])
+}
+
+/// The blob, `None` only when there isn't one yet. Any other read failure (a
+/// cloud placeholder that can't download offline, a file the sync client has
+/// locked) is an error: read as "absent", it minted a fresh sync identity on
+/// unlock and pushed over the remote blob without ever merging it.
+fn read_blob(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    match std::fs::read(path) {
+        Ok(b) => Ok(Some(b)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("can't read {}: {e}", path.display())),
+    }
 }
 
 /// Most history to ship in the blob (bounded so a big local history doesn't bloat
@@ -122,8 +136,10 @@ struct Config {
 pub struct SyncState {
     config_path: Option<PathBuf>,
     folder: RwLock<Option<PathBuf>>,
-    key: RwLock<Option<[u8; 32]>>,
-    salt: RwLock<Option<[u8; SALT_LEN]>>,
+    /// The derived key and the blob salt it came from, under one lock: unlocks
+    /// run off the main thread and can overlap, and a key paired with another
+    /// unlock's salt would seal a blob no device can ever open again.
+    key: RwLock<Option<([u8; 32], [u8; SALT_LEN])>>,
     last_ms: RwLock<u64>,
     auto: std::sync::atomic::AtomicBool,
     /// Hash of the last payload we wrote, so an idle auto-sync doesn't rewrite
@@ -134,6 +150,10 @@ pub struct SyncState {
     /// blob that's ~10 MB/hour of churn per device, plus a full copy in
     /// versioning history each time, all for no change at all.
     last_push: RwLock<Option<u64>>,
+    /// One `run_sync` at a time: "Sync now", the 3-minute timer and the
+    /// post-unlock / auto-on kicks all run it, and overlapping runs could
+    /// interleave their pull-merge-push cycles and their writes of the blob.
+    run_lock: Mutex<()>,
 }
 
 #[derive(Serialize, specta::Type)]
@@ -179,10 +199,10 @@ impl SyncState {
             config_path: Some(config_path),
             folder: RwLock::new(cfg.folder.map(PathBuf::from)),
             key: RwLock::new(None),
-            salt: RwLock::new(None),
             last_ms: RwLock::new(cfg.last_ms),
             auto: std::sync::atomic::AtomicBool::new(cfg.auto),
             last_push: RwLock::new(None),
+            run_lock: Mutex::new(()),
         }
     }
 
@@ -249,14 +269,12 @@ pub fn sync_set_folder(state: State<'_, SyncState>, path: String) {
     };
     // Folder changed → must unlock again (salt may differ).
     *state.key.write() = None;
-    *state.salt.write() = None;
     state.persist_config();
 }
 
 #[tauri::command]
 pub fn sync_lock(state: State<'_, SyncState>) {
     *state.key.write() = None;
-    *state.salt.write() = None;
 }
 
 /// Derive + verify the key from the passphrase, and say whether this created a
@@ -278,29 +296,41 @@ pub fn sync_lock(state: State<'_, SyncState>) {
 /// and the UI warns, rather than leaving the user to work out why "0 merged"
 /// never becomes anything else.
 #[tauri::command]
-pub fn sync_unlock(
-    app: AppHandle,
-    state: State<'_, SyncState>,
-    passphrase: String,
-) -> Result<bool, String> {
+pub async fn sync_unlock(app: AppHandle, passphrase: String) -> Result<bool, String> {
+    // Reading (maybe first downloading) the blob from a cloud folder, Argon2id
+    // and a full AEAD open: none of it on the main thread.
+    tauri::async_runtime::spawn_blocking(move || unlock_blocking(&app, &passphrase))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn unlock_blocking(app: &AppHandle, passphrase: &str) -> Result<bool, String> {
+    let state = app.state::<SyncState>();
     if passphrase.is_empty() {
         return Err("enter a passphrase".into());
     }
     let blob_path = state.blob_path().ok_or("set a sync folder first")?;
-    let existing = std::fs::read(&blob_path).ok();
+    let existing = read_blob(&blob_path)?;
+    // Say what's wrong with a file that isn't a sync blob at all, rather than
+    // "wrong passphrase" (an interrupted copy, a cloud placeholder, a stray).
+    if existing.as_deref().is_some_and(|b| read_salt(b).is_none()) {
+        return Err(format!(
+            "{} isn't a Flux sync file (empty, truncated or foreign); move it aside and unlock again",
+            blob_path.display()
+        ));
+    }
     let fresh_identity = existing.as_deref().and_then(read_salt).is_none();
     let salt: [u8; SALT_LEN] = match existing.as_deref().and_then(read_salt) {
         Some(s) => s,
         None => rand::random(), // first device into this folder
     };
-    let key = derive_key(&passphrase, &salt)?;
+    let key = derive_key(passphrase, &salt)?;
     // If there's an existing blob, the passphrase must open it.
     if let Some(blob) = &existing {
         open(&key, sealed_part(blob))
             .map_err(|_| "wrong passphrase for this sync folder".to_string())?;
     }
-    *state.salt.write() = Some(salt);
-    *state.key.write() = Some(key);
+    *state.key.write() = Some((key, salt));
     // With auto on, pull right away so unlocking a device catches it up.
     if state.auto() {
         let app = app.clone();
@@ -314,11 +344,11 @@ pub fn sync_unlock(
 /// can call it too — both resolve the stores off the `app` handle.
 fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     let state = app.state::<SyncState>();
-    let key = state
+    let _one_at_a_time = state.run_lock.lock();
+    let (key, salt) = state
         .key
         .read()
         .ok_or("unlock sync with your passphrase first")?;
-    let salt = state.salt.read().ok_or("unlock first")?;
     let blob_path = state.blob_path().ok_or("set a sync folder first")?;
 
     let bookmarks = app.state::<crate::bookmarks::BookmarkStore>();
@@ -342,7 +372,7 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
         calendars_added: 0,
         pushed: true,
     };
-    if let Ok(blob) = std::fs::read(&blob_path) {
+    if let Some(blob) = read_blob(&blob_path)? {
         report.had_remote = true;
         let plain = open(&key, sealed_part(&blob))?;
         let remote: Payload =
@@ -388,12 +418,9 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&salt);
     out.extend_from_slice(&sealed);
-    if let Some(dir) = blob_path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("sync folder: {e}"))?;
-    }
-    let tmp = blob_path.with_extension("enc.tmp");
-    std::fs::write(&tmp, &out).map_err(|e| format!("write: {e}"))?;
-    std::fs::rename(&tmp, &blob_path).map_err(|e| format!("commit: {e}"))?;
+    // Unique staging name + fsync + rename (creating the folder if needed): a
+    // published blob is always whole, never another writer's half-written file.
+    crate::persist::write_atomic(&blob_path, &out).map_err(|e| format!("write: {e}"))?;
 
     *state.last_push.write() = Some(digest);
     *state.last_ms.write() = now_ms();
@@ -413,8 +440,12 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 #[tauri::command]
-pub fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
-    run_sync(&app)
+pub async fn sync_now(app: AppHandle) -> Result<SyncReport, String> {
+    // Read (maybe first download), merge, re-seal and write the blob in a
+    // synced folder: none of it on the main thread.
+    tauri::async_runtime::spawn_blocking(move || run_sync(&app))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Turn the periodic background sync on/off (#62). When on, Flux re-syncs every
@@ -494,6 +525,37 @@ mod tests {
         assert_eq!(read_salt(&blob), Some(salt));
         assert_eq!(sealed_part(&blob), b"sealed");
         assert_eq!(read_salt(b"nope"), None);
+    }
+
+    #[test]
+    fn a_short_blob_is_an_error_not_a_panic() {
+        // An empty or truncated flux-sync.enc (an interrupted copy, a cloud
+        // placeholder) used to slice past its end and abort the browser.
+        let key = derive_key("pw", b"salt-salt-salt16").unwrap();
+        for blob in [&b""[..], MAGIC, &[0u8; MAGIC.len() + SALT_LEN + 4][..]] {
+            assert_eq!(read_salt(blob), None);
+            assert!(open(&key, sealed_part(blob)).is_err());
+        }
+    }
+
+    #[test]
+    fn only_a_missing_blob_reads_as_absent() {
+        let dir = std::env::temp_dir().join(format!("flux-sync-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(BLOB_NAME);
+        assert_eq!(
+            read_blob(&path),
+            Ok(None),
+            "first device: nothing there yet"
+        );
+        // There but unreadable (here a directory in its place) is not absent.
+        std::fs::create_dir(&path).unwrap();
+        assert!(read_blob(&path).is_err());
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, b"blob").unwrap();
+        assert_eq!(read_blob(&path), Ok(Some(b"blob".to_vec())));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

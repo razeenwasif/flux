@@ -9,7 +9,7 @@
 //! byte (see MAX_PDF_BYTES).
 
 use std::io::Read;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 
@@ -141,10 +141,30 @@ fn fetch_http(url: &str) -> FluxResult<Vec<u8>> {
         .build();
     let resp = agent.get(url).set("User-Agent", "Mozilla/5.0").call()?;
     let mut buf = Vec::new();
-    resp.into_reader()
+    // `timeout_read` bounds each read, not the download: a server dribbling
+    // bytes, or a stream that never ends, held this thread for good. ureq's own
+    // `.timeout()` would also stretch the 60 s stall bound to its whole span,
+    // so the deadline goes on the body: generous for 256 MB, but finite.
+    let deadline = Instant::now() + Duration::from_secs(15 * 60);
+    Deadline(resp.into_reader(), deadline)
         .take((MAX_PDF_BYTES + 1) as u64)
         .read_to_end(&mut buf)?;
     Ok(buf)
+}
+
+/// A reader that fails once its deadline has passed, checked before each read.
+struct Deadline<R>(R, Instant);
+
+impl<R: Read> Read for Deadline<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if Instant::now() > self.1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "the download took too long",
+            ));
+        }
+        self.0.read(buf)
+    }
 }
 
 fn fetch_file(url: &str) -> FluxResult<Vec<u8>> {
@@ -158,7 +178,7 @@ fn fetch_file(url: &str) -> FluxResult<Vec<u8>> {
 /// Best-effort `file://` URL (or bare path) → filesystem path. Handles
 /// `file://localhost/…`, the Windows `file:///C:/…` leading-slash quirk, and
 /// `%20` spaces. Not a full RFC-8089 parser — enough for opening local PDFs.
-fn file_url_to_path(url: &str) -> String {
+pub(crate) fn file_url_to_path(url: &str) -> String {
     let mut p = url.to_string();
     if let Some(rest) = p.strip_prefix("file://") {
         p = rest.strip_prefix("localhost").unwrap_or(rest).to_string();
@@ -227,6 +247,26 @@ mod tests {
     }
 
     #[test]
+    fn a_download_that_never_ends_is_cut_off() {
+        // A server dribbling bytes: every read succeeds, so only a deadline on
+        // the whole body ends it.
+        struct Drip;
+        impl Read for Drip {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                std::thread::sleep(Duration::from_millis(5));
+                buf[0] = b'%';
+                Ok(1)
+            }
+        }
+        let mut buf = Vec::new();
+        let err = Deadline(Drip, Instant::now() + Duration::from_millis(50))
+            .read_to_end(&mut buf)
+            .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        assert!(!buf.is_empty(), "reads until the deadline");
+    }
+
+    #[test]
     fn file_url_parsing() {
         assert_eq!(file_url_to_path("file:///home/u/a.pdf"), "/home/u/a.pdf");
         assert_eq!(
@@ -239,6 +279,57 @@ mod tests {
             "/home/u/my file.pdf"
         );
         assert_eq!(file_url_to_path("/plain/path.pdf"), "/plain/path.pdf");
+    }
+
+    fn doc(text: &str, ocr: bool) -> PdfDoc {
+        PdfDoc {
+            src: "/home/u/lecture.pdf".into(),
+            title: "Lecture".into(),
+            text: text.into(),
+            ts: 1,
+            ocr,
+        }
+    }
+
+    #[test]
+    fn reopening_an_unchanged_pdf_is_not_a_change() {
+        // Every open re-publishes the text; a new `ts` re-embedded it in the KB
+        // and rewrote the whole store each time.
+        let store = PdfStore::default();
+        assert!(store.put(doc("slide 1", false)));
+        let g = store.generation();
+        assert!(!store.put(doc("slide 1", false)));
+        assert_eq!(store.generation(), g);
+        assert!(store.put(doc("slide 1, revised", false)));
+        assert!(store.generation() > g);
+    }
+
+    #[test]
+    fn reopening_a_pdf_keeps_its_ocr_transcript() {
+        // A 35-slide deck whose text layer covers 2 slides: the OCR run stored
+        // all 35, and the next open's text-layer publish used to replace them.
+        let store = PdfStore::default();
+        store.put(doc("all 35 slides", true));
+        assert!(!store.put(doc("slides 1-2", false)));
+        let kept = &store.list()[0];
+        assert!(kept.ocr && kept.text == "all 35 slides");
+        // A fresh OCR run still replaces the old one.
+        assert!(store.put(doc("all 35 slides, re-read", true)));
+        assert_eq!(store.list()[0].text, "all 35 slides, re-read");
+    }
+
+    #[test]
+    fn the_store_persists_and_restores() {
+        let dir = std::env::temp_dir().join(format!("flux-pdf-store-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pdf-text.json");
+        let store = PdfStore::restore(path.clone());
+        store.put(doc("slide 1", false));
+        store.persist();
+        let back = PdfStore::restore(path);
+        assert_eq!(back.list().len(), 1);
+        assert_eq!(back.list()[0].text, "slide 1");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
@@ -286,6 +377,9 @@ pub struct PdfStore {
     /// Bumped on every write, so the KB indexer can tell when to re-embed
     /// without re-reading the whole store.
     generation: std::sync::atomic::AtomicU64,
+    /// Held across snapshot + write, so persists that overlap on the blocking
+    /// pool land in order and the file always ends at the newest state.
+    persist_lock: parking_lot::Mutex<()>,
 }
 
 impl PdfStore {
@@ -299,6 +393,7 @@ impl PdfStore {
             docs: RwLock::new(docs),
             path: Some(path),
             generation: std::sync::atomic::AtomicU64::new(0),
+            persist_lock: parking_lot::Mutex::new(()),
         }
     }
 
@@ -310,13 +405,44 @@ impl PdfStore {
         self.docs.read().values().cloned().collect()
     }
 
-    fn put(&self, doc: PdfDoc) {
-        self.docs.write().insert(doc.src.clone(), doc);
+    /// Record a document in memory; persist with [`Self::persist`]. False when
+    /// nothing was stored: every open re-publishes the same text, and
+    /// re-stamping `ts` (the KB's change key) re-embedded it and rewrote the
+    /// whole store.
+    fn put(&self, doc: PdfDoc) -> bool {
+        {
+            let mut docs = self.docs.write();
+            if docs
+                .get(&doc.src)
+                .is_some_and(|d| d.ocr == doc.ocr && d.title == doc.title && d.text == doc.text)
+            {
+                return false;
+            }
+            // The OCR pass reads every page; a partly-scanned file's text layer
+            // only some. Re-opening the file republishes the text layer, which
+            // must not replace the OCR transcript the user waited for.
+            if !doc.ocr && docs.get(&doc.src).is_some_and(|d| d.ocr) {
+                return false;
+            }
+            docs.insert(doc.src.clone(), doc);
+        }
         self.generation
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if let Some(p) = &self.path {
-            let all: Vec<PdfDoc> = self.docs.read().values().cloned().collect();
-            crate::persist::save_json(p, &all);
+        true
+    }
+
+    /// Rewrite the store file: O(every PDF ever read) plus an fsync, so never on
+    /// the UI thread. Serialized from borrows rather than a deep clone of every
+    /// document's text, and written with no lock on the documents held.
+    fn persist(&self) {
+        let Some(p) = &self.path else { return };
+        let _order = self.persist_lock.lock();
+        let json = {
+            let docs = self.docs.read();
+            serde_json::to_vec(&docs.values().collect::<Vec<_>>())
+        };
+        if let Ok(json) = json {
+            let _ = crate::persist::write_atomic(p, &json);
         }
     }
 }
@@ -402,7 +528,7 @@ pub fn pdf_publish_text(
     }
 
     if let Some(store) = app.try_state::<PdfStore>() {
-        store.put(PdfDoc {
+        let changed = store.put(PdfDoc {
             src: src.clone(),
             title: title.clone(),
             text: text.clone(),
@@ -412,6 +538,17 @@ pub fn pdf_publish_text(
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0),
         });
+        // This command runs on the UI thread; the rewrite scales with every PDF
+        // ever read (+ an fsync), so it goes to the blocking pool. The insert
+        // above stays here, in IPC order.
+        if changed {
+            let handle = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Some(store) = handle.try_state::<PdfStore>() {
+                    store.persist();
+                }
+            });
+        }
     }
 
     // A deck whose later slides are images extracts fine for the first few and

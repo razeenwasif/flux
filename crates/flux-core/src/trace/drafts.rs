@@ -53,7 +53,10 @@ pub struct TraceDrafts {
     inner: RwLock<DraftData>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
-    hydrated: AtomicBool,
+    /// The one-time disk load; concurrent callers wait for it (see snapshots.rs).
+    /// A `put` or toggle that ran first made the loader drop the file, opt-in
+    /// setting included.
+    hydrated: std::sync::OnceLock<()>,
 }
 
 impl TraceDrafts {
@@ -66,9 +69,10 @@ impl TraceDrafts {
 
     /// Load from disk, exactly once (lazy, race-proof — see `TraceStore::hydrate`).
     pub fn hydrate(&self) {
-        if self.hydrated.swap(true, Ordering::AcqRel) {
-            return;
-        }
+        self.hydrated.get_or_init(|| self.load());
+    }
+
+    fn load(&self) {
         let Some(path) = &self.path else { return };
         let Some((loaded, was_plaintext)) = super::sealed::load_json::<DraftData>(path) else {
             return;
@@ -155,13 +159,30 @@ impl TraceDrafts {
         }
     }
 
+    /// Drop the drafts of visits not in `live` (forgotten or evicted).
+    pub fn retain_live(&self, live: &std::collections::HashSet<VisitId>) {
+        self.hydrate();
+        let mut d = self.inner.write();
+        let before = d.drafts.len();
+        d.drafts.retain(|vid, _| live.contains(vid));
+        if d.drafts.len() != before {
+            drop(d);
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+    }
+
     pub fn persist_if_dirty(&self) {
         if !self.dirty.swap(false, Ordering::Relaxed) {
             return;
         }
         let Some(path) = &self.path else { return };
+        // Unlike the other trace stores, the guard stays held across the write:
+        // `set_enabled` also persists (from a command thread), and two saves of
+        // released snapshots could land a stale opt-in toggle last.
         let d = self.inner.read();
-        super::sealed::save_json_sealed(path, &*d);
+        if !super::sealed::save_json_sealed(path, &*d) {
+            self.dirty.store(true, Ordering::Relaxed); // retry on the next flush
+        }
     }
 }
 
@@ -183,32 +204,49 @@ fn luhn_valid(digits: &[u8]) -> bool {
     sum % 10 == 0
 }
 
-/// Does `text` contain something shaped like a real card number: a 13–19 digit
-/// run (spaces/dashes allowed) that passes Luhn? Structural rejection — such a
-/// value never reaches the store.
+/// Does `text` contain something shaped like a real card number: 13–19 digits
+/// (spaces/dashes allowed between groups) that pass Luhn? Structural rejection —
+/// such a value never reaches the store. Every group-aligned span of 13–19
+/// digits is tested, not just the whole run, so a neighbouring group ("4111 1111
+/// 1111 1111 12/25", "qty 2 4539 …") can't push the run past Luhn.
 fn contains_pan(text: &str) -> bool {
-    let mut run: Vec<u8> = Vec::with_capacity(20);
-    let check = |run: &mut Vec<u8>| {
-        let hit = (13..=19).contains(&run.len()) && luhn_valid(run);
-        run.clear();
-        hit
-    };
+    fn spans_pan(run: &[u8], groups: &[usize]) -> bool {
+        groups.iter().enumerate().any(|(i, &s)| {
+            groups[i + 1..]
+                .iter()
+                .copied()
+                .chain(std::iter::once(run.len()))
+                .take_while(|&e| e - s <= 19)
+                .any(|e| e - s >= 13 && luhn_valid(&run[s..e]))
+        })
+    }
+    let mut run: Vec<u8> = Vec::with_capacity(32);
+    let mut groups: Vec<usize> = Vec::new(); // offsets in `run` where a group starts
+    let mut in_group = false;
     for c in text.bytes() {
         if c.is_ascii_digit() {
+            if !in_group {
+                groups.push(run.len());
+                in_group = true;
+            }
             run.push(c);
-            if run.len() > 19 {
-                run.remove(0); // sliding window over very long digit runs
-                if (13..=19).contains(&run.len()) && luhn_valid(&run) {
-                    return true;
-                }
+            // A very long unbroken digit string: sliding 19-digit window, as before.
+            let g = groups[groups.len() - 1];
+            if run.len() - g > 19 && luhn_valid(&run[run.len() - 19..]) {
+                return true;
             }
         } else if c == b' ' || c == b'-' {
-            continue; // grouping separators inside a card number
-        } else if check(&mut run) {
-            return true;
+            in_group = false; // grouping separator inside a card number
+        } else {
+            if spans_pan(&run, &groups) {
+                return true;
+            }
+            run.clear();
+            groups.clear();
+            in_group = false;
         }
     }
-    check(&mut run)
+    spans_pan(&run, &groups)
 }
 
 /// Field names that must never be captured, whatever the page claims the input
@@ -289,6 +327,17 @@ mod tests {
         ] {
             assert!(redact("comment", v).is_none(), "{v}");
         }
+        // …including when another digit group (expiry, CVV, a quantity) sits
+        // next to it and the whole run no longer passes Luhn.
+        for v in [
+            "card 4111 1111 1111 1111 12/25 cvv 123",
+            "4111 1111 1111 1111 12/25 123",
+            "4539 1488 0343 6467 0926",
+            "qty 2 4539 1488 0343 6467 please",
+            "visa 4111111111111111 12 27",
+        ] {
+            assert!(redact("comment", v).is_none(), "{v}");
+        }
         // A non-Luhn digit run of the same shape is fine (order numbers, ids).
         assert!(redact(
             "comment",
@@ -321,5 +370,48 @@ mod tests {
         s.forget_visits(&std::collections::HashSet::from([1]));
         assert!(s.get(1).is_empty());
         assert!(!s.get(2).is_empty(), "unrelated visit kept");
+    }
+
+    #[test]
+    fn a_put_racing_the_boot_hydrate_keeps_drafts_and_the_opt_in() {
+        // A draft arriving while the boot thread loads drafts.json must wait for
+        // the load: the loader used to drop the whole file (opt-in included) if
+        // anything had been put first.
+        let dir = std::env::temp_dir().join(format!("flux-drafts-race-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("drafts.json");
+        let old = DraftData {
+            enabled: true,
+            // Under the visit cap, so the new draft evicts nothing.
+            drafts: (0..200)
+                .map(|v| {
+                    let d = Draft {
+                        field: "comment".into(),
+                        text: "d".repeat(1000),
+                        ms: 1,
+                    };
+                    (v, vec![d])
+                })
+                .collect(),
+        };
+        // Legacy plaintext, so loading it never touches the keychain.
+        std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        for _ in 0..20 {
+            let s = std::sync::Arc::new(TraceDrafts::empty(path.clone()));
+            let go = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let boot = {
+                let (s, go) = (s.clone(), go.clone());
+                std::thread::spawn(move || {
+                    go.wait();
+                    s.hydrate();
+                })
+            };
+            go.wait();
+            s.put(9999, "comment".into(), "a fresh draft".into());
+            boot.join().unwrap();
+            assert!(s.enabled(), "the opt-in survives");
+            assert_eq!(s.get(0).len(), 1, "loaded drafts survive");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

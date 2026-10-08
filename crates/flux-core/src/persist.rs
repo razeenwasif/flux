@@ -59,6 +59,55 @@ pub(crate) fn save_json_pretty<T: serde::Serialize + ?Sized>(path: &Path, value:
     }
 }
 
+/// Load a store at hydration with `parse`. `None` means start empty: the file
+/// is missing, or it exists but can't be read or parsed. In that case a copy is
+/// kept beside it first ([`quarantine`]), because the store's next save would
+/// otherwise replace the only copy with defaults; a session written by a newer
+/// build (a tab kind this one doesn't know) silently lost every tab that way.
+pub(crate) fn load_or_quarantine<T>(
+    path: &Path,
+    parse: impl FnOnce(&[u8]) -> Result<T, String>,
+) -> Option<T> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            quarantine(path, &e.to_string());
+            return None;
+        }
+    };
+    match parse(&bytes) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            quarantine(path, &e);
+            None
+        }
+    }
+}
+
+/// [`load_or_quarantine`] for a store that is a single JSON value.
+pub(crate) fn load_json_or_quarantine<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+    load_or_quarantine(path, |b| {
+        serde_json::from_slice(b).map_err(|e| e.to_string())
+    })
+}
+
+/// Copy an unreadable store aside as `<name>.unreadable-<ms>` (best-effort) and
+/// say so in the log, the only place a user could learn why it came up empty.
+pub(crate) fn quarantine(path: &Path, why: &str) {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let mut name = path
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(".unreadable-{ms}"));
+    let kept = std::fs::copy(path, path.with_file_name(name)).is_ok();
+    tracing::warn!(target: "flux::persist", path = %path.display(), kept, "unreadable store, starting empty: {why}");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,6 +139,34 @@ mod tests {
         save_json(&p, &vec![1u32, 2, 3]);
         let back: Vec<u32> = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert_eq!(back, vec![1, 2, 3]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_store_is_kept_before_starting_empty() {
+        let dir = scratch("quarantine");
+        let p = dir.join("store.json");
+        // Missing: just empty, nothing copied.
+        assert_eq!(load_json_or_quarantine::<Vec<u32>>(&p), None);
+        assert!(!dir.exists());
+        // Present but unparseable (here: not even UTF-8).
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&p, b"[1, 2, \xff").unwrap();
+        assert_eq!(load_json_or_quarantine::<Vec<u32>>(&p), None);
+        let kept: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("store.json.unreadable-")
+            })
+            .collect();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(std::fs::read(kept[0].path()).unwrap(), b"[1, 2, \xff");
+        // A good file loads.
+        save_json(&p, &vec![1u32, 2]);
+        assert_eq!(load_json_or_quarantine::<Vec<u32>>(&p), Some(vec![1, 2]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

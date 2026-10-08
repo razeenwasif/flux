@@ -64,6 +64,31 @@ describe("agentic intent detection", () => {
     }
   });
 
+  // These ask to SAVE something for later. Their object often names work, but
+  // the loop would start that work now and the reminder or fact was never saved.
+  it("leaves reminders and memory to their own handlers", () => {
+    for (const t of [
+      "remind me to run the tests in 10 min",
+      "remind me to read the PDF at 3pm",
+      "remind me to fix the build tomorrow",
+      "remember that the test suite takes 5 minutes",
+      "note that the build takes 10 min to finish",
+      "I want you to remind me to run the tests at 5",
+      "hey gemma, remind me to fix the build tomorrow",
+      "can you set a reminder to run the build at noon",
+      "add a task to fix the failing tests",
+    ]) {
+      expect(looksAgentic(t), t).toBe(false);
+    }
+    // …without stealing real work that opens with a nearby verb.
+    for (const t of [
+      "add a test for src/kb.rs and run the test suite",
+      "search the repo for TODOs then fix each one",
+    ]) {
+      expect(looksAgentic(t), t).toBe(true);
+    }
+  });
+
   // Ordering matters: this is checked BEFORE note detection in the panel, so
   // anything it claims never reaches the note path.
   it("leaves a plain note write to the note detector", () => {

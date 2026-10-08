@@ -32,6 +32,7 @@ import {
 } from "./ipc";
 import { settingsWriter } from "./settingsWriter";
 import { protectionStatus, protectionMetrics, requestControlsHint } from "./protectionStatus";
+import { isWindows } from "./platform";
 import { activeId, activeTab } from "./store";
 
 function hostOf(url: string): string | null {
@@ -278,10 +279,18 @@ const ShieldsPop: Component<{ onNavigate: (url: string) => void; onClose: () => 
           </Show>
           <div class="shields-row">
             <span class="shields-label">Block camera/mic/geo</span>
+            {/* Only WebView2's permission handler (permissions.rs) applies this;
+                elsewhere the engine grants these requests itself. */}
             <button
               role="switch"
               aria-label="Block camera, microphone and location"
               aria-checked={blockPerms()}
+              disabled={!isWindows}
+              title={
+                isWindows
+                  ? "Block camera, microphone and location"
+                  : "Permission blocking is enforced on Windows only"
+              }
               classList={{ "shields-toggle": true, on: blockPerms() }}
               onClick={togglePerms}
             >

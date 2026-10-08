@@ -4,9 +4,9 @@
  * `currency_rates` backend command, fetched on demand + cached per base).
  * One compact UI; `full` just gives it more room in the expanded modal.
  */
-import { For, Show, createMemo, createResource, createSignal, type Component } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js";
 
-import { currencyRates } from "./ipc";
+import { currencyRates, type CurrencyRates } from "./ipc";
 
 type Cat = { name: string; units: Record<string, number>; temp?: boolean; currency?: boolean };
 
@@ -122,11 +122,36 @@ const Converter: Component<{ full?: boolean }> = (props) => {
   const [from, setFrom] = createSignal("m");
   const [to, setTo] = createSignal("ft");
 
-  // Currency rates, fetched per `from` code and cached by createResource keyed on it.
-  const [rates] = createResource(
-    () => (cat().currency ? from() : null),
-    async (base) => (base ? currencyRates(base).catch(() => null) : null),
-  );
+  // Currency rates for the `from` code, cached per base while mounted. Plain
+  // signals, not createResource: a pending resource read by the memo below
+  // suspends ContentArea's fallback-less <Suspense>, which blanked the whole
+  // start page (and any split panes) for the length of every fetch.
+  const rateCache = new Map<string, CurrencyRates>();
+  const [rates, setRates] = createSignal<CurrencyRates | null>(null);
+  const [ratesLoading, setRatesLoading] = createSignal(false);
+  let ratesGen = 0;
+  createEffect(() => {
+    // A real code only: pickCat switches the category before the units, so the
+    // previous category's first unit ("m") is briefly `from`.
+    const base = cat().currency && CURRENCIES.includes(from()) ? from() : null;
+    if (!base) return;
+    const mine = ++ratesGen;
+    const hit = rateCache.get(base);
+    if (hit) {
+      setRates(hit);
+      setRatesLoading(false);
+      return;
+    }
+    setRatesLoading(true);
+    void currencyRates(base)
+      .catch(() => null)
+      .then((r) => {
+        if (r) rateCache.set(base, r);
+        if (mine !== ratesGen) return; // a newer base was picked meanwhile
+        setRates(r);
+        setRatesLoading(false);
+      });
+  });
 
   const unitList = () => (cat().currency ? CURRENCIES : Object.keys(cat().units));
 
@@ -151,7 +176,7 @@ const Converter: Component<{ full?: boolean }> = (props) => {
     if (c.temp) return fmt(fromBaseTemp(toBaseTemp(v, from()), to()));
     if (c.currency) {
       const r = rates();
-      if (!r) return rates.loading ? "…" : "—";
+      if (!r) return ratesLoading() ? "…" : "—";
       const rf = r.rates[from()] ?? (from() === r.base ? 1 : undefined);
       const rt = r.rates[to()];
       if (rf == null || rt == null) return "—";
@@ -218,7 +243,7 @@ const Converter: Component<{ full?: boolean }> = (props) => {
 
       <Show when={cat().currency}>
         <div class="conv-note">
-          {rates.loading
+          {ratesLoading()
             ? "Fetching live rates…"
             : rates()
               ? `ECB rates · ${rates()!.date}`

@@ -52,7 +52,7 @@ pub async fn voice_speak(text: String) -> Result<String, String> {
             return Err("nothing to speak".into());
         }
         let model = piper_model()?;
-        let mut child = Command::new(piper_bin())
+        let mut child = crate::exec::no_console(&mut Command::new(piper_bin()))
             .args(["--model", &model, "--output_file", "-"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -93,10 +93,23 @@ const EL_SERVICE: &str = "flux.elevenlabs";
 const EL_ACCOUNT: &str = "api-key";
 const EL_API: &str = "https://api.elevenlabs.io/v1";
 
+/// One pooled agent for ElevenLabs and Fish Audio, so the voice preflight, the
+/// synthesis POST and the next reply reuse a keep-alive TLS connection instead
+/// of handshaking each time. Not `.timeout()`: in ureq 2 that is a whole-request
+/// deadline that also bounds reading the body, so long audio still streaming at
+/// 30 s was cut off (its credit spent anyway). Per-phase timeouts still fail a
+/// stalled server: 30 s without a byte.
 fn el_http() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(30))
-        .build()
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    AGENT
+        .get_or_init(|| {
+            ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(10))
+                .timeout_read(Duration::from_secs(30))
+                .timeout_write(Duration::from_secs(30))
+                .build()
+        })
+        .clone()
 }
 
 fn el_key() -> Result<String, String> {
@@ -291,8 +304,17 @@ fn is_plausible_el_key(token: &str) -> bool {
 }
 
 /// Store (or, with an empty string, clear) the ElevenLabs API key in the keyring.
+/// Async + `spawn_blocking`, like every keyring command here: a sync command
+/// runs on the UI thread, and keyring I/O can block there (a macOS keychain
+/// prompt after a rebuild, a locked Secret Service collection on Linux).
 #[tauri::command]
-pub fn elevenlabs_set_key(key: String) -> Result<(), String> {
+pub async fn elevenlabs_set_key(key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || el_set_key(key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn el_set_key(key: String) -> Result<(), String> {
     if !crate::vault::HAS_OS_KEYCHAIN {
         return Err("no OS keychain on this platform, so the key can't be saved".into());
     }
@@ -322,12 +344,16 @@ pub fn elevenlabs_set_key(key: String) -> Result<(), String> {
 /// Whether an ElevenLabs API key is stored (so the UI can show key-set state
 /// without ever reading the key back into the renderer).
 #[tauri::command]
-pub fn elevenlabs_has_key() -> bool {
-    keyring::Entry::new(EL_SERVICE, EL_ACCOUNT)
-        .ok()
-        .and_then(|e| e.get_password().ok())
-        .map(|k| !normalize_el_key(&k).is_empty())
-        .unwrap_or(false)
+pub async fn elevenlabs_has_key() -> bool {
+    tauri::async_runtime::spawn_blocking(|| {
+        keyring::Entry::new(EL_SERVICE, EL_ACCOUNT)
+            .ok()
+            .and_then(|e| e.get_password().ok())
+            .map(|k| !normalize_el_key(&k).is_empty())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// Verify that the stored key is accepted by ElevenLabs before the user tries to
@@ -639,8 +665,15 @@ fn parse_fish_voice_ref(input: &str) -> String {
 }
 
 /// Store (or, with an empty string, clear) the Fish Audio API key in the keyring.
+/// Off the UI thread, as keyring I/O can block (see `elevenlabs_set_key`).
 #[tauri::command]
-pub fn fishaudio_set_key(key: String) -> Result<(), String> {
+pub async fn fishaudio_set_key(key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || fish_set_key(key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn fish_set_key(key: String) -> Result<(), String> {
     if !crate::vault::HAS_OS_KEYCHAIN {
         return Err("no OS keychain on this platform, so the key can't be saved".into());
     }
@@ -662,8 +695,10 @@ pub fn fishaudio_set_key(key: String) -> Result<(), String> {
 
 /// Whether a Fish Audio API key is stored (never reads the key into the renderer).
 #[tauri::command]
-pub fn fishaudio_has_key() -> bool {
-    fish_key().is_ok()
+pub async fn fishaudio_has_key() -> bool {
+    tauri::async_runtime::spawn_blocking(|| fish_key().is_ok())
+        .await
+        .unwrap_or(false)
 }
 
 /// Verify the stored key against Fish Audio.

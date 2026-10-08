@@ -64,8 +64,11 @@ export const applyTheme = (id: ThemeId): void => {
 };
 
 export const setTheme = (id: ThemeId): void => {
-  setThemeSig(id);
+  // DOM first: the signal write runs every theme() effect synchronously (the
+  // terminals' colours, the palette cache refill), and they read computed
+  // styles, which must already be the new theme's.
   applyTheme(id);
+  setThemeSig(id);
   try {
     localStorage.setItem(KEY, id);
   } catch {

@@ -94,18 +94,34 @@ struct Inner {
 pub struct WatchStore {
     inner: Arc<RwLock<Inner>>,
     path: Arc<Option<PathBuf>>,
+    /// Serializes snapshot + write: the scheduler and a command saving at once
+    /// could otherwise land the older snapshot last.
+    save_lock: Arc<parking_lot::Mutex<()>>,
 }
 
 impl WatchStore {
     pub fn restore(path: PathBuf) -> Self {
-        let entries: Vec<WatchEntry> = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let loaded: Result<Vec<WatchEntry>, String> = match std::fs::read_to_string(&path) {
+            Ok(s) => serde_json::from_str(&s).map_err(|e| e.to_string()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(e.to_string()),
+        };
+        let (entries, path) = match loaded {
+            Ok(entries) => (entries, Some(path)),
+            Err(e) => {
+                // Starting empty, the next save would replace every watch (and
+                // its baseline) for good. Set the file aside first; if even that
+                // fails, don't save this session.
+                let aside = std::fs::rename(&path, path.with_extension("json.corrupt")).is_ok();
+                tracing::warn!(target: "flux::watch", aside, "watches.json unreadable: {e}");
+                (Vec::new(), aside.then_some(path))
+            }
+        };
         let next_id = entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
         Self {
             inner: Arc::new(RwLock::new(Inner { entries, next_id })),
-            path: Arc::new(Some(path)),
+            path: Arc::new(path),
+            save_lock: Arc::default(),
         }
     }
 
@@ -113,12 +129,14 @@ impl WatchStore {
         let Some(path) = self.path.as_ref() else {
             return;
         };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let json = serde_json::to_string(&self.inner.read().entries).ok();
-        if let Some(json) = json {
-            let _ = std::fs::write(path, json);
+        let _serial = self.save_lock.lock();
+        // Temp file + rename (persist.rs): a crash mid-write can no longer leave a
+        // torn file that `restore` reads as "no watches".
+        let saved = serde_json::to_vec(&self.inner.read().entries)
+            .map_err(|e| e.to_string())
+            .and_then(|json| crate::persist::write_atomic(path, &json).map_err(|e| e.to_string()));
+        if let Err(e) = saved {
+            tracing::warn!(target: "flux::watch", "saving watches failed: {e}");
         }
     }
 
@@ -140,10 +158,20 @@ impl WatchStore {
 
     /// Add a watch and capture its initial baseline (best-effort). Idempotent on URL.
     pub fn add(&self, url: String, title: String, interval_secs: Option<u64>) -> WatchItem {
+        self.add_fetched(url, title, interval_secs, fetch_text)
+    }
+
+    fn add_fetched(
+        &self,
+        url: String,
+        title: String,
+        interval_secs: Option<u64>,
+        fetch: impl FnOnce(&str) -> Result<String, String>,
+    ) -> WatchItem {
         if let Some(e) = self.inner.read().entries.iter().find(|e| e.url == url) {
             return e.to_item();
         }
-        let (baseline, error) = match fetch_text(&url) {
+        let (baseline, error) = match fetch(&url) {
             Ok(t) => (t, None),
             Err(e) => (String::new(), Some(e)),
         };
@@ -151,6 +179,13 @@ impl WatchStore {
         // re-read after releasing the lock could race a concurrent remove.
         let item = {
             let mut inner = self.inner.write();
+            // Check again under the guard that inserts: the fetch takes seconds,
+            // and a second add for this URL (a repeated click) passed the check
+            // above meanwhile. Two entries meant two fetches per check and two
+            // notifications per change.
+            if let Some(e) = inner.entries.iter().find(|e| e.url == url) {
+                return e.to_item();
+            }
             let id = inner.next_id;
             inner.next_id += 1;
             let entry = WatchEntry {
@@ -255,6 +290,10 @@ fn fetch_text(url: &str) -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(25))
+        // `timeout_read` bounds each read, not the response: a server dribbling
+        // a byte every 20 s held this (and, since checks run one after another,
+        // every other watch) indefinitely. Bound the whole request.
+        .timeout(Duration::from_secs(60))
         .build();
     let resp = agent
         .get(url)
@@ -383,27 +422,37 @@ fn diff(baseline: &str, current: &str) -> (Vec<String>, Vec<String>) {
     let kind = embedding::current();
     let old_v = embedding::embed_batch(&old_p, kind).unwrap_or_default();
     let new_v = embedding::embed_batch(&new_p, kind).unwrap_or_default();
-    if new_v.len() != new_p.len() {
-        return (Vec::new(), Vec::new()); // embedding failed; report nothing rather than noise
+    compare(&old_p, &old_v, &new_p, &new_v)
+}
+
+/// The rest of [`diff`], once both sides are embedded (no vectors for a side
+/// whose batch failed).
+fn compare(
+    old_p: &[String],
+    old_v: &[Vec<f32>],
+    new_p: &[String],
+    new_v: &[Vec<f32>],
+) -> (Vec<String>, Vec<String>) {
+    // Either side failing reports nothing rather than noise. Scored against no
+    // baseline vectors, every new passage read as "added", and a change
+    // notification fired for a page that hadn't changed.
+    if new_v.len() != new_p.len() || old_v.len() != old_p.len() {
+        return (Vec::new(), Vec::new());
     }
     let added: Vec<String> = new_p
         .iter()
         .enumerate()
-        .filter(|(i, _)| max_cos(&new_v[*i], &old_v) < MATCH_THRESHOLD)
+        .filter(|(i, _)| max_cos(&new_v[*i], old_v) < MATCH_THRESHOLD)
         .map(|(_, p)| p.clone())
         .take(MAX_REPORTED)
         .collect();
-    let removed: Vec<String> = if old_v.len() == old_p.len() {
-        old_p
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| max_cos(&old_v[*i], &new_v) < MATCH_THRESHOLD)
-            .map(|(_, p)| p.clone())
-            .take(MAX_REPORTED)
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let removed: Vec<String> = old_p
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| max_cos(&old_v[*i], new_v) < MATCH_THRESHOLD)
+        .map(|(_, p)| p.clone())
+        .take(MAX_REPORTED)
+        .collect();
     (added, removed)
 }
 
@@ -442,14 +491,22 @@ pub async fn watch_add(
         .map_err(|e| e.to_string())
 }
 
+// Both rewrite the whole store (every baseline) and fsync it, and may wait on a
+// scheduler save: off the main thread.
 #[tauri::command]
-pub fn watch_remove(store: State<'_, WatchStore>, id: u64) {
-    store.remove(id);
+pub async fn watch_remove(store: State<'_, WatchStore>, id: u64) -> Result<(), String> {
+    let store = (*store).clone();
+    tauri::async_runtime::spawn_blocking(move || store.remove(id))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn watch_mark_seen(store: State<'_, WatchStore>, id: u64) {
-    store.mark_seen(id);
+pub async fn watch_mark_seen(store: State<'_, WatchStore>, id: u64) -> Result<(), String> {
+    let store = (*store).clone();
+    tauri::async_runtime::spawn_blocking(move || store.mark_seen(id))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Force an immediate check (the ↻ button). Returns the updated item.
@@ -528,6 +585,135 @@ mod tests {
         assert_eq!(html_to_text("<br>日本語"), "日本語");
         assert_eq!(html_to_text("<p>Hi 👋</p>"), "Hi 👋");
         assert_eq!(html_to_text("<SCRIPT>x()</SCRIPT><em>don’t</em>"), "don’t");
+    }
+
+    fn entry(id: u64) -> WatchEntry {
+        WatchEntry {
+            id,
+            url: format!("https://a.test/{id}"),
+            title: String::new(),
+            interval_secs: DEFAULT_INTERVAL,
+            created_ms: 0,
+            last_checked_ms: 0,
+            last_change_ms: 0,
+            baseline: "page text ".repeat(50_000),
+            added: Vec::new(),
+            removed: Vec::new(),
+            error: None,
+            seen: false,
+        }
+    }
+
+    fn saved(path: &std::path::Path) -> Vec<WatchEntry> {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn an_unreadable_store_is_set_aside_not_saved_over() {
+        let dir = std::env::temp_dir().join(format!("flux-watch-torn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("watches.json");
+        // What a write cut short leaves behind.
+        let full = serde_json::to_string(&vec![entry(1), entry(2)]).unwrap();
+        let torn = &full[..full.len() / 2];
+        std::fs::write(&path, torn).unwrap();
+
+        let store = WatchStore::restore(path.clone());
+        assert!(store.list().is_empty());
+        store.remove(1); // any save
+        let aside = std::fs::read_to_string(dir.join("watches.json.corrupt")).unwrap();
+        assert_eq!(aside, torn, "the old file is kept, not written over");
+        assert!(saved(&path).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_saves_leave_the_newest_whole_snapshot() {
+        let dir = std::env::temp_dir().join(format!("flux-watch-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("watches.json");
+        let all: Vec<WatchEntry> = (1..=8).map(entry).collect();
+        std::fs::write(&path, serde_json::to_string(&all).unwrap()).unwrap();
+
+        let store = WatchStore::restore(path.clone());
+        // Whatever moment a crash picks, the file on disk must parse: watch it
+        // the whole time the saves run.
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let reader = {
+            let (path, done) = (path.clone(), done.clone());
+            std::thread::spawn(move || {
+                while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                    let s = std::fs::read_to_string(&path).unwrap();
+                    assert!(
+                        serde_json::from_str::<Vec<WatchEntry>>(&s).is_ok(),
+                        "torn file"
+                    );
+                }
+            })
+        };
+        let start = Arc::new(std::sync::Barrier::new(8));
+        let removers: Vec<_> = (1..=8)
+            .map(|id| {
+                let (store, start) = (store.clone(), start.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    store.remove(id);
+                })
+            })
+            .collect();
+        for r in removers {
+            r.join().unwrap();
+        }
+        done.store(true, std::sync::atomic::Ordering::Relaxed);
+        reader.join().unwrap();
+        // And the last write saw every removal: no stale snapshot landing last
+        // and bringing a removed watch back.
+        assert!(saved(&path).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn adding_one_url_twice_at_once_makes_one_watch() {
+        // A double click: the second add passes the first check while the
+        // first is still fetching. The fetches wait for each other here, so the
+        // two adds always overlap.
+        let store = WatchStore {
+            inner: Arc::default(),
+            path: Arc::new(None),
+            save_lock: Arc::default(),
+        };
+        let both_fetching = Arc::new(std::sync::Barrier::new(2));
+        let adds: Vec<_> = (0..2)
+            .map(|_| {
+                let (store, both_fetching) = (store.clone(), both_fetching.clone());
+                std::thread::spawn(move || {
+                    let url = "https://a.test/".to_string();
+                    store.add_fetched(url, String::new(), None, |_| {
+                        both_fetching.wait();
+                        Ok("page text".into())
+                    })
+                })
+            })
+            .collect();
+        let ids: Vec<u64> = adds.into_iter().map(|a| a.join().unwrap().id).collect();
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(ids[0], ids[1], "both clicks get the same watch");
+    }
+
+    #[test]
+    fn a_failed_embedding_on_either_side_reports_no_change() {
+        let old_p = vec!["our refund policy allows cancellation within thirty days".to_string()];
+        let new_p = vec!["we launched an enterprise tier with single sign on".to_string()];
+        let v = vec![vec![1.0_f32, 0.0]];
+        let nothing = (Vec::<String>::new(), Vec::<String>::new());
+        // The baseline's batch failing (Ollama restarting, say) used to score
+        // every new passage against nothing: the whole page "added".
+        assert_eq!(compare(&old_p, &[], &new_p, &v), nothing);
+        assert_eq!(compare(&old_p, &v, &new_p, &[]), nothing);
+        // A baseline too short for a passage is still "nothing before".
+        assert_eq!(compare(&[], &[], &new_p, &v).0, new_p);
     }
 
     #[test]

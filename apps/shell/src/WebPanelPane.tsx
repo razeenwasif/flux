@@ -90,13 +90,18 @@ const WebPanelPane: Component<{ onNavigate: (url: string) => void }> = (props) =
     window.addEventListener("pointerup", up);
   };
 
-  const slot = (id: string, p: WebPanel, onClose: () => void, grow: () => number) => (
+  // `p` is the (non-keyed) Show's accessor, read inside every binding: a rail click
+  // swaps a slot X→Y without the Show re-running its children, so a plain object
+  // left X's title, Reload target and page in place. Keying the Show on the object
+  // instead would remount on every refreshTabs() (applyPanels hands back new
+  // objects), resetting a flux:// panel's page each time a tab opens or closes.
+  const slot = (id: string, p: () => WebPanel, onClose: () => void, grow: () => number) => (
     <div class="webpanel-surface" id={id} style={{ "flex-grow": String(grow()) }}>
       <div class="panel-toolbar">
-        <span class="panel-title" title={p.url}>
-          {p.title || p.url}
+        <span class="panel-title" title={p().url}>
+          {p().title || p().url}
         </span>
-        <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p.id, p.url)}>
+        <button class="panel-btn" title="Reload panel" onClick={() => void panelNavigate(p().id, p().url)}>
           ⟳
         </button>
         <button class="panel-btn" title="Close panel" onClick={onClose}>
@@ -106,10 +111,10 @@ const WebPanelPane: Component<{ onNavigate: (url: string) => void }> = (props) =
       {/* A flux:// panel has no webview to cover this slot, so it renders here
           as DOM. Everything else keeps the placeholder its native panel sits
           over. */}
-      <Show when={isStartUrl(p.url)} fallback={<div class="panel-placeholder" />}>
+      <Show when={isStartUrl(p().url)} fallback={<div class="panel-placeholder" />}>
         <div class="panel-internal">
           <InternalPage
-            tab={() => ({ ...PANEL_TAB, id: -p.id, url: p.url, title: p.title })}
+            tab={() => ({ ...PANEL_TAB, id: -p().id, url: p().url, title: p().title })}
             onNavigate={props.onNavigate}
             onNewTerminal={() => {}}
             onToggleAgent={() => {}}
@@ -147,7 +152,7 @@ const WebPanelPane: Component<{ onNavigate: (url: string) => void }> = (props) =
           {(p) =>
             slot(
               "flux-panel-area",
-              p(),
+              p,
               () => closePanel(),
               () => (both() ? panelSplitRatio() : 1),
             )
@@ -160,7 +165,7 @@ const WebPanelPane: Component<{ onNavigate: (url: string) => void }> = (props) =
           {(p) =>
             slot(
               "flux-panel-area-b",
-              p(),
+              p,
               () => closePanelB(),
               () => (both() ? 1 - panelSplitRatio() : 1),
             )

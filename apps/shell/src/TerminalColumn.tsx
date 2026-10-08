@@ -117,11 +117,15 @@ const TerminalColumn: Component<{ visible: boolean }> = (props) => {
               >
                 <div class="terminal-surface">
                   <Suspense>
+                    {/* Splits never persist: their ids restart every launch and
+                        they aren't restored, so a live broker would reattach a
+                        previous run's split. Only PANE_SESSION comes back. */}
                     <TerminalView
                       session={s}
                       active={props.visible && active() === s}
                       visible={props.visible}
                       background={panes().length === 1}
+                      persist={s === PANE_SESSION ? undefined : "off"}
                     />
                   </Suspense>
                 </div>

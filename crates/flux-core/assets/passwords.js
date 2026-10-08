@@ -4,11 +4,14 @@
 //
 // Flow: scan for visible password fields (load + debounced MutationObserver,
 // so SPAs count). Classify the form:
-//   * REGISTRATION — autocomplete="new-password", two password fields in one
-//     form, or signup wording near the form → "✦ Strong password" chip. Click
+//   * REGISTRATION — autocomplete="new-password" or two password fields in one
+//     form; signup wording near the form counts only when the vault has no
+//     login for this host (login forms carry "Sign up" links too)
+//     → "✦ Strong password" chip. Click
 //     asks the Rust vault for a generated password (vault_suggest_password),
-//     fills every password field in the form, and arms a submit hook that asks
-//     Rust to offer saving {username, password} (vault_save_from_page raises
+//     fills the form's new-password fields (never a change form's current
+//     password), and arms a submit hook that asks Rust to offer saving the
+//     submitted {username, password} (vault_save_from_page raises
 //     the chrome's "Save password?" bar; nothing is stored until the user
 //     confirms there).
 //   * LOGIN — a lone password field → ask vault_page_info; if the vault is
@@ -115,13 +118,18 @@
   var REG_WORDS = /sign\s*up|register|create\s+(an?\s+)?(new\s+)?account|get\s+started|join\s|registrieren|inscription/i;
 
   // Is this password field part of a REGISTRATION form (vs a login)?
-  function isRegistration(pw) {
-    if ((pw.autocomplete || "").toLowerCase() === "new-password") return true;
+  //   "strong": the markup says so (new-password, or password + confirm).
+  //   "weak":   only the wording near it. Login forms routinely carry "Sign up"
+  //             or "Create an account" links, and titles like "log in or sign
+  //             up", so wording must never outrank a saved login for the host.
+  //   "":       a login.
+  function registrationSignal(pw) {
+    if ((pw.autocomplete || "").toLowerCase() === "new-password") return "strong";
     var form = formOf(pw);
     var fields = form
       ? Array.prototype.filter.call(form.querySelectorAll('input[type="password"]'), visible)
       : pwFields();
-    if (fields.length >= 2) return true; // password + confirm
+    if (fields.length >= 2) return "strong"; // password + confirm
     var probe = "";
     if (form) {
       probe += " " + (form.action || "") + " " + (form.id || "") + " " + (form.className || "");
@@ -130,7 +138,7 @@
       probe += " " + (form.textContent || "").slice(0, 400);
     }
     probe += " " + location.pathname + " " + document.title;
-    return REG_WORDS.test(probe);
+    return REG_WORDS.test(probe) ? "weak" : "";
   }
 
   // ── Chip UI ────────────────────────────────────────────────────────────────
@@ -183,21 +191,39 @@
     showChip(pw, "✦", "Use a strong password", function () {
       call("vault_suggest_password").then(function (generated) {
         var form = formOf(pw);
-        var targets = form
+        var all = form
           ? Array.prototype.filter.call(form.querySelectorAll('input[type="password"]'), visible)
           : [pw];
-        targets.forEach(function (f) { setVal(f, generated); handled.add(f); });
+        // A change-password form leads with the CURRENT password. Overwriting it
+        // makes the site reject the change while Flux offers to save a password
+        // the site never accepted. Fill only the new/confirm fields.
+        var targets = all.filter(function (f, i) {
+          var ac = (f.autocomplete || "").toLowerCase();
+          if (ac === "current-password") return false;
+          return !(all.length >= 3 && i === 0 && ac !== "new-password");
+        });
+        if (!targets.length) { removeChip(); return; }
+        // Every field is handled, the current one included: otherwise the chip
+        // re-offers on it, and offerSaveOnSubmit would offer the OLD password
+        // for saving right after the change.
+        all.forEach(function (f) { handled.add(f); });
+        targets.forEach(function (f) { setVal(f, generated); });
         var save = function () {
+          // What the field holds at submit, not the suggestion: the site may
+          // have rejected it and the user typed their own.
+          var password = targets[0].value;
+          if (!password) return;
           var userEl = usernameFieldFor(pw);
           call("vault_save_from_page", {
             username: (userEl && userEl.value) || "",
-            password: generated,
+            password: password,
           }).catch(function () {});
         };
         if (form) {
           // Offer the save when the user actually signs up (username is filled
-          // by then).
-          form.addEventListener("submit", save, { once: true, capture: true });
+          // by then), on every submit: when the site rejects the first try, the
+          // resubmitted password is the one to keep.
+          form.addEventListener("submit", save, { capture: true });
           showChip(pw, "✓", "Flux will offer to save this password when you sign up", function () {});
         } else {
           save(); // no form to hook — offer now; the entry is editable in the vault
@@ -223,14 +249,31 @@
     call("vault_fill_page").catch(function () {});
   }
 
-  function offerFill(pw) {
+  // Anchors Rust already answered "nothing to fill" for. Without this, every
+  // debounced DOM mutation asked again: a main-thread IPC every 0.6-1.8 s per
+  // tab for the page's lifetime. Entries die with their element (a re-render
+  // asks again), and focusing an input clears them (the vault may be unlocked
+  // by then).
+  var probedEmpty = new WeakSet();
+
+  // `weakReg`: the form only reads like a sign-up (see registrationSignal), so
+  // it gets the strong-password chip only when nothing is saved for this host.
+  function offerFill(pw, weakReg) {
+    if (probedEmpty.has(pw)) { reason("probe-failed"); return; }
     call("vault_page_info").then(function (info) {
-      // `vault_page_info` collapses locked / blocked / no-match into one shape on
-      // purpose (a hostile page must learn nothing). The chrome-side diagnostic
-      // resolves which it was; here we only note that Rust said no.
-      if (!info || !info.unlocked || !info.count) { reason("probe-failed"); return; }
       if (dismissed) { reason("dismissed"); return; }
       if (pw.value) { reason("field-prefilled"); return; } // re-check: probe was async
+      // `vault_page_info` collapses locked / blocked into one shape on purpose
+      // (a hostile page must learn nothing); an unlocked vault with no match
+      // says `unlocked` with a zero count. The chrome-side diagnostic resolves
+      // which it was; here we only note that Rust said no.
+      if (!info || !info.unlocked || !info.count) {
+        // Sign-up wording and no saved login here: a sign-up form after all.
+        if (weakReg && info && info.unlocked) { reason("registration"); offerSuggest(pw); return; }
+        probedEmpty.add(pw);
+        reason("probe-failed");
+        return;
+      }
       reason("offered");
       var label = info.count > 1 ? "Fill · " + info.count + " saved logins" : "Fill saved login";
       showChip(pw, "🔑", label, function () { requestFill(pw); });
@@ -305,8 +348,9 @@
     if (handled.has(pw)) { reason("already-handled"); return; }
     if (pw.value) { reason("field-prefilled"); return; }
     if (chip && chipAnchor === pw) { placeChip(); reason("offered"); return; }
-    if (isRegistration(pw)) { reason("registration"); offerSuggest(pw); }
-    else offerFill(pw);
+    var reg = registrationSignal(pw);
+    if (reg === "strong") { reason("registration"); offerSuggest(pw); }
+    else offerFill(pw, reg === "weak");
   }
 
   // Debounce with a CEILING. A plain debounce starves on pages that mutate
@@ -371,8 +415,12 @@
   }
   if (document.documentElement) watchDom();
   else addEventListener("DOMContentLoaded", watchDom, { once: true });
+  // Any input, not just a password box: a two-step sign-in anchors on its
+  // username field. Focus is the cue to ask Rust again where it said no.
   addEventListener("focusin", function (e) {
-    if (e.target && e.target.matches && e.target.matches('input[type="password"]')) queueScan();
+    if (!e.target || e.target.tagName !== "INPUT") return;
+    probedEmpty = new WeakSet();
+    queueScan();
   }, true);
   if (document.readyState === "loading") addEventListener("DOMContentLoaded", queueScan);
   else queueScan();

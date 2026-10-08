@@ -9,10 +9,22 @@
 //! wry only supports `http://` and `socks5://`; a value that isn't one of those is
 //! never passed to the builder (it would fail webview creation), so a bad setting
 //! degrades to a direct connection rather than breaking browsing.
+//!
+//! Windows and Linux only (see [`SUPPORTED`]). Elsewhere a saved proxy makes page
+//! webviews refuse to open instead of quietly connecting directly.
 
 use parking_lot::RwLock;
 use std::path::PathBuf;
-use tauri::{State, Url};
+use tauri::{AppHandle, Manager, State, Url};
+
+/// Whether a webview's `proxy_url` takes effect in this build. WKWebView applies
+/// it only with tauri's `macos-proxy` feature (macOS 14+), which Flux doesn't
+/// enable, and Android/iOS ignore it: the page would silently connect directly.
+pub const SUPPORTED: bool = !cfg!(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "android"
+));
 
 #[derive(Default)]
 pub struct ProxyState {
@@ -50,6 +62,46 @@ impl ProxyState {
         (matches!(u.scheme(), "http" | "socks5") && u.host_str().is_some() && u.port().is_some())
             .then_some(u)
     }
+
+    /// `parsed()`, or `Err` when there is a proxy this build can't apply.
+    fn to_apply(&self) -> Result<Option<Url>, String> {
+        match self.parsed() {
+            Some(_) if !SUPPORTED => Err(
+                "a proxy is set but this platform can't apply it, so the page isn't loaded \
+                 (it would connect directly); clear it in Settings"
+                    .into(),
+            ),
+            proxy => Ok(proxy),
+        }
+    }
+
+    /// A `ureq` agent builder for a Rust-side fetch on the tabs' network path.
+    /// See [`agent_builder`].
+    pub fn agent_builder(&self) -> Option<ureq::AgentBuilder> {
+        agent_builder(self.parsed().as_ref())
+    }
+}
+
+/// The proxy to build a page webview (tab, panel, peek, installed app) with:
+/// `None` is direct. `Err` means one is configured that this platform can't
+/// apply, and the caller must not open the page: a Tor user would otherwise
+/// browse with their real IP, believing they're proxied.
+pub fn for_webview(app: &AppHandle) -> Result<Option<Url>, String> {
+    app.try_state::<ProxyState>()
+        .map_or(Ok(None), |s| s.to_apply())
+}
+
+/// A `ureq` agent builder that goes through `proxy` (a [`ProxyState::parsed`]
+/// value), or `None` for a proxy ureq can't speak: SOCKS5, since it's built
+/// without `socks-proxy`. On `None` the caller must skip the request, because
+/// a direct one hands the site the address the proxy was set up to hide.
+pub fn agent_builder(proxy: Option<&Url>) -> Option<ureq::AgentBuilder> {
+    let builder = ureq::AgentBuilder::new();
+    match proxy {
+        None => Some(builder),
+        Some(u) if u.scheme() == "http" => Some(builder.proxy(ureq::Proxy::new(u.as_str()).ok()?)),
+        Some(_) => None,
+    }
 }
 
 /// Validate a user-supplied proxy URL the way `parsed()` will accept it.
@@ -74,6 +126,12 @@ pub fn proxy_set(state: State<'_, ProxyState>, url: Option<String>) -> Result<()
     let cleaned = url.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     if let Some(u) = &cleaned {
         validate(u)?;
+        if !SUPPORTED {
+            return Err(
+                "proxies aren't supported on this platform yet; pages would connect directly"
+                    .into(),
+            );
+        }
     }
     state.store(cleaned);
     Ok(())
@@ -99,5 +157,54 @@ mod tests {
         assert!(s.parsed().is_none());
         assert!(validate("ftp://x:1").is_err());
         assert!(validate("socks5://127.0.0.1:1080").is_ok());
+    }
+
+    #[test]
+    fn a_proxy_this_build_cannot_apply_blocks_the_page() {
+        let s = ProxyState::default();
+        assert_eq!(s.to_apply(), Ok(None));
+        s.store(Some("garbage".into()));
+        assert_eq!(s.to_apply(), Ok(None), "an unusable value stays direct");
+        s.store(Some("socks5://127.0.0.1:9150".into()));
+        if SUPPORTED {
+            assert_eq!(s.to_apply(), Ok(s.parsed()));
+        } else {
+            assert!(s.to_apply().is_err(), "must not silently go direct");
+        }
+    }
+
+    #[test]
+    fn rust_side_fetches_go_through_the_proxy_or_not_at_all() {
+        let s = ProxyState::default();
+        assert!(s.agent_builder().is_some(), "no proxy: direct");
+        // ureq can't speak SOCKS here, so no fetch at all, never a direct one.
+        s.store(Some("socks5://127.0.0.1:9150".into()));
+        assert!(s.agent_builder().is_none());
+
+        // An HTTP proxy (a local listener standing in) receives the request.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 512];
+            let n = conn.read(&mut buf).unwrap_or(0);
+            let _ = conn.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
+            String::from_utf8_lossy(&buf[..n]).into_owned()
+        });
+        s.store(Some(format!("http://127.0.0.1:{port}")));
+        let agent = s
+            .agent_builder()
+            .unwrap()
+            .timeout(std::time::Duration::from_secs(5))
+            .build();
+        let _ = agent.get("http://flux.invalid/favicon.ico").call();
+        // Unblocks the listener if the request went anywhere else.
+        let _ = std::net::TcpStream::connect(("127.0.0.1", port));
+        let request = seen.join().unwrap();
+        assert!(
+            request.starts_with("GET http://flux.invalid/favicon.ico "),
+            "{request}"
+        );
     }
 }

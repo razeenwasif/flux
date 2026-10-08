@@ -23,10 +23,7 @@ pub struct Note {
 
 impl NoteStore {
     pub fn restore(path: PathBuf) -> Self {
-        let map = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let map = crate::persist::load_json_or_quarantine(&path).unwrap_or_default();
         Self {
             map: RwLock::new(map),
             path: Some(path),

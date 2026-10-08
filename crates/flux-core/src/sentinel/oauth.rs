@@ -54,9 +54,28 @@ fn describe_scope(raw: &str) -> (String, bool) {
     if s.contains("offline_access") || s.contains("offline") {
         return ("Keep access when you're not using the app".into(), true);
     }
+    // Gmail's full-access scope: read, send, and delete for good, bypassing the
+    // trash. It contains "mail." and would otherwise read as "Read your email".
+    if s.trim_end_matches('/') == "https://mail.google.com" {
+        return (
+            "Read, send, and permanently delete all your email".into(),
+            true,
+        );
+    }
+    // Filters and forwarding: how OAuth phishing keeps a silent copy of all mail.
+    if s.contains("gmail.settings") {
+        return (
+            "Change your email settings, including forwarding your mail elsewhere".into(),
+            true,
+        );
+    }
     // Mail.
     if s.contains("gmail") || s.contains("mail.") || s.contains("mail.read") {
-        let write = s.contains("send") || s.contains("modify") || s.contains("readwrite");
+        let write = s.contains("send")
+            || s.contains("modify")
+            || s.contains("readwrite")
+            || s.contains("compose") // drafts *and* send
+            || s.contains("insert");
         return (
             if write {
                 "Read, send, and manage your email".into()
@@ -195,6 +214,22 @@ mod tests {
         assert_eq!(c.scopes[0].plain, "Read, send, and manage your email"); // sensitive leads
         assert!(c.scopes[0].sensitive);
         assert!(c.scopes.iter().any(|s| s.plain == "See your email address" && !s.sensitive));
+    }
+
+    #[test]
+    fn gmail_full_access_settings_and_compose_are_not_read_only() {
+        let (plain, sensitive) = describe_scope("https://mail.google.com/");
+        assert!(sensitive && plain.contains("permanently delete"), "{plain}");
+        let (plain, _) = describe_scope("https://www.googleapis.com/auth/gmail.settings.sharing");
+        assert!(plain.contains("forwarding"), "{plain}");
+        for s in ["gmail.compose", "gmail.insert"] {
+            let (plain, _) = describe_scope(&format!("https://www.googleapis.com/auth/{s}"));
+            assert_eq!(plain, "Read, send, and manage your email", "{s}");
+        }
+        // Read-only grants still say so.
+        let (plain, _) = describe_scope("https://www.googleapis.com/auth/gmail.readonly");
+        assert_eq!(plain, "Read your email");
+        assert_eq!(describe_scope("Mail.Read").0, "Read your email");
     }
 
     #[test]

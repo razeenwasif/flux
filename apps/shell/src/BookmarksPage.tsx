@@ -5,17 +5,9 @@
  * practical bridge for "import my Chrome tab groups". Import pulls every bookmark
  * from a Chrome profile (via flux-import) under an "Imported" folder.
  */
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
-  For,
-  Show,
-  createMemo,
-  createResource,
-  createSignal,
-  onCleanup,
-  onMount,
-  type Component,
-} from "solid-js";
-import {
+  BOOKMARKS_URL,
   bookmarkRemove,
   bookmarkRename,
   bookmarksClear,
@@ -25,7 +17,7 @@ import {
   type Bookmark,
   type ChromeProfilePreview,
 } from "./ipc";
-import { activeId, ensureFavicon, faviconFor, openUrlsAsGroup, updateTabTitle } from "./store";
+import { ensureFavicon, faviconFor, openUrlsAsGroup, titleInternalTab } from "./store";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string | null {
@@ -61,15 +53,18 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
       .then(setItems)
       .catch(() => setItems([]));
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Bookmarks");
+    titleInternalTab(BOOKMARKS_URL, "Bookmarks");
     load();
   });
 
-  // Chrome profiles for the import menu (lazy — only when the menu opens).
-  const [profiles, { refetch: loadProfiles }] = createResource<ChromeProfilePreview[]>(() =>
-    importing() ? chromeImportPreview().catch(() => []) : Promise.resolve([]),
-  );
+  // Chrome profiles for the import menu (lazy — fetched each time the menu opens).
+  // A plain signal: the one-argument createResource ran its fetcher once, untracked,
+  // at creation (menu closed → []), so chromeImportPreview() never actually ran.
+  const [profiles, setProfiles] = createSignal<ChromeProfilePreview[]>([]);
+  const loadProfiles = () =>
+    void chromeImportPreview()
+      .then(setProfiles)
+      .catch(() => setProfiles([]));
 
   // Filter by query (flat), then group the result by folder.
   const groups = createMemo<[string, Bookmark[]][]>(() => {
@@ -146,8 +141,9 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
         <button
           class="hist-clear"
           onClick={() => {
-            setImporting((v) => !v);
-            if (!importing()) void loadProfiles();
+            const opening = !importing();
+            setImporting(opening);
+            if (opening) loadProfiles();
           }}
         >
           Import from Chrome

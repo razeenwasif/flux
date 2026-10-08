@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::embedding::{self, Embedder};
 
@@ -183,7 +183,7 @@ impl ArchiveStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
 
-        let needs_migrate;
+        let has_entries;
         {
             let mut g = self.entries.write();
             let mut next_merge_id = g
@@ -213,14 +213,23 @@ impl ArchiveStore {
             }
             next_merge_id = g.iter().map(|e| e.id).max().unwrap_or(0) + 1;
             self.next_id.store(next_merge_id, Ordering::Relaxed);
-            needs_migrate = g
-                .iter()
-                .any(|e| e.embedder != self.embedder() || e.embedding.is_empty());
+            has_entries = !g.is_empty();
             self.hydrated.store(true, Ordering::Release);
             if self.dirty.swap(false, Ordering::AcqRel) {
                 write_json(&self.path, &g);
             }
         }
+
+        // Resolve the embedder only after the write guard is released: the first
+        // `embedder()` call probes Ollama over HTTP, and `archive_list`/`archive_get`
+        // on the UI thread wait on that guard. An empty archive stays lazy.
+        let needs_migrate = has_entries && {
+            let target = self.embedder();
+            self.entries
+                .read()
+                .iter()
+                .any(|e| e.embedder != target || e.embedding.is_empty())
+        };
 
         if needs_migrate {
             let entries = Arc::clone(&self.entries);
@@ -255,6 +264,10 @@ impl ArchiveStore {
             g.push(entry);
             m
         };
+        // Keep readers (`archive_get`, a sync command on the UI thread) waiting only
+        // for the mutation, not for the whole-archive rewrite; the next writer still
+        // waits for this snapshot to land, so saves stay ordered.
+        let g = parking_lot::RwLockWriteGuard::downgrade(g);
         self.persist_after_mutation(&g);
         result
     }
@@ -275,6 +288,7 @@ impl ArchiveStore {
     pub fn delete(&self, id: u64) {
         let mut g = self.entries.write();
         g.retain(|e| e.id != id);
+        let g = parking_lot::RwLockWriteGuard::downgrade(g); // as in `save`
         self.persist_after_mutation(&g);
     }
 
@@ -357,10 +371,14 @@ fn migrate(entries: Entries, path: Option<PathBuf>, target: Embedder) {
 // ─── Commands ────────────────────────────────────────────────────────────────
 
 /// Save the active page for offline reading + semantic search.
+///
+/// Async + `spawn_blocking` (as are delete and search): a sync command runs on
+/// the UI thread, and `save` embeds the page through Ollama (HTTP, up to a 30 s
+/// read timeout with the Model embedder) and then rewrites the whole archive.
 #[tauri::command]
-pub fn archive_save(
+pub async fn archive_save(
+    app: tauri::AppHandle,
     state: State<'_, crate::state::FluxState>,
-    archive: State<'_, ArchiveStore>,
 ) -> Result<ArchiveMeta, String> {
     let snap = state.active_snapshot().ok_or("no active page to save")?;
     if snap.text.trim().is_empty() {
@@ -371,7 +389,10 @@ pub fn archive_save(
         .and_then(|id| state.tabs.get(&id).map(|t| t.title.clone()))
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| snap.url.clone());
-    Ok(archive.save(snap.url.clone(), title, snap.text.to_string()))
+    let (url, text) = (snap.url.clone(), snap.text.to_string());
+    tauri::async_runtime::spawn_blocking(move || app.state::<ArchiveStore>().save(url, title, text))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -385,17 +406,23 @@ pub fn archive_get(archive: State<'_, ArchiveStore>, id: u64) -> Option<ArchiveE
 }
 
 #[tauri::command]
-pub fn archive_delete(archive: State<'_, ArchiveStore>, id: u64) {
-    archive.delete(id);
+pub async fn archive_delete(app: tauri::AppHandle, id: u64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<ArchiveStore>().delete(id))
+        .await
+        .map_err(|e| e.to_string())
 }
 
+/// Called per debounced keystroke; a non-empty query is embedded through Ollama
+/// (HTTP) when the corpus is on the Model embedder.
 #[tauri::command]
-pub fn archive_search(
-    archive: State<'_, ArchiveStore>,
+pub async fn archive_search(
+    app: tauri::AppHandle,
     query: String,
     limit: usize,
-) -> Vec<ArchiveMeta> {
-    archive.search(&query, limit)
+) -> Result<Vec<ArchiveMeta>, String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<ArchiveStore>().search(&query, limit))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

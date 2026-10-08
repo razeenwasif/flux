@@ -270,6 +270,7 @@ import {
   tabs,
   touchTabUrl,
   seedTabAccess,
+  pinnedTabs,
   unpinnedTabs,
   updateTabUrl,
   updateTabTitle,
@@ -277,6 +278,7 @@ import {
   setOAuth,
   setSensitive,
   setConsent,
+  setTabWebviewForgetter,
   windowAcrylic,
 } from "./store";
 
@@ -457,6 +459,9 @@ const App: Component = () => {
     forceRelayout,
     paneLayout,
   } = createWebviewTiling({ overlayActive, uiDragging, focusMode });
+  // closeTab (store.ts) destroys webviews itself; keep the tiler's liveness
+  // bookkeeping in step, or a converted "New Tab" could never load a page again.
+  setTabWebviewForgetter(forgetWebview);
   // Last finished URL per tab — the "from" of the next navigation, for training
   // the predictive-prefetch Markov model (#103).
   const prevUrlByTab = new Map<number, string>();
@@ -650,8 +655,12 @@ const App: Component = () => {
         void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {});
       }),
     );
-    // Reader mode (#41): the injected extractor posts blocks back here.
-    const unReader = await onReader((tabId, title, blocks) => openReader(tabId, title, blocks));
+    // Reader mode (#41): the injected extractor posts blocks back here. Only for
+    // the tab on screen: a page can post a result unasked, and the overlay
+    // would otherwise cover whatever you're looking at with its blocks.
+    const unReader = await onReader((tabId, title, blocks) => {
+      if (tabId === activeId()) openReader(tabId, title, blocks);
+    });
     onCleanup(unReader);
     // Web capture (#54): a screenshot finished writing.
     const unShot = await onScreenshot(() => {
@@ -672,13 +681,23 @@ const App: Component = () => {
       setHibernated(id, true);
       wv(webviewHibernate(id));
     };
-    // Tab folders: members are kept hibernated (≈0 RAM) — the active tab is the
-    // only exception (you're viewing it); switching away re-sleeps it. Reacts to
-    // folder membership (tabs()) and the active tab.
+    // Tab folders: members are kept hibernated (≈0 RAM) — the tabs on screen are
+    // the only exception (the active one, and any pane tiled beside it);
+    // switching away re-sleeps them. Reacts to folder membership (tabs()), the
+    // active tab and the tiling.
     createEffect(() => {
       const act = activeId();
+      // A folder tab tiled beside the active one is on screen too. Sleeping it
+      // fought the tiling effect, which re-opened it on the next tabs() change:
+      // a destroy/reload loop fed by the pane's own load events.
+      const visible = new Set((tilePanes() ?? []).map((t) => t.id));
       for (const t of tabs()) {
-        if (t.folder != null && t.id !== act && (openedWebviews.has(t.id) || openingWebviews.has(t.id))) {
+        if (
+          t.folder != null &&
+          t.id !== act &&
+          !visible.has(t.id) &&
+          (openedWebviews.has(t.id) || openingWebviews.has(t.id))
+        ) {
           hibernateTab(t.id);
         }
       }
@@ -699,6 +718,10 @@ const App: Component = () => {
       const now = Date.now();
       const act = activeId();
       if (act != null) lastActive.set(act, now);
+      // Every pane of an on-screen split is in use, not only the active one.
+      // Otherwise a tiled partner leaves the split already "idle" for as long as
+      // it went unfocused, and is slept at the very next tick.
+      for (const p of paneLayout()) lastActive.set(p.tab.id, now);
       // Auto-archive (#46, branch-aware): stale tabs that form a Trail-connected
       // "rabbit hole" archive together as ONE named branch; loners go to the flat
       // list. Runs BEFORE the live-bg bail (stale tabs are usually hibernated).
@@ -825,7 +848,9 @@ const App: Component = () => {
                 .catch(() => {});
             }, 1500);
             const prev = prevUrlByTab.get(tabId);
-            if (prev && prev !== url && prev.startsWith("http")) {
+            // Private browsing must not train the (shared, all-tabs) model.
+            const isPrivate = tabs().find((t) => t.id === tabId)?.private === true;
+            if (!isPrivate && prev && prev !== url && prev.startsWith("http")) {
               void prefetchRecord(prev, url).catch(() => {});
             }
             prevUrlByTab.set(tabId, url);
@@ -843,20 +868,25 @@ const App: Component = () => {
     holdListener(onPanelBadge((id, count) => setPanelBadge(id, count)));
   });
 
-  // Capture a tab's scroll/form state the moment you switch away from it (#45),
+  // Capture a tab's scroll/form state the moment it leaves the screen (#45),
   // while its webview still exists — so it's preserved if the tab later sleeps.
+  // That is every tab that was on screen: the active tab and its split partners.
+  // Capturing only the active one lost a tiled pane's scroll and half-typed form
+  // text when it later hibernated.
   // No rush: a backgrounded page is frozen, so this never races hibernation.
-  let prevActive: number | null = null;
+  let prevVisible = new Set<number>();
   createEffect(() => {
-    const cur = activeId();
-    if (prevActive != null && prevActive !== cur) {
-      const pid = prevActive;
+    const cur = new Set((tilePanes() ?? []).map((t) => t.id));
+    const act = activeId();
+    if (act != null) cur.add(act);
+    for (const pid of prevVisible) {
+      if (cur.has(pid)) continue;
       const pt = tabs().find((t) => t.id === pid);
       if (pt?.kind === "browser" && !isStartUrl(pt.url) && openedWebviews.has(pid)) {
         void webviewCaptureState(pid).catch(() => {});
       }
     }
-    prevActive = cur;
+    prevVisible = cur;
   });
 
   // Reader mode (#41) closes when you switch away from its tab.
@@ -1164,6 +1194,23 @@ const App: Component = () => {
     if (id === activeWorkspace()) return;
     const cur = activeId();
     if (cur != null) wsLastTab.set(activeWorkspace(), cur);
+    await workspaceSwitch(id).catch(() => {});
+    const members = tabs().filter((t) => t.workspace === id);
+    const target =
+      members.find((t) => t.id === wsLastTab.get(id)) ??
+      members[0] ??
+      // Empty workspace → a fresh tab, created in it (the backend switched
+      // above), in the background so focus moves only in the batch below.
+      (await openTab("browser", undefined, undefined, true).catch(() => null));
+    // Flip the view and the active tab together, and only then tear down. The
+    // tiling effect re-runs on activeWorkspace (via tilePanes), activeId and the
+    // overlay flags (the workspace panel closes mid-switch). While activeId still
+    // named the leaving tab, such a re-run re-opened the webview just hibernated
+    // and later showed it over the target, live in an inactive workspace.
+    batch(() => {
+      setActiveWorkspace(id);
+      if (target) void focusTab(target.id);
+    });
     for (const t of tabs()) {
       if (t.workspace !== id && (openedWebviews.has(t.id) || openingWebviews.has(t.id))) {
         forgetWebview(t.id);
@@ -1171,12 +1218,6 @@ const App: Component = () => {
         wv(webviewHibernate(t.id));
       }
     }
-    await workspaceSwitch(id).catch(() => {});
-    setActiveWorkspace(id);
-    const members = tabs().filter((t) => t.workspace === id);
-    const target = members.find((t) => t.id === wsLastTab.get(id)) ?? members[0];
-    if (target) void focusTab(target.id);
-    else void openTab("browser"); // empty workspace → a fresh tab (created in it)
   };
   const newWorkspace = async () => {
     const palette = [0x9d8df1, 0x5bc0eb, 0x7cf5b0, 0xffcc66, 0xff8a8a, 0x2ff3ff];
@@ -1716,7 +1757,10 @@ const App: Component = () => {
       default:
         if (action.startsWith("tab-")) {
           const n = Number(action.slice(4));
-          const list = tabs();
+          // The strip on screen: this workspace's pinned rail, then its other
+          // tabs. tabs() is the global list (every workspace, folder-parked tabs
+          // too), so Ctrl+N focused tabs from workspaces you weren't in.
+          const list = [...pinnedTabs(), ...unpinnedTabs()];
           // Ctrl+1..8 → that position; Ctrl+9 → last tab (browser convention).
           const t = n === 9 ? list.at(-1) : list[n - 1];
           if (t) void focusTab(t.id);
@@ -1727,6 +1771,29 @@ const App: Component = () => {
   };
 
   const BARS_W = 54;
+  // The split's own floor (each pane at least 320px), sized from the panes
+  // actually on screen and held while a seam is dragged: setTileRatio rewrites
+  // the group on every pointermove, and re-fitting the shell grid mid-gesture
+  // shed and restored whole columns, moving the card out from under the rect
+  // the seam handler measured at pointerdown. Re-evaluated on release.
+  const tileMinimum = createMemo((prev: number) => {
+    const group = tileGroup();
+    const panes = tilePanes();
+    if (!group || !panes) return 0;
+    if (splitDragging()) return prev;
+    const rects = tileRects({
+      ...group,
+      n: panes.length,
+      rect: { x: 0, y: 0, width: 10000, height: 10000 },
+      gap: 0,
+    });
+    return (320 * 10000) / Math.min(...rects.map((r) => r.width)) + 24;
+  }, 0);
+  /** The narrowest the page card may get. fitLayout sheds columns to keep it,
+   *  and the editor seam (ContentArea) must not drag the page below it. */
+  const pageMinimum = createMemo(() =>
+    Math.max(activeTab()?.url === SETTINGS_URL ? 720 : 560, tileMinimum()),
+  );
   const layoutIntent = () => ({
     sidebar: sidebarOpen(),
     agent: agentOpen(),
@@ -1750,18 +1817,7 @@ const App: Component = () => {
         bars: false,
         editor: false,
       };
-    const group = tileGroup();
-    let pageMinimum = activeTab()?.url === SETTINGS_URL ? 720 : 560;
-    if (group) {
-      const rects = tileRects({
-        ...group,
-        n: group.tabs.length,
-        rect: { x: 0, y: 0, width: 10000, height: 10000 },
-        gap: 0,
-      });
-      pageMinimum = Math.max(pageMinimum, (320 * 10000) / Math.min(...rects.map((r) => r.width)) + 24);
-    }
-    return fitLayout(winW(), pageMinimum, editorColRatio(), want, {
+    return fitLayout(winW(), pageMinimum(), editorColRatio(), want, {
       sidebar: sidebarW(),
       stack: stackW(),
       panel: panelWidth(),
@@ -1944,6 +2000,7 @@ const App: Component = () => {
       </Show>
       <ContentArea
         editorVisible={responsive().editor}
+        pageMinimum={pageMinimum()}
         onNavigate={go}
         onNewTerminal={() => void openTab("terminal")}
         onToggleAgent={() => setAgentOpen(true)}

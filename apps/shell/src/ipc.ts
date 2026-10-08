@@ -281,12 +281,20 @@ export type AgentAction = GenAgentAction;
 
 // ─── Commands ────────────────────────────────────────────────────────────
 
-export const tabCreate = (kind: TabKind, url?: string, isPrivate?: boolean, container?: number) =>
+/** `background`: don't move the backend's active tab (the UI isn't switching to it). */
+export const tabCreate = (
+  kind: TabKind,
+  url?: string,
+  isPrivate?: boolean,
+  container?: number,
+  background?: boolean,
+) =>
   invoke<TabMeta>("tab_create", {
     kind,
     url: url ?? null,
     private: isPrivate ?? null,
     container: container ?? null,
+    background: background ?? null,
   });
 export const shellSnapshot = () => invoke<ShellSnapshot>("shell_snapshot");
 // ─── Multi-account containers (BACKLOG #59) — Container type from bindings.gen ──
@@ -639,6 +647,13 @@ export const domPublishInternal = (tabId: number, url: string, text: string) =>
 
 export const onAgentStatus = (cb: (s: AgentStatus) => void): Promise<UnlistenFn> =>
   listen<AgentStatus>("flux://agent-status", (e) => cb(e.payload));
+
+/** Outcome of a compiled agent action, reported by the page itself:
+ *  [tabId, kind, detail, format, payload]. Untrusted: any page can send one. */
+export const onAgentReport = (
+  cb: (tabId: number, kind: string, detail: string, format: string, payload: string) => void,
+): Promise<UnlistenFn> =>
+  listen<[number, string, string, string, string]>("flux://agent-report", (e) => cb(...e.payload));
 
 export const onClustersUpdated = (cb: () => void): Promise<UnlistenFn> =>
   listen("flux://clusters-updated", () => cb());
@@ -1226,9 +1241,12 @@ export const calRemove = (id: number) => invoke<void>("cal_remove", { id });
 /** Copy a subscribed calendar's events into Flux's own editable events (a
  *  subscribed ICS is read-only). Recurring events import as one series with
  *  their RRULE. Safe to re-run — returns `[imported, skippedAsDuplicates]`. */
-export const calImportFeed = (id: number) => invoke<[number, number]>("cal_import_feed", { id });
-/** Fetch + parse all subscribed calendars (+ local events), sorted by date. */
-export const calEvents = () => invoke<CalEvent[]>("cal_events");
+export const calImportFeed = (id: number) =>
+  invoke<[number, number]>("cal_import_feed", { id, tzOffsetMin: -new Date().getTimezoneOffset() });
+/** Fetch + parse all subscribed calendars (+ local events), sorted by date.
+ *  Feed times written in UTC come back on this machine's clock. */
+export const calEvents = () =>
+  invoke<CalEvent[]>("cal_events", { tzOffsetMin: -new Date().getTimezoneOffset() });
 
 // ─── Local (editable) calendar events (BACKLOG #114) ─────────────────────────
 /** List just the on-device events (no ICS overlay) — used by the agent. */
@@ -1534,12 +1552,15 @@ export const traceGraph = (
    *  `task` (the name) for visits recorded before ids were stamped. */
   taskId?: number,
   task?: string,
+  /** Keep only the newest N visits (server-side) and the edges among them. */
+  limit?: number,
 ) =>
   invoke<TraceGraph>("trace_graph", {
     afterMs: afterMs ?? null,
     beforeMs: beforeMs ?? null,
     taskId: taskId ?? null,
     task: task ?? null,
+    limit: limit ?? null,
   });
 /** Follow a workspace rename so its earlier visits stay in the scoped view. */
 export const traceRenameTask = (id: number | null, from: string, to: string) =>

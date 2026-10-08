@@ -38,6 +38,17 @@ pub(crate) fn now_ms() -> u64 {
 /// in practice but turns unbounded growth into O(tabs × cap).
 const MAX_SNAPSHOT_HTML: usize = 1024 * 1024; // 1 MiB
 const MAX_SNAPSHOT_TEXT: usize = 256 * 1024; //  256 KiB
+/// The page-reported title lands in TabMeta (the session file), history and the
+/// Trail. 4 KiB matches the native title callback's cap in webview.rs.
+const MAX_SNAPSHOT_TITLE: usize = 4 * 1024;
+/// Hard ceiling on a reported URL (Chromium's own URL length limit): no real
+/// page is at a longer one, and it bounds the per-tab snapshot like html/text.
+const MAX_SNAPSHOT_URL: usize = 2 * 1024 * 1024;
+/// History and the Trail keep a record per distinct URL, and a page can mint
+/// same-origin URLs at will (pushState), so only URLs of a size a server would
+/// accept are recorded there. A longer one (app state in a fragment) still gets
+/// its snapshot; it just isn't recorded as a visit.
+const MAX_RECORDED_URL: usize = 8 * 1024;
 
 /// Truncate to at most `max` bytes on a UTF-8 boundary (no realloc when short).
 pub(crate) fn cap_utf8(mut s: String, max: usize) -> String {
@@ -126,6 +137,16 @@ fn caller_tab(webview: &tauri::Webview) -> Result<TabId, String> {
         .ok_or_else(|| "not a tab webview".into())
 }
 
+/// The page's own `<title>`, capped like the native title callback's, else the
+/// tab's stored one. Uncapped, a page could write megabytes into the session,
+/// history and the Trail for every distinct URL it reports.
+fn page_title(reported: Option<String>, stored: String) -> String {
+    reported
+        .map(|t| cap_utf8(t, MAX_SNAPSHOT_TITLE))
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(stored)
+}
+
 fn validate_reported_url(actual: &tauri::Url, reported: &str) -> Result<(), String> {
     let rep = match tauri::Url::parse(reported) {
         Ok(u) => u,
@@ -157,6 +178,9 @@ pub fn dom_publish(
     if caller != tab_id {
         return Err(format!("tab_id mismatch: caller is {caller}, reported {tab_id}"));
     }
+    if url.len() > MAX_SNAPSHOT_URL {
+        return Err("reported URL too long".into());
+    }
     let actual_url = webview.url().map_err(|e| e.to_string())?;
     validate_reported_url(&actual_url, &url)?;
     let (tab_title, private, ws_id) = {
@@ -167,9 +191,7 @@ pub fn dom_publish(
     // Bound per-tab memory before anything holds onto these strings (#79).
     let html = cap_utf8(html, MAX_SNAPSHOT_HTML);
     let text = cap_utf8(text, MAX_SNAPSHOT_TEXT);
-
-    // Prefer the page's own <title>; fall back to the tab's stored title.
-    let title = title.filter(|t| !t.trim().is_empty()).unwrap_or(tab_title);
+    let title = page_title(title, tab_title);
 
     // Keep the tab's stored title fresh (so omni_search + the session show the
     // live title, not the creation-time one). In-memory only — not worth a disk
@@ -180,7 +202,7 @@ pub fn dom_publish(
         }
     }
 
-    if !private {
+    if !private && url.len() <= MAX_RECORDED_URL {
         // Record the visit in browsing history (#39); skips non-http(s) internally.
         if let Some(h) = app.try_state::<crate::history::HistoryStore>() {
             h.record(&url, &title);
@@ -217,9 +239,11 @@ pub fn dom_publish(
         crate::rpc::publish_active(&app);
     }
 
-    // Capture navigations into an in-progress macro recording (#67).
+    // Capture navigations into an in-progress macro recording (#67), from the
+    // tab being recorded only: every open tab re-publishes on its own DOM
+    // mutations, and a background tab's page isn't a step of this flow.
     if let Some(m) = app.try_state::<crate::macros::MacroState>() {
-        if m.is_recording() {
+        if m.is_recording_tab(tab_id) {
             if let Some(snap) = state.dom_cache.get(&tab_id) {
                 if snap.url.starts_with("http") {
                     m.push(crate::macros::Step::Navigate {
@@ -340,15 +364,24 @@ fn is_page_shortcut(action: &str) -> bool {
 /// `fluxtab` plugin command so remote pages may call it.
 #[tauri::command]
 pub fn chrome_open_url(app: AppHandle, url: String, background: bool) -> Result<(), String> {
-    // Page-supplied: a page must never open Flux's own, fully privileged origin.
-    if url
-        .parse::<tauri::Url>()
-        .is_ok_and(|u| crate::webview::is_app_origin(&u))
-    {
-        return Err("refusing to open Flux's own origin".into());
-    }
+    // `newtab.js` only forwards web URLs, but a page can call this directly.
+    let url = page_openable_url(&url)?;
     app.emit("flux://open-url", (url, background))
         .map_err(|e| e.to_string())
+}
+
+/// A URL a page may have the chrome open as a tab: http(s) only (never `file:`,
+/// a `flux://` internal page, `javascript:` or `data:`), never Flux's own
+/// origin, and normalized, so the chrome opens exactly the URL that was checked
+/// (pdf.rs, for one, routes on a case-sensitive `http` prefix). Shared with
+/// `peek_promote`, the other page-callable way into `flux://open-url`.
+pub(crate) fn page_openable_url(url: &str) -> Result<String, String> {
+    match url.parse::<tauri::Url>() {
+        Ok(u) if matches!(u.scheme(), "http" | "https") && !crate::webview::is_app_origin(&u) => {
+            Ok(u.to_string())
+        }
+        _ => Err("a page can only open web pages in a tab".into()),
+    }
 }
 
 /// Pull OS keyboard focus back to the chrome window. A focused native tab
@@ -366,9 +399,54 @@ pub fn chrome_focus(app: AppHandle) {
 /// current step landed on a match. Re-emitted to the chrome's find bar. A
 /// `fluxtab` plugin command so the (remote) page may call it, like `dom_publish`.
 #[tauri::command]
-pub fn find_result(app: AppHandle, tab_id: TabId, count: usize, found: bool) -> Result<(), String> {
+pub fn find_result(
+    app: AppHandle,
+    webview: tauri::Webview,
+    tab_id: TabId,
+    count: usize,
+    found: bool,
+) -> Result<(), String> {
+    // Like `dom_publish`, a page reports for its own tab only.
+    let caller = caller_tab(&webview)?;
+    if caller != tab_id {
+        return Err(format!(
+            "tab_id mismatch: caller is {caller}, reported {tab_id}"
+        ));
+    }
     app.emit("flux://find-result", (tab_id, count, found))
         .map_err(|e| e.to_string())
+}
+
+/// Largest extract payload passed on to the chrome; a page builds it, so bound it.
+const MAX_AGENT_PAYLOAD: usize = 1024 * 1024;
+
+/// Outcome of a compiled agent action (flux-agent `compile.rs`), reported by the
+/// page: `clicked`, `typed`, `not_found`, `bad_selector`, `blocked_destructive`,
+/// `refused`, or `extract` with its `format` + `payload`. Re-emitted to the agent
+/// panel, which only accepts a report from a tab it just ran an action on: this
+/// is a `fluxtab` plugin command, so any page can call it. The tab comes from
+/// the calling webview's label, never from the page.
+#[tauri::command]
+pub fn agent_report(
+    app: AppHandle,
+    webview: tauri::Webview,
+    kind: String,
+    detail: String,
+    format: String,
+    payload: String,
+) -> Result<(), String> {
+    let tab = caller_tab(&webview)?;
+    app.emit(
+        "flux://agent-report",
+        (
+            tab,
+            cap_utf8(kind, 64),
+            cap_utf8(detail, 1024),
+            cap_utf8(format, 16),
+            cap_utf8(payload, MAX_AGENT_PAYLOAD),
+        ),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// One structured block of a reader-mode extraction (#41): a heading, paragraph,
@@ -390,10 +468,19 @@ pub struct ReaderBlock {
 #[tauri::command]
 pub fn reader_publish(
     app: AppHandle,
+    webview: tauri::Webview,
     tab_id: TabId,
     title: String,
     blocks: Vec<ReaderBlock>,
 ) -> Result<(), String> {
+    // Like `dom_publish`, a page reports for its own tab only: any tab, panel
+    // or peek can call this, and the chrome opens its overlay on the result.
+    let caller = caller_tab(&webview)?;
+    if caller != tab_id {
+        return Err(format!(
+            "tab_id mismatch: caller is {caller}, reported {tab_id}"
+        ));
+    }
     app.emit("flux://reader", (tab_id, title, blocks))
         .map_err(|e| e.to_string())
 }
@@ -518,6 +605,43 @@ mod tests {
         }
 
         assert_eq!(state.tabs.get(&42).unwrap().title, "New Title");
+    }
+
+    #[test]
+    fn pages_can_only_open_web_urls() {
+        assert_eq!(
+            page_openable_url("https://example.com/a?b=1").unwrap(),
+            "https://example.com/a?b=1"
+        );
+        // What's emitted is the parsed form, not the page's spelling of it.
+        assert_eq!(
+            page_openable_url("HTTPS://Example.com/x.pdf").unwrap(),
+            "https://example.com/x.pdf"
+        );
+        for bad in [
+            "file:///Users/me/.ssh/id_rsa",
+            "flux://pdf?src=file:///etc/hosts",
+            "flux://settings",
+            "javascript:alert(1)",
+            "data:text/html,<script>x</script>",
+            "http://tauri.localhost/",
+            "tauri://localhost/",
+            "/etc/hosts",
+            "not a url",
+        ] {
+            assert!(page_openable_url(bad).is_err(), "{bad} should be refused");
+        }
+    }
+
+    #[test]
+    fn page_reported_titles_are_capped() {
+        // Two bytes a char, so twice the cap, and the cut lands mid-run.
+        let huge = "é".repeat(MAX_SNAPSHOT_TITLE);
+        let t = page_title(Some(huge), "stored".into());
+        assert!(t.len() <= MAX_SNAPSHOT_TITLE && t.starts_with('é'));
+        assert_eq!(page_title(Some("Inbox".into()), "stored".into()), "Inbox");
+        assert_eq!(page_title(Some("  ".into()), "stored".into()), "stored");
+        assert_eq!(page_title(None, "stored".into()), "stored");
     }
 
     #[test]

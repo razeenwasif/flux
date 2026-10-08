@@ -33,19 +33,28 @@ const ShellHistory: Component = () => {
   const [indexing, setIndexing] = createSignal(false);
   let inputEl: HTMLInputElement | undefined;
   let timer: number | undefined;
+  // Bumped by every search and every reopen, so only the newest reply lands:
+  // replies can arrive out of order, and a stale one replaced what matches the box.
+  let searchGen = 0;
 
   const runSearch = (q: string) => {
+    const gen = ++searchGen;
     void shellHistorySearch(q, 40)
       .then((h) => {
+        if (gen !== searchGen) return;
         setHits(h);
         setSel(0);
       })
-      .catch(() => setHits([]));
+      .catch(() => {
+        if (gen === searchGen) setHits([]);
+      });
   };
 
-  // On open: reset, focus, reindex the corpus, then show recent commands.
+  // On open: reset, focus, reindex the corpus, then show what matches the box.
   createEffect(() => {
     if (!shellHistOpen()) return;
+    searchGen++;
+    clearTimeout(timer);
     setQuery("");
     setHits([]);
     setSel(0);
@@ -54,7 +63,10 @@ const ShellHistory: Component = () => {
       .catch(() => 0)
       .finally(() => {
         setIndexing(false);
-        runSearch("");
+        // What's in the box now, not "": the input is live while the corpus
+        // rebuilds, and an empty search swapped the user's results (and the row
+        // Enter picks) for recent commands.
+        runSearch(query());
       });
     requestAnimationFrame(() => inputEl?.focus());
   });

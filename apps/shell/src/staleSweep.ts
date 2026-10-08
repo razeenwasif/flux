@@ -7,12 +7,12 @@
  * asynchronously), restorable as a set. Loners fall back to the flat per-tab
  * archived list. Gentle: at most one branch + a few singles per sweep.
  */
-import { agentChat, traceBranches } from "./ipc";
+import { agentChatTabs, traceBranches } from "./ipc";
 import {
   activeWorkspaceName,
   archiveBranchRecord,
   archiveTabRecord,
-  closeTab,
+  closeTabs,
   staleTabIds,
   tabs,
   updateBranchSummary,
@@ -33,6 +33,7 @@ export async function runStaleSweep(now: number): Promise<void> {
   }
   let didBranch = false;
   let singles = 0;
+  const toClose: number[] = [];
   for (const branch of branches) {
     const members = branch
       .map((id) => tabs().find((x) => x.id === id))
@@ -44,11 +45,15 @@ export async function runStaleSweep(now: number): Promise<void> {
         members[0]!.workspace,
         activeWorkspaceName(),
       );
-      for (const t of members) void closeTab(t.id);
+      toClose.push(...members.map((t) => t.id));
       // Name the rabbit hole (best-effort, local Gemma; placeholder until then).
       const titles = members.map((t) => `- ${t.title || t.url}`).join("\n");
-      void agentChat(
+      // Not agentChat: that re-snapshots the ACTIVE page and appends up to 32 KB
+      // of it to the prompt, and a background sweep must never ship whatever the
+      // user is reading. With no tab ids this is a page-free chat on the titles.
+      void agentChatTabs(
         `These pages were one research thread that is now archived. In at most 10 words, name the thread — output ONLY the name, no quotes, no period:\n${titles}`,
+        [],
       )
         .then((r) => {
           const s =
@@ -63,7 +68,11 @@ export async function runStaleSweep(now: number): Promise<void> {
       singles++;
       const t = members[0]!;
       archiveTabRecord(t.url, t.title, t.workspace, activeWorkspaceName());
-      void closeTab(t.id);
+      toClose.push(t.id);
     }
   }
+  // One sequential pass: closeTab decides whether to turn the last browser tab
+  // into a start tab from the live tab list, so parallel closes each saw no
+  // start tab and every archived tab became a blank "New Tab".
+  await closeTabs(toClose);
 }

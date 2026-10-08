@@ -1,9 +1,9 @@
 // macro-record.js — record clicks + input changes while a macro recording is
 // active (BACKLOG #67). Reports each step to Rust via the fluxtab
 // `macro_record_step` command; navigations are captured backend-side. Inert
-// unless window.__FLUX_MACRO_REC__ is set (stamped at init from the backend
-// recording state, flipped live when you press Record). Selectors are
-// best-effort (record/replay can't be perfect on changing pages).
+// unless window.__FLUX_MACRO_REC__ is set (in the tab being recorded only:
+// flipped live when you press Record, and re-set on every page it loads).
+// Selectors are best-effort (record/replay can't be perfect on changing pages).
 (function () {
   var inv = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
   if (!inv) return;

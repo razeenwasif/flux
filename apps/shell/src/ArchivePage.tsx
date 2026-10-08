@@ -6,6 +6,7 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import {
+  ARCHIVE_URL,
   archiveDelete,
   archiveGet,
   archiveList,
@@ -13,7 +14,7 @@ import {
   type ArchiveEntry,
   type ArchiveMeta,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
@@ -34,15 +35,23 @@ const ArchivePage: Component<{ onNavigate: (url: string) => void }> = (props) =>
   const [rows, setRows] = createSignal<ArchiveMeta[]>([]);
   const [open, setOpen] = createSignal<ArchiveEntry | null>(null);
   let debounce: number | undefined;
+  // `archive_search` runs off the UI thread, so replies can land out of order (a
+  // query waiting on Ollama finishing after a later, cheaper one such as the
+  // cleared box). Only the newest request may write the list.
+  let seq = 0;
 
   const refresh = (q: string) => {
+    const mine = ++seq;
     void archiveSearch(q, 200)
-      .then((r) => setRows(r ?? []))
-      .catch(() => setRows([]));
+      .then((r) => {
+        if (mine === seq) setRows(r ?? []);
+      })
+      .catch(() => {
+        if (mine === seq) setRows([]);
+      });
   };
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Archive");
+    titleInternalTab(ARCHIVE_URL, "Archive");
     refresh("");
   });
   const onInput = (q: string) => {

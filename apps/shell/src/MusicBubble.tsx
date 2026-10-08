@@ -128,7 +128,17 @@ const MusicBubble: Component = () => {
   let rootEl: HTMLDivElement | undefined;
   let vizOn = false;
   let vizWatch: number | undefined;
+  /** Set on unmount: every self-re-arming loop below checks it before re-arming. */
+  let disposed = false;
+  let vizFrames = 0;
+  let vizRetryMs = 3000;
+  let vizRetryT: number | undefined;
+  /** A failed attempt's backoff is pending. It owns the next attempt: the effect
+   *  below re-fires on every poll (each poll is a new state object). */
+  let vizBackoff = false;
   const onFrame = (f: { e: number; bass: number; mid: number; treble: number }) => {
+    if (disposed) return;
+    vizFrames++;
     if (rootEl) {
       rootEl.style.setProperty("--viz-e", f.e.toFixed(3));
       rootEl.style.setProperty("--viz-bass", f.bass.toFixed(3));
@@ -140,14 +150,26 @@ const MusicBubble: Component = () => {
     vizWatch = window.setTimeout(() => setVizLive(false), 1200); // settle if frames stop
   };
   const startViz = () => {
-    if (vizOn) return;
+    if (vizOn || vizBackoff || disposed) return;
     vizOn = true;
+    clearTimeout(vizRetryT);
+    const framesBefore = vizFrames;
     void audivizStream(onFrame)
-      .catch(() => {})
+      .catch((e) => console.warn("[flux music] visualiser stream:", e))
       .finally(() => {
         vizOn = false;
         setVizLive(false);
-        if (st()?.playing) window.setTimeout(startViz, 3000);
+        if (disposed) return; // st() is frozen at unmount: "playing" would loop forever
+        // A stream that delivered frames just ended: reconnect on the old cadence.
+        // One that never did means no helper here, and every attempt spawns it and
+        // parks a backend thread for ~4s, so back off (up to 5 min).
+        const worked = vizFrames > framesBefore;
+        vizRetryMs = worked ? 3000 : Math.min(vizRetryMs * 2, 300_000);
+        vizBackoff = !worked;
+        vizRetryT = window.setTimeout(() => {
+          vizBackoff = false;
+          if (st()?.playing && !document.hidden) startViz();
+        }, vizRetryMs);
       });
   };
 
@@ -158,10 +180,14 @@ const MusicBubble: Component = () => {
     toastT = window.setTimeout(() => setToast(null), 3200);
   };
 
+  // The volume slider owns the value while a drag's PUTs land: server state lags
+  // them, and a poll arriving mid-drag would yank the thumb back.
+  let volHoldUntil = 0;
   let fails = 0;
   const poll = async () => {
     try {
-      setSt(await spotifyState());
+      const next = await spotifyState();
+      setSt((prev) => (prev && Date.now() < volHoldUntil ? { ...next, volume: prev.volume } : next));
       setReachable(true);
       fails = 0;
     } catch {
@@ -170,9 +196,11 @@ const MusicBubble: Component = () => {
   };
   let timer: number | undefined;
   const schedule = () => {
+    if (disposed) return; // a poll in flight at unmount must not re-arm the loop
     const delay = !reachable() ? 9000 : expanded() ? 1000 : 3500;
     timer = window.setTimeout(async () => {
-      await poll();
+      // Nothing shows while the window is hidden: don't keep hitting the Web API.
+      if (!document.hidden) await poll();
       schedule();
     }, delay);
   };
@@ -191,10 +219,12 @@ const MusicBubble: Component = () => {
     if (st()?.playing) startViz();
   });
   onCleanup(() => {
+    disposed = true;
     clearTimeout(timer);
     clearTimeout(toastT);
     clearTimeout(leaveT);
     clearTimeout(vizWatch);
+    clearTimeout(vizRetryT);
   });
 
   let leaveT: number | undefined;
@@ -229,9 +259,30 @@ const MusicBubble: Component = () => {
     const m = cur === "off" ? "context" : cur === "context" ? "track" : "off";
     run(`🔁 Repeat: ${m}`, spotifyRepeat(m));
   };
+  // `input` fires for every step of a drag, and each spotify_volume is its own
+  // HTTPS PUT, so concurrent ones could land out of order. Keep one in flight and
+  // follow it with the newest value: a drag is a few ordered requests that end on
+  // where the thumb stopped.
+  let volWant: number | null = null;
+  let volSending = false;
+  const sendVol = () => {
+    if (volSending || volWant == null) return;
+    const v = volWant;
+    volWant = null;
+    volSending = true;
+    void spotifyVolume(v)
+      .catch((e) => flash(String(e)))
+      .finally(() => {
+        volSending = false;
+        volHoldUntil = Math.max(volHoldUntil, Date.now() + 1500); // let the player state catch up
+        sendVol();
+      });
+  };
   const setVol = (v: number) => {
     setSt((s) => (s ? { ...s, volume: v } : s));
-    void spotifyVolume(v).catch(() => {});
+    volHoldUntil = Date.now() + 2000;
+    volWant = v;
+    sendVol();
   };
   const play = (pl: SpotifyPlaylist) => {
     setMenuOpen(false);

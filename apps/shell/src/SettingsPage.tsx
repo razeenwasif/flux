@@ -7,11 +7,12 @@ import { density, setDensity, type Density } from "./interfacePreferences";
  * localStorage) or behind flux-core commands — this page is just a tidy front end
  * over what already existed, plus the privacy controls that had no home here.
  */
-import { For, Show, createSignal, onMount, type Component } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
 import { terminalScreenReader, setTerminalScreenReader } from "./terminalAccessibility";
 import { settingsWriter } from "./settingsWriter";
 import { protectionMetrics, requestControlsHint } from "./protectionStatus";
+import { isWindows } from "./platform";
 import type { ShieldsStatus } from "./ipc";
 import { Row, Toggle } from "./SettingsControls";
 import SettingsNavigator, { Section } from "./SettingsNavigator";
@@ -61,6 +62,7 @@ import {
   searchEngines,
   searchSetDefault,
   SESSIONS_URL,
+  SETTINGS_URL,
   shieldsSetEnabled,
   shieldsSetSite,
   shieldsStatus,
@@ -150,8 +152,7 @@ import {
   vimHints,
   windowAcrylic,
   setWindowAcrylic,
-  activeId,
-  updateTabTitle,
+  titleInternalTab,
 } from "./store";
 
 const TRACKING_LABELS = ["Off", "Basic", "Balanced", "Strict"];
@@ -661,12 +662,14 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
   };
 
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Settings");
+    titleInternalTab(SETTINGS_URL, "Settings");
     void loadCore();
     refreshVoices();
     try {
       window.speechSynthesis?.addEventListener?.("voiceschanged", refreshVoices);
+      // speechSynthesis outlives this page: without this, every visit to
+      // Settings left one more listener (holding the whole page's closure).
+      onCleanup(() => window.speechSynthesis?.removeEventListener?.("voiceschanged", refreshVoices));
     } catch {
       /* ignore */
     }
@@ -1052,8 +1055,20 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
           >
             <Toggle on={draftsOn()} disabled={controlsDisabled()} onClick={toggleDrafts} />
           </Row>
-          <Row label="Block camera / mic / location" hint="Auto-deny these permission prompts globally.">
-            <Toggle on={blockPerms()} disabled={controlsDisabled()} onClick={toggleBlockPerms} />
+          {/* Only WebView2's permission handler (permissions.rs) applies this. */}
+          <Row
+            label="Block camera / mic / location"
+            hint={
+              isWindows
+                ? "Auto-deny these permission prompts globally."
+                : "Enforced on Windows only — on this platform the web engine handles these requests itself."
+            }
+          >
+            <Toggle
+              on={blockPerms()}
+              disabled={controlsDisabled() || !isWindows}
+              onClick={toggleBlockPerms}
+            />
           </Row>
           <Row
             label="Per-site permissions"

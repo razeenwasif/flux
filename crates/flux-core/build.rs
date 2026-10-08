@@ -22,6 +22,7 @@ fn main() {
                     "peek_pin",
                     "peek_close",
                     "find_result",
+                    "agent_report",
                     "hibernate_capture",
                     "reader_publish",
                     "panel_badge",

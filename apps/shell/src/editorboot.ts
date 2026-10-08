@@ -66,10 +66,18 @@ export function socketPathFor(session: number, windows: boolean): string {
  * The address is quoted but also `/tmp/flux-nvim-<n>.sock` or
  * `//./pipe/flux-nvim-<n>` by construction — digits, dashes and slashes, nothing
  * a shell would look at twice.
+ *
+ * `; exit` ends the shell with the editor. This is typed into an interactive
+ * shell, so without it `:q` (or an editor missing from PATH) just dropped back
+ * to a prompt: the PTY never reached EOF, `flux://term-exit` never fired, and
+ * the column neither relaunched nor reported the failure. Not `exec`:
+ * PowerShell (the Windows fallback shell) has none, and an interactive bash
+ * survives a failed `exec` anyway.
  */
 export function bootCommand(socket: string): string {
   const listen = `${BOOT_CMD}${import.meta.env.VITE_FLUX_NATIVE_SMOKE === "1" ? " --clean" : ""} --listen '${socket}'`;
-  return socket.startsWith("//./pipe/") ? listen : `rm -f '${socket}' && ${listen}`;
+  const run = socket.startsWith("//./pipe/") ? listen : `rm -f '${socket}' && ${listen}`;
+  return `${run}; exit`;
 }
 
 /**
@@ -78,6 +86,16 @@ export function bootCommand(socket: string): string {
  * is reported instead.
  */
 export const MIN_HEALTHY_MS = 2_000;
+
+/**
+ * Exits within this long count as quick. One is someone quitting an editor they
+ * barely used; a run of them is an editor that never started, carried past
+ * MIN_HEALTHY_MS by a slow shell rc (nvm, conda…) — relaunching that would loop
+ * a few seconds at a time, forever.
+ */
+export const QUICK_EXIT_MS = 10_000;
+/** Quick exits in a row that count as a failure rather than as quitting. */
+export const MAX_QUICK_EXITS = 3;
 
 /** The PTY session id for a given relaunch generation. */
 export function sessionFor(generation: number): number {
@@ -102,12 +120,16 @@ export function editorSession(): number | null {
 }
 
 /**
- * What to do when the editor process exits, given how long it had been up.
+ * What to do when the editor process exits, given how long it had been up and
+ * how many quick exits came straight before it.
  *
  * A long-lived session ending means the user quit, and they should get a fresh
- * editor back. A session that dies immediately means it never worked, and
- * relaunching would loop — so that surfaces as a failure the user can act on.
+ * editor back. A session that dies immediately — or keeps dying quickly — means
+ * it never worked, and relaunching would loop, so that surfaces as a failure
+ * the user can act on.
  */
-export function exitAction(uptimeMs: number): "relaunch" | "fail" {
-  return uptimeMs >= MIN_HEALTHY_MS ? "relaunch" : "fail";
+export function exitAction(uptimeMs: number, quickExitsBefore = 0): "relaunch" | "fail" {
+  if (uptimeMs < MIN_HEALTHY_MS) return "fail";
+  if (uptimeMs < QUICK_EXIT_MS && quickExitsBefore + 1 >= MAX_QUICK_EXITS) return "fail";
+  return "relaunch";
 }

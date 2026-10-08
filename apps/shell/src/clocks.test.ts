@@ -144,3 +144,83 @@ describe("clock driver arming", () => {
     expect(drivers(), "dismissing the ring doesn't cancel the snooze").toBe(1);
   });
 });
+
+/** Put the wall clock at a local time (8 Oct 2026 unless `day` says otherwise). */
+const setClock = (h: number, m: number, s = 0, ms = 0, day = 8) =>
+  vi.setSystemTime(new Date(2026, 9, day, h, m, s, ms));
+
+/**
+ * Ticks are 500 ms apart only while the window is awake and unthrottled. An
+ * alarm used to ring only if a tick happened to land inside its exact minute,
+ * so sleep, App Nap or a hidden window's throttled timers skipped it silently.
+ */
+describe("alarm ringing", () => {
+  it("rings once when a tick lands in the alarm's minute", async () => {
+    const c = await load();
+    setClock(7, 59, 59, 600);
+    c.startClockDriver();
+    c.addAlarm("08:00", "Lecture");
+    tick();
+    expect(c.ringing()).toBeNull();
+
+    setClock(8, 0, 0, 100);
+    tick();
+    expect(c.ringing()?.label).toBe("Lecture");
+
+    c.dismissRing();
+    setClock(8, 0, 0, 600);
+    tick();
+    expect(c.ringing(), "the same minute must not ring twice").toBeNull();
+  });
+
+  it("still rings when its minute fell between two ticks", async () => {
+    const c = await load();
+    setClock(7, 58);
+    c.startClockDriver();
+    c.addAlarm("08:00", "Lecture");
+    tick();
+
+    // Nothing ran during 08:00 (the lid was shut); the next tick is at 08:01:10.
+    setClock(8, 1, 10);
+    tick();
+    expect(c.ringing()?.label, "a missed alarm rings late rather than never").toBe("Lecture");
+
+    c.dismissRing();
+    setClock(8, 1, 10, 500);
+    tick();
+    expect(c.ringing(), "and only once").toBeNull();
+  });
+
+  it("catches a 23:59 alarm missed across midnight", async () => {
+    const c = await load();
+    setClock(23, 58, 30);
+    c.startClockDriver();
+    c.addAlarm("23:59", "");
+    tick();
+
+    setClock(0, 3, 0, 0, 9);
+    tick();
+    expect(c.ringing()?.label).toBe("Alarm · 23:59");
+  });
+
+  it("lets an alarm missed by hours stay missed", async () => {
+    const c = await load();
+    setClock(7, 0);
+    c.startClockDriver();
+    c.addAlarm("08:00", "Lecture");
+    tick();
+
+    setClock(11, 0);
+    tick();
+    expect(c.ringing(), "waking hours later shouldn't ring the morning's alarms").toBeNull();
+  });
+
+  it("doesn't ring an alarm added after its time", async () => {
+    const c = await load();
+    setClock(8, 5);
+    c.startClockDriver();
+    c.addAlarm("08:00", "Lecture");
+    tick();
+    expect(c.ringing()).toBeNull();
+  });
+});

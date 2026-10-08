@@ -5,7 +5,7 @@
 //! (enabled/disabled). Content-script *injection* is #93, the `flux.*` API is
 //! #94, the manager UI is #95 — all build on what's here.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -145,11 +145,15 @@ impl ExtRegistry {
         let json = std::fs::read_to_string(dir.join(MANIFEST_FILE))
             .map_err(|e| format!("no {MANIFEST_FILE} in {}: {e}", dir.display()))?;
         let manifest = Manifest::parse(&json)?;
-        // Content-script files must exist (catch typos at install).
+        // Content-script files must exist (catch typos at install) inside the
+        // bundle: they're read into every matching page, so a path out of it
+        // would hand pages any local file (ADR 0008 §6).
         for cs in &manifest.content_scripts {
             for f in cs.js.iter().chain(cs.css.iter()) {
-                if !dir.join(f).is_file() {
-                    return Err(format!("content_script file not found: {f}"));
+                if !bundle_file(dir, f).is_some_and(|p| p.is_file()) {
+                    return Err(format!(
+                        "content_script file not found in the extension folder: {f}"
+                    ));
                 }
             }
         }
@@ -186,6 +190,18 @@ impl ExtRegistry {
         self.entries.read().clone()
     }
 
+    /// Whether enabled extension `ext_id` has a content script whose `@match`
+    /// patterns cover `url`: the pages ADR 0008 §6 confines it to. The broker
+    /// scopes tab-targeting calls with this.
+    pub fn matches_url(&self, ext_id: &str, url: &str) -> bool {
+        self.entries
+            .read()
+            .iter()
+            .filter(|e| e.enabled && e.manifest.id == ext_id)
+            .flat_map(|e| &e.manifest.content_scripts)
+            .any(|cs| cs.matches.iter().any(|m| pattern_matches(m, url)))
+    }
+
     /// The raw per-extension content-script payloads that apply to `url` at this
     /// load phase (`at_start` = `document_start`, else `document_end`/idle) — the
     /// content scripts of every *enabled* extension whose `@match` patterns hit
@@ -203,14 +219,16 @@ impl ExtRegistry {
                 if !cs.matches.iter().any(|m| pattern_matches(m, url)) {
                     continue;
                 }
+                // Re-checked on every read: the registry may predate the
+                // install-time check, and the bundle can change after install.
                 for f in &cs.css {
-                    if let Ok(s) = std::fs::read_to_string(dir.join(f)) {
+                    if let Some(Ok(s)) = bundle_file(dir, f).map(std::fs::read_to_string) {
                         css.push_str(&s);
                         css.push('\n');
                     }
                 }
                 for f in &cs.js {
-                    if let Ok(s) = std::fs::read_to_string(dir.join(f)) {
+                    if let Some(Ok(s)) = bundle_file(dir, f).map(std::fs::read_to_string) {
                         js.push_str(&s);
                         js.push('\n');
                     }
@@ -273,6 +291,20 @@ pub struct Injection {
 
 pub(crate) fn json_str(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
+}
+
+/// `dir/rel`, only if `rel` is a plain relative path (no `..`, root or drive
+/// prefix) that still lies inside `dir` once symlinks are resolved.
+fn bundle_file(dir: &Path, rel: &str) -> Option<PathBuf> {
+    let rel = Path::new(rel);
+    if !rel
+        .components()
+        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
+    {
+        return None;
+    }
+    let p = dir.join(rel).canonicalize().ok()?;
+    p.starts_with(dir.canonicalize().ok()?).then_some(p)
 }
 
 /// Match a content-script `@match` pattern (`<scheme>://<host><path>`, or the
@@ -478,5 +510,73 @@ mod tests {
         reg.remove("com.example.reader");
         assert!(reg.list().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn matches_url_is_scoped_to_the_extensions_own_patterns() {
+        let dir = std::env::temp_dir().join(format!("flux-ext-scope-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let only_example = VALID.replace("https://*/*", "https://example.com/*");
+        std::fs::write(dir.join(MANIFEST_FILE), only_example).unwrap();
+        std::fs::write(dir.join("r.js"), "// content script").unwrap();
+
+        let reg = ExtRegistry::new();
+        reg.install(&dir).unwrap();
+        let id = "com.example.reader";
+        assert!(reg.matches_url(id, "https://example.com/inbox"));
+        // Another site's tab is out of reach, whatever the grant.
+        assert!(!reg.matches_url(id, "https://mail.example.org/inbox"));
+        assert!(!reg.matches_url(id, "flux://settings"));
+        // Unknown and disabled extensions match nothing.
+        assert!(!reg.matches_url("com.other", "https://example.com/"));
+        reg.set_enabled(id, false);
+        assert!(!reg.matches_url(id, "https://example.com/inbox"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn content_scripts_stay_inside_the_bundle() {
+        let base = std::env::temp_dir().join(format!("flux-ext-confine-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let ext = base.join("ext");
+        std::fs::create_dir_all(&ext).unwrap();
+        let secret = base.join("secret.txt");
+        std::fs::write(&secret, "TOP SECRET").unwrap();
+        std::fs::write(ext.join("ok.css"), "body{}").unwrap();
+        let manifest = |css: &str| {
+            format!(
+                r#"{{"id":"com.example.leak","name":"Leak","version":"1",
+                "content_scripts":[{{"matches":["<all_urls>"],"css":[{css}]}}]}}"#
+            )
+        };
+
+        let reg = ExtRegistry::new();
+        for bad in [
+            json_str("../secret.txt"),
+            json_str(&secret.to_string_lossy()),
+        ] {
+            std::fs::write(ext.join(MANIFEST_FILE), manifest(&bad)).unwrap();
+            assert!(reg.install(&ext).is_err(), "{bad} must be refused");
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&secret, ext.join("link.css")).unwrap();
+            std::fs::write(ext.join(MANIFEST_FILE), manifest(r#""link.css""#)).unwrap();
+            assert!(
+                reg.install(&ext).is_err(),
+                "a symlink out of the bundle is refused"
+            );
+        }
+
+        // An entry that predates the install check is still confined on read.
+        std::fs::write(ext.join(MANIFEST_FILE), manifest(r#""ok.css""#)).unwrap();
+        reg.install(&ext).unwrap();
+        reg.entries.write()[0].manifest.content_scripts[0]
+            .css
+            .push("../secret.txt".into());
+        let css = reg.injection_for("https://example.com/", false).css;
+        assert!(css.contains("body{}"));
+        assert!(!css.contains("TOP SECRET"));
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

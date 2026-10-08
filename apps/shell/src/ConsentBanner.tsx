@@ -14,14 +14,20 @@ import { sentinelRejectConsent, type Explainer } from "./ipc";
 const ConsentBanner: Component<{
   consent: Explainer;
   tabId: number;
-  onDismiss: () => void;
+  /** Clear the banner of `tabId`: the tab it was acted on, which by the time a
+   *  delayed dismiss fires need not be the active tab any more. */
+  onDismiss: (tabId: number) => void;
 }> = (props) => {
-  const [sent, setSent] = createSignal(false);
+  // Keyed by tab: ContentArea's <Show> isn't keyed, so this one instance is
+  // reused when you switch between two tabs that both carry a consent banner.
+  const [sentFor, setSentFor] = createSignal<number | null>(null);
+  const sent = () => sentFor() === props.tabId;
   const reject = () => {
-    void sentinelRejectConsent(props.tabId).catch(() => {});
-    setSent(true);
+    const tab = props.tabId;
+    void sentinelRejectConsent(tab).catch(() => {});
+    setSentFor(tab);
     // No success claim: the page's own banner going away is the real feedback.
-    setTimeout(() => props.onDismiss(), 1200);
+    setTimeout(() => props.onDismiss(tab), 1200);
   };
   return (
     <div class="sentinel-banner consent" role="status">
@@ -38,7 +44,7 @@ const ConsentBanner: Component<{
         <button class="sentinel-leave" disabled={sent()} onClick={reject}>
           {sent() ? "Refusing…" : "Refuse non-essential"}
         </button>
-        <button class="sentinel-dismiss" onClick={() => props.onDismiss()}>
+        <button class="sentinel-dismiss" onClick={() => props.onDismiss(props.tabId)}>
           Dismiss
         </button>
       </div>

@@ -57,6 +57,9 @@ pub struct HistoryStore {
     entries: RwLock<HashMap<String, HistoryEntry>>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
+    /// Set once `hydrate` has run. Until then the map holds only this
+    /// session's visits, which must never be written over history.json.
+    hydrated: AtomicBool,
 }
 
 impl HistoryStore {
@@ -73,6 +76,7 @@ impl HistoryStore {
             entries: RwLock::new(HashMap::new()),
             path: Some(path),
             dirty: AtomicBool::new(false),
+            hydrated: AtomicBool::new(false),
         }
     }
 
@@ -80,6 +84,11 @@ impl HistoryStore {
     /// (never clobbers an entry already recorded since boot), so it's safe to run
     /// after the store is live. Does not mark the store dirty.
     pub fn hydrate(&self) {
+        self.load_from_disk();
+        self.hydrated.store(true, Ordering::Release);
+    }
+
+    fn load_from_disk(&self) {
         let Some(path) = &self.path else { return };
         let Some(loaded) = std::fs::read_to_string(path)
             .ok()
@@ -100,14 +109,23 @@ impl HistoryStore {
             return;
         }
         let now = now_ms();
-        // Fast path under a READ lock: a URL already seen within the dedup window
-        // is the same visit — nothing meaningful changed, so take no write lock and
-        // leave `dirty` alone. Without this, an actively-mutating page (capture.js
-        // republishes every ~400ms) kept history perpetually dirty, rewriting the
-        // whole ~2 MB file every 60s for a page you're just sitting on.
-        if let Some(en) = self.entries.read().get(url) {
-            if now.saturating_sub(en.last_visit_ms) < VISIT_DEDUP_MS {
-                return;
+        // Fast path: a URL already seen within the dedup window is the same visit
+        // (capture.js republishes every ~400ms on a mutating page), so leave
+        // `dirty` alone — otherwise history.json is rewritten every 60s for a page
+        // you're just sitting on. But SLIDE the window: anchored at the first
+        // publish, every 30s on the page counted as a new visit (+1 day of
+        // frecency) and re-dirtied the store. The newer time rides along with the
+        // next real save. A changed title falls through (SPA navigations set
+        // <title> after the URL).
+        {
+            let mut e = self.entries.write();
+            if let Some(en) = e.get_mut(url) {
+                if now.saturating_sub(en.last_visit_ms) < VISIT_DEDUP_MS
+                    && (title.trim().is_empty() || title == en.title)
+                {
+                    en.last_visit_ms = now;
+                    return;
+                }
             }
         }
         {
@@ -265,6 +283,14 @@ impl HistoryStore {
         let snapshot: Vec<HistoryEntry> = self.entries.read().values().cloned().collect();
         crate::persist::save_json(path, &snapshot);
     }
+
+    /// The exit flush: `persist_if_dirty`, but never before `hydrate` has run
+    /// (the boot thread may still be loading a large history.json).
+    pub fn persist_if_hydrated(&self) {
+        if self.hydrated.load(Ordering::Acquire) {
+            self.persist_if_dirty();
+        }
+    }
 }
 
 // ─── commands ────────────────────────────────────────────────────────────────
@@ -327,6 +353,38 @@ mod tests {
     }
 
     #[test]
+    fn a_page_that_keeps_republishing_is_one_visit() {
+        let h = HistoryStore::default();
+        h.record("https://a.com", "Alpha");
+        h.dirty.store(false, Ordering::Relaxed);
+        let age = |h: &HistoryStore| {
+            now_ms().saturating_sub(h.entries.read()["https://a.com"].last_visit_ms)
+        };
+        // Publishes 20s apart, 40s in all: still the same visit, because each
+        // publish slides the window instead of leaving it at the first one.
+        for _ in 0..2 {
+            h.entries
+                .write()
+                .get_mut("https://a.com")
+                .unwrap()
+                .last_visit_ms -= 20_000;
+            h.record("https://a.com", "Alpha");
+            assert!(age(&h) < 20_000, "the window slid forward");
+        }
+        assert_eq!(h.entries.read()["https://a.com"].visits, 1);
+        assert!(
+            !h.dirty.load(Ordering::Relaxed),
+            "a republish doesn't dirty"
+        );
+
+        // A title set after the URL (SPA navigation) is picked up, not a visit.
+        h.record("https://a.com", "Alpha Inbox");
+        assert_eq!(h.entries.read()["https://a.com"].title, "Alpha Inbox");
+        assert_eq!(h.entries.read()["https://a.com"].visits, 1);
+        assert_eq!(h.search("inbox", 10).len(), 1);
+    }
+
+    #[test]
     fn hydrate_recomputes_search_key_after_load() {
         let dir = std::env::temp_dir().join(format!("flux-hist-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
@@ -346,6 +404,28 @@ mod tests {
             "search must work on loaded entries"
         );
         assert_eq!(b.search("example.com", 10).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_exit_flush_never_writes_an_unhydrated_store() {
+        let dir = std::env::temp_dir().join(format!("flux-hist-exit-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("history.json");
+        let first = HistoryStore::restore(path.clone());
+        first.record("https://old.example/", "Old");
+        first.persist_if_dirty();
+
+        // A visit recorded (and a quit) before the boot thread loaded the file.
+        let early = HistoryStore::empty(path.clone());
+        early.record("https://new.example/", "New");
+        early.persist_if_hydrated();
+        let on_disk = || HistoryStore::restore(path.clone()).entries.read().len();
+        assert_eq!(on_disk(), 1, "history.json was not replaced by one visit");
+
+        early.hydrate();
+        early.persist_if_hydrated();
+        assert_eq!(on_disk(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

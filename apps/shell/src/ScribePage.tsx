@@ -14,6 +14,7 @@ import { askText } from "./ask";
 import { renderStrokesScaled, type InkTemplate, type Stroke } from "./InkCanvas";
 import ScribeDoc, { DOC_H, DOC_W, parseDoc } from "./ScribeDoc";
 import {
+  SCRIBE_URL,
   scribeCreate,
   scribeDelete,
   scribeList,
@@ -25,7 +26,7 @@ import {
   type Notebook,
   type NotebookMeta,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 
 // A4 portrait at ~150dpi — a familiar page shape with room for long derivations.
 const PAGE_W = 1240;
@@ -136,8 +137,7 @@ const ScribePage: Component = () => {
   };
 
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Scribe");
+    titleInternalTab(SCRIBE_URL, "Scribe");
     void refreshShelf();
     // Ctrl/⌘+S saves now — the reflex everyone has, and it shouldn't open the
     // browser's save dialog over a notebook.
@@ -153,7 +153,8 @@ const ScribePage: Component = () => {
       // Don't let a pending debounce die with the component — write it out.
       window.clearTimeout(saveTimer);
       const nb = notebook();
-      if (nb && saveState() !== "saved") void scribeSave(nb).catch(() => {});
+      if (nb && saveState() !== "saved")
+        void scribeSave(nb).catch((e) => console.error("scribe: final save failed", e));
     });
   });
 
@@ -161,19 +162,26 @@ const ScribePage: Component = () => {
   // a page) — not on every autosave, which mutates notebook() too and would
   // needlessly re-parse the page JSON on each stroke.
 
-  /** Write the notebook now, cancelling any pending debounce. */
-  const flush = async (nb?: Notebook) => {
+  /** Write the notebook now, cancelling any pending debounce. Resolves false
+   *  when the write failed, so a caller can refuse to drop the edits. */
+  const flush = async (nb?: Notebook): Promise<boolean> => {
     const target = nb ?? notebook();
-    if (!target) return;
+    if (!target) return true;
     window.clearTimeout(saveTimer);
     setSaveState("saving");
     try {
       await scribeSave(target);
       setSaveErr("");
-      setSaveState("saved");
+      // An edit that landed while this write was in flight isn't on disk yet
+      // (its own debounce is pending). Calling that "saved" let the unmount
+      // cleanup, which cancels the debounce, skip the final write.
+      const latest = notebook();
+      setSaveState(latest && latest !== target ? "dirty" : "saved");
+      return true;
     } catch (e) {
       setSaveErr(String(e).replace(/^Error:\s*/, ""));
       setSaveState("dirty");
+      return false;
     }
   };
 
@@ -200,8 +208,7 @@ const ScribePage: Component = () => {
       const nb = await scribeLoad(id);
       setNotebook(nb);
       setPageIndex(0);
-      const at = activeId();
-      if (at != null) updateTabTitle(at, `Scribe · ${nb.name}`);
+      titleInternalTab(SCRIBE_URL, `Scribe · ${nb.name}`);
     } catch (e) {
       setShelfErr(String(e).replace(/^Error:\s*/, ""));
     }
@@ -235,12 +242,12 @@ const ScribePage: Component = () => {
 
   const closeToShelf = async () => {
     // Write before leaving, so the shelf's page counts and the file both match
-    // what you just drew.
-    if (saveState() !== "saved") await flush();
+    // what you just drew. A failed write stays here: leaving drops the unsaved
+    // notebook, and its error banner only shows in this view.
+    if (saveState() !== "saved" && !(await flush())) return;
     setNotebook(null);
     void refreshShelf();
-    const at = activeId();
-    if (at != null) updateTabTitle(at, "Scribe");
+    titleInternalTab(SCRIBE_URL, "Scribe");
   };
 
   const addPage = (template: InkTemplate) => {
@@ -312,8 +319,7 @@ const ScribePage: Component = () => {
     const name = await askText({ title: "Notebook name", value: cur.name, confirm: "Rename" });
     if (name) {
       persist({ ...cur, name });
-      const at = activeId();
-      if (at != null) updateTabTitle(at, `Scribe · ${name}`);
+      titleInternalTab(SCRIBE_URL, `Scribe · ${name}`);
     }
   };
 
@@ -353,10 +359,17 @@ const ScribePage: Component = () => {
   const doTranscribe = async () => {
     const cur = notebook();
     if (!cur) return;
+    const idx = pageIndex();
     setOcrBusy(true);
     setOcrErr("");
     try {
-      setOcr(await scribeTranscribe(cur.id, pageIndex()));
+      // The backend reads page `idx` from its own copy, which trails the editor
+      // by the autosave debounce (clicking this button just restarted it, via
+      // the editor's blur). Write first, or it reads an older notebook: one
+      // without the drawing just inserted, or with the pages in another order.
+      if (saveState() !== "saved" && !(await flush()))
+        throw new Error("Not transcribed: the page couldn't be saved first.");
+      setOcr(await scribeTranscribe(cur.id, idx));
     } catch (e) {
       setOcrErr(String(e).replace(/^Error:\s*/, ""));
     }
@@ -370,12 +383,14 @@ const ScribePage: Component = () => {
     setPubMsg("");
     try {
       const blob = await docApi.pageToBlob();
-      if (!blob) {
+      // A typed page has no drawing: publish its text alone (an empty image
+      // tells Rust to skip the embed) rather than refusing it.
+      if (!blob && !pubBody().trim()) {
         setPubMsg("Nothing to publish on this page yet.");
         setPubBusy(false);
         return;
       }
-      const b64 = await blobToB64(blob);
+      const b64 = blob ? await blobToB64(blob) : "";
       const path = await scribePublishPage(
         cur.id,
         pageIndex(),
@@ -681,7 +696,7 @@ const ScribePage: Component = () => {
                 onInput={(e) => setPubTags(e.currentTarget.value)}
               />
               <div class="scribe-pub-hint">
-                Writes a Markdown note with the handwriting embedded as a PNG into{" "}
+                Writes a Markdown note, with the page's drawing (if any) embedded as a PNG, into{" "}
                 <b>{notebook()!.course || "Flux Scribe"}</b> in your vault. One-way — Scribe keeps the ink.
               </div>
               <Show when={pubMsg()}>

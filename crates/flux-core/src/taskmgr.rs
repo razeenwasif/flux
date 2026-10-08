@@ -369,14 +369,30 @@ pub struct GpuInfo {
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
-#[tauri::command]
-pub fn tasks_list(state: State<'_, TaskManager>) -> Vec<ProcInfo> {
-    state.list()
+/// Run `f` on the blocking pool. A sync command runs on the UI thread, and
+/// `list` refreshes every process (tens of ms, every 2 s while the page is
+/// open); `stats` and `kill` share its `sys` lock, so left there they would
+/// only wait on it instead.
+async fn off_ui_thread<T: Send + 'static>(
+    app: tauri::AppHandle,
+    f: impl FnOnce(&TaskManager) -> T + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        f(&app.state::<TaskManager>())
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn tasks_stats(state: State<'_, TaskManager>) -> SysStats {
-    state.stats()
+pub async fn tasks_list(app: tauri::AppHandle) -> Result<Vec<ProcInfo>, String> {
+    off_ui_thread(app, TaskManager::list).await
+}
+
+#[tauri::command]
+pub async fn tasks_stats(app: tauri::AppHandle) -> Result<SysStats, String> {
+    off_ui_thread(app, TaskManager::stats).await
 }
 
 /// Mounted filesystems, for the task manager's disk card.
@@ -386,18 +402,41 @@ pub fn tasks_disks(state: State<'_, TaskManager>) -> Vec<DiskInfo> {
 }
 
 #[tauri::command]
-pub fn tasks_kill(state: State<'_, TaskManager>, pid: u32) -> bool {
-    state.kill(pid)
+pub async fn tasks_kill(app: tauri::AppHandle, pid: u32) -> Result<bool, String> {
+    off_ui_thread(app, move |tm| tm.kill(pid)).await
 }
 
 /// Live GPU stats via `nvidia-smi` (NVIDIA only). Empty on other GPUs / no driver
 /// / when nvidia-smi isn't on PATH — the UI just hides the GPU panel then.
 #[tauri::command]
 pub async fn gpu_stats() -> Vec<GpuInfo> {
-    tauri::async_runtime::spawn_blocking(query_nvidia)
-        .await
-        .unwrap_or_default()
+    if NO_NVIDIA_SMI.load(Ordering::Relaxed) {
+        return Vec::new();
+    }
+    // The rail monitor and the Task Manager both poll every 2 s without waiting
+    // for the last answer. Single-flight, so a wedged nvidia-smi parks one
+    // blocking thread (and serves the last stats) instead of one more per poll.
+    if GPU_BUSY.swap(true, Ordering::AcqRel) {
+        return GPU_LAST.lock().clone();
+    }
+    tauri::async_runtime::spawn_blocking(|| {
+        let out = query_nvidia();
+        *GPU_LAST.lock() = out.clone();
+        // Cleared here, not after the await, so it holds however the caller ends.
+        GPU_BUSY.store(false, Ordering::Release);
+        out
+    })
+    .await
+    .unwrap_or_default()
 }
+
+/// A `gpu_stats` query is running.
+static GPU_BUSY: AtomicBool = AtomicBool::new(false);
+/// What the last query returned, served while another is still running.
+static GPU_LAST: Mutex<Vec<GpuInfo>> = Mutex::new(Vec::new());
+/// Set once nvidia-smi turns out not to exist, so machines without it stop
+/// paying a PATH search and a failed spawn every two seconds for the session.
+static NO_NVIDIA_SMI: AtomicBool = AtomicBool::new(false);
 
 fn query_nvidia() -> Vec<GpuInfo> {
     let mut cmd = std::process::Command::new("nvidia-smi");
@@ -411,8 +450,14 @@ fn query_nvidia() -> Vec<GpuInfo> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let Ok(out) = cmd.output() else {
-        return Vec::new();
+    let out = match cmd.output() {
+        Ok(out) => out,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                NO_NVIDIA_SMI.store(true, Ordering::Relaxed);
+            }
+            return Vec::new();
+        }
     };
     if !out.status.success() {
         return Vec::new();
@@ -466,6 +511,30 @@ mod tests {
         assert!(
             tm.disks.lock().is_none(),
             "a refresh started while one was already in flight"
+        );
+    }
+
+    #[test]
+    fn gpu_polls_share_one_query() {
+        // With an nvidia-smi query in flight, a poll gets the last answer instead
+        // of starting another: a hung one must not park a thread per poll.
+        let last = vec![GpuInfo {
+            name: "gpu".into(),
+            util_pct: 50.0,
+            mem_used_mb: 1,
+            mem_total_mb: 2,
+            temp_c: 60.0,
+            power_w: 100.0,
+        }];
+        *GPU_LAST.lock() = last.clone();
+        NO_NVIDIA_SMI.store(false, Ordering::Relaxed);
+        GPU_BUSY.store(true, Ordering::Release);
+        let got = tauri::async_runtime::block_on(gpu_stats());
+        let still_busy = GPU_BUSY.swap(false, Ordering::AcqRel);
+        assert_eq!(got, last);
+        assert!(
+            still_busy,
+            "the in-flight query's flag was cleared by a poll"
         );
     }
 

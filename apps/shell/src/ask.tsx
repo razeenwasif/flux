@@ -95,3 +95,64 @@ export const askText = (opts: AskOptions): Promise<string | null> =>
       );
     }, host);
   });
+
+export type ConfirmOptions = {
+  title: string;
+  /** What happens, under the title. */
+  hint?: string;
+  /** Confirm button label. Defaults to "OK". */
+  confirm?: string;
+};
+
+/**
+ * `window.confirm`, but one that works. The native one is just as dead on macOS
+ * (wry's WKWebView delegate has no confirm panel), returning `false` without
+ * showing anything, so an action behind it never ran. Resolves `true` only for
+ * the confirm button. Cancel takes focus, so a stray Enter can't confirm a delete.
+ */
+export const askConfirm = (opts: ConfirmOptions): Promise<boolean> =>
+  new Promise((resolve) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    let done = false;
+
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      dispose();
+      host.remove();
+      resolve(ok);
+    };
+
+    const dispose = render(() => {
+      let cancel: HTMLButtonElement | undefined;
+      queueMicrotask(() => cancel?.focus());
+
+      return (
+        <>
+          <div class="ask-scrim" onClick={() => finish(false)} />
+          <div
+            class="ask glass"
+            role="alertdialog"
+            aria-modal="true"
+            aria-label={opts.title}
+            onKeyDown={(e) => {
+              e.stopPropagation(); // chrome shortcuts must not act behind the dialog
+              if (e.key === "Escape") finish(false);
+            }}
+          >
+            <div class="ask-title">{opts.title}</div>
+            {(opts.hint ? <div class="ask-hint">{opts.hint}</div> : null) as JSX.Element}
+            <div class="ask-foot">
+              <button ref={cancel} type="button" class="ask-cancel" onClick={() => finish(false)}>
+                Cancel
+              </button>
+              <button type="button" class="ask-ok" onClick={() => finish(true)}>
+                {opts.confirm ?? "OK"}
+              </button>
+            </div>
+          </div>
+        </>
+      );
+    }, host);
+  });

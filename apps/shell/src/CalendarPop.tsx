@@ -90,9 +90,12 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
   const placement = () => PLACEMENT[calendarDock()] ?? PLACEMENT.overlay;
   const [events, setEvents] = createSignal<CalEvent[]>([]);
   const [loading, setLoading] = createSignal(true);
-  const todayStr = dateStrOf(new Date());
+  // A signal, refreshed by the minute timer below: a docked calendar stays
+  // mounted for days, and a date fixed at mount put "today" (and the now-line)
+  // on yesterday after midnight.
+  const [todayStr, setTodayStr] = createSignal(dateStrOf(new Date()));
   const [ym, setYm] = createSignal<[number, number]>([new Date().getFullYear(), new Date().getMonth()]);
-  const [selected, setSelected] = createSignal<string>(todayStr);
+  const [selected, setSelected] = createSignal<string>(todayStr());
   // Inline editor: null = closed, 0 = new event, >0 = editing that local event id.
   const [editing, setEditing] = createSignal<number | null>(null);
   const [fTitle, setFTitle] = createSignal("");
@@ -219,10 +222,11 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
 
   const [nowMins, setNowMins] = createSignal(new Date().getHours() * 60 + new Date().getMinutes());
   onMount(() => {
-    const t = window.setInterval(
-      () => setNowMins(new Date().getHours() * 60 + new Date().getMinutes()),
-      60_000,
-    );
+    const t = window.setInterval(() => {
+      const now = new Date();
+      setNowMins(now.getHours() * 60 + now.getMinutes());
+      setTodayStr(dateStrOf(now)); // only notifies when the date actually changes
+    }, 60_000);
     onCleanup(() => window.clearInterval(t));
   });
 
@@ -381,15 +385,21 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
       .then(setEvents)
       .catch(() => {})
       .finally(() => setLoading(false));
+  /** The docked pane's root, so a docked calendar answers only its own Escape. */
+  let paneEl: HTMLDivElement | undefined;
   onMount(() => {
     void refresh();
     refreshTodos();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        if (editing() !== null) setEditing(null);
-        else setCalendarPopOpen(false);
-      }
+      // defaultPrevented: an Escape a field inside already handled (task rename).
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      // Docked, this is a layout column rather than a modal: an Escape meant for
+      // the URL bar, a page load or another field must not close (and persist
+      // closed) the column.
+      if (props.docked && !(e.target instanceof Node && paneEl?.contains(e.target))) return;
+      e.preventDefault();
+      if (editing() !== null) setEditing(null);
+      else setCalendarPopOpen(false);
     };
     window.addEventListener("keydown", onKey);
     onCleanup(() => window.removeEventListener("keydown", onKey));
@@ -406,7 +416,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
   const goToday = () => {
     const now = new Date();
     setYm([now.getFullYear(), now.getMonth()]);
-    setSelected(todayStr);
+    setSelected(dateStrOf(now));
   };
 
   /** The grid: leading blanks + day numbers (weeks start Monday). */
@@ -432,7 +442,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
       .sort((a, b) => a.sort_key - b.sort_key),
   );
   const dayTitle = () =>
-    selected() === todayStr
+    selected() === todayStr()
       ? "Today"
       : new Date(`${selected()}T00:00`).toLocaleDateString([], {
           weekday: "long",
@@ -474,7 +484,10 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     }
     try {
       const id = editing();
-      if (id && id > 0) await calEventUpdate(id, fields);
+      // The form has no date field, so an edit never moves the event. Sending
+      // `selected()` (the clicked occurrence's day) re-anchored a recurring
+      // series on it, dropping every earlier occurrence.
+      if (id && id > 0) await calEventUpdate(id, { ...fields, date: undefined });
       else await calEventAdd(fields);
       setEditing(null);
       await refresh();
@@ -498,7 +511,9 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
    *  stays visible), while the overlay portals over the card with a backdrop. */
   const Frame: Component<{ children?: JSX.Element }> = (f) =>
     props.docked ? (
-      <div class="cal-pane docked">{f.children}</div>
+      <div ref={paneEl} class="cal-pane docked">
+        {f.children}
+      </div>
     ) : (
       <Portal>
         <div class="cal-pane-backdrop" onClick={() => setCalendarPopOpen(false)} />
@@ -586,7 +601,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
               <span class="tt-gutter" />
               <For each={weekDays()}>
                 {(d) => (
-                  <span classList={{ "tt-dow": true, today: dateStrOf(d) === todayStr }}>
+                  <span classList={{ "tt-dow": true, today: dateStrOf(d) === todayStr() }}>
                     {d.toLocaleDateString([], { weekday: "short" })} {d.getDate()}
                   </span>
                 )}
@@ -614,12 +629,12 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                 </div>
                 <For each={weekDays()}>
                   {(d) => (
-                    <div classList={{ "tt-col": true, today: dateStrOf(d) === todayStr }}>
+                    <div classList={{ "tt-col": true, today: dateStrOf(d) === todayStr() }}>
                       <For each={hours()}>{() => <div class="tt-slot" />}</For>
                       {/* Now-line, only on today's column. */}
                       <Show
                         when={
-                          dateStrOf(d) === todayStr &&
+                          dateStrOf(d) === todayStr() &&
                           nowMins() >= hourRange()[0] * 60 &&
                           nowMins() <= hourRange()[1] * 60
                         }
@@ -686,7 +701,7 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                   <button
                     classList={{
                       "cal-pop-day": true,
-                      today: dateOf(day!) === todayStr,
+                      today: dateOf(day!) === todayStr(),
                       sel: selected() === dateOf(day!),
                       has: eventDays().has(day!),
                     }}
@@ -850,17 +865,27 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                         </span>
                       }
                     >
-                      {/* Inline rename + due date; Enter or blur saves, Esc abandons. */}
-                      <span class="cal-task-edit">
+                      {/* Inline rename + due date; Enter or leaving the editor saves, Esc abandons. */}
+                      <span
+                        class="cal-task-edit"
+                        /* Commit when focus leaves the editor as a whole: a blur per
+                           input closed it as focus moved from title to due date. */
+                        onFocusOut={(e) => {
+                          const next = e.relatedTarget;
+                          if (!(next instanceof Node && e.currentTarget.contains(next))) commitEdit();
+                        }}
+                      >
                         <input
                           value={editText()}
                           autofocus
                           onInput={(e) => setEditText(e.currentTarget.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") commitEdit();
-                            else if (e.key === "Escape") setEditTask(null);
+                            else if (e.key === "Escape") {
+                              e.preventDefault(); // handled here: don't also close the calendar
+                              setEditTask(null);
+                            }
                           }}
-                          onBlur={commitEdit}
                         />
                         <input
                           type="date"
@@ -868,7 +893,6 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
                           value={editDue()}
                           onInput={(e) => setEditDue(e.currentTarget.value)}
                           onKeyDown={(e) => e.key === "Enter" && commitEdit()}
-                          onBlur={commitEdit}
                         />
                       </span>
                     </Show>

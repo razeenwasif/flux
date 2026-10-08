@@ -177,7 +177,7 @@ const WSL_PRELUDE: &str = r#"p="$1"; case "$p" in "~") p="$HOME";; "~/"*) p="$HO
 /// works through a folder).
 #[cfg(windows)]
 fn wsl_bash(script: &str, path_arg: &str, what: &str) -> Result<Vec<u8>, String> {
-    let out = std::process::Command::new("wsl.exe")
+    let out = crate::exec::no_console(&mut std::process::Command::new("wsl.exe"))
         .args(["--", "bash", "-c", script, "flux", path_arg])
         .output()
         .map_err(|e| format!("couldn't reach {what} via WSL: {e}"))?;
@@ -189,6 +189,21 @@ fn wsl_bash(script: &str, path_arg: &str, what: &str) -> Result<Vec<u8>, String>
         return Err(format!("can't read {what}: {}", err.trim()));
     }
     Ok(out.stdout)
+}
+
+/// Canonicalize a path *inside WSL*: `~`, `..` and symlinks resolved exactly as
+/// the bridge's readers will meet them (`-m`: the leaf need not exist yet). The
+/// agent's folder gate needs it, because Windows' own `canonicalize` can't see
+/// into WSL.
+#[cfg(windows)]
+pub(crate) fn wsl_realpath(p: &str) -> Result<String, String> {
+    let script = format!("{WSL_PRELUDE}realpath -m -- \"$p\"");
+    let out = String::from_utf8_lossy(&wsl_bash(&script, p, p)?).into_owned();
+    let r = out.strip_suffix('\n').unwrap_or(&out);
+    if r.is_empty() {
+        return Err(format!("can't resolve {p} in WSL"));
+    }
+    Ok(r.to_string())
 }
 
 /// Read a file's **bytes** out of WSL.
@@ -320,13 +335,39 @@ fn wsl_list_dir(p: &str) -> Result<DirListing, String> {
 
 /// Read a file's bytes from wherever it actually lives.
 pub(crate) fn read_bytes_any(p: &str) -> Result<Vec<u8>, String> {
+    read_bytes_capped(p, u64::MAX).map(|(bytes, _)| bytes)
+}
+
+/// [`read_bytes_any`], stopping after `max` bytes. Returns the bytes read and the
+/// file's full length.
+///
+/// Only a regular file is read: a device never ends (`/dev/zero` grew the buffer
+/// until the process died) and a FIFO blocks the thread forever, and a size check
+/// stops neither, since both report a length of 0. `metadata` comes first
+/// because opening a FIFO would itself block.
+fn read_bytes_capped(p: &str, max: u64) -> Result<(Vec<u8>, u64), String> {
+    use std::io::Read as _;
     #[cfg(windows)]
     if is_wsl_path(p) {
-        return wsl_read_bytes(p);
+        // The bridge still ships the whole file; only what's kept is capped.
+        let mut all = wsl_read_bytes(p)?;
+        let total = all.len() as u64;
+        if total > max {
+            all.truncate(max as usize);
+        }
+        return Ok((all, total));
     }
     #[cfg(not(windows))]
     let p = &expand_home(&native_path(p));
-    std::fs::read(p).map_err(|e| format!("can't read {p}: {e}"))
+    let meta = std::fs::metadata(p).map_err(|e| format!("can't read {p}: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("can't read {p}: not a regular file"));
+    }
+    let mut buf = Vec::with_capacity(meta.len().min(max) as usize);
+    std::fs::File::open(p)
+        .and_then(|f| f.take(max).read_to_end(&mut buf))
+        .map_err(|e| format!("can't read {p}: {e}"))?;
+    Ok((buf, meta.len()))
 }
 
 /// `~/x` → `$HOME/x`. Windows has its own expansion inside the WSL bridge.
@@ -430,7 +471,7 @@ impl UndoOp {
     fn revert(self) -> Result<String, String> {
         match self {
             UndoOp::Rename { from, to } => {
-                if Path::new(&from).exists() {
+                if Path::new(&from).exists() && !same_entry(Path::new(&from), Path::new(&to)) {
                     return Err(format!("{} already exists", base_name(&from)));
                 }
                 std::fs::rename(&to, &from).map_err(|e| e.to_string())?;
@@ -492,6 +533,27 @@ impl UndoStack {
     }
     fn pop(&self) -> Option<UndoOp> {
         self.0.lock().pop()
+    }
+}
+
+/// Do `a` and `b` name the same directory entry? True for a case-only rename
+/// on a case-insensitive volume (APFS, NTFS), where `b.exists()` is answered by
+/// `a` itself. Unix compares the entries without following links, so a symlink
+/// is never mistaken for its target (renaming over the target would destroy it).
+fn same_entry(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        matches!(
+            (std::fs::symlink_metadata(a), std::fs::symlink_metadata(b)),
+            (Ok(x), Ok(y)) if x.dev() == y.dev() && x.ino() == y.ino()
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let fold = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_lowercase());
+        fold(a) == fold(b)
+            && matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
     }
 }
 
@@ -1082,7 +1144,15 @@ fn check_not_descendant(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 fn copy_recursive_inner(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if std::fs::symlink_metadata(src)?.is_dir() {
+    let meta = std::fs::symlink_metadata(src)?;
+    // A link to a directory, or a dangling link, can't be "copied as its
+    // target": `fs::copy` rejects both, which aborted the whole tree copy (or
+    // cross-device move) half done. Recreate the link itself; a link to a
+    // regular file still copies its target's bytes, as before.
+    if meta.file_type().is_symlink() && !std::fs::metadata(src).is_ok_and(|m| m.is_file()) {
+        return copy_link(src, dst);
+    }
+    if meta.is_dir() {
         std::fs::create_dir(dst)?;
         for ent in std::fs::read_dir(src)? {
             let ent = ent?;
@@ -1094,7 +1164,24 @@ fn copy_recursive_inner(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Recursive copy (dir trees included); symlinks are copied as their target.
+/// Recreate the symlink `src` at `dst`, pointing where `src` points.
+fn copy_link(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let target = std::fs::read_link(src)?;
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(&target, dst);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileTypeExt;
+        if std::fs::symlink_metadata(src)?.file_type().is_symlink_dir() {
+            std::os::windows::fs::symlink_dir(&target, dst)
+        } else {
+            std::os::windows::fs::symlink_file(&target, dst)
+        }
+    }
+}
+
+/// Recursive copy (dir trees included). A symlink to a file is copied as its
+/// target; one to a directory, or a dangling one, is recreated as a link.
 fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     check_not_descendant(src, dst)?;
     copy_recursive_inner(src, dst)
@@ -1165,7 +1252,8 @@ pub async fn fs_rename(undo: State<'_, UndoStack>, from: String, to: String) -> 
     let (f, t) = (from.clone(), to.clone());
     tauri::async_runtime::spawn_blocking(move || {
         let (fp, tp) = (Path::new(&f), Path::new(&t));
-        if tp.exists() {
+        // `foo.txt` → `Foo.txt` on APFS/NTFS: `tp` "exists" because it *is* `fp`.
+        if tp.exists() && !same_entry(fp, tp) {
             return Err(format!("{} already exists", clean(tp)));
         }
         std::fs::rename(fp, tp).map_err(|e| e.to_string())
@@ -1184,43 +1272,50 @@ pub async fn fs_move(
     paths: Vec<String>,
     dest: String,
 ) -> Result<(), String> {
-    let (paths2, dest2) = (paths.clone(), dest.clone());
-    let pairs =
-        tauri::async_runtime::spawn_blocking(move || -> Result<Vec<(String, String)>, String> {
-            let dest = Path::new(&dest2);
-            let mut pairs = Vec::new();
-            for src in &paths2 {
-                let src_p = Path::new(src);
-                let name = src_p
-                    .file_name()
-                    .ok_or_else(|| format!("bad path: {}", clean(src_p)))?;
-                let target = dest.join(name);
-                if target == src_p {
-                    continue; // moving onto itself — no-op
-                }
-                if target.exists() {
-                    return Err(format!("{} already exists", clean(&target)));
-                }
-                check_not_descendant(src_p, &target).map_err(|e| e.to_string())?;
-                match std::fs::rename(src_p, &target) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-                        // Cross-device: copy then remove the source.
-                        copy_recursive(src_p, &target).map_err(|e| e.to_string())?;
-                        remove_path(src_p).map_err(|e| e.to_string())?;
-                    }
-                    Err(e) => return Err(e.to_string()),
-                }
-                pairs.push((src.clone(), clean(&target)));
-            }
-            Ok(pairs)
-        })
-        .await
-        .map_err(|e| e.to_string())??;
+    let (pairs, failed) =
+        tauri::async_runtime::spawn_blocking(move || move_into(&paths, Path::new(&dest)))
+            .await
+            .map_err(|e| e.to_string())?;
+    // Moves that already happened stay happened when a later one fails, so they
+    // reach the undo stack either way: Ctrl+Z reverses exactly what was done.
     if !pairs.is_empty() {
         undo.push(UndoOp::Move { pairs });
     }
-    Ok(())
+    failed.map_or(Ok(()), Err)
+}
+
+/// [`fs_move`]'s work, in order, stopping at the first failure. Returns the
+/// `(source, target)` pairs that were moved *with* that failure, not instead
+/// of them.
+fn move_into(paths: &[String], dest: &Path) -> (Vec<(String, String)>, Option<String>) {
+    let mut pairs = Vec::new();
+    let mut move_one = |src: &String| -> Result<(), String> {
+        let src_p = Path::new(src);
+        let name = src_p
+            .file_name()
+            .ok_or_else(|| format!("bad path: {}", clean(src_p)))?;
+        let target = dest.join(name);
+        if target == src_p {
+            return Ok(()); // moving onto itself — no-op
+        }
+        if target.exists() {
+            return Err(format!("{} already exists", clean(&target)));
+        }
+        check_not_descendant(src_p, &target).map_err(|e| e.to_string())?;
+        match std::fs::rename(src_p, &target) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+                // Cross-device: copy then remove the source.
+                copy_recursive(src_p, &target).map_err(|e| e.to_string())?;
+                remove_path(src_p).map_err(|e| e.to_string())?;
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+        pairs.push((src.clone(), clean(&target)));
+        Ok(())
+    };
+    let failed = paths.iter().find_map(|src| move_one(src).err());
+    (pairs, failed)
 }
 
 /// Copy each of `paths` into directory `dest`; auto-uniquifies on collision so
@@ -1362,6 +1457,11 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
             .unwrap_or("")
             .to_ascii_lowercase();
         let meta = std::fs::metadata(p).map_err(|e| format!("can't read {name}: {e}"))?;
+        // A device reports length 0 and never ends (`/dev/zero`), and a FIFO
+        // blocks forever: neither is stopped by the size cap below.
+        if !meta.is_file() {
+            return Err(format!("can't attach {name} — not a regular file"));
+        }
         if meta.len() > 20 * 1024 * 1024 {
             return Err(format!("{name} is too large (max 20 MB)"));
         }
@@ -1409,6 +1509,13 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
                 | "swift"
                 | "kt"
         );
+        // Decide before reading: the Files preview pane calls this for every
+        // selected file, and a 20 MB video was read in full just to be refused.
+        if image_mime.is_none() && !is_text {
+            return Err(format!(
+                "can't attach {name} — only images and text files are supported"
+            ));
+        }
         let bytes = std::fs::read(p).map_err(|e| format!("can't read {name}: {e}"))?;
         if let Some(mime) = image_mime {
             let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -1420,7 +1527,7 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
                 text: String::new(),
                 data_url,
             })
-        } else if is_text {
+        } else {
             Ok(DroppedAttachment {
                 kind: "text".into(),
                 name,
@@ -1428,10 +1535,6 @@ pub async fn attachment_read(path: String) -> Result<DroppedAttachment, String> 
                 text: String::from_utf8_lossy(&bytes).into_owned(),
                 data_url: String::new(),
             })
-        } else {
-            Err(format!(
-                "can't attach {name} — only images and text files are supported"
-            ))
         }
     })
     .await
@@ -1449,27 +1552,26 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
         if p.is_empty() {
             return Err("no file path given".into());
         }
-        let raw: String = read_text_raw(p)?;
-        if raw.chars().count() > READ_TEXT_CAP {
+        // A multi-GB log must not be read whole to keep its head: no file can
+        // need more bytes than this for `READ_TEXT_CAP` characters.
+        let (bytes, total) = read_bytes_capped(p, READ_TEXT_MAX_BYTES)?;
+        let raw = String::from_utf8_lossy(&bytes);
+        if raw.chars().count() > READ_TEXT_CAP || (bytes.len() as u64) < total {
             let head: String = raw.chars().take(READ_TEXT_CAP).collect();
-            Ok(format!("{head}\n…(truncated; {} bytes total)", raw.len()))
+            Ok(format!("{head}\n…(truncated; {total} bytes total)"))
         } else {
-            Ok(raw)
+            Ok(raw.into_owned())
         }
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// Read a file as text from wherever it lives. Both platforms go through the one
-/// byte reader (which owns the WSL bridge on Windows); the only difference left
-/// is that text is lossy-decoded and bytes aren't.
-fn read_text_raw(p: &str) -> Result<String, String> {
-    Ok(String::from_utf8_lossy(&read_bytes_any(p)?).into_owned())
-}
-
 /// Most characters `read_text_file` hands the agent before truncating.
 pub(crate) const READ_TEXT_CAP: usize = 60_000;
+
+/// The most bytes [`READ_TEXT_CAP`] characters of UTF-8 can take (4 per char).
+const READ_TEXT_MAX_BYTES: u64 = READ_TEXT_CAP as u64 * 4;
 
 /// Refuse to overwrite a file the agent can only have seen part of. The edit
 /// flow writes `read_text_file`'s output back with the edits applied: past
@@ -1477,18 +1579,26 @@ pub(crate) const READ_TEXT_CAP: usize = 60_000;
 /// non-UTF-8 bytes it's a lossy U+FFFD copy. Either write destroys data.
 pub(crate) async fn ensure_fully_readable(path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let bytes = match read_bytes_any(&path) {
-            Ok(b) => b,
+        let too_long = || {
+            format!(
+                "{path} is longer than the {READ_TEXT_CAP} characters the agent can read, so it won't overwrite the rest"
+            )
+        };
+        // Bounded like the read itself: past `READ_TEXT_MAX_BYTES` the file is
+        // too long whatever it holds, so that's all that needs reading.
+        let (bytes, total) = match read_bytes_capped(&path, READ_TEXT_MAX_BYTES) {
+            Ok(r) => r,
             Err(_) if !Path::new(&path).exists() => return Ok(()), // a new file
             Err(e) => return Err(e),
         };
+        if (bytes.len() as u64) < total {
+            return Err(too_long());
+        }
         let text = std::str::from_utf8(&bytes).map_err(|_| {
             format!("{path} isn't valid UTF-8, so an edit would corrupt the bytes the agent couldn't read")
         })?;
         if text.chars().count() > READ_TEXT_CAP {
-            return Err(format!(
-                "{path} is longer than the {READ_TEXT_CAP} characters the agent can read, so it won't overwrite the rest"
-            ));
+            return Err(too_long());
         }
         Ok(())
     })
@@ -1521,7 +1631,7 @@ fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
         // is empty, which `cat >` turns into an ambiguous-redirect failure at
         // best. This runs on an approved edit, so it must land where promised.
         let script = format!("{WSL_PRELUDE}cat > \"$p\"");
-        let mut child = std::process::Command::new("wsl.exe")
+        let mut child = crate::exec::no_console(&mut std::process::Command::new("wsl.exe"))
             .args(["--", "bash", "-c", &script, "flux", p])
             .stdin(std::process::Stdio::piped())
             .spawn()
@@ -1544,13 +1654,10 @@ fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
 
 #[cfg(not(windows))]
 fn write_text_raw(p: &str, content: &str) -> Result<(), String> {
-    let expanded = if let Some(rest) = p.strip_prefix("~/") {
-        std::env::var("HOME")
-            .map(|h| format!("{h}/{rest}"))
-            .unwrap_or_else(|_| p.to_string())
-    } else {
-        p.to_string()
-    };
+    // The same translation the reader applies (`read_bytes_capped`): under WSL a
+    // `C:\…` path is `/mnt/c/…`. Without it an edit drafted from the real file was
+    // written to a new file literally named `C:\…` in the working directory.
+    let expanded = expand_home(&native_path(p));
     std::fs::write(&expanded, content).map_err(|e| format!("can't write {p}: {e}"))
 }
 
@@ -1753,6 +1860,44 @@ mod stream_tests {
         assert!(res.is_err(), "should reject copying directory into its descendant");
         let _ = std::fs::remove_dir_all(&base);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_keeps_directory_and_dangling_links_as_links() {
+        // A venv's `lib64 -> lib` and an editor's dangling `.#lock` made
+        // `fs::copy` fail half-way through the tree.
+        let base = std::env::temp_dir().join(format!("flux_copy_links_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let src = base.join("venv");
+        std::fs::create_dir_all(src.join("lib")).unwrap();
+        std::fs::write(src.join("lib").join("site.py"), b"x").unwrap();
+        std::fs::write(src.join("README"), b"readme").unwrap();
+        std::os::unix::fs::symlink("lib", src.join("lib64")).unwrap();
+        std::os::unix::fs::symlink("nowhere", src.join(".#lock")).unwrap();
+        std::os::unix::fs::symlink("README", src.join("readme-link")).unwrap();
+
+        let dst = base.join("venv copy");
+        copy_recursive(&src, &dst).unwrap();
+
+        assert_eq!(
+            std::fs::read_link(dst.join("lib64")).unwrap(),
+            Path::new("lib")
+        );
+        assert_eq!(
+            std::fs::read_link(dst.join(".#lock")).unwrap(),
+            Path::new("nowhere")
+        );
+        assert_eq!(
+            std::fs::read(dst.join("lib").join("site.py")).unwrap(),
+            b"x"
+        );
+        // A link to a regular file is still copied as its target's bytes.
+        assert!(std::fs::symlink_metadata(dst.join("readme-link"))
+            .unwrap()
+            .is_file());
+        assert_eq!(std::fs::read(dst.join("readme-link")).unwrap(), b"readme");
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
 
 #[cfg(test)]
@@ -1785,6 +1930,139 @@ mod undo_tests {
         assert!(op.revert().is_ok());
         assert_eq!(std::fs::read(&src).unwrap(), b"moved");
         assert!(!dst.exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_case_only_rename_is_not_a_name_clash() {
+        let base = std::env::temp_dir().join(format!("flux_case_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let lower = base.join("readme.md");
+        let upper = base.join("README.md");
+        let other = base.join("notes.md");
+        std::fs::write(&lower, b"x").unwrap();
+        std::fs::write(&other, b"y").unwrap();
+        // A different file is never the same entry, on any volume.
+        assert!(!same_entry(&lower, &other));
+        #[cfg(unix)]
+        {
+            let link = base.join("link.md");
+            std::os::unix::fs::symlink(&other, &link).unwrap();
+            assert!(!same_entry(&link, &other), "a link is not its target");
+        }
+        if !upper.exists() {
+            // A case-sensitive volume: the two spellings are two names.
+            let _ = std::fs::remove_dir_all(&base);
+            return;
+        }
+        // APFS/NTFS: `README.md` "exists" only because it is `readme.md`.
+        assert!(same_entry(&lower, &upper));
+        std::fs::rename(&lower, &upper).unwrap();
+        // …and undoing that rename is not refused as a clash either.
+        let op = UndoOp::Rename {
+            from: clean(&lower),
+            to: clean(&upper),
+        };
+        assert!(op.revert().is_ok());
+        let names: Vec<String> = std::fs::read_dir(&base)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"readme.md".to_string()), "{names:?}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_move_that_fails_part_way_can_still_be_undone() {
+        // The second of three items collides, after the first has moved.
+        let base = std::env::temp_dir().join(format!("flux_partial_move_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dest = base.join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+        let names = ["a.txt", "b.txt", "c.txt"];
+        for n in names {
+            std::fs::write(base.join(n), n).unwrap();
+        }
+        std::fs::write(dest.join("b.txt"), b"already here").unwrap();
+        let paths: Vec<String> = names.iter().map(|n| clean(&base.join(n))).collect();
+
+        let (pairs, failed) = move_into(&paths, &dest);
+        assert!(failed.unwrap().contains("already exists"));
+        assert_eq!(pairs, vec![(paths[0].clone(), clean(&dest.join("a.txt")))]);
+        assert!(
+            base.join("c.txt").exists(),
+            "nothing after the failure moves"
+        );
+
+        // What did move is exactly what the undo puts back.
+        assert!(UndoOp::Move { pairs }.revert().is_ok());
+        assert_eq!(std::fs::read(base.join("a.txt")).unwrap(), b"a.txt");
+        assert!(!dest.join("a.txt").exists());
+        assert_eq!(std::fs::read(dest.join("b.txt")).unwrap(), b"already here");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod bounded_read_tests {
+    use super::*;
+
+    /// Run `f` on its own thread, giving up after `secs`: the bugs under test
+    /// are reads that never return.
+    fn within<T: Send + 'static>(secs: u64, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(secs)).ok()
+    }
+
+    #[test]
+    fn devices_and_fifos_are_refused_without_being_read() {
+        // `/dev/zero` reports a length of 0 and never ends.
+        let zero = within(5, || read_bytes_capped("/dev/zero", 16).is_err());
+        assert_eq!(zero, Some(true));
+        let attach = within(5, || {
+            tauri::async_runtime::block_on(attachment_read("/dev/zero".into())).is_err()
+        });
+        assert_eq!(attach, Some(true));
+
+        // Opening a FIFO with no writer blocks, so it must be refused unopened.
+        let base = std::env::temp_dir().join(format!("flux_fifo_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let fifo = base.join("pipe.txt");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .is_ok_and(|s| s.success());
+        if made {
+            let p = fifo.to_string_lossy().into_owned();
+            let refused = within(5, move || read_bytes_capped(&p, 16).is_err());
+            assert_eq!(refused, Some(true));
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_long_file_is_read_only_as_far_as_the_cap() {
+        let base = std::env::temp_dir().join(format!("flux_capped_read_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let p = base.join("big.log");
+        let total = READ_TEXT_MAX_BYTES as usize + 1000;
+        std::fs::write(&p, vec![b'a'; total]).unwrap();
+        let path = p.to_string_lossy().into_owned();
+
+        let (bytes, len) = read_bytes_capped(&path, 100).unwrap();
+        assert_eq!((bytes.len(), len), (100, total as u64));
+
+        let text = tauri::async_runtime::block_on(read_text_file(path.clone())).unwrap();
+        assert!(text.starts_with(&"a".repeat(READ_TEXT_CAP)));
+        assert!(text.ends_with(&format!("(truncated; {total} bytes total)")));
+        // The edit gate refuses it, again without reading it whole.
+        assert!(tauri::async_runtime::block_on(ensure_fully_readable(path)).is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 }

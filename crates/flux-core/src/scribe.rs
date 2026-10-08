@@ -223,6 +223,9 @@ pub struct ScribeStore {
     /// notebooks reach the knowledge base without a manual reindex — and, by
     /// waiting for it to settle, without re-embedding on every autosave.
     generation: AtomicU64,
+    /// Held across each notebook write, so an older copy can never land after
+    /// a newer one (see `flush`). Lock order: `io`, then `books`.
+    io: parking_lot::Mutex<()>,
 }
 
 impl ScribeStore {
@@ -250,6 +253,7 @@ impl ScribeStore {
             dir: Some(dir),
             seq: AtomicU64::new(0),
             generation: AtomicU64::new(0),
+            io: parking_lot::Mutex::new(()),
         }
     }
 
@@ -296,7 +300,7 @@ impl ScribeStore {
         id: &str,
         f: impl FnOnce(&mut Notebook) -> Result<String, String>,
     ) -> Result<(), String> {
-        let nb = {
+        {
             let mut books = self.books.write();
             let nb = books.get_mut(id).ok_or("no such notebook")?;
             let had: HashSet<String> = nb.pages.iter().map(|p| p.id.clone()).collect();
@@ -313,9 +317,10 @@ impl ScribeStore {
                 .or_default()
                 .entry(page)
                 .or_insert(how);
-            nb.clone()
-        };
-        self.write(&nb);
+        }
+        // Through `flush`, so an autosave's write still in flight can't land
+        // its older copy over this one.
+        self.flush(id);
         self.touch();
         Ok(())
     }
@@ -367,8 +372,16 @@ impl ScribeStore {
 
     /// Replace a notebook wholesale (the frontend's debounced autosave). Bumps
     /// `ts` so the shelf reorders to most-recently-touched.
-    pub fn save(&self, mut nb: Notebook) {
+    pub fn save(&self, nb: Notebook) {
+        let id = self.save_in_memory(nb);
+        self.flush(&id);
+    }
+
+    /// `save` without the disk write: the cheap, order-sensitive half, which
+    /// `scribe_save` keeps on the UI thread so saves apply in IPC order.
+    pub fn save_in_memory(&self, mut nb: Notebook) -> String {
         nb.ts = now_ms();
+        let id = nb.id.clone();
         {
             // One guard across working out the deletions and replacing the
             // book, so a merge or an agent write can't land in between and be
@@ -410,10 +423,22 @@ impl ScribeStore {
                     nb.deleted_pages.entry(k.clone()).or_insert(*v);
                 }
             }
-            books.insert(nb.id.clone(), nb.clone());
+            books.insert(id.clone(), nb);
         }
-        self.write(&nb);
         self.touch();
+        id
+    }
+
+    /// Write a notebook's current in-memory state. Under `io`, and reading the
+    /// newest state only then, so flushes that run late or out of order still
+    /// leave the latest version on disk. No `books` guard is held while it
+    /// serializes and fsyncs.
+    pub fn flush(&self, id: &str) {
+        let _io = self.io.lock();
+        let Some(nb) = self.books.read().get(id).cloned() else {
+            return;
+        };
+        self.write(&nb);
     }
 
     /// Fold a notebook read off disk into what's in memory.
@@ -464,8 +489,9 @@ impl ScribeStore {
         merged
             .pages
             .retain(|p| merged.deleted_pages.get(&p.id).is_none_or(|&d| d < p.ts));
-        // Keep a stable reading order rather than merge order.
-        merged.pages.sort_by_key(|p| p.ts);
+        // The local page order is the user's (pages new here were appended
+        // above). No sort by `ts`: it's the last *edit*, so that moved each
+        // edited page to the end and undid ↑/↓ moves on every sync.
         // Metadata follows whichever notebook was touched last.
         if incoming.ts > merged.ts {
             merged.name = incoming.name;
@@ -512,12 +538,13 @@ impl ScribeStore {
 
     /// Write the merged state back, so the other device converges on it too.
     pub fn rewrite(&self, id: &str) {
-        if let Some(nb) = self.books.read().get(id) {
-            self.write(nb);
-        }
+        // Not from under `books`: an fsync there stalls the UI thread's saves.
+        self.flush(id);
     }
 
     pub fn delete(&self, id: &str) {
+        // Under `io`, so a flush already under way can't write the file back.
+        let _io = self.io.lock();
         self.books.write().remove(id);
         if let Some(dir) = &self.dir {
             let _ = std::fs::remove_file(dir.join(format!("{id}.json")));
@@ -759,14 +786,24 @@ pub fn scribe_create(
 /// Debounced from the frontend at ~500 ms, so this runs constantly while you
 /// write. It only *marks* the source; the rebuild waits for the edits to stop
 /// (see `kbfresh`), and skips pages whose mtime hasn't moved.
+///
+/// A sync command runs on the UI thread, so only the in-memory merge happens
+/// here, which keeps saves in IPC order. Serializing the notebook (multi-MB:
+/// its ink is base64 PNGs) and the fsync run on the blocking pool.
 #[tauri::command]
 pub fn scribe_save(
+    app: tauri::AppHandle,
     store: State<'_, ScribeStore>,
     fresh: State<'_, Arc<crate::kbfresh::KbFreshness>>,
     notebook: Notebook,
 ) {
-    store.save(notebook);
+    let id = store.save_in_memory(notebook);
     fresh.touch("scribe");
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(store) = app.try_state::<ScribeStore>() {
+            store.flush(&id);
+        }
+    });
 }
 
 #[tauri::command]
@@ -785,7 +822,8 @@ pub fn scribe_delete(
 /// the ink + `body` text) under `<vault>/<course>/`, with the rendered PNG in
 /// `assets/`. One-way — the note is a searchable, KB-indexable mirror. Fails
 /// loud (never silently) when the vault path isn't set, per Flux's no-silent-
-/// failure rule. `png_b64` is the shell-rendered PNG (base64, no data: prefix).
+/// failure rule. `png_b64` is the shell-rendered PNG (base64, no data: prefix),
+/// or empty for a typed page with no drawing, which publishes its text alone.
 #[tauri::command]
 pub async fn scribe_publish_page(
     scribe: State<'_, ScribeStore>,
@@ -847,24 +885,31 @@ fn publish_page(
         .filter(|c| !c.is_empty())
         .unwrap_or("Flux Scribe");
     let dir = root.join(folder);
-    let assets = dir.join("assets");
-    std::fs::create_dir_all(&assets).map_err(|e| format!("{}: {e}", assets.display()))?;
-
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(png_b64.trim())
-        .map_err(|e| format!("bad image data: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
 
     let slug = crate::kb::sanitize_note_name(title);
     let page_no = page_index + 1;
-    // Disambiguate the PNG so re-publishing a page doesn't clobber a prior one.
-    let mut img_name = format!("{slug}-p{page_no}.png");
-    let mut n = 2;
-    while assets.join(&img_name).exists() {
-        img_name = format!("{slug}-p{page_no} {n}.png");
-        n += 1;
-    }
-    let img_path = assets.join(&img_name);
-    std::fs::write(&img_path, &bytes).map_err(|e| format!("{}: {e}", img_path.display()))?;
+    // No image = a typed page with no drawing: the note is its text alone. An
+    // empty payload used to decode fine and write a 0-byte PNG plus a broken embed.
+    let embed = if png_b64.trim().is_empty() {
+        String::new()
+    } else {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(png_b64.trim())
+            .map_err(|e| format!("bad image data: {e}"))?;
+        let assets = dir.join("assets");
+        std::fs::create_dir_all(&assets).map_err(|e| format!("{}: {e}", assets.display()))?;
+        // Disambiguate the PNG so re-publishing a page doesn't clobber a prior one.
+        let mut img_name = format!("{slug}-p{page_no}.png");
+        let mut n = 2;
+        while assets.join(&img_name).exists() {
+            img_name = format!("{slug}-p{page_no} {n}.png");
+            n += 1;
+        }
+        let img_path = assets.join(&img_name);
+        std::fs::write(&img_path, &bytes).map_err(|e| format!("{}: {e}", img_path.display()))?;
+        format!("![handwritten](assets/{img_name})\n\n")
+    };
 
     let mut md_path = dir.join(format!("{slug}.md"));
     let mut n = 2;
@@ -890,14 +935,14 @@ fn publish_page(
         format!("tags:\n{items}")
     };
     let md = format!(
-        "---\ntitle: {}\n{}{}source: flux-scribe\npage: {}\ndate: {}\n---\n\n# {}\n\n![handwritten](assets/{})\n\n{}\n",
+        "---\ntitle: {}\n{}{}source: flux-scribe\npage: {}\ndate: {}\n---\n\n# {}\n\n{}{}\n",
         yaml_quote(title.trim()),
         course_line,
         tags_line,
         page_no,
         today_ymd(),
         title.trim(),
-        img_name,
+        embed,
         body.trim(),
     );
     std::fs::write(&md_path, md).map_err(|e| format!("{}: {e}", md_path.display()))?;
@@ -951,8 +996,49 @@ mod tests {
         assert_eq!(
             ids,
             vec!["a", "mine", "theirs"],
-            "both survive, in time order"
+            "both survive, ours first"
         );
+    }
+
+    #[test]
+    fn merging_keeps_the_page_order() {
+        // `ts` is a page's last edit, so sorting by it sent every edited page
+        // to the end of the notebook on each sync.
+        let store = ScribeStore::default();
+        let order = |s: &ScribeStore| -> Vec<String> {
+            s.load("n1")
+                .unwrap()
+                .pages
+                .into_iter()
+                .map(|p| p.id)
+                .collect()
+        };
+        store.merge_notebook(nb(
+            "n1",
+            30,
+            vec![pg("intro", 10, "I"), pg("l1", 20, "L1"), pg("l2", 30, "L2")],
+        ));
+        // The other device fixes a typo on the first page.
+        store.merge_notebook(nb(
+            "n1",
+            40,
+            vec![
+                pg("intro", 40, "I fixed"),
+                pg("l1", 20, "L1"),
+                pg("l2", 30, "L2"),
+            ],
+        ));
+        assert_eq!(order(&store), ["intro", "l1", "l2"]);
+        assert!(store.load("n1").unwrap().pages[0]
+            .strokes
+            .contains("I fixed"));
+
+        // A ↑/↓ move leaves `ts` alone; our own write coming back keeps it.
+        let mut moved = store.load_for_editor("n1").unwrap();
+        moved.pages.swap(1, 2);
+        store.save(moved);
+        assert!(!store.merge_notebook(store.load("n1").unwrap()));
+        assert_eq!(order(&store), ["intro", "l2", "l1"]);
     }
 
     #[test]
@@ -1214,6 +1300,37 @@ mod tests {
     }
 
     #[test]
+    fn a_late_flush_writes_the_newest_save_and_never_a_deleted_notebook() {
+        // `scribe_save` merges on the UI thread and flushes on the blocking
+        // pool, so flushes can run late and out of order.
+        let dir = scratch("flush");
+        let store = ScribeStore::restore(dir.clone());
+        let mut nb = store.create("Calculus".into(), None);
+        let file = dir.join(format!("{}.json", nb.id));
+        let on_disk = || {
+            let raw = std::fs::read_to_string(&file).unwrap();
+            serde_json::from_str::<Notebook>(&raw).unwrap().pages[0]
+                .strokes
+                .clone()
+        };
+        nb.pages[0].strokes = "[1]".into();
+        let id = store.save_in_memory(nb.clone());
+        nb.pages[0].strokes = "[2]".into();
+        store.save_in_memory(nb);
+        assert_eq!(on_disk(), "[]", "the UI-thread half doesn't write");
+        // The first save's flush runs after the second's: still the newest.
+        store.flush(&id);
+        store.flush(&id);
+        assert_eq!(on_disk(), "[2]");
+
+        // A flush still queued when the notebook is deleted doesn't bring it back.
+        store.delete(&id);
+        store.flush(&id);
+        assert!(!file.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn delete_removes_from_memory_and_disk() {
         let dir = scratch("delete");
         let store = ScribeStore::restore(dir.clone());
@@ -1270,6 +1387,31 @@ mod tests {
         assert!(vault
             .join("MATH1013/assets/Integration by parts-p1.png")
             .exists());
+        let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn publish_without_a_drawing_writes_the_text_alone() {
+        // A typed page has no ink, so the shell sends no image: the note is just
+        // its text, with no 0-byte PNG and no embed pointing at one.
+        let vault = scratch("vault-text");
+        let vault_str = vault.to_string_lossy().into_owned();
+        let path = publish_page(
+            Some(&vault_str),
+            Some("MATH1013"),
+            2,
+            &PageNote {
+                title: "Limits".into(),
+                body: "Squeeze theorem.".into(),
+                tags: None,
+            },
+            "",
+        )
+        .expect("publish");
+        let md = std::fs::read_to_string(&path).unwrap();
+        assert!(md.contains("# Limits\n\nSqueeze theorem.\n"), "got: {md}");
+        assert!(!md.contains("![handwritten]"), "got: {md}");
+        assert!(!vault.join("MATH1013/assets").exists());
         let _ = std::fs::remove_dir_all(&vault);
     }
 
@@ -1451,10 +1593,15 @@ impl TranscriptStore {
         self.items.read().get(key).cloned()
     }
     fn put(&self, t: Transcript) {
-        self.items.write().insert(t.key.clone(), t);
+        let mut items = self.items.write();
+        items.insert(t.key.clone(), t);
         self.generation.fetch_add(1, Ordering::Relaxed);
         if let Some(p) = &self.path {
-            let all: Vec<Transcript> = self.items.read().values().cloned().collect();
+            // Save under the lock (downgraded, so readers aren't blocked): two
+            // transcriptions finishing together then commit in order, and the
+            // older snapshot can't be renamed over the newer one.
+            let items = parking_lot::RwLockWriteGuard::downgrade(items);
+            let all: Vec<&Transcript> = items.values().collect();
             crate::persist::save_json(p, &all);
         }
     }

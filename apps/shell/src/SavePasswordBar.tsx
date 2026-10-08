@@ -3,16 +3,26 @@
 // prompt. Docked ABOVE the content card as a sibling (like PermissionBar) — the
 // card + its native webview shrink to make room, so nothing fights the OS
 // webview layer. Reuses the .perm-* styles.
-import { Component, Show } from "solid-js";
+import { Component, Show, createEffect, createSignal, on } from "solid-js";
 import { onVaultSaved, vaultNeverSave, vaultSaveConfirm, vaultSaveDismiss } from "./ipc";
 import { savePrompt, setSavePrompt } from "./store";
 
 const SavePasswordBar: Component = () => {
   const p = () => savePrompt();
+  /** Why the last Save/Update failed; a new prompt starts clean. */
+  const [err, setErr] = createSignal<string | null>(null);
+  createEffect(on(savePrompt, () => setErr(null)));
   const close = () => setSavePrompt(null);
-  const save = () => {
-    void vaultSaveConfirm();
-    close();
+  const save = async () => {
+    try {
+      await vaultSaveConfirm();
+      close();
+    } catch (e) {
+      // e.g. "vault is locked" (auto-lock fired while the bar was up) or a failed
+      // write. Closing would read as saved; Rust kept the capture, so keep the
+      // bar and say why, and Save works again once the vault is unlocked.
+      setErr(String(e).replace(/^Error:\s*/, ""));
+    }
   };
   const notNow = () => {
     void vaultSaveDismiss();
@@ -51,8 +61,9 @@ const SavePasswordBar: Component = () => {
               {prompt().update ? "Update the saved password for " : "Save your password for "}
               <b>{prompt().host}</b>
               <Show when={prompt().username}> · {prompt().username}</Show>?
+              <Show when={err()}> Not saved: {err()}.</Show>
             </span>
-            <button class="perm-btn allow" onClick={save}>
+            <button class="perm-btn allow" onClick={() => void save()}>
               {prompt().update ? "Update" : "Save"}
             </button>
             <button class="perm-btn deny" onClick={notNow}>

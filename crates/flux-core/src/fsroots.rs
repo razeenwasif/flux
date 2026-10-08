@@ -70,9 +70,23 @@ impl RootsStore {
     fn hydrate(&self) {
         self.initialized.call_once(|| {
             let Some(p) = &self.path else { return };
-            if let Ok(s) = std::fs::read_to_string(p) {
-                if let Ok(v) = serde_json::from_str::<AgentRoots>(&s) {
-                    *self.state.lock() = v;
+            match std::fs::read_to_string(p).map(|s| serde_json::from_str::<AgentRoots>(&s)) {
+                Ok(Ok(v)) => *self.state.lock() = v,
+                // Never configured: the documented default (off).
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                // The user configured *some* allowance we can't read. Fail closed
+                // (gate on, nothing allowed, and `check` says how to fix it)
+                // rather than open the whole disk.
+                _ => {
+                    tracing::error!(
+                        target: "flux::fsroots",
+                        path = %p.display(),
+                        "agent file access settings are unreadable; access is blocked until they're saved again"
+                    );
+                    *self.state.lock() = AgentRoots {
+                        enabled: true,
+                        roots: Vec::new(),
+                    };
                 }
             }
         });
@@ -104,7 +118,29 @@ impl RootsStore {
                     .into(),
             );
         }
-        if cfg.roots.iter().any(|r| contains(r, path)) {
+        // On Windows a `/…` or `~…` path is read *inside WSL* (`files::read_bytes_any`),
+        // where `~` is the Linux home and links are Linux links, but `resolve` would
+        // judge a Windows path (`~` → %USERPROFILE%, `/home` → `C:\home`): a
+        // different file from the one read. So resolve it where it will be read,
+        // against roots written the same (WSL) way, and keep WSL roots from
+        // admitting the Windows path that shares their spelling.
+        #[cfg(windows)]
+        let inside = if crate::files::is_wsl_path(path) {
+            let target = PathBuf::from(crate::files::wsl_realpath(path)?);
+            cfg.roots
+                .iter()
+                .filter(|r| crate::files::is_wsl_path(r))
+                .filter_map(|r| crate::files::wsl_realpath(r).ok())
+                .any(|r| target.starts_with(r))
+        } else {
+            cfg.roots
+                .iter()
+                .filter(|r| !crate::files::is_wsl_path(r))
+                .any(|r| contains(r, path))
+        };
+        #[cfg(not(windows))]
+        let inside = cfg.roots.iter().any(|r| contains(r, path));
+        if inside {
             return Ok(());
         }
         Err(format!(
@@ -115,19 +151,53 @@ impl RootsStore {
     }
 }
 
-/// Resolve a path as far as the OS allows, then normalise what's left.
+/// Resolve a path the way the OS will when it's opened, then normalise what's left.
+///
+/// `canonicalize` follows the kernel's rules: components left to right, and a
+/// symlink is followed *before* a `..` after it applies. So the path is
+/// canonicalized as written. Folding `..` textually first turned `root/link/../x`
+/// into `root/x`, a different file from the `<link target>/../x` the reader then
+/// opened. A path that doesn't exist yet canonicalizes its longest existing
+/// prefix, still as written; only the missing tail is folded textually, and the
+/// result is resolved again, because folding can land back on existing components
+/// (`missing/../link/x`) whose links the first pass never reached.
+fn resolve(p: &str) -> PathBuf {
+    let raw = PathBuf::from(expand_home(p));
+    let mut existing = raw.as_path();
+    let mut tail = Vec::new();
+    loop {
+        if let Ok(c) = std::fs::canonicalize(existing) {
+            let mut out = strip_verbatim(c);
+            if tail.is_empty() {
+                return out;
+            }
+            for part in tail.iter().rev() {
+                out.push(part);
+            }
+            return resolve_folded(&lexical(&out));
+        }
+        match (existing.parent(), existing.components().next_back()) {
+            (Some(parent), Some(last)) if !parent.as_os_str().is_empty() => {
+                tail.push(last.as_os_str());
+                existing = parent;
+            }
+            _ => return resolve_folded(&lexical(&raw)),
+        }
+    }
+}
+
+/// Resolve a path with no `..` left in it as far as the OS allows, then normalise
+/// what's left.
 ///
 /// `canonicalize` is preferred because it resolves symlinks/junctions, but it fails on a
 /// path that doesn't exist yet. By walking up to the nearest existing ancestor directory
 /// and canonicalizing that, symlinks/junctions in the path prefix are properly resolved
 /// instead of falling back to raw lexical normalization that could escape allowed roots.
-fn resolve(p: &str) -> PathBuf {
-    let expanded = expand_home(p);
-    let path = lexical(Path::new(&expanded));
-    if let Ok(c) = std::fs::canonicalize(&path) {
+fn resolve_folded(path: &Path) -> PathBuf {
+    if let Ok(c) = std::fs::canonicalize(path) {
         return strip_verbatim(c);
     }
-    let mut ancestor = path.as_path();
+    let mut ancestor = path;
     let mut trailing = Vec::new();
     while let Some(parent) = ancestor.parent() {
         if let Some(file_name) = ancestor.file_name() {
@@ -145,7 +215,7 @@ fn resolve(p: &str) -> PathBuf {
         }
         ancestor = parent;
     }
-    path
+    path.to_path_buf()
 }
 
 /// `~/x` → `$HOME/x`. The agent and the user both write `~`.
@@ -288,6 +358,18 @@ pub async fn agent_write_text_file(
     content: String,
 ) -> Result<(), String> {
     store.check(&path)?;
+    // A WSL-bridge path (`/home/…`, `~/…`) on Windows is read *inside WSL*, which
+    // Windows-side `resolve` can't see: it rewrote `/home/me/x` to `C:\home\me\x`
+    // (the write failed) and `~/x` to the *Windows* home (the write landed on a
+    // different file from the one the edit was drafted from). Write it the way
+    // it was read.
+    #[cfg(windows)]
+    let target = if crate::files::is_wsl_path(&path) {
+        path
+    } else {
+        resolve(&path).to_string_lossy().into_owned()
+    };
+    #[cfg(not(windows))]
     let target = resolve(&path).to_string_lossy().into_owned();
     crate::files::ensure_fully_readable(target.clone()).await?;
     crate::files::write_text_file(target, content).await
@@ -301,7 +383,10 @@ pub async fn agent_pdf_fetch(
     url: String,
 ) -> Result<tauri::ipc::Response, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
-        store.check(&url)?;
+        // Judge the path `pdf_fetch` will actually open (`file://` stripped, `%20`
+        // decoded), not the URL text: `<root>/my%20link/../x.pdf` otherwise passes
+        // as a missing `my%20link`, and the reader opens `<root>/my link/../x.pdf`.
+        store.check(&crate::pdf::file_url_to_path(&url))?;
     }
     crate::pdf::pdf_fetch(url).await
 }
@@ -414,6 +499,22 @@ mod tests {
             "a nonexistent file through an escaping link must not escape allowed roots"
         );
 
+        // The kernel applies a `..` after a link to the link's *target*:
+        // `escape/../sibling.txt` opens `<base>/sibling.txt`, outside the root.
+        std::fs::write(base.join("sibling.txt"), "outside").unwrap();
+        let through = format!("{}/../sibling.txt", link.to_string_lossy());
+        assert!(
+            !contains(&root, &through),
+            "link/.. must be judged where the kernel resolves it, not textually"
+        );
+        // …and a `..` folded over a missing component must not skip the link
+        // reached after it.
+        let folded = format!("{root}/missing/../escape/new.txt");
+        assert!(
+            !contains(&root, &folded),
+            "a link reached after a folded `..` is still resolved"
+        );
+
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -451,6 +552,34 @@ mod tests {
         for h in handles {
             h.join().unwrap();
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_allowance_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("flux_roots_corrupt_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent-roots.json");
+        // Never configured: off, as documented.
+        assert!(RootsStore::empty(path.clone()).check("/anywhere").is_ok());
+
+        // A hand-added Windows root with single backslashes is invalid JSON. The
+        // user turned the gate on; it must not silently come back off.
+        std::fs::write(&path, r#"{"enabled": true, "roots": ["C:\Projects"]}"#).unwrap();
+        let s = RootsStore::empty(path.clone());
+        let err = s.check("/anywhere").unwrap_err();
+        assert!(err.contains("Settings"), "{err}");
+
+        // Saving from Settings replaces the unreadable file.
+        s.set(AgentRoots {
+            enabled: true,
+            roots: vec!["/home/me".into()],
+        });
+        assert_eq!(
+            RootsStore::empty(path).get().roots,
+            vec!["/home/me".to_string()]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

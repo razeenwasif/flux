@@ -12,6 +12,15 @@
     var t = (el.tagName || "").toLowerCase();
     return t === "input" || t === "textarea" || t === "select" || el.isContentEditable;
   }
+  // Focus inside a shadow root reports the *host* as document.activeElement, so
+  // follow open shadow roots (and the event's composed origin) to the element
+  // that actually has focus.
+  function focusedEditable(e) {
+    var el = document.activeElement;
+    while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+    var origin = e.composedPath ? e.composedPath()[0] : e.target;
+    return editable(el) || editable(origin);
+  }
   var CHARS = "asdfghjklqwertyuiopzxcvbnm";
   var hintLayer = null, hints = [], typed = "";
 
@@ -68,7 +77,7 @@
       else if (!matches.length) clearHints();
       return;
     }
-    if (editable(document.activeElement)) return;
+    if (focusedEditable(e)) return;
     var k = e.key;
     if (k === "f") { e.preventDefault(); showHints(); }
     else if (k === "j") { scrollBy(0, 64); }

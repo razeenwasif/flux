@@ -174,8 +174,18 @@ fn drives() -> Vec<Place> {
 
 /// The named places, for the agent panel's prompt and path resolution.
 #[tauri::command]
-pub fn agent_places(app: tauri::AppHandle, kb: tauri::State<'_, crate::kb::KbStore>) -> Vec<Place> {
-    places(&app, kb.source_location("onyx").as_deref())
+pub async fn agent_places(
+    app: tauri::AppHandle,
+    kb: tauri::State<'_, crate::kb::KbStore>,
+) -> Result<Vec<Place>, String> {
+    // `source_location` hydrates the whole KB on first touch (or waits on the
+    // boot thread's hydrate), and the panel asks at startup: off the UI thread.
+    let kb = (*kb).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        places(&app, kb.source_location("onyx").as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// The places block as the model reads it — shared by the note planner and the

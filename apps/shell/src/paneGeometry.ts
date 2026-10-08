@@ -84,12 +84,15 @@ export function startPaneResize(ctl: Ctl, e: PointerEvent, dir: ResizeDir): void
     let { w, h } = s0;
     if (dir.includes("e")) w = Math.max(MIN_W, s0.w + dx);
     if (dir.includes("s")) h = Math.max(MIN_H, s0.h + dy);
+    // North/west move the origin, so growth stops at the window's top/left edge:
+    // with the pointer dragged off-window the origin went negative and took the
+    // title bar (the only move handle, and the ✕) out of reach.
     if (dir.includes("w")) {
-      w = Math.max(MIN_W, s0.w - dx);
+      w = Math.max(MIN_W, Math.min(s0.w - dx, p0.x + s0.w));
       x = p0.x + (s0.w - w); // anchor the right edge
     }
     if (dir.includes("n")) {
-      h = Math.max(MIN_H, s0.h - dy);
+      h = Math.max(MIN_H, Math.min(s0.h - dy, p0.y + s0.h));
       y = p0.y + (s0.h - h); // anchor the bottom edge
     }
     ctl.setPos({ x, y });

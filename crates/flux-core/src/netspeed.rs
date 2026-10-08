@@ -70,7 +70,22 @@ fn build_agent() -> ureq::Agent {
         .build()
 }
 
+/// One untimed tiny request, so the timed requests after it reuse an established
+/// keep-alive connection instead of paying DNS + TCP + TLS (about two extra RTTs).
+/// ureq re-pools a zero-length body as soon as it is read.
+fn warm_up(agent: &ureq::Agent) -> Result<(), String> {
+    let resp = agent
+        .get(&format!("{DOWN_URL}?bytes=0"))
+        .call()
+        .map_err(|e| e.to_string())?;
+    let _ = resp.into_reader().read_to_end(&mut Vec::new());
+    Ok(())
+}
+
 fn measure_ping(agent: &ureq::Agent) -> Result<(f64, f64), String> {
+    // Timed, the first request on a fresh agent paid the handshakes too: its gap
+    // to the next sample (~2×RTT, one of only five) inflated every run's jitter.
+    warm_up(agent)?;
     let mut samples = Vec::with_capacity(PING_SAMPLES);
     for _ in 0..PING_SAMPLES {
         let t = Instant::now();
@@ -115,6 +130,9 @@ fn measure_download(agent: &ureq::Agent, progress: &impl Fn(&str, f64)) -> Resul
 fn measure_upload(agent: &ureq::Agent) -> Result<f64, String> {
     // Incompressible-ish payload so the link, not gzip, is measured.
     let payload = vec![0x5Au8; UP_BYTES];
+    // A download cut at its time cap took the pooled connection with it (ureq
+    // only re-pools after a full body read): reconnect before the clock starts.
+    let _ = warm_up(agent);
     let start = Instant::now();
     let resp = agent
         .post(UP_URL)

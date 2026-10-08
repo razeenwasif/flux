@@ -97,11 +97,14 @@ import {
   calEventUpdate,
   calEventDelete,
   onAgentStatus,
+  onAgentReport,
   type AgentAction,
   type NextStep,
   type AgentStatus,
 } from "./ipc";
 import { looksLikeNoteWrite } from "./noteintent";
+import { isCaptureRequest, isOnyxSave, savesLastAnswer } from "./onyxintent";
+import { DAY_MONTH, MONTH_DAY, looksLikeCalendarQuery } from "./calendarintent";
 import { looksAgentic } from "./agentintent";
 import { joinPath, resolveAgentPath } from "./agentpaths";
 import { parseSummarise, summariseRequest } from "./agentsteps";
@@ -193,25 +196,44 @@ const AgentPanel: Component = () => {
   let seq = 0;
   const titleOf = (f: FeedItem[]) =>
     (f.find((it) => it.role === "user")?.text || "New chat").trim().slice(0, 44);
+  /** What survives a reload. `pending` is cleared so a reopened chat is
+   *  read-only history, which also makes the payloads only a live card uses
+   *  dead weight: an image data URL or a whole rewritten file can exceed
+   *  localStorage's ~5 MB origin quota on its own, after which every save threw. */
+  const slim = (it: FeedItem): FeedItem => ({
+    ...it,
+    pending: false,
+    image: undefined,
+    editNew: undefined,
+    editBase: undefined,
+  });
   const persistChats = (next: ChatSession[]) => {
     setChats(next);
-    try {
-      localStorage.setItem(CHATS_KEY, JSON.stringify(next.slice(0, 50)));
-    } catch {
-      /* quota */
+    // Every session, not just the current one: chats loaded from an earlier
+    // oversized save still carry their payloads.
+    let keep = next.slice(0, 50).map((s) => ({ ...s, feed: s.feed.map(slim) }));
+    // On quota, shed the oldest chats instead of silently saving nothing.
+    for (;;) {
+      try {
+        localStorage.setItem(CHATS_KEY, JSON.stringify(keep));
+        return;
+      } catch (e) {
+        if (keep.length <= 1) {
+          console.warn("[flux] couldn't save chats", e);
+          return;
+        }
+        keep = keep.slice(0, Math.ceil(keep.length / 2));
+      }
     }
   };
   const persistCurrent = (f: FeedItem[]) => {
     if (!f.length) return;
     if (!currentId) currentId = `c${Date.now()}_${seq++}`;
-    // Strip live "pending" state so reopened chats are read-only history.
     const session: ChatSession = {
       id: currentId,
       title: titleOf(f),
       ts: Date.now(),
-      // `editBase` only matters while a card can still be applied; keeping it
-      // would double every edit card's share of the localStorage quota.
-      feed: f.map((it) => ({ ...it, pending: false, editBase: undefined })),
+      feed: f.map(slim),
     };
     persistChats([session, ...chats().filter((s) => s.id !== currentId)].slice(0, 50));
   };
@@ -221,13 +243,19 @@ const AgentPanel: Component = () => {
     setFeed([]);
     setChatsMenu(false);
   };
+  // Streams, OCR progress and task steps write into the feed BY INDEX; swapping
+  // the feed under them splices their text into another saved chat. `listening`
+  // covers voice commands, which read PDFs (OCR progress) without setting busy.
+  const feedLocked = () => busy() || listening() || taskRunning();
   const loadSession = (s: ChatSession) => {
+    if (feedLocked()) return;
     currentId = s.id;
     setFeed(s.feed.map((it) => ({ ...it })));
     setChatsMenu(false);
   };
   const deleteSession = (id: string, e: MouseEvent) => {
     e.stopPropagation();
+    if (id === currentId && feedLocked()) return;
     persistChats(chats().filter((s) => s.id !== id));
     if (currentId === id) {
       currentId = "";
@@ -310,9 +338,14 @@ const AgentPanel: Component = () => {
   // Cancel (false) before moving to the next step. The existing approve/cancel
   // handlers resolve it.
   let chainGate: ((r: { ok: boolean; result: string }) => void) | null = null;
-  const resolveChainGate = (ok: boolean, result: string) => {
+  /** Feed index of the card the chain waits on. Only THAT card may release it:
+   *  an older card still offering Run/Apply must not steer the loop. */
+  let chainGateIdx = -1;
+  const resolveChainGate = (idx: number, ok: boolean, result: string) => {
+    if (idx !== chainGateIdx) return;
     const g = chainGate;
     chainGate = null;
+    chainGateIdx = -1;
     g?.({ ok, result });
   };
   // Model picker (#81): the dropdown of locally-pulled Ollama models.
@@ -369,7 +402,11 @@ const AgentPanel: Component = () => {
   const [cloudModel, setCloudModelRaw] = createSignal(localStorage.getItem(CLOUD_MODEL_KEY) ?? "");
   const setCloudModel = (m: string) => {
     setCloudModelRaw(m);
-    localStorage.setItem(CLOUD_MODEL_KEY, m);
+    try {
+      localStorage.setItem(CLOUD_MODEL_KEY, m);
+    } catch {
+      /* quota: the choice still holds for this session */
+    }
   };
 
   onMount(() => {
@@ -440,6 +477,42 @@ const AgentPanel: Component = () => {
   onMount(async () => {
     const unlisten = await onAgentStatus(setStatus);
     onCleanup(unlisten);
+  });
+
+  // What the page reported for a compiled action (flux-agent compile.rs).
+  // agent_run_action returns once the script is injected, so this is the only
+  // place a blocked or not-found click, or an extract payload, arrives. Any page
+  // can call the bridge: accept one report, only from the tab an action just
+  // ran on, and only known kinds (never page-supplied text) reach the planner.
+  const OK_OUTCOMES = new Set(["clicked", "typed", "extract"]);
+  const FAIL_OUTCOMES = new Set(["not_found", "bad_selector", "blocked_destructive", "refused"]);
+  const awaitingReport = new Map<number, number>(); // tab → accept until (ms)
+  const agentOutcome = new Map<number, string>();
+  const expectReport = (tabId: number | undefined, action: AgentAction) => {
+    if (tabId == null) return;
+    agentOutcome.delete(tabId);
+    // A reveal that works reports nothing.
+    if (action.action !== "reveal") awaitingReport.set(tabId, Date.now() + 5000);
+  };
+  onMount(() => {
+    let unlisten: (() => void) | undefined;
+    void onAgentReport((tabId, kind, detail, format, payload) => {
+      if (!OK_OUTCOMES.has(kind) && !FAIL_OUTCOMES.has(kind)) return;
+      const until = awaitingReport.get(tabId);
+      awaitingReport.delete(tabId);
+      if (until == null || Date.now() > until) return;
+      agentOutcome.set(tabId, kind);
+      if (kind === "extract") {
+        const shown = payload.length > 20_000 ? `${payload.slice(0, 20_000)}\n…` : payload;
+        setFeed((f) => [...f, { role: "action", text: `Extracted table (${format}):\n${shown}` }]);
+      } else if (FAIL_OUTCOMES.has(kind)) {
+        const why = kind.replace(/_/g, " ");
+        setFeed((f) => [...f, { role: "error", text: `✕ Not done (${why}): ${detail.slice(0, 200)}` }]);
+      }
+    }).then((u) => {
+      unlisten = u;
+    });
+    onCleanup(() => unlisten?.());
   });
 
   // Auto-scroll the feed to the latest message.
@@ -619,16 +692,26 @@ const AgentPanel: Component = () => {
   let audioCtx: AudioContext | null = null;
   let recNode: ScriptProcessorNode | null = null;
   let pcmChunks: Float32Array[] = [];
+  /** Bumped on press and on release: a press whose getUserMedia resolves after
+   *  the release (permission sheet, quick tap) is stale and must not record. */
+  let pttToken = 0;
   const startRec = async () => {
     if (recording() || working() || taskRunning()) return;
+    const tok = ++pttToken;
+    let stream: MediaStream;
     try {
-      micStream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: false }));
+      stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: false }));
     } catch {
       setFeed((f) => [...f, { role: "error", text: "Microphone access was denied." }]);
       return;
     }
+    if (tok !== pttToken) {
+      stream.getTracks().forEach((t) => t.stop()); // released before the mic opened
+      return;
+    }
+    micStream = stream;
     audioCtx = new AudioContext();
-    const src = audioCtx.createMediaStreamSource(micStream);
+    const src = audioCtx.createMediaStreamSource(stream);
     recNode = audioCtx.createScriptProcessor(4096, 1, 1);
     pcmChunks = [];
     recNode.onaudioprocess = (e) => pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
@@ -643,6 +726,7 @@ const AgentPanel: Component = () => {
     return btoa(s);
   };
   const stopRec = async () => {
+    pttToken++; // cancels a press still waiting on getUserMedia
     if (!recording()) return;
     setRecording(false);
     const rate = audioCtx?.sampleRate ?? 48000;
@@ -890,6 +974,9 @@ const AgentPanel: Component = () => {
       }
       if (block) {
         setFeed((f) => [...f, { role: "error", text: block! }]);
+        // A /fix or chain step may be parked on this card's gate. Without this it
+        // never resolves: taskRunning() stays true and the panel is locked.
+        resolveChainGate(idx, true, `BLOCKED, nothing ran: ${block} Use a non-destructive command.`);
         return;
       }
       // Baseline = the prompt's cursor row BEFORE running, so we read exactly this
@@ -901,6 +988,7 @@ const AgentPanel: Component = () => {
         // still executes and returns something.
         const out = await runShell(cmd);
         setFeed((f) => [...f, { role: "assistant", text: out }]);
+        resolveChainGate(idx, true, out || "(ran headless, no output)");
         return;
       }
       const out = (await readBackTerminal(baseline)).trim();
@@ -913,10 +1001,10 @@ const AgentPanel: Component = () => {
             : "(ran in your terminal — no output captured; check the terminal)",
         },
       ]);
-      resolveChainGate(true, out || "(ran, no output captured)");
+      resolveChainGate(idx, true, out || "(ran, no output captured)");
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
-      resolveChainGate(false, String(e));
+      resolveChainGate(idx, false, String(e));
     } finally {
       setBusy(false);
     }
@@ -925,7 +1013,7 @@ const AgentPanel: Component = () => {
     setFeed((f) =>
       f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)),
     );
-    resolveChainGate(false, "the user cancelled the command");
+    resolveChainGate(idx, false, "the user cancelled the command");
   };
 
   // Natural-language → command. When a message reads like a request about the
@@ -1291,7 +1379,13 @@ const AgentPanel: Component = () => {
   const lastCtxFile = () =>
     [...ctxFiles()]
       .reverse()
-      .find((f) => !["terminal", "css-vars", "app-state"].includes(f.path) && !f.path.startsWith("inspect:"));
+      // "editor"/"selection" are pseudo-paths too (a buffer or a snippet, not a
+      // file on disk): an edit planned against them can never be written.
+      .find(
+        (f) =>
+          !["terminal", "css-vars", "app-state", "editor", "selection"].includes(f.path) &&
+          !f.path.startsWith("inspect:"),
+      );
 
   // "edit <file>: <instruction>" / "change it to …" → propose search/replace edits,
   // show a diff, and write only on approval (apply happens client-side).
@@ -1403,17 +1497,17 @@ const AgentPanel: Component = () => {
       await agentWriteTextFile(path, content);
       setCtxFiles((c) => c.map((f) => (f.path === path ? { ...f, content } : f)));
       setFeed((f) => [...f, { role: "action", text: `✓ Wrote ${path.split(/[/\\]/).pop()}.` }]);
-      resolveChainGate(true, `applied the edit to ${path.split(/[/\\]/).pop()}`);
+      resolveChainGate(idx, true, `applied the edit to ${path.split(/[/\\]/).pop()}`);
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
-      resolveChainGate(false, String(e));
+      resolveChainGate(idx, false, String(e));
     }
   };
   const cancelEdit = (idx: number) => {
     setFeed((f) =>
       f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)),
     );
-    resolveChainGate(false, "the user cancelled the edit");
+    resolveChainGate(idx, false, "the user cancelled the edit");
   };
 
   // "read the terminal" → pull the active terminal's scrollback into context.
@@ -1756,10 +1850,12 @@ const AgentPanel: Component = () => {
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
     const cp = convoPrompt(t); // memory
+    const gen = ++replyGen; // ■ Stop bumps replyGen; the voice path must honour it too
     const idx = feed().length;
     setFeed((f) => [...f, { role: "assistant", text: "" }]);
     let acc = "";
     const append = (c: string) => {
+      if (gen !== replyGen) return; // stopped: drop late tokens
       acc += c;
       setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it)));
     };
@@ -1767,13 +1863,15 @@ const AgentPanel: Component = () => {
     try {
       await agentChatStream(cp, append);
       // Retry once with the bare question if the model returned nothing (see send()).
-      if (!acc.trim()) await agentChatStream(t, append);
+      if (gen === replyGen && !acc.trim()) await agentChatStream(t, append);
     } catch (e) {
       acc = String(e);
       setFeed((f) => f.map((it, i) => (i === idx ? { ...it, role: "error", text: acc } : it)));
     } finally {
       setBusy(false);
     }
+    // Stopped mid-reply: return nothing, so handleUtterance doesn't speak it.
+    if (gen !== replyGen) return "";
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)));
     return acc.trim();
   };
@@ -1840,8 +1938,7 @@ const AgentPanel: Component = () => {
    * Rust reads the already-captured DOM text.
    */
   const tryCapturePage = async (text: string): Promise<boolean> => {
-    if (!/\b(capture|transcript|lecture)\b/i.test(text)) return false;
-    if (!/\b(capture|save|file|add)\b/i.test(text)) return false;
+    if (!isCaptureRequest(text)) return false;
     const folderInText = text.match(/\bonyx\/\s*([^#\n:]+?)(?=\s+as\s|\s*[#:]|\s*$)/i)?.[1]?.trim();
     const folder = folderInText || localStorage.getItem(folderKey()) || undefined;
     const tags = (text.match(/#[\w-]+/g) ?? []).join(" ");
@@ -1872,11 +1969,12 @@ const AgentPanel: Component = () => {
     return true;
   };
 
-  // "save (this answer | <text>) to onyx[/<folder>] [#tags] [as <title>]" → write
-  // a note to the vault (#118). The folder is spelled as a path (`onyx/Optimization`)
-  // rather than "in <x>" — "in" is far too common in prose to parse safely.
+  // "save (that | this answer) to onyx[/<folder>] [#tags] [as <title>]" or "save to
+  // onyx[/<folder>]: <text>" → write a note to the vault (#118). The folder is spelled
+  // as a path (`onyx/Optimization`) rather than "in <x>" — "in" is far too common in
+  // prose to parse safely.
   const trySaveToOnyx = async (text: string): Promise<boolean> => {
-    if (!/\bonyx\b/i.test(text) || !/\b(save|note|remember|add|write)\b/i.test(text)) return false;
+    if (!isOnyxSave(text)) return false;
     // `onyx/<folder>` up to a #tag, an "as <title>", a colon, or end of line.
     const folderInText = text.match(/\bonyx\/\s*([^#\n:]+?)(?=\s+as\s|\s*[#:]|\s*$)/i)?.[1]?.trim();
     const folder = folderInText || localStorage.getItem(folderKey()) || undefined;
@@ -1886,7 +1984,7 @@ const AgentPanel: Component = () => {
     text = text.replace(/#[\w-]+/g, " ").replace(/\bonyx\/\s*[^#\n:]+/i, "onyx");
     const asTitle = text.match(/\bas\s+"?([^"\n]+?)"?\s*$/i)?.[1]?.trim();
     let content = "";
-    if (/\b(that|this answer|the answer|your answer|last answer)\b/i.test(text)) {
+    if (savesLastAnswer(text)) {
       content = [...feed()].reverse().find((it) => it.role === "assistant")?.text ?? "";
       if (!content.trim()) {
         setFeed((f) => [
@@ -1899,9 +1997,9 @@ const AgentPanel: Component = () => {
         return true;
       }
     } else {
-      // Everything after "… to onyx" (minus a trailing "as <title>") is the note body.
+      // Everything after "… to/in onyx" (minus a trailing "as <title>") is the note body.
       content = text
-        .replace(/^.*?\bto\s+onyx\b/i, "")
+        .replace(/^.*?\b(?:to|in|into)\s+onyx\b/i, "")
         .replace(/\bas\s+"?[^"\n]+"?\s*$/i, "")
         .replace(/^[\s:–-]+/, "")
         .trim();
@@ -1969,8 +2067,11 @@ const AgentPanel: Component = () => {
   };
 
   /** Parse a date/time/duration out of a scheduling phrase. Returns the matched
-   *  date/start/end plus the remaining text (the event title). */
-  const parseEventSpec = (input: string): { date: string; start: string; end: string; title: string } => {
+   *  date/start/end plus the remaining text (the event title); `dated` says
+   *  whether the phrase named a day, before the today/tomorrow default. */
+  const parseEventSpec = (
+    input: string,
+  ): { date: string; start: string; end: string; title: string; dated: boolean } => {
     let rest = input;
     const now = new Date();
     let date: Date | null = null;
@@ -2006,11 +2107,7 @@ const AgentPanel: Component = () => {
       } else if (cut(/\bnext\s+week\b/i)) {
         date = new Date(now.getTime() + 7 * 864e5);
       } else {
-        const mo =
-          cut(
-            new RegExp(`\\b(?:on\\s+)?(${MONTHS_L.join("|")})\\w*\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, "i"),
-          ) ||
-          cut(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTHS_L.join("|")})\\w*\\b`, "i"));
+        const mo = cut(MONTH_DAY) || cut(DAY_MONTH);
         if (mo) {
           const firstIsMonth = MONTHS_L.includes(mo[1]!.slice(0, 3).toLowerCase());
           const monIdx = MONTHS_L.indexOf((firstIsMonth ? mo[1]! : mo[2]!).slice(0, 3).toLowerCase());
@@ -2038,6 +2135,7 @@ const AgentPanel: Component = () => {
       }
     }
 
+    const dated = date !== null;
     if (!date) {
       // No explicit date: if a time was given and it's already past today, use tomorrow.
       date = new Date(now);
@@ -2061,7 +2159,7 @@ const AgentPanel: Component = () => {
       .replace(/\b(?:on|in|to)\s+(?:my\s+)?calendar\b/gi, "")
       .replace(/\s{2,}/g, " ")
       .trim();
-    return { date: isoOf(date), start, end, title };
+    return { date: isoOf(date), start, end, title, dated };
   };
 
   const calRange = (text: string): { lo: string; hi: string; label: string } => {
@@ -2086,9 +2184,7 @@ const AgentPanel: Component = () => {
 
   /** Read the calendar — "what's on my calendar today / this week / friday". */
   const tryCalendarQuery = async (text: string): Promise<boolean> => {
-    if (!/\b(calendar|schedule|agenda|events?|meetings?|appointments?|free|busy)\b/i.test(text)) return false;
-    if (!/\b(what|whats|what'?s|show|list|any|anything|do i have|free|busy|when|view|my)\b/i.test(text))
-      return false;
+    if (!looksLikeCalendarQuery(text)) return false;
     const { lo, hi, label } = calRange(text);
     setFeed((f) => [...f, { role: "task", text: "📅 Checking your calendar…" }]);
     let evs;
@@ -2132,11 +2228,9 @@ const AgentPanel: Component = () => {
     );
     if (!m?.[1]) return false;
     const spec = parseEventSpec(m[1]);
-    // Only treat as a calendar add if we found a date/time or the user said "calendar/event".
-    if (
-      !spec.start &&
-      !/\b(calendar|event|meeting|appointment|all[\s-]?day|today|tomorrow|next|on)\b/i.test(text)
-    )
+    // Only a parsed time, a parsed day, or an explicit calendar word. Bare "on" /
+    // "next" let "add error handling on the parser" through as an all-day event.
+    if (!spec.start && !spec.dated && !/\b(?:calendar|event|meeting|appointment|all[\s-]?day)\b/i.test(text))
       return false;
     if (!spec.title) {
       setFeed((f) => [...f, { role: "error", text: "What should I call the event?" }]);
@@ -2375,6 +2469,9 @@ const AgentPanel: Component = () => {
         p.match(/^\/lens(?:\s+([\s\S]+))?$/i) ||
         p.match(/^(?:what(?:'?s| is) this|identify (?:this|it)|what am i looking at)\b[\s\S]*/i);
       if (lens) {
+        // runLens() bails on working(), which includes the busy flag set above;
+        // hand the flag over or the Lens never runs.
+        setBusy(false);
         await runLens(lens[1]?.trim() || (/^\/lens/i.test(p) ? "" : p));
         return;
       }
@@ -2497,14 +2594,26 @@ const AgentPanel: Component = () => {
       // Write access to the user's corpora (#118): clip to Scroll / save to Onyx.
       if (await tryClipToScroll(p)) return;
       // Before the generic Onyx save: "save this lecture to onyx" is a page
-      // capture, not a note dictated in the prompt.
-      if (await tryCapturePage(p)) return;
-      if (await trySaveToOnyx(p)) return;
+      // capture, not a note dictated in the prompt. `pc`: both gates are
+      // ^-anchored. The save stays reachable after the note planner declines:
+      // it never sees the last answer, so "save that to Onyx" has no other path.
+      if (await tryCapturePage(pc)) return;
+      if (await trySaveToOnyx(pc)) return;
       // Natural request about the machine/files → propose a shell command (approval).
       if ((await maybeShellPlan(p)) !== null) return;
       // "/act <…>" (or /do) drives a page action; everything else is chat,
       // grounded in the active page or all open tabs per the scope toggle.
       const act = p.match(/^\/(?:act|do)\s+([\s\S]+)/i);
+      // Re-resolve the page's thread now: pageThread is refreshed only when the
+      // active TAB changes, so after an in-tab navigation it still names the
+      // previous page's visit. A page with no Visit falls back to page chat.
+      let thread: TabThread | null = null;
+      if (!act?.[1] && scope() === "thread") {
+        const tid = activeId();
+        thread = tid != null ? await traceTabThread(tid).catch(() => null) : null;
+        setPageThread(thread);
+        if (!thread) setScope("page");
+      }
       if (act?.[1]) {
         // Plan first, then PREVIEW — nothing touches the page until you approve (#8).
         const targetTabId = activeId();
@@ -2525,11 +2634,11 @@ const AgentPanel: Component = () => {
             },
           ]);
         }
-      } else if (scope() === "thread" && pageThread()) {
+      } else if (thread) {
         // The page's PERSISTENT thread (ADR 0011): route through trace_chat_send
         // so both sides land in the visit's thread — the same conversation the
         // Trail shows, continued from here.
-        const vid = pageThread()!.visit_id;
+        const vid = thread.visit_id;
         const gen = ++replyGen;
         const idx = feed().length;
         setFeed((f) => [...f, { role: "assistant", text: "" }]);
@@ -2633,6 +2742,7 @@ const AgentPanel: Component = () => {
   const approve = async (idx: number, action: AgentAction, tabId?: number, expectedUrl?: string) => {
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
     setBusy(true);
+    expectReport(tabId ?? activeId() ?? undefined, action);
     try {
       await agentRunAction(action, tabId, expectedUrl);
       setFeed((f) => [...f, { role: "action", text: `✓ ${describeAction(action)}` }]);
@@ -2699,6 +2809,7 @@ const AgentPanel: Component = () => {
   const awaitChainApproval = async (): Promise<StepOutcome> => {
     const last = feed()[feed().length - 1];
     if (last?.pending && (last.role === "edit" || last.role === "shell" || last.role === "note")) {
+      chainGateIdx = feed().length - 1;
       return await new Promise<StepOutcome>((res) => {
         chainGate = res;
       });
@@ -2821,6 +2932,7 @@ const AgentPanel: Component = () => {
       setFeed((f) => [...f, { role: "task", text: "✓ Chain complete." }]);
     } finally {
       chainGate = null;
+      chainGateIdx = -1;
       setTaskRunning(false);
     }
   };
@@ -2883,18 +2995,21 @@ const AgentPanel: Component = () => {
     setFeed((f) => f.map((it, i) => (i === idx ? { role: "assistant", text: `Discarded: ${it.text}` } : it)));
     // Discarding one note isn't cancelling the goal — the loop should carry on
     // and can decide what to do about the refusal.
-    resolveChainGate(true, "The user discarded that note; nothing was written.");
+    resolveChainGate(idx, true, "The user discarded that note; nothing was written.");
   };
 
   /** Apply a proposal the user approved. */
   const applyNote = async (idx: number, proposal: NoteProposal): Promise<void> => {
+    // Retire the buttons BEFORE the write: an append isn't idempotent, so a
+    // double-click wrote the same section twice.
+    setFeed((f) => f.map((it, i) => (i === idx ? { ...it, pending: false } : it)));
     try {
       const path = await noteApply(proposal.action);
-      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, noteDone: path, pending: false } : it)));
-      resolveChainGate(true, `Written to ${path}.`);
+      setFeed((f) => f.map((it, i) => (i === idx ? { ...it, noteDone: path } : it)));
+      resolveChainGate(idx, true, `Written to ${path}.`);
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
-      resolveChainGate(true, `Writing the note failed: ${String(err)}`);
+      resolveChainGate(idx, true, `Writing the note failed: ${String(err)}`);
     }
   };
 
@@ -2967,6 +3082,7 @@ const AgentPanel: Component = () => {
       setFeed((f) => [...f, { role: "task", text: `⏹ Hit the ${MAX_FIX_STEPS}-step limit — stopping.` }]);
     } finally {
       chainGate = null;
+      chainGateIdx = -1;
       setTaskRunning(false);
     }
   };
@@ -2990,13 +3106,16 @@ const AgentPanel: Component = () => {
     // split doesn't yield a clean multi-step request.
     let steps = splitOnConnectors(text);
     if (steps.length < 2 || !isActionStep(steps[0]!)) {
+      const wasBusy = busy();
       setBusy(true);
       try {
         steps = await agentPlanSteps(text);
       } catch {
         steps = [];
       } finally {
-        setBusy(false);
+        // send() calls this with busy already set; clearing it here re-opened
+        // the input while its reply was still to stream.
+        setBusy(wasBusy);
       }
     }
     if (steps.length < 2 || !isActionStep(steps[0]!)) return false;
@@ -3051,6 +3170,7 @@ const AgentPanel: Component = () => {
         // Run the approved step, record it, let the page settle before re-planning.
         const stepTabId = activeId() ?? undefined;
         const stepUrl = tabs().find((t) => t.id === stepTabId)?.url;
+        expectReport(stepTabId, action);
         setBusy(true);
         try {
           await agentRunAction(action, stepTabId, stepUrl);
@@ -3060,6 +3180,13 @@ const AgentPanel: Component = () => {
           setBusy(false);
         }
         await new Promise((r) => setTimeout(r, 1200));
+        // The page's own report (blocked, not found) lands after the click's
+        // 180 ms highlight: don't let the planner build on a step that never ran.
+        const outcome = stepTabId != null ? agentOutcome.get(stepTabId) : undefined;
+        if (outcome && FAIL_OUTCOMES.has(outcome)) {
+          const what = describeAction(action).replace(/^✓ /, "");
+          history[history.length - 1] = `✕ FAILED (${outcome.replace(/_/g, " ")}): ${what}`;
+        }
       }
       setFeed((f) => [...f, { role: "task", text: `Reached the ${MAX_TASK_STEPS}-step limit — stopping.` }]);
     } catch (err) {
@@ -3379,14 +3506,18 @@ const AgentPanel: Component = () => {
                           </div>
                         }
                       >
-                        <div class="agent-approve">
-                          <button class="agent-approve-yes" onClick={() => void applyNote(i(), item.note!)}>
-                            ✓ Add to my notes
-                          </button>
-                          <button class="agent-approve-no" onClick={() => discardNote(i())}>
-                            Discard
-                          </button>
-                        </div>
+                        {/* `pending`, not just `!noteDone`: a reopened chat stores
+                            pending=false, and its stale proposal must not write. */}
+                        <Show when={item.pending}>
+                          <div class="agent-approve">
+                            <button class="agent-approve-yes" onClick={() => void applyNote(i(), item.note!)}>
+                              ✓ Add to my notes
+                            </button>
+                            <button class="agent-approve-no" onClick={() => discardNote(i())}>
+                              Discard
+                            </button>
+                          </div>
+                        </Show>
                       </Show>
                     </div>
                   </Show>
@@ -3615,9 +3746,7 @@ const AgentPanel: Component = () => {
                 void startRec();
               }}
               onPointerUp={() => void stopRec()}
-              onPointerLeave={() => {
-                if (recording()) void stopRec();
-              }}
+              onPointerLeave={() => void stopRec()}
             >
               🎤
             </button>

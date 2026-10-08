@@ -50,7 +50,7 @@ pub fn available() -> bool {
             return ok;
         }
     }
-    let ok = Command::new(binary())
+    let ok = crate::exec::no_console(&mut Command::new(binary()))
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -96,7 +96,8 @@ fn lang_arg(requested: Option<&str>) -> String {
 /// fewer copies of them on disk the better.
 pub fn recognize(png: &[u8], lang: Option<&str>) -> Result<String, String> {
     let started = Instant::now();
-    let mut child = Command::new(binary())
+    // Once per page, so without `no_console` a scan flashed a window per page.
+    let mut child = crate::exec::no_console(&mut Command::new(binary()))
         .args(["-", "-", "-l", &lang_arg(lang)])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

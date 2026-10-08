@@ -34,16 +34,37 @@
     return r.width > 0 && r.height > 0;
   });
 
+  // The generic matches (a bare "reject"/"decline", or a label that merely
+  // *contains* a term) are trusted only inside a consent banner, so a meeting
+  // invite's "Decline" or a headline mentioning a term elsewhere on the page is
+  // never what gets clicked. A dialog counts only when it talks about cookies.
+  const BANNER =
+    '[id*="consent" i],[class*="consent" i],[id*="cookie" i],[class*="cookie" i],' +
+    '[id*="gdpr" i],[class*="gdpr" i],[id*="cmp" i],[class*="cmp" i]';
+  const DIALOG = '[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
+  const inBanner = (el) => {
+    if (el.closest(BANNER)) return true;
+    const d = el.closest(DIALOG);
+    return !!d && /cookie|consent|gdpr|privacy/i.test(d.innerText || "");
+  };
+  const scoped = clickable.filter(inBanner);
+
   // Prefer an exact phrase match ("reject all") over a loose containment, so a
-  // control merely mentioning a term doesn't win over the real button.
+  // control merely mentioning a term doesn't win over the real button. A
+  // multi-word phrase is specific enough to match anywhere; a bare word only in
+  // the banner. When nothing qualifies, click nothing.
   let hit = null;
   for (const term of TERMS) {
-    hit = clickable.find((el) => nameOf(el) === term);
+    const pool = term.includes(" ") ? clickable : scoped;
+    hit = pool.find((el) => nameOf(el) === term);
     if (hit) break;
   }
   if (!hit) {
     for (const term of TERMS) {
-      hit = clickable.find((el) => nameOf(el).includes(term));
+      hit = scoped.find((el) => {
+        const n = nameOf(el);
+        return n.length <= term.length + 24 && n.includes(term);
+      });
       if (hit) break;
     }
   }

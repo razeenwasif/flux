@@ -8,6 +8,7 @@
  */
 import { Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
 import {
+  SYNC_URL,
   onSyncDone,
   onSyncError,
   syncLock,
@@ -19,7 +20,7 @@ import {
   type SyncReport,
   type SyncStatus,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 
 /**
  * What actually happened, in words that distinguish the three outcomes.
@@ -79,20 +80,22 @@ const SyncPage: Component = () => {
         setFolder(s.folder ?? "");
       })
       .catch(() => {});
-  onMount(async () => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Sync");
+  onMount(() => {
+    titleInternalTab(SYNC_URL, "Sync");
     refresh();
-    // Reflect background (auto) syncs live.
-    const offDone = await onSyncDone((r) => {
-      setErr(null);
-      setMsg(`Auto-synced — ${summary(r)}`);
-      refresh();
-    });
-    const offErr = await onSyncError((e) => setErr(`Auto-sync: ${e}`));
+    // Reflect background (auto) syncs live. Cleanup is wired before anything
+    // resolves: after an `await` there is no owner, so an onCleanup there never
+    // ran and every visit leaked both listeners.
+    const subs = [
+      onSyncDone((r) => {
+        setErr(null);
+        setMsg(`Auto-synced — ${summary(r)}`);
+        refresh();
+      }),
+      onSyncError((e) => setErr(`Auto-sync: ${e}`)),
+    ];
     onCleanup(() => {
-      offDone();
-      offErr();
+      for (const p of subs) void p.then((un) => un()).catch(() => {});
     });
   });
 

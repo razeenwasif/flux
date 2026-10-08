@@ -26,15 +26,51 @@ const PEEK_JS: &str = include_str!("../assets/peek.js");
 /// promote/close commands can act on *the calling* window without us tracking ids.
 static PEEK_SEQ: AtomicU64 = AtomicU64::new(1);
 
+/// `chrome_peek_url` is callable by any remote page with no proof of a user
+/// gesture, and every peek is a full always-on-top window: cap how many may be
+/// open and how often a page may open one (a real Alt-click is never this fast).
+const MAX_OPEN_PEEKS: usize = 4;
+const PAGE_PEEK_GAP_MS: u64 = 750;
+static LAST_PAGE_PEEK_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Claim the page-peek slot at `now` (ms): refused within `PAGE_PEEK_GAP_MS` of
+/// the last one. Compare-and-swap, so two racing calls can't both get through.
+fn claim_page_peek(last: &AtomicU64, now: u64) -> bool {
+    let prev = last.load(Ordering::Relaxed);
+    now.saturating_sub(prev) >= PAGE_PEEK_GAP_MS
+        && last
+            .compare_exchange(prev, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+}
+
+/// The storage session a peek must share with the tab it came from.
+#[derive(Clone, Copy, Default)]
+struct Session {
+    private: bool,
+    container: u32,
+}
+
+fn session_of(app: &AppHandle, tab: Option<crate::state::TabId>) -> Session {
+    tab.and_then(|id| {
+        let s = app.try_state::<crate::state::FluxState>()?;
+        let t = s.tabs.get(&id)?;
+        Some(Session {
+            private: t.private,
+            container: t.container,
+        })
+    })
+    .unwrap_or_default()
+}
+
 fn host_of(url: &str) -> String {
     let after = url.split("://").nth(1).unwrap_or(url);
     let host = after.split('/').next().unwrap_or(after);
     host.trim_start_matches("www.").to_string()
 }
 
-/// Spawn a floating peek window for `url`. Shared by the chrome trigger
-/// (`peek_open`) and the page trigger (`chrome_peek_url`).
-fn open_peek(app: &AppHandle, url: &str) -> Result<(), String> {
+/// Spawn a floating peek window for `url` in the opener's `session`. Shared by
+/// the chrome trigger (`peek_open`) and the page trigger (`chrome_peek_url`).
+fn open_peek(app: &AppHandle, url: &str, session: Session) -> Result<(), String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("can only peek web pages".into());
     }
@@ -48,13 +84,15 @@ fn open_peek(app: &AppHandle, url: &str) -> Result<(), String> {
     // ad slot doesn't leave a gap — the network-level block is the interceptor
     // installed below. Mirrors the tab webview path.
     let app_for_load = app.clone();
-    let win = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
         .title(format!("Peek · {}", host_of(url)))
         .inner_size(960.0, 680.0)
         .min_inner_size(420.0, 360.0)
         .center()
         .always_on_top(true)
         .initialization_script(PEEK_JS)
+        // A link peeked from a Private tab must not land in the persistent jar.
+        .incognito(session.private)
         .on_navigation(|u| !crate::webview::is_app_origin(u))
         .on_page_load(move |webview, payload| {
             let css = app_for_load
@@ -70,13 +108,29 @@ fn open_peek(app: &AppHandle, url: &str) -> Result<(), String> {
                     ));
                 }
             }
-        })
-        .build()
-        .map_err(|e| format!("open peek: {e}"))?;
+        });
+    // …nor one from a container tab in the default jar (#59).
+    if !session.private && session.container != 0 {
+        if let Ok(dir) = app.path().app_data_dir() {
+            builder =
+                builder.data_directory(dir.join("containers").join(session.container.to_string()));
+        }
+        // macOS keys the jar by data store, not directory (see `container_store_id`).
+        let store = crate::webview::container_store_id(session.container);
+        builder = builder.data_store_identifier(store);
+    }
+    // Same outbound proxy (#63) as tab webviews: a peek must not go direct.
+    if let Some(proxy) = crate::proxy::for_webview(app)? {
+        builder = builder.proxy_url(proxy);
+    }
+    let win = builder.build().map_err(|e| format!("open peek: {e}"))?;
     // Network-level content blocking + HTTPS-only + lean (#57/#91/#105), same
     // policy as tab webviews — peeks are a separate window so they need it wired
-    // explicitly (Windows/WebView2; no-op elsewhere).
+    // explicitly (Windows/WebView2; no-op elsewhere). Likewise tracking
+    // prevention (#58) and the per-site permission decisions.
     crate::netfilter::install_on_window(app, &win);
+    crate::tracking::install(app, win.as_ref());
+    crate::permissions::install(app, win.as_ref());
     Ok(())
 }
 
@@ -96,7 +150,10 @@ fn is_peek(window: &Window) -> bool {
 /// to the main thread cleanly.
 #[tauri::command]
 pub async fn peek_open(app: AppHandle, url: String) -> Result<(), String> {
-    open_peek(&app, &url)
+    let active = app
+        .try_state::<crate::state::FluxState>()
+        .and_then(|s| s.active_tab());
+    open_peek(&app, &url, session_of(&app, active))
 }
 
 /// Open a link in a peek window (page trigger — `newtab.js` Alt-click / menu).
@@ -104,8 +161,33 @@ pub async fn peek_open(app: AppHandle, url: String) -> Result<(), String> {
 /// and only this one is exposed to remote pages via the `fluxtab` plugin. Async
 /// for the same main-thread reason as [`peek_open`].
 #[tauri::command]
-pub async fn chrome_peek_url(app: AppHandle, url: String) -> Result<(), String> {
-    open_peek(&app, &url)
+pub async fn chrome_peek_url(
+    app: AppHandle,
+    webview: tauri::Webview,
+    url: String,
+) -> Result<(), String> {
+    // Only a tab page may ask: not a peek re-spawning itself, not a panel.
+    let tab = webview
+        .label()
+        .strip_prefix("tab-")
+        .and_then(|s| s.parse::<crate::state::TabId>().ok())
+        .ok_or("peeks can only be opened from a tab")?;
+    let open = app
+        .webview_windows()
+        .keys()
+        .filter(|l| l.starts_with("peek-"))
+        .count();
+    if open >= MAX_OPEN_PEEKS {
+        return Err("too many peek windows open".into());
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    if !claim_page_peek(&LAST_PAGE_PEEK_MS, now) {
+        return Err("peek rate-limited".into());
+    }
+    open_peek(&app, &url, session_of(&app, Some(tab)))
 }
 
 /// Promote the peek's current page to a real focused tab in the main window,
@@ -116,10 +198,7 @@ pub fn peek_promote(app: AppHandle, window: Window, url: String) -> Result<(), S
         return Err("not a peek window".into());
     }
     // `url` comes from the page and becomes a new tab via flux://open-url.
-    match url.parse::<tauri::Url>() {
-        Ok(u) if matches!(u.scheme(), "http" | "https") && !crate::webview::is_app_origin(&u) => {}
-        _ => return Err("can only promote web pages".into()),
-    }
+    let url = crate::dom::page_openable_url(&url)?;
     app.emit("flux://open-url", (url, false))
         .map_err(|e| e.to_string())?;
     // Surface the main window so the freshly-promoted tab is actually seen — the
@@ -151,6 +230,18 @@ pub fn peek_close(window: Window) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_page_cannot_open_peeks_back_to_back() {
+        let last = AtomicU64::new(0);
+        assert!(claim_page_peek(&last, 1_000_000));
+        assert!(
+            !claim_page_peek(&last, 1_000_050),
+            "a timer can't open one every 50 ms"
+        );
+        assert!(!claim_page_peek(&last, 1_000_000 + PAGE_PEEK_GAP_MS - 1));
+        assert!(claim_page_peek(&last, 1_000_000 + PAGE_PEEK_GAP_MS));
+    }
 
     #[test]
     fn host_strips_scheme_and_www() {

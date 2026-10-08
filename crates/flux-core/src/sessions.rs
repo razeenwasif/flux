@@ -66,16 +66,17 @@ pub struct SessionStore {
 impl SessionStore {
     pub fn restore(path: PathBuf) -> Self {
         // Tolerant load: `{items,tombstones}` envelope or a legacy bare array.
-        let (items, tombstones) = std::fs::read_to_string(&path)
-            .ok()
-            .map(|s| match serde_json::from_str::<Persisted>(&s) {
-                Ok(p) => (p.items, p.tombstones),
-                Err(_) => (
-                    serde_json::from_str::<Vec<SavedSession>>(&s).unwrap_or_default(),
-                    Default::default(),
-                ),
-            })
-            .unwrap_or_default();
+        // Neither: kept aside, or the next save would replace every named
+        // session with an empty list.
+        let (items, tombstones) = crate::persist::load_or_quarantine(&path, |b| {
+            match serde_json::from_slice::<Persisted>(b) {
+                Ok(p) => Ok((p.items, p.tombstones)),
+                Err(e) => serde_json::from_slice::<Vec<SavedSession>>(b)
+                    .map(|legacy| (legacy, Default::default()))
+                    .map_err(|_| e.to_string()),
+            }
+        })
+        .unwrap_or_default();
         let next = items.iter().map(|s| s.id).max().map(|m| m + 1).unwrap_or(1);
         Self {
             items: RwLock::new(items),
@@ -150,10 +151,16 @@ impl SessionStore {
 
     pub fn delete(&self, id: u64) {
         let mut items = self.items.write();
-        if let Some(s) = items.iter().find(|s| s.id == id) {
-            self.tombstones.write().insert(s.name.clone(), now_ms());
+        if let Some(pos) = items.iter().position(|s| s.id == id) {
+            let gone = items.remove(pos);
+            // Tombstones are keyed by *name*, and the next merge buries every
+            // same-named session older than one (every "Untitled"): bury the
+            // name only once its last holder is gone. Until then `merge` can't
+            // re-add a remote copy anyway, since the name is still present.
+            if !items.iter().any(|s| s.name == gone.name) {
+                self.tombstones.write().insert(gone.name, now_ms());
+            }
         }
-        items.retain(|s| s.id != id);
         drop(items);
         self.save_disk();
     }
@@ -172,15 +179,21 @@ impl SessionStore {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let snapshot = Persisted {
-            items: self.items.read().clone(),
-            tombstones: self.tombstones.read().clone(),
-        };
-        crate::persist::save_json(path, &snapshot);
+        // Guards held across the write (see BookmarkStore::save): a sync merge's
+        // older snapshot can't be renamed over a just-saved session.
+        crate::persist::save_json(
+            path,
+            &Persisted {
+                items: self.items.read().clone(),
+                tombstones: self.tombstones.read().clone(),
+            },
+        );
     }
 }
 
-/// Snapshot the current real web tabs (skips terminal/files + flux:// pages).
+/// Snapshot the current real web tabs (skips terminal/files + flux:// pages,
+/// and private tabs: ephemeral by contract (see `FluxState::persist`), so never
+/// in a named session, the daily snapshots or, through sync, another device).
 pub(crate) fn snapshot(state: &FluxState) -> Vec<SavedTab> {
     // id → name, resolved once: a session spans every workspace, so this would
     // otherwise be a linear scan per tab.
@@ -192,7 +205,7 @@ pub(crate) fn snapshot(state: &FluxState) -> Vec<SavedTab> {
     state
         .ordered_tabs()
         .into_iter()
-        .filter(|t| matches!(t.kind, TabKind::Browser) && t.url.starts_with("http"))
+        .filter(|t| matches!(t.kind, TabKind::Browser) && !t.private && t.url.starts_with("http"))
         .map(|t| SavedTab {
             url: t.url,
             title: t.title,
@@ -229,10 +242,7 @@ pub struct SnapshotStore {
 
 impl SnapshotStore {
     pub fn restore(path: PathBuf) -> Self {
-        let snaps = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let snaps = crate::persist::load_json_or_quarantine(&path).unwrap_or_default();
         Self {
             snaps: RwLock::new(snaps),
             path: Some(path),
@@ -375,6 +385,45 @@ mod tests {
         let s = store.save("Research".into(), vec![]);
         store.delete(s.id);
         assert!(store.tombstones().contains_key("Research"));
+    }
+
+    #[test]
+    fn private_tabs_never_reach_a_snapshot() {
+        let state = FluxState::new();
+        for (id, private) in [(1, false), (2, true)] {
+            state.tabs.insert(
+                id,
+                crate::state::TabMeta {
+                    id,
+                    kind: TabKind::Browser,
+                    url: format!("https://{id}.example/"),
+                    title: String::new(),
+                    pinned: false,
+                    cluster: None,
+                    group: None,
+                    folder: None,
+                    custom_title: None,
+                    workspace: 1,
+                    private,
+                    container: 0,
+                },
+            );
+            state.order_push(id);
+        }
+        let urls: Vec<_> = snapshot(&state).into_iter().map(|t| t.url).collect();
+        assert_eq!(urls, ["https://1.example/"]);
+    }
+
+    #[test]
+    fn deleting_one_untitled_session_keeps_the_others() {
+        let store = SessionStore::default();
+        let first = store.save("".into(), vec![]);
+        store.save("".into(), vec![]);
+        store.delete(first.id);
+        assert!(!store.tombstones().contains_key("Untitled"));
+        // The next sync merge must not take the remaining one with it.
+        store.merge(vec![], &Default::default());
+        assert_eq!(store.list().len(), 1);
     }
 
     #[test]

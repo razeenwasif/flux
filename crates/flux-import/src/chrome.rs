@@ -211,8 +211,11 @@ mod tests {
     use super::*;
 
     /// Build a throwaway fake Chrome profile on disk.
-    fn fake_profile() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("flux-import-test-{}", std::process::id()));
+    /// A throwaway profile dir. `tag` keeps tests apart: they run in parallel in
+    /// one process, and a shared dir let one test delete another's mid-read.
+    fn fake_profile(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("flux-import-test-{}-{tag}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
@@ -246,7 +249,7 @@ mod tests {
 
     #[test]
     fn bookmarks_flatten_with_folder_paths() {
-        let dir = fake_profile();
+        let dir = fake_profile("bookmarks");
         let books = read_bookmarks(&dir).unwrap();
         assert_eq!(books.len(), 2);
         assert!(books.contains(&Bookmark {
@@ -263,7 +266,7 @@ mod tests {
 
     #[test]
     fn extensions_are_inventoried_from_manifests() {
-        let dir = fake_profile();
+        let dir = fake_profile("extensions");
         let exts = list_extensions(&dir).unwrap();
         assert_eq!(exts.len(), 1);
         assert_eq!(exts[0].name, "uBlock Origin");

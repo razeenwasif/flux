@@ -5,6 +5,7 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import {
+  SESSIONS_URL,
   sessionDelete,
   sessionSave,
   sessionsList,
@@ -12,7 +13,7 @@ import {
   type DaySnapshot,
   type SavedSession,
 } from "./ipc";
-import { activeId, closeTabs, restoreSession, restoreSnapshot, tabs, updateTabTitle } from "./store";
+import { closeTabs, restoreSession, restoreSnapshot, tabs, titleInternalTab } from "./store";
 
 const when = (ms: number) =>
   new Date(ms).toLocaleString(undefined, {
@@ -39,6 +40,10 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
   const [snaps, setSnaps] = createSignal<DaySnapshot[]>([]);
   const [name, setName] = createSignal("");
   const [note, setNote] = createSignal("");
+  // The session whose "Close tabs" was clicked once; a second click closes. An
+  // in-page confirm because wry's WKWebView has no confirm-panel delegate, so on
+  // macOS window.confirm() returned false without showing anything.
+  const [confirmClose, setConfirmClose] = createSignal<number | null>(null);
 
   const load = () => {
     void sessionsList()
@@ -49,8 +54,7 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
       .catch(() => setSnaps([]));
   };
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Sessions");
+    titleInternalTab(SESSIONS_URL, "Sessions");
     load();
   });
 
@@ -71,10 +75,18 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
     const urls = new Set(s.tabs.map((t) => t.url));
     const open = tabs().filter((t) => t.kind === "browser" && urls.has(t.url));
     if (!open.length) {
+      setConfirmClose(null);
       setNote(`No tabs from “${s.name}” are open.`);
       return;
     }
-    if (!window.confirm(`Close ${open.length} tab${open.length === 1 ? "" : "s"} from “${s.name}”?`)) return;
+    if (confirmClose() !== s.id) {
+      setConfirmClose(s.id);
+      setNote(
+        `Click “Really close” to close ${open.length} tab${open.length === 1 ? "" : "s"} from “${s.name}”.`,
+      );
+      return;
+    }
+    setConfirmClose(null);
     const n = await closeTabs(open.map((t) => t.id));
     setNote(`Closed ${n} tab${n === 1 ? "" : "s"} · Ctrl+Shift+T reopens them one at a time`);
   };
@@ -151,7 +163,7 @@ const SessionsPage: Component<{ onNavigate: (url: string) => void }> = () => {
                     title="Close this session's tabs"
                     onClick={() => void closeSession(s)}
                   >
-                    ✕ Close tabs
+                    {confirmClose() === s.id ? "✕ Really close" : "✕ Close tabs"}
                   </button>
                   <button class="bm-open-group" onClick={() => void restore(s)}>
                     ↺ Reopen

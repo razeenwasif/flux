@@ -46,6 +46,18 @@ pub fn blocked_reason(cmd: &str) -> Option<String> {
     None
 }
 
+/// Keep a console program from opening a window. Release Flux is a GUI-subsystem
+/// binary on Windows, so every console child (tesseract, whisper, piper,
+/// wsl.exe) otherwise gets a console window of its own, even with piped stdio.
+pub(crate) fn no_console(cmd: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 /// Build the command in the right shell: an explicit `FLUX_EXEC_SHELL`/`FLUX_SHELL`,
 /// else MSYS2 bash on Windows (matching the embedded terminal) / `sh` elsewhere.
 ///
@@ -91,6 +103,22 @@ pub(crate) fn shell_command(cmd: &str) -> Command {
         c.args(["-lc", cmd]);
         c
     }
+}
+
+/// Spawn a fire-and-forget process and reap it when it exits; returns its pid.
+/// Dropping a `Child` never waits on it, so on Unix every such process that
+/// exited stayed a zombie, holding a slot against the per-user process limit,
+/// until Flux quit. Kills nothing: a long-lived child keeps running as before.
+pub(crate) fn spawn_reaped(cmd: &mut Command) -> std::io::Result<u32> {
+    let mut child = cmd.spawn()?;
+    let pid = child.id();
+    // A failed thread spawn just leaves this one unreaped, as before.
+    let _ = std::thread::Builder::new()
+        .name("flux-reap".into())
+        .spawn(move || {
+            let _ = child.wait();
+        });
+    Ok(pid)
 }
 
 /// Safety pre-check for a command we're about to *type into the live terminal*
@@ -149,10 +177,19 @@ fn run_bounded(
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
+    // Own process group, so the deadline can take down everything the shell
+    // started: a grandchild (`cd x && npm run dev`, `a | b`) inherits the pipes,
+    // and killing only `sh` left the drains below blocked on it forever.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
 
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("couldn't run the command: {e}"))?;
+    let pid = child.id();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
@@ -166,6 +203,9 @@ fn run_bounded(
     let watcher = std::thread::spawn(move || {
         if rx_done.recv_timeout(timeout).is_err() {
             timed_out_watcher.store(true, std::sync::atomic::Ordering::SeqCst);
+            // The shell isn't reaped until `wait` below, so its pid (the group
+            // id) can't have been reused yet.
+            kill_tree(pid);
             let mut guard = child_watcher.lock();
             let _ = guard.kill();
         }
@@ -205,6 +245,27 @@ fn run_bounded(
         timed_out: was_timed_out,
         truncated: stdout_res.1 || stderr_res.1,
     })
+}
+
+/// Kill `pid` and everything it started: on Unix its process group (set up by
+/// `process_group(0)`), on Windows its process tree.
+fn kill_tree(pid: u32) {
+    #[cfg(unix)]
+    let _ = Command::new("kill")
+        .args(["-s", "KILL", "--", &format!("-{pid}")])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
 }
 
 /// Run `command` synchronously and return combined stdout+stderr (trimmed),
@@ -300,6 +361,29 @@ mod tests {
         assert!(blocked_reason("echo ok").is_none());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn spawn_reaped_leaves_no_zombie() {
+        // A dropped `Child` that exits lingers as a zombie ("Z" in ps) until we
+        // quit. Reaped, its pid disappears from the process table.
+        let pid = spawn_reaped(&mut Command::new("true")).unwrap().to_string();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let ps = Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid])
+                .output()
+                .unwrap();
+            if String::from_utf8_lossy(&ps.stdout).trim().is_empty() {
+                break; // gone: reaped
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child {pid} was never reaped"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
     #[test]
     fn bounded_drain_caps_output() {
         let mut cmd = Command::new(if cfg!(windows) { "cmd" } else { "sh" });
@@ -323,5 +407,22 @@ mod tests {
         }
         let out = run_bounded(cmd, std::time::Duration::from_millis(200), 1024).unwrap();
         assert!(out.timed_out);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_deadline_also_kills_what_the_shell_started() {
+        // `sleep | cat` forks: both children hold the stdout pipe, and killing
+        // only `sh` left the drains (and this call) waiting on them.
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "sleep 5 | cat; true"]);
+        let started = std::time::Instant::now();
+        let out = run_bounded(cmd, std::time::Duration::from_millis(200), 1024).unwrap();
+        assert!(out.timed_out);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "returned only after {:?}",
+            started.elapsed()
+        );
     }
 }

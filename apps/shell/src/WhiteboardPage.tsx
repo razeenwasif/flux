@@ -8,11 +8,12 @@
  * named boards persisted to localStorage as compact stroke JSON. (Scribe reuses
  * the same engine for paged, disk-backed course notebooks — `ScribePage`.)
  */
-import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
-import { askText } from "./ask";
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js";
+import { askConfirm, askText } from "./ask";
 
 import InkCanvas, { type Stroke } from "./InkCanvas";
-import { activeId, updateTabTitle } from "./store";
+import { WHITEBOARD_URL } from "./ipc";
+import { titleInternalTab } from "./store";
 
 type Board = { id: string; name: string; ts: number; strokes: Stroke[] };
 
@@ -26,21 +27,44 @@ const loadBoards = (): Board[] => {
   }
 };
 
+// One copy per window, shared by every mounted whiteboard: a tab and a
+// flux://whiteboard side panel (or two split panes) run in the same document,
+// where no `storage` event passes between them. With a copy each, every save
+// wrote one instance's whole array over the other's strokes.
+const [boards, setBoards] = createSignal<Board[]>(loadBoards());
+let saveTimer = 0;
+const [saveErr, setSaveErr] = createSignal("");
+
+/** Write every board now. A failure is shown, not swallowed: the boards share
+ *  the origin's ~5 MB of localStorage with the whole chrome, and what didn't
+ *  save is gone on restart — while it's on screen it can still be exported. */
+const saveBoards = () => {
+  try {
+    localStorage.setItem(BOARDS_KEY, JSON.stringify(boards()));
+    setSaveErr("");
+  } catch (e) {
+    console.error("whiteboard: save failed", e);
+    setSaveErr(
+      "Whiteboard not saved — browser storage is full or unavailable. Export boards as PNG or delete old ones, or recent drawing is lost on restart.",
+    );
+  }
+};
+
 const WhiteboardPage: Component = () => {
-  const [boards, setBoards] = createSignal<Board[]>(loadBoards());
   const [boardId, setBoardId] = createSignal(boards()[0]!.id);
   const board = () => boards().find((b) => b.id === boardId()) ?? boards()[0]!;
+  // The other instance may delete the board this one shows. Follow to a live
+  // board, remounting the engine: its undo history belongs to the deleted one,
+  // and an undo would otherwise write those strokes over this board.
+  createEffect(() => {
+    const bs = boards();
+    const first = bs[0];
+    if (first && !bs.some((b) => b.id === boardId())) setBoardId(first.id);
+  });
 
-  let saveTimer = 0;
   const scheduleSave = () => {
     window.clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(BOARDS_KEY, JSON.stringify(boards()));
-      } catch {
-        /* full/private — drawing still lives in memory */
-      }
-    }, 500);
+    saveTimer = window.setTimeout(saveBoards, 500);
   };
 
   // Undo/redo/export/clear all live inside InkCanvas now; this only persists.
@@ -58,40 +82,52 @@ const WhiteboardPage: Component = () => {
     scheduleSave();
   };
   const renameBoard = async () => {
+    // The board asked about, not whichever one is shown once the dialog closes.
+    const id = boardId();
     const name = await askText({ title: "Board name", value: board().name, confirm: "Rename" });
     if (name) {
-      setBoards((bs) => bs.map((b) => (b.id === boardId() ? { ...b, name } : b)));
+      setBoards((bs) => bs.map((b) => (b.id === id ? { ...b, name } : b)));
       scheduleSave();
     }
   };
-  const deleteBoard = () => {
+  const deleteBoard = async () => {
+    // The board asked about, not whichever one is shown once the dialog closes.
+    const { id, name, strokes } = board();
     if (boards().length <= 1) {
-      // Last board: clear it rather than leaving the page empty.
-      setStrokes([]);
+      // Last board: clear it rather than leaving the page empty — but ask, like
+      // deleting any other board. This bypasses the canvas's undo history, so
+      // Ctrl+Z can't bring the drawing back.
+      if (
+        strokes.length &&
+        !(await askConfirm({
+          title: `Clear “${name}”?`,
+          hint: "Undo can't bring the drawing back.",
+          confirm: "Clear",
+        }))
+      )
+        return;
+      if (boardId() === id) setStrokes([]);
       return;
     }
-    if (!window.confirm(`Delete “${board().name}”?`)) return;
-    const gone = boardId();
-    setBoards((bs) => bs.filter((b) => b.id !== gone));
+    if (!(await askConfirm({ title: `Delete “${name}”?`, confirm: "Delete" }))) return;
+    setBoards((bs) => bs.filter((b) => b.id !== id));
     setBoardId(boards()[0]!.id);
     scheduleSave();
   };
 
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Whiteboard");
+    titleInternalTab(WHITEBOARD_URL, "Whiteboard");
     onCleanup(() => {
       window.clearTimeout(saveTimer);
-      try {
-        localStorage.setItem(BOARDS_KEY, JSON.stringify(boards()));
-      } catch {
-        /* ignore */
-      }
+      saveBoards();
     });
   });
 
   return (
     <div class="wb">
+      <Show when={saveErr()}>
+        <div class="scribe-err">{saveErr()}</div>
+      </Show>
       {/* Keyed on boardId so switching boards remounts the engine — resetting
           its camera + undo history, exactly as before. */}
       <Show when={boardId()} keyed>

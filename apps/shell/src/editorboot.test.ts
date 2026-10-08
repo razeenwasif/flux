@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   BOOT_CMD,
   EDITOR_SESSION_BASE,
+  MAX_QUICK_EXITS,
   MIN_HEALTHY_MS,
+  QUICK_EXIT_MS,
   bootCommand,
   exitAction,
   sessionFor,
@@ -22,6 +24,17 @@ describe("editor column boot policy", () => {
     // relaunching that is an infinite loop, not a feature.
     expect(exitAction(0)).toBe("fail");
     expect(exitAction(MIN_HEALTHY_MS - 1)).toBe("fail");
+  });
+
+  it("refuses a run of quick exits, which a slow shell rc hides", () => {
+    // With the editor missing, a shell whose rc takes 3 s still exits after 3 s:
+    // past the instant-exit check, so on its own it would relaunch forever.
+    const slow = MIN_HEALTHY_MS + 1_000;
+    expect(exitAction(slow, 0)).toBe("relaunch");
+    expect(exitAction(slow, MAX_QUICK_EXITS - 2)).toBe("relaunch");
+    expect(exitAction(slow, MAX_QUICK_EXITS - 1)).toBe("fail");
+    // A session that was actually used isn't part of a run.
+    expect(exitAction(QUICK_EXIT_MS, 10)).toBe("relaunch");
   });
 
   it("allocates session ids that can't collide with the other PTY owners", () => {
@@ -69,12 +82,20 @@ describe("editor column boot policy", () => {
     expect(cmd).toContain("&&");
   });
 
+  it("ends the shell with the editor", () => {
+    // It's typed into an interactive shell: without the exit, `:q` (or a missing
+    // editor) leaves a prompt behind, the PTY never ends, and the column neither
+    // relaunches nor reports anything.
+    expect(bootCommand("/tmp/flux-nvim-9.sock").endsWith("; exit")).toBe(true);
+    expect(bootCommand("//./pipe/flux-nvim-9").endsWith("; exit")).toBe(true);
+  });
+
   it("doesn't try to rm a named pipe", () => {
     // A pipe isn't a file: `rm -f` can't clear it, and nothing needs clearing —
     // Windows drops the name when the last handle closes. Sweeping anyway would
     // fail the `&&` and stop the editor from booting at all.
     const cmd = bootCommand("//./pipe/flux-nvim-9");
-    expect(cmd).toBe(`${BOOT_CMD} --listen '//./pipe/flux-nvim-9'`);
+    expect(cmd).toBe(`${BOOT_CMD} --listen '//./pipe/flux-nvim-9'; exit`);
     expect(cmd).not.toContain("rm -f");
   });
 

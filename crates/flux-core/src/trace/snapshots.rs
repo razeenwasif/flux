@@ -86,9 +86,12 @@ pub struct TraceSnapshots {
     embedder: std::sync::Arc<std::sync::OnceLock<crate::embedding::Embedder>>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
-    hydrated: AtomicBool,
-    /// Bumped on every `add`/`forget_visits` change — the KB auto-reindex
-    /// debouncer watches this to fold settled browsing into the `web` source.
+    /// The one-time disk load. Concurrent callers WAIT for it (as with
+    /// `TraceStore`'s `Once`): an `add` that ran on the not-yet-loaded store
+    /// made the loader discard the whole corpus for the next flush to seal.
+    hydrated: std::sync::OnceLock<()>,
+    /// Bumped on every add or removal — the KB auto-reindex debouncer watches
+    /// this to fold settled browsing into the `web` source.
     generation: std::sync::atomic::AtomicU64,
 }
 
@@ -99,7 +102,7 @@ impl TraceSnapshots {
             embedder: std::sync::Arc::new(std::sync::OnceLock::new()),
             path: Some(path),
             dirty: AtomicBool::new(false),
-            hydrated: AtomicBool::new(false),
+            hydrated: std::sync::OnceLock::new(),
             generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -113,9 +116,10 @@ impl TraceSnapshots {
     /// Load from disk, exactly once (lazily invoked from every entry point, same
     /// race-proofing as [`TraceStore::hydrate`]).
     pub fn hydrate(&self) {
-        if self.hydrated.swap(true, Ordering::AcqRel) {
-            return;
-        }
+        self.hydrated.get_or_init(|| self.load());
+    }
+
+    fn load(&self) {
         let Some(path) = &self.path else { return };
         let Some((loaded, was_plaintext)) = super::sealed::load_json::<SnapshotData>(path) else {
             return;
@@ -198,6 +202,21 @@ impl TraceSnapshots {
             })
     }
 
+    /// Drop one snapshot by id: a capture that lost a race with `trace_forget`
+    /// or with a concurrent capture of the same visit.
+    pub fn remove(&self, id: u64) {
+        self.hydrate();
+        let mut d = self.inner.write();
+        let before = d.snapshots.len();
+        d.snapshots.retain(|s| s.id != id);
+        if d.snapshots.len() != before {
+            drop(d);
+            self.dirty.store(true, Ordering::Relaxed);
+            // A reindex that ran since the add re-syncs `web` without it.
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     /// Visits whose snapshots are semantically nearest to `embedding` — cosine ≥
     /// `threshold`, best-first, at most `k`, excluding `exclude` (the visit being
     /// captured). Used at capture time to draw `Semantic` edges, so topic
@@ -256,13 +275,19 @@ impl TraceSnapshots {
             .collect()
     }
 
-    /// Visit each stored snapshot's metadata + text without cloning the corpus —
-    /// the ambient watcher's scan path (`f(visit_id, url, title, saved_ms, text)`).
+    /// Visit each stored snapshot's metadata + text without cloning the corpus,
+    /// newest first (the vec is push-ordered) — the ambient watcher's scan path
+    /// (`f(visit_id, url, title, saved_ms, text)`, returning false to stop).
     /// The read lock is held for the whole walk; callers keep `f` cheap.
-    pub fn for_each_snapshot(&self, mut f: impl FnMut(VisitId, &str, &str, u64, &str)) {
+    pub fn for_each_snapshot_newest_first(
+        &self,
+        mut f: impl FnMut(VisitId, &str, &str, u64, &str) -> bool,
+    ) {
         self.hydrate();
-        for s in self.inner.read().snapshots.iter() {
-            f(s.visit_id, &s.url, &s.title, s.saved_ms, &s.text);
+        for s in self.inner.read().snapshots.iter().rev() {
+            if !f(s.visit_id, &s.url, &s.title, s.saved_ms, &s.text) {
+                break;
+            }
         }
     }
 
@@ -277,7 +302,7 @@ impl TraceSnapshots {
             embedder: std::sync::Arc::new(cell),
             path: None,
             dirty: AtomicBool::new(false),
-            hydrated: AtomicBool::new(true),
+            hydrated: std::sync::OnceLock::from(()),
             generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -298,13 +323,38 @@ impl TraceSnapshots {
         }
     }
 
+    /// Drop snapshots whose visit isn't in `live`: forgotten, or evicted from
+    /// the Trail (which cascades to nothing). Returns their visit ids for the
+    /// KB purge.
+    pub fn retain_live(&self, live: &std::collections::HashSet<VisitId>) -> Vec<VisitId> {
+        self.hydrate();
+        let mut d = self.inner.write();
+        let mut gone = Vec::new();
+        d.snapshots.retain(|s| {
+            let keep = live.contains(&s.visit_id);
+            if !keep {
+                gone.push(s.visit_id);
+            }
+            keep
+        });
+        if !gone.is_empty() {
+            drop(d);
+            self.dirty.store(true, Ordering::Relaxed);
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
+        gone
+    }
+
     pub fn persist_if_dirty(&self) {
         if !self.dirty.swap(false, Ordering::Relaxed) {
             return;
         }
         let Some(path) = &self.path else { return };
-        let d = self.inner.read();
-        super::sealed::save_json_sealed(path, &*d);
+        // Lock held only to serialize (see `TraceStore::persist_if_dirty`); the
+        // flush thread is this file's only writer.
+        if !super::sealed::save_sealed_with(path, || serde_json::to_vec(&*self.inner.read())) {
+            self.dirty.store(true, Ordering::Relaxed); // retry on the next flush
+        }
     }
 }
 
@@ -413,5 +463,50 @@ mod tests {
         }
         assert_eq!(snaps.inner.read().snapshots.len(), MAX_SNAPSHOTS);
         assert!(snaps.get(first).is_none(), "oldest snapshot was evicted");
+    }
+
+    #[test]
+    fn an_add_racing_the_boot_hydrate_keeps_the_corpus() {
+        // A dwell capture landing while the boot thread loads snapshots.json
+        // must wait for the load, not add to the empty store (the loader then
+        // discarded every snapshot, and new ids collided with persisted ones).
+        let dir = std::env::temp_dir().join(format!("flux-snaps-race-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("snapshots.json");
+        let old = SnapshotData {
+            snapshots: (0..300)
+                .map(|i| Snapshot {
+                    id: i,
+                    visit_id: i,
+                    url: format!("https://{i}.dev/"),
+                    title: String::new(),
+                    saved_ms: 1,
+                    text: "t".repeat(200),
+                    embedding: Vec::new(),
+                    embedder: crate::embedding::Embedder::Hash,
+                })
+                .collect(),
+            next_id: 300,
+        };
+        // Legacy plaintext, so loading it never touches the keychain.
+        std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        for _ in 0..20 {
+            let snaps = std::sync::Arc::new(TraceSnapshots::empty(path.clone()));
+            let _ = snaps.embedder_cell().set(crate::embedding::Embedder::Hash);
+            let go = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let boot = {
+                let (snaps, go) = (snaps.clone(), go.clone());
+                std::thread::spawn(move || {
+                    go.wait();
+                    snaps.hydrate();
+                })
+            };
+            go.wait();
+            let id = snaps.add(999, "https://new/".into(), "N".into(), "n".into(), vec![]);
+            boot.join().unwrap();
+            assert_eq!(id, 300, "ids continue from the persisted next_id");
+            assert_eq!(snaps.web_docs().len(), 301, "the loaded corpus survives");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -58,9 +58,16 @@ const parseHex = (v: string, fallback: Rgb): Rgb => {
 };
 
 let cached: Palette | null = null;
+/** The `data-theme` the cache was read under (null: the default theme). */
+let cachedFor: string | null = null;
 
 export const palette = (): Palette => {
-  if (cached) return cached;
+  // Checked against the attribute, not just invalidated by watchPalette: an
+  // effect on `theme()` can run before that one in the same flush, and would
+  // otherwise get (or cache) the previous theme's colours.
+  const current = globalThis.document?.documentElement.getAttribute("data-theme") ?? null;
+  if (cached && cachedFor === current) return cached;
+  cachedFor = current;
   try {
     const cs = getComputedStyle(document.documentElement);
     const ch = (name: string, f: Rgb) => parseTriplet(cs.getPropertyValue(name), f);

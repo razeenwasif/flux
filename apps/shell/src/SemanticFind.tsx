@@ -40,6 +40,9 @@ const SemanticFind: Component = () => {
   };
 
   const runSearch = (q: string) => {
+    // Bump first: clearing the query must also drop a request still in flight,
+    // or its passages land under an empty input (and Enter jumps to one).
+    const my = ++runId;
     const ids = tabIdsFor();
     if (!q.trim() || !ids.length) {
       setHits([]);
@@ -47,7 +50,6 @@ const SemanticFind: Component = () => {
       setBusy(false);
       return;
     }
-    const my = ++runId;
     setBusy(true);
     setErr(null);
     void semanticFind(q, ids, 40)
@@ -69,7 +71,13 @@ const SemanticFind: Component = () => {
   };
 
   createEffect(() => {
-    if (!semFindOpen()) return;
+    const open = semFindOpen();
+    // Nothing from the previous session (a pending debounce, a reply in flight)
+    // may land in this one. busy too: the dropped request's `finally` won't clear it.
+    clearTimeout(timer);
+    runId++;
+    setBusy(false);
+    if (!open) return;
     setQuery("");
     setHits([]);
     setSel(0);

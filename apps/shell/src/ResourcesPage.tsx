@@ -6,9 +6,17 @@
  * state, which is what's actionable here. Polls only while open.
  */
 import { For, Show, createMemo, createSignal, onMount, type Component } from "solid-js";
-import { SETTINGS_URL, memStatus, storageUsage, tabDomSizes, type MemInfo, type StorageReport } from "./ipc";
+import {
+  RESOURCES_URL,
+  SETTINGS_URL,
+  memStatus,
+  storageUsage,
+  tabDomSizes,
+  type MemInfo,
+  type StorageReport,
+} from "./ipc";
 import { visibleInterval } from "./poll";
-import { activeId, activeWorkspace, isHibernated, tabs, updateTabTitle } from "./store";
+import { activeWorkspace, isHibernated, tabs, titleInternalTab } from "./store";
 
 function hostOf(url: string): string | null {
   try {
@@ -39,8 +47,7 @@ const ResourcesPage: Component<{ onNavigate: (url: string) => void; onSleepBackg
       .catch(() => {});
   };
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Resources");
+    titleInternalTab(RESOURCES_URL, "Resources");
     visibleInterval(refresh, 2500);
     void storageUsage()
       .then(setStore)

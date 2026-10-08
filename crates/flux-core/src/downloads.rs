@@ -127,19 +127,27 @@ pub fn downloads_clear(state: State<'_, DownloadState>) {
     state.clear_finished();
 }
 
+// `open::that` waits for the launcher to exit (xdg-open runs the app in the
+// foreground on many window managers), so never on the main thread, same as
+// `files::fs_open`.
 #[tauri::command]
-pub fn download_open(state: State<'_, DownloadState>, id: u64) -> Result<(), String> {
+pub async fn download_open(state: State<'_, DownloadState>, id: u64) -> Result<(), String> {
     let path = state.path_of(id).ok_or("no such download")?;
-    open::that(&path).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || open::that(&path).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn download_reveal(state: State<'_, DownloadState>, id: u64) -> Result<(), String> {
+pub async fn download_reveal(state: State<'_, DownloadState>, id: u64) -> Result<(), String> {
     let path = state.path_of(id).ok_or("no such download")?;
     let parent = std::path::Path::new(&path)
         .parent()
-        .ok_or("no parent folder")?;
-    open::that(parent).map_err(|e| e.to_string())
+        .ok_or("no parent folder")?
+        .to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || open::that(&parent).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

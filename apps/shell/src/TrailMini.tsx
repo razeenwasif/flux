@@ -14,10 +14,11 @@
  * Scoped by workspace id (with a name fallback for visits recorded before ids
  * were stamped), so it only ever shows the research you're currently in.
  */
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type Component } from "solid-js";
 import { palette as pal, rgba } from "./palette";
 
 import { TRAIL_URL, traceGraph, type Edge, type Visit } from "./ipc";
+import { visibleInterval } from "./poll";
 import { activeWorkspace, activeWorkspaceName, openTab } from "./store";
 
 /** Simulation tuning. Attraction is deliberately strong relative to repulsion:
@@ -50,26 +51,53 @@ const TrailMini: Component = () => {
   const [q, setQ] = createSignal("");
   const [loaded, setLoaded] = createSignal(false);
 
+  /** Collapsed, the map draws only this many (newest) visits. */
+  const GRAPH_CAP = 140;
+  /** What the last applied graph looked like. An idle tick returns the same one,
+   *  and setting the signals anyway re-seeds the layout and resets pan/zoom. */
+  let lastSig = "";
+  /** Drops a slower response a newer load superseded (workspace switch, list toggle). */
+  let seq = 0;
   const load = () => {
-    void traceGraph(undefined, undefined, activeWorkspace(), activeWorkspaceName())
+    const ws = activeWorkspace();
+    // The whole workspace history is only needed while the searchable list is
+    // open. One past the cap tells the count whether there are more.
+    const limit = open() ? undefined : GRAPH_CAP + 1;
+    const mine = ++seq;
+    void traceGraph(undefined, undefined, ws, activeWorkspaceName(), limit)
       .then((g) => {
+        if (mine !== seq) return;
+        setLoaded(true);
+        // Anything that changes what is drawn or listed moves one of these: a new
+        // visit or a revisit (which is also how a title changes) bumps the newest
+        // last_ms, a snapshot lights a node, a forget changes the set of ids.
+        let newest = 0;
+        let snaps = 0;
+        let ids = 0;
+        for (const v of g.visits) {
+          if (v.last_ms > newest) newest = v.last_ms;
+          if (v.snapshot_id != null) snaps++;
+          ids += v.id;
+        }
+        const sig = `${ws}|${limit ?? "all"}|${g.visits.length}|${ids}|${newest}|${snaps}|${g.edges.length}`;
+        if (sig === lastSig) return; // unchanged: keep the settled layout and the user's view
+        lastSig = sig;
         setVisits([...g.visits].sort((a, b) => b.last_ms - a.last_ms));
         setEdges(g.edges);
-        setLoaded(true);
       })
-      .catch(() => setLoaded(true));
+      .catch(() => {
+        if (mine === seq) setLoaded(true);
+      });
   };
 
-  // Refresh on workspace switch and on a slow tick — browsing adds visits while
-  // this sits open, but a sidebar widget shouldn't poll hard. An *effect*, not a
-  // memo: memos are lazy, so a memo used for a side effect never runs unless
-  // something reads it.
-  createEffect(() => {
-    activeWorkspace();
-    load();
-  });
-  const timer = window.setInterval(load, 30_000);
-  onCleanup(() => window.clearInterval(timer));
+  // Refresh on workspace switch, on opening or closing the list (with or without
+  // the cap), and on a slow tick: browsing adds visits while this sits open, but
+  // a sidebar widget shouldn't poll hard, and not at all while the window is
+  // hidden. `on` tracks only those two: load() also reads activeWorkspaceName(),
+  // i.e. workspaces(), which every tab open/close replaces. Deferred because
+  // visibleInterval already loads once at start (and again on every re-show).
+  createEffect(on([activeWorkspace, open], load, { defer: true }));
+  visibleInterval(load, 30_000);
 
   const filtered = createMemo(() => {
     const needle = q().trim().toLowerCase();
@@ -215,7 +243,7 @@ const TrailMini: Component = () => {
   /** Rebuild the node set from the current visits, seeding positions
    *  deterministically so a refresh doesn't scramble the layout. */
   const rebuild = () => {
-    const vs = visits().slice(0, 140);
+    const vs = visits().slice(0, GRAPH_CAP);
     const index = new Map<number, number>();
     nodes = vs.map((v, i) => {
       index.set(v.id, i);
@@ -368,7 +396,9 @@ const TrailMini: Component = () => {
         >
           <span class="trailmini-spark">🧭</span>
           <span class="trailmini-label">Trail</span>
-          <span class="trailmini-count">{visits().length}</span>
+          <span class="trailmini-count">
+            {!open() && visits().length > GRAPH_CAP ? `${GRAPH_CAP}+` : visits().length}
+          </span>
         </button>
         <button
           class="trailmini-expand"

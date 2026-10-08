@@ -14,6 +14,21 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - Pages can no longer trigger Flux shortcuts without a key press, or from a background tab or closed panel. Only the chords the in-page shortcut forwarder produces are accepted.
 - Extensions with the `tabs` permission can open and navigate tabs only to http(s) URLs, not `javascript:`, `file:` or `flux:` ones.
 - The terminal's "Fix" button no longer types a suggestion containing a line break or control characters, which the shell would have run before you could review it.
+- With a proxy saved on macOS, where Flux can't route web pages through one, tabs, web panels, peeks and installed web apps refuse to load instead of quietly connecting directly, and a new proxy can't be saved there; clear the setting to browse again. On Windows and Linux, installed web apps now use the proxy too. Favicon and search-suggestion requests go through the proxy, or are skipped for a SOCKS proxy, instead of revealing your IP address.
+- Container tabs on macOS 14 and later get their own cookie and storage jar. They shared the default one before, so containers didn't keep logins apart, and sites you were signed into inside a container will ask you to sign in again. Older macOS versions still share one jar.
+- A deleted workspace's or container's id is never reused, so a new container no longer opens with a deleted container's cookies, and a new workspace doesn't inherit another's Trail visits.
+- Private tabs are kept out of named sessions, daily snapshots, sync and the link-prefetch model, and their favicons are never fetched or cached.
+- Pages need a click to open popups, and `window.open` honours its target. Page-opened peeks are rate-limited and stay in the page's own session. Pages can preconnect only to their own site's hosts, and can't make Flux fetch favicons from loopback or local-network addresses, directly or through a redirect. The favicon cache is size-bounded.
+- Pages can open only ordinary http(s) addresses through Flux (new tabs, peek promotion, feed links). What a page reports is tied to its own tab: find results, reader mode, drafts and macro recordings from other tabs are ignored, and page titles and URLs are length-capped before they reach sessions, history and the Trail. A hibernated tab's saved state is restored only on the site it came from.
+- Extensions' content scripts must come from the extension's own folder, and capability tokens are random, so one leaked token no longer reveals the others. `tabs.navigate` and the DOM read/inject APIs work only on tabs the extension's content scripts match, and extension storage has a quota.
+- The assistant: page text and tab titles can no longer forge the markers that fence off untrusted content, and agent-written page styles that would load outside resources are refused. Page text for Omni ingest goes only to `FLUX_OMNI_URL` or a local address. Replacing the Gemini key revokes the escalation granted to the old one. The assistant writes into Onyx without approval only when you explicitly ask, and the wake word must begin what you say, so background speech isn't run as a command.
+- The agent's folder check resolves symlinks and `..` the way the OS does, so a link can't lead outside an approved folder, and an unreadable approved-folders list now denies access instead of allowing it. Reads are size-bounded and refuse devices and FIFOs, and on Windows, WSL paths are checked and written inside WSL. A new Onyx note can't be created outside the vault folder or over an existing file.
+- Terminal dtach sockets and the bash startup file live in a per-user directory instead of the shared `/tmp`, and Flux connects only to an nvim socket you own. Running an agent command or inserting from shell history types only into a shell, never into the nvim column or a TUI app.
+- The vault's auto-lock fires again: pages checking for saved logins and Flux's own polling no longer count as activity. Autofill skips hidden password fields and never types your username into a site's search box.
+- An unreadable or truncated sync file is now reported as an error. A truncated one used to crash Flux, and an unreadable one was treated as missing, which forked the sync identity and could push over remote changes that hadn't been merged. An empty keychain no longer creates a new key over an existing vault, key-derivation settings read from an import or `keywrap.json` are bounded before use, and syncs run one at a time through a unique, flushed staging file.
+- Sentinel: an AI "legitimate" verdict can soften a structural high-risk phishing warning but no longer erase it, and verdicts are about the page that loaded, not whichever tab has focus. Gmail's full-access, settings/forwarding, compose and insert permissions are described as the write access they grant.
+- "Forget the whole Trail" also removes the forgotten visits' snapshots, chats and drafts. A snapshot or chat reply that arrives after its page was forgotten is dropped, and pages forgotten during a knowledge-base rebuild stay out of it. Draft capture refuses a card number even when another group of digits sits next to it.
+- Clearing a site's cookies, and clear-on-close, delete that site's cookies on every engine; on WebView2 they matched nothing. HTTPS-only mode and its exceptions, clear-on-close sites, the permission block and the shields allowlist now survive a restart. WebView2 no longer saves site-permission answers in the browser profile, and outside Windows, permission blocking is no longer shown as enforced.
 
 ### Fixed
 - Non-English text could crash Flux in semantic find, omnibox snippets, page watching, mail subjects and senders, tab hibernation, and when pasting a Gemini API key. Each cut text at a byte offset inside a character.
@@ -26,6 +41,70 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - Undoing a file move no longer overwrites a file that has since been created at the original location.
 - A page with a NUL character in its title no longer stops terminals from starting while it's the active tab.
 - A page could hang the browser with a URL built to make research-entity extraction quadratic.
+- Flux no longer starts empty over a file it couldn't read. An unreadable session, saved-sessions, notes, launcher, TUI-app, boosts, page-watch, extension-storage or reminders file is kept or set aside instead of overwritten, and the agent's memory file is appended to rather than rewritten from a failed read.
+- History, the Trail stores and the audit log are flushed on exit, and a failed Trail save is retried. An older copy of bookmarks, sessions, transcripts or a Trail store can no longer be saved over a newer one, and loading the Trail or the audit log while something is being recorded no longer drops the earlier history.
+- Knowledge base: a crash during a save can no longer wipe the index, and rebuilding one source can't clear the others when the embedding model changes. The index records the Ollama model that built it, so changing `FLUX_EMBED_MODEL` doesn't mix incompatible vectors. CRLF notes and very long paragraphs are embedded in full, the Onyx vault watch follows a changed vault path, a source skipped because another build was running is retried, and PDFs and Scribe pages are indexed on every pass.
+- Sync merges: moving a calendar event, or renaming or moving a to-do, no longer brings the old copy back on another device. A synced Scribe notebook keeps its page order, and deleting one of several same-named sessions no longer deletes the others.
+- Scribe and whiteboards: autosaves are written in order and flushed to disk off the UI thread, and an edit made during a save is no longer lost when you leave the page. Transcribe reads the page as shown. Pages the agent wrote open with their content instead of blank, and are no longer overwritten. Whiteboard windows share one set of boards instead of overwriting each other's saves, and a failed save shows a banner. Deleting a whiteboard, or clearing the last one, asks in Flux; on macOS the browser dialog it used never appeared, so deleting a whiteboard did nothing.
+- PDFs: unsaved annotations and page edits survive switching tabs, and two viewers of one PDF no longer erase each other's notes. A text layer no longer replaces the stored OCR transcript. Notes the PDF's font can't encode are written as `?` instead of failing Save, a page operation waits for the previous one, and "Save original" saves the bytes Flux loaded. Deleting or re-rendering a page no longer leaves stale canvases behind.
+- Files: copying a folder recreates empty directories and dangling symlinks, case-only renames work on case-insensitive volumes, and a multi-file move that fails partway can still be undone for the files that moved. Paths containing `#` or `?` open correctly, UNC paths get correct breadcrumbs, and rename-by-content renames the file that was analysed. Older refreshes, previews and search results can no longer replace newer ones.
+- Page watches are saved atomically and in order, and a repeated Watch click can't add a duplicate. A failed baseline embedding reports no change instead of the whole page as new.
+- The start page's scratchpad no longer drops a pending save when you navigate away, or accepts typing before the saved note has loaded, and an older calendar load can't undo a fresh edit. Editing or dragging one occurrence of a repeating event no longer moves the whole series, and deleting one asks first. Dragged events keep their duration and never end at 24:00.
+- Calendar feeds: alarms no longer overwrite an event's details, a moved single occurrence replaces the original, and UTC times show on your clock. Monthly rules such as "second Tuesday" (BYDAY ordinals and BYSETPOS) expand correctly, and an oversized feed is refused rather than read in part. The docked calendar's "today" moves at midnight, and Escape closes it only when pressed inside it. A home calendar filter for a removed calendar no longer hides every event, and the task editor saves when focus leaves it.
+- Mail: encoded subjects and senders that begin with an escape decode correctly. "Mark all read" sends bounded, silent updates, and its confirmation names every unread message. The inbox poll stops when the pane closes.
+- Fewer freezes. These now run off the UI thread:
+  - saving the session;
+  - system and task-manager stats;
+  - archive search;
+  - opening downloads;
+  - closing terminals;
+  - keychain access;
+  - omnibox semantic search;
+  - agent place lookups;
+  - rewriting the PDF text store;
+  - Sync;
+  - the ambient error scan.
+
+  The Trail stores no longer wait behind knowledge-base indexing to save, and the Trail page draws the newest 1,200 visits instead of the whole Trail.
+- Network calls that could hang now time out: IMAP, Ollama model listing and generation, and page-watch, feed, calendar and PDF downloads, which are bounded as a whole. Generation is streamed, so a stall times out rather than a long reply. Auto-ingest posts are bounded too, cloud text-to-speech is no longer cut off after 30 seconds, and a timed-out command kills its whole process group.
+- Content blocking: macOS compiles the blocker rules once per run instead of once per tab, and shields and lean mode no longer evict each other's filter engines. One procedural element-hiding selector no longer disables every hiding rule on a page. "Update filter lists" really re-downloads the lists, runs one update at a time and writes the list files atomically. An HTTPS-only exception covers the page's subresources, and IPv6 hosts are parsed correctly.
+- Less background work: the passwords popover, Trail mini-map, music bubble and GPU stats poll less, or stop while hidden or missing, and a crashed audio-visualiser helper is relaunched at most once a minute. PDFs share one PDF.js worker and render only the pages near the viewport. A calendar feed imports in one batch, and page scripts remember a "no saved login" answer per field. On Windows, OCR, transcription, voice and WSL helpers no longer flash a console window.
+- The agent: compiled page actions report back to the panel, the click guard reads every label of the target, and typing works in rich-text editors instead of reporting false success. Chat-with-tabs fits about seven tabs and says when it left some out, and `num_ctx` from `FLUX_OLLAMA_OPTIONS` is honoured. An Ollama stream that errors or stops short is reported as an error instead of an answer, a reply that reaches the length limit is kept, and changing the cloud model no longer waits for a running request.
+- The assistant panel: multi-step chains wait for the right card and settle when a command is blocked. Stop cancels a voice-started reply, stopping speech really stops it, and releasing push-to-talk before the mic opens cancels the recording. "Change it" edits the last real file, and calendar, reminder, memory and `/lens` requests reach their handlers. Note cards can't be added twice, page-thread messages are filed under the page you're on, and turning "Hey Gemma" off while the mic is starting keeps it off. Saved chats stay under the storage quota by dropping the oldest, and a chat isn't swapped out or deleted while a reply is still being written into it.
+- Terminal: a terminal tab starts in its own directory rather than the active tab's. On macOS, shells start as login shells, so a Flux launched from the Dock gets your PATH. The nvim column is found through your login shell, exits with nvim and reports a missing nvim, and new TUI panes and column splits can't reattach to an app from an earlier run. Explain/Fix sends the command and the end of long output, and a dismissed answer no longer reappears or types over your prompt. Reindexing shell history keeps your search.
+- Tabs and layout:
+  - Ctrl+1–9 picks tabs in the current workspace.
+  - Closing the active tab falls back to a tab in the visible workspace.
+  - Switching workspaces changes the active tab before closing the old workspace's pages.
+  - Split, tile and quad layouts keep their panes, sizes and live pages, and split actions apply to the split you clicked.
+  - Opening a background tab no longer moves the active tab.
+  - The notes popover saves each edit to the page it was typed for.
+  - Escape cancels an inline rename on Windows.
+  - Double-clicking a bookmark chip to rename it no longer navigates.
+  - An emptied omnibox stays empty.
+  - The link menu is no longer hidden behind the page.
+  - A floating pane's title bar can't be dragged out of reach.
+- Scribe and ink: cropping and erasing text follow its painted lines, and an edited text block keeps its colour and size. Undo clears the lasso selection, and canvas shortcuts don't fire while you type. Citations open the Scribe page, and proofread's Apply changes only an unambiguous whole word outside maths. The equation editor takes focus and inserts at the caret, and `$$…$$` becomes display maths while prices like $10 stay text. Text-only pages can be published to Onyx.
+- History and the Trail: repeat visits are deduplicated over a sliding window and pick up late titles, and a page counts as revisited only after a real gap. Constantly changing pages are still captured, because the snapshot debounce has a 2-second maximum wait. The Trail chat keeps every reply token while you select another node, "Forget…" forgets the time window shown on screen, and the tracker narrative counts blocked trackers correctly.
+- Sentinel and consent: common sign-in and asset domains of Steam, Discord, YouTube, GitHub, Reddit and Dropbox are no longer flagged as phishing. Footer cookie links aren't mistaken for a consent banner, and a site's banner is explained once rather than on every page view. The consent rejecter clicks only inside the banner, and the consent bar acts on the tab it was shown for.
+- Media and system: the audio visualiser no longer drops its stream three seconds after connecting, and volume drags apply in order without the slider jumping back. The speed test measures ping and upload over a warmed connection, and re-attaches to a test in progress instead of starting another. AudioPulse launches once. A second "clear browsing data" queues behind the first instead of cancelling it, and on Windows it clears container jars too; it says so when there's nothing it can clear. The task manager reports swapping only when RAM is nearly full, and asks in-page before ending a task, naming the exact process. A boost injects the current page's own CSS, and Spotify's rotated refresh token is kept.
+- Start page and settings: the calculator reads signed exponents and edits at the caret, and currency rates load without stalling the start page. Only the topmost dialog traps focus. Manually added permission rules are stored under the host Flux checks, and the policy red-flags banner starts fresh for each policy. Switching theme updates colours at once, and an alarm whose minute fell between clock ticks still rings. Reminders understand "in a couple of hours" and keep their wall-clock time across daylight-saving changes. The "Save password?" bar reports a failed save and keeps the password for a retry.
+- Smaller fixes:
+  - Internal pages title only their own tab.
+  - The bookmarks import menu loads Chrome profiles when it opens.
+  - Boost and macro editors keep focus and renames across refreshes.
+  - Pages release their event listeners when closed.
+  - Snapshots are published only for Flux's own pages, are deferred rather than dropped inside the 5-second floor, and refresh the connections rail.
+  - The aurora backdrop repaints after a resize.
+  - Web-panel slots keep their own toolbar.
+  - Feed lists ignore superseded loads.
+  - Auto-archive closes a stale branch's tabs instead of blanking them, and names the branch from tab titles alone.
+  - Closing a session's tabs asks in-page.
+  - Tab grouping drops stale topic tags.
+  - Keyboard navigation sees inputs inside shadow DOM.
+  - The Fill chip stays visible on login forms that use sign-up wording.
+  - A strong-password fill on a change-password form leaves the current password alone.
+  - The find bar keeps the first character you type.
 
 ### Fixed
 - The Browse and Research layout presets no longer switch off the ambient connections rail (and its system monitor). Applying either preset had turned the rail off and persisted that, so it stayed hidden afterwards. Develop still gives the width to the editor and terminal.

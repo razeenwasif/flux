@@ -16,6 +16,10 @@ interface MenuState {
   url: string;
 }
 const [menu, setMenu] = createSignal<MenuState | null>(null);
+/** Open state for the store's overlay registry. Clamped on-screen from the
+ *  bookmark bar, the menu overlaps the content card, where the native page
+ *  webview (an OS layer above all chrome HTML) would cover its first items. */
+export const linkMenuOpen = (): boolean => menu() !== null;
 
 /** Open the link menu at the cursor for `url` (suppresses the browser menu). */
 export function openLinkMenu(e: MouseEvent, url: string): void {

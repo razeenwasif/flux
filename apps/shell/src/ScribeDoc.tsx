@@ -50,6 +50,22 @@ const strokesToPng = (ss: Stroke[]): string | null => {
   return c.toDataURL("image/png");
 };
 
+const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{M}\p{N}_]/u.test(c);
+
+/** Where `span` occurs in `text` as whole words, up to `limit` of them: "its"
+ *  is not in "units", nor "there" in "therefore". An edge of the span that
+ *  isn't a word character (a space, a full stop) needs no boundary there. */
+export const wordHits = (text: string, span: string, limit = Infinity): number[] => {
+  const out: number[] = [];
+  if (!span) return out;
+  for (let i = text.indexOf(span); i >= 0 && out.length < limit; i = text.indexOf(span, i + 1)) {
+    const startOk = !isWordChar(span[0]) || !isWordChar(text[i - 1]);
+    const endOk = !isWordChar(span[span.length - 1]) || !isWordChar(text[i + span.length]);
+    if (startOk && endOk) out.push(i);
+  }
+  return out;
+};
+
 /** Parse a page's stored content, upgrading the pre-document format. */
 export const parseDoc = (raw: string): DocModel => {
   let v: unknown;
@@ -58,9 +74,17 @@ export const parseDoc = (raw: string): DocModel => {
   } catch {
     return { v: 2, html: "", objects: [] };
   }
-  if (v && typeof v === "object" && (v as DocModel).v === 2) {
-    const d = v as DocModel;
-    return { v: 2, html: d.html ?? "", objects: d.objects ?? [] };
+  // A document is any object with an `html` string, `v` or not: the agent's
+  // `Page::document` (notewrite NewPage) writes `{"html": …}` alone, which Rust's
+  // page_text already reads as one. Keyed on `v === 2`, such a page opened
+  // blank, and the first keystroke saved that blank over it.
+  const d = v as Partial<DocModel> | null;
+  if (d && typeof d === "object" && !Array.isArray(d) && (d.v === 2 || typeof d.html === "string")) {
+    return {
+      v: 2,
+      html: typeof d.html === "string" ? d.html : "",
+      objects: Array.isArray(d.objects) ? d.objects : [],
+    };
   }
   // Legacy: a bare Stroke[]. Typed blocks become paragraphs (in reading order),
   // and the ink is flattened into a single full-page object.
@@ -256,8 +280,13 @@ const ScribeDoc: Component<Props> = (props) => {
   const [mathHtml, setMathHtml] = createSignal("");
   const [mathErr, setMathErr] = createSignal("");
   let previewTimer: number | undefined;
+  // Where the caret was when the editor opened for a new equation.
+  let mathCaret: Range | null = null;
 
   const promptForMath = (el?: HTMLElement) => {
+    const sel = window.getSelection();
+    const r = !el && sel?.rangeCount ? sel.getRangeAt(0) : null;
+    mathCaret = r && body.contains(r.commonAncestorContainer) ? r.cloneRange() : null;
     setMathEdit({ el: el ?? null, display: el ? el.dataset.display === "1" : true });
     setMathTex(el?.dataset.tex ?? "");
     setMathHtml("");
@@ -266,6 +295,17 @@ const ScribeDoc: Component<Props> = (props) => {
   const closeMath = () => {
     clearTimeout(previewTimer);
     setMathEdit(null);
+    // Back to the page, where the caret was. The editor took focus, and focusing
+    // the page alone puts the caret at its very start (Blink and WebKit don't
+    // restore a contenteditable's selection), so a new equation landed there.
+    const r = mathCaret;
+    mathCaret = null;
+    if (r) {
+      body.focus();
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+    }
   };
 
   // Preview, debounced — KaTeX on every keystroke of a long formula is wasted
@@ -380,28 +420,47 @@ const ScribeDoc: Component<Props> = (props) => {
    *  (Writing a text node does collapse the caret to the start of that node, but
    *  focus is on this button when it happens, so nothing visible moves.)
    *
-   *  It can miss: the page may have been edited since the check, or the span may
-   *  straddle two nodes (half of it bold). That's reported rather than swallowed
-   *  — a button that silently does nothing is worse than no button. */
+   *  It can miss: the page may have been edited since the check, the span may
+   *  straddle two nodes (half of it bold), or it may occur more than once. That's
+   *  reported rather than swallowed — a button that silently does nothing is
+   *  worse than no button. */
   const applyFix = (f: TextFix): boolean => {
-    const walk = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
-    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-      const v = n.nodeValue ?? "";
-      const i = v.indexOf(f.before);
-      if (i < 0) continue;
-      n.nodeValue = v.slice(0, i) + f.after + v.slice(i + f.before.length);
+    // Not inside rendered maths: that text is KaTeX's output, saved beside
+    // `data-rendered` and reused on reload, so editing it corrupts the equation.
+    const walk = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) =>
+        n.parentElement?.closest(MATH_SEL) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    });
+    // Whole words, and exactly one occurrence: the first raw match turned
+    // "units" into "unit's" for an its → it's fix, and the suggestion doesn't
+    // say which copy of a repeated word it meant, so that is refused, not guessed.
+    const hits: { n: Node; i: number }[] = [];
+    for (let n = walk.nextNode(); n && hits.length < 2; n = walk.nextNode()) {
+      for (const i of wordHits(n.nodeValue ?? "", f.before, 2 - hits.length)) hits.push({ n, i });
+    }
+    const hit = hits.length === 1 ? hits[0]! : null;
+    if (hit) {
+      const v = hit.n.nodeValue ?? "";
+      hit.n.nodeValue = v.slice(0, hit.i) + f.after + v.slice(hit.i + f.before.length);
       setFixes((all) => all?.filter((x) => x !== f) ?? null);
       emit();
       return true;
     }
-    setFixErr(`Couldn't find “${f.before}” — the text changed, or it spans formatting.`);
+    setFixErr(
+      hits.length > 1
+        ? `“${f.before}” appears more than once — fix the right one by hand.`
+        : `Couldn't find “${f.before}” — the text changed, or it spans formatting.`,
+    );
     return false;
   };
 
   const applyAll = () => {
     setFixErr("");
     const missed = (fixes() ?? []).filter((f) => !applyFix(f)).length;
-    if (missed) setFixErr(`${missed} suggestion${missed > 1 ? "s" : ""} no longer match the text.`);
+    if (missed)
+      setFixErr(
+        `${missed} suggestion${missed > 1 ? "s" : ""} couldn't be applied: the text changed, or the words appear more than once.`,
+      );
   };
 
   // ── ink objects ──
@@ -695,7 +754,10 @@ const ScribeDoc: Component<Props> = (props) => {
 
               <textarea
                 class="mathed-src"
-                autofocus
+                // Not `autofocus`: it's skipped for an element inserted while
+                // something else has focus (HTML's "flush autofocus candidates"),
+                // and after Ctrl+M that's the page, which then got the typing.
+                ref={(el) => requestAnimationFrame(() => el.focus())}
                 spellcheck={false}
                 placeholder="\\int_0^1 x^2\\,dx = \\frac{1}{3}"
                 value={mathTex()}

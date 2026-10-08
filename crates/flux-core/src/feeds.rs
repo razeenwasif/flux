@@ -111,6 +111,9 @@ fn fetch_text(url: &str) -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(30))
+        // Each read is bounded, but not the response: a server dribbling bytes
+        // held this, and every feed fetched after it, indefinitely.
+        .timeout(Duration::from_secs(60))
         .build();
     let resp = agent
         .get(url)
