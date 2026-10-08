@@ -919,6 +919,9 @@ const AgentPanel: Component = () => {
       }
       if (block) {
         setFeed((f) => [...f, { role: "error", text: block! }]);
+        // A /fix or chain step may be parked on this card's gate. Without this it
+        // never resolves: taskRunning() stays true and the panel is locked.
+        resolveChainGate(true, `BLOCKED, nothing ran: ${block} Use a non-destructive command.`);
         return;
       }
       // Baseline = the prompt's cursor row BEFORE running, so we read exactly this
@@ -930,6 +933,7 @@ const AgentPanel: Component = () => {
         // still executes and returns something.
         const out = await runShell(cmd);
         setFeed((f) => [...f, { role: "assistant", text: out }]);
+        resolveChainGate(true, out || "(ran headless, no output)");
         return;
       }
       const out = (await readBackTerminal(baseline)).trim();
