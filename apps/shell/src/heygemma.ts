@@ -2,7 +2,7 @@
 //
 // How it works: one mic stream is VAD-segmented into utterances (speech bounded by
 // silence). Each finished utterance is transcribed locally (Vosk, reusing the
-// push-to-talk path). While *armed* we only act on an utterance that contains the
+// push-to-talk path). While *armed* we only act on an utterance that opens with the
 // wake word "gemma" — anything else is discarded immediately (never sent to the
 // agent, never stored). After the wake word we enter a short *warm* window where
 // follow-ups need no wake word, so you can keep talking. The injected handler runs
@@ -44,8 +44,13 @@ export const [listening, setListening] = createSignal(false);
 /** Short human-readable status for the indicator tooltip. */
 export const [voiceStatus, setVoiceStatus] = createSignal("");
 
-// The wake word + a few near-misses Vosk tends to emit for "gemma".
-const WAKE = /\b(?:hey\s+)?(?:gemma|gems?|gema|jemma|gamma|gemini|hmm|a\s+german|jim)\b/i;
+// The wake word + a few near-misses Vosk tends to emit for "gemma". Anchored: the
+// wake word has to OPEN the utterance. Whisper punctuates it ("Hey, Gemma, …"),
+// so leading punctuation and a comma after the greeting are allowed. "hmm" (a
+// filler, not a mishearing) is gone: unanchored, any sentence that merely
+// contained "jim"/"gemini"/"gamma"/"hmm" was run as a command.
+export const WAKE =
+  /^[\s"'.,!?-]*(?:(?:hey|hi|ok(?:ay)?)[\s,.!-]+)?(?:gemma|gems?|gema|jemma|gamma|gemini|a\s+german|jim)\b/i;
 const SILENCE_S = 0.8; // trailing silence that ends an utterance (longer = less cut-off)
 const MIN_SPEECH_S = 0.2; // ignore shorter blips (coughs, clicks)
 const MAX_UTTER_S = 12; // hard cap on one utterance
@@ -189,7 +194,7 @@ async function transcribeCommand(b64: string, voskText: string): Promise<string>
     return "";
   }
 }
-function stripWake(text: string): string {
+export function stripWake(text: string): string {
   const m = WAKE.exec(text);
   return m
     ? text
