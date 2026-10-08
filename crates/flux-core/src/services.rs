@@ -92,9 +92,9 @@ fn start(s: &Service) -> Result<(), String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW (no console flash)
     }
-    // spawn() (not output()/wait) returns immediately; we drop the Child, which
-    // does NOT kill it — the server keeps running.
-    cmd.spawn()
+    // Returns immediately and kills nothing: the server keeps running. Reaped off
+    // thread, so a server that exits while Flux is up doesn't linger as a zombie.
+    crate::exec::spawn_reaped(&mut cmd)
         .map(|_| ())
         .map_err(|e| format!("couldn't start {}: {e}", s.name))
 }

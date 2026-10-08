@@ -6,7 +6,7 @@
 //! agent-authored path (it can't execute/exfiltrate); JS boosts are supported in
 //! the store for power users to add by hand, but the agent only ever writes CSS.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::RwLock;
@@ -69,15 +69,59 @@ impl Default for BoostStore {
     }
 }
 
+/// Move a boosts.json that can't be loaded aside, so the next save can't replace
+/// the user's boosts with an empty list. `false` if it couldn't be moved: the
+/// caller must then not save at all this run.
+fn set_aside(path: &Path, why: &str) -> bool {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    let mut name = path
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(".unreadable-{ms}"));
+    let aside = path.with_file_name(name);
+    match std::fs::rename(path, &aside) {
+        Ok(()) => {
+            tracing::error!(
+                target: "flux::boosts",
+                path = %path.display(),
+                aside = %aside.display(),
+                "boosts {why}; moved aside instead of being overwritten"
+            );
+            true
+        }
+        Err(e) => {
+            tracing::error!(
+                target: "flux::boosts",
+                path = %path.display(),
+                "boosts {why} and couldn't be moved aside ({e}); left untouched and not saved this run"
+            );
+            false
+        }
+    }
+}
+
 impl BoostStore {
+    /// Load the store. One bad entry fails the whole file (and hand-editing it is
+    /// how JS boosts get added), so a file that won't load is set aside rather
+    /// than silently treated as empty and overwritten by the next save.
     pub fn restore(path: PathBuf) -> Self {
-        let boosts: Vec<Boost> = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let (boosts, saving) = match std::fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice::<Vec<Boost>>(&bytes) {
+                Ok(boosts) => (boosts, true),
+                Err(e) => (Vec::new(), set_aside(&path, &format!("didn't parse ({e})"))),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
+            Err(e) => (
+                Vec::new(),
+                set_aside(&path, &format!("couldn't be read ({e})")),
+            ),
+        };
         let next = boosts.iter().map(|b| b.id).max().unwrap_or(0) + 1;
         Self {
-            path: Some(path),
+            path: saving.then_some(path),
             inner: RwLock::new(boosts),
             next_id: AtomicU64::new(next),
         }
@@ -172,9 +216,18 @@ impl BoostStore {
     }
 }
 
-/// Re-apply a host's enabled CSS boosts to the active webview now (instant
-/// feedback after authoring / toggling, without a reload).
-fn reinject_active(app: &AppHandle, host: &str) {
+/// The CSS a page should be showing: its own host's enabled boosts, the same
+/// thing a reload injects (`on_page_load` in webview.rs).
+fn page_css(store: &BoostStore, page_url: &str) -> String {
+    store.injection_for(&host_of(page_url)).0
+}
+
+/// Re-apply the active page's enabled CSS boosts now (instant feedback after
+/// authoring / toggling, without a reload). The host comes from the page, not
+/// the edited boost: that can belong to another site ("All sites"), be a base
+/// domain while the tab is on a subdomain, or (after a slow `boost_author`) the
+/// user may have switched tabs.
+fn reinject_active(app: &AppHandle) {
     let Some(state) = app.try_state::<crate::state::FluxState>() else {
         return;
     };
@@ -187,7 +240,10 @@ fn reinject_active(app: &AppHandle, host: &str) {
     let Some(wv) = app.get_webview(&format!("tab-{tab}")) else {
         return;
     };
-    let (css, _js) = store.injection_for(host);
+    let Ok(url) = wv.url() else {
+        return;
+    };
+    let css = page_css(&store, url.as_str());
     if let Ok(lit) = serde_json::to_string(&css) {
         let _ = wv.eval(format!(
             "(function(){{var c={lit};var d=document;var s=d.getElementById('flux-boost');\
@@ -223,15 +279,16 @@ pub fn boost_save(
     js: String,
     enabled: bool,
 ) -> Boost {
-    let b = store.save(id, host.clone(), name, css, js, enabled);
-    reinject_active(&app, &host);
+    let b = store.save(id, host, name, css, js, enabled);
+    reinject_active(&app);
     b
 }
 
 #[tauri::command]
 pub fn boost_delete(app: AppHandle, store: State<'_, BoostStore>, id: u64, host: String) {
+    let _ = host; // kept in the IPC signature; the active page decides what to re-inject
     store.delete(id);
-    reinject_active(&app, &host);
+    reinject_active(&app);
 }
 
 #[tauri::command]
@@ -242,8 +299,9 @@ pub fn boost_set_enabled(
     host: String,
     enabled: bool,
 ) {
+    let _ = host; // kept in the IPC signature; the active page decides what to re-inject
     store.set_enabled(id, enabled);
-    reinject_active(&app, &host);
+    reinject_active(&app);
 }
 
 /// Ask the local agent to write a CSS boost for the active page from a
@@ -269,8 +327,8 @@ pub async fn boost_author(app: AppHandle, instruction: String) -> Result<Boost, 
     }
     let name = instruction.chars().take(60).collect::<String>();
     let store = app.state::<BoostStore>();
-    let boost = store.save(None, host.clone(), name, css, String::new(), true);
-    reinject_active(&app, &host);
+    let boost = store.save(None, host, name, css, String::new(), true);
+    reinject_active(&app);
     Ok(boost)
 }
 
@@ -350,5 +408,69 @@ mod tests {
         assert_eq!(s.list().len(), 1);
         s.set_enabled(b.id, false);
         assert_eq!(s.injection_for("a.com").0, "");
+    }
+
+    #[test]
+    fn unparseable_store_is_set_aside_not_overwritten() {
+        let dir = std::env::temp_dir().join(format!("flux-boosts-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("boosts.json");
+        // A hand-added JS boost without `enabled` fails the whole file.
+        let original = br#"[{"id":7,"host":"a.com","name":"js","js":"alert(1)"}]"#;
+        std::fs::write(&path, original).unwrap();
+
+        let s = BoostStore::restore(path.clone());
+        assert!(s.list().is_empty());
+        s.save(
+            None,
+            "b.com".into(),
+            "new".into(),
+            "x{}".into(),
+            String::new(),
+            true,
+        );
+
+        let aside: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("boosts.json.unreadable-")
+            })
+            .collect();
+        assert_eq!(aside.len(), 1, "the unparseable file is kept");
+        assert_eq!(std::fs::read(aside[0].path()).unwrap(), original);
+        // The new boost still saves, to the usual file.
+        let saved: Vec<Boost> =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn live_css_follows_the_page_not_the_edited_boost() {
+        let s = BoostStore::default();
+        for (host, css) in [
+            ("github.com", "body{dark}"),
+            ("gist.github.com", "main{wide}"),
+            ("example.com", "p{ex}"),
+        ] {
+            s.save(
+                None,
+                host.into(),
+                "n".into(),
+                css.into(),
+                String::new(),
+                true,
+            );
+        }
+        // Toggling the example.com boost ("All sites"), or the base-domain
+        // github.com one, while on a gist page re-injects the gist page's own CSS:
+        // both github boosts, and nothing from another site.
+        let css = page_css(&s, "https://gist.github.com/someone/123");
+        assert!(css.contains("body{dark}") && css.contains("main{wide}"));
+        assert!(!css.contains("p{ex}"));
     }
 }

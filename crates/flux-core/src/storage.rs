@@ -120,6 +120,49 @@ pub fn profile_root(app: &AppHandle) -> Option<PathBuf> {
     }
 }
 
+/// Every engine profile: the default one, then each container's own jar.
+fn profile_roots(app: &AppHandle) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = profile_root(app).into_iter().collect();
+    if let Ok(dir) = app.path().app_data_dir() {
+        roots.extend(container_roots(&dir));
+    }
+    roots
+}
+
+/// The container jars under the app data dir. `webview.rs` gives a container's
+/// tabs `<app data>/containers/<n>` as their user-data folder, so on WebView2
+/// each one holds a whole `EBWebView` profile of its own.
+fn container_roots(app_data: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(app_data.join("containers")) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|e| {
+            let jar = e.path();
+            if cfg!(windows) {
+                jar.join("EBWebView")
+            } else {
+                jar
+            }
+        })
+        .collect()
+}
+
+/// The absolute paths `keys` cover in every profile, keeping only those that
+/// exist. On an engine whose layout isn't mapped (WKWebView, WebKitGTK) none of
+/// these Chromium paths do, and queuing them reported a clear that never happens.
+fn clear_targets(roots: &[PathBuf], keys: &[String]) -> Vec<String> {
+    CATEGORIES
+        .iter()
+        .filter(|c| keys.iter().any(|k| k == c.key))
+        .flat_map(|c| c.paths.iter())
+        .flat_map(|rel| roots.iter().map(move |r| r.join(rel)))
+        .filter(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect()
+}
+
 /// Total size of a directory tree, following no symlinks.
 ///
 /// Returns what it could read rather than failing: a profile with one unreadable
@@ -171,6 +214,23 @@ struct Pending {
     paths: Vec<String>,
 }
 
+impl Pending {
+    /// Add to the queue (a union): clearing cookies, then the cache, in two
+    /// clicks must clear both.
+    fn merge(&mut self, keys: Vec<String>, paths: Vec<String>) {
+        for k in keys {
+            if !self.keys.contains(&k) {
+                self.keys.push(k);
+            }
+        }
+        for p in paths {
+            if !self.paths.contains(&p) {
+                self.paths.push(p);
+            }
+        }
+    }
+}
+
 fn read_pending_file() -> Pending {
     marker_path()
         .and_then(|p| std::fs::read_to_string(p).ok())
@@ -187,11 +247,16 @@ fn read_pending(_app: &AppHandle) -> Vec<String> {
 pub async fn storage_usage(app: AppHandle) -> Result<StorageReport, String> {
     let pending = read_pending(&app);
     let root = profile_root(&app).ok_or("no app data directory")?;
+    let roots = profile_roots(&app);
     let report = tauri::async_runtime::spawn_blocking(move || {
         let entries: Vec<StorageEntry> = CATEGORIES
             .iter()
             .map(|c| {
-                let bytes: u64 = c.paths.iter().map(|p| dir_size(&root.join(p))).sum();
+                let bytes: u64 = c
+                    .paths
+                    .iter()
+                    .flat_map(|p| roots.iter().map(move |r| dir_size(&r.join(p))))
+                    .sum();
                 StorageEntry {
                     key: c.key.to_string(),
                     label: c.label.to_string(),
@@ -231,26 +296,29 @@ pub fn storage_clear(app: AppHandle, keys: Vec<String>) -> Result<String, String
     if known.is_empty() {
         return Err("nothing selected to clear".into());
     }
-    let root = profile_root(&app).ok_or("no app data directory")?;
-    let paths: Vec<String> = CATEGORIES
-        .iter()
-        .filter(|c| known.iter().any(|k| k == c.key))
-        .flat_map(|c| c.paths.iter())
-        .map(|rel| root.join(rel).to_string_lossy().to_string())
-        .collect();
-    let p = marker_path().ok_or("no app data directory")?;
-    if let Some(dir) = p.parent() {
-        let _ = std::fs::create_dir_all(dir);
+    let roots = profile_roots(&app);
+    if roots.is_empty() {
+        return Err("no app data directory".into());
     }
-    let json = serde_json::to_string(&Pending {
-        keys: known.clone(),
-        paths,
-    })
-    .map_err(|e| e.to_string())?;
-    std::fs::write(&p, json).map_err(|e| format!("couldn't queue the clear: {e}"))?;
+    let paths = clear_targets(&roots, &known);
+    if paths.is_empty() {
+        return Err(if cfg!(windows) {
+            "none of that is stored yet — nothing was queued".into()
+        } else {
+            "this engine keeps that data somewhere Flux can't clear yet — nothing was queued".into()
+        });
+    }
+    let p = marker_path().ok_or("no app data directory")?;
+    // Merge, don't replace: a second clear used to silently cancel the first.
+    // Atomic, so the boot pass never reads a torn marker as "nothing queued".
+    let mut pending = read_pending_file();
+    pending.merge(known, paths);
+    let json = serde_json::to_string(&pending).map_err(|e| e.to_string())?;
+    crate::persist::write_atomic(&p, json.as_bytes())
+        .map_err(|e| format!("couldn't queue the clear: {e}"))?;
     Ok(format!(
         "{} queued — deleted next time Flux starts.",
-        known.len()
+        pending.keys.len()
     ))
 }
 
@@ -357,5 +425,55 @@ mod tests {
         );
         // A healthy store must not.
         assert!(8 * MB < limit, "a normal service-worker store stays quiet");
+    }
+
+    #[test]
+    fn clear_covers_container_jars_and_skips_what_isnt_there() {
+        let dir = std::env::temp_dir().join(format!("flux-storage-jars-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let default = dir.join("local").join("EBWebView");
+        let app_data = dir.join("roaming");
+        assert!(container_roots(&app_data).is_empty(), "no containers yet");
+        std::fs::create_dir_all(app_data.join("containers").join("1")).unwrap();
+        let jar = container_roots(&app_data).remove(0);
+        for root in [&default, &jar] {
+            std::fs::create_dir_all(root.join("Default/Network")).unwrap();
+        }
+        std::fs::create_dir_all(jar.join("Default/Cache")).unwrap();
+        let roots = vec![default.clone(), jar.clone()];
+        let s = |p: PathBuf| p.to_string_lossy().to_string();
+
+        // Cookies are cleared from the container's jar too, not just the default.
+        assert_eq!(
+            clear_targets(&roots, &["cookies".into()]),
+            [
+                s(default.join("Default/Network")),
+                s(jar.join("Default/Network"))
+            ]
+        );
+        // Only the cache directories that exist are queued.
+        assert_eq!(
+            clear_targets(&roots, &["cache".into()]),
+            [s(jar.join("Default/Cache"))]
+        );
+        // A profile without this layout (WebKit) leaves nothing to queue.
+        assert!(clear_targets(&[dir.join("webkit")], &["cookies".into()]).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn queued_clears_accumulate() {
+        // Clear cookies, then (the picks reset) service workers: both stay queued.
+        let mut p = Pending::default();
+        p.merge(vec!["cookies".into()], vec!["/p/Default/Network".into()]);
+        p.merge(
+            vec!["serviceworkers".into(), "cookies".into()],
+            vec![
+                "/p/Default/Service Worker".into(),
+                "/p/Default/Network".into(),
+            ],
+        );
+        assert_eq!(p.keys, ["cookies", "serviceworkers"]);
+        assert_eq!(p.paths, ["/p/Default/Network", "/p/Default/Service Worker"]);
     }
 }

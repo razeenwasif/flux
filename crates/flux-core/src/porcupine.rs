@@ -14,24 +14,27 @@ const SERVICE: &str = "flux.porcupine";
 const ACCOUNT: &str = "access-key";
 
 /// Store (or, with an empty string, clear) the Picovoice access key. Keyring I/O
-/// can block (a keychain prompt, a cold Credential Manager), so these commands
-/// run it off the UI thread.
+/// can block (a macOS keychain prompt after a rebuild, a locked Secret Service
+/// collection), and a sync command runs on the UI thread, so these commands run
+/// it on the blocking pool.
 #[tauri::command]
 pub async fn porcupine_set_key(key: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        if !crate::vault::HAS_OS_KEYCHAIN {
-            return Err("no OS keychain on this platform, so the key can't be saved".into());
-        }
-        let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-        if key.trim().is_empty() {
-            let _ = entry.delete_credential();
-            Ok(())
-        } else {
-            entry.set_password(key.trim()).map_err(|e| e.to_string())
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || set_key(key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn set_key(key: String) -> Result<(), String> {
+    if !crate::vault::HAS_OS_KEYCHAIN {
+        return Err("no OS keychain on this platform, so the key can't be saved".into());
+    }
+    let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
+    if key.trim().is_empty() {
+        let _ = entry.delete_credential();
+        Ok(())
+    } else {
+        entry.set_password(key.trim()).map_err(|e| e.to_string())
+    }
 }
 
 /// Whether a Picovoice access key is stored.

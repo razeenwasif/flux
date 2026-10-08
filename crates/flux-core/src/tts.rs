@@ -93,10 +93,23 @@ const EL_SERVICE: &str = "flux.elevenlabs";
 const EL_ACCOUNT: &str = "api-key";
 const EL_API: &str = "https://api.elevenlabs.io/v1";
 
+/// One pooled agent for ElevenLabs and Fish Audio, so the voice preflight, the
+/// synthesis POST and the next reply reuse a keep-alive TLS connection instead
+/// of handshaking each time. Not `.timeout()`: in ureq 2 that is a whole-request
+/// deadline that also bounds reading the body, so long audio still streaming at
+/// 30 s was cut off (its credit spent anyway). Per-phase timeouts still fail a
+/// stalled server: 30 s without a byte.
 fn el_http() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(30))
-        .build()
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    AGENT
+        .get_or_init(|| {
+            ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(10))
+                .timeout_read(Duration::from_secs(30))
+                .timeout_write(Duration::from_secs(30))
+                .build()
+        })
+        .clone()
 }
 
 fn el_key() -> Result<String, String> {
@@ -291,7 +304,9 @@ fn is_plausible_el_key(token: &str) -> bool {
 }
 
 /// Store (or, with an empty string, clear) the ElevenLabs API key in the keyring.
-/// Keyring I/O can block, so it runs off the UI thread (see `gemini_set_key`).
+/// Async + `spawn_blocking`, like every keyring command here: a sync command
+/// runs on the UI thread, and keyring I/O can block there (a macOS keychain
+/// prompt after a rebuild, a locked Secret Service collection on Linux).
 #[tauri::command]
 pub async fn elevenlabs_set_key(key: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || el_set_key(key))
@@ -650,7 +665,7 @@ fn parse_fish_voice_ref(input: &str) -> String {
 }
 
 /// Store (or, with an empty string, clear) the Fish Audio API key in the keyring.
-/// Keyring I/O can block, so it runs off the UI thread (see `gemini_set_key`).
+/// Off the UI thread, as keyring I/O can block (see `elevenlabs_set_key`).
 #[tauri::command]
 pub async fn fishaudio_set_key(key: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || fish_set_key(key))

@@ -93,6 +93,22 @@ pub(crate) fn shell_command(cmd: &str) -> Command {
     }
 }
 
+/// Spawn a fire-and-forget process and reap it when it exits; returns its pid.
+/// Dropping a `Child` never waits on it, so on Unix every such process that
+/// exited stayed a zombie, holding a slot against the per-user process limit,
+/// until Flux quit. Kills nothing: a long-lived child keeps running as before.
+pub(crate) fn spawn_reaped(cmd: &mut Command) -> std::io::Result<u32> {
+    let mut child = cmd.spawn()?;
+    let pid = child.id();
+    // A failed thread spawn just leaves this one unreaped, as before.
+    let _ = std::thread::Builder::new()
+        .name("flux-reap".into())
+        .spawn(move || {
+            let _ = child.wait();
+        });
+    Ok(pid)
+}
+
 /// Safety pre-check for a command we're about to *type into the live terminal*
 /// (which bypasses `run_shell`'s capture path): returns the block reason, or None
 /// if it's allowed. Same denylist as the headless run.
@@ -298,6 +314,29 @@ mod tests {
         assert!(blocked_reason("rm -rf /").is_some());
         assert!(blocked_reason("del /f /q foo").is_some());
         assert!(blocked_reason("echo ok").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spawn_reaped_leaves_no_zombie() {
+        // A dropped `Child` that exits lingers as a zombie ("Z" in ps) until we
+        // quit. Reaped, its pid disappears from the process table.
+        let pid = spawn_reaped(&mut Command::new("true")).unwrap().to_string();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let ps = Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid])
+                .output()
+                .unwrap();
+            if String::from_utf8_lossy(&ps.stdout).trim().is_empty() {
+                break; // gone: reaped
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child {pid} was never reaped"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 
     #[test]
