@@ -46,6 +46,18 @@ pub fn blocked_reason(cmd: &str) -> Option<String> {
     None
 }
 
+/// Keep a console program from opening a window. Release Flux is a GUI-subsystem
+/// binary on Windows, so every console child (tesseract, whisper, piper,
+/// wsl.exe) otherwise gets a console window of its own, even with piped stdio.
+pub(crate) fn no_console(cmd: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 /// Build the command in the right shell: an explicit `FLUX_EXEC_SHELL`/`FLUX_SHELL`,
 /// else MSYS2 bash on Windows (matching the embedded terminal) / `sh` elsewhere.
 ///
