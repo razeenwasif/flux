@@ -330,6 +330,32 @@ impl LocalEventStore {
         ev
     }
 
+    /// Insert a batch (an import) under one lock and with one save — not a full
+    /// rewrite + fsync of the store per event. Each is stamped and un-buried as
+    /// `add` does. Returns how many were added.
+    pub fn add_many(&self, evs: Vec<LocalEvent>) -> u32 {
+        if evs.is_empty() {
+            return 0;
+        }
+        let n = evs.len() as u32;
+        let now = now_ms();
+        let mut items = self.items.write();
+        let mut tombs = self.tombstones.write();
+        for ev in evs {
+            let ev = LocalEvent {
+                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                updated_ms: now,
+                ..ev
+            };
+            tombs.remove(&event_key(&ev));
+            items.push(ev);
+        }
+        drop(tombs);
+        drop(items);
+        self.save();
+        n
+    }
+
     /// Overwrite only the fields that are `Some` (so a drag can move just date/time).
     #[allow(clippy::too_many_arguments)]
     pub fn update(
@@ -1300,26 +1326,13 @@ pub async fn cal_import_feed(
         .into_iter()
         .map(|e| (e.title, e.date, e.start))
         .collect();
-    let (mut imported, mut skipped) = (0u32, 0u32);
-    for ev in candidates {
-        if existing.contains(&(ev.title.clone(), ev.date.clone(), ev.start.clone())) {
-            skipped += 1;
-            continue;
-        }
-        let LocalEvent {
-            title,
-            date,
-            start,
-            end,
-            location,
-            notes,
-            rrule,
-            ..
-        } = ev;
-        local.add(title, date, start, end, location, notes, rrule);
-        imported += 1;
-    }
-    Ok((imported, skipped))
+    let total = candidates.len() as u32;
+    let fresh: Vec<LocalEvent> = candidates
+        .into_iter()
+        .filter(|ev| !existing.contains(&(ev.title.clone(), ev.date.clone(), ev.start.clone())))
+        .collect();
+    let imported = local.add_many(fresh);
+    Ok((imported, total - imported))
 }
 
 /// Fetch + parse every subscribed calendar; returns events sorted by date. A
@@ -1510,6 +1523,20 @@ END:VCALENDAR";
         // Past the cap, every VEVENT after the cut used to vanish silently.
         assert!(read_ics(feed(MAX_ICS_BYTES + 1)).is_err());
         assert!(read_ics(feed(0)).is_err(), "empty is still an error");
+    }
+
+    #[test]
+    fn an_import_lands_as_one_batch_of_editable_events() {
+        let s = LocalEventStore::default();
+        let old = event_at(&s, "Team sync", "2026-06-19", "10:00");
+        s.remove(old.id);
+        assert_eq!(s.add_many(ics_to_local_events(ICS, 0)), 2);
+        let got = s.list();
+        assert_eq!(got.len(), 2);
+        assert!(got[0].id != got[1].id && got.iter().all(|e| e.id > old.id));
+        // Importing a deleted event again un-buries it, as re-creating it does.
+        s.merge(Vec::new(), &Default::default());
+        assert_eq!(s.list().len(), 2, "the old tombstone deleted the import");
     }
 
     #[test]
