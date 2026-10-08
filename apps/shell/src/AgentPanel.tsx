@@ -240,13 +240,19 @@ const AgentPanel: Component = () => {
     setFeed([]);
     setChatsMenu(false);
   };
+  // Streams, OCR progress and task steps write into the feed BY INDEX; swapping
+  // the feed under them splices their text into another saved chat. `listening`
+  // covers voice commands, which read PDFs (OCR progress) without setting busy.
+  const feedLocked = () => busy() || listening() || taskRunning();
   const loadSession = (s: ChatSession) => {
+    if (feedLocked()) return;
     currentId = s.id;
     setFeed(s.feed.map((it) => ({ ...it })));
     setChatsMenu(false);
   };
   const deleteSession = (id: string, e: MouseEvent) => {
     e.stopPropagation();
+    if (id === currentId && feedLocked()) return;
     persistChats(chats().filter((s) => s.id !== id));
     if (currentId === id) {
       currentId = "";
