@@ -139,9 +139,18 @@ const ConnectionsRail: Component = () => {
   onMount(() => {
     let un: (() => void) | undefined;
     void onDomUpdated(() => schedule()).then((u) => (un = u));
+    // Flux's own pages (Notebook, Scribe…) publish without a dom-updated, and only
+    // >=900 ms after they render — after the post-switch refresh below has already
+    // queried — so they were never related to anything until you pressed ↻.
+    // kb_related reads the active tab's snapshot, so only that tab's publish counts.
+    const onInternalPublished = (e: Event) => {
+      if ((e as CustomEvent<number>).detail === activeId()) schedule();
+    };
+    window.addEventListener("flux:internal-published", onInternalPublished);
     onCleanup(() => {
       un?.();
       clearTimeout(timer);
+      window.removeEventListener("flux:internal-published", onInternalPublished);
     });
   });
   // Re-query whenever the active tab changes (also runs once on mount).

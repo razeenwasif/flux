@@ -250,7 +250,15 @@ const LiquidBackground: Component<{ active: () => boolean; onFallback?: () => vo
       c.height = Math.max(1, Math.round(ch * 0.8));
       aspect = c.width / c.height;
     };
-    const ro = new ResizeObserver(resize);
+    // Resizing reallocates (and clears) the drawing buffer. While the loop runs the
+    // next frame repaints it, but paused (reduced motion, blurred window, splitter
+    // drag) nothing did, and the backdrop stayed blank — so repaint the still frame.
+    // The observer first calls back after this setup has run, so `render`/`running`
+    // are initialized by then.
+    const ro = new ResizeObserver(() => {
+      resize();
+      if (!running) render();
+    });
     ro.observe(c);
     resize();
 

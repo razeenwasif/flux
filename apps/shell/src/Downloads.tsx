@@ -43,10 +43,26 @@ const Downloads: Component = () => {
     void downloadsList()
       .then(setItems)
       .catch(() => {});
-  onMount(async () => {
+  // `download-updated` fires per received chunk (WebKitGTK received-data, WebView2
+  // BytesReceivedChanged); coalesce a burst into at most one list IPC per 250 ms.
+  let evTimer: number | undefined;
+  const refreshSoon = () => {
+    if (evTimer != null) return;
+    evTimer = window.setTimeout(() => {
+      evTimer = undefined;
+      refresh();
+    }, 250);
+  };
+  onMount(() => {
     refresh(); // initial — for the badge at startup
-    const un = await onDownloadUpdated(refresh);
-    onCleanup(un);
+    // Cleanup wired synchronously: an onCleanup after `await` has no owner and
+    // never runs, so every fold/unfold of the sidebar footer (this mounts under
+    // <Show when={footerOpen()}>) leaked one more listener.
+    const sub = onDownloadUpdated(refreshSoon);
+    onCleanup(() => {
+      clearTimeout(evTimer);
+      void sub.then((un) => un()).catch(() => {});
+    });
   });
 
   const active = createMemo(
