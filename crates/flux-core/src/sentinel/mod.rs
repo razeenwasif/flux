@@ -414,7 +414,9 @@ fn has_credential_field(html: &str) -> bool {
 
 /// Fold the model's content judgment into the deterministic verdict (ADR 0013,
 /// Pillar 1 M3). The model may **confirm/escalate** (→ High, with its reason) or
-/// **clear a false positive** (→ None); "suspicious" keeps the deterministic
+/// **clear a false positive** (→ None) — but only a weak edit-distance one: on a
+/// structural High (homoglyph fold, brand embedding) "legitimate" softens the
+/// warning to Low and never removes it. "suspicious" keeps the deterministic
 /// verdict and annotates it. Fail-safe: this is only reached when the model
 /// actually answered — a model that's down never removes protection.
 fn fold_judgment(
@@ -430,7 +432,14 @@ fn fold_judgment(
         .map(|r| format!("Flux read the page: {}", r.trim()))
         .collect();
     match j.verdict.as_str() {
-        "legitimate" => None,
+        "legitimate" if deterministic.confidence == phishing::Confidence::Low => None,
+        // The model reads only attacker-controlled text (no logos, and maybe an
+        // injected instruction), so it can't erase a structural signal that no
+        // legitimate site produces. Its say-so isn't shown as a reason either.
+        "legitimate" => Some(phishing::Verdict {
+            confidence: phishing::Confidence::Low,
+            ..deterministic
+        }),
         "phishing" => {
             let mut reasons = agent_reasons;
             reasons.extend(deterministic.reasons);
@@ -587,6 +596,21 @@ mod tests {
     #[test]
     fn model_legitimate_clears_the_false_positive() {
         assert!(fold_judgment(low(), &judge("legitimate", &[])).is_none());
+    }
+
+    #[test]
+    fn model_legitimate_cannot_erase_a_structural_high() {
+        // paypa1.com folds onto "paypal": the page's own text talking the model
+        // into "legitimate" may soften the warning, never remove it.
+        let high = Verdict {
+            resembles: "paypal".into(),
+            reasons: vec!["“paypa1.com” uses look-alike characters to spell “paypal”".into()],
+            confidence: Confidence::High,
+        };
+        let v = fold_judgment(high, &judge("legitimate", &["this is PayPal's real login"]))
+            .expect("still flagged");
+        assert_eq!(v.confidence, Confidence::Low);
+        assert!(v.reasons.iter().all(|r| !r.contains("Flux read the page")));
     }
 
     #[test]
