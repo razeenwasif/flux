@@ -11,7 +11,7 @@
  * one click away in Gmail, via the message-id search that opens exactly that
  * message rather than a guess based on subject.
  */
-import { For, Show, createSignal, onMount, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onMount, type Component } from "solid-js";
 
 import { mailConfig, mailConnect, mailDisconnect, mailFetch, mailMarkAllRead, type MailMsg } from "./ipc";
 import { openTab } from "./store";
@@ -60,15 +60,22 @@ const MailPane: Component = () => {
   };
 
   onMount(() => {
-    void mailConfig().then((c) => {
-      setConfigured(c != null);
-      if (c) {
-        setEmail(c.email);
-        refresh();
-        // Polls only while the pane is on screen.
-        visibleInterval(refresh, 120_000);
-      }
-    });
+    void mailConfig()
+      .then((c) => {
+        if (c) setEmail(c.email);
+        setConfigured(c != null);
+      })
+      .catch((e) => {
+        setConfigured(false);
+        setErr(String(e).replace(/^Error:\s*/, ""));
+      });
+  });
+  // Polls only while an account is configured and the pane is on screen. Armed
+  // from an effect so visibleInterval's onCleanup has an owner: called from a
+  // promise callback it had none, so every remount of the dock column and every
+  // forget/reconnect left another 2-minute IMAP poll running for good.
+  createEffect(() => {
+    if (configured()) visibleInterval(refresh, 120_000); // fetches once right away
   });
 
   const connect = (e: Event) => {
@@ -78,9 +85,7 @@ const MailPane: Component = () => {
     void mailConnect(host().trim(), Number(port()) || DEFAULT_PORT, email().trim(), pass())
       .then(() => {
         setPass(""); // it lives in the keychain now; don't keep it in a signal
-        setConfigured(true);
-        refresh();
-        visibleInterval(refresh, 120_000);
+        setConfigured(true); // the effect above fetches now and starts polling
       })
       .catch((e) => setErr(String(e).replace(/^Error:\s*/, "")))
       .finally(() => setBusy(false));
