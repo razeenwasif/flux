@@ -112,6 +112,9 @@ impl MacroState {
         }
         let mut g = self.recording.write();
         let Some(buf) = g.as_mut() else { return };
+        if buf.len() >= MAX_RECORDED_STEPS {
+            return;
+        }
         // `dom_publish` reports the page again on every DOM mutation, so a click
         // or keystroke that only changes the page arrives as a "navigation" to
         // the URL the flow is already on. Recorded, replay would reload the page
@@ -255,15 +258,40 @@ pub fn macro_cancel_record(app: AppHandle, state: State<'_, MacroState>) {
     state.cancel();
 }
 
+/// Upper bounds on what a page can put into a recording: replay acts out every
+/// step, and macros.json is read whole at boot.
+const MAX_RECORDED_STEPS: usize = 2_000;
+const MAX_SELECTOR_BYTES: usize = 1024;
+const MAX_TYPED_BYTES: usize = 64 * 1024;
+
+/// Whether the page whose webview is labelled `caller` may add this step: it
+/// must be the tab being recorded, and the step of a size real pages produce.
+fn step_allowed(state: &MacroState, caller: &str, selector: &str, text: &str) -> bool {
+    let tab = caller
+        .strip_prefix("tab-")
+        .and_then(|n| n.parse::<TabId>().ok());
+    tab.is_some_and(|t| state.is_recording_tab(t))
+        && !selector.is_empty()
+        && selector.len() <= MAX_SELECTOR_BYTES
+        && text.len() <= MAX_TYPED_BYTES
+}
+
 /// Page → Rust: a recorded click/type from `macro-record.js` (a `fluxtab` plugin
 /// command, like `dom_publish`). Ignored unless a recording is active.
+///
+/// Every tab, panel and peek page can call this, and each step is later
+/// replayed into the user's own tab, so only the recorded tab may add one.
 #[tauri::command]
 pub fn macro_record_step(
+    webview: tauri::Webview,
     state: State<'_, MacroState>,
     kind: String,
     selector: String,
     text: String,
 ) {
+    if !step_allowed(&state, webview.label(), &selector, &text) {
+        return;
+    }
     let step = match kind.as_str() {
         "click" => Step::Click { selector },
         "type" => Step::Type { selector, text },
@@ -404,6 +432,31 @@ mod tests {
                 nav("https://a.com/"),
             ]
         );
+    }
+
+    #[test]
+    fn steps_come_only_from_the_recorded_tab_and_are_bounded() {
+        let s = MacroState::default();
+        assert!(!step_allowed(&s, "tab-3", "#go", ""), "not recording");
+        s.start(None, Some(3));
+        assert!(step_allowed(&s, "tab-3", "#go", "hello"));
+        // A background tab, a pinned panel or a peek can't inject steps that
+        // replay later in the user's own tab.
+        for other in ["tab-4", "panel-3", "peek-3", "main", "tab-"] {
+            assert!(!step_allowed(&s, other, "#go", ""), "{other}");
+        }
+        assert!(!step_allowed(&s, "tab-3", "", ""));
+        let long = "x".repeat(MAX_SELECTOR_BYTES + 1);
+        assert!(!step_allowed(&s, "tab-3", &long, ""));
+        let typed = "x".repeat(MAX_TYPED_BYTES + 1);
+        assert!(!step_allowed(&s, "tab-3", "#q", &typed));
+
+        for i in 0..MAX_RECORDED_STEPS + 5 {
+            s.push(Step::Click {
+                selector: format!("#b{i}"),
+            });
+        }
+        assert_eq!(s.recording_len(), MAX_RECORDED_STEPS);
     }
 
     #[test]
