@@ -7,9 +7,12 @@
 //! Rust process has no such restriction. The raw JSON body is handed straight to
 //! the frontend, which parses + renders it (no Rust-side schema to keep in sync).
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
+use parking_lot::Mutex;
 use serde_json::json;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
@@ -122,9 +125,16 @@ pub async fn omni_answer(
 /// Minimum visible-text length to bother indexing (skips thin/non-article pages).
 const MIN_INGEST_CHARS: usize = 500;
 
+/// Ingest POSTs allowed in flight at once. A page re-captured while its own POST
+/// is still pending is skipped (a chatty page holds one slot, not all of them),
+/// and a page flooding `dom_publish` can't queue unbounded blocking work.
+const MAX_INFLIGHT_INGEST: usize = 4;
+
 /// Runtime toggle for auto-ingest. Privacy-first: off unless enabled.
 pub struct IngestState {
     auto: AtomicBool,
+    /// URLs with an auto-ingest POST in flight.
+    inflight: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Default for IngestState {
@@ -140,32 +150,59 @@ impl IngestState {
             .unwrap_or(false);
         Self {
             auto: AtomicBool::new(on),
+            inflight: Arc::new(Mutex::new(HashSet::new())),
         }
     }
     pub fn auto(&self) -> bool {
         self.auto.load(Ordering::Relaxed)
     }
+
+    /// Claim the in-flight slot for `url`; `None` while this page's previous
+    /// POST is still pending, or while Omni already has its fill of them.
+    fn claim(&self, url: &str) -> Option<IngestSlot> {
+        let mut inflight = self.inflight.lock();
+        if inflight.len() >= MAX_INFLIGHT_INGEST || !inflight.insert(url.to_string()) {
+            return None;
+        }
+        Some(IngestSlot {
+            inflight: Arc::clone(&self.inflight),
+            url: url.to_string(),
+        })
+    }
+}
+
+/// An auto-ingest POST's claim on [`IngestState`]'s in-flight set, released
+/// when the POST finishes (or unwinds), so a slot can never leak.
+struct IngestSlot {
+    inflight: Arc<Mutex<HashSet<String>>>,
+    url: String,
+}
+
+impl Drop for IngestSlot {
+    fn drop(&mut self) {
+        self.inflight.lock().remove(&self.url);
+    }
 }
 
 /// Fire-and-forget POST of one page to Omni's `/ingest` (best-effort).
-fn post_page(base: String, url: String, title: String, text: String) {
+fn post_page(slot: IngestSlot, base: String, title: String, text: String) {
     tauri::async_runtime::spawn_blocking(move || {
-        let body = json!({ "url": url, "title": title, "text": text }).to_string();
+        let body = json!({ "url": slot.url, "title": title, "text": text }).to_string();
         let _ = ureq::post(&format!("{base}/ingest"))
             .timeout(Duration::from_secs(8))
             .set("Content-Type", "application/json")
             .send_string(&body);
+        drop(slot);
     });
 }
 
 /// Auto-ingest a freshly-captured page when the toggle is on and it looks worth
 /// indexing. Called from `dom_publish`; never blocks.
 pub fn maybe_auto_ingest(app: &AppHandle, url: &str, title: &str, text: &str) {
-    let on = app
-        .try_state::<IngestState>()
-        .map(|s| s.auto())
-        .unwrap_or(false);
-    if !on {
+    let Some(ingest) = app.try_state::<IngestState>() else {
+        return;
+    };
+    if !ingest.auto() {
         return;
     }
     if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -174,8 +211,11 @@ pub fn maybe_auto_ingest(app: &AppHandle, url: &str, title: &str, text: &str) {
     if text.chars().count() < MIN_INGEST_CHARS {
         return; // thin page (login screen, app shell) — not worth indexing
     }
+    let Some(slot) = ingest.claim(url) else {
+        return; // this page is still posting, or Omni is behind — best-effort
+    };
     let base = app.state::<SearchState>().omni_base();
-    post_page(base, url.to_string(), title.to_string(), text.to_string());
+    post_page(slot, base, title.to_string(), text.to_string());
 }
 
 /// Whether auto-ingest is currently on.
@@ -218,4 +258,32 @@ pub async fn omni_ingest_active(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Auto-ingest spawned a blocking POST per capture with nothing bounding
+    /// them, so a page calling `dom_publish` in a loop against a slow Omni
+    /// queued blocking work (each holding page text) without limit.
+    #[test]
+    fn ingest_posts_in_flight_are_bounded_per_page_and_overall() {
+        let s = IngestState::new();
+        let a = s.claim("https://a.test/").expect("the first capture posts");
+        assert!(
+            s.claim("https://a.test/").is_none(),
+            "a page re-captured mid-POST holds one slot, not two"
+        );
+        let held: Vec<IngestSlot> = ["b", "c", "d"]
+            .iter()
+            .map(|h| s.claim(&format!("https://{h}.test/")).unwrap())
+            .collect();
+        assert!(s.claim("https://e.test/").is_none(), "capped overall");
+        // A finished (or unwound) POST frees its slot.
+        drop(a);
+        assert!(s.claim("https://a.test/").is_some());
+        drop(held);
+        assert!(s.inflight.lock().is_empty());
+    }
 }
