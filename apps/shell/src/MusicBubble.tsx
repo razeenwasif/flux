@@ -180,10 +180,14 @@ const MusicBubble: Component = () => {
     toastT = window.setTimeout(() => setToast(null), 3200);
   };
 
+  // The volume slider owns the value while a drag's PUTs land: server state lags
+  // them, and a poll arriving mid-drag would yank the thumb back.
+  let volHoldUntil = 0;
   let fails = 0;
   const poll = async () => {
     try {
-      setSt(await spotifyState());
+      const next = await spotifyState();
+      setSt((prev) => (prev && Date.now() < volHoldUntil ? { ...next, volume: prev.volume } : next));
       setReachable(true);
       fails = 0;
     } catch {
@@ -255,9 +259,30 @@ const MusicBubble: Component = () => {
     const m = cur === "off" ? "context" : cur === "context" ? "track" : "off";
     run(`🔁 Repeat: ${m}`, spotifyRepeat(m));
   };
+  // `input` fires for every step of a drag, and each spotify_volume is its own
+  // HTTPS PUT, so concurrent ones could land out of order. Keep one in flight and
+  // follow it with the newest value: a drag is a few ordered requests that end on
+  // where the thumb stopped.
+  let volWant: number | null = null;
+  let volSending = false;
+  const sendVol = () => {
+    if (volSending || volWant == null) return;
+    const v = volWant;
+    volWant = null;
+    volSending = true;
+    void spotifyVolume(v)
+      .catch((e) => flash(String(e)))
+      .finally(() => {
+        volSending = false;
+        volHoldUntil = Math.max(volHoldUntil, Date.now() + 1500); // let the player state catch up
+        sendVol();
+      });
+  };
   const setVol = (v: number) => {
     setSt((s) => (s ? { ...s, volume: v } : s));
-    void spotifyVolume(v).catch(() => {});
+    volHoldUntil = Date.now() + 2000;
+    volWant = v;
+    sendVol();
   };
   const play = (pl: SpotifyPlaylist) => {
     setMenuOpen(false);
