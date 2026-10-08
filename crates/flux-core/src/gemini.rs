@@ -63,8 +63,8 @@ fn stored_key() -> Option<String> {
 
 /// Store (or with an empty string, clear) the Gemini API key.
 ///
-/// Clearing also tears the cloud backend out of the router, which revokes the
-/// session's escalation — see `RoutingBackend::set_cloud`.
+/// Clearing — and replacing — also tears the cloud backend out of the router,
+/// which revokes the session's escalation — see `RoutingBackend::set_cloud`.
 ///
 /// Async + `spawn_blocking`, like every keyring command here: a sync command
 /// runs on the UI thread, and keyring I/O can block there (a macOS keychain
@@ -87,6 +87,12 @@ fn set_key(key: String) -> Result<(), String> {
         crate::agent_bridge::router().set_cloud(None);
         return Ok(());
     }
+    // Replacing the key revokes escalation too. The installed backend holds a
+    // copy of the PREVIOUS key, so leaving it would keep sending prompts under a
+    // credential the keyring no longer holds (and, if the write below fails,
+    // under one the UI reports as absent). The next "cloud on" rebuilds it from,
+    // and re-verifies, the key actually stored.
+    crate::agent_bridge::router().set_cloud(None);
     let _ = entry.delete_credential();
     entry.set_password(&key).map_err(|e| e.to_string())?;
     // Read it back: a keyring that accepts a write and returns something else is
