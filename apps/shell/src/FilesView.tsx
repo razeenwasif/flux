@@ -52,6 +52,7 @@ import {
   type QuickLocation,
 } from "./ipc";
 import { openTab } from "./store";
+import { toFileUrl } from "./filepaths";
 
 const ROW_H = 30;
 /** One collator for every comparison. `a.localeCompare(b, undefined, opts)`
@@ -1545,13 +1546,6 @@ const BROWSER_EXTS = new Set([
   "wav",
   "ogg",
 ]);
-
-/** Turn a local OS path into a file:// URL (handles Windows drive paths + backslashes). */
-function toFileUrl(p: string): string {
-  let s = p.replace(/\\/g, "/");
-  if (!s.startsWith("/")) s = "/" + s; // C:/Users/… → /C:/Users/…
-  return "file://" + encodeURI(s);
-}
 
 /** Coerce a model-suggested filename into a safe, single base name (no ext, no path). */
 function safeBaseName(raw: string): string {
