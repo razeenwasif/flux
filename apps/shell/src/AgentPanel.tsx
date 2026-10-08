@@ -2432,6 +2432,9 @@ const AgentPanel: Component = () => {
         p.match(/^\/lens(?:\s+([\s\S]+))?$/i) ||
         p.match(/^(?:what(?:'?s| is) this|identify (?:this|it)|what am i looking at)\b[\s\S]*/i);
       if (lens) {
+        // runLens() bails on working(), which includes the busy flag set above;
+        // hand the flag over or the Lens never runs.
+        setBusy(false);
         await runLens(lens[1]?.trim() || (/^\/lens/i.test(p) ? "" : p));
         return;
       }
