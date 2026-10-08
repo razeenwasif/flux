@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { toFileUrl } from "./filepaths";
+import { crumbs, toFileUrl } from "./filepaths";
 
 /** The path a file:// URL actually names, the way a browser resolves it. */
 const pathOf = (url: string) => decodeURIComponent(new URL(url).pathname);
@@ -25,5 +25,29 @@ describe("toFileUrl", () => {
 
   it("keeps Windows drive paths in their file:///C:/ form", () => {
     expect(toFileUrl("C:\\Users\\me\\a b.pdf")).toBe("file:///C:/Users/me/a%20b.pdf");
+  });
+});
+
+describe("crumbs", () => {
+  const paths = (p: string) => crumbs(p).map((c) => c.path);
+
+  it("roots a UNC path at its share, never at a drive-relative `\\`", () => {
+    // Every WSL "Linux" place and network share is one of these.
+    expect(crumbs("\\\\wsl.localhost\\Ubuntu\\home\\me")).toEqual([
+      { name: "Ubuntu", path: "\\\\wsl.localhost\\Ubuntu" },
+      { name: "home", path: "\\\\wsl.localhost\\Ubuntu\\home" },
+      { name: "me", path: "\\\\wsl.localhost\\Ubuntu\\home\\me" },
+    ]);
+    for (const p of paths("\\\\server\\share\\a\\b")) expect(p.startsWith("\\\\server\\share")).toBe(true);
+  });
+
+  it("gives a share root or a bare server a single crumb", () => {
+    expect(paths("\\\\wsl.localhost\\Ubuntu\\")).toEqual(["\\\\wsl.localhost\\Ubuntu"]);
+    expect(crumbs("\\\\wsl.localhost\\")).toEqual([{ name: "wsl.localhost", path: "\\\\wsl.localhost\\" }]);
+  });
+
+  it("leaves drive and Unix paths as they were", () => {
+    expect(paths("C:\\Users\\me")).toEqual(["C:\\", "C:\\Users", "C:\\Users\\me"]);
+    expect(paths("/home/me/src")).toEqual(["/", "/home", "/home/me", "/home/me/src"]);
   });
 });

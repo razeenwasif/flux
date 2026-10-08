@@ -52,7 +52,7 @@ import {
   type QuickLocation,
 } from "./ipc";
 import { openTab } from "./store";
-import { toFileUrl } from "./filepaths";
+import { crumbs, toFileUrl } from "./filepaths";
 
 const ROW_H = 30;
 /** One collator for every comparison. `a.localeCompare(b, undefined, opts)`
@@ -1592,29 +1592,6 @@ function menuStyle(m: { x: number; y: number }): JSX.CSSProperties {
   const x = typeof window !== "undefined" ? Math.min(m.x, window.innerWidth - W - 8) : m.x;
   const y = typeof window !== "undefined" ? Math.min(m.y, window.innerHeight - H - 8) : m.y;
   return { left: `${Math.max(8, x)}px`, top: `${Math.max(8, y)}px` };
-}
-
-/** Breadcrumb segments with their absolute paths (Windows `C:\…` + Unix `/…`). */
-function crumbs(path: string): { name: string; path: string }[] {
-  const win = path.includes("\\");
-  const sep = win ? "\\" : "/";
-  const out: { name: string; path: string }[] = [];
-  let acc = "";
-  path.split(sep).forEach((part, i) => {
-    if (i === 0) {
-      if (win) {
-        acc = part + sep;
-        out.push({ name: part, path: acc });
-      } else {
-        acc = "/";
-        out.push({ name: "/", path: "/" });
-      }
-    } else if (part) {
-      acc = acc.endsWith(sep) ? acc + part : acc + sep + part;
-      out.push({ name: part, path: acc });
-    }
-  });
-  return out;
 }
 
 function fmtSize(n: number | null, isDir: boolean): string {
