@@ -390,6 +390,10 @@ pub struct KbStore {
     /// call's sidecar can land beside the other's JSON, and `hydrate` refuses
     /// that pair along with the whole corpus.
     persist_lock: Arc<parking_lot::Mutex<()>>,
+    /// source → doc ids purged by `remove_docs` this session. A build that took
+    /// its corpus before the purge must not merge them back. Web doc ids are
+    /// visit ids, never reused, so this only ever names forgotten pages.
+    forgotten: Arc<parking_lot::Mutex<HashMap<String, std::collections::HashSet<String>>>>,
 }
 
 fn now_ms() -> u64 {
@@ -419,6 +423,7 @@ impl Default for KbStore {
             initialized: Arc::new(std::sync::Once::new()),
             indexing: Arc::new(AtomicBool::new(false)),
             persist_lock: Arc::default(),
+            forgotten: Arc::default(),
         }
     }
 }
@@ -695,6 +700,13 @@ impl KbStore {
             return;
         }
         self.hydrate();
+        // Tombstone first: a build embedding these right now merges after this
+        // purge, and would otherwise put them straight back.
+        self.forgotten
+            .lock()
+            .entry(source.to_string())
+            .or_default()
+            .extend(doc_ids.iter().cloned());
         let ids: std::collections::HashSet<&str> = doc_ids.iter().map(|s| s.as_str()).collect();
         let changed = {
             let mut d = self.data.write();
@@ -896,6 +908,24 @@ impl KbStore {
         // Merge: drop this source's docs/chunks that were rebuilt or removed, keep
         // the unchanged ones, then append the freshly built set.
         let mut d = self.data.write();
+        // Minus anything forgotten since this build's corpus was taken (chunks
+        // and their vectors in lockstep, as everywhere else).
+        if let Some(gone) = self.forgotten.lock().get(src).filter(|g| !g.is_empty()) {
+            let keep: Vec<bool> = new_chunks
+                .iter()
+                .map(|c| !gone.contains(&c.doc_id))
+                .collect();
+            if keep.contains(&false) {
+                let mut i = 0;
+                new_chunks.retain(|_| {
+                    let k = keep[i];
+                    i += 1;
+                    k
+                });
+                new_vecs.retain(|r| keep[r]);
+            }
+            new_docs.retain(|x| !gone.contains(&x.doc_id));
+        }
         let rebuilt: std::collections::HashSet<String> =
             new_docs.iter().map(|x| x.doc_id.clone()).collect();
         d.docs.retain(|x| {
@@ -2277,6 +2307,46 @@ mod tests {
             !d.chunks.iter().any(|x| x.doc_id == "2"),
             "its chunks gone too"
         );
+        drop(d);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_page_forgotten_during_a_build_stays_out_of_the_index() {
+        // The build took its corpus, page 2 included, before the forget; the
+        // forget then found nothing indexed to remove, and the build's merge
+        // used to put the page in and persist it.
+        let dir = std::env::temp_dir().join(format!("flux-kb-forget-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+        let page = |id: &str, body: &str| RawDoc {
+            doc_id: id.into(),
+            title: id.into(),
+            path: format!("https://{id}.example/"),
+            mtime: 1,
+            body: body.into(),
+        };
+        let corpus = vec![
+            page("1", "a page about rust lifetimes and borrowing"),
+            page("2", "a private page that must never reach the index"),
+        ];
+
+        store.remove_docs("web", &["2".to_string()]);
+        store.reindex_source("web", Embedder::Hash, corpus).unwrap();
+
+        let d = store.data.read();
+        assert!(
+            d.docs.iter().any(|x| x.doc_id == "1"),
+            "the rest is indexed"
+        );
+        assert!(
+            !d.docs.iter().any(|x| x.doc_id == "2"),
+            "forgotten doc kept out"
+        );
+        assert!(!d.chunks.iter().any(|x| x.doc_id == "2"), "and its chunks");
+        assert!(d.paired(), "vectors dropped with their chunks");
         drop(d);
 
         let _ = std::fs::remove_dir_all(&dir);
