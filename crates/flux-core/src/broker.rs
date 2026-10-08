@@ -16,17 +16,23 @@
 //! the (usually narrow) set the user granted that extension.
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use dashmap::DashMap;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::extensions::{json_str, ExtRegistry, Injection};
 use crate::state::{FluxState, TabId};
+
+/// Most one extension may keep in `flux.storage` (keys + encoded values). Every
+/// `set` rewrites the whole file, so this bounds each write as well as the file.
+const STORAGE_QUOTA: usize = 5 * 1024 * 1024;
+/// Longest `flux.storage` key accepted.
+const MAX_KEY_BYTES: usize = 1024;
+
+type ExtStorage = HashMap<String, HashMap<String, String>>;
 
 /// Per-extension capability tokens + KV storage.
 #[derive(Default)]
@@ -36,10 +42,11 @@ pub struct BrokerState {
     /// extension id → token (stable for the session, so the map stays bounded).
     by_ext: DashMap<String, String>,
     /// extension id → (key → JSON-encoded value).
-    storage: RwLock<HashMap<String, HashMap<String, String>>>,
+    storage: RwLock<ExtStorage>,
     storage_path: Option<PathBuf>,
-    seq: AtomicU64,
-    nonce: u64,
+    /// One write at a time, snapshot through rename: calls run on the blocking
+    /// pool, so two can overlap, and an older snapshot must never land last.
+    persist_lock: Mutex<()>,
 }
 
 impl BrokerState {
@@ -47,56 +54,49 @@ impl BrokerState {
         Self::default()
     }
 
-    /// Load persisted storage from `path` and seed the per-session token nonce.
+    /// Load persisted storage from `path`.
     pub fn restore(path: PathBuf) -> Self {
-        let storage = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        // Seed a per-session nonce so tokens differ across runs (no rand crate;
-        // SystemTime is fine here — flux-core isn't a workflow script).
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0x9E37_79B9_7F4A_7C15);
+        let (storage, storage_path) = load_storage(path);
         Self {
             storage: RwLock::new(storage),
-            storage_path: Some(path),
-            nonce,
+            storage_path,
             ..Default::default()
         }
     }
 
     /// The capability token for an extension (minted once per session).
+    ///
+    /// 128 bits from the OS-seeded CSPRNG and nothing else, so one token says
+    /// nothing about another. ADR 0008 accepts that a page can read its own
+    /// extension's token under WebView2, contained by that token carrying only
+    /// that extension's grants. Tokens derived from a session nonce (the first
+    /// one minted *was* the nonce) let such a page compute every other
+    /// extension's token. `entry` also mints just once under concurrent loads.
     pub fn token_for(&self, ext_id: &str) -> String {
         if let Some(t) = self.by_ext.get(ext_id) {
             return t.clone();
         }
-        let n = self.seq.fetch_add(1, Ordering::Relaxed);
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.nonce.hash(&mut h);
-        ext_id.hash(&mut h);
-        n.hash(&mut h);
-        let token = format!(
-            "{:016x}{:016x}",
-            self.nonce ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15),
-            h.finish()
-        );
-        self.tokens.insert(token.clone(), ext_id.to_string());
-        self.by_ext.insert(ext_id.to_string(), token.clone());
-        token
+        self.by_ext
+            .entry(ext_id.to_string())
+            .or_insert_with(|| {
+                let bytes: [u8; 16] = rand::random();
+                let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+                self.tokens.insert(token.clone(), ext_id.to_string());
+                token
+            })
+            .value()
+            .clone()
     }
 
     fn persist(&self) {
         let Some(path) = &self.storage_path else {
             return;
         };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Ok(s) = serde_json::to_string_pretty(&*self.storage.read()) {
-            let _ = std::fs::write(path, s);
-        }
+        // Temp file + rename (crate::persist): a crash mid `fs::write` left a
+        // torn file, which the next launch read as empty and the next `set`
+        // then saved over every extension's data.
+        let _writing = self.persist_lock.lock();
+        crate::persist::save_json_pretty(path, &*self.storage.read());
     }
 
     // ── storage (flux.storage) ──────────────────────────────────────────────
@@ -108,14 +108,32 @@ impl BrokerState {
             .and_then(|s| serde_json::from_str(s).ok())
             .unwrap_or(Value::Null)
     }
-    fn store_set(&self, ext: &str, key: &str, value: &Value) {
+    fn store_set(&self, ext: &str, key: &str, value: &Value) -> Result<(), String> {
+        if key.len() > MAX_KEY_BYTES {
+            return Err(format!("storage key longer than {MAX_KEY_BYTES} bytes"));
+        }
         let enc = serde_json::to_string(value).unwrap_or_else(|_| "null".into());
-        self.storage
-            .write()
-            .entry(ext.to_string())
-            .or_default()
-            .insert(key.to_string(), enc);
+        {
+            let mut all = self.storage.write();
+            // The value this replaces doesn't count against the new one.
+            let used: usize = all.get(ext).map_or(0, |m| {
+                m.iter()
+                    .filter(|(k, _)| k.as_str() != key)
+                    .map(|(k, v)| k.len() + v.len())
+                    .sum()
+            });
+            if used + key.len() + enc.len() > STORAGE_QUOTA {
+                return Err(format!(
+                    "storage quota exceeded ({} MiB per extension)",
+                    STORAGE_QUOTA >> 20
+                ));
+            }
+            all.entry(ext.to_string())
+                .or_default()
+                .insert(key.to_string(), enc);
+        }
         self.persist();
+        Ok(())
     }
     fn store_remove(&self, ext: &str, key: &str) {
         if let Some(m) = self.storage.write().get_mut(ext) {
@@ -183,6 +201,25 @@ impl BrokerState {
                 "permission denied: {api}.{method} (extension {ext_id})"
             ));
         }
+        // ADR 0008 §6: a content script is confined to the pages its `matches`
+        // cover, so a tab-targeting call may only act on such a page — or one
+        // token (readable by its page under WebView2) reaches every tab. Checked
+        // against the tab webview's live URL, as `dom_publish` does: `TabMeta.url`
+        // only catches up on load-finish. Tabs with no webview are never in scope.
+        let not_here =
+            |tab: TabId| format!("permission denied: extension {ext_id} doesn't run on tab {tab}");
+        let in_scope = |tab: TabId| -> Result<(), String> {
+            let url = app
+                .get_webview(&format!("tab-{tab}"))
+                .ok_or("no such tab webview")?
+                .url()
+                .map_err(|e| e.to_string())?;
+            if registry.matches_url(&ext_id, url.as_str()) {
+                Ok(())
+            } else {
+                Err(not_here(tab))
+            }
+        };
         match (api, method) {
             ("runtime", "id") => Ok(json!(ext_id)),
             ("runtime", "version") => Ok(json!(ext.manifest.version)),
@@ -194,7 +231,7 @@ impl BrokerState {
                     &ext_id,
                     arg_str(args, "key")?,
                     args.get("value").unwrap_or(&Value::Null),
-                );
+                )?;
                 Ok(Value::Bool(true))
             }
             ("storage", "remove") => {
@@ -222,6 +259,7 @@ impl BrokerState {
             }
             ("tabs", "navigate") => {
                 let tab = arg_tab(args)?;
+                in_scope(tab)?;
                 let url = arg_web_url(args)?;
                 crate::webview::eval(app, tab, &format!("location.assign({})", json_str(&url)))?;
                 if let Some(mut t) = app.state::<FluxState>().tabs.get_mut(&tab) {
@@ -232,21 +270,79 @@ impl BrokerState {
 
             ("dom", "read") => {
                 let tab = arg_tab(args)?;
+                in_scope(tab)?;
                 match app.state::<FluxState>().dom_cache.get(&tab) {
-                    Some(s) => Ok(
+                    // The snapshot can predate the page now loaded, so its own
+                    // URL has to be in scope too.
+                    Some(s) if registry.matches_url(&ext_id, &s.url) => Ok(
                         json!({ "url": s.url, "text": &*s.text, "html": &*s.html, "capturedAtMs": s.captured_at_ms }),
                     ),
+                    Some(_) => Err(not_here(tab)),
                     None => Ok(Value::Null),
                 }
             }
             ("dom", "inject") => {
                 let tab = arg_tab(args)?;
+                in_scope(tab)?;
                 crate::webview::eval(app, tab, arg_str(args, "js")?)?;
                 Ok(Value::Bool(true))
             }
 
             ("ui", _) => Err("flux.ui lands with the extension manager UI (#95)".into()),
             _ => Err(format!("unknown method {api}.{method}")),
+        }
+    }
+}
+
+/// Read persisted storage, and where to save it this run.
+///
+/// A file that exists but can't be loaded must never come back as "no data":
+/// the next `storage.set` would write that over every extension's keys. An
+/// unparseable one is moved aside to `<name>.unreadable-<ms>`; one that can't be
+/// read (perhaps only right now) is left alone and not saved this run.
+fn load_storage(path: PathBuf) -> (ExtStorage, Option<PathBuf>) {
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (HashMap::new(), Some(path)),
+        Err(e) => {
+            tracing::error!(
+                target: "flux::ext",
+                path = %path.display(),
+                "extension storage unreadable ({e}); left untouched and not saved this run"
+            );
+            return (HashMap::new(), None);
+        }
+    };
+    let err = match serde_json::from_slice(&bytes) {
+        Ok(storage) => return (storage, Some(path)),
+        Err(e) => e,
+    };
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let mut name = path
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(".unreadable-{ms}"));
+    let aside = path.with_file_name(name);
+    match std::fs::rename(&path, &aside) {
+        Ok(()) => {
+            tracing::error!(
+                target: "flux::ext",
+                aside = %aside.display(),
+                "extension storage unparseable ({err}); moved aside, starting empty"
+            );
+            (HashMap::new(), Some(path))
+        }
+        Err(e) => {
+            tracing::error!(
+                target: "flux::ext",
+                path = %path.display(),
+                "extension storage unparseable ({err}) and couldn't be moved aside ({e}); not saved this run"
+            );
+            (HashMap::new(), None)
         }
     }
 }
@@ -311,16 +407,25 @@ dom:Object.freeze({{read:(tabId)=>__fc("dom","read",{{tabId}}),inject:(tabId,js)
 }
 
 /// The single command remote content scripts call (via the `fluxtab` plugin).
+///
+/// Async, with the work on the blocking pool: a sync command runs on the main
+/// thread, and every `storage.set`/`remove` rewrites and fsyncs the store.
 #[tauri::command]
-pub fn ext_broker_call(
+pub async fn ext_broker_call(
     app: AppHandle,
-    broker: State<'_, BrokerState>,
     token: String,
     api: String,
     method: String,
     args: Option<Value>,
 ) -> Result<Value, String> {
-    broker.call(&app, &token, &api, &method, &args.unwrap_or(Value::Null))
+    tauri::async_runtime::spawn_blocking(move || {
+        let broker = app
+            .try_state::<BrokerState>()
+            .ok_or("extension broker unavailable")?;
+        broker.call(&app, &token, &api, &method, &args.unwrap_or(Value::Null))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
@@ -388,11 +493,40 @@ mod tests {
     }
 
     #[test]
+    fn tokens_are_random_not_derived_from_each_other() {
+        let b = BrokerState::new();
+        let ta = b.token_for("com.a");
+        let tb = b.token_for("com.b");
+        for t in [&ta, &tb] {
+            assert_eq!(t.len(), 32);
+            assert!(t.bytes().all(|c| c.is_ascii_hexdigit()));
+        }
+        // The old scheme's first halves were `nonce ^ n·φ` for n = 0, 1, …, so
+        // two consecutive tokens' first halves XORed to φ: one leaked token
+        // gave away the nonce, and with it every other token.
+        let half = |t: &str| u64::from_str_radix(&t[..16], 16).unwrap();
+        assert_ne!(half(&ta) ^ half(&tb), 0x9E37_79B9_7F4A_7C15);
+        // Nor does a session's token repeat in the next one.
+        assert_ne!(BrokerState::new().token_for("com.a"), ta);
+    }
+
+    #[test]
+    fn concurrent_first_calls_mint_one_token() {
+        let b = BrokerState::new();
+        let got: Vec<String> = std::thread::scope(|s| {
+            let hs: Vec<_> = (0..8).map(|_| s.spawn(|| b.token_for("com.a"))).collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert!(got.iter().all(|t| t == &got[0]));
+        assert_eq!(b.tokens.len(), 1, "no orphaned second token");
+    }
+
+    #[test]
     fn storage_roundtrips_per_extension() {
         let b = BrokerState::new();
-        b.store_set("com.a", "k", &json!({ "n": 1 }));
-        b.store_set("com.a", "k2", &json!("hi"));
-        b.store_set("com.b", "k", &json!(true));
+        b.store_set("com.a", "k", &json!({ "n": 1 })).unwrap();
+        b.store_set("com.a", "k2", &json!("hi")).unwrap();
+        b.store_set("com.b", "k", &json!(true)).unwrap();
         assert_eq!(b.store_get("com.a", "k"), json!({ "n": 1 }));
         assert_eq!(b.store_get("com.b", "k"), json!(true));
         assert_eq!(b.store_get("com.a", "missing"), Value::Null);
@@ -402,6 +536,52 @@ mod tests {
         b.store_remove("com.a", "k");
         assert_eq!(b.store_get("com.a", "k"), Value::Null);
         assert_eq!(b.store_keys("com.b"), vec!["k".to_string()]);
+    }
+
+    #[test]
+    fn storage_is_quota_capped_per_extension() {
+        let b = BrokerState::new();
+        let half = json!("x".repeat(STORAGE_QUOTA / 2));
+        b.store_set("com.a", "k1", &half).unwrap();
+        // A second value that size doesn't fit beside the first…
+        assert!(b.store_set("com.a", "k2", &half).is_err());
+        assert_eq!(b.store_get("com.a", "k2"), Value::Null);
+        // …but replacing the first does: the value it replaces stops counting.
+        b.store_set("com.a", "k1", &half).unwrap();
+        // Each extension has its own quota.
+        b.store_set("com.b", "k1", &half).unwrap();
+        let long_key = "k".repeat(MAX_KEY_BYTES + 1);
+        assert!(b.store_set("com.a", &long_key, &json!(1)).is_err());
+    }
+
+    #[test]
+    fn unparseable_storage_is_moved_aside_not_overwritten() {
+        let dir = std::env::temp_dir().join(format!("flux-broker-store-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("storage.json");
+        // What a crash mid `fs::write` used to leave behind.
+        let torn = r#"{"com.a":{"k":"#;
+        std::fs::write(&path, torn).unwrap();
+
+        let b = BrokerState::restore(path.clone());
+        assert_eq!(b.store_get("com.a", "k"), Value::Null);
+        // The next set must not erase the only copy of everyone's data.
+        b.store_set("com.b", "k", &json!(1)).unwrap();
+        let aside: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("storage.json.unreadable-")
+            })
+            .collect();
+        assert_eq!(aside.len(), 1, "the torn file is kept aside");
+        assert_eq!(std::fs::read_to_string(aside[0].path()).unwrap(), torn);
+        // And the new store reads back.
+        assert_eq!(BrokerState::restore(path).store_get("com.b", "k"), json!(1));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

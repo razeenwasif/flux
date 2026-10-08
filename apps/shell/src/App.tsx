@@ -655,8 +655,12 @@ const App: Component = () => {
         void openTab("browser", isPdfUrl(url) ? pdfViewerUrl(url) : url, false, background).catch(() => {});
       }),
     );
-    // Reader mode (#41): the injected extractor posts blocks back here.
-    const unReader = await onReader((tabId, title, blocks) => openReader(tabId, title, blocks));
+    // Reader mode (#41): the injected extractor posts blocks back here. Only for
+    // the tab on screen: a page can post a result unasked, and the overlay
+    // would otherwise cover whatever you're looking at with its blocks.
+    const unReader = await onReader((tabId, title, blocks) => {
+      if (tabId === activeId()) openReader(tabId, title, blocks);
+    });
     onCleanup(unReader);
     // Web capture (#54): a screenshot finished writing.
     const unShot = await onScreenshot(() => {

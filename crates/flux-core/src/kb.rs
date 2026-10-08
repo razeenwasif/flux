@@ -91,6 +91,11 @@ struct KbData {
     generation: u64,
     #[serde(default)]
     vecs_hash: Option<u64>,
+    /// The Ollama model behind a `Model` corpus: two models can share a width,
+    /// so `embedder` alone can't tell their vector spaces apart. Empty = unknown
+    /// (written before this was recorded), adopted rather than rebuilt.
+    #[serde(default)]
+    embed_model: String,
 }
 
 fn hash_bytes(b: &[u8]) -> u64 {
@@ -112,6 +117,7 @@ impl Default for KbData {
             config: HashMap::new(),
             generation: 0,
             vecs_hash: None,
+            embed_model: String::new(),
         }
     }
 }
@@ -386,6 +392,14 @@ pub struct KbStore {
     data: Arc<RwLock<KbData>>,
     initialized: Arc<std::sync::Once>,
     indexing: Arc<AtomicBool>,
+    /// One `persist` at a time, snapshot through last rename: interleaved, one
+    /// call's sidecar can land beside the other's JSON, and `hydrate` refuses
+    /// that pair along with the whole corpus.
+    persist_lock: Arc<parking_lot::Mutex<()>>,
+    /// source → doc ids purged by `remove_docs` this session. A build that took
+    /// its corpus before the purge must not merge them back. Web doc ids are
+    /// visit ids, never reused, so this only ever names forgotten pages.
+    forgotten: Arc<parking_lot::Mutex<HashMap<String, std::collections::HashSet<String>>>>,
 }
 
 fn now_ms() -> u64 {
@@ -399,6 +413,41 @@ fn snippet(text: &str, n: usize) -> String {
     let s: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     s.chars().take(n).collect()
 }
+
+/// The embedder a build runs on. A single-source build carries only its own
+/// source's corpus, so switching embedders there would clear every source and
+/// rebuild just the one: it stays on the corpus's embedder and leaves the switch
+/// to a full rebuild (the web auto-index's heal path, or Reindex all). An empty
+/// corpus has nothing to lose and takes the current one.
+fn build_embedder(
+    single_source: bool,
+    stored: Embedder,
+    corpus_empty: bool,
+    current: impl FnOnce() -> Embedder,
+) -> Embedder {
+    if single_source && !corpus_empty {
+        stored
+    } else {
+        current()
+    }
+}
+
+/// A `Model` corpus built with another Ollama model than `model`: its vectors
+/// live in a different space, even at the same width, so scoring a query (or
+/// appending new chunks) against them gives plausible-looking garbage.
+fn other_model(d: &KbData, current: Embedder, model: &str) -> bool {
+    current == Embedder::Model
+        && d.embedder == Embedder::Model
+        && !d.embed_model.is_empty()
+        && d.embed_model != model
+}
+
+const MODEL_CHANGED: &str =
+    "the embedding model changed since this index was built — Reindex all to re-embed";
+
+/// `reindex`'s refusal while another build holds the index: a caller that must
+/// not lose its rebuild retries on exactly this.
+pub(crate) const BUSY: &str = "an index build is already running";
 
 fn embedder_name(e: Embedder) -> &'static str {
     match e {
@@ -414,6 +463,8 @@ impl Default for KbStore {
             data: Arc::new(RwLock::new(KbData::default())),
             initialized: Arc::new(std::sync::Once::new()),
             indexing: Arc::new(AtomicBool::new(false)),
+            persist_lock: Arc::default(),
+            forgotten: Arc::default(),
         }
     }
 }
@@ -431,6 +482,13 @@ impl KbStore {
         index.with_extension("vec")
     }
 
+    /// The sidecar the on-disk JSON was written against, kept by `persist`
+    /// until the JSON naming its replacement is in place, so a crash, kill or
+    /// failed write between the two files still leaves a matching pair.
+    fn prev_vectors_path(index: &std::path::Path) -> PathBuf {
+        index.with_extension("vec.prev")
+    }
+
     /// Load the persisted index from disk (idempotent).
     pub fn hydrate(&self) {
         self.initialized.call_once(|| {
@@ -442,23 +500,35 @@ impl KbStore {
                 return;
             };
 
-            let sidecar = std::fs::read(Self::vectors_path(path))
-                .ok()
-                .and_then(|b| {
-                    if let Some(expected_hash) = data.vecs_hash {
-                        let actual = hash_bytes(&b);
-                        if actual != expected_hash {
-                            tracing::warn!(
-                                target: "flux::kb",
-                                expected = expected_hash,
-                                actual,
-                                "vector sidecar hash mismatch; refusing mismatched sidecar"
-                            );
-                            return None;
-                        }
+            // The current sidecar, else the one `persist` set aside before
+            // replacing it: a crash or failed write between the sidecar and the
+            // JSON leaves the JSON paired with that one.
+            let (vec_path, prev_path) = (Self::vectors_path(path), Self::prev_vectors_path(path));
+            let expected = data.vecs_hash;
+            let matching = |p: &Path| {
+                std::fs::read(p)
+                    .ok()
+                    .filter(|b| expected.is_none_or(|h| hash_bytes(b) == h))
+            };
+            let bytes = match matching(&vec_path) {
+                Some(b) => Some(b),
+                None => {
+                    let prev = matching(&prev_path);
+                    if prev.is_some() {
+                        // Back from an interrupted persist: make the pair
+                        // current again, so the next persist sets *it* aside.
+                        let _ = std::fs::rename(&prev_path, &vec_path);
+                    } else if vec_path.exists() {
+                        tracing::warn!(
+                            target: "flux::kb",
+                            expected = ?expected,
+                            "vector sidecar hash mismatch; refusing mismatched sidecar"
+                        );
                     }
-                    VecStore::from_bytes(&b)
-                });
+                    prev
+                }
+            };
+            let sidecar = bytes.and_then(|b| VecStore::from_bytes(&b));
             let mut migrated = false;
 
             match sidecar {
@@ -538,20 +608,37 @@ impl KbStore {
 
     fn persist(&self) {
         let Some(path) = &self.path else { return };
+        let _writing = self.persist_lock.lock();
         let (json, vecs_bytes) = {
             let mut d = self.data.write();
             let vecs_bytes = d.vecs.to_bytes();
             d.vecs_hash = Some(hash_bytes(&vecs_bytes));
             d.generation = d.generation.wrapping_add(1);
+            // Only the two fields above need the write guard; encoding the
+            // whole index under it would stall every query meanwhile.
+            let d = parking_lot::RwLockWriteGuard::downgrade(d);
             let json = serde_json::to_string(&*d).ok();
             (json, vecs_bytes)
         };
-        if let Some(json) = json {
-            let vec_path = Self::vectors_path(path);
-            if crate::persist::write_atomic(&vec_path, &vecs_bytes).is_ok() {
-                let _ = crate::persist::write_atomic(path, json.as_bytes());
-            }
+        let Some(json) = json else { return };
+        let (vec_path, prev_path) = (Self::vectors_path(path), Self::prev_vectors_path(path));
+        // Set aside the sidecar the on-disk JSON pairs with; `hydrate` falls back
+        // to it, so no crash point leaves the JSON without its sidecar. With no
+        // current sidecar (the last write failed) this fails, and the `.prev`
+        // already there, still the JSON's pair, stays.
+        let _ = std::fs::rename(&vec_path, &prev_path);
+        if let Err(e) = crate::persist::write_atomic(&vec_path, &vecs_bytes) {
+            tracing::warn!(target: "flux::kb", "KB vector sidecar not written: {e}");
+            return;
         }
+        if let Err(e) = crate::persist::write_atomic(path, json.as_bytes()) {
+            tracing::warn!(target: "flux::kb", "KB index not written: {e}");
+            // The old JSON is still in place: put its sidecar back beside it.
+            let _ = std::fs::rename(&prev_path, &vec_path);
+            return;
+        }
+        // Committed; the fallback is no longer needed.
+        let _ = std::fs::remove_file(&prev_path);
     }
 
     pub fn status(&self) -> KbStatus {
@@ -646,6 +733,14 @@ impl KbStore {
         self.data.read().embedder
     }
 
+    /// Is the corpus on `Model`, but built with another Ollama model than the
+    /// one configured now (`FLUX_EMBED_MODEL`)? Only a full rebuild can fix it.
+    pub fn embed_model_stale(&self) -> bool {
+        self.hydrate();
+        let d = self.data.read();
+        other_model(&d, d.embedder, &flux_agent::ollama::embed_model())
+    }
+
     /// Remove specific docs (and their chunks) from a source, persisting if
     /// anything went. The privacy cascade for `trace_forget` (ADR 0011): a
     /// forgotten page must leave the KB immediately, not at the next reindex.
@@ -654,6 +749,13 @@ impl KbStore {
             return;
         }
         self.hydrate();
+        // Tombstone first: a build embedding these right now merges after this
+        // purge, and would otherwise put them straight back.
+        self.forgotten
+            .lock()
+            .entry(source.to_string())
+            .or_default()
+            .extend(doc_ids.iter().cloned());
         let ids: std::collections::HashSet<&str> = doc_ids.iter().map(|s| s.as_str()).collect();
         let changed = {
             let mut d = self.data.write();
@@ -677,11 +779,17 @@ impl KbStore {
     pub fn reindex(&self, source: Option<String>, c: Corpora) -> Result<KbStatus, String> {
         self.hydrate();
         if self.indexing.swap(true, Ordering::AcqRel) {
-            return Err("an index build is already running".into());
+            return Err(BUSY.into());
         }
         let result = self.reindex_inner(source, c);
         self.indexing.store(false, Ordering::Release);
         result.map(|_| self.status())
+    }
+
+    /// Is a build holding the index right now? Lets a background caller defer
+    /// before paying to gather its corpus.
+    pub fn is_indexing(&self) -> bool {
+        self.indexing.load(Ordering::Acquire)
     }
 
     fn reindex_inner(&self, source: Option<String>, c: Corpora) -> Result<(), String> {
@@ -697,12 +805,35 @@ impl KbStore {
 
         // Pick the embedder once. If it changed since the last build, the whole
         // corpus must re-embed (cosine is only meaningful within one embedder).
-        let embedder = embedding::current();
-        let embedder_changed = self.data.read().embedder != embedder;
-        if embedder_changed {
+        let (stored, corpus_empty) = {
+            let d = self.data.read();
+            (d.embedder, d.chunks.is_empty())
+        };
+        let embedder = build_embedder(source.is_some(), stored, corpus_empty, embedding::current);
+        // Same kind, but `FLUX_EMBED_MODEL` now names another model: a different
+        // vector space, so it re-embeds like an embedder switch.
+        let model = match embedder {
+            Embedder::Model => flux_agent::ollama::embed_model(),
+            Embedder::Hash => String::new(),
+        };
+        let model_switch = other_model(&self.data.read(), embedder, &model);
+        if model_switch && source.is_some() && !corpus_empty {
+            // Like an embedder switch, that has to cover every source.
+            return Err(MODEL_CHANGED.into());
+        }
+        let embedder_changed = embedder != stored || model_switch;
+        if embedder_changed && !corpus_empty && embedding::embed_with("flux", embedder).is_none() {
+            // `current()` is a cached /api/tags probe, and a listed model can
+            // still fail to embed: don't trade a working corpus for that.
+            return Err("embedding model listed but not answering; kept the existing index".into());
+        }
+        {
             let mut d = self.data.write();
-            d.clear_corpus();
-            d.embedder = embedder;
+            if embedder_changed {
+                d.clear_corpus();
+                d.embedder = embedder;
+            }
+            d.embed_model = model;
         }
 
         for src in targets {
@@ -855,6 +986,24 @@ impl KbStore {
         // Merge: drop this source's docs/chunks that were rebuilt or removed, keep
         // the unchanged ones, then append the freshly built set.
         let mut d = self.data.write();
+        // Minus anything forgotten since this build's corpus was taken (chunks
+        // and their vectors in lockstep, as everywhere else).
+        if let Some(gone) = self.forgotten.lock().get(src).filter(|g| !g.is_empty()) {
+            let keep: Vec<bool> = new_chunks
+                .iter()
+                .map(|c| !gone.contains(&c.doc_id))
+                .collect();
+            if keep.contains(&false) {
+                let mut i = 0;
+                new_chunks.retain(|_| {
+                    let k = keep[i];
+                    i += 1;
+                    k
+                });
+                new_vecs.retain(|r| keep[r]);
+            }
+            new_docs.retain(|x| !gone.contains(&x.doc_id));
+        }
         let rebuilt: std::collections::HashSet<String> =
             new_docs.iter().map(|x| x.doc_id.clone()).collect();
         d.docs.retain(|x| {
@@ -890,7 +1039,15 @@ impl KbStore {
         sources: Option<Vec<String>>,
     ) -> Result<Vec<KbHit>, String> {
         self.hydrate();
-        let embedder = self.data.read().embedder;
+        let embedder = {
+            let d = self.data.read();
+            // The width check below can't catch a same-width model; refuse
+            // rather than rank in the wrong vector space.
+            if other_model(&d, d.embedder, &flux_agent::ollama::embed_model()) {
+                return Err(MODEL_CHANGED.into());
+            }
+            d.embedder
+        };
         let qv = embedding::embed_with(query, embedder).ok_or("embedding model unavailable")?;
         let d = self.data.read();
         let allow = sources.as_ref();
@@ -1033,12 +1190,32 @@ impl<'a> TopK<'a> {
 fn chunk_text(body: &str) -> Vec<String> {
     const TARGET_WORDS: usize = 200;
     const MAX_CHUNKS: usize = 200;
+    // CRLF text has no "\n\n" and no "---\n": normalised, it splits into
+    // paragraphs and loses its frontmatter like any other note.
+    let normalized;
+    let body = if body.contains('\r') {
+        normalized = body.replace("\r\n", "\n");
+        normalized.as_str()
+    } else {
+        body
+    };
     let body = strip_frontmatter(body);
     let mut chunks = Vec::new();
     let mut cur = String::new();
     let mut words = 0usize;
-    for para in body.split("\n\n") {
+    // A paragraph longer than a chunk (a PDF page, a <div>-built web page, a
+    // note without blank lines) is cut into TARGET_WORDS windows: embedded
+    // whole, everything past the model's context window was never seen.
+    let paras = body.split("\n\n").flat_map(|para| {
         let para = para.trim();
+        let ws: Vec<&str> = para.split_whitespace().collect();
+        if ws.len() > TARGET_WORDS {
+            ws.chunks(TARGET_WORDS).map(|w| w.join(" ")).collect()
+        } else {
+            vec![para.to_string()]
+        }
+    });
+    for para in paras {
         if para.is_empty() {
             continue;
         }
@@ -1053,7 +1230,7 @@ fn chunk_text(body: &str) -> Vec<String> {
         if !cur.is_empty() {
             cur.push_str("\n\n");
         }
-        cur.push_str(para);
+        cur.push_str(&para);
         words += w;
     }
     if !cur.trim().is_empty() && chunks.len() < MAX_CHUNKS {
@@ -1501,6 +1678,7 @@ pub async fn kb_reindex(
 /// Windows build). Empty clears it.
 #[tauri::command]
 pub async fn kb_set_source(
+    app: tauri::AppHandle,
     kb: State<'_, KbStore>,
     source: String,
     location: String,
@@ -1511,6 +1689,11 @@ pub async fn kb_set_source(
     let kb = (*kb).clone();
     tauri::async_runtime::spawn_blocking(move || {
         kb.set_location(&source, &location);
+        if source == "onyx" {
+            // The vault watch was armed at boot on whatever resolved then;
+            // without this, edits in the newly set vault are never noticed.
+            crate::kbfresh::watch_onyx(&app);
+        }
         kb.status()
     })
     .await
@@ -1852,17 +2035,28 @@ pub(crate) fn write_onyx_note(
     let root = onyx_vault(location)
         .ok_or_else(|| "Onyx vault not found — set its path in the Notebook first.".to_string())?;
     let dir = match folder.map(str::trim).filter(|f| !f.is_empty()) {
-        Some(f) => root.join(f),
+        // `folder` can be model output steered by a web page (note_plan →
+        // note_apply), and `root.join` with `..` or an absolute path leaves the
+        // vault. Only a plain path inside it goes; an absolute one naming a
+        // place in the vault is taken relative to the vault.
+        Some(f) => {
+            let rel = Path::new(f);
+            let rel = rel.strip_prefix(&root).unwrap_or(rel);
+            let plain = rel.components().all(|c| {
+                matches!(
+                    c,
+                    std::path::Component::Normal(_) | std::path::Component::CurDir
+                )
+            });
+            if !plain {
+                return Err(format!("“{f}” isn't a folder inside your Onyx vault"));
+            }
+            root.join(rel)
+        }
         None => root,
     };
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let base = sanitize_note_name(title);
-    let mut path = dir.join(format!("{base}.md"));
-    let mut n = 2;
-    while path.exists() {
-        path = dir.join(format!("{base} {n}.md"));
-        n += 1;
-    }
     // Lead with an H1 title unless the content already opens with a heading.
     let body = if content.trim_start().starts_with('#') {
         content.trim_start().to_string()
@@ -1889,8 +2083,33 @@ pub(crate) fn write_onyx_note(
             body,
         )
     };
-    std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(path.to_string_lossy().into_owned())
+    // `create_new` claims the name: probing `exists()` and then writing let a
+    // note that appeared in between (another writer, a sync tool) be truncated.
+    let mut n = 1;
+    loop {
+        let path = if n == 1 {
+            dir.join(format!("{base}.md"))
+        } else {
+            dir.join(format!("{base} {n}.md"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut f) => {
+                use std::io::Write as _;
+                if let Err(e) = f.write_all(body.as_bytes()) {
+                    drop(f);
+                    let _ = std::fs::remove_file(&path); // ours, and incomplete
+                    return Err(format!("{}: {e}", path.display()));
+                }
+                return Ok(path.to_string_lossy().into_owned());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        }
+    }
 }
 
 /// Filesystem-safe note base name from a title (no path separators / illegal chars).
@@ -1955,6 +2174,34 @@ mod tests {
         let chunks = chunk_text(body);
         assert!(!chunks.is_empty());
         assert!(chunks.iter().all(|c| !c.contains("tags:")));
+    }
+
+    #[test]
+    fn crlf_notes_and_long_paragraphs_split_into_chunk_sized_pieces() {
+        // A CRLF note (Windows editor, Windows-side vault) has no "\n\n" at all,
+        // and was one paragraph — frontmatter included.
+        let crlf = "---\r\ntags:\r\n  - x\r\n---\r\n\r\n".to_string()
+            + &(0..300)
+                .map(|i| format!("para{i} word word"))
+                .collect::<Vec<_>>()
+                .join("\r\n\r\n");
+        let chunks = chunk_text(&crlf);
+        assert!(chunks.len() > 1, "split on CRLF paragraphs");
+        assert!(
+            chunks.iter().all(|c| !c.contains("tags:")),
+            "frontmatter dropped"
+        );
+
+        // One paragraph of 1,000 words (a PDF page, a <div>-only article): the
+        // embedder's context window ended long before the text did.
+        let page = (0..1000)
+            .map(|i| format!("w{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let chunks = chunk_text(&page);
+        assert_eq!(chunks.len(), 5);
+        assert!(chunks.iter().all(|c| c.split_whitespace().count() <= 200));
+        assert!(chunks[4].ends_with("w999"), "the tail is indexed too");
     }
 
     #[test]
@@ -2036,6 +2283,38 @@ mod tests {
         assert!(!std::fs::read_to_string(&p1).unwrap().starts_with("---"));
         assert_eq!(sanitize_note_name("   ...  "), "Untitled note");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_note_folder_cannot_leave_the_vault() {
+        // The folder can be model output steered by a web page (note_plan →
+        // note_apply), and `root.join` happily leaves the root.
+        let base = std::env::temp_dir().join(format!("flux-onyx-escape-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let vault_dir = base.join("vault");
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        let vault = vault_dir.to_string_lossy().into_owned();
+        let outside = base.join("outside");
+        for bad in [
+            "../outside",
+            "Inbox/../../outside",
+            outside.to_str().unwrap(),
+        ] {
+            assert!(
+                write_onyx_note(Some(&vault), "Note", "x", Some(bad), None).is_err(),
+                "{bad} was accepted"
+            );
+        }
+        assert!(!outside.exists(), "nothing was created outside the vault");
+
+        // Nested folders still work, and so does the vault's own absolute path.
+        let nested = vault_dir.join("Courses").join("MATH3512");
+        let p = write_onyx_note(Some(&vault), "Note", "x", Some("Courses/MATH3512"), None).unwrap();
+        assert!(Path::new(&p).starts_with(&nested), "{p}");
+        let inbox = vault_dir.join("Inbox");
+        let p = write_onyx_note(Some(&vault), "Note", "x", inbox.to_str(), None).unwrap();
+        assert!(Path::new(&p).starts_with(&inbox), "{p}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
@@ -2130,6 +2409,70 @@ mod tests {
         assert!(!store.data.read().chunks.iter().any(|c| c.doc_id == "b.md"));
         assert!(store.data.read().chunks.len() <= before);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_build_refused_while_another_runs_says_so_retryably() {
+        // kbfresh has already cleared the source's dirty mark by the time it
+        // asks, so it must be able to tell "busy, try again" from a failure.
+        let store = KbStore::default();
+        store.indexing.store(true, Ordering::Release);
+        assert!(store.is_indexing());
+        let err = store.reindex(Some("onyx".into()), Corpora::default()).err();
+        assert_eq!(err.as_deref(), Some(BUSY));
+    }
+
+    #[test]
+    fn a_single_source_build_never_switches_a_populated_corpus() {
+        use Embedder::{Hash, Model};
+        // Ollama came up (or went away) since the corpus was built. Switching in
+        // a one-source build would clear every source to rebuild just that one.
+        assert_eq!(build_embedder(true, Hash, false, || unreachable!()), Hash);
+        assert_eq!(build_embedder(true, Model, false, || unreachable!()), Model);
+        // Nothing to lose yet, or a full rebuild: follow what's available.
+        assert_eq!(build_embedder(true, Hash, true, || Model), Model);
+        assert_eq!(build_embedder(false, Hash, false, || Model), Model);
+        assert_eq!(build_embedder(false, Model, false, || Hash), Hash);
+    }
+
+    #[test]
+    fn a_changed_embedding_model_is_refused_rather_than_mixed() {
+        // embeddinggemma and nomic-embed-text are both 768-d: nothing about the
+        // vectors' width says they come from different models.
+        let mut d = KbData {
+            embedder: Embedder::Model,
+            embed_model: "embeddinggemma".into(),
+            ..Default::default()
+        };
+        assert!(!other_model(&d, Embedder::Model, "embeddinggemma"));
+        assert!(other_model(&d, Embedder::Model, "nomic-embed-text"));
+        // Written before the model was recorded: adopted, not rebuilt.
+        d.embed_model.clear();
+        assert!(!other_model(&d, Embedder::Model, "nomic-embed-text"));
+
+        // A corpus built with some model other than the configured one.
+        let dir = std::env::temp_dir().join(format!("flux-kb-model-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+        store
+            .reindex_source("onyx", Embedder::Hash, three_docs())
+            .unwrap();
+        {
+            let mut d = store.data.write();
+            d.embedder = Embedder::Model;
+            d.embed_model = "flux-test-not-the-configured-model".into();
+        }
+        assert!(store.embed_model_stale());
+        let err = store.query("rust borrowing", 5, None).err().unwrap();
+        assert!(err.contains("Reindex all"), "{err}");
+        // A one-source build can't re-embed the others, so it refuses as well,
+        // leaving the corpus as it was.
+        assert!(store
+            .reindex(Some("web".into()), Corpora::default())
+            .is_err());
+        assert_eq!(store.data.read().docs.len(), 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2236,6 +2579,46 @@ mod tests {
             !d.chunks.iter().any(|x| x.doc_id == "2"),
             "its chunks gone too"
         );
+        drop(d);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_page_forgotten_during_a_build_stays_out_of_the_index() {
+        // The build took its corpus, page 2 included, before the forget; the
+        // forget then found nothing indexed to remove, and the build's merge
+        // used to put the page in and persist it.
+        let dir = std::env::temp_dir().join(format!("flux-kb-forget-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = KbStore::empty(dir.join("kb-index.json"));
+        let page = |id: &str, body: &str| RawDoc {
+            doc_id: id.into(),
+            title: id.into(),
+            path: format!("https://{id}.example/"),
+            mtime: 1,
+            body: body.into(),
+        };
+        let corpus = vec![
+            page("1", "a page about rust lifetimes and borrowing"),
+            page("2", "a private page that must never reach the index"),
+        ];
+
+        store.remove_docs("web", &["2".to_string()]);
+        store.reindex_source("web", Embedder::Hash, corpus).unwrap();
+
+        let d = store.data.read();
+        assert!(
+            d.docs.iter().any(|x| x.doc_id == "1"),
+            "the rest is indexed"
+        );
+        assert!(
+            !d.docs.iter().any(|x| x.doc_id == "2"),
+            "forgotten doc kept out"
+        );
+        assert!(!d.chunks.iter().any(|x| x.doc_id == "2"), "and its chunks");
+        assert!(d.paired(), "vectors dropped with their chunks");
         drop(d);
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -2727,6 +3110,110 @@ mod tests {
         assert_eq!(d.vecs.len(), 0);
         drop(d);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn three_docs() -> Vec<RawDoc> {
+        (0..3)
+            .map(|i| RawDoc {
+                doc_id: format!("d{i}.md"),
+                title: format!("Doc {i}"),
+                path: format!("/d{i}.md"),
+                mtime: 1,
+                body: format!("document {i} about rust and borrowing"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_persist_interrupted_between_its_two_files_keeps_the_corpus() {
+        // `persist` writes the sidecar, then the JSON. Dying in between used to
+        // leave a new sidecar beside the old JSON, which the next boot refused,
+        // clearing every source with it.
+        let dir = std::env::temp_dir().join(format!("flux-kb-torn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let index = dir.join("kb-index.json");
+        let store = KbStore::empty(index.clone());
+        store
+            .reindex_source("onyx", Embedder::Hash, three_docs())
+            .unwrap();
+        store.data.write().embedder = Embedder::Hash;
+        store.persist();
+
+        // The next persist set the old sidecar aside and wrote its new one, and
+        // the process died before the JSON landed.
+        let (vec_path, prev_path) = (
+            KbStore::vectors_path(&index),
+            KbStore::prev_vectors_path(&index),
+        );
+        std::fs::rename(&vec_path, &prev_path).unwrap();
+        let mut newer = VecStore::default();
+        newer.push(&embedding::embed_with("something else", Embedder::Hash).unwrap());
+        std::fs::write(&vec_path, newer.to_bytes()).unwrap();
+
+        let reopened = KbStore::empty(index);
+        assert_eq!(reopened.query("rust borrowing", 5, None).unwrap().len(), 3);
+        assert!(!reopened.data.read().errors.contains_key("onyx"));
+        assert!(
+            !prev_path.exists(),
+            "the recovered sidecar is the current one again"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_persists_leave_a_matching_pair() {
+        let dir = std::env::temp_dir().join(format!("flux-kb-racing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let index = dir.join("kb-index.json");
+        let store = KbStore::empty(index.clone());
+        let raw: Vec<RawDoc> = (0..8)
+            .map(|i| RawDoc {
+                doc_id: format!("d{i}.md"),
+                title: format!("Doc {i}"),
+                path: format!("/d{i}.md"),
+                mtime: 1,
+                body: format!("document {i} about rust and borrowing"),
+            })
+            .collect();
+        store.reindex_source("onyx", Embedder::Hash, raw).unwrap();
+        store.data.write().embedder = Embedder::Hash;
+        store.persist();
+        // As in the app, every persist below follows the one-time load.
+        store.hydrate();
+
+        // Trail forgets and rebuilds persist from different threads at once.
+        std::thread::scope(|s| {
+            for i in 0..8 {
+                let store = &store;
+                s.spawn(move || {
+                    if i % 2 == 0 {
+                        store.remove_docs("onyx", &[format!("d{i}.md")]);
+                    } else {
+                        store.persist();
+                    }
+                });
+            }
+        });
+
+        let reopened = KbStore::empty(index.clone());
+        reopened.hydrate();
+        let d = reopened.data.read();
+        assert!(
+            d.paired() && !d.errors.contains_key("onyx"),
+            "the pair on disk matches"
+        );
+        let mut ids: Vec<&str> = d.docs.iter().map(|x| x.doc_id.as_str()).collect();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            ["d1.md", "d3.md", "d5.md", "d7.md"],
+            "and holds every removal"
+        );
+        drop(d);
+        assert!(!KbStore::prev_vectors_path(&index).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

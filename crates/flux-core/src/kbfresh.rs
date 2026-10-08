@@ -75,10 +75,18 @@ impl KbFreshness {
 /// file/HTTP-backed sources (`onyx`, `scroll`, `council`) collect themselves and
 /// ignore what's passed. Handing over only the relevant slice keeps a Scribe
 /// edit from walking the Onyx vault.
-fn reindex_one(app: &AppHandle, source: &str) {
+///
+/// `take_due` has already cleared the source, so when another build holds the
+/// index (often the Trail's `web` auto-index, which doesn't cover this source)
+/// it's marked again and retried after the next quiet window, not dropped.
+fn reindex_one(app: &AppHandle, fresh: &KbFreshness, source: &str) {
     let Some(kb) = app.try_state::<crate::kb::KbStore>() else {
         return;
     };
+    if kb.is_indexing() {
+        fresh.touch(source);
+        return;
+    }
     let corpora = match source {
         "scribe" => app
             .try_state::<crate::scribe::ScribeStore>()
@@ -106,8 +114,8 @@ fn reindex_one(app: &AppHandle, source: &str) {
             ms = started.elapsed().as_millis() as u64,
             "auto-reindexed after an edit"
         ),
-        // "already running" is the common case when a manual reindex overlaps;
-        // the source stays dirty-free but the manual run covers it.
+        // Lost the race for the index after the check above: same treatment.
+        Err(e) if e == crate::kb::BUSY => fresh.touch(source),
         Err(e) => tracing::debug!(target: "flux::kb", source, "auto-reindex skipped: {e}"),
     }
 }
@@ -133,7 +141,7 @@ pub fn start(app: &AppHandle) {
             continue;
         };
         for source in fresh.take_due() {
-            reindex_one(&handle, &source);
+            reindex_one(&handle, &fresh, &source);
         }
     });
     watch_onyx(app);
@@ -145,7 +153,10 @@ pub fn start(app: &AppHandle) {
 ///
 /// Failure here is not fatal and not worth a dialog: without the watch, Onyx
 /// simply goes back to being refreshed on demand, which is where it was before.
-fn watch_onyx(app: &AppHandle) {
+///
+/// Re-run by `kb_set_source` when the vault path changes: the boot-time watch
+/// is on whatever resolved then, possibly nothing. Each run replaces the last.
+pub(crate) fn watch_onyx(app: &AppHandle) {
     use notify::Watcher;
 
     let Some(kb) = app.try_state::<crate::kb::KbStore>() else {
@@ -154,6 +165,7 @@ fn watch_onyx(app: &AppHandle) {
     let location = kb.source_location("onyx");
     let Some(vault) = crate::kb::onyx_vault(location.as_deref()) else {
         tracing::debug!(target: "flux::kb", "no Onyx vault to watch");
+        set_onyx_watch(app, None); // nor the one the user pointed away from
         return;
     };
 
@@ -187,19 +199,31 @@ fn watch_onyx(app: &AppHandle) {
         Ok(mut w) => {
             if let Err(e) = w.watch(&vault, notify::RecursiveMode::Recursive) {
                 tracing::warn!(target: "flux::kb", "couldn't watch the Onyx vault: {e}");
+                set_onyx_watch(app, None);
                 return;
             }
             tracing::info!(target: "flux::kb", vault = %vault.display(), "watching the Onyx vault");
             // The watcher stops on drop, so it has to outlive this function.
-            app.manage(OnyxWatch(Mutex::new(Some(w))));
+            set_onyx_watch(app, Some(w));
         }
-        Err(e) => tracing::warn!(target: "flux::kb", "no Onyx watcher: {e}"),
+        Err(e) => {
+            tracing::warn!(target: "flux::kb", "no Onyx watcher: {e}");
+            set_onyx_watch(app, None);
+        }
     }
 }
 
-/// Keeps the vault watcher alive for the process's lifetime (dropping a
-/// `notify` watcher silently stops delivery).
-struct OnyxWatch(#[allow(dead_code)] Mutex<Option<notify::RecommendedWatcher>>);
+/// Install `w` as the vault watch, dropping (and so stopping) the previous
+/// vault's. `manage` only takes the first value per type, so after that the
+/// managed slot's contents are swapped instead.
+fn set_onyx_watch(app: &AppHandle, w: Option<notify::RecommendedWatcher>) {
+    app.manage(OnyxWatch(Mutex::new(None))); // no-op once managed
+    *app.state::<OnyxWatch>().0.lock() = w;
+}
+
+/// Keeps the current vault's watcher alive (dropping a `notify` watcher
+/// silently stops delivery).
+struct OnyxWatch(Mutex<Option<notify::RecommendedWatcher>>);
 
 /// Same, for the Scribe folder.
 struct ScribeWatch(#[allow(dead_code)] Mutex<Option<notify::RecommendedWatcher>>);

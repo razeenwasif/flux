@@ -832,9 +832,10 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                         continue;
                     }
                     // If the embedder changed since the corpus was built (e.g.
-                    // Ollama came up), a single-source reindex would clear every
-                    // source and rebuild only `web` — heal by rebuilding all.
-                    let source = if kb.embedder() != embedding::current() {
+                    // Ollama came up), or the Ollama model behind it did, only a
+                    // full rebuild can re-embed it — heal by rebuilding all.
+                    let source = if kb.embedder() != embedding::current() || kb.embed_model_stale()
+                    {
                         None
                     } else {
                         Some("web".to_string())
