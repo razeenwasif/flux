@@ -641,8 +641,8 @@ impl OllamaBackend {
                 .map_err(|e| AgentError::Inference(format!("ollama request to {url}: {e}")))?;
             let value = read_stream(std::io::BufReader::new(resp.into_reader()), &mut |_| {})?;
 
-            // Free-text replies are streamed elsewhere and aren't grammar-bound,
-            // so a cap hit there is a genuine stop, not a broken payload.
+            // Free-text replies aren't grammar-bound, so a cap hit there is a
+            // genuine stop, not a broken payload: only structured ones retry.
             if structured && hit_token_cap(&value) && cap < STRUCTURED_PREDICT_MAX {
                 let next = (cap.saturating_mul(2)).min(STRUCTURED_PREDICT_MAX);
                 // Raising the cap only helps if the window can actually hold the
@@ -686,7 +686,20 @@ impl OllamaBackend {
                 cap = next;
                 continue;
             }
-            return read_generate_response_capped(&value, &active_model(), cap);
+            if structured {
+                return read_generate_response_capped(&value, &active_model(), cap);
+            }
+            // Free text (`chat`, `translate`) cut at `num_predict` is still a
+            // usable (long) answer, which is what the streaming path returns for
+            // the same stop. Don't discard it behind the structured-output error,
+            // which would also name a cap and a retry this call never had.
+            return value
+                .get("response")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    AgentError::Inference(format!("ollama: no `response` field in {value}"))
+                });
         }
     }
 
@@ -1135,6 +1148,25 @@ mod tests {
             retry["options"]["num_predict"].as_i64() > first["options"]["num_predict"].as_i64(),
             "the retry asked for more room"
         );
+    }
+
+    /// A free-text reply that reached `num_predict` (a long translation) was
+    /// thrown away behind the structured-output error, which also named a
+    /// 1536-token cap and a retry this call never had.
+    #[test]
+    fn a_long_free_text_reply_is_kept_at_the_cap() {
+        let (backend, rx) = fake_ollama(vec![concat!(
+            r#"{"response":"Guten Tag, ","done":false}"#,
+            "\n",
+            r#"{"response":"und so weiter","done":true,"done_reason":"length"}"#,
+            "\n"
+        )]);
+        assert_eq!(
+            backend.chat("translate this").unwrap(),
+            "Guten Tag, und so weiter"
+        );
+        let sent = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(sent.get("format").is_none(), "free text carries no schema");
     }
 
     /// Ollama reports a failure after streaming began as an `{"error": …}` line
