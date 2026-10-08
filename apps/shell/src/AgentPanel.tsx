@@ -1811,10 +1811,12 @@ const AgentPanel: Component = () => {
     const shellReply = await maybeShellPlan(stripped);
     if (shellReply !== null) return shellReply;
     const cp = convoPrompt(t); // memory
+    const gen = ++replyGen; // ■ Stop bumps replyGen; the voice path must honour it too
     const idx = feed().length;
     setFeed((f) => [...f, { role: "assistant", text: "" }]);
     let acc = "";
     const append = (c: string) => {
+      if (gen !== replyGen) return; // stopped: drop late tokens
       acc += c;
       setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text + c } : it)));
     };
@@ -1822,13 +1824,15 @@ const AgentPanel: Component = () => {
     try {
       await agentChatStream(cp, append);
       // Retry once with the bare question if the model returned nothing (see send()).
-      if (!acc.trim()) await agentChatStream(t, append);
+      if (gen === replyGen && !acc.trim()) await agentChatStream(t, append);
     } catch (e) {
       acc = String(e);
       setFeed((f) => f.map((it, i) => (i === idx ? { ...it, role: "error", text: acc } : it)));
     } finally {
       setBusy(false);
     }
+    // Stopped mid-reply: return nothing, so handleUtterance doesn't speak it.
+    if (gen !== replyGen) return "";
     setFeed((f) => f.map((it, i) => (i === idx ? { ...it, text: it.text.trim() || "(no response)" } : it)));
     return acc.trim();
   };
