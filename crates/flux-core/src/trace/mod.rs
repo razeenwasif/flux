@@ -58,7 +58,9 @@ pub fn trace_visit(store: State<'_, TraceStore>, id: VisitId) -> Option<Visit> {
     store.visit(id)
 }
 
-/// The provenance graph (optionally time-windowed) for the Trail view.
+/// The provenance graph (optionally time-windowed) for the Trail view. `limit`
+/// keeps only the newest visits (and the edges among them), applied before
+/// serialization: this runs on the UI thread.
 #[tauri::command]
 pub fn trace_graph(
     store: State<'_, TraceStore>,
@@ -66,8 +68,9 @@ pub fn trace_graph(
     before_ms: Option<u64>,
     task_id: Option<u32>,
     task: Option<String>,
+    limit: Option<usize>,
 ) -> TraceGraph {
-    store.graph_scoped(after_ms, before_ms, task_id, task.as_deref())
+    store.graph_newest(after_ms, before_ms, task_id, task.as_deref(), limit)
 }
 
 /// Follow a workspace rename so its earlier visits stay in the scoped view.

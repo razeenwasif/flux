@@ -1534,12 +1534,15 @@ export const traceGraph = (
    *  `task` (the name) for visits recorded before ids were stamped. */
   taskId?: number,
   task?: string,
+  /** Keep only the newest N visits (server-side) and the edges among them. */
+  limit?: number,
 ) =>
   invoke<TraceGraph>("trace_graph", {
     afterMs: afterMs ?? null,
     beforeMs: beforeMs ?? null,
     taskId: taskId ?? null,
     task: task ?? null,
+    limit: limit ?? null,
   });
 /** Follow a workspace rename so its earlier visits stay in the scoped view. */
 export const traceRenameTask = (id: number | null, from: string, to: string) =>

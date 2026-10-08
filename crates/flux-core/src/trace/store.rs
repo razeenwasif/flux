@@ -657,10 +657,25 @@ impl TraceStore {
         task_id: Option<u32>,
         task: Option<&str>,
     ) -> TraceGraph {
+        self.graph_newest(after_ms, before_ms, task_id, task, None)
+    }
+
+    /// `graph_scoped`, keeping only the newest `limit` visits (by `last_ms`) and
+    /// the edges among them. They're picked before anything is cloned, so a
+    /// renderer that draws ~1200 nodes doesn't have 50k visits cloned and
+    /// serialized on the UI thread only to throw all but those away.
+    pub fn graph_newest(
+        &self,
+        after_ms: Option<u64>,
+        before_ms: Option<u64>,
+        task_id: Option<u32>,
+        task: Option<&str>,
+        limit: Option<usize>,
+    ) -> TraceGraph {
         self.hydrate();
         let d = self.inner.read();
         let scoped = task_id.is_some() || task.is_some();
-        let visits: Vec<Visit> = d
+        let mut picked: Vec<&Visit> = d
             .visits
             .iter()
             .filter(|v| {
@@ -676,8 +691,12 @@ impl TraceStore {
                     _ => task.is_some_and(|t| v.why.task.as_deref() == Some(t)),
                 }
             })
-            .cloned()
             .collect();
+        if let Some(n) = limit.filter(|&n| picked.len() > n) {
+            picked.sort_unstable_by_key(|v| std::cmp::Reverse(v.last_ms));
+            picked.truncate(n);
+        }
+        let visits: Vec<Visit> = picked.into_iter().cloned().collect();
         let keep: std::collections::HashSet<VisitId> = visits.iter().map(|v| v.id).collect();
         let edges: Vec<Edge> = d
             .edges
@@ -836,6 +855,28 @@ mod tests {
 
         // Unscoped still returns everything.
         assert_eq!(s.graph(None, None).visits.len(), 4);
+    }
+
+    #[test]
+    fn graph_newest_keeps_the_newest_visits_and_only_their_edges() {
+        let s = TraceStore::default();
+        let _a = s.record(1, "https://a.com/", "A", None, None).unwrap();
+        let b = s.record(1, "https://b.com/", "B", None, None).unwrap();
+        let c = s.record(1, "https://c.com/", "C", None, None).unwrap();
+        for (i, v) in s.inner.write().visits.iter_mut().enumerate() {
+            v.last_ms = i as u64 + 1;
+        }
+        let g = s.graph_newest(None, None, None, None, Some(2));
+        let ids: Vec<VisitId> = g.visits.iter().map(|v| v.id).collect();
+        assert_eq!(ids, vec![c, b], "newest first");
+        // a→b went with a; b→c stays.
+        assert_eq!(g.edges.len(), 1);
+        assert_eq!((g.edges[0].from, g.edges[0].to), (b, c));
+        // Within the limit, nothing is dropped.
+        assert_eq!(
+            s.graph_newest(None, None, None, None, Some(3)).visits.len(),
+            3
+        );
     }
 
     #[test]
