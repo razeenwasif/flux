@@ -77,8 +77,17 @@ pub struct TrackerFacts {
 pub fn tracker_facts(graph: &TrackerGraph) -> TrackerFacts {
     let sites = graph.nodes.iter().filter(|n| n.kind == "site").count();
     let thirds: Vec<_> = graph.nodes.iter().filter(|n| n.kind == "third").collect();
-    let requests = graph.nodes.iter().filter(|n| n.kind == "site").map(|n| n.requests).sum();
-    let blocked = graph.nodes.iter().filter(|n| n.kind == "site").map(|n| n.blocked).sum();
+    // Sum the edges: each (first party, third party) pair once, with both its
+    // counts. Not the site nodes: `TrackerStore::graph` tallies `blocked` only on
+    // the third-party end, so every site's `blocked` is 0.
+    let requests = graph
+        .edges
+        .iter()
+        .fold(0u32, |a, e| a.saturating_add(e.requests));
+    let blocked = graph
+        .edges
+        .iter()
+        .fold(0u32, |a, e| a.saturating_add(e.blocked));
     // The hub that reaches the most first parties — the one that can actually
     // stitch your browsing together, which is the point worth making.
     let top_hub = thirds
@@ -149,12 +158,16 @@ mod tests {
                 node("google-analytics.com", "third", 50, 40, 2),
                 node("ads.example", "third", 20, 15, 1),
             ],
-            edges: vec![TrackerEdge {
-                source: 0,
-                target: 2,
-                requests: 25,
-                blocked: 20,
-            }],
+            edges: vec![edge(0, 2, 40, 30), edge(1, 2, 40, 30), edge(1, 3, 20, 15)],
+        }
+    }
+
+    fn edge(source: usize, target: usize, requests: u32, blocked: u32) -> TrackerEdge {
+        TrackerEdge {
+            source,
+            target,
+            requests,
+            blocked,
         }
     }
 
@@ -184,11 +197,24 @@ mod tests {
         let f = tracker_facts(&graph());
         assert_eq!(f.sites, 2);
         assert_eq!(f.third_parties, 2);
-        // Requests/blocked sum the SITE nodes — counting thirds too would
-        // double-count the same traffic from the other end of the edge.
+        // Requests/blocked sum the edges — each (site, third party) pair once,
+        // so the same traffic isn't counted from both ends.
         assert_eq!(f.requests, 100);
         assert_eq!(f.blocked, 75);
         assert_eq!(f.top_hub, Some(("google-analytics.com".into(), 2)));
+    }
+
+    #[test]
+    fn facts_report_what_the_real_graph_blocked() {
+        // The producer puts `blocked` on the third-party node only, so summing
+        // site nodes said "Flux blocked 0 of N" however much shields blocked.
+        let store = crate::trackers::TrackerStore::default();
+        for i in 0..4 {
+            store.record("https://bbc.com/news", "https://ads.example/px", i < 3);
+        }
+        store.record("https://news.example/", "https://ads.example/px", false);
+        let f = tracker_facts(&store.graph());
+        assert_eq!((f.requests, f.blocked), (5, 3));
     }
 
     #[test]
