@@ -309,8 +309,8 @@ pub(crate) fn estimate_tokens(s: &str) -> u32 {
 /// leave room to answer.
 ///
 /// `num_ctx` covers prompt + output together. A fixed 4096 silently truncated
-/// our longest prompts (`flag_policy` sends a 12 KB document, `chat_pages` 12 KB
-/// of tabs), and Ollama drops the *oldest* tokens — which is exactly where the
+/// our longest prompts (`flag_policy` sends a 12 KB document, `chat_pages` up to
+/// 32 KB of tabs), and Ollama drops the *oldest* tokens — which is exactly where the
 /// "reply with one JSON object" instruction lives. The model then sees a bare
 /// document with no task, rambles, and hits the output cap: a truncated-JSON
 /// parse error that looks like model weakness but is our own configuration.
