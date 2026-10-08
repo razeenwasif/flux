@@ -71,9 +71,19 @@ const looksInterrogative = (t: string): boolean => ASKING.test(t) && !MULTI.test
 /** Requests the panel already routes elsewhere; this must not steal them. */
 const ALREADY_ROUTED = /^\s*\/(?:task|fix|auto|iterate|note|act|do|pac|run|exec|shell|terminal)\b/i;
 
+/**
+ * Memory / reminder requests: AgentPanel's REMEMBER_RE / REMIND_RE openers, after
+ * the same "hey gemma," / "can you" / "please" / "I want you to" lead-ins send()
+ * strips. Their object often names work ("remind me to run the tests at 5",
+ * "remember the build takes 10 min"), but they ask to SAVE it, not do it now.
+ * Deliberately not search/play/etc.: multi-step work can start with those verbs.
+ */
+const SAVE_FOR_LATER =
+  /^\s*(?:\/?(?:hey\s+)?gemma[,:\s]+)?(?:(?:can|could|would|will)\s+you\s+)?(?:(?:please|kindly)\s+)?(?:i(?:'?d| would)?\s+(?:like|want|need)\s+(?:you\s+)?to\s+)?(?:\/?remember|keep in mind|make a note|note that|save to memory|remind me|set (?:a )?reminder|add (?:a )?(?:reminder|to-?do|task)|reminder)\b/i;
+
 export const looksAgentic = (text: string): boolean => {
   const t = text.trim();
-  if (!t || ALREADY_ROUTED.test(t)) return false;
+  if (!t || ALREADY_ROUTED.test(t) || SAVE_FOR_LATER.test(t)) return false;
   // Very short messages are conversational ("do it", "yes", "go on"). The loop
   // needs a goal it can re-plan against, and three words is never that.
   if (t.split(/\s+/).length < 5) return false;
