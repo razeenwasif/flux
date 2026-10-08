@@ -3068,13 +3068,16 @@ const AgentPanel: Component = () => {
     // split doesn't yield a clean multi-step request.
     let steps = splitOnConnectors(text);
     if (steps.length < 2 || !isActionStep(steps[0]!)) {
+      const wasBusy = busy();
       setBusy(true);
       try {
         steps = await agentPlanSteps(text);
       } catch {
         steps = [];
       } finally {
-        setBusy(false);
+        // send() calls this with busy already set; clearing it here re-opened
+        // the input while its reply was still to stream.
+        setBusy(wasBusy);
       }
     }
     if (steps.length < 2 || !isActionStep(steps[0]!)) return false;
