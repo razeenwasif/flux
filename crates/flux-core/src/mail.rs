@@ -22,7 +22,8 @@
 //! is one TLS handshake.
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -182,14 +183,41 @@ fn utf8(b: &[u8]) -> String {
     String::from_utf8_lossy(b).to_string()
 }
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Per read/write. Without it a server that stops answering (or a socket left
+/// half-open by sleep) parked a blocking-pool thread forever, and the pane's
+/// 2-minute poll added another each time.
+const IO_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// TCP to the server, bounded: `connect` per address, as `TcpStream::connect`
+/// does, but with a timeout, and with read/write timeouts that rustls and imap
+/// inherit.
+fn connect(host: &str, port: u16) -> Result<TcpStream, String> {
+    let mut last_err = String::from("no address");
+    let addrs = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("connect {host}:{port}: {e}"))?;
+    for addr in addrs {
+        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+            Ok(tcp) => {
+                tcp.set_read_timeout(Some(IO_TIMEOUT))
+                    .and_then(|()| tcp.set_write_timeout(Some(IO_TIMEOUT)))
+                    .map_err(|e| format!("socket: {e}"))?;
+                return Ok(tcp);
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(format!("connect {host}:{port}: {last_err}"))
+}
+
 /// Connect, log in, and hand the session to `f`. Always logs out.
 fn with_session<T>(
     cfg: &MailConfig,
     pass: &str,
     f: impl FnOnce(&mut imap::Session<Box<dyn ReadWrite>>) -> Result<T, String>,
 ) -> Result<T, String> {
-    let tcp = TcpStream::connect((cfg.host.as_str(), cfg.port))
-        .map_err(|e| format!("connect {}:{}: {e}", cfg.host, cfg.port))?;
+    let tcp = connect(&cfg.host, cfg.port)?;
     let connector = rustls_connector::RustlsConnectorConfig::new_with_platform_verifier()
         .with_webpki_root_certs()
         .connector_with_no_client_auth()
@@ -423,6 +451,17 @@ mod tests {
         // A non-hex escape keeps the text after it instead of dropping 2 bytes.
         assert_eq!(decode_q("a=zzb"), b"a=zzb");
         assert_eq!(decode_q("caf=C3=A9"), "café".as_bytes());
+    }
+
+    #[test]
+    fn imap_sockets_time_out_rather_than_block_forever() {
+        // Connects into the listener's backlog; nothing ever answers, which is
+        // exactly the stalled server that used to pin a thread per poll.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let tcp = connect("127.0.0.1", port).unwrap();
+        assert_eq!(tcp.read_timeout().unwrap(), Some(IO_TIMEOUT));
+        assert_eq!(tcp.write_timeout().unwrap(), Some(IO_TIMEOUT));
     }
 
     #[test]
