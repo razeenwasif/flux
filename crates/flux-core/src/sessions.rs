@@ -151,10 +151,16 @@ impl SessionStore {
 
     pub fn delete(&self, id: u64) {
         let mut items = self.items.write();
-        if let Some(s) = items.iter().find(|s| s.id == id) {
-            self.tombstones.write().insert(s.name.clone(), now_ms());
+        if let Some(pos) = items.iter().position(|s| s.id == id) {
+            let gone = items.remove(pos);
+            // Tombstones are keyed by *name*, and the next merge buries every
+            // same-named session older than one (every "Untitled"): bury the
+            // name only once its last holder is gone. Until then `merge` can't
+            // re-add a remote copy anyway, since the name is still present.
+            if !items.iter().any(|s| s.name == gone.name) {
+                self.tombstones.write().insert(gone.name, now_ms());
+            }
         }
-        items.retain(|s| s.id != id);
         drop(items);
         self.save_disk();
     }
@@ -373,6 +379,18 @@ mod tests {
         let s = store.save("Research".into(), vec![]);
         store.delete(s.id);
         assert!(store.tombstones().contains_key("Research"));
+    }
+
+    #[test]
+    fn deleting_one_untitled_session_keeps_the_others() {
+        let store = SessionStore::default();
+        let first = store.save("".into(), vec![]);
+        store.save("".into(), vec![]);
+        store.delete(first.id);
+        assert!(!store.tombstones().contains_key("Untitled"));
+        // The next sync merge must not take the remaining one with it.
+        store.merge(vec![], &Default::default());
+        assert_eq!(store.list().len(), 1);
     }
 
     #[test]
