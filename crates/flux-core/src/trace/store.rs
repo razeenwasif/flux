@@ -19,6 +19,9 @@ pub type VisitId = u64;
 /// (capture.js republishes on SPA mutations / dwell) — refresh, don't fork a
 /// node. Mirrors `history::VISIT_DEDUP_MS`.
 const VISIT_DEDUP_MS: u64 = 30_000;
+/// While a page keeps republishing, refresh its `last_ms` at most this often:
+/// every refresh dirties the multi-MB sealed trace.json.
+const LAST_MS_REFRESH_MS: u64 = 5 * 60_000;
 
 /// Bound the store; evict the oldest visits (and their edges) beyond this. The
 /// lightweight metadata is cheap, but not unbounded.
@@ -160,6 +163,10 @@ struct TraceData {
 pub struct TraceStore {
     inner: RwLock<TraceData>,
     by_tab: RwLock<HashMap<TabId, VisitId>>,
+    /// Last publish time per tab (session-only, like `by_tab`). "Returned after
+    /// a gap" is judged on this, not on `last_ms` (which the fast path leaves
+    /// alone), so a page that keeps mutating doesn't gain a hit every 30 s.
+    last_pub: RwLock<HashMap<TabId, u64>>,
     path: Option<PathBuf>,
     dirty: AtomicBool,
     initialized: std::sync::Once,
@@ -170,6 +177,7 @@ impl Default for TraceStore {
         Self {
             inner: RwLock::new(TraceData::default()),
             by_tab: RwLock::new(HashMap::new()),
+            last_pub: RwLock::new(HashMap::new()),
             path: None,
             dirty: AtomicBool::new(false),
             initialized: std::sync::Once::new(),
@@ -231,6 +239,17 @@ impl TraceStore {
         self.hydrate();
         let now = now_ms();
         let prev = self.by_tab.read().get(&tab).copied();
+        // Still publishing (no 30 s quiet gap on this tab): the same stay.
+        let continuing = self
+            .last_pub
+            .write()
+            .insert(tab, now)
+            .is_some_and(|t| now.saturating_sub(t) < VISIT_DEDUP_MS);
+        let window = if continuing {
+            LAST_MS_REFRESH_MS
+        } else {
+            VISIT_DEDUP_MS
+        };
 
         // Fast path under a READ lock: the tab is still on the same URL within
         // the dedup window and nothing meaningful changed — take no write lock
@@ -242,7 +261,7 @@ impl TraceStore {
             let d = self.inner.read();
             if let Some(v) = d.visits.iter().find(|v| v.id == pid) {
                 if v.url == url
-                    && now.saturating_sub(v.last_ms) < VISIT_DEDUP_MS
+                    && now.saturating_sub(v.last_ms) < window
                     && (title.trim().is_empty() || title == v.title)
                 {
                     return Some(pid);
@@ -257,7 +276,7 @@ impl TraceStore {
         if let Some(pid) = prev {
             if let Some(v) = d.visits.iter_mut().find(|v| v.id == pid) {
                 if v.url == url {
-                    if now.saturating_sub(v.last_ms) >= VISIT_DEDUP_MS {
+                    if !continuing && now.saturating_sub(v.last_ms) >= VISIT_DEDUP_MS {
                         v.hits += 1; // returned to the same page after a gap
                     }
                     v.last_ms = now;
@@ -333,6 +352,7 @@ impl TraceStore {
     /// can't inherit a stale nav edge.
     pub fn tab_closed(&self, tab: TabId) {
         self.by_tab.write().remove(&tab);
+        self.last_pub.write().remove(&tab);
     }
 
     /// The tab's current visit id, if any — the dwell-capture target.
@@ -960,6 +980,36 @@ mod tests {
         s.record(1, "https://a.com/", "A v2", None, None).unwrap();
         assert!(s.dirty.load(Ordering::Relaxed));
         assert_eq!(s.visit(s.current_visit(1).unwrap()).unwrap().title, "A v2");
+    }
+
+    #[test]
+    fn a_page_that_keeps_publishing_gains_no_hits() {
+        // capture.js republishes a mutating page every ~400ms; the visit's
+        // last_ms ages past the 30s window, but there was never a gap.
+        let s = TraceStore::default();
+        let v = s.record(1, "https://a.com/", "A", None, None).unwrap();
+        let age = |s: &TraceStore, ms: u64| s.inner.write().visits[0].last_ms -= ms;
+        for _ in 0..3 {
+            age(&s, 31_000);
+            s.dirty.store(false, Ordering::Relaxed);
+            s.record(1, "https://a.com/", "A", None, None);
+            assert!(
+                !s.dirty.load(Ordering::Relaxed),
+                "no rewrite while it stays"
+            );
+        }
+        assert_eq!(s.visit(v).unwrap().hits, 1, "no gap, so no new hit");
+        // Past the refresh interval, last_ms catches up — still without a hit.
+        age(&s, LAST_MS_REFRESH_MS);
+        s.record(1, "https://a.com/", "A", None, None);
+        assert!(s.dirty.load(Ordering::Relaxed));
+        assert!(now_ms().saturating_sub(s.visit(v).unwrap().last_ms) < VISIT_DEDUP_MS);
+        assert_eq!(s.visit(v).unwrap().hits, 1);
+        // A real quiet gap on the tab, then a publish: a return, so a hit.
+        s.last_pub.write().insert(1, now_ms() - VISIT_DEDUP_MS);
+        age(&s, VISIT_DEDUP_MS);
+        s.record(1, "https://a.com/", "A", None, None);
+        assert_eq!(s.visit(v).unwrap().hits, 2);
     }
 
     #[test]
