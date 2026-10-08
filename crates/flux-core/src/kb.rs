@@ -408,6 +408,24 @@ fn snippet(text: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
+/// The embedder a build runs on. A single-source build carries only its own
+/// source's corpus, so switching embedders there would clear every source and
+/// rebuild just the one: it stays on the corpus's embedder and leaves the switch
+/// to a full rebuild (the web auto-index's heal path, or Reindex all). An empty
+/// corpus has nothing to lose and takes the current one.
+fn build_embedder(
+    single_source: bool,
+    stored: Embedder,
+    corpus_empty: bool,
+    current: impl FnOnce() -> Embedder,
+) -> Embedder {
+    if single_source && !corpus_empty {
+        stored
+    } else {
+        current()
+    }
+}
+
 fn embedder_name(e: Embedder) -> &'static str {
     match e {
         Embedder::Model => "model",
@@ -750,8 +768,17 @@ impl KbStore {
 
         // Pick the embedder once. If it changed since the last build, the whole
         // corpus must re-embed (cosine is only meaningful within one embedder).
-        let embedder = embedding::current();
-        let embedder_changed = self.data.read().embedder != embedder;
+        let (stored, corpus_empty) = {
+            let d = self.data.read();
+            (d.embedder, d.chunks.is_empty())
+        };
+        let embedder = build_embedder(source.is_some(), stored, corpus_empty, embedding::current);
+        let embedder_changed = embedder != stored;
+        if embedder_changed && !corpus_empty && embedding::embed_with("flux", embedder).is_none() {
+            // `current()` is a cached /api/tags probe, and a listed model can
+            // still fail to embed: don't trade a working corpus for that.
+            return Err("embedding model listed but not answering; kept the existing index".into());
+        }
         if embedder_changed {
             let mut d = self.data.write();
             d.clear_corpus();
@@ -2202,6 +2229,19 @@ mod tests {
         assert!(store.data.read().chunks.len() <= before);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_single_source_build_never_switches_a_populated_corpus() {
+        use Embedder::{Hash, Model};
+        // Ollama came up (or went away) since the corpus was built. Switching in
+        // a one-source build would clear every source to rebuild just that one.
+        assert_eq!(build_embedder(true, Hash, false, || unreachable!()), Hash);
+        assert_eq!(build_embedder(true, Model, false, || unreachable!()), Model);
+        // Nothing to lose yet, or a full rebuild: follow what's available.
+        assert_eq!(build_embedder(true, Hash, true, || Model), Model);
+        assert_eq!(build_embedder(false, Hash, false, || Model), Model);
+        assert_eq!(build_embedder(false, Model, false, || Hash), Hash);
     }
 
     #[test]
