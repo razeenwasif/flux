@@ -1678,6 +1678,7 @@ pub async fn kb_reindex(
 /// Windows build). Empty clears it.
 #[tauri::command]
 pub async fn kb_set_source(
+    app: tauri::AppHandle,
     kb: State<'_, KbStore>,
     source: String,
     location: String,
@@ -1688,6 +1689,11 @@ pub async fn kb_set_source(
     let kb = (*kb).clone();
     tauri::async_runtime::spawn_blocking(move || {
         kb.set_location(&source, &location);
+        if source == "onyx" {
+            // The vault watch was armed at boot on whatever resolved then;
+            // without this, edits in the newly set vault are never noticed.
+            crate::kbfresh::watch_onyx(&app);
+        }
         kb.status()
     })
     .await
