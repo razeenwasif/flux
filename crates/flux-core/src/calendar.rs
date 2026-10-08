@@ -487,20 +487,38 @@ fn parse_events(ics: &str, cal_name: &str) -> Vec<CalEvent> {
 fn parse_events_at(ics: &str, cal_name: &str, today: i64) -> Vec<CalEvent> {
     let lo = today - WINDOW_BACK_DAYS;
     let hi = today + WINDOW_FWD_DAYS;
+    let mut vevents = Vec::new();
+    for_each_vevent(ics, |v| vevents.push(v));
+    // A modified instance of a series is its own VEVENT (same UID plus a
+    // RECURRENCE-ID naming the occurrence it replaces). Suppress that original
+    // occurrence, or a meeting moved for one week shows at both times.
+    let mut overridden: std::collections::HashMap<String, Vec<i64>> = Default::default();
+    for v in &vevents {
+        if let Some(day) = v.recurrence_id.filter(|_| !v.uid.is_empty()) {
+            overridden.entry(v.uid.clone()).or_default().push(day);
+        }
+    }
     let mut out = Vec::new();
-    for_each_vevent(ics, |v| {
-        let Vevent {
-            title,
-            location,
-            end_time,
-            start,
-            rrule,
-            exdates,
-        } = v;
+    for v in vevents {
+        let mut exdates = v.exdates;
+        if v.recurrence_id.is_none() && !v.rrule.is_empty() {
+            if let Some(days) = overridden.get(&v.uid) {
+                exdates.extend_from_slice(days);
+            }
+        }
         emit_occurrences(
-            &title, &location, &end_time, &start, &rrule, &exdates, cal_name, lo, hi, &mut out,
+            &v.title,
+            &v.location,
+            &v.end_time,
+            &v.start,
+            &v.rrule,
+            &exdates,
+            cal_name,
+            lo,
+            hi,
+            &mut out,
         );
-    });
+    }
     out
 }
 
@@ -514,6 +532,10 @@ struct Vevent {
     start: DtParts,
     rrule: String,
     exdates: Vec<i64>,
+    /// `UID`, shared by a series and its modified instances.
+    uid: String,
+    /// `RECURRENCE-ID`: the occurrence (epoch day) this VEVENT replaces.
+    recurrence_id: Option<i64>,
 }
 
 /// Scan an ICS document and hand each complete VEVENT to `f`. Shared by the
@@ -532,6 +554,8 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
     let mut end_time = String::new();
     let mut rrule = String::new();
     let mut exdates: Vec<i64> = Vec::new();
+    let mut uid = String::new();
+    let mut recurrence_id: Option<i64> = None;
 
     for line in unfolded.lines() {
         let line = line.trim_end_matches('\r');
@@ -543,6 +567,8 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
             end_time.clear();
             rrule.clear();
             exdates.clear();
+            uid.clear();
+            recurrence_id = None;
             start = None;
             continue;
         }
@@ -559,6 +585,8 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
                     start: s,
                     rrule: rrule.clone(),
                     exdates: exdates.clone(),
+                    uid: uid.clone(),
+                    recurrence_id,
                 });
             }
             in_event = false;
@@ -592,6 +620,8 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
             "DTSTART" => start = parse_dt(value),
             "DTEND" => end_time = parse_dt(value).map(|p| p.time).unwrap_or_default(),
             "RRULE" => rrule = value.to_string(),
+            "UID" => uid = value.to_string(),
+            "RECURRENCE-ID" => recurrence_id = parse_dt(value).map(|p| p.days),
             "EXDATE" => {
                 for part in value.split(',') {
                     if let Some(p) = parse_dt(part) {
@@ -610,8 +640,9 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
 ///
 /// This is a **copy, not a link**: the source calendar's later edits won't follow.
 /// EXDATEs are dropped (LocalEvent has no exception list), so a cancelled
-/// occurrence of a recurring series reappears — worth knowing before importing a
-/// calendar full of exceptions.
+/// occurrence of a recurring series reappears, and a moved one (RECURRENCE-ID)
+/// shows at both times — worth knowing before importing a calendar full of
+/// exceptions.
 fn ics_to_local_events(ics: &str) -> Vec<LocalEvent> {
     let mut out = Vec::new();
     for_each_vevent(ics, |v| {
@@ -1530,6 +1561,26 @@ END:VCALENDAR";
         assert_eq!(ev[1].date, "2026-06-20");
         assert_eq!(ev[1].time, ""); // all-day
         assert_eq!(ev[1].calendar, "Work");
+    }
+
+    #[test]
+    fn a_moved_occurrence_shows_once_at_its_new_time() {
+        // "Edit only this event": the series, plus an override VEVENT with the
+        // same UID and a RECURRENCE-ID naming the occurrence it replaces. The
+        // alarm's own UID (iCloud writes one) must not stand in for the event's.
+        let ics = "BEGIN:VEVENT\r\nUID:standup@x\r\nSUMMARY:Standup\r\n\
+DTSTART:20260601T090000\r\nRRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4\r\n\
+BEGIN:VALARM\r\nUID:alarm-1\r\nACTION:DISPLAY\r\nTRIGGER:-PT10M\r\nEND:VALARM\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:standup@x\r\nRECURRENCE-ID:20260615T090000\r\nSUMMARY:Standup\r\n\
+DTSTART:20260615T150000\r\nEND:VEVENT";
+        let ev = parse_events_at(ics, "W", day(2026, 6, 1));
+        let moved: Vec<&str> = ev
+            .iter()
+            .filter(|e| e.date == "2026-06-15")
+            .map(|e| e.time.as_str())
+            .collect();
+        assert_eq!(moved, vec!["15:00"], "shown at both times");
+        assert_eq!(ev.len(), 4, "the other weeks are untouched");
     }
 
     #[test]
