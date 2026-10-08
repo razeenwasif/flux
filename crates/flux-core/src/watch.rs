@@ -94,18 +94,34 @@ struct Inner {
 pub struct WatchStore {
     inner: Arc<RwLock<Inner>>,
     path: Arc<Option<PathBuf>>,
+    /// Serializes snapshot + write: the scheduler and a command saving at once
+    /// could otherwise land the older snapshot last.
+    save_lock: Arc<parking_lot::Mutex<()>>,
 }
 
 impl WatchStore {
     pub fn restore(path: PathBuf) -> Self {
-        let entries: Vec<WatchEntry> = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let loaded: Result<Vec<WatchEntry>, String> = match std::fs::read_to_string(&path) {
+            Ok(s) => serde_json::from_str(&s).map_err(|e| e.to_string()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(e.to_string()),
+        };
+        let (entries, path) = match loaded {
+            Ok(entries) => (entries, Some(path)),
+            Err(e) => {
+                // Starting empty, the next save would replace every watch (and
+                // its baseline) for good. Set the file aside first; if even that
+                // fails, don't save this session.
+                let aside = std::fs::rename(&path, path.with_extension("json.corrupt")).is_ok();
+                tracing::warn!(target: "flux::watch", aside, "watches.json unreadable: {e}");
+                (Vec::new(), aside.then_some(path))
+            }
+        };
         let next_id = entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
         Self {
             inner: Arc::new(RwLock::new(Inner { entries, next_id })),
-            path: Arc::new(Some(path)),
+            path: Arc::new(path),
+            save_lock: Arc::default(),
         }
     }
 
@@ -113,12 +129,14 @@ impl WatchStore {
         let Some(path) = self.path.as_ref() else {
             return;
         };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let json = serde_json::to_string(&self.inner.read().entries).ok();
-        if let Some(json) = json {
-            let _ = std::fs::write(path, json);
+        let _serial = self.save_lock.lock();
+        // Temp file + rename (persist.rs): a crash mid-write can no longer leave a
+        // torn file that `restore` reads as "no watches".
+        let saved = serde_json::to_vec(&self.inner.read().entries)
+            .map_err(|e| e.to_string())
+            .and_then(|json| crate::persist::write_atomic(path, &json).map_err(|e| e.to_string()));
+        if let Err(e) = saved {
+            tracing::warn!(target: "flux::watch", "saving watches failed: {e}");
         }
     }
 
@@ -442,14 +460,22 @@ pub async fn watch_add(
         .map_err(|e| e.to_string())
 }
 
+// Both rewrite the whole store (every baseline) and fsync it, and may wait on a
+// scheduler save: off the main thread.
 #[tauri::command]
-pub fn watch_remove(store: State<'_, WatchStore>, id: u64) {
-    store.remove(id);
+pub async fn watch_remove(store: State<'_, WatchStore>, id: u64) -> Result<(), String> {
+    let store = (*store).clone();
+    tauri::async_runtime::spawn_blocking(move || store.remove(id))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn watch_mark_seen(store: State<'_, WatchStore>, id: u64) {
-    store.mark_seen(id);
+pub async fn watch_mark_seen(store: State<'_, WatchStore>, id: u64) -> Result<(), String> {
+    let store = (*store).clone();
+    tauri::async_runtime::spawn_blocking(move || store.mark_seen(id))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Force an immediate check (the ↻ button). Returns the updated item.
@@ -528,6 +554,93 @@ mod tests {
         assert_eq!(html_to_text("<br>日本語"), "日本語");
         assert_eq!(html_to_text("<p>Hi 👋</p>"), "Hi 👋");
         assert_eq!(html_to_text("<SCRIPT>x()</SCRIPT><em>don’t</em>"), "don’t");
+    }
+
+    fn entry(id: u64) -> WatchEntry {
+        WatchEntry {
+            id,
+            url: format!("https://a.test/{id}"),
+            title: String::new(),
+            interval_secs: DEFAULT_INTERVAL,
+            created_ms: 0,
+            last_checked_ms: 0,
+            last_change_ms: 0,
+            baseline: "page text ".repeat(50_000),
+            added: Vec::new(),
+            removed: Vec::new(),
+            error: None,
+            seen: false,
+        }
+    }
+
+    fn saved(path: &std::path::Path) -> Vec<WatchEntry> {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn an_unreadable_store_is_set_aside_not_saved_over() {
+        let dir = std::env::temp_dir().join(format!("flux-watch-torn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("watches.json");
+        // What a write cut short leaves behind.
+        let full = serde_json::to_string(&vec![entry(1), entry(2)]).unwrap();
+        let torn = &full[..full.len() / 2];
+        std::fs::write(&path, torn).unwrap();
+
+        let store = WatchStore::restore(path.clone());
+        assert!(store.list().is_empty());
+        store.remove(1); // any save
+        let aside = std::fs::read_to_string(dir.join("watches.json.corrupt")).unwrap();
+        assert_eq!(aside, torn, "the old file is kept, not written over");
+        assert!(saved(&path).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_saves_leave_the_newest_whole_snapshot() {
+        let dir = std::env::temp_dir().join(format!("flux-watch-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("watches.json");
+        let all: Vec<WatchEntry> = (1..=8).map(entry).collect();
+        std::fs::write(&path, serde_json::to_string(&all).unwrap()).unwrap();
+
+        let store = WatchStore::restore(path.clone());
+        // Whatever moment a crash picks, the file on disk must parse: watch it
+        // the whole time the saves run.
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let reader = {
+            let (path, done) = (path.clone(), done.clone());
+            std::thread::spawn(move || {
+                while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                    let s = std::fs::read_to_string(&path).unwrap();
+                    assert!(
+                        serde_json::from_str::<Vec<WatchEntry>>(&s).is_ok(),
+                        "torn file"
+                    );
+                }
+            })
+        };
+        let start = Arc::new(std::sync::Barrier::new(8));
+        let removers: Vec<_> = (1..=8)
+            .map(|id| {
+                let (store, start) = (store.clone(), start.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    store.remove(id);
+                })
+            })
+            .collect();
+        for r in removers {
+            r.join().unwrap();
+        }
+        done.store(true, std::sync::atomic::Ordering::Relaxed);
+        reader.join().unwrap();
+        // And the last write saw every removal: no stale snapshot landing last
+        // and bringing a removed watch back.
+        assert!(saved(&path).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
