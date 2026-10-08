@@ -823,28 +823,29 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
                     let generation = s.generation();
                     let settled = generation == last_seen && generation != last_indexed;
                     last_seen = generation;
-                    if !settled {
-                        continue;
-                    }
-                    // If the embedder changed since the corpus was built (e.g.
-                    // Ollama came up), a single-source reindex would clear every
-                    // source and rebuild only `web` — heal by rebuilding all.
-                    let source = if kb.embedder() != embedding::current() {
-                        None
-                    } else {
-                        Some("web".to_string())
-                    };
-                    // A None source rebuilds every corpus, which is why the
-                    // whole set is gathered in one place (see `corpora`).
-                    match kb.reindex(source, corpora(&handle)) {
-                        Ok(_) => {
-                            last_indexed = generation;
-                            tracing::info!(target: "flux::kb", generation, "auto-indexed browsing into the web source");
-                        }
-                        // Busy (a manual reindex is running) or a source failed —
-                        // leave last_indexed behind so the next settled tick retries.
-                        Err(e) => {
-                            tracing::debug!(target: "flux::kb", "web auto-reindex skipped: {e}")
+                    // Not `continue` when unsettled: that skipped the PDF and
+                    // Scribe blocks below on almost every tick.
+                    if settled {
+                        // If the embedder changed since the corpus was built (e.g.
+                        // Ollama came up), a single-source reindex would clear every
+                        // source and rebuild only `web` — heal by rebuilding all.
+                        let source = if kb.embedder() != embedding::current() {
+                            None
+                        } else {
+                            Some("web".to_string())
+                        };
+                        // A None source rebuilds every corpus, which is why the
+                        // whole set is gathered in one place (see `corpora`).
+                        match kb.reindex(source, corpora(&handle)) {
+                            Ok(_) => {
+                                last_indexed = generation;
+                                tracing::info!(target: "flux::kb", generation, "auto-indexed browsing into the web source");
+                            }
+                            // Busy (a manual reindex is running) or a source failed —
+                            // leave last_indexed behind so the next settled tick retries.
+                            Err(e) => {
+                                tracing::debug!(target: "flux::kb", "web auto-reindex skipped: {e}")
+                            }
                         }
                     }
                 }
