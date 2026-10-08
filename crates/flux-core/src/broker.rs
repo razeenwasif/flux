@@ -16,9 +16,7 @@
 //! the (usually narrow) set the user granted that extension.
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
@@ -49,8 +47,6 @@ pub struct BrokerState {
     /// One write at a time, snapshot through rename: calls run on the blocking
     /// pool, so two can overlap, and an older snapshot must never land last.
     persist_lock: Mutex<()>,
-    seq: AtomicU64,
-    nonce: u64,
 }
 
 impl BrokerState {
@@ -58,41 +54,38 @@ impl BrokerState {
         Self::default()
     }
 
-    /// Load persisted storage from `path` and seed the per-session token nonce.
+    /// Load persisted storage from `path`.
     pub fn restore(path: PathBuf) -> Self {
         let (storage, storage_path) = load_storage(path);
-        // Seed a per-session nonce so tokens differ across runs (no rand crate;
-        // SystemTime is fine here — flux-core isn't a workflow script).
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0x9E37_79B9_7F4A_7C15);
         Self {
             storage: RwLock::new(storage),
             storage_path,
-            nonce,
             ..Default::default()
         }
     }
 
     /// The capability token for an extension (minted once per session).
+    ///
+    /// 128 bits from the OS-seeded CSPRNG and nothing else, so one token says
+    /// nothing about another. ADR 0008 accepts that a page can read its own
+    /// extension's token under WebView2, contained by that token carrying only
+    /// that extension's grants. Tokens derived from a session nonce (the first
+    /// one minted *was* the nonce) let such a page compute every other
+    /// extension's token. `entry` also mints just once under concurrent loads.
     pub fn token_for(&self, ext_id: &str) -> String {
         if let Some(t) = self.by_ext.get(ext_id) {
             return t.clone();
         }
-        let n = self.seq.fetch_add(1, Ordering::Relaxed);
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.nonce.hash(&mut h);
-        ext_id.hash(&mut h);
-        n.hash(&mut h);
-        let token = format!(
-            "{:016x}{:016x}",
-            self.nonce ^ n.wrapping_mul(0x9E37_79B9_7F4A_7C15),
-            h.finish()
-        );
-        self.tokens.insert(token.clone(), ext_id.to_string());
-        self.by_ext.insert(ext_id.to_string(), token.clone());
-        token
+        self.by_ext
+            .entry(ext_id.to_string())
+            .or_insert_with(|| {
+                let bytes: [u8; 16] = rand::random();
+                let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+                self.tokens.insert(token.clone(), ext_id.to_string());
+                token
+            })
+            .value()
+            .clone()
     }
 
     fn persist(&self) {
@@ -472,6 +465,35 @@ mod tests {
             b.tokens.get(&t1).map(|r| r.value().clone()),
             Some("com.a".to_string())
         );
+    }
+
+    #[test]
+    fn tokens_are_random_not_derived_from_each_other() {
+        let b = BrokerState::new();
+        let ta = b.token_for("com.a");
+        let tb = b.token_for("com.b");
+        for t in [&ta, &tb] {
+            assert_eq!(t.len(), 32);
+            assert!(t.bytes().all(|c| c.is_ascii_hexdigit()));
+        }
+        // The old scheme's first halves were `nonce ^ n·φ` for n = 0, 1, …, so
+        // two consecutive tokens' first halves XORed to φ: one leaked token
+        // gave away the nonce, and with it every other token.
+        let half = |t: &str| u64::from_str_radix(&t[..16], 16).unwrap();
+        assert_ne!(half(&ta) ^ half(&tb), 0x9E37_79B9_7F4A_7C15);
+        // Nor does a session's token repeat in the next one.
+        assert_ne!(BrokerState::new().token_for("com.a"), ta);
+    }
+
+    #[test]
+    fn concurrent_first_calls_mint_one_token() {
+        let b = BrokerState::new();
+        let got: Vec<String> = std::thread::scope(|s| {
+            let hs: Vec<_> = (0..8).map(|_| s.spawn(|| b.token_for("com.a"))).collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert!(got.iter().all(|t| t == &got[0]));
+        assert_eq!(b.tokens.len(), 1, "no orphaned second token");
     }
 
     #[test]
