@@ -103,6 +103,7 @@ import {
 } from "./ipc";
 import { looksLikeNoteWrite } from "./noteintent";
 import { isCaptureRequest, isOnyxSave, savesLastAnswer } from "./onyxintent";
+import { DAY_MONTH, MONTH_DAY, looksLikeCalendarQuery } from "./calendarintent";
 import { looksAgentic } from "./agentintent";
 import { joinPath, resolveAgentPath } from "./agentpaths";
 import { parseSummarise, summariseRequest } from "./agentsteps";
@@ -2029,8 +2030,11 @@ const AgentPanel: Component = () => {
   };
 
   /** Parse a date/time/duration out of a scheduling phrase. Returns the matched
-   *  date/start/end plus the remaining text (the event title). */
-  const parseEventSpec = (input: string): { date: string; start: string; end: string; title: string } => {
+   *  date/start/end plus the remaining text (the event title); `dated` says
+   *  whether the phrase named a day, before the today/tomorrow default. */
+  const parseEventSpec = (
+    input: string,
+  ): { date: string; start: string; end: string; title: string; dated: boolean } => {
     let rest = input;
     const now = new Date();
     let date: Date | null = null;
@@ -2066,11 +2070,7 @@ const AgentPanel: Component = () => {
       } else if (cut(/\bnext\s+week\b/i)) {
         date = new Date(now.getTime() + 7 * 864e5);
       } else {
-        const mo =
-          cut(
-            new RegExp(`\\b(?:on\\s+)?(${MONTHS_L.join("|")})\\w*\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, "i"),
-          ) ||
-          cut(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTHS_L.join("|")})\\w*\\b`, "i"));
+        const mo = cut(MONTH_DAY) || cut(DAY_MONTH);
         if (mo) {
           const firstIsMonth = MONTHS_L.includes(mo[1]!.slice(0, 3).toLowerCase());
           const monIdx = MONTHS_L.indexOf((firstIsMonth ? mo[1]! : mo[2]!).slice(0, 3).toLowerCase());
@@ -2098,6 +2098,7 @@ const AgentPanel: Component = () => {
       }
     }
 
+    const dated = date !== null;
     if (!date) {
       // No explicit date: if a time was given and it's already past today, use tomorrow.
       date = new Date(now);
@@ -2121,7 +2122,7 @@ const AgentPanel: Component = () => {
       .replace(/\b(?:on|in|to)\s+(?:my\s+)?calendar\b/gi, "")
       .replace(/\s{2,}/g, " ")
       .trim();
-    return { date: isoOf(date), start, end, title };
+    return { date: isoOf(date), start, end, title, dated };
   };
 
   const calRange = (text: string): { lo: string; hi: string; label: string } => {
@@ -2146,9 +2147,7 @@ const AgentPanel: Component = () => {
 
   /** Read the calendar — "what's on my calendar today / this week / friday". */
   const tryCalendarQuery = async (text: string): Promise<boolean> => {
-    if (!/\b(calendar|schedule|agenda|events?|meetings?|appointments?|free|busy)\b/i.test(text)) return false;
-    if (!/\b(what|whats|what'?s|show|list|any|anything|do i have|free|busy|when|view|my)\b/i.test(text))
-      return false;
+    if (!looksLikeCalendarQuery(text)) return false;
     const { lo, hi, label } = calRange(text);
     setFeed((f) => [...f, { role: "task", text: "📅 Checking your calendar…" }]);
     let evs;
@@ -2192,11 +2191,9 @@ const AgentPanel: Component = () => {
     );
     if (!m?.[1]) return false;
     const spec = parseEventSpec(m[1]);
-    // Only treat as a calendar add if we found a date/time or the user said "calendar/event".
-    if (
-      !spec.start &&
-      !/\b(calendar|event|meeting|appointment|all[\s-]?day|today|tomorrow|next|on)\b/i.test(text)
-    )
+    // Only a parsed time, a parsed day, or an explicit calendar word. Bare "on" /
+    // "next" let "add error handling on the parser" through as an all-day event.
+    if (!spec.start && !spec.dated && !/\b(?:calendar|event|meeting|appointment|all[\s-]?day)\b/i.test(text))
       return false;
     if (!spec.title) {
       setFeed((f) => [...f, { role: "error", text: "What should I call the event?" }]);
