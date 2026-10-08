@@ -15,6 +15,7 @@ import {
   type PermKind,
   type SitePerm,
 } from "./ipc";
+import { permissionHost } from "./permissionHost";
 import { activeId, updateTabTitle } from "./store";
 
 const KINDS: { kind: PermKind; label: string; icon: string }[] = [
@@ -61,10 +62,7 @@ const PermissionsPage: Component = () => {
     refresh();
   };
   const addRule = async () => {
-    const host = newHost()
-      .trim()
-      .replace(/^https?:\/\//, "")
-      .replace(/\/.*$/, "");
+    const host = permissionHost(newHost());
     if (!host) return;
     await permissionsSet(host, newKind(), newDecision());
     setNewHost("");
