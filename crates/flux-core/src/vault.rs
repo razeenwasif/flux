@@ -1312,7 +1312,7 @@ pub fn vault_offer_save(
 pub fn vault_save_confirm(app: AppHandle, state: State<'_, VaultState>) -> Result<(), String> {
     let pending = state.pending_save.write().take().ok_or("nothing to save")?;
     let password = pending.password.to_string();
-    state.write_open(|v| {
+    let saved = state.write_open(|v| {
         // Update in place if this host already has an entry for the username
         // (from any stored URL shape) — so a password *change* replaces rather
         // than piling up a sibling. Otherwise add a fresh entry.
@@ -1335,7 +1335,17 @@ pub fn vault_save_confirm(app: AppHandle, state: State<'_, VaultState>) -> Resul
                 created_ms: 0,
             });
         }
-    })?;
+    });
+    if let Err(e) = saved {
+        // Locked (auto-lock fired while the bar was up) or the write failed: put
+        // the capture back, unless a newer one replaced it, so the bar's Save can
+        // be retried after unlocking instead of the password being dropped.
+        let mut slot = state.pending_save.write();
+        if slot.is_none() {
+            *slot = Some(pending);
+        }
+        return Err(e);
+    }
     let _ = app.emit("flux://vault-saved", pending.host);
     Ok(())
 }
