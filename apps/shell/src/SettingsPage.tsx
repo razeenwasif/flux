@@ -7,7 +7,7 @@ import { density, setDensity, type Density } from "./interfacePreferences";
  * localStorage) or behind flux-core commands — this page is just a tidy front end
  * over what already existed, plus the privacy controls that had no home here.
  */
-import { For, Show, createSignal, onMount, type Component } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js";
 
 import { terminalScreenReader, setTerminalScreenReader } from "./terminalAccessibility";
 import { settingsWriter } from "./settingsWriter";
@@ -667,6 +667,9 @@ const SettingsPage: Component<{ onNavigate: (url: string) => void }> = (props) =
     refreshVoices();
     try {
       window.speechSynthesis?.addEventListener?.("voiceschanged", refreshVoices);
+      // speechSynthesis outlives this page: without this, every visit to
+      // Settings left one more listener (holding the whole page's closure).
+      onCleanup(() => window.speechSynthesis?.removeEventListener?.("voiceschanged", refreshVoices));
     } catch {
       /* ignore */
     }
