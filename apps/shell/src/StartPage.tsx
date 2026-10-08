@@ -198,8 +198,13 @@ const StartPage: Component<{
   };
   /** Calendars present in the data, for the picker. */
   const homeCalendars = createMemo(() => [...new Set(allEvents().map((e) => e.calendar))].sort());
+  // A saved pick for a calendar that's no longer in the data (unsubscribed,
+  // imported into "Flux", or its feed failed this fetch) must not blank the
+  // widget: with one calendar left, the picker that could reset it is hidden.
+  // The stored choice is kept, so it applies again when that calendar returns.
+  const activeHomeCal = () => (homeCalendars().includes(homeCal()) ? homeCal() : "");
   const events = createMemo<CalEvent[]>(() => {
-    const f = homeCal();
+    const f = activeHomeCal();
     return f ? allEvents().filter((e) => e.calendar === f) : allEvents();
   });
   const [addingCal, setAddingCal] = createSignal(false);
@@ -1424,7 +1429,7 @@ const StartPage: Component<{
                   <select
                     class="cal-filter"
                     title="Show one calendar, or all of them"
-                    value={homeCal()}
+                    value={activeHomeCal()}
                     onChange={(e) => pickHomeCal(e.currentTarget.value)}
                   >
                     <option value="">All calendars</option>
