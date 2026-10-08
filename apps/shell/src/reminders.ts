@@ -74,9 +74,10 @@ export function parseWhen(input: string, now: number): { text: string; due: numb
   if (halfHr) return { text: strip(text, halfHr[0]!), due: now + 18e5 };
 
   // "in N minutes/hours/seconds/days" — N is a digit OR a spelled-out word, plus
-  // an optional "of" ("in a couple of hours").
+  // an optional leading "a" and "of" ("in a couple of hours", "in a few
+  // minutes"). Backtracking still lets "a"/"an" itself be the count ("in an hour").
   const rel = lower.match(
-    /\bin\s+(?:(\d+(?:\.\d+)?)|([a-z]+))\s*(?:of\s+)?(sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?|days?)\b/,
+    /\bin\s+(?:(\d+(?:\.\d+)?)|(?:a\s+)?([a-z]+))\s*(?:of\s+)?(sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?|days?)\b/,
   );
   if (rel) {
     const n = rel[1] ? Number(rel[1]) : (NUMW[rel[2]!] ?? NaN);
