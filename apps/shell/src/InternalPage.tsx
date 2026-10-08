@@ -137,7 +137,11 @@ const InternalPage: Component<InternalPageProps> = (props) => {
     if (!text || text === lastText) return;
     lastText = text;
     lastAt = Date.now();
-    void domPublishInternal(t.id, t.url, text).catch(() => {});
+    // dom_publish_internal emits no flux://dom-updated (unlike dom_publish), so
+    // tell the chrome's own listeners (the connections rail) once it has landed.
+    void domPublishInternal(t.id, t.url, text)
+      .then(() => window.dispatchEvent(new CustomEvent("flux:internal-published", { detail: t.id })))
+      .catch(() => {});
   };
 
   const schedule = () => {
