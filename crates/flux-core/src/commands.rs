@@ -100,8 +100,14 @@ fn create_tab(
         // No url → the Flux start page (the frontend renders the dashboard and
         // opens no webview for `flux://start`).
         TabKind::Browser => (url.unwrap_or_else(|| "flux://start".into()), String::new()),
-        // Terminal tabs carry their cwd in `url`; title mirrors the shell.
-        TabKind::Terminal => (crate::dom::dirs_download(), format!("term #{id}")),
+        // Terminal tabs carry their cwd in `url` (Files' "Open terminal here",
+        // TUI launchers); Downloads only when none was given. Title mirrors
+        // the shell.
+        TabKind::Terminal => (
+            url.filter(|u| !u.trim().is_empty())
+                .unwrap_or_else(crate::dom::dirs_download),
+            format!("term #{id}"),
+        ),
         // Files tabs carry their cwd in `url`; start at home.
         TabKind::Files => {
             let start = url.unwrap_or_else(crate::files::home_dir);
@@ -526,5 +532,24 @@ mod tests {
             Some(a.id),
             "the page the user is on stays active"
         );
+    }
+
+    #[test]
+    fn a_terminal_tab_starts_in_the_directory_it_was_opened_for() {
+        let state = FluxState::new();
+        let cwd_of = |url: Option<&str>| {
+            create_tab(
+                &state,
+                TabKind::Terminal,
+                url.map(str::to_string),
+                None,
+                None,
+                false,
+            )
+            .url
+        };
+        assert_eq!(cwd_of(Some("/Users/u/code/flux")), "/Users/u/code/flux");
+        assert_eq!(cwd_of(None), crate::dom::dirs_download());
+        assert_eq!(cwd_of(Some("  ")), crate::dom::dirs_download());
     }
 }
