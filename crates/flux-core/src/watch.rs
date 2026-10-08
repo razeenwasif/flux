@@ -290,6 +290,10 @@ fn fetch_text(url: &str) -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(25))
+        // `timeout_read` bounds each read, not the response: a server dribbling
+        // a byte every 20 s held this (and, since checks run one after another,
+        // every other watch) indefinitely. Bound the whole request.
+        .timeout(Duration::from_secs(60))
         .build();
     let resp = agent
         .get(url)
