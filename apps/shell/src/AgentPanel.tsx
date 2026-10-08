@@ -193,25 +193,44 @@ const AgentPanel: Component = () => {
   let seq = 0;
   const titleOf = (f: FeedItem[]) =>
     (f.find((it) => it.role === "user")?.text || "New chat").trim().slice(0, 44);
+  /** What survives a reload. `pending` is cleared so a reopened chat is
+   *  read-only history, which also makes the payloads only a live card uses
+   *  dead weight: an image data URL or a whole rewritten file can exceed
+   *  localStorage's ~5 MB origin quota on its own, after which every save threw. */
+  const slim = (it: FeedItem): FeedItem => ({
+    ...it,
+    pending: false,
+    image: undefined,
+    editNew: undefined,
+    editBase: undefined,
+  });
   const persistChats = (next: ChatSession[]) => {
     setChats(next);
-    try {
-      localStorage.setItem(CHATS_KEY, JSON.stringify(next.slice(0, 50)));
-    } catch {
-      /* quota */
+    // Every session, not just the current one: chats loaded from an earlier
+    // oversized save still carry their payloads.
+    let keep = next.slice(0, 50).map((s) => ({ ...s, feed: s.feed.map(slim) }));
+    // On quota, shed the oldest chats instead of silently saving nothing.
+    for (;;) {
+      try {
+        localStorage.setItem(CHATS_KEY, JSON.stringify(keep));
+        return;
+      } catch (e) {
+        if (keep.length <= 1) {
+          console.warn("[flux] couldn't save chats", e);
+          return;
+        }
+        keep = keep.slice(0, Math.ceil(keep.length / 2));
+      }
     }
   };
   const persistCurrent = (f: FeedItem[]) => {
     if (!f.length) return;
     if (!currentId) currentId = `c${Date.now()}_${seq++}`;
-    // Strip live "pending" state so reopened chats are read-only history.
     const session: ChatSession = {
       id: currentId,
       title: titleOf(f),
       ts: Date.now(),
-      // `editBase` only matters while a card can still be applied; keeping it
-      // would double every edit card's share of the localStorage quota.
-      feed: f.map((it) => ({ ...it, pending: false, editBase: undefined })),
+      feed: f.map(slim),
     };
     persistChats([session, ...chats().filter((s) => s.id !== currentId)].slice(0, 50));
   };
@@ -369,7 +388,11 @@ const AgentPanel: Component = () => {
   const [cloudModel, setCloudModelRaw] = createSignal(localStorage.getItem(CLOUD_MODEL_KEY) ?? "");
   const setCloudModel = (m: string) => {
     setCloudModelRaw(m);
-    localStorage.setItem(CLOUD_MODEL_KEY, m);
+    try {
+      localStorage.setItem(CLOUD_MODEL_KEY, m);
+    } catch {
+      /* quota: the choice still holds for this session */
+    }
   };
 
   onMount(() => {
