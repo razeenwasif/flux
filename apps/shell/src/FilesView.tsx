@@ -746,17 +746,23 @@ const FilesView: Component<{
       return;
     }
     setSearching(true);
+    // False once a newer query, folder or mode supersedes this run: a slow narrow
+    // walk must not land over the broader search typed after it.
+    let live = true;
     clearTimeout(searchTimer);
     searchTimer = window.setTimeout(
       () => {
         void fsSearch(dir, q, 500, sem)
-          .then(setSearchHits)
-          .catch(() => setSearchHits([]))
-          .finally(() => setSearching(false));
+          .then((hits) => live && setSearchHits(hits))
+          .catch(() => live && setSearchHits([]))
+          .finally(() => live && setSearching(false));
       },
       sem ? 350 : 200,
     ); // a touch more debounce when the embed round-trip is on
-    onCleanup(() => clearTimeout(searchTimer));
+    onCleanup(() => {
+      live = false;
+      clearTimeout(searchTimer);
+    });
   });
   const dirOf = (p: string): string => {
     const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
@@ -791,13 +797,19 @@ const FilesView: Component<{
     }
     const path = joinPath(cwd(), t.name);
     setPreview({ state: "loading" });
+    // False once the selection moves on: a slow read (a 20 MB image is ~53 MB of
+    // base64 JSON) must not land over the file selected after it.
+    let live = true;
     clearTimeout(previewTimer);
     previewTimer = window.setTimeout(() => {
       void attachmentRead(path)
-        .then((att) => setPreview({ state: "ok", att }))
-        .catch((e) => setPreview({ state: "error", err: String(e) }));
+        .then((att) => live && setPreview({ state: "ok", att }))
+        .catch((e) => live && setPreview({ state: "error", err: String(e) }));
     }, 120);
-    onCleanup(() => clearTimeout(previewTimer));
+    onCleanup(() => {
+      live = false;
+      clearTimeout(previewTimer);
+    });
   });
 
   // Context menu, built from what's under the cursor + current state.
