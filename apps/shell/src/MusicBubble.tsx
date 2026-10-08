@@ -128,7 +128,17 @@ const MusicBubble: Component = () => {
   let rootEl: HTMLDivElement | undefined;
   let vizOn = false;
   let vizWatch: number | undefined;
+  /** Set on unmount: every self-re-arming loop below checks it before re-arming. */
+  let disposed = false;
+  let vizFrames = 0;
+  let vizRetryMs = 3000;
+  let vizRetryT: number | undefined;
+  /** A failed attempt's backoff is pending. It owns the next attempt: the effect
+   *  below re-fires on every poll (each poll is a new state object). */
+  let vizBackoff = false;
   const onFrame = (f: { e: number; bass: number; mid: number; treble: number }) => {
+    if (disposed) return;
+    vizFrames++;
     if (rootEl) {
       rootEl.style.setProperty("--viz-e", f.e.toFixed(3));
       rootEl.style.setProperty("--viz-bass", f.bass.toFixed(3));
@@ -140,14 +150,26 @@ const MusicBubble: Component = () => {
     vizWatch = window.setTimeout(() => setVizLive(false), 1200); // settle if frames stop
   };
   const startViz = () => {
-    if (vizOn) return;
+    if (vizOn || vizBackoff || disposed) return;
     vizOn = true;
+    clearTimeout(vizRetryT);
+    const framesBefore = vizFrames;
     void audivizStream(onFrame)
-      .catch(() => {})
+      .catch((e) => console.warn("[flux music] visualiser stream:", e))
       .finally(() => {
         vizOn = false;
         setVizLive(false);
-        if (st()?.playing) window.setTimeout(startViz, 3000);
+        if (disposed) return; // st() is frozen at unmount: "playing" would loop forever
+        // A stream that delivered frames just ended: reconnect on the old cadence.
+        // One that never did means no helper here, and every attempt spawns it and
+        // parks a backend thread for ~4s, so back off (up to 5 min).
+        const worked = vizFrames > framesBefore;
+        vizRetryMs = worked ? 3000 : Math.min(vizRetryMs * 2, 300_000);
+        vizBackoff = !worked;
+        vizRetryT = window.setTimeout(() => {
+          vizBackoff = false;
+          if (st()?.playing && !document.hidden) startViz();
+        }, vizRetryMs);
       });
   };
 
@@ -170,9 +192,11 @@ const MusicBubble: Component = () => {
   };
   let timer: number | undefined;
   const schedule = () => {
+    if (disposed) return; // a poll in flight at unmount must not re-arm the loop
     const delay = !reachable() ? 9000 : expanded() ? 1000 : 3500;
     timer = window.setTimeout(async () => {
-      await poll();
+      // Nothing shows while the window is hidden: don't keep hitting the Web API.
+      if (!document.hidden) await poll();
       schedule();
     }, delay);
   };
@@ -191,10 +215,12 @@ const MusicBubble: Component = () => {
     if (st()?.playing) startViz();
   });
   onCleanup(() => {
+    disposed = true;
     clearTimeout(timer);
     clearTimeout(toastT);
     clearTimeout(leaveT);
     clearTimeout(vizWatch);
+    clearTimeout(vizRetryT);
   });
 
   let leaveT: number | undefined;
