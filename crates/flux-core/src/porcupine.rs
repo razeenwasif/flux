@@ -13,29 +13,39 @@ use base64::Engine as _;
 const SERVICE: &str = "flux.porcupine";
 const ACCOUNT: &str = "access-key";
 
-/// Store (or, with an empty string, clear) the Picovoice access key.
+/// Store (or, with an empty string, clear) the Picovoice access key. Keyring I/O
+/// can block (a keychain prompt, a cold Credential Manager), so these commands
+/// run it off the UI thread.
 #[tauri::command]
-pub fn porcupine_set_key(key: String) -> Result<(), String> {
-    if !crate::vault::HAS_OS_KEYCHAIN {
-        return Err("no OS keychain on this platform, so the key can't be saved".into());
-    }
-    let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    if key.trim().is_empty() {
-        let _ = entry.delete_credential();
-        Ok(())
-    } else {
-        entry.set_password(key.trim()).map_err(|e| e.to_string())
-    }
+pub async fn porcupine_set_key(key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !crate::vault::HAS_OS_KEYCHAIN {
+            return Err("no OS keychain on this platform, so the key can't be saved".into());
+        }
+        let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
+        if key.trim().is_empty() {
+            let _ = entry.delete_credential();
+            Ok(())
+        } else {
+            entry.set_password(key.trim()).map_err(|e| e.to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Whether a Picovoice access key is stored.
 #[tauri::command]
-pub fn porcupine_has_key() -> bool {
-    keyring::Entry::new(SERVICE, ACCOUNT)
-        .ok()
-        .and_then(|e| e.get_password().ok())
-        .map(|k| !k.trim().is_empty())
-        .unwrap_or(false)
+pub async fn porcupine_has_key() -> bool {
+    tauri::async_runtime::spawn_blocking(|| {
+        keyring::Entry::new(SERVICE, ACCOUNT)
+            .ok()
+            .and_then(|e| e.get_password().ok())
+            .map(|k| !k.trim().is_empty())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 #[derive(serde::Serialize)]
@@ -57,7 +67,16 @@ fn read_b64(path: &str, what: &str) -> Result<String, String> {
 /// Resolve everything the Web SDK needs: the access key (keyring) + the keyword
 /// and model files (read from the configured paths → base64).
 #[tauri::command]
-pub fn porcupine_config(ppn_path: String, model_path: String) -> Result<PorcupineConfig, String> {
+pub async fn porcupine_config(
+    ppn_path: String,
+    model_path: String,
+) -> Result<PorcupineConfig, String> {
+    tauri::async_runtime::spawn_blocking(move || load_config(ppn_path, model_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn load_config(ppn_path: String, model_path: String) -> Result<PorcupineConfig, String> {
     let access_key = keyring::Entry::new(SERVICE, ACCOUNT)
         .map_err(|e| e.to_string())?
         .get_password()
