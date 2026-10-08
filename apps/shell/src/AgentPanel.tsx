@@ -335,9 +335,14 @@ const AgentPanel: Component = () => {
   // Cancel (false) before moving to the next step. The existing approve/cancel
   // handlers resolve it.
   let chainGate: ((r: { ok: boolean; result: string }) => void) | null = null;
-  const resolveChainGate = (ok: boolean, result: string) => {
+  /** Feed index of the card the chain waits on. Only THAT card may release it:
+   *  an older card still offering Run/Apply must not steer the loop. */
+  let chainGateIdx = -1;
+  const resolveChainGate = (idx: number, ok: boolean, result: string) => {
+    if (idx !== chainGateIdx) return;
     const g = chainGate;
     chainGate = null;
+    chainGateIdx = -1;
     g?.({ ok, result });
   };
   // Model picker (#81): the dropdown of locally-pulled Ollama models.
@@ -921,7 +926,7 @@ const AgentPanel: Component = () => {
         setFeed((f) => [...f, { role: "error", text: block! }]);
         // A /fix or chain step may be parked on this card's gate. Without this it
         // never resolves: taskRunning() stays true and the panel is locked.
-        resolveChainGate(true, `BLOCKED, nothing ran: ${block} Use a non-destructive command.`);
+        resolveChainGate(idx, true, `BLOCKED, nothing ran: ${block} Use a non-destructive command.`);
         return;
       }
       // Baseline = the prompt's cursor row BEFORE running, so we read exactly this
@@ -933,7 +938,7 @@ const AgentPanel: Component = () => {
         // still executes and returns something.
         const out = await runShell(cmd);
         setFeed((f) => [...f, { role: "assistant", text: out }]);
-        resolveChainGate(true, out || "(ran headless, no output)");
+        resolveChainGate(idx, true, out || "(ran headless, no output)");
         return;
       }
       const out = (await readBackTerminal(baseline)).trim();
@@ -946,10 +951,10 @@ const AgentPanel: Component = () => {
             : "(ran in your terminal — no output captured; check the terminal)",
         },
       ]);
-      resolveChainGate(true, out || "(ran, no output captured)");
+      resolveChainGate(idx, true, out || "(ran, no output captured)");
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
-      resolveChainGate(false, String(e));
+      resolveChainGate(idx, false, String(e));
     } finally {
       setBusy(false);
     }
@@ -958,7 +963,7 @@ const AgentPanel: Component = () => {
     setFeed((f) =>
       f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)),
     );
-    resolveChainGate(false, "the user cancelled the command");
+    resolveChainGate(idx, false, "the user cancelled the command");
   };
 
   // Natural-language → command. When a message reads like a request about the
@@ -1436,17 +1441,17 @@ const AgentPanel: Component = () => {
       await agentWriteTextFile(path, content);
       setCtxFiles((c) => c.map((f) => (f.path === path ? { ...f, content } : f)));
       setFeed((f) => [...f, { role: "action", text: `✓ Wrote ${path.split(/[/\\]/).pop()}.` }]);
-      resolveChainGate(true, `applied the edit to ${path.split(/[/\\]/).pop()}`);
+      resolveChainGate(idx, true, `applied the edit to ${path.split(/[/\\]/).pop()}`);
     } catch (e) {
       setFeed((f) => [...f, { role: "error", text: String(e) }]);
-      resolveChainGate(false, String(e));
+      resolveChainGate(idx, false, String(e));
     }
   };
   const cancelEdit = (idx: number) => {
     setFeed((f) =>
       f.map((it, i) => (i === idx ? { ...it, pending: false, text: `${it.text}  — cancelled` } : it)),
     );
-    resolveChainGate(false, "the user cancelled the edit");
+    resolveChainGate(idx, false, "the user cancelled the edit");
   };
 
   // "read the terminal" → pull the active terminal's scrollback into context.
@@ -2742,6 +2747,7 @@ const AgentPanel: Component = () => {
   const awaitChainApproval = async (): Promise<StepOutcome> => {
     const last = feed()[feed().length - 1];
     if (last?.pending && (last.role === "edit" || last.role === "shell" || last.role === "note")) {
+      chainGateIdx = feed().length - 1;
       return await new Promise<StepOutcome>((res) => {
         chainGate = res;
       });
@@ -2864,6 +2870,7 @@ const AgentPanel: Component = () => {
       setFeed((f) => [...f, { role: "task", text: "✓ Chain complete." }]);
     } finally {
       chainGate = null;
+      chainGateIdx = -1;
       setTaskRunning(false);
     }
   };
@@ -2926,7 +2933,7 @@ const AgentPanel: Component = () => {
     setFeed((f) => f.map((it, i) => (i === idx ? { role: "assistant", text: `Discarded: ${it.text}` } : it)));
     // Discarding one note isn't cancelling the goal — the loop should carry on
     // and can decide what to do about the refusal.
-    resolveChainGate(true, "The user discarded that note; nothing was written.");
+    resolveChainGate(idx, true, "The user discarded that note; nothing was written.");
   };
 
   /** Apply a proposal the user approved. */
@@ -2934,10 +2941,10 @@ const AgentPanel: Component = () => {
     try {
       const path = await noteApply(proposal.action);
       setFeed((f) => f.map((it, i) => (i === idx ? { ...it, noteDone: path, pending: false } : it)));
-      resolveChainGate(true, `Written to ${path}.`);
+      resolveChainGate(idx, true, `Written to ${path}.`);
     } catch (err) {
       setFeed((f) => [...f, { role: "error", text: String(err) }]);
-      resolveChainGate(true, `Writing the note failed: ${String(err)}`);
+      resolveChainGate(idx, true, `Writing the note failed: ${String(err)}`);
     }
   };
 
@@ -3010,6 +3017,7 @@ const AgentPanel: Component = () => {
       setFeed((f) => [...f, { role: "task", text: `⏹ Hit the ${MAX_FIX_STEPS}-step limit — stopping.` }]);
     } finally {
       chainGate = null;
+      chainGateIdx = -1;
       setTaskRunning(false);
     }
   };
