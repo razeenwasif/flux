@@ -1451,10 +1451,15 @@ impl TranscriptStore {
         self.items.read().get(key).cloned()
     }
     fn put(&self, t: Transcript) {
-        self.items.write().insert(t.key.clone(), t);
+        let mut items = self.items.write();
+        items.insert(t.key.clone(), t);
         self.generation.fetch_add(1, Ordering::Relaxed);
         if let Some(p) = &self.path {
-            let all: Vec<Transcript> = self.items.read().values().cloned().collect();
+            // Save under the lock (downgraded, so readers aren't blocked): two
+            // transcriptions finishing together then commit in order, and the
+            // older snapshot can't be renamed over the newer one.
+            let items = parking_lot::RwLockWriteGuard::downgrade(items);
+            let all: Vec<&Transcript> = items.values().collect();
             crate::persist::save_json(p, &all);
         }
     }

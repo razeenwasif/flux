@@ -249,11 +249,16 @@ impl BookmarkStore {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let snapshot = Persisted {
-            items: self.items.read().clone(),
-            tombstones: self.tombstones.read().clone(),
-        };
-        crate::persist::save_json(path, &snapshot);
+        // The guards live to the end of this one statement, so no mutation can
+        // land between the snapshot and its rename: an older snapshot (the sync
+        // thread's merge) can't be renamed over a newer one (a UI-thread add).
+        crate::persist::save_json(
+            path,
+            &Persisted {
+                items: self.items.read().clone(),
+                tombstones: self.tombstones.read().clone(),
+            },
+        );
     }
 }
 
@@ -329,6 +334,28 @@ mod tests {
         let added = store.import(incoming, "Imported");
         assert_eq!(added, 2); // both land under "Imported[/Work]", distinct from the root one
         assert!(store.folders().iter().any(|f| f == "Imported/Work"));
+    }
+
+    #[test]
+    fn concurrent_saves_leave_the_newest_snapshot_on_disk() {
+        // Each add saves; a save that snapshotted first must not rename last.
+        let dir = std::env::temp_dir().join(format!("flux-bm-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("bookmarks.json");
+        let store = std::sync::Arc::new(BookmarkStore::restore(path.clone()));
+        let workers: Vec<_> = (0..8)
+            .map(|i| {
+                let store = store.clone();
+                std::thread::spawn(move || {
+                    store.add(String::new(), format!("https://{i}.dev"), String::new());
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().unwrap();
+        }
+        assert_eq!(BookmarkStore::restore(path).list().len(), 8);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
