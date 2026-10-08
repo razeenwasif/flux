@@ -134,7 +134,7 @@ impl Filter {
     }
 
     /// Element-hiding CSS for `url` — the selectors the cosmetic rules say to
-    /// hide, as one `… { display: none !important; }` rule (empty if none /
+    /// hide, one `… { display: none !important; }` rule each (empty if none /
     /// disabled). Inject it into the page to remove ad slots + leftover
     /// placeholders. (Generic class/id cosmetics that need the page's live DOM
     /// aren't included — that's a runtime-reporting follow-up.)
@@ -147,13 +147,15 @@ impl Filter {
             if res.hide_selectors.is_empty() {
                 return String::new();
             }
-            let selectors = res
-                .hide_selectors
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("{selectors} {{ display: none !important; }}")
+            // A rule per selector: adblock is built without `css-validation`, so
+            // procedural selectors (`:has-text()`, `:-abp-has()`, …) arrive as
+            // plain CSS, and one invalid selector voids a whole selector list.
+            let mut css = String::with_capacity(res.hide_selectors.len() * 48);
+            for sel in &res.hide_selectors {
+                css.push_str(sel);
+                css.push_str(" { display: none !important; }\n");
+            }
+            css
         })
     }
 }
@@ -321,6 +323,23 @@ mod tests {
         let css = f.cosmetic_css("https://example.com/page");
         assert!(css.contains(".sponsored-ad"), "got: {css}");
         assert!(css.contains("display: none"), "got: {css}");
+    }
+
+    #[test]
+    fn a_procedural_selector_doesnt_void_the_others() {
+        // adblock (no `css-validation`) passes procedural selectors through as
+        // CSS; in one selector list, a single invalid one dropped every hide
+        // rule on the page.
+        let f = Filter::from_list(
+            "example.com##.sponsored-ad\nexample.com#?#.result:has-text(Sponsored)\n",
+        );
+        let css = f.cosmetic_css("https://example.com/page");
+        assert!(css.contains(":has-text"), "got: {css}");
+        let rule = css
+            .lines()
+            .find(|l| l.contains(".sponsored-ad"))
+            .expect("plain selector kept");
+        assert!(!rule.contains(":has-text"), "in a rule of its own: {css}");
     }
 
     #[test]
