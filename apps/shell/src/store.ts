@@ -1702,6 +1702,13 @@ export function updateTabTitle(id: number, title: string): void {
   setTabs((list) => list.map((t) => (t.id === id ? { ...t, title } : t)));
 }
 
+/** Title the tab showing internal page `url`. Pages also render in split panes
+ *  and pinned web panels, where the active tab is some other (often web) tab. */
+export function titleInternalTab(url: string, title: string): void {
+  const t = activeTab();
+  if (t && t.url === url) updateTabTitle(t.id, title);
+}
+
 /** Curated snapshot of Flux's live UI state for the agent (#4 introspection) —
  *  reads the meaningful store signals into a readable summary. */
 export function fluxStateSnapshot(): string {

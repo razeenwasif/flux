@@ -6,6 +6,7 @@
  */
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import {
+  FEEDS_URL,
   feedAdd,
   feedItems,
   feedRemove,
@@ -15,7 +16,7 @@ import {
   type Feed,
   type FeedItem,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string {
@@ -62,8 +63,7 @@ const FeedsPage: Component = () => {
   };
 
   onMount(async () => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Feeds");
+    titleInternalTab(FEEDS_URL, "Feeds");
     await refreshFeeds();
     loadItems(null);
   });

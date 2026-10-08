@@ -20,6 +20,7 @@ import { For, Show, createMemo, createSignal, onMount, type Component } from "so
 
 import { visibleInterval } from "./poll";
 import {
+  TASKS_URL,
   gpuStats,
   tasksDisks,
   tasksKill,
@@ -30,7 +31,7 @@ import {
   type ProcInfo,
   type SysStats,
 } from "./ipc";
-import { activeId, updateTabTitle } from "./store";
+import { titleInternalTab } from "./store";
 import { groupByName, squarify } from "./treemap";
 
 type SortKey = "mem" | "cpu" | "name";
@@ -130,8 +131,7 @@ const TasksPage: Component = () => {
       .catch(() => {});
   };
   onMount(() => {
-    const id = activeId();
-    if (id != null) updateTabTitle(id, "Task Manager");
+    titleInternalTab(TASKS_URL, "Task Manager");
     visibleInterval(refresh, 2000);
     // Disks get their own, far slower timer. The backend never blocks on this -
     // enumerating volumes measured 30-53s on a real machine - so the first call
