@@ -304,16 +304,24 @@ function micErrorText(e: unknown): string {
   return "couldn't start the microphone";
 }
 
+/** Bumped by stopConversation(): a start that resumes after its awaits must not
+ *  go live if it was cancelled in the meantime. */
+let startSeq = 0;
+/** Bumped by every setHeyGemmaEnabled(): only the latest toggle owns the setting. */
+let toggleSeq = 0;
+
 export async function startConversation(): Promise<boolean> {
   if (running) return true;
+  const seq = startSeq;
   if (!navigator.mediaDevices?.getUserMedia) {
     setVoiceStatus("no microphone access");
     return false;
   }
+  let s: MediaStream;
   try {
     // Honors the chosen mic + noise-suppression setting (Settings → Integrations);
     // echo cancellation on so barge-in doesn't hear Gemma's own voice.
-    stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
+    s = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
   } catch (e) {
     // A selected mic that's since been unplugged/changed fails the exact-deviceId
     // constraint — drop the dead selection and retry with the default device before
@@ -321,7 +329,7 @@ export async function startConversation(): Promise<boolean> {
     if (micDeviceId()) {
       setMicDeviceId("");
       try {
-        stream = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
+        s = await navigator.mediaDevices.getUserMedia(micConstraints({ echo: true }));
       } catch (e2) {
         setVoiceStatus(micErrorText(e2));
         return false;
@@ -331,9 +339,16 @@ export async function startConversation(): Promise<boolean> {
       return false;
     }
   }
+  if (seq !== startSeq || running) {
+    // Turned off (or started by a concurrent caller) while the mic was opening:
+    // close this stream instead of going live or orphaning a second capture.
+    s.getTracks().forEach((t) => t.stop());
+    return running;
+  }
+  stream = s;
   ctx = new AudioContext();
   rate = ctx.sampleRate;
-  const src = ctx.createMediaStreamSource(stream);
+  const src = ctx.createMediaStreamSource(s);
   node = ctx.createScriptProcessor(4096, 1, 1);
   node.onaudioprocess = onAudio;
   src.connect(node);
@@ -343,13 +358,21 @@ export async function startConversation(): Promise<boolean> {
   warmUntil = 0;
   resetUtter();
   // Dedicated wake model (if selected + configured); otherwise the Vosk scan runs.
-  porcupineOn = wakeEngine() === "porcupine" ? await startPorcupine(onPorcupineWake) : false;
+  const pOn = wakeEngine() === "porcupine" ? await startPorcupine(onPorcupineWake) : false;
+  if (seq !== startSeq) {
+    // Stopped during the model load; stop couldn't see this worker. Release it
+    // unless a newer start is already live (startPorcupine shares one worker).
+    if (pOn && !running) void stopPorcupine();
+    return false;
+  }
+  porcupineOn = pOn;
   setMicLive(true);
   setVoiceStatus("say “hey Gemma”");
   return true;
 }
 
 export function stopConversation(): void {
+  startSeq++; // abandon any start still awaiting the mic / Porcupine
   running = false;
   stopSpeaking();
   if (porcupineOn) {
@@ -374,10 +397,14 @@ export function stopConversation(): void {
 
 /** Toggle the feature (persisted). Starts/stops the mic loop. */
 export async function setHeyGemmaEnabled(on: boolean): Promise<boolean> {
+  const mine = ++toggleSeq;
   localStorage.setItem(ENABLED_KEY, on ? "1" : "0");
   setEnabledSig(on);
   if (on) {
     const ok = await startConversation();
+    // A later toggle (off, or on again) owns the setting now. This start being
+    // cancelled by it is not a failure: don't flip the setting or report one.
+    if (mine !== toggleSeq) return true;
     if (!ok) {
       setEnabledSig(false);
       localStorage.setItem(ENABLED_KEY, "0");
