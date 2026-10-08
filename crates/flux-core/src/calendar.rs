@@ -523,6 +523,9 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
     let unfolded = unfold(ics);
 
     let mut in_event = false;
+    // Depth of sub-components (VALARM…) inside the current VEVENT; their
+    // properties belong to them, not to the event.
+    let mut nested = 0u32;
     let mut summary = String::new();
     let mut location = String::new();
     let mut start: Option<DtParts> = None;
@@ -534,6 +537,7 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
         let line = line.trim_end_matches('\r');
         if line == "BEGIN:VEVENT" {
             in_event = true;
+            nested = 0;
             summary.clear();
             location.clear();
             end_time.clear();
@@ -561,6 +565,20 @@ fn for_each_vevent(ics: &str, mut f: impl FnMut(Vevent)) {
             continue;
         }
         if !in_event {
+            continue;
+        }
+        // An email reminder (`BEGIN:VALARM … ACTION:EMAIL … SUMMARY:Alarm
+        // notification`) comes after the event's own SUMMARY; without this it
+        // retitled the event.
+        if line.starts_with("BEGIN:") {
+            nested += 1;
+            continue;
+        }
+        if line.starts_with("END:") {
+            nested = nested.saturating_sub(1);
+            continue;
+        }
+        if nested > 0 {
             continue;
         }
         let Some(colon) = line.find(':') else {
@@ -1512,6 +1530,19 @@ END:VCALENDAR";
         assert_eq!(ev[1].date, "2026-06-20");
         assert_eq!(ev[1].time, ""); // all-day
         assert_eq!(ev[1].calendar, "Work");
+    }
+
+    #[test]
+    fn an_alarm_does_not_retitle_its_event() {
+        // Google's email reminder carries its own SUMMARY, after the event's.
+        let ics = "BEGIN:VEVENT\r\nSUMMARY:Thesis meeting\r\nDTSTART:20260619T100000\r\n\
+BEGIN:VALARM\r\nACTION:EMAIL\r\nDESCRIPTION:This is an event reminder\r\n\
+SUMMARY:Alarm notification\r\nTRIGGER:-P0DT0H30M0S\r\nEND:VALARM\r\n\
+LOCATION:Room 4\r\nEND:VEVENT";
+        let ev = parse_events_at(ics, "W", day(2026, 6, 15));
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].summary, "Thesis meeting");
+        assert_eq!(ev[0].location, "Room 4", "the event's own lines after it");
     }
 
     #[test]
