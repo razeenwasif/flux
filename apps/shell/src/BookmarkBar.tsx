@@ -26,6 +26,10 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
   const [bookmarks, setBookmarks] = createSignal<Bookmark[]>([]);
   const [editing, setEditing] = createSignal<number | null>(null);
   const [draft, setDraft] = createSignal("");
+  // A double-click starts with two clicks: hold the navigation briefly so the
+  // rename gesture doesn't first navigate the active tab away (twice).
+  let navTimer: number | undefined;
+  onCleanup(() => clearTimeout(navTimer));
 
   const refresh = () =>
     void bookmarksList()
@@ -88,8 +92,15 @@ const BookmarkBar: Component<{ onNavigate: (url: string) => void }> = (props) =>
                 <button
                   class="bookmark-chip"
                   title={`${b.url}\n(double-click to rename)`}
-                  onClick={() => props.onNavigate(b.url)}
-                  onDblClick={(e) => startEdit(b, e)}
+                  onClick={(e) => {
+                    if (e.detail > 1) return; // the 2nd click of a double-click
+                    clearTimeout(navTimer);
+                    navTimer = window.setTimeout(() => props.onNavigate(b.url), 250);
+                  }}
+                  onDblClick={(e) => {
+                    clearTimeout(navTimer);
+                    startEdit(b, e);
+                  }}
                   onContextMenu={(e) => openLinkMenu(e, b.url)}
                 >
                   <span class="bookmark-chip-ico">{letter(b)}</span>
