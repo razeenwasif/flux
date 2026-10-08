@@ -672,13 +672,23 @@ const App: Component = () => {
       setHibernated(id, true);
       wv(webviewHibernate(id));
     };
-    // Tab folders: members are kept hibernated (≈0 RAM) — the active tab is the
-    // only exception (you're viewing it); switching away re-sleeps it. Reacts to
-    // folder membership (tabs()) and the active tab.
+    // Tab folders: members are kept hibernated (≈0 RAM) — the tabs on screen are
+    // the only exception (the active one, and any pane tiled beside it);
+    // switching away re-sleeps them. Reacts to folder membership (tabs()), the
+    // active tab and the tiling.
     createEffect(() => {
       const act = activeId();
+      // A folder tab tiled beside the active one is on screen too. Sleeping it
+      // fought the tiling effect, which re-opened it on the next tabs() change:
+      // a destroy/reload loop fed by the pane's own load events.
+      const visible = new Set((tilePanes() ?? []).map((t) => t.id));
       for (const t of tabs()) {
-        if (t.folder != null && t.id !== act && (openedWebviews.has(t.id) || openingWebviews.has(t.id))) {
+        if (
+          t.folder != null &&
+          t.id !== act &&
+          !visible.has(t.id) &&
+          (openedWebviews.has(t.id) || openingWebviews.has(t.id))
+        ) {
           hibernateTab(t.id);
         }
       }
