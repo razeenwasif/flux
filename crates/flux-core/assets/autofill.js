@@ -8,7 +8,8 @@
 // Two-step sign-in (Microsoft Entra, Google, most university SSO) shows the
 // username field FIRST and the password only on the next screen. Filling only
 // when a password field exists meant those pages silently did nothing, so each
-// field is filled independently of the other.
+// field is filled independently of the other. A field with no on-screen box
+// (display:none, collapsed) is never filled.
 function __fluxFill(u, p) {
   try {
     // Set a field's value so a framework's controlled input actually adopts it:
@@ -76,18 +77,24 @@ function __fluxFill(u, p) {
       var ac = (el.autocomplete || "").toLowerCase();
       return t === "password" || ac === "current-password" || ac === "new-password";
     };
+    var shown = function (el) {
+      var r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    // The first password field the user can SEE: a hidden header-dropdown login
+    // (or a hidden trap field) earlier in the DOM must not swallow the fill
+    // while the visible form stays empty.
     var pw = null;
     for (var i = 0; i < inputs.length; i++) {
-      if (isPw(inputs[i])) { pw = inputs[i]; break; }
+      if (isPw(inputs[i]) && shown(inputs[i])) { pw = inputs[i]; break; }
     }
 
     // Username: the nearest field PRECEDING the password when there is one
     // (disambiguates a login form from a search box above it), otherwise the
-    // first plausible field on the page — which is the two-step SSO case.
+    // first field that names itself a login — the two-step SSO case.
     var visible = function (el) {
       if (el.disabled || el.readOnly) return false;
-      var r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
+      return shown(el);
     };
     var isUser = function (el) {
       var t = (el.type || "text").toLowerCase();
@@ -96,6 +103,13 @@ function __fluxFill(u, p) {
       return t === "text" || t === "email" || t === "tel" ||
              ac === "username" || ac === "email";
     };
+    // The test passwords.js uses to anchor its chip on a two-step sign-in, so
+    // the field filled is the field the chip sits on.
+    var looksUser = function (el) {
+      var ac = (el.autocomplete || "").toLowerCase();
+      var probe = ((el.name || "") + " " + (el.id || "") + " " + ac).toLowerCase();
+      return ac === "username" || ac === "email" || /user|email|login|account|upn/.test(probe);
+    };
     var user = null;
     if (pw) {
       for (var j = inputs.indexOf(pw) - 1; j >= 0; j--) {
@@ -103,6 +117,14 @@ function __fluxFill(u, p) {
       }
     }
     if (!user) {
+      for (var m = 0; m < inputs.length; m++) {
+        if (isUser(inputs[m]) && visible(inputs[m]) && looksUser(inputs[m])) { user = inputs[m]; break; }
+      }
+    }
+    // Any text box will do only beside a password field. Without one, the first
+    // text box is usually the site search, and the username would be typed
+    // (and maybe submitted) there.
+    if (!user && pw) {
       for (var k = 0; k < inputs.length; k++) {
         if (isUser(inputs[k]) && visible(inputs[k])) { user = inputs[k]; break; }
       }
