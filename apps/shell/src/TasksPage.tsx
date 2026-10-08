@@ -169,7 +169,10 @@ const TasksPage: Component = () => {
     if (!s) return null;
     const mem = s.mem_pct;
     const cpu = s.cpu;
-    const swapping = s.swap_total_mb > 0 && s.swap_used_mb / s.swap_total_mb > 0.25;
+    // Swap *occupancy* is not paging: macOS sizes its swapfiles to what's in use
+    // (used/total is routinely 50-90% at idle), and stale pages stay swapped long
+    // after the pressure ends. Only call it swapping while RAM is nearly full too.
+    const swapping = s.swap_total_mb > 0 && s.swap_used_mb / s.swap_total_mb > 0.25 && mem >= 85;
     if (swapping)
       return {
         level: "bad" as const,
