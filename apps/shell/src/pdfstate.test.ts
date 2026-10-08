@@ -7,6 +7,8 @@ import {
   loadDocState,
   parseState,
   saveDocState,
+  saveNotes,
+  savePosition,
   viewerSrc,
 } from "./pdfstate";
 
@@ -125,5 +127,19 @@ describe("stored state", () => {
     // A file:// src arrives decoded already (see viewerSrc) and is keyed as is.
     saveDocState("file:///Users/me/50%2B.pdf", { ...emptyState(), page: 2 });
     expect(stored.has(keyFor("file:///Users/me/50%2B.pdf"))).toBe(true);
+  });
+
+  it("lets two viewers of one file write without erasing each other's notes", () => {
+    // Split view: A adds a comment; B, which loaded before it, then turns a page.
+    stubStorage();
+    const src = "/Users/me/paper.pdf";
+    const c1 = { id: 1, page: 2, text: "check eq. 3", ms: 1 };
+    saveNotes(src, [], [c1]);
+    savePosition(src, 9, 1.5);
+    expect(loadDocState(src)).toEqual({ page: 9, scale: 1.5, bookmarks: [], comments: [c1] });
+    // …and a notes write keeps the position.
+    const b1 = { id: 2, page: 4, label: "Page 4", ms: 2 };
+    saveNotes(src, [b1], [c1]);
+    expect(loadDocState(src)).toEqual({ page: 9, scale: 1.5, bookmarks: [b1], comments: [c1] });
   });
 });

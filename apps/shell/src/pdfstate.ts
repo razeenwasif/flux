@@ -169,3 +169,17 @@ export function saveDocState(src: string, s: PdfDocState): void {
     /* quota or a locked-down storage partition — reading state isn't worth a throw */
   }
 }
+
+// Both writers below read-modify-write: the same file can be open in two tiled
+// tabs, and a viewer writing its own (possibly stale) lists back on every page
+// turn erased whatever the other one had just added.
+
+/** Store where you are and the zoom, keeping whatever notes are stored. */
+export function savePosition(src: string, page: number, scale: number): void {
+  saveDocState(src, { ...loadDocState(src), page, scale });
+}
+
+/** Store the notes, keeping the stored position and zoom. */
+export function saveNotes(src: string, bookmarks: PdfBookmark[], comments: PdfComment[]): void {
+  saveDocState(src, { ...loadDocState(src), bookmarks, comments });
+}

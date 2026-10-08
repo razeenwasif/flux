@@ -19,10 +19,12 @@ import {
   Match,
   Show,
   Switch,
+  batch,
   createEffect,
   createSignal,
   onCleanup,
   onMount,
+  untrack,
   type Component,
 } from "solid-js";
 import { ocrAvailable, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
@@ -31,7 +33,8 @@ import { tabs, updateTabTitle } from "./store";
 import {
   DEFAULT_SCALE,
   loadDocState,
-  saveDocState,
+  saveNotes,
+  savePosition,
   viewerSrc,
   type PdfBookmark,
   type PdfComment,
@@ -524,22 +527,35 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   };
 
   // ── Persistence ────────────────────────────────────────────────────────────
+  // Position and notes are written separately, each merged into what's stored:
+  // the same file can be open in two tiled tabs (#43), and each viewer writing
+  // ITS lists back on every page turn erased whatever the other had just added.
   const persist = () => {
-    if (!ready()) return;
-    saveDocState(src(), {
-      page: curPage(),
-      scale: scale(),
-      bookmarks: bookmarks(),
-      comments: comments(),
+    if (ready()) savePosition(src(), curPage(), scale());
+  };
+  /** Adopt the stored notes before an edit, so it lands on top of them. Only when
+   *  another viewer changed them: fresh arrays re-create every Notes-panel row. */
+  const syncNotes = () => {
+    const s = loadDocState(src());
+    batch(() => {
+      if (JSON.stringify(s.bookmarks) !== JSON.stringify(bookmarks())) setBookmarks(s.bookmarks);
+      if (JSON.stringify(s.comments) !== JSON.stringify(comments())) setComments(s.comments);
     });
   };
-  // Bookmarks, comments and zoom are all low-frequency, so they persist the
-  // moment they change; only scrolling needs the debounce above.
+  // Bookmarks and comments are low-frequency, so they persist the moment they
+  // change; only scrolling needs the debounce above.
   createEffect(() => {
-    bookmarks();
-    comments();
+    const b = bookmarks();
+    const c = comments();
+    untrack(() => {
+      if (ready()) saveNotes(src(), b, c);
+    });
+  });
+  // Zoom persists at once too. `untrack`: persist() reads curPage, and tracking it
+  // made this effect write on every page turn, not just on zoom.
+  createEffect(() => {
     scale();
-    persist();
+    untrack(persist);
   });
   onCleanup(() => {
     clearTimeout(scrollTimer);
@@ -592,6 +608,7 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   const nextNoteId = () => Date.now();
   const addBookmark = () => {
     const p = curPage();
+    syncNotes();
     setBookmarks((b) =>
       [...b, { id: nextNoteId(), page: p, label: `Page ${p}`, ms: Date.now() }].sort(
         (x, y) => x.page - y.page,
@@ -600,20 +617,29 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     setMode("notes");
     flash(`Bookmarked page ${p}.`);
   };
-  const renameBookmark = (id: number, label: string) =>
+  const renameBookmark = (id: number, label: string) => {
+    syncNotes();
     setBookmarks((b) => b.map((x) => (x.id === id ? { ...x, label: label || `Page ${x.page}` } : x)));
-  const removeBookmark = (id: number) => setBookmarks((b) => b.filter((x) => x.id !== id));
+  };
+  const removeBookmark = (id: number) => {
+    syncNotes();
+    setBookmarks((b) => b.filter((x) => x.id !== id));
+  };
   const bookmarkOn = (p: number) => bookmarks().some((b) => b.page === p);
 
   const addComment = () => {
     const text = noteDraft().trim();
     if (!text) return;
+    syncNotes();
     setComments((c) =>
       [...c, { id: nextNoteId(), page: curPage(), text, ms: Date.now() }].sort((x, y) => x.page - y.page),
     );
     setNoteDraft("");
   };
-  const removeComment = (id: number) => setComments((c) => c.filter((x) => x.id !== id));
+  const removeComment = (id: number) => {
+    syncNotes();
+    setComments((c) => c.filter((x) => x.id !== id));
+  };
   const flash = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(""), 3200);
