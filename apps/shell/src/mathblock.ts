@@ -132,10 +132,18 @@ export const previewTex = async (tex: string, display: boolean): Promise<{ html:
  */
 export const texToNodes = (text: string): (string | HTMLElement)[] => {
   const out: (string | HTMLElement)[] = [];
-  // `$$…$$` first so display maths isn't matched as two inline pairs.
-  const re = /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/g;
+  // `$$…$$` first so display maths isn't matched as two inline pairs. Inline
+  // maths follows pandoc's rule — no space just inside either `$` — so "between
+  // $10 and $20" stays prose. (Lookahead only: older WebKit has no lookbehind.)
+  const re = /\$\$([^$]+?)\$\$|\$(?!\s)([^$\n]*?[^\s$])\$/g;
   let last = 0;
   for (let m = re.exec(text); m; m = re.exec(text)) {
+    // The second `$` of a `$$` still being typed isn't an inline opener: one key
+    // before the closing `$$`, "$$x^2$" became "$" + inline maths.
+    if (m[2] != null && text[m.index - 1] === "$") {
+      re.lastIndex = m.index + 1;
+      continue;
+    }
     if (m.index > last) out.push(text.slice(last, m.index));
     const display = m[1] != null;
     out.push(mathNode((display ? m[1]! : m[2]!).trim(), display));
