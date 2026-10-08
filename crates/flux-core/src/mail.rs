@@ -322,20 +322,47 @@ pub async fn mail_mark_all_read(app: AppHandle) -> Result<u32, String> {
             if unseen.is_empty() {
                 return Ok(0);
             }
-            // One STORE for the whole set: a request per message would be slow
-            // on a big inbox and could half-succeed.
-            let uids = unseen
-                .iter()
-                .map(|u| u.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            s.uid_store(&uids, "+FLAGS (\\Seen)")
-                .map_err(|e| format!("mark read: {e}"))?;
+            // As few STOREs as the server's line limit allows (usually one): a
+            // request per message would be slow on a big inbox. Setting \Seen
+            // is idempotent, so a run that stops partway is safe to repeat.
+            // .SILENT: no per-message FETCH echo to parse.
+            for set in uid_sets(unseen.iter().copied(), 500) {
+                s.uid_store(&set, "+FLAGS.SILENT (\\Seen)")
+                    .map_err(|e| format!("mark read: {e}"))?;
+            }
             Ok(u32::try_from(unseen.len()).unwrap_or(u32::MAX))
         })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// UID sets for `UID STORE`: runs collapsed to ranges ("4001:4900"), at most
+/// `per_command` of them per set. A flat list of 10k+ UIDs overran server line
+/// limits (Dovecot's is 64 KB) and the whole command was refused.
+fn uid_sets(uids: impl IntoIterator<Item = u32>, per_command: usize) -> Vec<String> {
+    let mut sorted: Vec<u32> = uids.into_iter().collect();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut ranges: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < sorted.len() {
+        let start = sorted[i];
+        while i + 1 < sorted.len() && sorted[i].checked_add(1) == Some(sorted[i + 1]) {
+            i += 1;
+        }
+        let end = sorted[i];
+        ranges.push(if start == end {
+            start.to_string()
+        } else {
+            format!("{start}:{end}")
+        });
+        i += 1;
+    }
+    ranges
+        .chunks(per_command.max(1))
+        .map(|c| c.join(","))
+        .collect()
 }
 
 /// The newest `limit` messages in INBOX, newest first, with unread flagged.
@@ -451,6 +478,19 @@ mod tests {
         // A non-hex escape keeps the text after it instead of dropping 2 bytes.
         assert_eq!(decode_q("a=zzb"), b"a=zzb");
         assert_eq!(decode_q("caf=C3=A9"), "café".as_bytes());
+    }
+
+    #[test]
+    fn mark_all_read_sends_ranges_in_bounded_commands() {
+        assert_eq!(uid_sets([7, 3, 4, 5, 9, 10, 4], 500), ["3:5,7,9:10"]);
+        let top = uid_sets([u32::MAX - 1, u32::MAX], 500);
+        assert_eq!(top, ["4294967294:4294967295"], "no overflow at the top");
+        // A big unread backlog is usually one run, so one short command...
+        assert_eq!(uid_sets(1..=12_000, 500), ["1:12000"]);
+        // ...and a scattered one is split, rather than one 80 KB line.
+        let every_other = uid_sets((1..=12_000).step_by(2), 500);
+        assert_eq!(every_other.len(), 12);
+        assert!(every_other.iter().all(|s| s.len() < 16 * 1024));
     }
 
     #[test]
