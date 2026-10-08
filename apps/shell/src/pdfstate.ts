@@ -183,3 +183,38 @@ export function savePosition(src: string, page: number, scale: number): void {
 export function saveNotes(src: string, bookmarks: PdfBookmark[], comments: PdfComment[]): void {
   saveDocState(src, { ...loadDocState(src), bookmarks, comments });
 }
+
+/**
+ * Unsaved edits of a PDF tab whose viewer unmounted. Unlike the state above they
+ * are in memory only: the editor's annotations and page edits live in the viewer
+ * until Save, and the viewer is disposed whenever its tab is switched away from,
+ * which used to drop all of them without a word. Keyed by tab id, with the
+ * document's src so a tab that has since opened another file never inherits them.
+ */
+export interface UnsavedPdf<A> {
+  src: string;
+  /** The working bytes (page-ops and applied form values in). */
+  bytes: Uint8Array;
+  /** The document as fetched, for "Download original". */
+  original: Uint8Array;
+  annots: A[];
+}
+const unsavedPdfs = new Map<number, UnsavedPdf<unknown>>();
+
+export function stashUnsavedPdf<A>(tabId: number, u: UnsavedPdf<A>): void {
+  unsavedPdfs.set(tabId, u);
+}
+
+/** Take (and forget) this tab's edits, if they are for `src`. */
+export function takeUnsavedPdf<A>(tabId: number, src: string): UnsavedPdf<A> | undefined {
+  const u = unsavedPdfs.get(tabId);
+  unsavedPdfs.delete(tabId);
+  return u && u.src === src ? (u as UnsavedPdf<A>) : undefined;
+}
+
+/** Forget the edits of every tab that's closed or shows something else now, so
+ *  none pins a whole document for the session. `srcOf` gives the src a tab's
+ *  viewer would open ("" for a closed tab or one that isn't a PDF). */
+export function pruneUnsavedPdfs(srcOf: (tabId: number) => string): void {
+  for (const [id, u] of unsavedPdfs) if (srcOf(id) !== u.src) unsavedPdfs.delete(id);
+}

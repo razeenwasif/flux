@@ -21,21 +21,25 @@ import {
   Switch,
   batch,
   createEffect,
+  createRoot,
   createSignal,
   onCleanup,
   onMount,
   untrack,
   type Component,
 } from "solid-js";
-import { ocrAvailable, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
+import { PDF_URL, ocrAvailable, pdfFetch, pdfPublishText, pdfSave } from "./ipc";
 import { drawableText } from "./pdffont";
 import { ocrDocument, openPdf } from "./pdftext";
 import { tabs, updateTabTitle } from "./store";
 import {
   DEFAULT_SCALE,
   loadDocState,
+  pruneUnsavedPdfs,
   saveNotes,
   savePosition,
+  stashUnsavedPdf,
+  takeUnsavedPdf,
   viewerSrc,
   type PdfBookmark,
   type PdfComment,
@@ -137,6 +141,21 @@ function bytesToB64(bytes: Uint8Array): string {
   }
   return btoa(bin);
 }
+
+/** The src tab `id`'s viewer would open, or "" when the tab is gone or not a PDF. */
+const tabPdfSrc = (id: number): string => {
+  const url = tabs().find((t) => t.id === id)?.url ?? "";
+  return url.startsWith(PDF_URL) ? viewerSrc(url) : "";
+};
+// Unsaved edits stashed by an unmounting viewer only wait for their tab to show
+// that document again: drop them once it closes or moves on, or a closed tab would
+// pin a full copy of its document for the session. One effect for the app.
+createRoot(() =>
+  createEffect(() => {
+    tabs(); // tracked even while nothing is stashed
+    pruneUnsavedPdfs(tabPdfSrc);
+  }),
+);
 
 /** One viewer instance per PDF tab. `tabId` is what makes that true: the source,
  *  the loaded document and every edit are scoped to THIS tab, never to whichever
@@ -443,6 +462,23 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
       setLoading(false);
       return;
     }
+    // Edits left unsaved when this tab was switched away from: restore them
+    // rather than re-fetching the file, which silently threw them away.
+    const stash = takeUnsavedPdf<Annot>(props.tabId, s);
+    if (stash) {
+      try {
+        original = stash.original;
+        setAnnots(stash.annots);
+        annotId = stash.annots.reduce((m, a) => Math.max(m, a.id), 0) + 1;
+        await loadBytes(stash.bytes);
+        setDirty(true);
+        updateTabTitle(props.tabId, filename());
+      } catch (e) {
+        setError(`Couldn't render this PDF: ${String(e)}`);
+      }
+      setLoading(false);
+      return;
+    }
     try {
       const buf = await pdfFetch(s);
       if (!buf || buf.byteLength === 0) {
@@ -567,6 +603,14 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
   onCleanup(() => {
     clearTimeout(scrollTimer);
     persist();
+    // Unsaved annotations / page edits wait for this tab to show the document
+    // again, unless the tab itself closed or moved on. `untrack`: cleanups run
+    // under whichever computation disposed us, which mustn't subscribe to these.
+    untrack(() => {
+      if (dirty() && ready() && tabPdfSrc(props.tabId) === src()) {
+        stashUnsavedPdf(props.tabId, { src: src(), bytes: working, original, annots: annots() });
+      }
+    });
   });
 
   const zoom = (d: number) => {

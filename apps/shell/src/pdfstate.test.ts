@@ -6,9 +6,12 @@ import {
   keyFor,
   loadDocState,
   parseState,
+  pruneUnsavedPdfs,
   saveDocState,
   saveNotes,
   savePosition,
+  stashUnsavedPdf,
+  takeUnsavedPdf,
   viewerSrc,
 } from "./pdfstate";
 
@@ -141,5 +144,36 @@ describe("stored state", () => {
     const b1 = { id: 2, page: 4, label: "Page 4", ms: 2 };
     saveNotes(src, [b1], [c1]);
     expect(loadDocState(src)).toEqual({ page: 9, scale: 1.5, bookmarks: [b1], comments: [c1] });
+  });
+});
+
+describe("unsaved edits", () => {
+  const edits = (src: string) => ({
+    src,
+    bytes: new Uint8Array([1]),
+    original: new Uint8Array([2]),
+    annots: [{ id: 1 }],
+  });
+
+  it("hands a tab its edits back once, and only for the same document", () => {
+    stashUnsavedPdf(1, edits("/a.pdf"));
+    expect(takeUnsavedPdf(1, "/b.pdf")).toBeUndefined(); // the tab has opened another file since
+    stashUnsavedPdf(1, edits("/a.pdf"));
+    expect(takeUnsavedPdf(1, "/a.pdf")?.annots).toEqual([{ id: 1 }]);
+    expect(takeUnsavedPdf(1, "/a.pdf")).toBeUndefined();
+  });
+
+  it("drops the edits of a tab that closed or moved on", () => {
+    stashUnsavedPdf(1, edits("/a.pdf")); // still showing it
+    stashUnsavedPdf(2, edits("/b.pdf")); // closed
+    stashUnsavedPdf(3, edits("/c.pdf")); // navigated to a web page
+    const shown = new Map([
+      [1, "/a.pdf"],
+      [3, ""],
+    ]);
+    pruneUnsavedPdfs((id) => shown.get(id) ?? "");
+    expect(takeUnsavedPdf(2, "/b.pdf")).toBeUndefined();
+    expect(takeUnsavedPdf(3, "/c.pdf")).toBeUndefined();
+    expect(takeUnsavedPdf(1, "/a.pdf")).toBeDefined();
   });
 });
