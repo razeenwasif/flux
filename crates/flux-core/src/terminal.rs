@@ -159,6 +159,9 @@ pub fn terminal_spawn(
     let engine = if mode.live { live_engine() } else { None };
     let tmux_name = format!("flux-{session}");
     let sock = dtach_socket(session);
+    // Nowhere private for dtach's socket: a plain shell, as without dtach.
+    let engine = engine.filter(|e| *e != LiveEngine::Dtach || sock.is_some());
+    let sock = sock.unwrap_or_default();
     // `-z` so dtach doesn't act on ^Z and `-E` so it claims no detach key: with
     // xterm.js as the emulator, the broker should be invisible to keystrokes.
     // `-r winch` asks the program to redraw by resizing it rather than injecting
@@ -223,7 +226,6 @@ pub fn terminal_spawn(
     // accept those, and the CLI on the other side is the same binary either way.
     let rpc_dir = app.state::<crate::rpc::RpcDir>();
     cmd.env("FLUX_RPC_DIR", rpc_dir.dir().to_string_lossy().as_ref());
-    let mut cwd: Option<String> = None;
     if let Some(id) = state.active_tab() {
         if let Some(tab) = state.tabs.get(&id) {
             // The page controls these (document.title, dom_publish). A NUL in an
@@ -238,10 +240,6 @@ pub fn terminal_spawn(
                 let dir = format!("{}/flux/{host}", downloads_dir());
                 cmd.env("FLUX_TAB_DIR", &dir);
             }
-            // A Terminal tab stores its working dir in `url`; start there.
-            if tab.url.starts_with('/') || tab.url.starts_with('~') {
-                cwd = Some(tab.url.clone());
-            }
         }
     }
     // Every FLUX_* var above crosses into the shell by itself: MSYS2 bash is a
@@ -250,7 +248,7 @@ pub fn terminal_spawn(
     // OS with a separate environment.)
 
     // The stored directory is in the *shell's* vocabulary — it was typed in one.
-    let cwd = cwd.map(|c| shell_dir_to_native(&c));
+    let cwd = tab_start_dir(&state, session).map(|c| shell_dir_to_native(&c));
 
     // Only set a cwd that actually exists — an invalid cwd makes spawn fail.
     let tab_cwd = cwd.is_some();
@@ -275,6 +273,12 @@ pub fn terminal_spawn(
         if integration_enabled() {
             cmd.env("FLUX_MSYS_PROFILE", "1");
         }
+    }
+    // macOS bash: `--rcfile` makes it non-login, so this tells the snippet to
+    // read the login files itself; see [`bash_startup_args`].
+    #[cfg(target_os = "macos")]
+    if startup.iter().any(|a| a == "--rcfile") {
+        cmd.env("FLUX_LOGIN_SHELL", "1");
     }
 
     tracing::info!(target: "flux::term", session, %shell, %cwd, cols, rows, "spawning shell");
@@ -362,6 +366,17 @@ pub fn terminal_spawn(
     Ok(())
 }
 
+/// Where a session's shell starts: a Terminal tab stores its working dir in
+/// `url`. Looked up by the session's *own* id, not by whichever tab is active
+/// when the view mounts (every restored terminal tab mounts at boot). Pane,
+/// editor and TUI sessions aren't tabs, so they keep the home-dir default the
+/// editor column relies on.
+fn tab_start_dir(state: &FluxState, session: u64) -> Option<String> {
+    let tab = state.tabs.get(&session)?;
+    let is_dir = tab.url.starts_with('/') || tab.url.starts_with('~');
+    (tab.kind == crate::state::TabKind::Terminal && is_dir).then(|| tab.url.clone())
+}
+
 /// Write keystrokes / pasted text to the session's stdin.
 #[tauri::command]
 pub fn terminal_write(
@@ -429,20 +444,35 @@ pub fn terminal_kill(
             None => (None, None),
         }
     };
-    if let Some(s) = s {
-        let _ = s.child.lock().kill();
-    }
     // Nothing left to persist for a terminal the user deliberately closed.
     let mode = mode.unwrap_or_default();
-    if mode.live {
-        if let Some(eng) = live_engine() {
-            kill_live_session(session, eng);
+    // The session is already out of the map; the rest can block, and a sync
+    // command runs on the main thread. Killing the shell waits up to 200 ms for
+    // it to take its SIGHUP, and on Windows the first live teardown resolves
+    // `pkill`/`rm` through an MSYS login shell.
+    std::thread::spawn(move || {
+        if let Some(s) = s {
+            end_shell(&mut **s.child.lock());
         }
-    }
-    if mode.transcript {
-        remove_transcript(&app, session);
-    }
+        if mode.live {
+            if let Some(eng) = live_engine() {
+                kill_live_session(session, eng);
+            }
+        }
+        if mode.transcript {
+            remove_transcript(&app, session);
+        }
+    });
     Ok(())
+}
+
+/// Kill a session's shell and reap it. portable-pty sends SIGHUP and falls
+/// back to SIGKILL after a grace period, and nothing waited on a shell that
+/// needed the SIGKILL: it stayed a zombie for the rest of Flux's life.
+fn end_shell(child: &mut dyn Child) {
+    if child.kill().is_ok() {
+        let _ = child.wait();
+    }
 }
 
 /// What a terminal keeps across a Flux restart. The two halves are independent:
@@ -536,11 +566,62 @@ fn live_engine() -> Option<LiveEngine> {
     })
 }
 
-/// The dtach socket for a session. `/tmp` rather than `$XDG_RUNTIME_DIR` because
-/// the path is resolved by dtach itself — on Windows that's the MSYS runtime,
-/// which knows `/tmp` (the install's `tmp\`) but not the variable.
-fn dtach_socket(session: u64) -> String {
-    format!("/tmp/flux-term-{session}.sock")
+/// The dtach socket for a session, or `None` with nowhere private to put it.
+///
+/// On Windows it's `/tmp`, because the path is resolved by dtach itself through
+/// the MSYS runtime, which knows `/tmp` (the install's `tmp\`) but not
+/// `$XDG_RUNTIME_DIR`. On Unix `/tmp` is shared by every local user, and
+/// `dtach -A` attaches to whatever already listens at the path.
+fn dtach_socket(session: u64) -> Option<String> {
+    let name = format!("flux-term-{session}.sock");
+    #[cfg(windows)]
+    {
+        Some(format!("/tmp/{name}"))
+    }
+    #[cfg(not(windows))]
+    {
+        Some(
+            private_runtime_dir()?
+                .join(name)
+                .to_string_lossy()
+                .into_owned(),
+        )
+    }
+}
+
+/// A `flux` directory no other local user can write, for the dtach sockets and
+/// the bash rcfile: in a shared `/tmp` anyone can plant, swap or link a fixed
+/// name first. `$XDG_RUNTIME_DIR` (Linux) and macOS's per-user `$TMPDIR` are
+/// 0700; without either, `~/.cache`. Short, too: a socket path has to fit in
+/// 104 bytes on macOS.
+#[cfg(not(windows))]
+fn private_runtime_dir() -> Option<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let home_cache = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"));
+    [
+        std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
+        Some(std::env::temp_dir()),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|d| is_private_dir(d))
+    .chain(home_cache)
+    .map(|d| d.join("flux"))
+    .find(|d| {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(d)
+            .is_ok()
+    })
+}
+
+/// A directory only its owner can create entries in (not `/tmp`'s 1777).
+#[cfg(not(windows))]
+fn is_private_dir(dir: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    dir.is_absolute()
+        && std::fs::metadata(dir).is_ok_and(|m| m.is_dir() && m.permissions().mode() & 0o022 == 0)
 }
 
 /// Pattern identifying a session's dtach master for `pkill -f`.
@@ -578,6 +659,12 @@ fn shell_is_bash(shell: &str) -> bool {
 fn integration_rcfile() -> Option<std::path::PathBuf> {
     static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
     PATH.get_or_init(|| {
+        // Every Flux bash sources this file. In a shared `/tmp/flux/`, another
+        // user could own the directory and swap it, or plant a link we'd write
+        // through. (Windows' temp dir is per-user already.)
+        #[cfg(not(windows))]
+        let dir = private_runtime_dir()?;
+        #[cfg(windows)]
         let dir = std::env::temp_dir().join("flux");
         std::fs::create_dir_all(&dir).ok()?;
         let p = dir.join("shell-integration.bash");
@@ -602,7 +689,7 @@ fn integration_rcfile_arg() -> Option<String> {
 }
 
 /// How to start `shell` so it comes up configured: the OSC 133 rcfile when the
-/// integration is on, and on Windows a login shell when it isn't.
+/// integration is on, and on Windows and macOS a login shell when it isn't.
 ///
 /// The Windows half is the subtle one. `--rcfile` makes bash a *non-login*
 /// interactive shell, and on MSYS2 that never runs `/etc/profile` — the script
@@ -611,8 +698,28 @@ fn integration_rcfile_arg() -> Option<String> {
 /// on it. The two flags can't be combined either: bash ignores `--rcfile` for a
 /// login shell. So Flux sets `FLUX_MSYS_PROFILE` in the environment and the
 /// integration snippet sources `/etc/profile` itself, before anything else.
+///
+/// macOS needs a login shell too: a Dock-launched app has launchd's bare `PATH`
+/// (`/usr/bin:/bin:/usr/sbin:/sbin`), and only the login files build the real
+/// one — /etc/zprofile runs path_helper, and ~/.zprofile is where Homebrew's
+/// installer puts `brew shellenv`. Every terminal there starts one, so the
+/// shells known to take `-l` for it get it; bash with the rcfile gets
+/// `FLUX_LOGIN_SHELL`, and the snippet reads the login files itself.
 fn bash_startup_args(shell: &str) -> Vec<String> {
     if !shell_is_bash(shell) {
+        #[cfg(target_os = "macos")]
+        if std::path::Path::new(shell)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| {
+                matches!(
+                    s,
+                    "zsh" | "fish" | "sh" | "dash" | "ksh" | "mksh" | "tcsh" | "csh"
+                )
+            })
+        {
+            return vec!["-l".to_string()];
+        }
         return Vec::new();
     }
     if integration_enabled() {
@@ -620,11 +727,11 @@ fn bash_startup_args(shell: &str) -> Vec<String> {
             return vec!["--rcfile".to_string(), rc];
         }
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         vec!["-l".to_string()]
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Vec::new()
     }
@@ -674,7 +781,9 @@ fn command_available(cmd: &str) -> bool {
 }
 
 /// Run a command inside the shell's world — MSYS2 on Windows, locally on Unix —
-/// without a `sh -c` wrapper. Best-effort and fire-and-forget.
+/// without a `sh -c` wrapper. Best-effort, and waited on: a dropped `Child` is
+/// never reaped (each one stayed a zombie), and `rm` must follow `pkill`. Only
+/// the teardown thread calls this, so the wait costs the UI nothing.
 ///
 /// **The missing wrapper is the point.** These commands carry a socket path as an
 /// argument and one of them is `pkill -f`, which matches on the whole command
@@ -697,11 +806,11 @@ fn run_in_shell_world(args: &[&str]) {
         let _ = c
             .args(rest)
             .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-            .spawn();
+            .status();
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new(program).args(rest).spawn();
+        let _ = std::process::Command::new(program).args(rest).status();
     }
 }
 
@@ -718,12 +827,13 @@ fn kill_live_session(session: u64, engine: LiveEngine) {
             run_in_shell_world(&["tmux", "kill-session", "-t", &name]);
         }
         LiveEngine::Dtach => {
-            let sock = dtach_socket(session);
             let pattern = dtach_kill_pattern(session);
             run_in_shell_world(&["pkill", "-f", &pattern]);
             // Unlink separately: a stale socket makes the next `-A` attach to a
             // session with no master instead of creating a fresh one.
-            run_in_shell_world(&["rm", "-f", &sock]);
+            if let Some(sock) = dtach_socket(session) {
+                run_in_shell_world(&["rm", "-f", &sock]);
+            }
         }
     }
 }
@@ -994,7 +1104,97 @@ mod tests {
             pat.starts_with("dtach"),
             "the pattern must require dtach before the socket: {pat}"
         );
-        assert_ne!(pat, dtach_socket(42), "never kill on the bare path");
+        assert_ne!(Some(pat), dtach_socket(42), "never kill on the bare path");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn sockets_and_the_rcfile_live_where_no_one_else_can_write() {
+        use std::os::unix::fs::PermissionsExt;
+        // `/tmp`'s own mode: anyone can create entries, so it doesn't qualify.
+        let dir = std::env::temp_dir().join(format!("flux-term-private-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o1777)).unwrap();
+        assert!(!is_private_dir(&dir));
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(is_private_dir(&dir));
+        assert!(!is_private_dir(std::path::Path::new("relative")));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        if let Some(sock) = dtach_socket(0xf000_0001) {
+            let parent = std::path::Path::new(&sock).parent().unwrap();
+            assert!(is_private_dir(parent), "shared socket dir: {sock}");
+            assert!(sock.len() < 104, "too long for a socket path: {sock}");
+        }
+        if let Some(rc) = integration_rcfile() {
+            assert!(
+                is_private_dir(rc.parent().unwrap()),
+                "shared rcfile: {rc:?}"
+            );
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_closed_shell_is_reaped_even_after_the_sigkill_fallback() {
+        use std::io::BufRead;
+        // Ignoring SIGHUP forces portable-pty's SIGKILL fallback, after which
+        // nothing used to wait on the shell: a zombie per closed terminal.
+        let mut sh = std::process::Command::new("sh")
+            .args(["-c", "trap '' HUP; echo ready; exec sleep 30"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut ready = String::new();
+        std::io::BufReader::new(sh.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        let pid = sh.id().to_string();
+        end_shell(&mut sh);
+        // Nothing at all is left under that pid, not even a zombie.
+        let ps = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid])
+            .output()
+            .unwrap();
+        let stat = String::from_utf8_lossy(&ps.stdout);
+        assert_eq!(stat.trim(), "", "pid {pid} was left behind");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn shell_world_commands_finish_before_returning() {
+        // Waited on, so reaped: these used to be spawned and dropped.
+        let dir = std::env::temp_dir().join(format!("flux-term-wait-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let done = dir.join("done");
+        let script = format!("sleep 0.2; touch '{}'", done.display());
+        run_in_shell_world(&["sh", "-c", &script]);
+        assert!(done.exists(), "returned before the command finished");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_terminal_starts_in_its_own_tabs_directory() {
+        let state = FluxState::new();
+        let tab = |id: u64, kind: &str, url: &str| -> crate::state::TabMeta {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "kind": kind, "url": url, "title": "", "pinned": false,
+            }))
+            .unwrap()
+        };
+        state.tabs.insert(1, tab(1, "browser", "https://a.test/"));
+        state.tabs.insert(2, tab(2, "terminal", "/srv/project"));
+        state.tabs.insert(3, tab(3, "files", "/srv/elsewhere"));
+        // A restored session with a web page active: the terminal tab still
+        // starts where it was, not in the active tab's (or no) directory.
+        state.set_active_tab(1);
+        assert_eq!(tab_start_dir(&state, 2).as_deref(), Some("/srv/project"));
+        // Non-tab sessions keep the home default, whichever tab is active.
+        state.set_active_tab(2);
+        assert_eq!(tab_start_dir(&state, PANE_SESSION), None);
+        assert_eq!(tab_start_dir(&state, 0xd000_0000), None);
+        assert_eq!(tab_start_dir(&state, 3), None);
     }
 
     #[test]
@@ -1015,7 +1215,56 @@ mod tests {
         assert!(rc.starts_with('/'), "rcfile must be POSIX for bash: {rc}");
         // Anything that isn't bash is launched as-is: no flags it doesn't have.
         assert!(bash_startup_args("pwsh.exe").is_empty());
+        #[cfg(not(target_os = "macos"))]
         assert!(bash_startup_args("/bin/zsh").is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_shells_start_as_login_shells() {
+        // launchd's PATH is bare; only the login files build the real one.
+        assert_eq!(bash_startup_args("/bin/zsh"), vec!["-l".to_string()]);
+        assert_eq!(
+            bash_startup_args("/opt/homebrew/bin/fish"),
+            vec!["-l".to_string()]
+        );
+        // Not known to take `-l` that way: nothing it might reject.
+        assert!(bash_startup_args("/opt/homebrew/bin/elvish").is_empty());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_snippet_reads_the_login_files_when_asked_to() {
+        let home = std::env::temp_dir().join(format!("flux-term-login-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let rc = home.join("rc.bash");
+        std::fs::write(&rc, BASH_INTEGRATION).unwrap();
+        std::fs::write(home.join(".bash_profile"), "FROM=profile\n").unwrap();
+        std::fs::write(home.join(".bashrc"), "FROM=bashrc\n").unwrap();
+        let read = |login: bool| {
+            let mut bash = std::process::Command::new("bash");
+            bash.env_clear()
+                .env("HOME", &home)
+                .env("PATH", "/usr/bin:/bin")
+                .arg("--rcfile")
+                .arg(&rc)
+                .args(["-i", "-c", "echo \"from=$FROM\""])
+                .stdin(std::process::Stdio::null());
+            if login {
+                bash.env("FLUX_LOGIN_SHELL", "1");
+            }
+            let out = bash.output().unwrap();
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .find_map(|l| l.strip_prefix("from="))
+                .map(str::to_string)
+        };
+        // What a login bash reads (a profile sources ~/.bashrc itself if it
+        // wants it), and otherwise ~/.bashrc as before.
+        assert_eq!(read(true).as_deref(), Some("profile"));
+        assert_eq!(read(false).as_deref(), Some("bashrc"));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[cfg(windows)]

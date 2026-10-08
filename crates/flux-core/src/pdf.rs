@@ -9,7 +9,7 @@
 //! byte (see MAX_PDF_BYTES).
 
 use std::io::Read;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 
@@ -141,10 +141,30 @@ fn fetch_http(url: &str) -> FluxResult<Vec<u8>> {
         .build();
     let resp = agent.get(url).set("User-Agent", "Mozilla/5.0").call()?;
     let mut buf = Vec::new();
-    resp.into_reader()
+    // `timeout_read` bounds each read, not the download: a server dribbling
+    // bytes, or a stream that never ends, held this thread for good. ureq's own
+    // `.timeout()` would also stretch the 60 s stall bound to its whole span,
+    // so the deadline goes on the body: generous for 256 MB, but finite.
+    let deadline = Instant::now() + Duration::from_secs(15 * 60);
+    Deadline(resp.into_reader(), deadline)
         .take((MAX_PDF_BYTES + 1) as u64)
         .read_to_end(&mut buf)?;
     Ok(buf)
+}
+
+/// A reader that fails once its deadline has passed, checked before each read.
+struct Deadline<R>(R, Instant);
+
+impl<R: Read> Read for Deadline<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if Instant::now() > self.1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "the download took too long",
+            ));
+        }
+        self.0.read(buf)
+    }
 }
 
 fn fetch_file(url: &str) -> FluxResult<Vec<u8>> {
@@ -158,7 +178,7 @@ fn fetch_file(url: &str) -> FluxResult<Vec<u8>> {
 /// Best-effort `file://` URL (or bare path) → filesystem path. Handles
 /// `file://localhost/…`, the Windows `file:///C:/…` leading-slash quirk, and
 /// `%20` spaces. Not a full RFC-8089 parser — enough for opening local PDFs.
-fn file_url_to_path(url: &str) -> String {
+pub(crate) fn file_url_to_path(url: &str) -> String {
     let mut p = url.to_string();
     if let Some(rest) = p.strip_prefix("file://") {
         p = rest.strip_prefix("localhost").unwrap_or(rest).to_string();
@@ -224,6 +244,26 @@ mod tests {
         // hold rather than what the transport survives.
         // Const-asserted: regressing this silently re-breaks large PDFs.
         const { assert!(MAX_PDF_BYTES >= 256 * 1024 * 1024) };
+    }
+
+    #[test]
+    fn a_download_that_never_ends_is_cut_off() {
+        // A server dribbling bytes: every read succeeds, so only a deadline on
+        // the whole body ends it.
+        struct Drip;
+        impl Read for Drip {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                std::thread::sleep(Duration::from_millis(5));
+                buf[0] = b'%';
+                Ok(1)
+            }
+        }
+        let mut buf = Vec::new();
+        let err = Deadline(Drip, Instant::now() + Duration::from_millis(50))
+            .read_to_end(&mut buf)
+            .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        assert!(!buf.is_empty(), "reads until the deadline");
     }
 
     #[test]

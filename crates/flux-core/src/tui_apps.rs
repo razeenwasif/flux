@@ -126,19 +126,37 @@ impl TuiAppsStore {
         }
         let Some(path) = &self.path else { return };
 
-        // A file in neither shape (or unreadable) is kept aside and treated as
-        // absent: the defaults seeded below are saved over it.
-        let loaded = crate::persist::load_or_quarantine(path, |b| {
-            match serde_json::from_slice::<TuiAppsFile>(b) {
-                Ok(f) => Ok((f.seed_version, f.apps)),
-                // legacy bare-array format → seed_version 0
-                Err(e) => serde_json::from_slice::<Vec<TuiApp>>(b)
-                    .map(|v| (0, v))
-                    .map_err(|_| e.to_string()),
+        let mut had_file = false;
+        let mut version = 0u32;
+        let mut apps: Vec<TuiApp> = Vec::new();
+        let mut unreadable = false;
+        match std::fs::read_to_string(path) {
+            Ok(s) => {
+                had_file = true;
+                if let Ok(f) = serde_json::from_str::<TuiAppsFile>(&s) {
+                    version = f.seed_version;
+                    apps = f.apps;
+                } else if let Ok(v) = serde_json::from_str::<Vec<TuiApp>>(&s) {
+                    apps = v; // legacy bare-array format → seed_version 0
+                } else {
+                    unreadable = true;
+                }
             }
-        });
-        let had_file = loaded.is_some();
-        let (mut version, mut apps) = loaded.unwrap_or_default();
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => unreadable = true,
+        }
+        if unreadable {
+            // Still the user's list (a hand edit with a trailing comma, say), so
+            // never "migrate" it: that persists the defaults straight over it.
+            // Keep a copy, show the defaults for this run, and write nothing
+            // until the user edits the list.
+            tracing::warn!(target: "flux::tui_apps", path = %path.display(),
+                "tui-apps.json unreadable; left untouched (copy at .json.bak)");
+            let _ = std::fs::copy(path, path.with_extension("json.bak"));
+            *self.apps.lock() = seed_defaults();
+            self.seed_version.store(SEED_VERSION, Ordering::Release);
+            return;
+        }
 
         let mut changed = false;
         if !had_file {
@@ -226,24 +244,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn an_unparseable_launcher_is_kept_before_reseeding() {
-        let dir = std::env::temp_dir().join(format!("flux-tuiapps-bad-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("tui-apps.json");
-        std::fs::write(&path, "{ not json").unwrap();
-        let apps = TuiAppsStore::empty(path).list();
-        assert_eq!(apps.len(), seed_defaults().len());
-        let kept = std::fs::read_dir(&dir)
-            .unwrap()
-            .flatten()
-            .find(|e| e.file_name().to_string_lossy().contains(".unreadable-"))
-            .expect("the user's file is kept");
-        assert_eq!(std::fs::read_to_string(kept.path()).unwrap(), "{ not json");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     /// The migration must upgrade an untouched default and leave a chosen icon
     /// alone. Overwriting a user's pick would be a bug wearing an upgrade's
     /// clothes — and it's silent, because the app still launches either way.
@@ -315,6 +315,33 @@ mod tests {
         // Re-hydrating a fresh store reads the now-migrated file without re-adding.
         let store2 = TuiAppsStore::empty(path);
         assert_eq!(store2.list().len(), seed_defaults().len());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_list_is_never_written_over() {
+        let dir = std::env::temp_dir().join(format!("flux-tuiapps-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tui-apps.json");
+        // A hand edit gone wrong: an entry missing `cwd`, and a trailing comma.
+        let bad = r#"{"seed_version":3,"apps":[
+            {"id":"abc-123","name":"Canopy","icon":"▸","cmd":"canopy"},
+        ]}"#;
+        std::fs::write(&path, bad).unwrap();
+
+        // Usable this run, but the file is exactly as the user left it, with a
+        // copy beside it in case a later edit from the UI replaces it.
+        let apps = TuiAppsStore::empty(path.clone()).list();
+        assert_eq!(apps.len(), seed_defaults().len());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), bad);
+        let bak = dir.join("tui-apps.json.bak");
+        assert_eq!(std::fs::read_to_string(&bak).unwrap(), bad);
+
+        // Not even text: a read error other than "not found" is no first run.
+        std::fs::write(&path, b"\xff\xfe").unwrap();
+        TuiAppsStore::empty(path.clone()).list();
+        assert_eq!(std::fs::read(&path).unwrap(), b"\xff\xfe");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

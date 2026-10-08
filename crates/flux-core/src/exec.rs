@@ -177,10 +177,19 @@ fn run_bounded(
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
+    // Own process group, so the deadline can take down everything the shell
+    // started: a grandchild (`cd x && npm run dev`, `a | b`) inherits the pipes,
+    // and killing only `sh` left the drains below blocked on it forever.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
 
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("couldn't run the command: {e}"))?;
+    let pid = child.id();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
@@ -194,6 +203,9 @@ fn run_bounded(
     let watcher = std::thread::spawn(move || {
         if rx_done.recv_timeout(timeout).is_err() {
             timed_out_watcher.store(true, std::sync::atomic::Ordering::SeqCst);
+            // The shell isn't reaped until `wait` below, so its pid (the group
+            // id) can't have been reused yet.
+            kill_tree(pid);
             let mut guard = child_watcher.lock();
             let _ = guard.kill();
         }
@@ -233,6 +245,27 @@ fn run_bounded(
         timed_out: was_timed_out,
         truncated: stdout_res.1 || stderr_res.1,
     })
+}
+
+/// Kill `pid` and everything it started: on Unix its process group (set up by
+/// `process_group(0)`), on Windows its process tree.
+fn kill_tree(pid: u32) {
+    #[cfg(unix)]
+    let _ = Command::new("kill")
+        .args(["-s", "KILL", "--", &format!("-{pid}")])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
 }
 
 /// Run `command` synchronously and return combined stdout+stderr (trimmed),
@@ -374,5 +407,22 @@ mod tests {
         }
         let out = run_bounded(cmd, std::time::Duration::from_millis(200), 1024).unwrap();
         assert!(out.timed_out);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_deadline_also_kills_what_the_shell_started() {
+        // `sleep | cat` forks: both children hold the stdout pipe, and killing
+        // only `sh` left the drains (and this call) waiting on them.
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "sleep 5 | cat; true"]);
+        let started = std::time::Instant::now();
+        let out = run_bounded(cmd, std::time::Duration::from_millis(200), 1024).unwrap();
+        assert!(out.timed_out);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "returned only after {:?}",
+            started.elapsed()
+        );
     }
 }
