@@ -140,6 +140,8 @@ const FilesView: Component<{
   // Generation token: each (re)load bumps it so chunks from a superseded
   // navigation are dropped instead of landing in the new directory's listing (#86).
   let loadGen = 0;
+  /** A soft refresh was asked for while a full load was in flight. */
+  let softAfterLoad = false;
   const load = async (path: string, selectName?: string) => {
     const gen = ++loadGen;
     setLoading(true);
@@ -174,6 +176,10 @@ const FilesView: Component<{
       if (gen === loadGen) {
         setLoading(false);
         setStreaming(false);
+        if (softAfterLoad) {
+          softAfterLoad = false;
+          void softRefresh();
+        }
       }
     }
   };
@@ -182,6 +188,15 @@ const FilesView: Component<{
   /** Re-list in place (external change / undo): keep scroll + selection. Buffers
    *  the whole stream then swaps once, so an external change doesn't flicker. */
   const softRefresh = async () => {
+    // Never steal the generation of a load still in flight: its later frames
+    // would be dropped and its `finally` skipped, leaving "Loading…" (or, before
+    // its head landed, the OLD folder re-listed) or "loading more…" stuck. Run
+    // once it settles instead, on whatever folder it ended up in.
+    if (loading() || streaming()) {
+      softAfterLoad = true;
+      return;
+    }
+    softAfterLoad = false;
     const gen = ++loadGen;
     let acc: FileEntry[] = [];
     try {
