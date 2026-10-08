@@ -103,6 +103,18 @@ mod real {
         Ok(u)
     }
 
+    /// The WKWebView data store holding a container's jar (#59). WKWebView ignores
+    /// `data_directory` (wry uses the shared default store unless given an
+    /// identifier), so this is what isolates a container on macOS 14+; older
+    /// macOS still gets the default store. Derived from the id so the jar
+    /// survives restarts: changing it would sign every container out.
+    pub(crate) fn container_store_id(container: u32) -> [u8; 16] {
+        let mut id = [0u8; 16];
+        id[..8].copy_from_slice(b"fluxcont");
+        id[12..].copy_from_slice(&container.to_be_bytes());
+        id
+    }
+
     /// Create the child webview for a Browser tab at the given rect (logical px,
     /// relative to the chrome window's top-left). Idempotent — a second call for
     /// an existing tab is a no-op (use `webview_navigate` to change the page).
@@ -171,8 +183,9 @@ mod real {
             ])
         );
 
-        // Private tabs (#59) use an in-memory session; container tabs (#59) use a
-        // per-container on-disk data dir → an isolated cookie/storage jar.
+        // Private tabs (#59) use an in-memory session; container tabs (#59) get an
+        // isolated cookie/storage jar: a per-container data dir, or on macOS a
+        // per-container data store.
         let (private, container) = app
             .try_state::<crate::state::FluxState>()
             .and_then(|s| s.tabs.get(&tab_id).map(|t| (t.private, t.container)))
@@ -204,6 +217,8 @@ mod real {
                 builder =
                     builder.data_directory(dir.join("containers").join(container.to_string()));
             }
+            // Apple only; the data dir above is the jar everywhere else.
+            builder = builder.data_store_identifier(container_store_id(container));
         }
         // Outbound proxy (#63), if configured — opt-in, so direct otherwise.
         #[cfg(target_os = "macos")]
@@ -1371,6 +1386,22 @@ mod real {
                     );
                 }
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod container_store_tests {
+        use super::container_store_id;
+
+        #[test]
+        fn each_container_keeps_its_own_store() {
+            assert_ne!(container_store_id(1), container_store_id(2));
+            assert_ne!(container_store_id(1), container_store_id(1 << 24));
+            // Pinned: a different derivation would orphan every existing jar.
+            assert_eq!(
+                &container_store_id(0x0102_0304),
+                b"fluxcont\0\0\0\0\x01\x02\x03\x04"
+            );
         }
     }
 } // mod real

@@ -115,6 +115,9 @@ fn open_peek(app: &AppHandle, url: &str, session: Session) -> Result<(), String>
             builder =
                 builder.data_directory(dir.join("containers").join(session.container.to_string()));
         }
+        // macOS keys the jar by data store, not directory (see `container_store_id`).
+        let store = crate::webview::container_store_id(session.container);
+        builder = builder.data_store_identifier(store);
     }
     // Same outbound proxy (#63) as tab webviews: a peek must not go direct.
     if let Some(proxy) = app
