@@ -9,8 +9,9 @@
 //     login for this host (login forms carry "Sign up" links too)
 //     → "✦ Strong password" chip. Click
 //     asks the Rust vault for a generated password (vault_suggest_password),
-//     fills every password field in the form, and arms a submit hook that asks
-//     Rust to offer saving {username, password} (vault_save_from_page raises
+//     fills the form's new-password fields (never a change form's current
+//     password), and arms a submit hook that asks Rust to offer saving the
+//     submitted {username, password} (vault_save_from_page raises
 //     the chrome's "Save password?" bar; nothing is stored until the user
 //     confirms there).
 //   * LOGIN — a lone password field → ask vault_page_info; if the vault is
@@ -190,21 +191,39 @@
     showChip(pw, "✦", "Use a strong password", function () {
       call("vault_suggest_password").then(function (generated) {
         var form = formOf(pw);
-        var targets = form
+        var all = form
           ? Array.prototype.filter.call(form.querySelectorAll('input[type="password"]'), visible)
           : [pw];
-        targets.forEach(function (f) { setVal(f, generated); handled.add(f); });
+        // A change-password form leads with the CURRENT password. Overwriting it
+        // makes the site reject the change while Flux offers to save a password
+        // the site never accepted. Fill only the new/confirm fields.
+        var targets = all.filter(function (f, i) {
+          var ac = (f.autocomplete || "").toLowerCase();
+          if (ac === "current-password") return false;
+          return !(all.length >= 3 && i === 0 && ac !== "new-password");
+        });
+        if (!targets.length) { removeChip(); return; }
+        // Every field is handled, the current one included: otherwise the chip
+        // re-offers on it, and offerSaveOnSubmit would offer the OLD password
+        // for saving right after the change.
+        all.forEach(function (f) { handled.add(f); });
+        targets.forEach(function (f) { setVal(f, generated); });
         var save = function () {
+          // What the field holds at submit, not the suggestion: the site may
+          // have rejected it and the user typed their own.
+          var password = targets[0].value;
+          if (!password) return;
           var userEl = usernameFieldFor(pw);
           call("vault_save_from_page", {
             username: (userEl && userEl.value) || "",
-            password: generated,
+            password: password,
           }).catch(function () {});
         };
         if (form) {
           // Offer the save when the user actually signs up (username is filled
-          // by then).
-          form.addEventListener("submit", save, { once: true, capture: true });
+          // by then), on every submit: when the site rejects the first try, the
+          // resubmitted password is the one to keep.
+          form.addEventListener("submit", save, { capture: true });
           showChip(pw, "✓", "Flux will offer to save this password when you sign up", function () {});
         } else {
           save(); // no form to hook — offer now; the entry is editable in the vault

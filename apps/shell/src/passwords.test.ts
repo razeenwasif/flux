@@ -245,3 +245,63 @@ describe("passwords.js: sign-up wording", () => {
     expect(page.calls("vault_page_info")).toHaveLength(0);
   });
 });
+
+describe("passwords.js: strong-password suggestion", () => {
+  const G = "G3n-Pass!";
+
+  it("a change-password form keeps its current password; each submit offers what was sent", async () => {
+    const user = new Input("text", "username", "username");
+    const current = new Input("password", "current");
+    const next = new Input("password", "new");
+    const confirm = new Input("password", "confirm");
+    const form = new Form([user, current, next, confirm], "Change password");
+    const page = load([form], { vault_suggest_password: G });
+    await page.settle();
+    expect(page.chip()).toContain("Use a strong password");
+
+    user.value = "ada";
+    current.value = "old-pass"; // typed before clicking the chip
+    await page.clickChip();
+    expect(current.value).toBe("old-pass");
+    expect([next.value, confirm.value]).toEqual([G, G]);
+
+    // The site rejects the first try; the user types their own and resubmits.
+    page.submit(form);
+    next.value = confirm.value = "Mine-1!";
+    page.submit(form);
+    expect(page.calls("vault_save_from_page")).toEqual([
+      { username: "ada", password: G },
+      { username: "ada", password: "Mine-1!" },
+    ]);
+    // The old password is never offered for saving.
+    expect(page.calls("vault_offer_save")).toEqual([]);
+  });
+
+  it("a field marked current-password is never overwritten", async () => {
+    const current = new Input("password", "old", "current-password");
+    const next = new Input("password", "new");
+    const page = load([new Form([current, next])], { vault_suggest_password: G });
+    await page.settle();
+    current.value = "old-pass";
+    await page.clickChip();
+    expect(current.value).toBe("old-pass");
+    expect(next.value).toBe(G);
+  });
+
+  it("on a sign-up form, the password actually submitted is offered", async () => {
+    const user = new Input("email", "email");
+    const pw = new Input("password", "password", "new-password");
+    const form = new Form([user, pw]);
+    const page = load([form], { vault_suggest_password: G });
+    await page.settle();
+    await page.clickChip();
+    expect(pw.value).toBe(G);
+
+    user.value = "ada@example.com";
+    pw.value = "Shorter1!"; // the site's rules rejected the suggestion
+    page.submit(form);
+    expect(page.calls("vault_save_from_page")).toEqual([
+      { username: "ada@example.com", password: "Shorter1!" },
+    ]);
+  });
+});
