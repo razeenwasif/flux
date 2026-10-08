@@ -1013,12 +1013,17 @@ const InkCanvas: Component<Props> = (props) => {
   const undo = () => {
     const prev = undoStack.pop();
     if (!prev) return;
+    // The selection is indices into the array being replaced; in the other one
+    // they name different strokes (un-erasing shifts everything after it), so
+    // Delete or a drag would hit strokes nobody selected.
+    clearSel();
     redoStack.push(props.strokes);
     props.onChange(prev);
   };
   const redo = () => {
     const next = redoStack.pop();
     if (!next) return;
+    clearSel();
     undoStack.push(props.strokes);
     props.onChange(next);
   };
