@@ -16,7 +16,7 @@
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use adblock::lists::{FilterSet, ParseOptions};
 use adblock::request::Request;
@@ -27,9 +27,14 @@ use adblock::Engine;
 static GENERATION: AtomicUsize = AtomicUsize::new(1);
 
 thread_local! {
-    /// Per-thread deserialized engine, tagged with the generation it was built
-    /// from. `!Send` `Engine` never leaves its thread.
-    static LOCAL_ENGINE: RefCell<Option<(usize, Engine)>> = const { RefCell::new(None) };
+    /// Per-thread deserialized engines, one per live [`Filter`] (shields and lean
+    /// mode are both matched on the WebView2 UI thread: a single slot made each
+    /// evict the other, re-deserializing the full EasyList engine per request).
+    /// Tagged with the generation and a weak handle to the source bytes, so a
+    /// dropped filter's engine is released on the thread's next use. `!Send`
+    /// `Engine` never leaves its thread.
+    static LOCAL_ENGINES: RefCell<Vec<(usize, Weak<Vec<u8>>, Engine)>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 /// A compiled, thread-safe handle to a set of filter rules.
@@ -78,20 +83,21 @@ impl Filter {
     /// use per thread / when the rules change). Returns `R::default()` if the
     /// engine can't be rebuilt.
     fn with_engine<R: Default>(&self, f: impl FnOnce(&Engine) -> R) -> R {
-        LOCAL_ENGINE.with(|cell| {
-            let mut slot = cell.borrow_mut();
-            let stale = slot
-                .as_ref()
-                .map(|(g, _)| *g != self.generation)
-                .unwrap_or(true);
-            if stale {
-                let mut engine = Engine::from_filter_set(FilterSet::new(false), false);
-                if engine.deserialize(&self.serialized).is_err() {
-                    return R::default();
+        LOCAL_ENGINES.with(|cell| {
+            let mut engines = cell.borrow_mut();
+            engines.retain(|(_, src, _)| src.strong_count() > 0);
+            let i = match engines.iter().position(|(g, _, _)| *g == self.generation) {
+                Some(i) => i,
+                None => {
+                    let mut engine = Engine::from_filter_set(FilterSet::new(false), false);
+                    if engine.deserialize(&self.serialized).is_err() {
+                        return R::default();
+                    }
+                    engines.push((self.generation, Arc::downgrade(&self.serialized), engine));
+                    engines.len() - 1
                 }
-                *slot = Some((self.generation, engine));
-            }
-            f(&slot.as_ref().unwrap().1)
+            };
+            f(&engines[i].2)
         })
     }
 
@@ -267,6 +273,30 @@ mod tests {
     fn is_send_and_sync() {
         fn assert_ss<T: Send + Sync>() {}
         assert_ss::<Filter>();
+    }
+
+    #[test]
+    fn two_live_filters_keep_their_own_engines() {
+        let cached = |generation: usize| {
+            LOCAL_ENGINES.with(|c| c.borrow().iter().any(|(g, _, _)| *g == generation))
+        };
+        // Shields and lean mode, matched back to back on one thread.
+        let shields = sample();
+        let lean = Filter::from_list("||lean.example.com^\n");
+        assert!(shields.should_block("https://ads.example.com/a.js", "https://news.com", "script"));
+        assert!(lean.should_block(
+            "https://lean.example.com/x.js",
+            "https://news.com",
+            "script"
+        ));
+        assert!(cached(shields.generation), "lean mode didn't evict shields");
+        assert!(cached(lean.generation));
+
+        // A filter that's gone (refreshed away) releases its engine on next use.
+        let gone = lean.generation;
+        drop(lean);
+        assert!(!shields.should_block("https://site.com/app.js", "https://site.com", "script"));
+        assert!(!cached(gone));
     }
 
     #[test]
