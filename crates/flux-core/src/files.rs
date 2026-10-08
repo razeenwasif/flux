@@ -1231,43 +1231,50 @@ pub async fn fs_move(
     paths: Vec<String>,
     dest: String,
 ) -> Result<(), String> {
-    let (paths2, dest2) = (paths.clone(), dest.clone());
-    let pairs =
-        tauri::async_runtime::spawn_blocking(move || -> Result<Vec<(String, String)>, String> {
-            let dest = Path::new(&dest2);
-            let mut pairs = Vec::new();
-            for src in &paths2 {
-                let src_p = Path::new(src);
-                let name = src_p
-                    .file_name()
-                    .ok_or_else(|| format!("bad path: {}", clean(src_p)))?;
-                let target = dest.join(name);
-                if target == src_p {
-                    continue; // moving onto itself — no-op
-                }
-                if target.exists() {
-                    return Err(format!("{} already exists", clean(&target)));
-                }
-                check_not_descendant(src_p, &target).map_err(|e| e.to_string())?;
-                match std::fs::rename(src_p, &target) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-                        // Cross-device: copy then remove the source.
-                        copy_recursive(src_p, &target).map_err(|e| e.to_string())?;
-                        remove_path(src_p).map_err(|e| e.to_string())?;
-                    }
-                    Err(e) => return Err(e.to_string()),
-                }
-                pairs.push((src.clone(), clean(&target)));
-            }
-            Ok(pairs)
-        })
-        .await
-        .map_err(|e| e.to_string())??;
+    let (pairs, failed) =
+        tauri::async_runtime::spawn_blocking(move || move_into(&paths, Path::new(&dest)))
+            .await
+            .map_err(|e| e.to_string())?;
+    // Moves that already happened stay happened when a later one fails, so they
+    // reach the undo stack either way: Ctrl+Z reverses exactly what was done.
     if !pairs.is_empty() {
         undo.push(UndoOp::Move { pairs });
     }
-    Ok(())
+    failed.map_or(Ok(()), Err)
+}
+
+/// [`fs_move`]'s work, in order, stopping at the first failure. Returns the
+/// `(source, target)` pairs that were moved *with* that failure, not instead
+/// of them.
+fn move_into(paths: &[String], dest: &Path) -> (Vec<(String, String)>, Option<String>) {
+    let mut pairs = Vec::new();
+    let mut move_one = |src: &String| -> Result<(), String> {
+        let src_p = Path::new(src);
+        let name = src_p
+            .file_name()
+            .ok_or_else(|| format!("bad path: {}", clean(src_p)))?;
+        let target = dest.join(name);
+        if target == src_p {
+            return Ok(()); // moving onto itself — no-op
+        }
+        if target.exists() {
+            return Err(format!("{} already exists", clean(&target)));
+        }
+        check_not_descendant(src_p, &target).map_err(|e| e.to_string())?;
+        match std::fs::rename(src_p, &target) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+                // Cross-device: copy then remove the source.
+                copy_recursive(src_p, &target).map_err(|e| e.to_string())?;
+                remove_path(src_p).map_err(|e| e.to_string())?;
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+        pairs.push((src.clone(), clean(&target)));
+        Ok(())
+    };
+    let failed = paths.iter().find_map(|src| move_one(src).err());
+    (pairs, failed)
 }
 
 /// Copy each of `paths` into directory `dest`; auto-uniquifies on collision so
@@ -1910,6 +1917,36 @@ mod undo_tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert!(names.contains(&"readme.md".to_string()), "{names:?}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_move_that_fails_part_way_can_still_be_undone() {
+        // The second of three items collides, after the first has moved.
+        let base = std::env::temp_dir().join(format!("flux_partial_move_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dest = base.join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+        let names = ["a.txt", "b.txt", "c.txt"];
+        for n in names {
+            std::fs::write(base.join(n), n).unwrap();
+        }
+        std::fs::write(dest.join("b.txt"), b"already here").unwrap();
+        let paths: Vec<String> = names.iter().map(|n| clean(&base.join(n))).collect();
+
+        let (pairs, failed) = move_into(&paths, &dest);
+        assert!(failed.unwrap().contains("already exists"));
+        assert_eq!(pairs, vec![(paths[0].clone(), clean(&dest.join("a.txt")))]);
+        assert!(
+            base.join("c.txt").exists(),
+            "nothing after the failure moves"
+        );
+
+        // What did move is exactly what the undo puts back.
+        assert!(UndoOp::Move { pairs }.revert().is_ok());
+        assert_eq!(std::fs::read(base.join("a.txt")).unwrap(), b"a.txt");
+        assert!(!dest.join("a.txt").exists());
+        assert_eq!(std::fs::read(dest.join("b.txt")).unwrap(), b"already here");
         let _ = std::fs::remove_dir_all(&base);
     }
 }
