@@ -644,6 +644,12 @@ impl TraceStore {
             .cloned()
     }
 
+    /// Ids of every visit still in the Trail (the forget sweep keeps these).
+    pub fn live_ids(&self) -> std::collections::HashSet<VisitId> {
+        self.hydrate();
+        self.inner.read().visits.iter().map(|v| v.id).collect()
+    }
+
     /// Visits (optionally time-windowed by `last_ms`) plus the edges among them.
     pub fn graph(&self, after_ms: Option<u64>, before_ms: Option<u64>) -> TraceGraph {
         self.graph_scoped(after_ms, before_ms, None, None)

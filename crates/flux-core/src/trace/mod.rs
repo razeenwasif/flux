@@ -418,12 +418,7 @@ pub async fn trace_forget(
     kb: State<'_, crate::kb::KbStore>,
     scope: ForgetScope,
 ) -> Result<(), String> {
-    // Visits before the cascades: an in-flight capture or chat reply adds, then
-    // re-checks its visit (see `attach_or_discard`, `drop_if_forgotten`).
-    let removed: std::collections::HashSet<VisitId> = store.forget(&scope).into_iter().collect();
-    snaps.forget_visits(&removed);
-    chats.forget_visits(&removed);
-    drafts.forget_visits(&removed);
+    let removed = forget_and_sweep(&store, &snaps, &chats, &drafts, &scope);
     if removed.is_empty() {
         return Ok(());
     }
@@ -434,6 +429,28 @@ pub async fn trace_forget(
     tauri::async_runtime::spawn_blocking(move || kb.remove_docs("web", &doc_ids))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// `trace_forget` short of the KB purge: drop the visits in `scope`, then sweep
+/// snapshots, threads and drafts against the visits still live, not just the
+/// removed ones. Eviction past MAX_VISITS cascades to nothing, so even "Forget
+/// the whole Trail" would leave those visits' data on disk (and their snapshots
+/// in the KB). Returns the visit ids whose KB `web` docs must go.
+fn forget_and_sweep(
+    store: &TraceStore,
+    snaps: &TraceSnapshots,
+    chats: &TraceChats,
+    drafts: &TraceDrafts,
+    scope: &ForgetScope,
+) -> std::collections::HashSet<VisitId> {
+    // Visits before the sweep: an in-flight capture or chat reply adds, then
+    // re-checks its visit (see `attach_or_discard`, `drop_if_forgotten`).
+    let mut removed: std::collections::HashSet<VisitId> = store.forget(scope).into_iter().collect();
+    let live = store.live_ids();
+    removed.extend(snaps.retain_live(&live));
+    chats.retain_live(&live);
+    drafts.retain_live(&live);
+    removed
 }
 
 #[cfg(test)]
@@ -486,5 +503,38 @@ mod tests {
         chats.append(v, "assistant", "it is about lifetimes");
         assert!(drop_if_forgotten(&trace, &chats, v));
         assert!(!chats.has_thread(v));
+    }
+
+    #[test]
+    fn forget_sweeps_data_the_trail_no_longer_reaches() {
+        let trace = TraceStore::default();
+        let snaps = TraceSnapshots::empty_for_tests();
+        let chats = TraceChats::default();
+        let drafts = TraceDrafts::default();
+        let kept = trace
+            .record(1, "https://kept.com/", "K", None, None)
+            .unwrap();
+        let gone = trace
+            .record(2, "https://gone.com/", "G", None, None)
+            .unwrap();
+        // A visit evicted past MAX_VISITS: eviction cascades to nothing, so its
+        // snapshot, thread and drafts outlive it, under an id the Trail lost.
+        let evicted: VisitId = 999;
+        for v in [kept, gone, evicted] {
+            snaps.add(v, format!("https://{v}/"), "T".into(), "t".into(), vec![]);
+            chats.append(v, "user", "what was this page about?");
+            drafts.put(v, "comment".into(), "a half-written reply".into());
+        }
+        let scope = ForgetScope::Url {
+            url: "https://gone.com/".into(),
+        };
+        let removed = forget_and_sweep(&trace, &snaps, &chats, &drafts, &scope);
+        assert_eq!(removed, HashSet::from([gone, evicted]), "both leave the KB");
+        for v in [gone, evicted] {
+            assert!(!chats.has_thread(v) && drafts.get(v).is_empty(), "{v}");
+        }
+        let docs: Vec<String> = snaps.web_docs().into_iter().map(|d| d.doc_id).collect();
+        assert_eq!(docs, vec![kept.to_string()]);
+        assert!(chats.has_thread(kept) && !drafts.get(kept).is_empty());
     }
 }

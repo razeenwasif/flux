@@ -159,6 +159,18 @@ impl TraceDrafts {
         }
     }
 
+    /// Drop the drafts of visits not in `live` (forgotten or evicted).
+    pub fn retain_live(&self, live: &std::collections::HashSet<VisitId>) {
+        self.hydrate();
+        let mut d = self.inner.write();
+        let before = d.drafts.len();
+        d.drafts.retain(|vid, _| live.contains(vid));
+        if d.drafts.len() != before {
+            drop(d);
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+    }
+
     pub fn persist_if_dirty(&self) {
         if !self.dirty.swap(false, Ordering::Relaxed) {
             return;

@@ -323,6 +323,28 @@ impl TraceSnapshots {
         }
     }
 
+    /// Drop snapshots whose visit isn't in `live`: forgotten, or evicted from
+    /// the Trail (which cascades to nothing). Returns their visit ids for the
+    /// KB purge.
+    pub fn retain_live(&self, live: &std::collections::HashSet<VisitId>) -> Vec<VisitId> {
+        self.hydrate();
+        let mut d = self.inner.write();
+        let mut gone = Vec::new();
+        d.snapshots.retain(|s| {
+            let keep = live.contains(&s.visit_id);
+            if !keep {
+                gone.push(s.visit_id);
+            }
+            keep
+        });
+        if !gone.is_empty() {
+            drop(d);
+            self.dirty.store(true, Ordering::Relaxed);
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
+        gone
+    }
+
     pub fn persist_if_dirty(&self) {
         if !self.dirty.swap(false, Ordering::Relaxed) {
             return;
