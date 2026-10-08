@@ -204,9 +204,16 @@ impl VaultState {
 
     /// Run `f` against the decrypted vault, or error if locked. Touches activity.
     fn read_open<R>(&self, f: impl FnOnce(&Vault) -> R) -> Result<R, String> {
+        let r = self.probe_open(f)?;
+        self.touch();
+        Ok(r)
+    }
+    /// [`read_open`](Self::read_open) that isn't user activity: chrome polls,
+    /// page probes and the sentinel's per-navigation read would otherwise hold
+    /// an idle vault open past its auto-lock indefinitely.
+    fn probe_open<R>(&self, f: impl FnOnce(&Vault) -> R) -> Result<R, String> {
         let guard = self.open.read();
         let u = guard.as_ref().ok_or("vault is locked")?;
-        self.touch();
         Ok(f(&u.vault))
     }
     fn write_open<R>(&self, f: impl FnOnce(&mut Vault) -> R) -> Result<R, String> {
@@ -560,17 +567,20 @@ pub fn vault_set_autolock(state: State<'_, VaultState>, minutes: u64) -> Result<
     )
 }
 
+/// Not activity: the Passwords page polls this every few seconds, and the
+/// sentinel reads it on every navigation.
 #[tauri::command]
 pub fn vault_list(state: State<'_, VaultState>) -> Result<Vec<CredentialMeta>, String> {
-    state.read_open(|v| v.entries.iter().map(CredentialMeta::from).collect())
+    state.probe_open(|v| v.entries.iter().map(CredentialMeta::from).collect())
 }
 
+/// Not activity: the open Passwords popover polls this.
 #[tauri::command]
 pub fn vault_for_host(
     state: State<'_, VaultState>,
     host: String,
 ) -> Result<Vec<CredentialMeta>, String> {
-    state.read_open(|v| {
+    state.probe_open(|v| {
         v.matches(&host)
             .into_iter()
             .map(CredentialMeta::from)
@@ -838,7 +848,8 @@ pub fn vault_fill(
 // ─── Page sentinel (#61 follow-up) ───────────────────────────────────────────
 // Commands the injected passwords.js may call (fluxtab plugin). The calling
 // tab is identified from the webview's OWN label (`tab-{id}`) — page-supplied
-// ids are never trusted, so a page can only ever act on itself.
+// ids are never trusted, so a page can only ever act on itself. None of them is
+// vault activity (`probe_open`): any page could keep an idle vault unlocked.
 
 /// What the sentinel needs to decide which chip to show on a login form. No
 /// usernames: every script on the page can read this, and the chrome's fill bar
@@ -1095,7 +1106,7 @@ pub fn vault_page_info(
         return locked_out;
     }
     state
-        .read_open(|v| PageVaultInfo {
+        .probe_open(|v| PageVaultInfo {
             unlocked: true,
             count: v.matches(&host).len() as u32,
         })
@@ -1122,7 +1133,7 @@ pub fn vault_fill_page(
         return Err(refused());
     }
     let choices: Vec<FillChoice> = state
-        .read_open(|v| {
+        .probe_open(|v| {
             v.matches(&host)
                 .into_iter()
                 .map(|c| FillChoice {
@@ -1148,7 +1159,7 @@ pub fn vault_fill_page(
 /// actually keep the promise of remembering it.
 #[tauri::command]
 pub fn vault_suggest_password(state: State<'_, VaultState>) -> Result<String, String> {
-    state.read_open(|_| ())?; // unlocked check + activity touch
+    state.probe_open(|_| ())?; // unlocked check only: a page call isn't activity
     Ok(flux_vault::generate_password(20))
 }
 
@@ -1181,7 +1192,7 @@ pub fn vault_save_from_page(
     }
     // No never-save skip here: the user just accepted a generated password, and
     // dropping it silently would lock them out of the new account.
-    let (already, update) = state.read_open(|v| {
+    let (already, update) = state.probe_open(|v| {
         let m = v.matches(&host);
         let already = m
             .iter()
@@ -1277,7 +1288,7 @@ pub fn vault_offer_save(
     }
     // Decide save vs update vs skip against the (unlocked) vault. Locked →
     // silently do nothing; we can't dedupe and the save would fail anyway.
-    let Ok((already, update)) = state.read_open(|v| {
+    let Ok((already, update)) = state.probe_open(|v| {
         let m = v.matches(&host);
         let already = m
             .iter()
@@ -1356,4 +1367,31 @@ pub fn vault_never_save(state: State<'_, VaultState>) -> Result<(), String> {
         write_never_save(&state.dir, &state.never_save.read())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod activity_tests {
+    use super::*;
+
+    #[test]
+    fn probes_and_polls_dont_postpone_autolock() {
+        let s = VaultState {
+            open: RwLock::new(Some(Unlocked {
+                vault: Vault::default(),
+                dk: Zeroizing::new([7; 32]),
+            })),
+            dir: PathBuf::new(),
+            path: PathBuf::new(),
+            protection: RwLock::new(Protection::Password),
+            source: RwLock::new("password"),
+            autolock_min: AtomicU64::new(10),
+            last_activity: AtomicU64::new(u64::MAX), // a value `touch` never writes
+            pending_save: RwLock::new(None),
+            never_save: RwLock::new(HashSet::new()),
+        };
+        assert_eq!(s.probe_open(|v| v.entries.len()), Ok(0));
+        assert_eq!(s.last_activity.load(Ordering::Relaxed), u64::MAX);
+        s.read_open(|_| ()).unwrap();
+        assert_ne!(s.last_activity.load(Ordering::Relaxed), u64::MAX);
+    }
 }
