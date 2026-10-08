@@ -26,6 +26,10 @@ use adblock::Engine;
 /// rules actually change.
 static GENERATION: AtomicUsize = AtomicUsize::new(1);
 
+/// A thread's cached engine: the rule-set generation it was built from, a weak
+/// handle to that filter's bytes, and the deserialized engine.
+type LocalEngine = (usize, Weak<Vec<u8>>, Engine);
+
 thread_local! {
     /// Per-thread deserialized engines, one per live [`Filter`] (shields and lean
     /// mode are both matched on the WebView2 UI thread: a single slot made each
@@ -33,7 +37,7 @@ thread_local! {
     /// Tagged with the generation and a weak handle to the source bytes, so a
     /// dropped filter's engine is released on the thread's next use. `!Send`
     /// `Engine` never leaves its thread.
-    static LOCAL_ENGINES: RefCell<Vec<(usize, Weak<Vec<u8>>, Engine)>> =
+    static LOCAL_ENGINES: RefCell<Vec<LocalEngine>> =
         const { RefCell::new(Vec::new()) };
 }
 

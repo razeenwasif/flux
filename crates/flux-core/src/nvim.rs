@@ -226,8 +226,7 @@ fn nvim_program() -> &'static str {
 fn last_absolute_path(out: &str) -> Option<String> {
     out.lines()
         .map(str::trim)
-        .filter(|l| l.starts_with('/'))
-        .last()
+        .rfind(|l| l.starts_with('/'))
         .map(str::to_string)
 }
 
