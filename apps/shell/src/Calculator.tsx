@@ -216,6 +216,10 @@ const Calculator: Component<{ scientific?: boolean }> = (props) => {
       ev.preventDefault();
       equals();
     } else if (ev.key === "Escape") clear();
+    // In the expression field the browser already edits at the caret/selection
+    // and feeds onInput (which drops a leading "Error", so typing starts fresh);
+    // push()/back() only ever edit the END, so they're for the buttons/card.
+    else if (ev.target instanceof HTMLInputElement) return;
     else if (ev.key === "Backspace") {
       ev.preventDefault();
       back();
@@ -263,7 +267,7 @@ const Calculator: Component<{ scientific?: boolean }> = (props) => {
           value={expr()}
           placeholder="0"
           spellcheck={false}
-          onInput={(e) => setExpr(e.currentTarget.value)}
+          onInput={(e) => setExpr(e.currentTarget.value.replace(/^Error/, ""))}
         />
         <div class="calc-preview">{preview() && preview() !== expr() ? `= ${preview()}` : ""}</div>
       </div>
