@@ -7,6 +7,12 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Changed
+- The pinned web-app rail on the sidebar's left edge can be folded away with the ‹ button at its top, giving its width back to the tab list; › in the top row brings it back, and the choice is remembered.
+- The launcher is a magnifying-glass button in the sidebar's top row instead of a row of its own, and stays there when the toolbar is folded.
+- Tab folders are a row of folder icons, named on hover. Clicking one shows its tabs, with rename and delete, beneath the row.
+- The sidebar's Layout picker is gone. Layout presets and "Restore previous layout" are still in the command palette.
+
 ### Security
 - Saved passwords are filled into a page only after you confirm in a Flux bar above it. A page's own scripts could previously trigger the fill and read the password back, and could read the usernames saved for the site; pages now see only how many logins match. Pages also can no longer write to the vault: a generated sign-up password now waits in the "Save password?" bar like any other.
 - Imported app logins (`android://`, `androidapp://` and `iosapp://` URLs from Chrome or Bitwarden exports) no longer match websites whose domain resembles the app's package name.

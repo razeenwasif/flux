@@ -1867,6 +1867,16 @@ body.resizing .panel-edge-resize::after {
   color: var(--flux-teal);
   border-color: var(--flux-teal);
 }
+/* The rail's fold toggle, while the rail is out: lifted out of the nav row into
+   the top of the rail's own gutter, where the icons start. Folded, it's an
+   ordinary nav-row button (no class), because the gutter is gone. */
+.sidebar.with-apps .app-rail-toggle {
+  position: absolute;
+  left: 4px;
+  top: 11px;
+  width: 30px;
+  z-index: 7;
+}
 
 /* Wraps. Eight tools + the fold caret don't fit 252px in a single row, and the
    sidebar hides its overflow — so the last buttons were being silently clipped
@@ -9885,8 +9895,7 @@ body.busy .start-card {
 .set-page [hidden] {
   display: none !important;
 }
-.set-page :is(button, input, select, textarea):focus-visible,
-.layout-picker :is(button, select):focus-visible {
+.set-page :is(button, input, select, textarea):focus-visible {
   outline: 2px solid var(--flux-teal);
   outline-offset: 2px;
 }
@@ -9998,39 +10007,6 @@ body.busy .start-card {
   .set-row-control > div {
     max-width: 100% !important;
   }
-}
-.layout-picker {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  font-size: 12px;
-}
-.layout-picker label {
-  color: var(--flux-text-dim);
-}
-.layout-picker select {
-  flex: 1;
-  min-width: 0;
-  color: var(--flux-text);
-  background: var(--flux-bg-raise);
-  border: 1px solid var(--flux-border);
-  border-radius: 7px;
-  padding: 6px;
-}
-.layout-picker button {
-  color: var(--flux-text);
-  background: var(--flux-surface);
-  border: 1px solid var(--flux-border);
-  border-radius: 6px;
-  padding: 5px 8px;
-  cursor: pointer;
-}
-.layout-note {
-  padding: 0 8px 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--flux-text-dim);
 }
 .set-stack-control {
   display: grid;
@@ -11699,21 +11675,47 @@ body.busy .start-card {
 }
 
 /* ── Tab folders (hibernated parking buckets) ── */
-/* Folders lay out side by side as compact columns and scroll horizontally, so
-   adding folders grows the section sideways instead of pushing the sidebar down. */
+/* Folders are a strip of icons, named on hover (RailTip), that scrolls
+   sideways; the open one's tabs show in a panel beneath it, so the section costs
+   one row of height until you open a folder. */
 .folders {
   display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   padding: 6px 10px 8px;
   border-top: 1px solid var(--flux-border);
+}
+.folder-chips {
+  display: flex;
+  gap: 6px;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
+}
+.folder-chips::-webkit-scrollbar {
+  display: none;
+}
+.folder-chip {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  color: var(--flux-text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-rim-soft);
+}
+.folder-chip:hover {
+  color: var(--flux-text);
+  border-color: rgba(var(--accent-rgb), 0.45);
+}
+.folder-chip.open {
+  color: var(--flux-teal);
+  border-color: var(--flux-teal);
 }
 .folder {
-  flex: none;
-  width: 164px;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid var(--glass-rim-soft);
   border-radius: 9px;
@@ -11725,20 +11727,16 @@ body.busy .start-card {
   gap: 6px;
   padding: 5px 6px;
   border-radius: 7px;
-  cursor: pointer;
   font-size: 12.5px;
   color: var(--flux-text-dim);
 }
 .folder-head:hover {
   background: var(--flux-surface);
 }
-.folder-caret {
-  width: 10px;
-  font-size: 9px;
-  color: var(--flux-text-mute);
-}
-.folder-icon {
+.folder-empty {
+  padding: 4px 6px;
   font-size: 12px;
+  color: var(--flux-text-mute);
 }
 .folder-name {
   flex: 1;
@@ -17698,8 +17696,7 @@ div.sdoc-math {
 .launcher-star[aria-pressed="true"] {
   color: var(--flux-teal);
 }
-.launcher-dialog button:focus-visible,
-.sidebar-launcher:focus-visible {
+.launcher-dialog button:focus-visible {
   outline: 2px solid var(--flux-teal);
   outline-offset: -2px;
 }
@@ -17766,24 +17763,6 @@ div.sdoc-math {
 }
 .launcher-editor-fields .tui-modal-actions {
   flex-wrap: wrap;
-}
-.sidebar-launcher {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px;
-  border-radius: 10px;
-  text-align: left;
-  color: var(--flux-text-dim);
-}
-.sidebar-launcher:hover {
-  background: var(--flux-surface);
-  color: var(--flux-text);
-}
-.sidebar-launcher > .launcher-muted {
-  margin-left: auto;
-  font-size: 10px;
 }
 .launcher-rail {
   flex: 1;
@@ -17864,8 +17843,7 @@ html[data-density="comfortable"] .set-row {
   padding-bottom: 20px;
 }
 html[data-density="comfortable"] .new-tab-primary,
-html[data-density="comfortable"] .new-tab-options,
-html[data-density="comfortable"] .sidebar-launcher {
+html[data-density="comfortable"] .new-tab-options {
   min-height: 42px;
 }
 @media (max-width: 680px) {

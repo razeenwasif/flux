@@ -14,8 +14,6 @@
 import { Suspense, lazy, type Component } from "solid-js";
 import { win } from "./ipc";
 
-import RailTip from "./RailTip";
-
 const PagesBar = lazy(() => import("./PagesBar"));
 
 const BarsColumn: Component = () => (
@@ -36,8 +34,8 @@ const BarsColumn: Component = () => (
     <Suspense>
       <PagesBar />
     </Suspense>
-    {/* One shared hover label for both bars — the chips are icon-only. */}
-    <RailTip />
+    {/* Their hover label (RailTip) is mounted by the always-present sidebar,
+        which uses it for its folder icons too. */}
   </aside>
 );
 

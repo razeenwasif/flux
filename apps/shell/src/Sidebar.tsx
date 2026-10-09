@@ -1,6 +1,5 @@
 import { shortcutLabel } from "./platform";
 import { setLauncherOpen } from "./launcherOpen";
-import { LAYOUT_PRESETS, type LayoutPreset } from "./layout";
 /**
  * Sidebar — the Arc-style left rail (ADR 0002): tab strip (pinned tiles, groups,
  * folders, split-view pairs), omnibox + suggestions, workspaces, footer panels
@@ -127,7 +126,6 @@ import {
   splitPickerOpen,
   tabLabel,
   tabs,
-  toggleFolderCollapsed,
   toggleGroupCollapsed,
   togglePanel,
   togglePanelBottom,
@@ -148,6 +146,7 @@ import {
 import Icon from "./Icon";
 import { visibleInterval } from "./poll";
 import { attachHScroll } from "./hscroll";
+import RailTip, { hideTip, showTip } from "./RailTip";
 import Modal from "./Modal";
 import { latestQuery } from "./latestQuery";
 import { lastAccessForUrl } from "./store";
@@ -175,14 +174,19 @@ const Macros = lazy(() => import("./Macros"));
 const Passwords = lazy(() => import("./Passwords"));
 const FindBar = lazy(() => import("./FindBar"));
 const CalendarPop = lazy(() => import("./CalendarPop"));
+
+// The pinned web-app rail folds away like the toolbar and footer (#150), giving
+// its 32px gutter back to the tab list. Persisted, default open. Kept here
+// rather than in store.ts: only the sidebar reads it, and store.ts is in the
+// entry chunk.
+const [appRailOpen, setAppRailRaw] = createSignal(localStorage.getItem("flux.sidebar.apprail") !== "0");
+function setAppRailOpen(on: boolean): void {
+  setAppRailRaw(on);
+  localStorage.setItem("flux.sidebar.apprail", on ? "1" : "0");
+}
 // ─── Sidebar ────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
-  layoutPreset: LayoutPreset | "custom";
-  onChooseLayout: (preset: LayoutPreset) => void;
-  onRestoreLayout: () => void;
-  canRestoreLayout: boolean;
-  layoutConstrained: boolean;
   collapsed: boolean;
   terminalOpen: boolean;
   agentOpen: boolean;
@@ -501,6 +505,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
   });
   const [editContainer, setEditContainer] = createSignal<number | null>(null);
   const [editFolder, setEditFolder] = createSignal<number | null>(null);
+  // The folder whose tabs are showing under the icon strip; one at a time.
+  const [openFolderId, setOpenFolderId] = createSignal<number | null>(null);
+  const openFolder = () => folders().find((f) => f.id === openFolderId());
   const [editTab, setEditTab] = createSignal<number | null>(null);
   // The tab-rename draft lives outside the row: rows are keyed on TabMeta
   // objects, so an update to the tab re-creates its row (and field) mid-edit.
@@ -952,13 +959,17 @@ const Sidebar: Component<SidebarProps> = (props) => {
     <nav
       class="sidebar"
       classList={{
-        "with-apps": !props.collapsed && panels().length > 0,
+        "with-apps": !props.collapsed && panels().length > 0 && appRailOpen(),
         collapsed: props.collapsed,
       }}
     >
+      {/* The one hover label for every icon-only rail: the pages and TUI bars
+          and this sidebar's folder icons. Mounted here because the sidebar is
+          always present and the bars column can be hidden. */}
+      <RailTip />
       {/* Left app rail (#48 launcher) — Opera-style: pinned web-app panels as
           icons on the sidebar's left edge; click toggles the slide-out panel. */}
-      <Show when={!props.collapsed && panels().length > 0}>
+      <Show when={!props.collapsed && panels().length > 0 && appRailOpen()}>
         <div class="app-rail">
           <For each={panels()}>
             {(p) => (
@@ -1016,6 +1027,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
         >
           {props.collapsed ? "»" : "«"}
         </button>
+        {/* Folds the pinned web-app rail. Open, it sits in the rail's own gutter
+            above the icons (see .app-rail-toggle); folded, it's a plain toolbar
+            button here, since the gutter it lived in is gone. */}
+        <Show when={!props.collapsed && panels().length > 0}>
+          <button
+            classList={{ "icon-btn": true, "app-rail-toggle": appRailOpen() }}
+            aria-expanded={appRailOpen()}
+            title={appRailOpen() ? "Hide the web-app rail" : "Show the web-app rail"}
+            onClick={() => setAppRailOpen(!appRailOpen())}
+          >
+            {appRailOpen() ? "‹" : "›"}
+          </button>
+        </Show>
         <Show when={props.collapsed}>
           <button
             class="icon-btn"
@@ -1023,7 +1047,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             title="Open launcher"
             onClick={() => setLauncherOpen(true)}
           >
-            ⌕
+            <Icon name="omni" />
           </button>
         </Show>
         {/* The nav tools fold away (#150). The sidebar-toggle above stays put in
@@ -1094,6 +1118,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
             spacer: the row wraps, and a spacer would strand the caret alone on
             a line of its own. */}
         <Show when={!props.collapsed}>
+          {/* Outside the fold: the launcher is how you reach every page and
+              app, so hiding the toolbar mustn't hide it. */}
+          <button
+            class="icon-btn"
+            aria-label="Open launcher"
+            title="Launcher — pages & apps"
+            onClick={() => {
+              setPicker(false);
+              setLauncherOpen(true);
+            }}
+          >
+            <Icon name="omni" />
+          </button>
           <button
             class="icon-btn sidebar-fold"
             title={toolbarOpen() ? "Hide the toolbar" : "Show the toolbar"}
@@ -1475,36 +1512,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
           </div>
         </Show>
 
-        <Show when={!props.collapsed}>
-          <div class="layout-picker">
-            <label for="browser-layout">Layout</label>
-            <select
-              id="browser-layout"
-              value={props.layoutPreset}
-              onChange={(e) => props.onChooseLayout(e.currentTarget.value as LayoutPreset)}
-            >
-              <option value="custom" disabled>
-                Custom
-              </option>
-              <For each={Object.entries(LAYOUT_PRESETS)}>
-                {([id, preset]) => <option value={id}>{preset.label}</option>}
-              </For>
-            </select>
-            <Show when={props.canRestoreLayout}>
-              <button
-                aria-label="Restore previous layout"
-                title="Restore previous layout"
-                onClick={props.onRestoreLayout}
-              >
-                ↶
-              </button>
-            </Show>
-          </div>
-          <Show when={props.layoutConstrained}>
-            <div class="layout-note">More panels fit in a wider window.</div>
-          </Show>
-        </Show>
-
         {/* New tab */}
         <div
           class="new-tab-control"
@@ -1563,17 +1570,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
             </div>
           </Show>
         </div>
-
-        <button
-          class="sidebar-launcher"
-          onClick={() => {
-            setPicker(false);
-            setLauncherOpen(true);
-          }}
-        >
-          ⌕ <span>Launcher</span>
-          <span class="launcher-muted">Pages & apps</span>
-        </button>
 
         {/* Tab list — grouped sections (#56) then ungrouped, all drag-reorderable */}
         <div class="tab-list-head">
@@ -2071,43 +2067,60 @@ const Sidebar: Component<SidebarProps> = (props) => {
         </Portal>
       </Show>
 
-      {/* Tab folders — collapsible parking buckets above the footer. Members are
-          kept hibernated (≈0 RAM); click one to wake + view it. */}
+      {/* Tab folders — parking buckets above the footer. Members are kept
+          hibernated (≈0 RAM); click one to wake + view it. The strip is icons
+          only, named on hover; a click opens that folder's tabs beneath it. */}
       <Show when={!props.collapsed && folders().length > 0}>
-        {/* Horizontal strip of 164px cards: past two or three it scrolls, and
-            until #157 there was no way to reach the rest. */}
-        <div class="folders hscroll" ref={(el) => onCleanup(attachHScroll(el))}>
-          <For each={folders()}>
+        <div class="folders">
+          <div class="folder-chips hscroll" ref={(el) => onCleanup(attachHScroll(el))}>
+            <For each={folders()}>
+              {(f) => {
+                const label = () => {
+                  const n = folderTabs(f.id).length;
+                  return `${f.name} · ${n} tab${n === 1 ? "" : "s"}`;
+                };
+                return (
+                  <button
+                    classList={{ "folder-chip": true, open: openFolderId() === f.id }}
+                    title={label()}
+                    aria-label={label()}
+                    aria-expanded={openFolderId() === f.id}
+                    onMouseEnter={(e) => showTip(e.currentTarget, label())}
+                    onMouseLeave={hideTip}
+                    onClick={() => {
+                      hideTip();
+                      setEditFolder(null);
+                      setOpenFolderId(openFolderId() === f.id ? null : f.id);
+                    }}
+                  >
+                    <Icon name="files" />
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+          <Show when={openFolder()}>
             {(f) => {
-              const members = () => folderTabs(f.id);
+              const members = () => folderTabs(f().id);
               return (
                 <div class="folder">
-                  <div class="folder-head" onClick={() => void toggleFolderCollapsed(f)}>
-                    <span class="folder-caret">{f.collapsed ? "▸" : "▾"}</span>
-                    <span class="folder-icon">🗂</span>
+                  <div class="folder-head">
                     <Show
-                      when={editFolder() === f.id}
+                      when={editFolder() === f().id}
                       fallback={
-                        <span
-                          class="folder-name"
-                          onDblClick={(e) => {
-                            e.stopPropagation();
-                            setEditFolder(f.id);
-                          }}
-                        >
-                          {f.name}
+                        <span class="folder-name" onDblClick={() => setEditFolder(f().id)}>
+                          {f().name}
                         </span>
                       }
                     >
                       <input
                         class="folder-rename"
-                        value={f.name}
+                        value={f().name}
                         autofocus
-                        onClick={(e) => e.stopPropagation()}
                         onBlur={(e) => {
-                          if (editFolder() !== f.id) return; // Escape cancelled it
+                          if (editFolder() !== f().id) return; // Escape cancelled it
                           const v = e.currentTarget.value.trim();
-                          if (v) void renameFolder(f.id, v);
+                          if (v) void renameFolder(f().id, v);
                           setEditFolder(null);
                         }}
                         onKeyDown={(e) => {
@@ -2118,59 +2131,50 @@ const Sidebar: Component<SidebarProps> = (props) => {
                       />
                     </Show>
                     <span class="folder-count">{members().length}</span>
-                    <button
-                      class="folder-edit"
-                      title="Rename folder"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditFolder(f.id);
-                      }}
-                    >
+                    <button class="folder-edit" title="Rename folder" onClick={() => setEditFolder(f().id)}>
                       ✎
                     </button>
                     <button
                       class="folder-x"
                       title="Delete folder (tabs return to the strip)"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void deleteFolder(f.id);
+                      onClick={() => {
+                        setOpenFolderId(null);
+                        void deleteFolder(f().id);
                       }}
                     >
                       ✕
                     </button>
                   </div>
-                  <Show when={!f.collapsed}>
-                    <div class="folder-tabs">
-                      <For each={members()}>
-                        {(t) => (
-                          <div
-                            classList={{ "folder-tab": true, active: activeId() === t.id }}
-                            title={t.title || t.url}
-                            onClick={() => void focusTab(t.id)}
+                  <div class="folder-tabs">
+                    <For each={members()} fallback={<div class="folder-empty">Empty folder</div>}>
+                      {(t) => (
+                        <div
+                          classList={{ "folder-tab": true, active: activeId() === t.id }}
+                          title={t.title || t.url}
+                          onClick={() => void focusTab(t.id)}
+                        >
+                          <span class="folder-tab-ico">
+                            <Favicon tab={t} />
+                          </span>
+                          <span class="folder-tab-title">{tabLabel(t)}</span>
+                          <button
+                            class="folder-tab-out"
+                            title="Take out of folder"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void setTabFolder(t.id, null);
+                            }}
                           >
-                            <span class="folder-tab-ico">
-                              <Favicon tab={t} />
-                            </span>
-                            <span class="folder-tab-title">{tabLabel(t)}</span>
-                            <button
-                              class="folder-tab-out"
-                              title="Take out of folder"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void setTabFolder(t.id, null);
-                              }}
-                            >
-                              ⏏
-                            </button>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
+                            ⏏
+                          </button>
+                        </div>
+                      )}
+                    </For>
+                  </div>
                 </div>
               );
             }}
-          </For>
+          </Show>
         </div>
       </Show>
 

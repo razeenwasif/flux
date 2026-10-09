@@ -139,14 +139,7 @@ const TrackerGraph = lazy(() => import("./TrackerGraph"));
 const AppPane = lazy(() => import("./AppPane"));
 const TuiPane = lazy(() => import("./TuiPane"));
 import { FLUX_APPS } from "./apps";
-import {
-  fitLayout,
-  LAYOUT_PRESETS,
-  layoutPresetFor,
-  parseLayout,
-  type LayoutPreset,
-  type LayoutState,
-} from "./layout";
+import { fitLayout, LAYOUT_PRESETS, parseLayout, type LayoutPreset, type LayoutState } from "./layout";
 import { tileRects } from "./tiles";
 import type { PaletteAction } from "./CommandPalette";
 import { LinkMenu } from "./linkMenu";
@@ -1826,10 +1819,6 @@ const App: Component = () => {
       connect: connectW(),
     });
   });
-  const layoutConstrained = () => {
-    const want = layoutIntent();
-    return (Object.keys(want) as (keyof typeof want)[]).some((key) => want[key] && !responsive()[key]);
-  };
 
   // The vertical terminal column (the persistent dev shell) shows whenever it's
   // toggled on and there's room — including alongside a terminal *tab*.
@@ -1958,11 +1947,6 @@ const App: Component = () => {
       >
         <Suspense>
           <Sidebar
-            layoutPreset={layoutPresetFor(captureLayout())}
-            onChooseLayout={chooseLayout}
-            onRestoreLayout={restoreLayout}
-            canRestoreLayout={previousLayout() != null}
-            layoutConstrained={layoutConstrained()}
             collapsed={!responsive().sidebar}
             terminalOpen={terminalOpen()}
             agentOpen={agentOpen()}
