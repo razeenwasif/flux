@@ -3834,347 +3834,260 @@ body.resizing .panel-edge-resize::after {
     inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
-/* ── Music bubble (#125) — floating right-edge VERTICAL mini-player ── */
-.music-wrap {
-  /* Positioned from JS (draggable, persisted) — see MusicBubble.tsx. */
+/* ── Indexer orb (#125) — ask your notes; took the music bubble's place ──
+   The orb is a Siri-style swirl that spins faster while it listens or thinks,
+   and swells with the mic level (--lvl, written by IndexerBubble). */
+.idx-orb {
   position: fixed;
-  left: 0;
-  top: 0;
   z-index: 60;
-}
-.music-orb {
-  cursor: grab;
-}
-.music-wrap.dragging .music-orb {
-  cursor: grabbing;
-}
-/* No size animation mid-drag: the card would chase the cursor. */
-.music-wrap.dragging .music {
-  transition: none;
-}
-.music {
   width: 56px;
   height: 56px;
-  border-radius: 28px;
+  padding: 0;
+  border-radius: 50%;
   overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background: #120d24;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 10px 30px -8px rgba(123, 92, 255, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.25);
+  transform: scale(calc(1 + var(--lvl, 0) * 0.18));
+  transition:
+    transform 90ms linear,
+    box-shadow 200ms;
+}
+.idx-orb.dragging {
+  cursor: grabbing;
+}
+.idx-orb.open {
+  box-shadow:
+    0 0 0 2px rgba(var(--accent-rgb), 0.6),
+    0 10px 30px -8px rgba(123, 92, 255, 0.55);
+}
+.idx-orb:focus-visible {
+  outline: 2px solid var(--flux-teal);
+  outline-offset: 3px;
+}
+.idx-orb-swirl {
+  position: absolute;
+  inset: -30%;
+  background: conic-gradient(from 0deg, #7b5cff, #ff5ca8, #ffb86b, #39d0ff, #7b5cff);
+  filter: blur(6px) saturate(1.3);
+  animation: idx-spin 9s linear infinite;
+}
+.idx-orb-core {
+  position: absolute;
+  inset: 22%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.15) 60%, transparent 72%);
+  mix-blend-mode: screen;
+  animation: idx-breathe 3.2s ease-in-out infinite;
+}
+.idx-orb.listening .idx-orb-swirl {
+  animation-duration: 2.2s;
+}
+.idx-orb.thinking .idx-orb-swirl {
+  animation-duration: 1.2s;
+}
+@keyframes idx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes idx-breathe {
+  50% {
+    transform: scale(0.82);
+    opacity: 0.75;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .idx-orb-swirl,
+  .idx-orb-core {
+    animation: none;
+  }
+  .idx-orb {
+    transition: none;
+  }
+}
+.idx-panel {
+  position: fixed;
+  z-index: 61;
   display: flex;
   flex-direction: column;
-  cursor: pointer;
-  background: radial-gradient(
-    125% 120% at 28% 18%,
-    rgba(var(--accent-hot-rgb), 0.55),
-    rgba(var(--accent-ai-rgb), 0.6) 46%,
-    rgba(79, 70, 229, 0.66)
-  );
-  border: 1px solid rgba(var(--accent-hot-rgb), 0.4);
-  box-shadow:
-    0 8px 30px rgba(var(--accent-ai-rgb), 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  transition:
-    width 0.3s var(--ease-soft, ease),
-    height 0.3s var(--ease-soft, ease),
-    border-radius 0.3s,
-    box-shadow 0.3s;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
 }
-/* Tall + narrow: the bubble stretches up and down, not into a square card. */
-.music.expanded {
-  width: 86px;
-  height: 386px;
-  border-radius: 26px;
-  cursor: default;
-  box-shadow:
-    0 18px 52px rgba(0, 0, 0, 0.5),
-    0 0 42px rgba(var(--accent-ai-rgb), 0.32);
-}
-.music.dormant:not(.expanded) {
-  opacity: 0.5;
-}
-@keyframes music-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.06);
-  }
-}
-.music.playing:not(.expanded) {
-  animation: music-breathe 2.4s ease-in-out infinite;
-}
-
-.music-orb {
-  position: relative;
-  flex: none;
-  width: 100%;
-  height: 100%;
-  background-size: cover;
-  background-position: center;
-  transition: height 0.3s var(--ease-soft, ease);
-}
-.music.expanded .music-orb {
-  height: 70px;
-}
-.music-orb-glow {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(85% 85% at 50% 45%, transparent 38%, rgba(18, 12, 38, 0.55));
-}
-.music-orb-eq {
-  position: absolute;
-  bottom: 11px;
-  left: 50%;
-  transform: translateX(-50%);
+.idx-ask {
   display: flex;
-  gap: 2px;
-  align-items: flex-end;
-  height: 13px;
+  align-items: center;
+  gap: 6px;
 }
-.music-orb-eq i {
-  width: 3px;
-  background: #fff;
-  border-radius: 2px;
-  transform-origin: bottom;
-  animation: music-eq 0.9s ease-in-out infinite;
+.idx-input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-rim-soft);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--flux-text);
+  font-size: 14px;
+  outline: 0;
 }
-.music-orb-eq i:nth-child(1) {
-  height: 6px;
-  animation-delay: 0s;
+.idx-input:focus {
+  border-color: rgba(var(--accent-rgb), 0.5);
 }
-.music-orb-eq i:nth-child(2) {
-  height: 13px;
-  animation-delay: 0.2s;
+.idx-mic,
+.idx-close {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--flux-text-dim);
 }
-.music-orb-eq i:nth-child(3) {
-  height: 8px;
-  animation-delay: 0.4s;
+.idx-mic:hover,
+.idx-close:hover {
+  background: var(--flux-surface);
+  color: var(--flux-text);
 }
-@keyframes music-eq {
-  0%,
-  100% {
-    transform: scaleY(0.35);
-  }
-  50% {
-    transform: scaleY(1);
-  }
+.idx-mic.on {
+  background: rgba(255, 92, 168, 0.22);
+  box-shadow: 0 0 0 1px rgba(255, 92, 168, 0.5);
 }
-
-/* Real beat-synced visualiser (#126): CSS vars (--viz-e/bass/mid/treble, 0..1) are
-   written by the audioviz stream ~40fps; the orb scales + glows to the actual beat. */
-.music.viz.playing:not(.expanded) {
-  animation: none;
-} /* viz replaces the synthetic breathe */
-.music.viz:not(.expanded) {
-  box-shadow:
-    0 8px 30px rgba(var(--accent-ai-rgb), 0.35),
-    0 0 calc(8px + var(--viz-e, 0) * 30px) rgba(var(--accent-hot-rgb), calc(0.18 + var(--viz-e, 0) * 0.55));
+.idx-status {
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
 }
-.music.viz .music-orb {
-  transform: scale(calc(1 + var(--viz-e, 0) * 0.16));
-  filter: saturate(calc(1 + var(--viz-e, 0) * 0.6)) brightness(calc(1 + var(--viz-e, 0) * 0.35));
-  transition:
-    transform 0.05s linear,
-    filter 0.05s linear;
+.idx-note {
+  padding: 0 2px;
+  font-size: 12px;
+  color: #ffb4a8;
 }
-.music.viz .music-orb-glow {
-  opacity: calc(0.25 + var(--viz-e, 0) * 0.7);
+.idx-empty {
+  padding: 8px 2px;
+  font-size: 12.5px;
+  color: var(--flux-text-dim);
 }
-.music.viz .music-orb-eq i {
-  animation: none;
-  transition: height 0.06s linear;
-  transform: none;
-}
-.music.viz .music-orb-eq i:nth-child(1) {
-  height: calc(3px + var(--viz-bass, 0) * 13px);
-}
-.music.viz .music-orb-eq i:nth-child(2) {
-  height: calc(3px + var(--viz-mid, 0) * 13px);
-}
-.music.viz .music-orb-eq i:nth-child(3) {
-  height: calc(3px + var(--viz-treble, 0) * 13px);
-}
-
-.music-body {
+.idx-card {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 7px 10px;
-  opacity: 0;
-  pointer-events: none;
-  overflow: hidden;
-  background: rgba(14, 10, 30, 0.55);
-  transition: opacity 0.2s;
+  gap: 8px;
 }
-.music.expanded .music-body {
-  opacity: 1;
-  pointer-events: auto;
+.idx-verdict {
+  align-self: flex-start;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 11.5px;
 }
-.music-track {
-  width: 100%;
+.idx-verdict.picked {
+  background: rgba(123, 92, 255, 0.2);
+  color: #c9b8ff;
+}
+.idx-verdict.deciding {
+  background: var(--flux-surface);
+  color: var(--flux-text-dim);
+}
+.idx-verdict.unsure {
+  background: rgba(255, 184, 107, 0.16);
+  color: #ffcf99;
+}
+.idx-head {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0;
+  gap: 5px;
 }
-.music-title {
-  max-width: 100%;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #fff;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.idx-q {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--flux-text);
 }
-.music-artist {
-  max-width: 100%;
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.65);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.music-dim {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-}
-.music-prog {
-  width: 100%;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.18);
-  overflow: hidden;
-}
-.music-prog-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: linear-gradient(90deg, var(--flux-teal), var(--flux-magenta));
-  transition: width 1s linear;
-}
-.music-times {
-  font-size: 8.5px;
-  color: rgba(255, 255, 255, 0.55);
-}
-.music-row {
+.idx-meta {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
-.music-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  color: rgba(255, 255, 255, 0.85);
-  padding: 5px;
-  border-radius: 8px;
-}
-.music-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
-}
-.music-btn.on {
+.idx-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  background: rgba(var(--accent-rgb), 0.18);
   color: var(--flux-teal);
 }
-.music-play {
-  font-size: 22px;
-  padding: 3px;
-}
-.music-vol {
-  width: 64px;
-  accent-color: var(--flux-magenta);
-  height: 3px;
-}
-.music-menu-btn {
-  font-size: 13px;
-}
-.music-launch {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--velvet-800);
-  cursor: pointer;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: none;
-  background: linear-gradient(135deg, var(--flux-teal), var(--flux-magenta));
-}
-
-.music-toast {
-  position: absolute;
-  right: calc(100% + 10px);
-  top: 50%;
-  transform: translateY(-50%);
-  white-space: nowrap;
-  max-width: 280px;
+.idx-source {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 11.5px;
-  color: #fff;
-  pointer-events: none;
-  padding: 6px 11px;
-  border-radius: 999px;
-  background: rgba(20, 14, 44, 0.95);
-  border: 1px solid rgba(var(--accent-hot-rgb), 0.4);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--flux-text-mute);
 }
-
-.music-menu-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 61;
+.idx-points {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  color: var(--flux-text);
 }
-.music-menu {
-  position: fixed;
-  right: 112px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 62;
-  width: 230px;
-  max-height: 64vh;
+.idx-answer {
+  flex: 1;
+  min-height: 60px;
   overflow-y: auto;
-  border-radius: 14px;
-  background: rgba(16, 12, 36, 0.98);
-  border: 1px solid rgba(var(--accent-hot-rgb), 0.35);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  padding: 8px 10px;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--flux-text-dim);
+  background: rgba(0, 0, 0, 0.18);
 }
-.music-menu-title {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.5);
-  padding: 9px 12px 5px;
-}
-.music-menu-item {
+.idx-foot {
   display: flex;
   align-items: center;
-  gap: 9px;
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  padding: 7px 10px;
-  background: none;
-  border: none;
-  color: #fff;
+  justify-content: flex-end;
+  gap: 6px;
 }
-.music-menu-item:hover {
-  background: rgba(var(--accent-ai-rgb), 0.28);
+.idx-pager {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--flux-text-dim);
 }
-.music-menu-art {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background-size: cover;
-  background-position: center;
-  background-color: rgba(255, 255, 255, 0.1);
+.idx-pager button {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--flux-text-dim);
 }
-.music-menu-name {
+.idx-pager button:hover,
+.idx-act:hover {
+  background: var(--flux-surface);
+  color: var(--flux-text);
+}
+.idx-act {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--flux-border);
   font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--flux-text);
 }
 
 /* ── Agent panel (liquid glass) ── */
@@ -15882,14 +15795,9 @@ html.mobile .appdock-btn {
   }
 }
 
-/* Mobile: the music bubble is smaller and tucked into the bottom-right corner,
-   below the drawer/switcher/agent z-indexes so overlays cover it (ADR 0012). */
-.shell.mobile .music-wrap {
-  right: 8px;
-  top: auto;
-  bottom: calc(12px + env(safe-area-inset-bottom));
-  transform: scale(0.72);
-  transform-origin: bottom right;
+/* Mobile: the Indexer orb sits below the drawer/switcher/agent z-indexes so
+   overlays cover it (ADR 0012). */
+.shell.mobile .idx-orb {
   z-index: 52;
 }
 

@@ -1,5 +1,6 @@
 import "./interfacePreferences";
 import { launcherOpen, setLauncherOpen } from "./launcherOpen";
+import { setIndexerPanelOpen } from "./indexerOpen";
 /**
  * Flux shell — Arc-style vertical layout (ADR 0002).
  *
@@ -154,7 +155,7 @@ const ConnectionsRail = lazy(() => import("./ConnectionsRail"));
 const DockColumn = lazy(() => import("./DockColumn"));
 const Launcher = lazy(() => import("./Launcher"));
 const BarsColumn = lazy(() => import("./BarsColumn"));
-const MusicBubble = lazy(() => import("./MusicBubble"));
+const IndexerBubble = lazy(() => import("./IndexerBubble"));
 const AgentPanel = lazy(() => import("./AgentPanel"));
 import {
   activeId,
@@ -315,8 +316,11 @@ const App: Component = () => {
     connPersist = true;
   });
   // Floating music bubble (#125) — on by default; toggled via the palette.
-  const [musicOpen, setMusicOpen] = createSignal(localStorage.getItem("flux.music.open") !== "0");
-  createEffect(() => localStorage.setItem("flux.music.open", musicOpen() ? "1" : "0"));
+  // The Indexer orb took the music bubble's place (#125), and its on/off setting.
+  const [orbOn, setOrbOn] = createSignal(
+    (localStorage.getItem("flux.indexer.open") ?? localStorage.getItem("flux.music.open")) !== "0",
+  );
+  createEffect(() => localStorage.setItem("flux.indexer.open", orbOn() ? "1" : "0"));
   // Focus/compact mode (#55): hide all chrome, content only. Esc or Ctrl+Shift+F exits.
   const [focusMode, setFocusMode] = createSignal(false);
 
@@ -1478,10 +1482,19 @@ const App: Component = () => {
       run: () => setConnectOpen(!connectOpen()),
     },
     {
-      id: "music-bubble",
-      label: musicOpen() ? "Hide music bubble" : "Show music bubble",
-      icon: "🎵",
-      run: () => setMusicOpen(!musicOpen()),
+      id: "indexer-orb",
+      label: orbOn() ? "Hide the Indexer orb" : "Show the Indexer orb",
+      icon: "🔮",
+      run: () => setOrbOn(!orbOn()),
+    },
+    {
+      id: "indexer-ask",
+      label: "Ask your notes (Indexer)",
+      icon: "🔮",
+      run: () => {
+        setOrbOn(true);
+        setIndexerPanelOpen(true);
+      },
     },
     { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
     { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
@@ -2051,10 +2064,10 @@ const App: Component = () => {
           <ConnectionsRail />
         </Suspense>
       </Show>
-      {/* Floating music bubble (#125) — position:fixed, lives over the chrome. */}
-      <Show when={musicOpen() && !focusMode()}>
+      {/* The Indexer orb (#125) — position:fixed, lives over the chrome. */}
+      <Show when={orbOn() && !focusMode()}>
         <Suspense>
-          <MusicBubble />
+          <IndexerBubble />
         </Suspense>
       </Show>
 

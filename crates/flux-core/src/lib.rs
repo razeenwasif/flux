@@ -35,6 +35,7 @@ pub mod gemini;
 pub mod hibernate;
 pub mod history;
 pub mod https;
+pub mod indexer;
 pub mod kb;
 pub mod kbfresh;
 pub mod leanmode;
@@ -489,6 +490,10 @@ fn init_knowledge(app: &tauri::App, boot_started: std::time::Instant) {
     app.manage(boot_phase("kb.empty", boot_started, || {
         kb::KbStore::empty(kb_path)
     }));
+    // The Indexer orb's question → answer cards (#125). Loaded on first use.
+    app.manage(indexer::IndexerState::new(
+        app.path().app_data_dir().ok().map(|d| d.join("indexer")),
+    ));
     {
         let handle = app.handle().clone();
         std::thread::spawn(move || {
@@ -1559,6 +1564,11 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_list_stream,
             files::fs_search,
             kb::kb_status,
+            indexer::indexer_status,
+            indexer::indexer_reindex,
+            indexer::indexer_search,
+            indexer::indexer_decide,
+            indexer::indexer_warm,
             kb::kb_recent,
             kb::kb_reindex,
             notewrite::note_plan,

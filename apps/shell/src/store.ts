@@ -1,4 +1,5 @@
 import { launcherOpen } from "./launcherOpen";
+import { indexerPanelOpen } from "./indexerOpen";
 import { linkMenuOpen } from "./linkMenu";
 /**
  * Shared tab store. Module-level Solid signals: the tab strip, pinned rail,
@@ -1196,6 +1197,7 @@ export { fillRequest, setFillRequest };
 // buried expanded home widgets — don't re-grow per-effect boolean chains.
 export const pageOverlayActive = (): boolean =>
   launcherOpen() ||
+  indexerPanelOpen() ||
   readerOpen() ||
   calendarOverlayOpen() ||
   filesPanelOpen() ||

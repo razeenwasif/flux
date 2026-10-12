@@ -7,6 +7,10 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 
 ## [Unreleased]
 
+### Added
+- The Indexer orb replaces the floating music bubble, in the same spot. Ask it a question, typed or out loud (it stops listening when you pause), and it shows the answer you already wrote in your Onyx vault: the matching section's title, key points and full text, a confidence score, and the note it came from, with up to five matches to page through, Copy and Open note. It's a port of the desktop-buddies Indexer: notes are split into question and answer cards and ranked half on meaning (EmbeddingGemma 2, `embeddinggemma-2:270m` in Ollama; `FLUX_INDEXER_EMBED_MODEL` overrides it) and half on keywords, rare words weighted up. Without the model it matches on keywords alone. The index is built in the background, kept on disk and only re-reads notes that changed.
+- When the best match isn't clearly ahead, the Indexer asks a local System 1 decision model, Laya (`laya-serve` on 127.0.0.1:8765, or `FLUX_LAYA_URL`), to pick among the closest notes. Its pick moves to the front only when it's clear; otherwise the card says the match is uncertain. If Laya isn't running, the Indexer says so and shows its own ranking.
+
 ### Changed
 - The pinned web-app rail on the sidebar's left edge can be folded away with the ‹ button at its top, giving its width back to the tab list; › in the top row brings it back, and the choice is remembered.
 - The launcher is a magnifying-glass button in the sidebar's top row instead of a row of its own, and stays there when the toolbar is folded.
