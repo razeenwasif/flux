@@ -3217,7 +3217,9 @@ const AgentPanel: Component = () => {
             own absolutely-positioned + clipped layer so it never affects layout
             or clips the model dropdown. */}
         <div class="agent-fx" classList={{ busy: working() }} aria-hidden="true">
-          <AgentAurora active={() => true} busy={() => working()} />
+          {/* Still at rest, alive while the agent works: a 30 fps shader across the
+              column all session was the price of an idle panel looking busy. */}
+          <AgentAurora active={() => working()} busy={() => working()} />
         </div>
         <header style={{ display: "flex", "align-items": "center", gap: "8px" }}>
           <span

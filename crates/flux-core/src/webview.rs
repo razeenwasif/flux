@@ -1744,10 +1744,11 @@ mod capture_js_tests {
     fn recapture_is_exposed_for_the_on_demand_refresh() {
         assert!(CAPTURE_JS.contains("recapture"), "dom::refresh calls this");
         // …and it must bypass the debounce, or "refresh then read" would race
-        // the 400 ms timer it was meant to sidestep.
+        // the timer it was meant to sidestep. Forced, too: `send` otherwise skips
+        // an unchanged page, and dom::refresh waits for a *newer* capture.
         assert!(
-            CAPTURE_JS.contains("recapture: send"),
-            "recapture must send immediately, not schedule a debounced publish"
+            CAPTURE_JS.contains("recapture: () => send(true)"),
+            "recapture must send immediately and unconditionally, not schedule a debounced publish"
         );
     }
 }

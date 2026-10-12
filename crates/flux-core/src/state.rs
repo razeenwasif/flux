@@ -239,6 +239,11 @@ fn write_session_if_newer(
     }
 }
 
+/// The session writer waits for this much quiet before writing...
+const SESSION_WRITE_QUIET: std::time::Duration = std::time::Duration::from_secs(1);
+/// ...but never longer than this after the first unsaved change.
+const SESSION_WRITE_MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// The session writer thread. A burst of snapshots (a restore opening tab
 /// after tab) collapses to the newest one queued. Ends when the state (the
 /// only Sender) is dropped.
@@ -251,10 +256,25 @@ fn spawn_session_writer(
         .name("flux-session-writer".into())
         .spawn(move || {
             while let Ok(mut next) = rx.recv() {
-                // By seq, not arrival: two commands can send out of order.
-                for queued in rx.try_iter() {
-                    if queued.0 > next.0 {
-                        next = queued;
+                // Every navigation and tab switch sends a session, and each write
+                // is a full flush to disk: wait for a pause (capped, so steady
+                // browsing still saves) and write only the newest. Shutdown
+                // writes synchronously (`persist_blocking`), so nothing waits here
+                // at exit.
+                let started = std::time::Instant::now();
+                loop {
+                    let left = SESSION_WRITE_MAX_WAIT.saturating_sub(started.elapsed());
+                    match rx.recv_timeout(SESSION_WRITE_QUIET.min(left)) {
+                        // By seq, not arrival: two commands can send out of order.
+                        Ok(queued) => {
+                            if queued.0 > next.0 {
+                                next = queued;
+                            }
+                            if left.is_zero() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
                     }
                 }
                 write_session_if_newer(&path, &written, next.0, &next.1);
@@ -760,7 +780,8 @@ impl FluxState {
     /// The current session as JSON, numbered in the order snapshots are taken.
     fn session_json(&self) -> Option<(u64, Vec<u8>)> {
         let mut seq = self.persist_seq.lock();
-        let json = serde_json::to_vec_pretty(&self.session_snapshot()).ok()?;
+        // Compact: ~25% smaller, written after every tab change.
+        let json = serde_json::to_vec(&self.session_snapshot()).ok()?;
         *seq += 1;
         Some((*seq, json))
     }

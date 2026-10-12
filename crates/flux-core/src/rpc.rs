@@ -47,8 +47,16 @@ struct ActiveContext {
     links: Vec<String>,
 }
 
+/// What the last `publish_active` wrote: tab, snapshot time, private. The same
+/// snapshot of the same tab is the same file, so a repeat is skipped.
+static LAST_WRITTEN: parking_lot::Mutex<Option<(u64, u64, bool)>> = parking_lot::Mutex::new(None);
+/// Bumped per `publish_active`: a write that finishes after a newer one started
+/// is dropped rather than landing over it.
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Recompute + atomically write `active.json` from the current active tab.
-/// Called on `dom_publish` (active tab) and on tab switch. No-op without an
+/// Called on `dom_publish` (active tab) and on tab switch, both on the UI thread,
+/// so the link scan and the write happen on a worker. No-op without an
 /// `RpcDir`. Keeps the last browser context when the active tab isn't a browser.
 pub fn publish_active(app: &tauri::AppHandle) {
     let Some(dir) = app.try_state::<RpcDir>() else {
@@ -75,26 +83,50 @@ pub fn publish_active(app: &tauri::AppHandle) {
             links: Vec::new(),
         }
     } else {
-        let snap = state.dom_cache.get(&id);
+        let snap = state
+            .dom_cache
+            .get(&id)
+            .map(|s| std::sync::Arc::clone(s.value()));
         let Some(snap) = snap else { return }; // no snapshot yet → keep last
-        ActiveContext {
-            tab_id: id,
-            url: tab.url.clone(),
-            title: tab.title.clone(),
-            private: false,
-            captured_ms: snap.captured_at_ms,
-            text: snap.text.to_string(),
-            links: extract_links(&snap.html),
+        let key = (id, snap.captured_at_ms, false);
+        if *LAST_WRITTEN.lock() == Some(key) {
+            return;
         }
+        let (url, title) = (tab.url.clone(), tab.title.clone());
+        drop(tab);
+        let path = dir.active_path();
+        let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+        tauri::async_runtime::spawn_blocking(move || {
+            let ctx = ActiveContext {
+                tab_id: id,
+                url,
+                title,
+                private: false,
+                captured_ms: snap.captured_at_ms,
+                text: snap.text.to_string(),
+                links: extract_links(&snap.html),
+            };
+            if GENERATION.load(std::sync::atomic::Ordering::Acquire) == generation {
+                write_atomic(&path, &ctx);
+                *LAST_WRITTEN.lock() = Some(key);
+            }
+        });
+        return;
     };
     drop(tab);
+    let key = (id, 0, true);
+    if *LAST_WRITTEN.lock() == Some(key) {
+        return;
+    }
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     write_atomic(&dir.active_path(), &ctx);
+    *LAST_WRITTEN.lock() = Some(key);
 }
 
 /// Serialize + write via a temp file then rename, so a reader never sees a
 /// half-written file.
 fn write_atomic(path: &std::path::Path, ctx: &ActiveContext) {
-    let Ok(json) = serde_json::to_string_pretty(ctx) else {
+    let Ok(json) = serde_json::to_string(ctx) else {
         return;
     };
     let tmp = path.with_extension("json.tmp");

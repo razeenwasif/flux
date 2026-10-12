@@ -1129,21 +1129,42 @@ impl IndexerState {
 
         // Unchanged files keep their cards, terms and vectors, as long as the
         // vectors came from this model.
-        let (mut cards, mut terms, mut vecs, mut mtimes, had_vectors, before) = {
+        let fresh: HashMap<&str, u64> = jobs.iter().map(|j| (j.key.as_str(), j.mtime)).collect();
+        let (had_vectors, reuse) = {
             let old = self.index.read();
             let had_vectors = old.model.as_deref() == Some(model.as_str());
             // Without vectors to keep, only an index that also has none (and
             // still none to make) can keep its cards as they are.
-            let reuse = had_vectors || (old.model.is_none() && !available);
-            let fresh: HashMap<&str, u64> =
-                jobs.iter().map(|j| (j.key.as_str(), j.mtime)).collect();
-            let keep_file = |p: &str| {
-                reuse
-                    && old
-                        .mtimes
-                        .get(p)
-                        .is_some_and(|&m| m != 0 && fresh.get(p) == Some(&m))
-            };
+            (
+                had_vectors,
+                had_vectors || (old.model.is_none() && !available),
+            )
+        };
+        let keep_file = |old: &Index, p: &str| {
+            reuse
+                && old
+                    .mtimes
+                    .get(p)
+                    .is_some_and(|&m| m != 0 && fresh.get(p) == Some(&m))
+        };
+        // Nothing to do is the common case (the panel reindexes on every open),
+        // and it's decided from the file times alone: copying the kept index
+        // first, to throw the copy away, was ~110 MB per open with books in it.
+        {
+            let old = self.index.read();
+            // Without pdftotext, books wait for a build that can read them; the
+            // ones already indexed stay.
+            let nothing_to_read = jobs
+                .iter()
+                .all(|j| keep_file(&old, &j.key) || (j.kind == Kind::Book && pdf.is_none()));
+            let nothing_gone = old.mtimes.keys().all(|k| keep_file(&old, k));
+            if nothing_to_read && nothing_gone && (had_vectors || !available) {
+                return Ok(());
+            }
+        }
+        let (mut cards, mut terms, mut vecs, mut mtimes, before) = {
+            let old = self.index.read();
+            let keep_file = |p: &str| keep_file(&old, p);
             let keep: Vec<bool> = old.cards.iter().map(|c| keep_file(&c.path)).collect();
             let pick = |i: usize| keep[i];
             let cards: Vec<Card> = (0..old.cards.len())
@@ -1166,7 +1187,7 @@ impl IndexerState {
                 .filter(|(k, _)| keep_file(k))
                 .map(|(k, m)| (k.clone(), *m))
                 .collect();
-            (cards, terms, vecs, mtimes, had_vectors, old.mtimes.len())
+            (cards, terms, vecs, mtimes, old.mtimes.len())
         };
         // Without pdftotext, books wait for a build that can read them; the ones
         // already indexed stay.
@@ -1175,7 +1196,7 @@ impl IndexerState {
             .filter(|j| !mtimes.contains_key(&j.key) && (j.kind == Kind::Note || pdf.is_some()))
             .collect();
         if todo.is_empty() && mtimes.len() == before && (had_vectors || !available) {
-            return Ok(());
+            return Ok(()); // raced a change back; nothing left to do
         }
 
         let mut keyed: Option<String> = (available || had_vectors).then(|| model.clone());
@@ -1928,5 +1949,52 @@ mod tests {
         assert_eq!(books.matches[0].page, Some(4));
         let notes = state.search("convex", 5, Scope::Notes);
         assert!(notes.matches.iter().all(|m| !m.book));
+    }
+
+    #[test]
+    fn a_rebuild_reads_only_what_changed() {
+        // The embedding model is beside the point here (and absent in CI): point
+        // it at a name no Ollama has, so the build is keyword-only.
+        std::env::set_var("FLUX_INDEXER_EMBED_MODEL", "flux-test-no-such-model");
+        let vault = std::env::temp_dir().join(format!("flux-indexer-vault-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&vault);
+        std::fs::create_dir_all(vault.join("ml")).unwrap();
+        let note = vault.join("ml/a.md");
+        std::fs::write(
+            &note,
+            "# Backprop\nThe chain rule applied layer by layer from the loss.",
+        )
+        .unwrap();
+        let src = || Sources {
+            notes: Some(vault.clone()),
+            books: None,
+        };
+        let state = IndexerState::new(None);
+        state.build(src()).unwrap();
+        assert_eq!(state.status().cards, 1);
+
+        // Nothing changed: the index is left exactly as it was.
+        // A commit swaps in new card storage; a no-op leaves the same allocation.
+        let before = state.index.read().cards.as_ptr();
+        state.build(src()).unwrap();
+        assert_eq!(state.index.read().cards.as_ptr(), before, "no rebuild");
+        assert_eq!(state.status().cards, 1);
+
+        // An edit (a new mtime) is read again.
+        std::fs::write(
+            &note,
+            "# Backprop\nThe chain rule applied layer by layer from the loss.\n# Momentum\nA running average of past gradients that smooths each step.",
+        )
+        .unwrap();
+        let later = std::time::SystemTime::now() + Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&note)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        state.build(src()).unwrap();
+        assert_eq!(state.status().cards, 2);
+        let _ = std::fs::remove_dir_all(&vault);
     }
 }

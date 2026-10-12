@@ -9,6 +9,13 @@ import { osNotify } from "./ipc";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
+/** Bumped by every stopwatch/timer change. Part of their state is plain numbers
+ *  (accumulated and paused ms), so a display that only re-reads on a running
+ *  tick needs this to see a reset, a lap or a bump while stopped. */
+const [clockRevision, setClockRevision] = createSignal(0);
+const changed = () => setClockRevision((r) => r + 1);
+export { clockRevision };
+
 // ── Stopwatch ────────────────────────────────────────────────────────────────
 const [swRunning, setSwRunning] = createSignal(false);
 const [swLaps, setSwLaps] = createSignal<number[]>([]);
@@ -27,14 +34,17 @@ export function swToggle(): void {
     swStart = performance.now();
     setSwRunning(true);
   }
+  changed();
 }
 export function swReset(): void {
   setSwRunning(false);
   swBase = 0;
   setSwLaps([]);
+  changed();
 }
 export function swLap(): void {
   if (swRunning() || swBase > 0) setSwLaps((l) => [swElapsed(), ...l]);
+  changed();
 }
 
 // ── Timer ────────────────────────────────────────────────────────────────────
@@ -54,6 +64,7 @@ export function setTimerDuration(ms: number): void {
   timerPaused = clamped;
   setTimerRunning(false);
   setTimerEndsAt(null);
+  changed();
   persist();
 }
 export function timerStartPause(): void {
@@ -66,22 +77,28 @@ export function timerStartPause(): void {
     setTimerEndsAt(Date.now() + rem);
     setTimerRunning(true);
   }
+  changed();
   syncDriver();
 }
 export function timerReset(): void {
   setTimerRunning(false);
   setTimerEndsAt(null);
   timerPaused = timerTotal();
+  changed();
   syncDriver();
 }
 export function timerBump(ms: number): void {
   if (timerRunning() && timerEndsAt() != null) setTimerEndsAt(Math.max(Date.now(), timerEndsAt()! + ms));
   else timerPaused = Math.max(0, timerPaused + ms);
+  changed();
+  // A bumped timer ends at a new time: the driver sleeps until it.
+  syncDriver();
 }
 function fireTimer(): void {
   setTimerRunning(false);
   setTimerEndsAt(null);
   timerPaused = 0;
+  changed();
   ring("timer", "Timer finished");
 }
 
@@ -131,7 +148,9 @@ function ring(kind: "timer" | "alarm", label: string): void {
   void osNotify(kind === "alarm" ? "⏰ Alarm" : "⏱ Timer", label).catch(() => {});
   startBeeping();
   // Stop ringing on its own after a minute if nobody's around to dismiss it.
-  window.setTimeout(() => {
+  // The global rather than `window.setTimeout`: the driver owns the latter,
+  // which is how clocks.test.ts tells the driver's sleep apart from this one.
+  setTimeout(() => {
     if (ringing() === r) dismissRing();
   }, 60_000);
 }
@@ -210,18 +229,38 @@ function hasPendingWork(): boolean {
   return timerRunning() || snoozeUntil() != null || alarms().some((a) => a.enabled);
 }
 
+/** Sleep until the next thing that can fire: the running timer's end, the
+ *  snooze, or (with an alarm enabled) the next minute boundary. Capped at a
+ *  minute and floored at 250 ms. A 500 ms interval used to run all day whenever
+ *  any alarm was enabled, which with daily alarms meant always. */
+function nextDelay(nowMs: number): number {
+  let d = 60_000;
+  if (timerRunning()) d = Math.min(d, timerRemaining(nowMs));
+  const s = snoozeUntil();
+  if (s) d = Math.min(d, s.at - nowMs);
+  if (alarms().some((a) => a.enabled)) d = Math.min(d, 60_000 - (nowMs % 60_000) + 50);
+  return Math.max(250, d);
+}
+
+let armed = false;
 function syncDriver(): void {
   // Before startClockDriver() the persisted state isn't loaded yet, so any
   // answer here would be about an empty store.
   if (!booted) return;
-  const want = hasPendingWork();
-  if (want && !driver) {
-    lastTickMs = 0;
-    driver = window.setInterval(clockTick, 500);
-  } else if (!want && driver) {
-    clearInterval(driver);
-    driver = 0;
+  clearTimeout(driver);
+  driver = 0;
+  if (!hasPendingWork()) {
+    armed = false;
+    return;
   }
+  if (!armed) {
+    armed = true;
+    lastTickMs = 0; // arming never replays old minutes
+  }
+  driver = window.setTimeout(() => {
+    driver = 0;
+    clockTick();
+  }, nextDelay(Date.now()));
 }
 
 /** Epoch minute of the latest local `HH:MM` at or before `nowMs` (yesterday's

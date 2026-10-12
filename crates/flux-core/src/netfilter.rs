@@ -146,7 +146,7 @@ fn wire(app: &AppHandle, platform: tauri::webview::PlatformWebview, report: Inst
 #[cfg(target_os = "macos")]
 mod mac {
     use std::cell::RefCell;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use block::ConcreteBlock;
     use objc::runtime::Object;
@@ -193,7 +193,7 @@ mod mac {
             *report.write() = "failed".into();
             return;
         }
-        let json = STATE.with(|s| {
+        let id = STATE.with(|s| {
             let mut state = s.borrow_mut();
             match &mut *state {
                 CbState::Ready(list) => {
@@ -211,14 +211,14 @@ mod mac {
                     *report.write() = "failed".into();
                     None
                 }
-                CbState::Untried => match std::fs::read_to_string(json_path) {
-                    Ok(json) => {
+                CbState::Untried => match rule_list_id(json_path) {
+                    Some(id) => {
                         let _: () = unsafe { msg_send![webview, retain] };
                         *state = CbState::Compiling(vec![(webview, report)]);
-                        Some(json)
+                        Some(id)
                     }
-                    Err(_) => {
-                        tracing::warn!(target: "flux::netfilter", "content-blocker JSON unreadable");
+                    None => {
+                        tracing::warn!(target: "flux::netfilter", "content-blocker JSON missing");
                         *state = CbState::Failed;
                         *report.write() = "failed".into();
                         None
@@ -226,26 +226,103 @@ mod mac {
                 },
             }
         });
-        // Compile outside the borrow: `compiled` takes it again.
-        let Some(json) = json else { return };
-        unsafe {
-            let store: *mut Object = msg_send![class!(WKContentRuleListStore), defaultStore];
-            if store.is_null() {
-                compiled(std::ptr::null_mut(), std::ptr::null_mut());
+        // Look up or compile outside the borrow: `compiled` takes it again.
+        let Some(id) = id else { return };
+        unsafe { look_up_or_compile(id, json_path.to_path_buf()) }
+    }
+
+    const ID_PREFIX: &str = "flux-shields";
+
+    /// The compiled list's name, from the JSON's size and modified time.
+    /// shields.rs rewrites the JSON only when the rules change, so the same rules
+    /// keep the same name from one launch to the next.
+    fn rule_list_id(json_path: &Path) -> Option<String> {
+        let meta = std::fs::metadata(json_path).ok()?;
+        let mtime = meta
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        Some(format!("{ID_PREFIX}-{}-{mtime}", meta.len()))
+    }
+
+    /// Use WebKit's stored compile of `id` when it has one, and compile the JSON
+    /// only when it doesn't. A compile is seconds of CPU for 75k rules and writes
+    /// ~28 MB, and it used to happen on every launch that opened a web page.
+    unsafe fn look_up_or_compile(id: String, json_path: PathBuf) {
+        let store: *mut Object = msg_send![class!(WKContentRuleListStore), defaultStore];
+        if store.is_null() {
+            compiled(std::ptr::null_mut(), std::ptr::null_mut());
+            return;
+        }
+        let ident = nsstring(&id);
+        let block = ConcreteBlock::new(move |list: *mut Object, err: *mut Object| {
+            if err.is_null() && !list.is_null() {
+                compiled(list, std::ptr::null_mut());
+            } else {
+                compile(store, &id, &json_path);
+            }
+        });
+        let block = block.copy();
+        let _: () = msg_send![store,
+            lookUpContentRuleListForIdentifier: ident
+            completionHandler: &*block];
+        let _: () = msg_send![ident, release];
+    }
+
+    /// Compile the JSON under `id`; once that succeeds, drop older rule sets.
+    unsafe fn compile(store: *mut Object, id: &str, json_path: &Path) {
+        let Ok(json) = std::fs::read_to_string(json_path) else {
+            tracing::warn!(target: "flux::netfilter", "content-blocker JSON unreadable");
+            compiled(std::ptr::null_mut(), std::ptr::null_mut());
+            return;
+        };
+        let ident = nsstring(id);
+        let json_ns = nsstring(&json);
+        let keep = id.to_string();
+        let block = ConcreteBlock::new(move |list: *mut Object, err: *mut Object| {
+            let ok = err.is_null() && !list.is_null();
+            compiled(list, err);
+            if ok {
+                prune(store, &keep);
+            }
+        });
+        let block = block.copy();
+        let _: () = msg_send![store,
+            compileContentRuleListForIdentifier: ident
+            encodedContentRuleList: json_ns
+            completionHandler: &*block];
+        let _: () = msg_send![ident, release];
+        let _: () = msg_send![json_ns, release];
+    }
+
+    /// Remove the stored compiles of older rule sets (and of the fixed
+    /// `flux-shields` name used before), ~28 MB each, keeping `keep`.
+    unsafe fn prune(store: *mut Object, keep: &str) {
+        let keep = keep.to_string();
+        let block = ConcreteBlock::new(move |ids: *mut Object| {
+            if ids.is_null() {
                 return;
             }
-            let ident = nsstring("flux-shields");
-            let json_ns = nsstring(&json);
-            let block =
-                ConcreteBlock::new(|list: *mut Object, err: *mut Object| compiled(list, err));
-            let block = block.copy();
-            let _: () = msg_send![store,
-                compileContentRuleListForIdentifier: ident
-                encodedContentRuleList: json_ns
-                completionHandler: &*block];
-            let _: () = msg_send![ident, release];
-            let _: () = msg_send![json_ns, release];
-        }
+            let n: usize = msg_send![ids, count];
+            for i in 0..n {
+                let name: *mut Object = msg_send![ids, objectAtIndex: i];
+                let utf8: *const std::os::raw::c_char = msg_send![name, UTF8String];
+                if utf8.is_null() {
+                    continue;
+                }
+                let text = std::ffi::CStr::from_ptr(utf8).to_string_lossy();
+                if text.starts_with(ID_PREFIX) && text != keep.as_str() {
+                    let done = ConcreteBlock::new(|_err: *mut Object| {}).copy();
+                    let _: () = msg_send![store,
+                        removeContentRuleListForIdentifier: name
+                        completionHandler: &*done];
+                }
+            }
+        });
+        let block = block.copy();
+        let _: () = msg_send![store, getAvailableContentRuleListIdentifiers: &*block];
     }
 
     /// Compile completion (main thread): cache the list for every later webview

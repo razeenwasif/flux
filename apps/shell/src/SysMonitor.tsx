@@ -16,13 +16,17 @@
  * Absent hardware is *omitted*, not zeroed: no NVIDIA driver means no GPU group,
  * because a GPU row reading 0% would claim the card is idle rather than unread.
  */
-import { For, Show, createEffect, createSignal, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js";
 
 import { gpuStats, tasksDisks, tasksStats, type DiskInfo, type GpuInfo, type SysStats } from "./ipc";
 import { visibleInterval } from "./poll";
 
-/** Live stats tick. Matches the task manager's cadence. */
-const TICK_MS = 2000;
+/** Live stats tick. Every 2 s made this card ~95% of Flux's idle IPC. */
+const TICK_MS = 5000;
+/** Without input for this long, refresh only every third tick (15 s); with the
+ *  window unfocused, every sixth (30 s). A meter nobody is looking at needn't be
+ *  live, and it catches up the moment you are. */
+const IDLE_MS = 60_000;
 /** Disks change on the timescale of plugging a drive in, not of a poll loop. */
 const DISK_TICK_MS = 30_000;
 
@@ -75,6 +79,33 @@ const SysMonitor: Component = () => {
     localStorage.setItem("flux.sysmon", v ? "1" : "0");
   };
 
+  // When there was last input, and how many ticks have been skipped since the
+  // last refresh (see IDLE_MS).
+  let lastInput = Date.now();
+  let skipped = 0;
+  const onInput = (e: Event) => {
+    lastInput = Date.now();
+    // Back to the window: refresh on the next tick, not after a 30 s back-off.
+    if (e.type === "focus") skipped = Infinity;
+  };
+  for (const ev of ["pointerdown", "keydown", "wheel", "focus"] as const) {
+    window.addEventListener(ev, onInput, { passive: true });
+  }
+  onCleanup(() => {
+    for (const ev of ["pointerdown", "keydown", "wheel", "focus"] as const) {
+      window.removeEventListener(ev, onInput);
+    }
+  });
+  const every = () => (!document.hasFocus() ? 6 : Date.now() - lastInput > IDLE_MS ? 3 : 1);
+  const tick = () => {
+    if (++skipped < every()) return;
+    skipped = 0;
+    refresh();
+  };
+
+  /** No GPU the backend can read (always on macOS): stop asking until the card
+   *  is reopened. */
+  let gpuAbsent = false;
   const refresh = () => {
     void tasksStats()
       .then((s) => {
@@ -83,8 +114,12 @@ const SysMonitor: Component = () => {
         setNetPeak((pk) => Math.max(pk * 0.97, s.net_rx_bps + s.net_tx_bps, 1));
       })
       .catch(() => {});
+    if (gpuAbsent) return;
     void gpuStats()
-      .then((g) => setGpus(g ?? []))
+      .then((g) => {
+        setGpus(g ?? []);
+        gpuAbsent = !g?.length;
+      })
       .catch(() => {});
   };
 
@@ -103,7 +138,17 @@ const SysMonitor: Component = () => {
   // the frame it appears.
   createEffect(() => {
     if (!open()) return;
-    visibleInterval(refresh, TICK_MS);
+    gpuAbsent = false;
+    // The first tick, and the one on coming back to a hidden window, refresh
+    // straight away. Registered before visibleInterval's own listener, so it
+    // runs first.
+    skipped = Infinity;
+    const onShow = () => {
+      if (!document.hidden) skipped = Infinity;
+    };
+    document.addEventListener("visibilitychange", onShow);
+    onCleanup(() => document.removeEventListener("visibilitychange", onShow));
+    visibleInterval(tick, TICK_MS);
     visibleInterval(refreshDisks, DISK_TICK_MS);
   });
 

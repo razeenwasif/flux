@@ -3836,8 +3836,10 @@ body.resizing .panel-edge-resize::after {
 
 /* ── Indexer orb (#125) — ask your notes; took the music bubble's place ──
    After the macOS Siri icon: a glass sphere (IndexerBubble's OrbArt SVG) whose
-   iridescent wave sways at rest, swings faster while it listens or thinks, and
-   swells with the mic level (--lvl, written by IndexerBubble). */
+   iridescent wave sways while it's hovered or open, swings faster while it
+   listens or thinks, and swells with the mic level (--lvl, written by
+   IndexerBubble). At rest it holds still: an SVG animation isn't composited, so
+   a looping one repainted the orb every frame for the whole session. */
 .idx-orb {
   position: fixed;
   z-index: 60;
@@ -3883,6 +3885,20 @@ body.resizing .panel-edge-resize::after {
 }
 .idx-band {
   animation: idx-glint 4.5s ease-in-out infinite;
+}
+.idx-wave,
+.idx-band {
+  animation-play-state: paused;
+}
+.idx-orb:hover .idx-wave,
+.idx-orb:hover .idx-band,
+.idx-orb.open .idx-wave,
+.idx-orb.open .idx-band,
+.idx-orb.listening .idx-wave,
+.idx-orb.listening .idx-band,
+.idx-orb.thinking .idx-wave,
+.idx-orb.thinking .idx-band {
+  animation-play-state: running;
 }
 .idx-orb.listening .idx-wave {
   animation-duration: 1.4s;
@@ -17739,6 +17755,10 @@ div.sdoc-math {
 }
 .start .start-card {
   background: var(--velvet-800);
+  /* Opaque, so `.glass`'s 40px backdrop blur can't be seen through it — but it
+     was still computed for every card over the animated background, every frame. */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .start .start-card-title {
   color: var(--flux-text-dim);

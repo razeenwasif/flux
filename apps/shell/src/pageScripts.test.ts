@@ -25,7 +25,9 @@ describe("capture.js", () => {
     const sent: string[] = [];
     const args: unknown[] = [];
     const listeners = new Map<string, () => void>();
+    const docListeners = new Map<string, () => void>();
     let observed: (() => void) | undefined;
+    const page = { text: "text", nodes: 3, hidden: false };
     const window: Record<string, unknown> = {
       __TAURI_INTERNALS__: {
         invoke: (cmd: string, a: unknown) => {
@@ -40,8 +42,15 @@ describe("capture.js", () => {
       document: {
         readyState: "complete",
         documentElement: { outerHTML: "<html></html>" },
-        body: { innerText: "text" },
+        get body() {
+          return { innerText: page.text };
+        },
+        get hidden() {
+          return page.hidden;
+        },
         title: "title",
+        getElementsByTagName: () => ({ length: page.nodes }),
+        addEventListener: (type: string, cb: () => void) => docListeners.set(type, cb),
       },
       location: { href: "https://example.com/" },
       addEventListener: (type: string, cb: () => void) => listeners.set(type, cb),
@@ -55,47 +64,102 @@ describe("capture.js", () => {
     return {
       sent,
       args,
+      page,
       flux: window.__FLUX__ as Record<string, (...a: unknown[]) => void>,
       load: () => listeners.get("load")!(),
       mutate: () => observed!(),
+      show: () => {
+        page.hidden = false;
+        docListeners.get("visibilitychange")!();
+      },
     };
   };
 
-  it("still publishes a page that never stops mutating", () => {
+  it("still captures a page that never stops mutating", () => {
     // A JS animation or ticker writing `style` every 100 ms kept restarting a
-    // pure trailing debounce, so not even the load snapshot was ever sent.
+    // pure trailing debounce, so not even the load snapshot was ever sent. The
+    // max wait (10 s) catches it; after that, unchanged output isn't re-sent.
     vi.useFakeTimers();
-    const page = loadCapture();
-    page.load();
-    for (let t = 0; t < 5000; t += 100) {
-      page.mutate();
+    const p = loadCapture();
+    p.load();
+    for (let t = 0; t < 25_000; t += 100) {
+      p.mutate();
       vi.advanceTimersByTime(100);
     }
-    expect(page.sent.length).toBeGreaterThanOrEqual(2);
-    expect(page.sent.length).toBeLessThanOrEqual(3);
-    expect(page.sent.every((c) => c === "plugin:fluxtab|dom_publish")).toBe(true);
+    expect(p.sent).toEqual(["plugin:fluxtab|dom_publish"]);
+  });
+
+  it("re-captures a constantly changing page at most every 10 s", () => {
+    vi.useFakeTimers();
+    const p = loadCapture();
+    p.load();
+    for (let t = 0; t < 25_000; t += 100) {
+      p.page.text = `tick ${t}`;
+      p.mutate();
+      vi.advanceTimersByTime(100);
+    }
+    expect(p.sent.length).toBe(2);
   });
 
   it("coalesces a burst into one snapshot", () => {
     vi.useFakeTimers();
-    const page = loadCapture();
-    page.load();
+    const p = loadCapture();
+    p.load();
     for (let i = 0; i < 10; i++) {
-      page.mutate();
+      p.mutate();
       vi.advanceTimersByTime(50);
     }
     vi.advanceTimersByTime(5000);
-    expect(page.sent).toEqual(["plugin:fluxtab|dom_publish"]);
+    expect(p.sent).toEqual(["plugin:fluxtab|dom_publish"]);
+  });
+
+  it("skips a capture when nothing visible changed, and sends one that did", () => {
+    vi.useFakeTimers();
+    const p = loadCapture();
+    p.load();
+    vi.advanceTimersByTime(2000);
+    p.mutate(); // a class flip that changed nothing on screen
+    vi.advanceTimersByTime(2000);
+    expect(p.sent.length).toBe(1);
+    p.page.nodes = 7; // a form appeared, no new words
+    p.mutate();
+    vi.advanceTimersByTime(2000);
+    expect(p.sent.length).toBe(2);
+  });
+
+  it("holds a hidden tab's changes until it is shown, after its first capture", () => {
+    vi.useFakeTimers();
+    const p = loadCapture();
+    p.page.hidden = true;
+    p.load();
+    vi.advanceTimersByTime(2000);
+    expect(p.sent.length, "a background tab still captures the page it loaded").toBe(1);
+    p.page.text = "new messages";
+    p.mutate();
+    vi.advanceTimersByTime(20_000);
+    expect(p.sent.length, "changes wait while hidden").toBe(1);
+    p.show();
+    vi.advanceTimersByTime(2000);
+    expect(p.sent.length, "and go out once it's shown").toBe(2);
+  });
+
+  it("recapture sends at once, changed or not", () => {
+    vi.useFakeTimers();
+    const p = loadCapture();
+    p.load();
+    vi.advanceTimersByTime(2000);
+    p.flux.recapture!();
+    expect(p.sent.length).toBe(2);
   });
 
   it("sends agent action outcomes through the fluxtab bridge", () => {
     // A raw postMessage with a made-up `cmd` matched no command, so a blocked
     // click or an extracted table never reached the chrome.
-    const page = loadCapture();
-    page.flux.report!("blocked_destructive", "delete");
-    page.flux.deliver!("extract", "csv", "a,b");
-    expect(page.sent).toEqual(["plugin:fluxtab|agent_report", "plugin:fluxtab|agent_report"]);
-    expect(page.args).toEqual([
+    const p = loadCapture();
+    p.flux.report!("blocked_destructive", "delete");
+    p.flux.deliver!("extract", "csv", "a,b");
+    expect(p.sent).toEqual(["plugin:fluxtab|agent_report", "plugin:fluxtab|agent_report"]);
+    expect(p.args).toEqual([
       { kind: "blocked_destructive", detail: "delete", format: "", payload: "" },
       { kind: "extract", detail: "", format: "csv", payload: "a,b" },
     ]);

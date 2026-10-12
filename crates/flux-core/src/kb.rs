@@ -827,14 +827,19 @@ impl KbStore {
             // still fail to embed: don't trade a working corpus for that.
             return Err("embedding model listed but not answering; kept the existing index".into());
         }
-        {
+        let errors_before = {
             let mut d = self.data.write();
             if embedder_changed {
                 d.clear_corpus();
                 d.embedder = embedder;
             }
             d.embed_model = model;
-        }
+            d.errors.clone()
+        };
+        // Whether this run changed anything worth the disk: every settled
+        // browsing pause and every Onyx save lands here, and most find nothing
+        // new, yet each used to rewrite the whole index and its vector sidecar.
+        let mut changed = embedder_changed;
 
         for src in targets {
             // "web" is an in-process corpus (the Trail's dwell snapshots), supplied
@@ -867,7 +872,8 @@ impl KbStore {
             };
             let res = raw.and_then(|raw| self.reindex_source(src, embedder, raw));
             match res {
-                Ok(()) => {
+                Ok(c) => {
+                    changed |= c;
                     let mut d = self.data.write();
                     d.last.insert(src.to_string(), now_ms());
                     d.errors.remove(src); // cleared on success
@@ -884,16 +890,20 @@ impl KbStore {
                 }
             }
         }
-        self.persist();
+        if changed || self.data.read().errors != errors_before {
+            self.persist();
+        }
         Ok(())
     }
 
+    /// Bring one source up to date with `raw`. `Ok(true)` when a document was
+    /// added, changed or removed; `Ok(false)` when the source was already current.
     fn reindex_source(
         &self,
         src: &str,
         embedder: Embedder,
         raw: Vec<RawDoc>,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         // Which docs are unchanged (same mtime) → keep; which are new/changed → rebuild.
         let existing: HashMap<String, u64> = {
             let d = self.data.read();
@@ -919,6 +929,9 @@ impl KbStore {
                 .map(|doc| (doc, chunk_text(&doc.body)))
                 .collect()
         };
+        if chunked.is_empty() && existing.keys().all(|id| present.contains(id)) {
+            return Ok(false);
+        }
 
         // Flatten into one embedding request stream. Previously this was one
         // call per document, which for the model embedder meant a full HTTP
@@ -1022,7 +1035,7 @@ impl KbStore {
             return Err("embedding width changed; the index was reset — reindex to rebuild".into());
         }
         debug_assert!(d.paired());
-        Ok(())
+        Ok(true)
     }
 
     /// Cosine top-`k` over the corpus (optionally restricted to `sources`).

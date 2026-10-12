@@ -53,6 +53,8 @@ const MAX_AGE_DAYS: u64 = 5;
 
 /// Filename of the WebKit content-blocker JSON inside `filters_dir`.
 const CB_JSON_FILE: &str = "webkit-cb.json";
+/// What `webkit-cb.json` was made from: a hash of its inputs.
+const CB_STAMP_FILE: &str = "webkit-cb.stamp";
 /// WebKit refuses to compile very large rule sets (Safari documents 150k);
 /// stay well under it — the hot ~10% of EasyList does the real blocking anyway.
 const CB_MAX_RULES: usize = 75_000;
@@ -223,11 +225,27 @@ impl ShieldsState {
     /// WebKitGTK compiles it via `UserContentFilterStore` (see `netfilter`),
     /// and the same file serves WKWebView if Flux lands on macOS. Written on
     /// every platform (cheap, keeps this testable); only consumed off Windows.
+    ///
+    /// Skipped when the rules are the ones the file was made from (the stamp
+    /// beside it): regenerating meant re-translating ~3.6 MB of rules and
+    /// writing 7.8 MB on every launch, and on macOS a rewritten file means a new
+    /// WebKit compile (netfilter names the compiled list after this file).
     fn write_content_blocker(&self, rules: &str) {
         let Some(dir) = &self.filters_dir else { return };
+        let json_path = dir.join(CB_JSON_FILE);
+        let stamp_path = dir.join(CB_STAMP_FILE);
+        let stamp = format!("{:016x}", rules_stamp(rules));
+        let current = std::fs::read_to_string(&stamp_path).is_ok_and(|s| s.trim() == stamp);
+        if current && json_path.exists() {
+            tracing::info!(target: "flux::shields", "content-blocker JSON already current");
+            return;
+        }
         match flux_filter::to_content_blocker_json(rules, CB_MAX_RULES) {
             Some(json) => {
-                let _ = crate::persist::write_atomic(&dir.join(CB_JSON_FILE), json.as_bytes());
+                let _ = crate::persist::write_atomic(&json_path, json.as_bytes());
+                // After the JSON: a crash between the two leaves an old stamp,
+                // so the next launch rebuilds rather than trusting a stale file.
+                let _ = crate::persist::write_atomic(&stamp_path, stamp.as_bytes());
                 tracing::info!(target: "flux::shields", bytes = json.len(), "content-blocker JSON written");
             }
             None => {
@@ -381,6 +399,24 @@ fn host_of(url: &str) -> Option<&str> {
     let host = after.split(['/', '?', '#']).next()?;
     let host = host.rsplit('@').next()?; // strip userinfo
     Some(host.split(':').next().unwrap_or(host)) // strip port
+}
+
+/// FNV-1a over everything the content-blocker JSON depends on: the rules, the
+/// rule cap and the Flux version (whose translator wrote it).
+fn rules_stamp(rules: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let parts: [&[u8]; 3] = [
+        env!("CARGO_PKG_VERSION").as_bytes(),
+        &(CB_MAX_RULES as u64).to_le_bytes(),
+        rules.as_bytes(),
+    ];
+    for part in parts {
+        for &b in part {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    h
 }
 
 /// A cached list is stale if missing or older than [`MAX_AGE_DAYS`].

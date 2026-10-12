@@ -19,7 +19,7 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-#[derive(Serialize, Deserialize, Clone, specta::Type)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, specta::Type)]
 pub struct SavedTab {
     pub url: String,
     pub title: String,
@@ -276,6 +276,9 @@ impl SnapshotStore {
         let day = now / DAY_MS;
         let mut snaps = self.snaps.write();
         match snaps.iter_mut().find(|s| s.day == day) {
+            // Taken every 5 minutes; most of the time nothing has changed, and
+            // rewriting the file (with a full flush) to say so was the only effect.
+            Some(s) if s.tabs == tabs => return,
             Some(s) => {
                 s.tabs = tabs;
                 s.captured_ms = now;

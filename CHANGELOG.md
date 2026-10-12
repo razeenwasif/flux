@@ -14,6 +14,13 @@ same commit as the code (docs-before-commit policy). Pair file: `BACKLOG.md`
 - A ↻ Reindex button in the Indexer reads new and changed notes and books. It also runs each time the panel opens, and only re-reads what changed.
 
 ### Changed
+- Faster and lighter, from the 2026-10-13 performance audit (`docs/audit/2026-10-13-performance-audit.md`):
+  - Pages are re-captured only when what they show changed, at most every 10 s, and a background tab holds its changes until it's shown (its first capture still records the visit). Captures are cut to size before they leave the page. The terminal's page-context file is written off the UI thread and only when the page changed, and the Connections rail reacts only to the tab you're on.
+  - Nothing animates at rest: the Indexer orb moves only when hovered, open, listening or thinking; the agent panel's aurora only while the agent works (and never while the column is closed); the clocks card only while a stopwatch or timer runs; and alarms sleep until they're due instead of checking twice a second. Start-page cards no longer compute a blur their opaque background hid.
+  - Ad blocking reuses its compiled rules across launches: the content-blocker file is regenerated only when the filter lists change, and macOS reuses WebKit's compiled copy instead of recompiling 75k rules (and writing ~28 MB) each launch; older copies are removed.
+  - Fewer disk writes: the session is saved after a pause (within 3 s) and compactly, not with a full flush on every navigation and tab switch; the day snapshot only when its tabs changed; the knowledge base only when a reindex changed something; and notes are saved off the UI thread.
+  - The System card refreshes every 5 s, backing off to 15 s after a minute without input and 30 s while Flux isn't focused, and stops asking for a GPU it can't read (always the case on macOS).
+  - A tab whose title or address is reported unchanged no longer rebuilds every sidebar row, and opening the Indexer no longer copies its whole index just to find nothing changed.
 - The Indexer's "Open note" opens the note in your default text editor (TextEdit unless you've changed it) rather than the app macOS has registered for Markdown, which with no default set is Xcode.
 - The pinned web-app rail on the sidebar's left edge can be folded away with the ‹ button at its top, giving its width back to the tab list; › in the top row brings it back, and the choice is remembered.
 - The launcher is a magnifying-glass button in the sidebar's top row instead of a row of its own, and stays there when the toolbar is folded.

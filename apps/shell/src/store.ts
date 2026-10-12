@@ -1736,13 +1736,24 @@ export async function reorderTabs(draggedId: number, targetId: number, after: bo
   await tabReorder(next.map((t) => t.id)).catch(() => void refreshTabs());
 }
 
-/** Patch a tab's url/title in place (e.g. from a page-load event). */
+/** Patch a tab's url/title in place (e.g. from a page-load event). An unchanged
+ *  value leaves the list as it is: a new list rebuilds every sidebar row and
+ *  re-runs every effect that reads the active tab, and pages report the same url
+ *  and title over and over (on start, on finish, on each title tick). */
 export function updateTabUrl(id: number, url: string): void {
-  setTabs((list) => list.map((t) => (t.id === id ? { ...t, url } : t)));
+  setTabs((list) =>
+    list.some((t) => t.id === id && t.url !== url)
+      ? list.map((t) => (t.id === id ? { ...t, url } : t))
+      : list,
+  );
 }
 
 export function updateTabTitle(id: number, title: string): void {
-  setTabs((list) => list.map((t) => (t.id === id ? { ...t, title } : t)));
+  setTabs((list) =>
+    list.some((t) => t.id === id && t.title !== title)
+      ? list.map((t) => (t.id === id ? { ...t, title } : t))
+      : list,
+  );
 }
 
 /** Title the tab showing internal page `url`. Pages also render in split panes

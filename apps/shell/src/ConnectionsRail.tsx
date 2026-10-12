@@ -138,7 +138,11 @@ const ConnectionsRail: Component = () => {
 
   onMount(() => {
     let un: (() => void) | undefined;
-    void onDomUpdated(() => schedule()).then((u) => (un = u));
+    // Every open tab publishes on its own changes; only the active tab's can
+    // change what this shows, and each refresh costs an embedding.
+    void onDomUpdated((id) => {
+      if (id === activeId()) schedule();
+    }).then((u) => (un = u));
     // Flux's own pages (Notebook, Scribe…) publish without a dom-updated, and only
     // >=900 ms after they render — after the post-switch refresh below has already
     // queried — so they were never related to anything until you pressed ↻.

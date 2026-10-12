@@ -1,12 +1,13 @@
 // Clocks widget (BACKLOG #134) — a single start-page card with Stopwatch /
 // Timer / Alarm tabs. All state lives in clocks.ts (module-level), so leaving
 // the start page doesn't stop a running timer or drop your alarms; this is just
-// the control surface. A local tick refreshes the readouts while it's visible.
-import { type Component, For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+// the control surface. A local tick refreshes the readouts while one is running.
+import { type Component, For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import {
   type Alarm,
   addAlarm,
   alarms,
+  clockRevision,
   removeAlarm,
   toggleAlarm,
   fmtClock,
@@ -35,15 +36,20 @@ const ClockWidget: Component = () => {
   const [newLabel, setNewLabel] = createSignal("");
   const [customMin, setCustomMin] = createSignal("");
 
-  onMount(() => {
+  // Re-render the readouts every 60 ms only while one is moving. A stopped
+  // stopwatch and a paused timer change only when you press something, and
+  // `clockRevision` covers those; the interval used to run for as long as the
+  // start page was open, card shown or not.
+  createEffect(() => {
+    if (!swRunning() && !timerRunning()) return;
     const iv = window.setInterval(() => setTick((t) => t + 1), 60);
     onCleanup(() => clearInterval(iv));
   });
 
-  const swDisplay = createMemo(() => (tick(), fmtStopwatch(swElapsed())));
-  const timerDisplay = createMemo(() => (tick(), fmtClock(timerRemaining())));
+  const swDisplay = createMemo(() => (tick(), clockRevision(), fmtStopwatch(swElapsed())));
+  const timerDisplay = createMemo(() => (tick(), clockRevision(), fmtClock(timerRemaining())));
   const timerPct = createMemo(
-    () => (tick(), timerTotal() > 0 ? (1 - timerRemaining() / timerTotal()) * 100 : 0),
+    () => (tick(), clockRevision(), timerTotal() > 0 ? (1 - timerRemaining() / timerTotal()) * 100 : 0),
   );
 
   const startPreset = (min: number) => {

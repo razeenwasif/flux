@@ -3,15 +3,17 @@
  *
  * The driver used to be a 500 ms interval started at boot and never stopped —
  * two CPU wakeups a second for the life of the session, running a scan that
- * finds nothing unless a timer, a snooze, or an enabled alarm is pending. It now
- * arms and disarms itself instead, which is cheaper and strictly riskier: the
- * failure mode of getting it wrong is an alarm that never rings, and nothing
- * about that is visible until the moment you needed it.
+ * finds nothing unless a timer, a snooze, or an enabled alarm is pending. Then
+ * it armed and disarmed itself, but still ticked every 500 ms whenever an alarm
+ * was enabled (with daily alarms, always). Now it sleeps until the next thing
+ * that can fire. Each step is cheaper and strictly riskier: the failure mode of
+ * getting it wrong is an alarm that never rings, and nothing about that is
+ * visible until the moment you needed it.
  *
  * So these tests are about the arming, not the ringing. `window` is stubbed
- * because the module reaches for `window.setInterval` and the suite runs in
- * node; the stub also lets the interval be counted directly, which is the thing
- * under test.
+ * because the module reaches for `window.setTimeout` and the suite runs in
+ * node; the stub also lets the driver's sleep be seen directly, which is the
+ * thing under test.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,17 +21,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // would drag the whole Tauri IPC surface into a pure-logic test.
 vi.mock("./ipc", () => ({ osNotify: () => Promise.resolve() }));
 
-/** Live intervals by handle. The ringer registers one too (a 1600 ms beep), so
- *  they're kept with their delay and the driver is identified by its 500 ms. */
+/** The driver's pending sleeps (`window.setTimeout`) by handle. The ringer's
+ *  beep is an interval and its auto-dismiss a global timeout, so neither lands
+ *  here. */
 let live: Map<number, { fn: () => void; ms: number }>;
 let nextId: number;
 
-/** Number of clock drivers currently running — the thing under test. */
-const drivers = () => [...live.values()].filter((t) => t.ms === 500).length;
+/** Number of clock drivers currently armed — the thing under test. */
+const drivers = () => live.size;
+/** How long the armed driver will sleep. */
+const sleepMs = () => [...live.values()][0]?.ms;
 
-/** Run one driver tick, as the real interval would. */
+/** Wake the driver, as its timeout would. */
 const tick = () => {
-  for (const t of [...live.values()]) if (t.ms === 500) t.fn();
+  for (const [id, t] of [...live.entries()]) {
+    live.delete(id);
+    t.fn();
+  }
 };
 
 beforeEach(() => {
@@ -38,18 +46,19 @@ beforeEach(() => {
   live = new Map();
   nextId = 1;
   const stub = {
-    setInterval: (fn: () => void, ms: number) => {
+    setTimeout: (fn: () => void, ms: number) => {
       const id = nextId++;
       live.set(id, { fn, ms });
       return id;
     },
-    clearInterval: (id: number) => {
+    clearTimeout: (id: number) => {
       live.delete(id);
     },
-    setTimeout: () => 0,
+    setInterval: () => 0,
   };
   vi.stubGlobal("window", stub);
-  vi.stubGlobal("clearInterval", stub.clearInterval);
+  vi.stubGlobal("clearTimeout", stub.clearTimeout);
+  vi.stubGlobal("clearInterval", () => {});
   vi.stubGlobal("localStorage", {
     getItem: () => null,
     setItem: () => {},
@@ -68,7 +77,7 @@ describe("clock driver arming", () => {
   it("does not run when nothing is scheduled", async () => {
     const c = await load();
     c.startClockDriver();
-    expect(drivers(), "idle boot should leave no interval running").toBe(0);
+    expect(drivers(), "idle boot should leave nothing scheduled").toBe(0);
   });
 
   it("runs while a timer is counting down, and stops when it is reset", async () => {
@@ -83,7 +92,7 @@ describe("clock driver arming", () => {
     expect(drivers(), "a reset timer should stand the driver down").toBe(0);
   });
 
-  it("does not start a second interval when more work arrives", async () => {
+  it("does not start a second driver when more work arrives", async () => {
     const c = await load();
     c.startClockDriver();
 
@@ -142,6 +151,24 @@ describe("clock driver arming", () => {
 
     c.dismissRing();
     expect(drivers(), "dismissing the ring doesn't cancel the snooze").toBe(1);
+  });
+
+  it("sleeps until the next thing that can fire", async () => {
+    const c = await load();
+    setClock(7, 59, 59, 600);
+    c.startClockDriver();
+    c.addAlarm("08:00", "Lecture");
+    expect(sleepMs(), "an alarm wakes it just past the next minute").toBe(450);
+
+    c.removeAlarm(c.alarms()[0]!.id);
+    c.setTimerDuration(5 * 60_000);
+    c.timerStartPause();
+    expect(sleepMs(), "a long timer: at most a minute at a time").toBe(60_000);
+
+    c.timerReset();
+    c.setTimerDuration(2000);
+    c.timerStartPause();
+    expect(sleepMs(), "a short timer: exactly until it ends").toBe(2000);
   });
 });
 

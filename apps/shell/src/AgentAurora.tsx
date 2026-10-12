@@ -180,7 +180,12 @@ const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = 
       c.height = Math.max(1, Math.round(ch * 0.8));
       aspect = c.width / c.height;
     };
-    const ro = new ResizeObserver(resize);
+    // A size change can also mean shown or hidden (the agent column stays
+    // mounted, as display:none, after it's closed): re-decide whether to run.
+    const ro = new ResizeObserver(() => {
+      resize();
+      sync();
+    });
     ro.observe(c);
     resize();
 
@@ -247,7 +252,14 @@ const AgentAurora: Component<{ active: () => boolean; busy?: () => boolean }> = 
       running = false;
       cancelAnimationFrame(raf);
     };
-    const shouldRun = () => props.active() && !reduce && !document.hidden && document.hasFocus();
+    const shouldRun = () =>
+      props.active() &&
+      !reduce &&
+      !document.hidden &&
+      document.hasFocus() &&
+      // A hidden column: frames into a 0×0 canvas, every display frame, for nothing.
+      c.clientWidth > 0 &&
+      c.clientHeight > 0;
     const sync = () => {
       if (shouldRun()) start();
       else {
