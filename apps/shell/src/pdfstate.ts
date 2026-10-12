@@ -90,6 +90,14 @@ export function viewerSrc(url: string): string {
   return /^file:/i.test(s) ? decodeOnce(s) : s;
 }
 
+/** The page a viewer URL asks to open at (`&page=N`, 1-based), or 0 for the
+ *  page the document was last read at. */
+export function viewerPage(url: string): number {
+  const i = url.indexOf("?");
+  const n = i < 0 ? NaN : Number(new URLSearchParams(url.slice(i + 1)).get("page"));
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
 /** Where a document's state is stored: keyed by its src decoded once more, which
  *  is what the viewer handed in before `viewerSrc` stopped double-decoding (a
  *  file:// src it still decodes itself). Re-keying by the exact src would have

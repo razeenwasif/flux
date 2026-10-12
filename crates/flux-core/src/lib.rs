@@ -1594,6 +1594,7 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_home,
             files::fs_quick_locations,
             files::fs_open,
+            files::fs_open_text,
             files::fs_create_dir,
             files::fs_create_file,
             files::fs_rename,

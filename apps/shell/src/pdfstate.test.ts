@@ -12,6 +12,7 @@ import {
   savePosition,
   stashUnsavedPdf,
   takeUnsavedPdf,
+  viewerPage,
   viewerSrc,
 } from "./pdfstate";
 
@@ -102,6 +103,14 @@ describe("viewer src", () => {
       "file:///Users/me/Bob’s Résumé.pdf",
     );
     expect(viewerSrc(viewerUrl("file:///Users/me/%231%20report.pdf"))).toBe("file:///Users/me/#1 report.pdf");
+  });
+
+  it("reads the page a link asks for, without changing the source", () => {
+    const url = `${viewerUrl("/Users/me/Books/mml-book.pdf")}&page=42`;
+    expect(viewerPage(url)).toBe(42);
+    expect(viewerSrc(url)).toBe("/Users/me/Books/mml-book.pdf");
+    expect(viewerPage(viewerUrl("/Users/me/a.pdf"))).toBe(0);
+    for (const bad of ["0", "-3", "2.5", "x"]) expect(viewerPage(`flux://pdf?src=a.pdf&page=${bad}`)).toBe(0);
   });
 });
 

@@ -1087,6 +1087,39 @@ pub async fn fs_open(path: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Open a file in the default *text* editor (macOS `open -t`) rather than the app
+/// registered for its type. For Markdown that's often Xcode, which claims `.md`
+/// for itself when no other app has been chosen. Elsewhere this is `fs_open`.
+#[tauri::command]
+pub async fn fs_open_text(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "macos")]
+        {
+            let p = std::path::Path::new(&path);
+            // Absolute, so it can't be read as one of `open`'s own flags.
+            if !p.is_absolute() || !p.is_file() {
+                return Err(format!("not a file: {path}"));
+            }
+            let status = std::process::Command::new("/usr/bin/open")
+                .arg("-t")
+                .arg(p)
+                .status()
+                .map_err(|e| e.to_string())?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("couldn't open {path} in the text editor"))
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            open::that(&path).map_err(|e| e.to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ─── File operations (BACKLOG #83) ───────────────────────────────────────────
 //
 // All mutate the filesystem, so each runs on a blocking thread (a slow op on a

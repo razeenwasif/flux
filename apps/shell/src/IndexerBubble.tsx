@@ -28,13 +28,16 @@ import {
   indexerSearch,
   indexerStatus,
   indexerWarm,
+  openNote,
   type IndexerMatch,
   type IndexerPick,
   type IndexerResults,
+  type IndexerScope,
   type IndexerStatus,
 } from "./indexer";
 import { indexerPanelOpen, setIndexerPanelOpen } from "./indexerOpen";
-import { fsOpen, voiceTranscribe } from "./ipc";
+import { pdfViewerUrl, voiceTranscribe } from "./ipc";
+import { openTab } from "./store";
 import { micConstraints } from "./mic";
 
 type Pos = { x: number; y: number };
@@ -57,6 +60,80 @@ const NO_SPEECH_MS = 6000;
 const MAX_LISTEN_MS = 15000;
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
+
+/** The wave between the orb's dark top and silver bottom: one period every 100
+ *  units, wide enough to sway across the sphere without showing an end. */
+const WAVE = "M -100 52 Q -75 40 -50 52 T 0 52 T 50 52 T 100 52 T 150 52 T 200 52";
+
+/** The orb, after the macOS Siri icon: a glass sphere, graphite above and silver
+ *  below, split by a wave of iridescent light, with a glossy floor and a faintly
+ *  prismatic rim. The wave sways, and swells with the mic level (theme.css). */
+const OrbArt: Component = () => (
+  <svg class="idx-orb-art" viewBox="0 0 100 100" aria-hidden="true">
+    <defs>
+      <radialGradient id="idx-top" cx="50%" cy="18%" r="80%">
+        <stop offset="0" stop-color="#4d5058" />
+        <stop offset="0.55" stop-color="#2b2d33" />
+        <stop offset="1" stop-color="#1b1c20" />
+      </radialGradient>
+      <linearGradient id="idx-floor" x1="0" y1="0.35" x2="0" y2="1">
+        <stop offset="0" stop-color="#9aa0a9" />
+        <stop offset="0.5" stop-color="#cdd1d7" />
+        <stop offset="1" stop-color="#f7f8fa" />
+      </linearGradient>
+      <linearGradient id="idx-iris" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
+        <stop offset="0.05" stop-color="#ff7a2f" stop-opacity="0.2" />
+        <stop offset="0.28" stop-color="#ff9a45" />
+        <stop offset="0.45" stop-color="#ffe7b0" />
+        <stop offset="0.58" stop-color="#ffffff" />
+        <stop offset="0.76" stop-color="#8ccfff" />
+        <stop offset="0.95" stop-color="#4f7dff" stop-opacity="0.2" />
+      </linearGradient>
+      <radialGradient id="idx-gloss" cx="50%" cy="100%" r="55%">
+        <stop offset="0" stop-color="#ffffff" stop-opacity="0.95" />
+        <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+      </radialGradient>
+      <radialGradient id="idx-shade" cx="50%" cy="42%" r="58%">
+        <stop offset="0.74" stop-color="#000000" stop-opacity="0" />
+        <stop offset="1" stop-color="#000000" stop-opacity="0.3" />
+      </radialGradient>
+      <linearGradient id="idx-rim" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#ffb070" stop-opacity="0.8" />
+        <stop offset="0.35" stop-color="#ffffff" stop-opacity="0.18" />
+        <stop offset="0.65" stop-color="#ffffff" stop-opacity="0.18" />
+        <stop offset="1" stop-color="#7fb8ff" stop-opacity="0.8" />
+      </linearGradient>
+      <clipPath id="idx-clip">
+        <circle cx="50" cy="50" r="50" />
+      </clipPath>
+      <filter id="idx-soft" x="-20%" y="-50%" width="140%" height="200%">
+        <feGaussianBlur stdDeviation="1.8" />
+      </filter>
+      <filter id="idx-haze" x="-50%" y="-100%" width="200%" height="300%">
+        <feGaussianBlur stdDeviation="5" />
+      </filter>
+    </defs>
+    <g clip-path="url(#idx-clip)">
+      <rect width="100" height="100" fill="url(#idx-top)" />
+      <g class="idx-wave">
+        <path d={`${WAVE} L 200 110 L -100 110 Z`} fill="url(#idx-floor)" />
+        <path
+          class="idx-band"
+          d={WAVE}
+          fill="none"
+          stroke="url(#idx-iris)"
+          stroke-width="6"
+          filter="url(#idx-soft)"
+        />
+        <path d={WAVE} fill="none" stroke="url(#idx-iris)" stroke-width="1.1" />
+      </g>
+      <ellipse cx="50" cy="98" rx="38" ry="24" fill="url(#idx-gloss)" />
+      <ellipse cx="50" cy="16" rx="26" ry="9" fill="#ffffff" opacity="0.06" filter="url(#idx-haze)" />
+      <circle cx="50" cy="50" r="50" fill="url(#idx-shade)" />
+    </g>
+    <circle cx="50" cy="50" r="49.3" fill="none" stroke="url(#idx-rim)" stroke-width="1.4" />
+  </svg>
+);
 
 const IndexerBubble: Component = () => {
   // ── where the orb sits ─────────────────────────────────────────────────────
@@ -162,19 +239,34 @@ const IndexerBubble: Component = () => {
     const s = status();
     if (!s) return "";
     if (s.building) {
-      return s.to_embed > 0
-        ? `Indexing your vault… ${s.embedded.toLocaleString()} / ${s.to_embed.toLocaleString()} cards`
-        : "Checking your vault for changes…";
+      if (!s.files_todo) return "Checking your notes and books for changes…";
+      const at = s.current ? ` · ${s.current}` : "";
+      return `Indexing ${s.files_done.toLocaleString()} of ${s.files_todo.toLocaleString()} files${at}`;
     }
     if (s.error) return s.error;
-    if (!s.cards) return "No notes indexed yet.";
-    const what = `${s.cards.toLocaleString()} cards from ${s.notes.toLocaleString()} notes`;
+    if (!s.cards) return "Nothing indexed yet.";
+    const count = (x: number, one: string) => `${x.toLocaleString()} ${one}${x === 1 ? "" : "s"}`;
+    const from = [s.notes ? count(s.notes, "note") : "", s.books ? count(s.books, "book") : ""]
+      .filter(Boolean)
+      .join(" and ");
+    const what = `${count(s.cards, "card")} from ${from}`;
     if (!s.semantic) return `${what} · keyword matching (pull ${s.embed_model} in Ollama for meaning)`;
     return s.pending ? `${what} · ${s.pending} waiting for ${s.embed_model}` : `${what} · ${s.embed_model}`;
   };
 
   // ── asking ─────────────────────────────────────────────────────────────────
   const [query, setQuery] = createSignal("");
+  const SCOPE_KEY = "flux.indexer.scope";
+  const [scope, setScopeRaw] = createSignal<IndexerScope>(
+    (() => {
+      try {
+        const v = localStorage.getItem(SCOPE_KEY);
+        return v === "notes" || v === "books" ? v : "all";
+      } catch {
+        return "all";
+      }
+    })(),
+  );
   const [busy, setBusy] = createSignal<Busy>(null);
   const [results, setResults] = createSignal<IndexerResults | null>(null);
   /** Result indices in display order: Laya's decisive pick moves to the front. */
@@ -205,7 +297,7 @@ const IndexerBubble: Component = () => {
     setBusy("searching");
     let res: IndexerResults;
     try {
-      res = await indexerSearch(q, 5);
+      res = await indexerSearch(q, 5, scope());
     } catch (e) {
       if (me === asked) {
         setBusy(null);
@@ -238,6 +330,27 @@ const IndexerBubble: Component = () => {
     } finally {
       if (me === asked) setBusy(null);
     }
+  };
+
+  const setScope = (s: IndexerScope) => {
+    setScopeRaw(s);
+    try {
+      localStorage.setItem(SCOPE_KEY, s);
+    } catch {
+      /* private mode — it just won't stick */
+    }
+    if (query().trim()) void ask(query());
+  };
+
+  /** A book opens in Flux's PDF viewer at the passage's page; a note in the text
+   *  editor. */
+  const openMatch = (m: IndexerMatch) => {
+    if (m.book) {
+      setIndexerPanelOpen(false);
+      void openTab("browser", `${pdfViewerUrl(m.path)}&page=${m.page ?? 1}`);
+      return;
+    }
+    void openNote(m.path).catch((e) => setNote(String(e)));
   };
 
   const verdict = () => {
@@ -428,8 +541,7 @@ const IndexerBubble: Component = () => {
           setIndexerPanelOpen(!indexerPanelOpen());
         }}
       >
-        <span class="idx-orb-swirl" />
-        <span class="idx-orb-core" />
+        <OrbArt />
       </button>
 
       <Show when={indexerPanelOpen()}>
@@ -472,15 +584,51 @@ const IndexerBubble: Component = () => {
             </button>
           </form>
 
+          <div class="idx-tools">
+            <div class="idx-scope" role="radiogroup" aria-label="Search in">
+              <For
+                each={
+                  [
+                    ["all", "All"],
+                    ["notes", "Notes"],
+                    ["books", "Books"],
+                  ] as const
+                }
+              >
+                {([v, label]) => (
+                  <button
+                    role="radio"
+                    aria-checked={scope() === v}
+                    classList={{ on: scope() === v }}
+                    onClick={() => setScope(v)}
+                  >
+                    {label}
+                  </button>
+                )}
+              </For>
+            </div>
+            <button
+              class="idx-reindex"
+              title="Reindex: read new and changed notes and books (also happens each time this opens)"
+              aria-label="Reindex"
+              disabled={!!status()?.building}
+              onClick={() => void refreshStatus(true)}
+            >
+              ↻
+            </button>
+          </div>
           <div class="idx-status">
             {busy() === "listening"
               ? "Listening… pause when you're done"
               : busy() === "transcribing"
                 ? "Transcribing…"
                 : busy() === "searching"
-                  ? "Searching your notes…"
+                  ? "Searching…"
                   : statusLine()}
           </div>
+          <Show when={status()?.notice}>
+            <div class="idx-status">{status()?.notice}</div>
+          </Show>
           <Show when={note()}>
             <div class="idx-note">{note()}</div>
           </Show>
@@ -491,7 +639,7 @@ const IndexerBubble: Component = () => {
                 when={current()}
                 fallback={
                   <div class="idx-empty">
-                    {r().matches.length ? "" : "Nothing in your notes matches that."}
+                    {r().matches.length ? "" : "Nothing in your notes or books matches that."}
                   </div>
                 }
               >
@@ -540,11 +688,8 @@ const IndexerBubble: Component = () => {
                       <button class="idx-act" onClick={() => void copy(m().answer)}>
                         {copied() ? "Copied" : "Copy"}
                       </button>
-                      <button
-                        class="idx-act"
-                        onClick={() => void fsOpen(m().path).catch((e) => setNote(String(e)))}
-                      >
-                        Open note
+                      <button class="idx-act" onClick={() => openMatch(m())}>
+                        {m().book ? `Open p. ${m().page ?? 1}` : "Open note"}
                       </button>
                     </footer>
                   </article>

@@ -9,10 +9,15 @@ export type { IndexerMatch, IndexerPick, IndexerResults, IndexerStatus } from ".
 export const indexerStatus = () => invoke<IndexerStatus>("indexer_status");
 /** Re-read changed notes in the background. */
 export const indexerReindex = () => invoke<IndexerStatus>("indexer_reindex");
-export const indexerSearch = (query: string, k?: number) =>
-  invoke<IndexerResults>("indexer_search", { query, k });
+/** Which cards a search looks at. */
+export type IndexerScope = "all" | "notes" | "books";
+export const indexerSearch = (query: string, k?: number, scope?: IndexerScope) =>
+  invoke<IndexerResults>("indexer_search", { query, k, scope });
 /** The System 1 tie-break: which option (a match's `label`) answers `question`. */
 export const indexerDecide = (question: string, options: string[]) =>
   invoke<IndexerPick>("indexer_decide", { question, options });
 /** Load the System 1 model ahead of a question. Fire and forget. */
 export const indexerWarm = () => invoke<void>("indexer_warm");
+/** Open a note in the default text editor, not the app macOS registers for
+ *  `.md` (often Xcode). */
+export const openNote = (path: string) => invoke<void>("fs_open_text", { path });

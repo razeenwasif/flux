@@ -17,8 +17,15 @@
 //! It's optional. Unreachable, the orb says the match is uncertain and shows the
 //! candidates.
 //!
-//! Everything stays on the machine: the vault is read from disk, embeddings come
-//! from the local Ollama, and Laya listens on loopback.
+//! Books are a second source: every PDF in a books folder (`~/Documents/Books`,
+//! or `FLUX_INDEXER_BOOKS`), read with poppler's `pdftotext` and cut into
+//! passages of about a page, each a card titled by book and page. A book's
+//! first index takes a while (about a thousand passages a minute), so a build
+//! saves as it goes: books appear as they're done, and quitting halfway resumes
+//! where it stopped.
+//!
+//! Everything stays on the machine: notes and books are read from disk,
+//! embeddings come from the local Ollama, and Laya listens on loopback.
 
 use crate::vecstore::{quantize_query, score, VecStore};
 use parking_lot::{Mutex, RwLock};
@@ -27,7 +34,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use tauri::State;
 
 /// EmbeddingGemma 2, text-only. `FLUX_INDEXER_EMBED_MODEL` overrides it; it has
@@ -41,9 +48,22 @@ pub const DEFAULT_LAYA_URL: &str = "http://127.0.0.1:8765";
 const LAYA_MODEL: &str = "english";
 
 /// Bumped when the saved layout changes; an older index is rebuilt, not misread.
-const FORMAT: u32 = 1;
+const FORMAT: u32 = 2;
 const MAX_FILES: usize = 20_000;
+/// Notes larger than this aren't notes (exports, dumps); books have no cap.
 const MAX_FILE_BYTES: u64 = 1 << 20;
+/// A book passage is cut at about this many characters, on a paragraph or
+/// sentence where it can be: about a page, short enough to read off a card.
+const BOOK_CHUNK_CHARS: usize = 1_500;
+/// Shorter passages (a page holding only a heading, a figure caption or a page
+/// number) aren't worth a card.
+const MIN_BOOK_CHUNK: usize = 160;
+/// pdftotext reads a 1,200-page book in a few seconds; one that takes minutes
+/// is malformed or hostile.
+const PDFTOTEXT_TIMEOUT: Duration = Duration::from_secs(180);
+const PDFTOTEXT_LIMIT: usize = 64 << 20;
+/// How often a long build saves what it has so far.
+const COMMIT_EVERY: Duration = Duration::from_secs(60);
 /// A card's answer beyond this is cut. Sections that long are reference text,
 /// not an answer to read off a card.
 const MAX_ANSWER_CHARS: usize = 6_000;
@@ -86,10 +106,23 @@ fn laya_url() -> String {
 
 // ─── Cards ────────────────────────────────────────────────────────────────────
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum Kind {
+    #[default]
+    Note,
+    Book,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 struct Card {
-    /// Vault-relative path, `/`-separated.
+    /// The note or book on disk (vault-relative in format 1).
     path: String,
+    #[serde(default)]
+    kind: Kind,
+    /// A book passage's page (1-based, as the PDF numbers them).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    page: Option<u32>,
     /// "Category > note", as the original shows it.
     source: String,
     category: String,
@@ -139,8 +172,9 @@ fn strip_frontmatter(text: &str) -> &str {
     }
 }
 
-/// Cards for one note. `rel` is the note's vault-relative path.
-fn parse_note(text: &str, rel: &str) -> Vec<Card> {
+/// Cards for one note. `rel` is the note's vault-relative path (it names the
+/// category and note); `path` is what the cards point at.
+fn parse_note(text: &str, rel: &str, path: &str) -> Vec<Card> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let body = strip_frontmatter(text);
     let parts: Vec<&str> = rel.split('/').collect();
@@ -160,7 +194,7 @@ fn parse_note(text: &str, rel: &str) -> Vec<Card> {
     let source = format!("{category} > {file}");
 
     if rel.to_lowercase().contains("interview") {
-        let cards = parse_document(body, rel, &source);
+        let cards = parse_document(body, path, &source);
         if !cards.is_empty() {
             return cards;
         }
@@ -180,7 +214,7 @@ fn parse_note(text: &str, rel: &str) -> Vec<Card> {
             Some(h) => format!("{file}: {h}"),
             None => file.to_string(),
         };
-        cards.push(card(rel, &source, category, question, answer));
+        cards.push(card(path, &source, category, question, answer));
     };
     for line in body.lines() {
         let t = line.trim();
@@ -203,7 +237,7 @@ fn parse_note(text: &str, rel: &str) -> Vec<Card> {
 
 /// Interview-style notes: a question (or header) line, then the paragraphs that
 /// answer it.
-fn parse_document(text: &str, rel: &str, source: &str) -> Vec<Card> {
+fn parse_document(text: &str, path: &str, source: &str) -> Vec<Card> {
     let mut cards = Vec::new();
     let mut question: Option<String> = None;
     let mut answer: Vec<&str> = Vec::new();
@@ -212,7 +246,7 @@ fn parse_document(text: &str, rel: &str, source: &str) -> Vec<Card> {
         let a = answer.join("\n\n");
         let a = a.trim();
         if !a.is_empty() {
-            cards.push(card(rel, source, categorize(q), q.clone(), a));
+            cards.push(card(path, source, categorize(q), q.clone(), a));
         }
     };
     let mut in_fence = false;
@@ -318,10 +352,12 @@ fn categorize(question: &str) -> &'static str {
     }
 }
 
-fn card(rel: &str, source: &str, category: &str, question: String, answer: &str) -> Card {
+fn card(path: &str, source: &str, category: &str, question: String, answer: &str) -> Card {
     let answer = prefix_chars(answer, MAX_ANSWER_CHARS).to_string();
     Card {
-        path: rel.to_string(),
+        path: path.to_string(),
+        kind: Kind::Note,
+        page: None,
         source: source.to_string(),
         category: category.to_string(),
         key_points: key_points(&answer),
@@ -365,6 +401,176 @@ fn key_points(text: &str) -> Vec<String> {
         points = sentences.iter().take(3).map(|s| s.to_string()).collect();
     }
     points
+}
+
+// ─── Books ────────────────────────────────────────────────────────────────────
+
+/// "Bishop-Pattern-Recognition-and-Machine-Learning-2006.pdf" → "Bishop Pattern
+/// Recognition and Machine Learning 2006". A name that already has spaces keeps
+/// its hyphens.
+fn book_title(file: &str) -> String {
+    let stem = file
+        .rsplit_once('.')
+        .map_or(file, |(s, _)| s)
+        .replace("(z-lib.org)", "");
+    let stem = if stem.contains(' ') {
+        stem
+    } else {
+        stem.replace(['-', '_'], " ")
+    };
+    stem.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// A page's paragraphs, with pdftotext's hard line wraps (and the hyphens it
+/// leaves at them) joined back up.
+fn paragraphs(page: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    for line in page.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            if !cur.is_empty() {
+                out.push(std::mem::take(&mut cur));
+            }
+            continue;
+        }
+        if cur.ends_with('-') && t.starts_with(|c: char| c.is_lowercase()) {
+            cur.pop();
+        } else if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(t);
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// `text` in pieces of at most `max` characters, cut after a sentence where one
+/// is within reach.
+fn split_long(text: &str, max: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while rest.chars().count() > max {
+        let head = prefix_chars(rest, max);
+        let cut = head
+            .rfind(". ")
+            .map(|i| i + 1)
+            .filter(|&i| i > head.len() / 2)
+            .unwrap_or(head.len());
+        out.push(rest[..cut].trim().to_string());
+        rest = rest[cut..].trim_start();
+    }
+    if !rest.is_empty() {
+        out.push(rest.to_string());
+    }
+    out
+}
+
+/// Passages of a book from pdftotext's output, where a form feed ends each page.
+/// `rel` is the book's path under the books folder; `path` is what the cards
+/// point at.
+fn parse_book(text: &str, rel: &str, path: &str) -> Vec<Card> {
+    let parts: Vec<&str> = rel.split('/').collect();
+    let title = book_title(parts.last().copied().unwrap_or(rel));
+    let category = if parts.len() > 1 { parts[0] } else { "Books" };
+    let source = format!("Books > {title}");
+    let mut cards = Vec::new();
+    for (i, page) in text.split('\u{c}').enumerate() {
+        let n = i as u32 + 1;
+        let pieces: Vec<String> = paragraphs(page)
+            .iter()
+            .flat_map(|p| split_long(p, BOOK_CHUNK_CHARS))
+            .collect();
+        let mut chunk = String::new();
+        for piece in pieces {
+            if !chunk.is_empty()
+                && chunk.chars().count() + piece.chars().count() + 2 > BOOK_CHUNK_CHARS
+            {
+                cards.extend(book_card(path, &source, category, &title, n, &chunk));
+                chunk.clear();
+            }
+            if !chunk.is_empty() {
+                chunk.push_str("\n\n");
+            }
+            chunk.push_str(&piece);
+        }
+        cards.extend(book_card(path, &source, category, &title, n, &chunk));
+    }
+    cards
+}
+
+fn book_card(
+    path: &str,
+    source: &str,
+    category: &str,
+    title: &str,
+    page: u32,
+    chunk: &str,
+) -> Option<Card> {
+    let text = chunk.trim();
+    if text.chars().count() < MIN_BOOK_CHUNK {
+        return None;
+    }
+    let lead = text.split(['.', '\n']).next().unwrap_or(text).trim();
+    Some(Card {
+        path: path.to_string(),
+        kind: Kind::Book,
+        page: Some(page),
+        source: source.to_string(),
+        category: category.to_string(),
+        question: format!("{title}, p. {page}: {}", prefix_chars(lead, 80)),
+        answer: text.to_string(),
+        key_points: Vec::new(),
+    })
+}
+
+/// poppler's `pdftotext`. A Dock-launched app gets launchd's PATH, without
+/// Homebrew's bin, so the usual install spots come before PATH.
+fn pdftotext() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("FLUX_PDFTOTEXT").filter(|p| !p.is_empty()) {
+        return Some(p.into());
+    }
+    let exe = if cfg!(windows) {
+        "pdftotext.exe"
+    } else {
+        "pdftotext"
+    };
+    [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/opt/local/bin",
+        "/usr/bin",
+    ]
+    .iter()
+    .map(|d| Path::new(d).join(exe))
+    .chain(
+        std::env::var_os("PATH")
+            .map(|p| {
+                std::env::split_paths(&p)
+                    .map(|d| d.join(exe))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+    )
+    .find(|c| c.is_file())
+}
+
+fn extract_pdf(bin: &Path, pdf: &Path) -> Result<String, String> {
+    let mut cmd = std::process::Command::new(bin);
+    // The path is absolute, so it can't be read as an option.
+    cmd.args(["-q", "-enc", "UTF-8", "-eol", "unix"])
+        .arg(pdf)
+        .arg("-");
+    let out = crate::exec::run_bounded(cmd, PDFTOTEXT_TIMEOUT, PDFTOTEXT_LIMIT)?;
+    if out.timed_out {
+        return Err(format!("pdftotext gave up on {}", pdf.display()));
+    }
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 // ─── Keywords ─────────────────────────────────────────────────────────────────
@@ -417,6 +623,7 @@ fn terms(text: &str) -> Vec<u64> {
     t
 }
 
+#[derive(Clone)]
 struct Terms {
     question: Vec<u64>,
     category: Vec<u64>,
@@ -475,19 +682,24 @@ fn idf_of(all: &[Terms]) -> HashMap<u64, f32> {
 #[derive(Serialize, Deserialize, Default)]
 struct Saved {
     format: u32,
-    vault: PathBuf,
+    /// Format 1's one vault, which its card paths were relative to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vault: Option<PathBuf>,
+    /// The folders read: the vault, then the books.
+    #[serde(default)]
+    roots: Vec<PathBuf>,
     /// The model every vector came from; `None` means the index has no vectors
     /// (built while the model wasn't available) and matches on keywords alone.
     model: Option<String>,
-    /// Note → modified time (ms) of the version its cards came from. Zero marks a
-    /// note whose cards are waiting on the model, so the next build redoes it.
+    /// File → modified time (ms) of the version its cards came from. Zero marks a
+    /// file whose cards are waiting on the model, so the next build redoes it.
     mtimes: BTreeMap<String, u64>,
     cards: Vec<Card>,
 }
 
 #[derive(Default)]
 struct Index {
-    vault: Option<PathBuf>,
+    roots: Vec<PathBuf>,
     model: Option<String>,
     mtimes: BTreeMap<String, u64>,
     cards: Vec<Card>,
@@ -499,16 +711,29 @@ struct Index {
 
 impl Index {
     fn from_parts(
-        vault: PathBuf,
+        roots: Vec<PathBuf>,
         model: Option<String>,
         mtimes: BTreeMap<String, u64>,
         cards: Vec<Card>,
         vecs: VecStore,
     ) -> Self {
         let terms: Vec<Terms> = cards.iter().map(Terms::of).collect();
+        Self::assemble(roots, model, mtimes, cards, vecs, terms)
+    }
+
+    /// `from_parts` with each card's terms already worked out: a long build
+    /// saves every minute, and re-tokenising every passage each time adds up.
+    fn assemble(
+        roots: Vec<PathBuf>,
+        model: Option<String>,
+        mtimes: BTreeMap<String, u64>,
+        cards: Vec<Card>,
+        vecs: VecStore,
+        terms: Vec<Terms>,
+    ) -> Self {
         let idf = idf_of(&terms);
         Index {
-            vault: Some(vault),
+            roots,
             model,
             mtimes,
             cards,
@@ -552,10 +777,35 @@ fn semantic(cos: Vec<f32>) -> Vec<f32> {
         .collect()
 }
 
-/// Every `.md` note under `root`, as (vault-relative path, file, modified ms).
-/// Skips dot-folders (`.obsidian`, `.git`), `Daily` and `Entertainment`, as the
-/// original does, and never follows a link out of the vault.
-fn walk(root: &Path) -> Vec<(String, PathBuf, u64)> {
+/// A file to index.
+struct Job {
+    /// Its absolute path, as cards and `mtimes` name it.
+    key: String,
+    /// Its path under its folder, `/`-separated (names its category).
+    rel: String,
+    path: PathBuf,
+    mtime: u64,
+    kind: Kind,
+}
+
+impl Job {
+    fn name(&self) -> String {
+        let file = self.rel.rsplit('/').next().unwrap_or(&self.rel);
+        match self.kind {
+            Kind::Note => file.trim_end_matches(".md").to_string(),
+            Kind::Book => book_title(file),
+        }
+    }
+}
+
+/// Every note (`.md`) or book (`.pdf`) under `root`, sorted by path. Skips
+/// dot-folders (`.obsidian`, `.git`), and for notes `Daily` and `Entertainment`
+/// as the original does. Never follows a link out of the folder.
+fn walk(root: &Path, kind: Kind) -> Vec<Job> {
+    let ext = match kind {
+        Kind::Note => ".md",
+        Kind::Book => ".pdf",
+    };
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -568,23 +818,23 @@ fn walk(root: &Path) -> Vec<(String, PathBuf, u64)> {
             if name.starts_with('.') {
                 continue;
             }
-            let Ok(kind) = entry.file_type() else {
+            let Ok(file_type) = entry.file_type() else {
                 continue;
             };
             let path = entry.path();
-            if kind.is_dir() {
-                if name != "Daily" && name != "Entertainment" {
+            if file_type.is_dir() {
+                if kind == Kind::Book || (name != "Daily" && name != "Entertainment") {
                     stack.push(path);
                 }
                 continue;
             }
-            if !kind.is_file() || !name.to_lowercase().ends_with(".md") {
+            if !file_type.is_file() || !name.to_lowercase().ends_with(ext) {
                 continue;
             }
             let Ok(meta) = entry.metadata() else {
                 continue;
             };
-            if meta.len() > MAX_FILE_BYTES {
+            if kind == Kind::Note && meta.len() > MAX_FILE_BYTES {
                 continue;
             }
             let mtime = meta
@@ -599,13 +849,56 @@ fn walk(root: &Path) -> Vec<(String, PathBuf, u64)> {
                 .components()
                 .map(|c| c.as_os_str().to_string_lossy().into_owned())
                 .collect();
-            out.push((rel.join("/"), path, mtime));
+            out.push(Job {
+                key: path.to_string_lossy().into_owned(),
+                rel: rel.join("/"),
+                path,
+                mtime,
+                kind,
+            });
             if out.len() >= MAX_FILES {
-                return out;
+                break;
             }
         }
     }
+    out.sort_by(|a, b| a.key.cmp(&b.key));
     out
+}
+
+/// Byte-identical copies of a book (one PDF filed in two folders) would double
+/// its passages in every result list; the first by path is kept.
+fn dedupe(books: Vec<Job>) -> (Vec<Job>, usize) {
+    let mut seen = HashSet::new();
+    let mut kept = Vec::new();
+    let mut duplicates = 0;
+    for b in books {
+        match fingerprint(&b.path) {
+            Some(fp) if !seen.insert(fp) => duplicates += 1,
+            _ => kept.push(b),
+        }
+    }
+    (kept, duplicates)
+}
+
+/// Size and a hash of the first and last 64 KiB: enough to tell copies of a
+/// book apart from different books without reading hundreds of megabytes.
+fn fingerprint(path: &Path) -> Option<(u64, u64)> {
+    use std::io::{Read, Seek, SeekFrom};
+    const SPAN: u64 = 64 * 1024;
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    let mut buf = Vec::new();
+    (&mut f).take(SPAN).read_to_end(&mut buf).ok()?;
+    if len > 2 * SPAN {
+        f.seek(SeekFrom::End(-(SPAN as i64))).ok()?;
+        f.take(SPAN).read_to_end(&mut buf).ok()?;
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in buf {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    Some((len, h))
 }
 
 /// One card in a search's results.
@@ -620,8 +913,11 @@ pub struct IndexerMatch {
     /// "Category > note".
     pub source: String,
     pub category: String,
-    /// The note on disk, for "Open note".
+    /// The note or book on disk, for "Open".
     pub path: String,
+    /// A book passage (open it at `page`) rather than a note.
+    pub book: bool,
+    pub page: Option<u32>,
     /// The hybrid score, 0–1.
     pub confidence: f32,
     pub semantic: f32,
@@ -641,18 +937,58 @@ pub struct IndexerResults {
 #[derive(Serialize, Clone, specta::Type)]
 pub struct IndexerStatus {
     pub cards: u32,
+    /// Notes and books indexed.
     pub notes: u32,
+    pub books: u32,
     pub building: bool,
-    /// Progress of the build in flight: cards embedded / cards to embed.
-    pub embedded: u32,
-    pub to_embed: u32,
+    /// Progress of the build in flight: files read / files to read, and the one
+    /// being read now.
+    pub files_done: u32,
+    pub files_todo: u32,
+    pub current: Option<String>,
     pub embed_model: String,
     /// The index has vectors (else it matches on keywords alone).
     pub semantic: bool,
     /// Cards waiting for the model, matched on keywords until it's back.
     pub pending: u32,
-    pub vault: Option<String>,
+    /// The folders read: the vault, then the books.
+    pub sources: Vec<String>,
+    /// Worth knowing but not a failure: pdftotext missing, duplicate books.
+    pub notice: Option<String>,
     pub error: Option<String>,
+}
+
+/// Where the Indexer reads from.
+#[derive(Clone, Default)]
+pub struct Sources {
+    pub notes: Option<PathBuf>,
+    pub books: Option<PathBuf>,
+}
+
+/// Which cards a search looks at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    All,
+    Notes,
+    Books,
+}
+
+impl Scope {
+    pub fn parse(s: Option<&str>) -> Self {
+        match s {
+            Some("notes") => Scope::Notes,
+            Some("books") => Scope::Books,
+            _ => Scope::All,
+        }
+    }
+
+    fn admits(self, kind: Kind) -> bool {
+        match self {
+            Scope::All => true,
+            Scope::Notes => kind == Kind::Note,
+            Scope::Books => kind == Kind::Book,
+        }
+    }
 }
 
 /// The System 1 model's pick among the options it was given.
@@ -675,8 +1011,10 @@ pub struct IndexerState {
     index: Arc<RwLock<Index>>,
     loaded: Arc<Once>,
     building: Arc<AtomicBool>,
-    embedded: Arc<AtomicUsize>,
-    to_embed: Arc<AtomicUsize>,
+    files_done: Arc<AtomicUsize>,
+    files_todo: Arc<AtomicUsize>,
+    current: Arc<Mutex<Option<String>>>,
+    notice: Arc<Mutex<Option<String>>>,
     error: Arc<Mutex<Option<String>>>,
 }
 
@@ -689,8 +1027,10 @@ impl IndexerState {
             index: Arc::default(),
             loaded: Arc::new(Once::new()),
             building: Arc::default(),
-            embedded: Arc::default(),
-            to_embed: Arc::default(),
+            files_done: Arc::default(),
+            files_todo: Arc::default(),
+            current: Arc::default(),
+            notice: Arc::default(),
             error: Arc::default(),
         }
     }
@@ -706,23 +1046,35 @@ impl IndexerState {
     pub fn status(&self) -> IndexerStatus {
         self.hydrate();
         let idx = self.index.read();
+        let books = idx
+            .mtimes
+            .keys()
+            .filter(|k| k.to_lowercase().ends_with(".pdf"))
+            .count();
         IndexerStatus {
             cards: idx.cards.len() as u32,
-            notes: idx.mtimes.len() as u32,
+            notes: (idx.mtimes.len() - books) as u32,
+            books: books as u32,
             building: self.building.load(Ordering::Acquire),
-            embedded: self.embedded.load(Ordering::Relaxed) as u32,
-            to_embed: self.to_embed.load(Ordering::Relaxed) as u32,
+            files_done: self.files_done.load(Ordering::Relaxed) as u32,
+            files_todo: self.files_todo.load(Ordering::Relaxed) as u32,
+            current: self.current.lock().clone(),
             embed_model: embed_model(),
             semantic: idx.model.is_some(),
             pending: idx.pending() as u32,
-            vault: idx.vault.as_ref().map(|v| v.to_string_lossy().into_owned()),
+            sources: idx
+                .roots
+                .iter()
+                .map(|r| r.to_string_lossy().into_owned())
+                .collect(),
+            notice: self.notice.lock().clone(),
             error: self.error.lock().clone(),
         }
     }
 
-    /// Bring the index up to date with the vault on a thread of its own. A build
-    /// already running makes this a no-op.
-    pub fn start_build(&self, vault: Option<PathBuf>) {
+    /// Bring the index up to date with its folders on a thread of its own. A
+    /// build already running makes this a no-op.
+    pub fn start_build(&self, sources: Sources) {
         if self.building.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -730,7 +1082,8 @@ impl IndexerState {
         let spawned = std::thread::Builder::new()
             .name("flux-indexer".into())
             .spawn(move || {
-                let result = this.build(vault);
+                let result = this.build(sources);
+                *this.current.lock() = None;
                 *this.error.lock() = result.err();
                 this.building.store(false, Ordering::Release);
             });
@@ -739,26 +1092,51 @@ impl IndexerState {
         }
     }
 
-    fn build(&self, vault: Option<PathBuf>) -> Result<(), String> {
+    fn build(&self, src: Sources) -> Result<(), String> {
         self.hydrate();
-        let root = vault.ok_or(
-            "No Onyx vault found. Set its folder in the Notebook (Onyx source), or create ~/OnyxVault.",
-        )?;
-        let files = walk(&root);
+        let mut jobs: Vec<Job> = Vec::new();
+        if let Some(v) = &src.notes {
+            jobs.extend(walk(v, Kind::Note));
+        }
+        let mut duplicates = 0;
+        if let Some(b) = &src.books {
+            let (books, dups) = dedupe(walk(b, Kind::Book));
+            jobs.extend(books);
+            duplicates = dups;
+        }
+        let roots: Vec<PathBuf> = [src.notes, src.books].into_iter().flatten().collect();
+        if roots.is_empty() {
+            return Err(
+                "No Onyx vault or books folder found. Set the vault in the Notebook \
+                 (Onyx source), or create ~/OnyxVault or ~/Documents/Books."
+                    .into(),
+            );
+        }
         let model = embed_model();
         let available = flux_agent::ollama::has_model(&model);
+        let pdf = pdftotext();
+        let has_books = jobs.iter().any(|j| j.kind == Kind::Book);
+        *self.notice.lock() = match (&pdf, has_books, duplicates) {
+            (None, true, _) => {
+                Some("Books need poppler's pdftotext to be read: brew install poppler".into())
+            }
+            (_, _, 0) => None,
+            (_, _, n) => Some(format!(
+                "Skipped {n} duplicate book{}",
+                if n == 1 { "" } else { "s" }
+            )),
+        };
 
-        // Unchanged notes keep their cards and vectors, as long as the vectors
-        // came from this model.
-        let (kept_cards, kept_vecs, kept_paths, had_vectors, unchanged) = {
+        // Unchanged files keep their cards, terms and vectors, as long as the
+        // vectors came from this model.
+        let (mut cards, mut terms, mut vecs, mut mtimes, had_vectors, before) = {
             let old = self.index.read();
-            let same_vault = old.vault.as_deref() == Some(root.as_path());
-            let had_vectors = same_vault && old.model.as_deref() == Some(model.as_str());
+            let had_vectors = old.model.as_deref() == Some(model.as_str());
             // Without vectors to keep, only an index that also has none (and
             // still none to make) can keep its cards as they are.
-            let reuse = same_vault && (had_vectors || (old.model.is_none() && !available));
+            let reuse = had_vectors || (old.model.is_none() && !available);
             let fresh: HashMap<&str, u64> =
-                files.iter().map(|(r, _, m)| (r.as_str(), *m)).collect();
+                jobs.iter().map(|j| (j.key.as_str(), j.mtime)).collect();
             let keep_file = |p: &str| {
                 reuse
                     && old
@@ -767,114 +1145,159 @@ impl IndexerState {
                         .is_some_and(|&m| m != 0 && fresh.get(p) == Some(&m))
             };
             let keep: Vec<bool> = old.cards.iter().map(|c| keep_file(&c.path)).collect();
-            let kept_cards: Vec<Card> = old
-                .cards
-                .iter()
-                .zip(&keep)
-                .filter(|(_, k)| **k)
-                .map(|(c, _)| c.clone())
+            let pick = |i: usize| keep[i];
+            let cards: Vec<Card> = (0..old.cards.len())
+                .filter(|&i| pick(i))
+                .map(|i| old.cards[i].clone())
                 .collect();
-            let mut kept_vecs = old.vecs.clone();
+            let terms: Vec<Terms> = (0..old.terms.len())
+                .filter(|&i| pick(i))
+                .map(|i| old.terms[i].clone())
+                .collect();
+            let mut vecs = old.vecs.clone();
             if had_vectors {
-                kept_vecs.retain(|i| keep[i]);
+                vecs.retain(|i| keep[i]);
             } else {
-                kept_vecs.clear();
+                vecs.clear();
             }
-            let kept_paths: HashSet<String> = files
+            let mtimes: BTreeMap<String, u64> = old
+                .mtimes
                 .iter()
-                .filter(|(r, _, _)| keep_file(r))
-                .map(|(r, _, _)| r.clone())
+                .filter(|(k, _)| keep_file(k))
+                .map(|(k, m)| (k.clone(), *m))
                 .collect();
-            let unchanged = reuse
-                && kept_paths.len() == files.len()
-                && old.mtimes.len() == files.len()
-                && (had_vectors || !available);
-            (kept_cards, kept_vecs, kept_paths, had_vectors, unchanged)
+            (cards, terms, vecs, mtimes, had_vectors, old.mtimes.len())
         };
-        if unchanged {
+        // Without pdftotext, books wait for a build that can read them; the ones
+        // already indexed stay.
+        let todo: Vec<&Job> = jobs
+            .iter()
+            .filter(|j| !mtimes.contains_key(&j.key) && (j.kind == Kind::Note || pdf.is_some()))
+            .collect();
+        if todo.is_empty() && mtimes.len() == before && (had_vectors || !available) {
             return Ok(());
         }
 
-        let mut fresh_cards: Vec<Card> = Vec::new();
-        for (rel, path, _) in &files {
-            if kept_paths.contains(rel) {
-                continue;
-            }
-            if let Ok(text) = std::fs::read_to_string(path) {
-                fresh_cards.extend(parse_note(&text, rel));
-            }
-        }
-
-        // Vectors for the new cards. A model that fails partway leaves zero rows
-        // (they match on keywords) and marks their notes for the next build.
-        let mut vecs = kept_vecs;
         let mut keyed: Option<String> = (available || had_vectors).then(|| model.clone());
-        let mut pending: HashSet<String> = HashSet::new();
-        if keyed.is_some() {
-            self.embedded.store(0, Ordering::Relaxed);
-            self.to_embed.store(fresh_cards.len(), Ordering::Relaxed);
-            let mut failed = !available;
-            for chunk in fresh_cards.chunks(EMBED_BATCH) {
-                let texts: Vec<String> = chunk.iter().map(doc_text).collect();
-                let got = if failed {
-                    None
-                } else {
-                    flux_agent::ollama::embed_remote_batch_with(&model, &texts)
-                        .filter(|v| v.len() == chunk.len())
-                };
-                match got {
-                    Some(rows) => {
-                        for row in rows {
-                            if !vecs.push(&row) {
-                                return Err(format!(
-                                    "{model} returned vectors of a different size; reindex to rebuild"
-                                ));
-                            }
-                        }
-                    }
-                    None => {
-                        failed = true;
-                        if vecs.is_empty() {
-                            // Nothing to size a zero row by: fall back to keywords
-                            // for the whole index, and embed it all next time.
-                            keyed = None;
-                            break;
-                        }
-                        let zero = vec![0f32; vecs.dim()];
-                        for c in chunk {
-                            vecs.push(&zero);
-                            pending.insert(c.path.clone());
-                        }
-                    }
-                }
-                self.embedded.fetch_add(chunk.len(), Ordering::Relaxed);
-            }
-        }
         if keyed.is_none() {
             vecs.clear();
         }
+        self.files_todo.store(todo.len(), Ordering::Relaxed);
+        self.files_done.store(0, Ordering::Relaxed);
+        let mut failed = !available;
+        let mut pending = 0usize;
+        let mut last_commit = Instant::now();
+        let mut notes_committed = false;
+        for job in todo {
+            // Changed notes show up before the long haul through the books.
+            if job.kind == Kind::Book && !notes_committed {
+                notes_committed = true;
+                self.commit(&roots, &keyed, &mtimes, &cards, &terms, &vecs)?;
+                last_commit = Instant::now();
+            }
+            *self.current.lock() = Some(job.name());
+            let fresh = match job.kind {
+                Kind::Note => std::fs::read_to_string(&job.path)
+                    .map(|t| parse_note(&t, &job.rel, &job.key))
+                    .unwrap_or_default(),
+                // An unreadable book (encrypted, malformed, timed out) is recorded
+                // as done with no cards, so it isn't retried on every reindex.
+                Kind::Book => match pdf.as_deref().map(|bin| extract_pdf(bin, &job.path)) {
+                    Some(Ok(text)) => parse_book(&text, &job.rel, &job.key),
+                    _ => Vec::new(),
+                },
+            };
 
-        let mtimes: BTreeMap<String, u64> = files
-            .iter()
-            .map(|(r, _, m)| (r.clone(), if pending.contains(r) { 0 } else { *m }))
-            .collect();
-        let mut cards = kept_cards;
-        cards.extend(fresh_cards);
-        let idx = Index::from_parts(root, keyed, mtimes, cards, vecs);
-        if let Some(dir) = &self.dir {
-            save(dir, &idx)?;
+            // A model that fails partway leaves zero rows (those cards match on
+            // keywords) and marks the file for the next build.
+            let mut embedded = true;
+            if keyed.is_some() {
+                for chunk in fresh.chunks(EMBED_BATCH) {
+                    let texts: Vec<String> = chunk.iter().map(doc_text).collect();
+                    let got = if failed {
+                        None
+                    } else {
+                        flux_agent::ollama::embed_remote_batch_with(&model, &texts)
+                            .filter(|v| v.len() == chunk.len())
+                    };
+                    match got {
+                        Some(rows) => {
+                            for row in rows {
+                                if !vecs.push(&row) {
+                                    return Err(format!(
+                                        "{model} returned vectors of a different size; reindex to rebuild"
+                                    ));
+                                }
+                            }
+                        }
+                        None => {
+                            failed = true;
+                            embedded = false;
+                            if vecs.is_empty() {
+                                // Nothing to size a zero row by (no card has a
+                                // vector yet): keywords for the whole index, and
+                                // everything embedded next time.
+                                keyed = None;
+                                break;
+                            }
+                            let zero = vec![0f32; vecs.dim()];
+                            for _ in chunk {
+                                vecs.push(&zero);
+                            }
+                        }
+                    }
+                }
+            }
+            if keyed.is_none() {
+                vecs.clear();
+            }
+            terms.extend(fresh.iter().map(Terms::of));
+            cards.extend(fresh);
+            mtimes.insert(job.key.clone(), if embedded { job.mtime } else { 0 });
+            if !embedded {
+                pending += 1;
+            }
+            self.files_done.fetch_add(1, Ordering::Relaxed);
+            if last_commit.elapsed() >= COMMIT_EVERY {
+                self.commit(&roots, &keyed, &mtimes, &cards, &terms, &vecs)?;
+                last_commit = Instant::now();
+            }
         }
-        *self.index.write() = idx;
-        if !pending.is_empty() {
+        self.commit(&roots, &keyed, &mtimes, &cards, &terms, &vecs)?;
+        if pending > 0 {
             return Err(format!(
-                "{model} stopped answering partway; {} notes match on keywords until the next index",
-                pending.len()
+                "{model} stopped answering partway; {pending} files match on keywords until the next index"
             ));
         }
         Ok(())
     }
 
-    pub fn search(&self, query: &str, k: usize) -> IndexerResults {
+    /// Save what a build has so far and make it the index searches use.
+    fn commit(
+        &self,
+        roots: &[PathBuf],
+        model: &Option<String>,
+        mtimes: &BTreeMap<String, u64>,
+        cards: &[Card],
+        terms: &[Terms],
+        vecs: &VecStore,
+    ) -> Result<(), String> {
+        let idx = Index::assemble(
+            roots.to_vec(),
+            model.clone(),
+            mtimes.clone(),
+            cards.to_vec(),
+            vecs.clone(),
+            terms.to_vec(),
+        );
+        if let Some(dir) = &self.dir {
+            save(dir, &idx)?;
+        }
+        *self.index.write() = idx;
+        Ok(())
+    }
+
+    pub fn search(&self, query: &str, k: usize, scope: Scope) -> IndexerResults {
         self.hydrate();
         let q = prefix_chars(query.trim(), MAX_QUERY_CHARS);
         let empty = IndexerResults {
@@ -896,18 +1319,29 @@ impl IndexerState {
         if idx.cards.is_empty() {
             return empty;
         }
+        let in_scope: Vec<bool> = idx.cards.iter().map(|c| scope.admits(c.kind)).collect();
+        if !in_scope.contains(&true) {
+            return empty;
+        }
         let qq = qvec
             .filter(|v| idx.vecs.len() == idx.cards.len() && v.len() == idx.vecs.dim())
             .map(|v| quantize_query(&v));
-        let sem: Vec<f32> = match &qq {
-            Some((qr, qs)) => semantic(
-                idx.vecs
-                    .rows()
-                    .map(|(row, scale)| score(row, scale, qr, *qs))
-                    .collect(),
-            ),
-            None => vec![0.0; idx.cards.len()],
-        };
+        // The median is the scope's own: thousands of book passages shouldn't
+        // set the baseline a question about notes is scored against.
+        let mut sem = vec![0.0; idx.cards.len()];
+        if let Some((qr, qs)) = &qq {
+            let cos: Vec<(usize, f32)> = idx
+                .vecs
+                .rows()
+                .enumerate()
+                .filter(|(i, _)| in_scope[*i])
+                .map(|(i, (row, scale))| (i, score(row, scale, qr, *qs)))
+                .collect();
+            let scores = semantic(cos.iter().map(|(_, c)| *c).collect());
+            for ((i, _), v) in cos.iter().zip(scores) {
+                sem[*i] = v;
+            }
+        }
         // A word no note uses is as specific as words get. It stays in the
         // denominator: dropping it left a question's common words ("how",
         // "handle") to carry the whole keyword score.
@@ -922,6 +1356,7 @@ impl IndexerState {
             .terms
             .iter()
             .enumerate()
+            .filter(|(i, _)| in_scope[*i])
             .map(|(i, t)| {
                 let kw = if denom > 0.0 {
                     weights
@@ -945,7 +1380,6 @@ impl IndexerState {
         });
         scored.truncate(k.clamp(1, MAX_K));
 
-        let root = idx.vault.clone().unwrap_or_default();
         let matches: Vec<IndexerMatch> = scored
             .iter()
             .map(|&(i, s, kw)| {
@@ -957,7 +1391,9 @@ impl IndexerState {
                     key_points: c.key_points.clone(),
                     source: c.source.clone(),
                     category: c.category.clone(),
-                    path: root.join(&c.path).to_string_lossy().into_owned(),
+                    path: c.path.clone(),
+                    book: c.kind == Kind::Book,
+                    page: c.page,
                     confidence: hybrid(s, kw),
                     semantic: s,
                     keyword: kw,
@@ -995,9 +1431,24 @@ fn ambiguous(matches: &[IndexerMatch]) -> bool {
 
 fn load(dir: &Path) -> Option<Index> {
     let json = std::fs::read_to_string(dir.join("index.json")).ok()?;
-    let saved: Saved = serde_json::from_str(&json).ok()?;
-    if saved.format != FORMAT {
-        return None;
+    let mut saved: Saved = serde_json::from_str(&json).ok()?;
+    match saved.format {
+        FORMAT => {}
+        // Format 1 read one vault, and its card paths were relative to it.
+        1 => {
+            let vault = saved.vault.take()?;
+            let abs = |rel: &str| vault.join(rel).to_string_lossy().into_owned();
+            for c in &mut saved.cards {
+                c.path = abs(&c.path);
+            }
+            saved.mtimes = saved
+                .mtimes
+                .into_iter()
+                .map(|(k, m)| (abs(&k), m))
+                .collect();
+            saved.roots = vec![vault];
+        }
+        _ => return None,
     }
     let vecs = match &saved.model {
         Some(_) => {
@@ -1011,7 +1462,7 @@ fn load(dir: &Path) -> Option<Index> {
         None => VecStore::default(),
     };
     Some(Index::from_parts(
-        saved.vault,
+        saved.roots,
         saved.model,
         saved.mtimes,
         saved.cards,
@@ -1028,7 +1479,8 @@ fn save(dir: &Path, idx: &Index) -> Result<(), String> {
         .map_err(|e| format!("couldn't save the Indexer's vectors: {e}"))?;
     let saved = Saved {
         format: FORMAT,
-        vault: idx.vault.clone().unwrap_or_default(),
+        vault: None,
+        roots: idx.roots.clone(),
         model: idx.model.clone(),
         mtimes: idx.mtimes.clone(),
         cards: idx.cards.clone(),
@@ -1115,8 +1567,25 @@ fn parse_pick(value: &serde_json::Value, n: usize) -> Result<IndexerPick, String
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
-fn vault(kb: &crate::kb::KbStore) -> Option<PathBuf> {
-    crate::kb::onyx_vault(kb.source_location("onyx").as_deref())
+/// The Onyx vault and the books folder (`FLUX_INDEXER_BOOKS`, else
+/// `~/Documents/Books`), whichever exist.
+fn sources(kb: &crate::kb::KbStore) -> Sources {
+    Sources {
+        notes: crate::kb::onyx_vault(kb.source_location("onyx").as_deref()),
+        books: books_dir(),
+    }
+}
+
+fn books_dir() -> Option<PathBuf> {
+    let dir = match std::env::var_os("FLUX_INDEXER_BOOKS").filter(|p| !p.is_empty()) {
+        Some(p) => PathBuf::from(p),
+        None => {
+            PathBuf::from(std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?)
+                .join("Documents")
+                .join("Books")
+        }
+    };
+    dir.is_dir().then_some(dir)
 }
 
 /// The index's state. The first call of a session also starts an incremental
@@ -1129,14 +1598,14 @@ pub async fn indexer_status(
     let (state, kb) = ((*state).clone(), (*kb).clone());
     tauri::async_runtime::spawn_blocking(move || {
         static FIRST: Once = Once::new();
-        FIRST.call_once(|| state.start_build(vault(&kb)));
+        FIRST.call_once(|| state.start_build(sources(&kb)));
         state.status()
     })
     .await
     .map_err(|e| e.to_string())
 }
 
-/// Re-read changed notes (and embed them) in the background.
+/// Re-read new and changed notes and books (and embed them) in the background.
 #[tauri::command]
 pub async fn indexer_reindex(
     state: State<'_, IndexerState>,
@@ -1144,7 +1613,7 @@ pub async fn indexer_reindex(
 ) -> Result<IndexerStatus, String> {
     let (state, kb) = ((*state).clone(), (*kb).clone());
     tauri::async_runtime::spawn_blocking(move || {
-        state.start_build(vault(&kb));
+        state.start_build(sources(&kb));
         state.status()
     })
     .await
@@ -1156,11 +1625,15 @@ pub async fn indexer_search(
     state: State<'_, IndexerState>,
     query: String,
     k: Option<u32>,
+    scope: Option<String>,
 ) -> Result<IndexerResults, String> {
     let state = (*state).clone();
-    tauri::async_runtime::spawn_blocking(move || state.search(&query, k.unwrap_or(5) as usize))
-        .await
-        .map_err(|e| e.to_string())
+    let scope = Scope::parse(scope.as_deref());
+    tauri::async_runtime::spawn_blocking(move || {
+        state.search(&query, k.unwrap_or(5) as usize, scope)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// The System 1 tie-break: which of `options` answers `question`.
@@ -1189,7 +1662,11 @@ mod tests {
     #[test]
     fn notes_split_into_heading_cards() {
         let note = "---\ntags: [ml]\n---\n#ml\nIntro text that is long enough to be its own card, really.\n\n## Backpropagation\nThe chain rule applied layer by layer from the loss backwards.\n```python\n# not a heading\nx = 1\n```\n# [[Index]]\nshort\n";
-        let cards = parse_note(note, "00 - Machine Learning/Neural nets.md");
+        let cards = parse_note(
+            note,
+            "00 - Machine Learning/Neural nets.md",
+            "/v/00 - Machine Learning/Neural nets.md",
+        );
         let qs: Vec<&str> = cards.iter().map(|c| c.question.as_str()).collect();
         assert_eq!(qs, ["Neural nets", "Neural nets: Backpropagation"]);
         assert_eq!(cards[0].source, "Machine Learning > Neural nets");
@@ -1204,7 +1681,11 @@ mod tests {
     #[test]
     fn interview_notes_split_into_questions() {
         let note = "Introduction\nI study computing at ANU.\nTell me about a time you disagreed with a teammate\nWe built two wireframes. So I proposed a summary dashboard, and the result was a faster review.\n## Why this role?\nApplied AI.";
-        let cards = parse_note(note, "10 - Interview prep/Prep.md");
+        let cards = parse_note(
+            note,
+            "10 - Interview prep/Prep.md",
+            "/v/10 - Interview prep/Prep.md",
+        );
         let qs: Vec<&str> = cards.iter().map(|c| c.question.as_str()).collect();
         assert_eq!(
             qs,
@@ -1215,6 +1696,7 @@ mod tests {
             ]
         );
         assert_eq!(cards[1].category, "Behavioral (STAR)");
+        assert_eq!(cards[1].path, "/v/10 - Interview prep/Prep.md");
         assert!(cards[1].key_points[0].starts_with("We built"));
     }
 
@@ -1231,7 +1713,7 @@ mod tests {
         state.loaded.call_once(|| {});
         let mtimes = cards.iter().map(|c| (c.path.clone(), 1)).collect();
         *state.index.write() =
-            Index::from_parts("/v".into(), None, mtimes, cards, VecStore::default());
+            Index::from_parts(vec!["/v".into()], None, mtimes, cards, VecStore::default());
         state
     }
 
@@ -1260,15 +1742,15 @@ mod tests {
                 "Some model details, not much else here.",
             ),
         ]);
-        let r = state.search("walk me through PlantCLEF", 3);
+        let r = state.search("walk me through PlantCLEF", 3, Scope::All);
         assert!(!r.semantic, "no vectors: keywords only");
         assert_eq!(r.matches[0].question, "PlantCLEF walkthrough");
-        let r = state.search("model", 3);
+        let r = state.search("model", 3, Scope::All);
         assert_eq!(
             r.matches[0].question, "Model notes",
             "a question hit beats an answer hit"
         );
-        assert!(state.search("   ", 3).matches.is_empty());
+        assert!(state.search("   ", 3, Scope::All).matches.is_empty());
     }
 
     #[test]
@@ -1281,6 +1763,8 @@ mod tests {
             source: String::new(),
             category: String::new(),
             path: String::new(),
+            book: false,
+            page: None,
             confidence,
             semantic: 0.0,
             keyword: 0.0,
@@ -1324,7 +1808,13 @@ mod tests {
         vecs.push(&[1.0, 0.0]);
         vecs.push(&[0.0, 1.0]);
         let mtimes = [("a.md".to_string(), 5), ("b.md".to_string(), 0)].into();
-        let idx = Index::from_parts("/v".into(), Some("m".into()), mtimes, cards.clone(), vecs);
+        let idx = Index::from_parts(
+            vec!["/v".into()],
+            Some("m".into()),
+            mtimes,
+            cards.clone(),
+            vecs,
+        );
         save(&dir, &idx).unwrap();
         let back = load(&dir).unwrap();
         assert_eq!(back.cards, cards);
@@ -1336,5 +1826,107 @@ mod tests {
         std::fs::write(dir.join("vectors.bin"), one.to_bytes()).unwrap();
         assert!(load(&dir).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_index_from_before_books_moves_to_absolute_paths() {
+        let dir = std::env::temp_dir().join(format!("flux-indexer-v1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let v1 = serde_json::json!({
+            "format": 1, "vault": "/vault", "model": null,
+            "mtimes": {"ml/a.md": 5},
+            "cards": [{"path": "ml/a.md", "source": "ml > a", "category": "ml",
+                       "question": "A", "answer": "an answer", "key_points": []}],
+        });
+        std::fs::write(dir.join("index.json"), v1.to_string()).unwrap();
+        let idx = load(&dir).unwrap();
+        assert_eq!(idx.roots, vec![PathBuf::from("/vault")]);
+        assert_eq!(idx.cards[0].path, "/vault/ml/a.md");
+        assert_eq!(idx.cards[0].kind, Kind::Note);
+        assert_eq!(idx.mtimes.get("/vault/ml/a.md"), Some(&5));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn books_split_into_page_passages() {
+        let para = "Gradient descent takes a step against the gradient of the loss. ".repeat(4);
+        let text = format!(
+            "Chapter 1\nIntro-\nduction to learning. {para}\n\n{para}\x0c3\x0c{}",
+            para.repeat(12)
+        );
+        let cards = parse_book(
+            &text,
+            "Machine Learning/mml-book.pdf",
+            "/b/Machine Learning/mml-book.pdf",
+        );
+        assert!(cards
+            .iter()
+            .all(|c| c.kind == Kind::Book && c.path.ends_with("mml-book.pdf")));
+        assert_eq!(cards[0].page, Some(1));
+        assert!(
+            cards[0].answer.contains("Introduction to learning"),
+            "a wrap's hyphen is rejoined"
+        );
+        assert!(cards[0]
+            .question
+            .starts_with("mml book, p. 1: Chapter 1 Introduction"));
+        assert_eq!(cards[0].category, "Machine Learning");
+        assert!(
+            cards.iter().all(|c| c.page != Some(2)),
+            "a page that's only a number is no card"
+        );
+        let third: Vec<&Card> = cards.iter().filter(|c| c.page == Some(3)).collect();
+        assert!(third.len() > 1, "a long page is cut into passages");
+        assert!(third
+            .iter()
+            .all(|c| c.answer.chars().count() <= BOOK_CHUNK_CHARS));
+    }
+
+    #[test]
+    fn book_titles_read_like_titles() {
+        assert_eq!(
+            book_title("Bishop-Pattern-Recognition-and-Machine-Learning-2006.pdf"),
+            "Bishop Pattern Recognition and Machine Learning 2006"
+        );
+        assert_eq!(
+            book_title("Deep Learning by Ian Goodfellow (z-lib.org).pdf"),
+            "Deep Learning by Ian Goodfellow"
+        );
+        assert_eq!(
+            book_title("Artificial Intelligence - A Modern Approach.pdf"),
+            "Artificial Intelligence - A Modern Approach"
+        );
+    }
+
+    #[test]
+    fn a_search_can_keep_to_notes_or_books() {
+        let mut book = card(
+            "/b/x.pdf",
+            "Books > x",
+            "Books",
+            "x, p. 4: Convexity".into(),
+            "convex sets and convex functions",
+        );
+        book.kind = Kind::Book;
+        book.page = Some(4);
+        let state = index_of(vec![
+            card(
+                "/v/n.md",
+                "s",
+                "General",
+                "Convexity notes".into(),
+                "my notes on convex sets",
+            ),
+            book,
+        ]);
+        let all = state.search("convex", 5, Scope::All);
+        assert_eq!(all.matches.len(), 2);
+        let books = state.search("convex", 5, Scope::Books);
+        assert_eq!(books.matches.len(), 1);
+        assert!(books.matches[0].book);
+        assert_eq!(books.matches[0].page, Some(4));
+        let notes = state.search("convex", 5, Scope::Notes);
+        assert!(notes.matches.iter().all(|m| !m.book));
     }
 }
