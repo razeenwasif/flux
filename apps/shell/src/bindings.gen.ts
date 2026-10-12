@@ -331,6 +331,19 @@ export type KbHit = { source: string; doc_id: string; title: string; path: strin
 export type KbSourceStat = { source: string; docs: number; chunks: number; last_ms: number; error: string | null; location: string | null }
 export type KbStatus = { sources: KbSourceStat[]; embedder: string; indexing: boolean }
 /**
+ * One card in a search's results.
+ */
+export type IndexerMatch = { label: string; question: string; answer: string; key_points: string[]; source: string; category: string; path: string; book: boolean; page: number | null; confidence: number; semantic: number; keyword: number }
+/**
+ * Results of one search, best first.
+ */
+export type IndexerResults = { matches: IndexerMatch[]; ambiguous: boolean; semantic: boolean }
+export type IndexerStatus = { cards: number; notes: number; books: number; building: boolean; files_done: number; files_todo: number; current: string | null; embed_model: string; semantic: boolean; pending: number; sources: string[]; notice: string | null; error: string | null }
+/**
+ * The System 1 model's pick among the options it was given.
+ */
+export type IndexerPick = { index: number; decisive: boolean; probabilities: number[]; confidence: number }
+/**
  * A recently-indexed document, for the weekly digest (#125).
  */
 export type KbRecentItem = { source: string; title: string; path: string; indexed_at: number; snippet: string }

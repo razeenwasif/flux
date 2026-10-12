@@ -28,6 +28,7 @@ use crate::files::{DirListing, FileEntry, QuickLocation};
 use crate::hibernate::{EvictionRank, HibernateCandidate};
 use crate::history::HistoryEntry;
 use crate::https::HttpsStatus;
+use crate::indexer::{IndexerMatch, IndexerPick, IndexerResults, IndexerStatus};
 use crate::kb::{KbCheck, KbHit, KbRecentItem, KbSourceStat, KbStatus};
 use crate::leanmode::LeanStatus;
 use crate::macros::{Macro, MacroStatus, Step};
@@ -186,6 +187,10 @@ pub fn generate_ts() -> String {
         specta::ts::export::<KbHit>(&c),
         specta::ts::export::<KbSourceStat>(&c),
         specta::ts::export::<KbStatus>(&c),
+        specta::ts::export::<IndexerMatch>(&c),
+        specta::ts::export::<IndexerResults>(&c),
+        specta::ts::export::<IndexerStatus>(&c),
+        specta::ts::export::<IndexerPick>(&c),
         specta::ts::export::<KbRecentItem>(&c),
         specta::ts::export::<KbCheck>(&c),
         specta::ts::export::<TuiApp>(&c),

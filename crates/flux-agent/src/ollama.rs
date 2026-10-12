@@ -112,6 +112,12 @@ pub fn embed_model() -> String {
 /// while still distinguishing "server up with the model pulled" from "server up
 /// but the model was never fetched" - which is the whole question being asked.
 pub fn has_embed_model() -> bool {
+    has_model(&embed_model())
+}
+
+/// Is `want` pulled and the server answering? `has_embed_model` for a model
+/// other than the global embedder (the Indexer runs its own).
+pub fn has_model(want: &str) -> bool {
     let url = format!("{}/api/tags", endpoint());
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(1))
@@ -127,7 +133,6 @@ pub fn has_embed_model() -> bool {
     let Ok(value) = resp.into_json::<serde_json::Value>() else {
         return false;
     };
-    let want = embed_model();
     // Tags carry an explicit version ("embeddinggemma:latest"); a configured name
     // without one should still match.
     let base = |n: &str| n.split(':').next().unwrap_or(n).to_string();
@@ -138,7 +143,7 @@ pub fn has_embed_model() -> bool {
             models.iter().any(|m| {
                 m.get("name")
                     .and_then(|n| n.as_str())
-                    .is_some_and(|n| n == want || base(n) == base(&want))
+                    .is_some_and(|n| n == want || base(n) == base(want))
             })
         })
 }
@@ -177,6 +182,11 @@ pub fn embed_remote(text: &str) -> Option<Vec<f32>> {
 /// `input`). Returns one L2-normalized vector per input, in order, or `None` on
 /// any error / shape mismatch. Used by the file-search semantic re-rank (#88/#11).
 pub fn embed_remote_batch(texts: &[String]) -> Option<Vec<Vec<f32>>> {
+    embed_remote_batch_with(&embed_model(), texts)
+}
+
+/// [`embed_remote_batch`] with an explicit model rather than the global one.
+pub fn embed_remote_batch_with(model: &str, texts: &[String]) -> Option<Vec<Vec<f32>>> {
     if texts.is_empty() {
         return Some(Vec::new());
     }
@@ -187,7 +197,7 @@ pub fn embed_remote_batch(texts: &[String]) -> Option<Vec<Vec<f32>>> {
         .build();
     let resp = agent
         .post(&url)
-        .send_json(serde_json::json!({ "model": embed_model(), "input": texts }))
+        .send_json(serde_json::json!({ "model": model, "input": texts }))
         .ok()?;
     let value: serde_json::Value = resp.into_json().ok()?;
     let arr = value.get("embeddings")?.as_array()?;

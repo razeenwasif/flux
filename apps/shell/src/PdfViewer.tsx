@@ -40,6 +40,7 @@ import {
   savePosition,
   stashUnsavedPdf,
   takeUnsavedPdf,
+  viewerPage,
   viewerSrc,
   type PdfBookmark,
   type PdfComment,
@@ -455,8 +456,10 @@ const PdfViewer: Component<{ tabId: number }> = (props) => {
     setScale(st.scale);
     setBookmarks(st.bookmarks);
     setComments(st.comments);
-    setCurPage(st.page);
-    pendingPage = st.page;
+    // A link to a page (the Indexer's "Open book") beats where it was last read.
+    const at = viewerPage(tabs().find((t) => t.id === props.tabId)?.url ?? "") || st.page;
+    setCurPage(at);
+    pendingPage = at;
     if (!s) {
       setError("No PDF source.");
       setLoading(false);

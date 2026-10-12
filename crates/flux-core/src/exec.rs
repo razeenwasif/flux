@@ -135,12 +135,12 @@ pub fn shell_guard(command: String) -> Option<String> {
 /// found`, exit 127) comes back as `Err`, so callers can distinguish "ran and
 /// printed" from "failed", which the shared `run_shell` path deliberately blurs.
 /// Used by read-only preflights like `pac_status`.
-struct BoundedOutput {
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-    status: std::process::ExitStatus,
-    timed_out: bool,
-    truncated: bool,
+pub(crate) struct BoundedOutput {
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
+    pub(crate) status: std::process::ExitStatus,
+    pub(crate) timed_out: bool,
+    pub(crate) truncated: bool,
 }
 
 fn drain_pipe<R: std::io::Read>(mut reader: R, limit: usize) -> (Vec<u8>, bool) {
@@ -164,7 +164,7 @@ fn drain_pipe<R: std::io::Read>(mut reader: R, limit: usize) -> (Vec<u8>, bool) 
     (buf, truncated)
 }
 
-fn run_bounded(
+pub(crate) fn run_bounded(
     mut cmd: Command,
     timeout: std::time::Duration,
     limit: usize,
