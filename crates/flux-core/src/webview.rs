@@ -126,6 +126,22 @@ mod real {
         id
     }
 
+    /// Where container data dirs live. Tauri creates a webview's data dir before
+    /// building it, on every engine (an empty one under WKWebView), so a
+    /// container has a dir here once any webview has opened in it.
+    pub(crate) fn containers_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
+        Some(app.path().app_data_dir().ok()?.join("containers"))
+    }
+
+    /// A container's jar on WebView2 and WebKitGTK (#59). Every webview on a jar
+    /// must use this same dir: WebView2 refuses a second one with other options.
+    pub(crate) fn container_data_dir(
+        app: &AppHandle,
+        container: u32,
+    ) -> Option<std::path::PathBuf> {
+        Some(containers_dir(app)?.join(container.to_string()))
+    }
+
     /// Create the child webview for a Browser tab at the given rect (logical px,
     /// relative to the chrome window's top-left). Idempotent — a second call for
     /// an existing tab is a no-op (use `webview_navigate` to change the page).
@@ -226,9 +242,8 @@ mod real {
                 let _ = app_for_title.emit("flux://tab-title", (tab_id, url.as_str(), title));
             });
         if !private && container != 0 {
-            if let Ok(dir) = app.path().app_data_dir() {
-                builder =
-                    builder.data_directory(dir.join("containers").join(container.to_string()));
+            if let Some(dir) = container_data_dir(&app, container) {
+                builder = builder.data_directory(dir);
             }
             // Apple only; the data dir above is the jar everywhere else.
             builder = builder.data_store_identifier(container_store_id(container));
@@ -360,6 +375,9 @@ mod real {
                 LogicalSize::new(width.max(0.0), height.max(0.0)),
             )
             .map_err(|e| e.to_string())?;
+        // Record its jar so cookie clears can reach it (#58). A private tab's
+        // is in memory and goes with the webview.
+        crate::cookies::note_jar(&app, child.label(), if private { 0 } else { container });
         // Belt-and-suspenders: re-apply geometry + visibility explicitly — some
         // platforms ignore the add_child args, leaving the page wrong/hidden.
         let _ = child.set_position(LogicalPosition::new(x, y));
@@ -693,6 +711,7 @@ mod real {
         if let Some(state) = app.try_state::<crate::state::FluxState>() {
             state.dom_cache.remove(&tab_id);
         }
+        crate::cookies::forget_jar(&app, &label(tab_id));
         if let Some(wv) = app.get_webview(&label(tab_id)) {
             wv.close().map_err(|e| e.to_string())?;
         }
@@ -792,30 +811,39 @@ mod real {
     #[tauri::command]
     pub async fn webview_close(app: AppHandle, tab_id: TabId) -> Result<(), String> {
         crate::netfilter::forget(tab_id);
-        // Clear-on-close (#58): if this tab's host is flagged, wipe its cookies
-        // (through the always-alive main webview) before tearing the tab down.
-        let host: Option<String> = app.try_state::<crate::state::FluxState>().and_then(|s| {
-            s.tabs
-                .get(&tab_id)
-                .and_then(|t| crate::cookies::host_of(&t.url).map(str::to_string))
-        });
-        if let Some(host) = host {
-            let flagged = app
-                .try_state::<crate::cookies::CookieState>()
-                .map(|c| c.should_clear_on_close(&host))
-                .unwrap_or(false);
-            if flagged {
-                crate::cookies::clear_for_host(&app, &host);
-            }
-        }
+        let label = label(tab_id);
+        // Clear-on-close (#58): if this tab's host is flagged, its cookies go from
+        // the jar its webview was built on (a sleeping tab's: the one it would
+        // wake into). A private tab's jar is in memory and goes with the webview.
+        let clear: Option<(String, u32)> = app
+            .try_state::<crate::state::FluxState>()
+            .and_then(|s| {
+                let t = s.tabs.get(&tab_id)?;
+                let host = crate::cookies::host_of(&t.url)?.to_string();
+                let jar = crate::cookies::jar_of(&app, &label).unwrap_or(t.container);
+                (!t.private).then_some((host, jar))
+            })
+            .filter(|(host, _)| {
+                app.try_state::<crate::cookies::CookieState>()
+                    .is_some_and(|c| c.should_clear_on_close(host))
+            });
         // Drop any preserved hibernation state — the tab is gone for good (#45).
         if let Some(store) = app.try_state::<crate::hibernate::HibernateStore>() {
             store.remove(tab_id);
         }
-        if let Some(wv) = app.get_webview(&label(tab_id)) {
-            wv.close().map_err(|e| e.to_string())?;
+        // Close before clearing, so the page can't set the cookies again: the
+        // clear's webview calls queue up behind this close. They go through
+        // another webview on the jar: the main one, another tab or peek in the
+        // container, or a hidden one built for the clear.
+        let closed = match app.get_webview(&label) {
+            Some(wv) => wv.close().map_err(|e| e.to_string()),
+            None => Ok(()),
+        };
+        crate::cookies::forget_jar(&app, &label);
+        if let Some((host, jar)) = clear {
+            crate::cookies::clear_for_host(&app, &host, jar);
         }
-        Ok(())
+        closed
     }
 
     /// Tab-switcher cover snapshot. Mobile-only (ADR 0012) — desktop shows live

@@ -111,9 +111,8 @@ fn open_peek(app: &AppHandle, url: &str, session: Session) -> Result<(), String>
         });
     // …nor one from a container tab in the default jar (#59).
     if !session.private && session.container != 0 {
-        if let Ok(dir) = app.path().app_data_dir() {
-            builder =
-                builder.data_directory(dir.join("containers").join(session.container.to_string()));
+        if let Some(dir) = crate::webview::container_data_dir(app, session.container) {
+            builder = builder.data_directory(dir);
         }
         // macOS keys the jar by data store, not directory (see `container_store_id`).
         let store = crate::webview::container_store_id(session.container);
@@ -124,6 +123,9 @@ fn open_peek(app: &AppHandle, url: &str, session: Session) -> Result<(), String>
         builder = builder.proxy_url(proxy);
     }
     let win = builder.build().map_err(|e| format!("open peek: {e}"))?;
+    // Record its jar so cookie clears can reach it (#58).
+    let jar = if session.private { 0 } else { session.container };
+    crate::cookies::note_jar(app, &label, jar);
     // Network-level content blocking + HTTPS-only + lean (#57/#91/#105), same
     // policy as tab webviews — peeks are a separate window so they need it wired
     // explicitly (Windows/WebView2; no-op elsewhere). Likewise tracking
