@@ -19,6 +19,36 @@ export function desktopPreloadRoots(source) {
   return roots;
 }
 
+/**
+ * A root's manifest key: the key itself (`src/Sidebar.tsx`), or the one chunk
+ * whose `name` it is — a dependency's dynamic chunk is keyed by a hashed file
+ * name (`_xterm-CXm7zg2o.js`), so `xterm` is the only stable way to name it.
+ */
+export function manifestKey(manifest, root) {
+  if (manifest[root]) return root;
+  const named = Object.keys(manifest).filter((k) => manifest[k].name === root);
+  if (named.length !== 1) {
+    throw new Error(`Startup chunk ${named.length ? "ambiguous" : "missing from manifest"}: ${root}`);
+  }
+  return named[0];
+}
+
+/** Stylesheets the given roots load, following the same static imports. */
+export function startupCss(manifest, roots) {
+  const visited = new Set();
+  const files = new Set();
+  const visit = (key) => {
+    if (visited.has(key)) return;
+    const node = manifest[key];
+    if (!node) throw new Error(`Startup chunk missing from manifest: ${key}`);
+    visited.add(key);
+    for (const css of node.css ?? []) files.add(css);
+    for (const dependency of node.imports ?? []) visit(dependency);
+  };
+  roots.forEach(visit);
+  return [...files];
+}
+
 export function startupFiles(manifest, roots) {
   const visited = new Set();
   const files = new Set();
