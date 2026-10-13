@@ -42,10 +42,70 @@ pub struct Snapshot {
     pub title: String,
     pub saved_ms: u64,
     pub text: String,
-    #[serde(default)]
+    /// Written as `vec` (see [`vector_b64`]); files from before that hold an
+    /// `embedding` array, which still reads.
+    #[serde(
+        default,
+        rename(serialize = "vec"),
+        alias = "vec",
+        skip_serializing_if = "Vec::is_empty",
+        serialize_with = "vector_b64::serialize",
+        deserialize_with = "vector_b64::deserialize"
+    )]
     embedding: Vec<f32>,
     #[serde(default = "default_embedder")]
     embedder: crate::embedding::Embedder,
+}
+
+/// Snapshot embeddings on disk: base64 of the vector's little-endian f32 bytes,
+/// about 5.3 characters a dimension where decimal JSON took 10–12, and exact.
+/// The vectors were about half of the sealed file, which is rewritten on every
+/// flush. A build from before this format ignores the unknown `vec` key and
+/// loads those snapshots without vectors (fewer semantic edges, nothing lost
+/// from the text) rather than failing the whole file.
+mod vector_b64 {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+    use serde::de::{Error, SeqAccess, Visitor};
+
+    pub(super) fn serialize<S: serde::Serializer>(v: &[f32], s: S) -> Result<S::Ok, S::Error> {
+        let bytes: Vec<u8> = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+        s.serialize_str(&STANDARD.encode(bytes))
+    }
+
+    /// The base64 form, or the decimal array older files hold.
+    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+        d: D,
+    ) -> Result<Vec<f32>, D::Error> {
+        struct Either;
+        impl<'de> Visitor<'de> for Either {
+            type Value = Vec<f32>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("base64 f32 bytes or an array of numbers")
+            }
+
+            fn visit_str<E: Error>(self, s: &str) -> Result<Vec<f32>, E> {
+                let bytes = STANDARD.decode(s).map_err(E::custom)?;
+                if bytes.len() % 4 != 0 {
+                    return Err(E::custom("vector bytes aren't whole f32s"));
+                }
+                Ok(bytes
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect())
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<f32>, A::Error> {
+                let mut v = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+                while let Some(x) = seq.next_element()? {
+                    v.push(x);
+                }
+                Ok(v)
+            }
+        }
+        d.deserialize_any(Either)
+    }
 }
 
 /// Reader-facing snapshot (node detail); omits the vector + embedder tag.
@@ -463,6 +523,66 @@ mod tests {
         }
         assert_eq!(snaps.inner.read().snapshots.len(), MAX_SNAPSHOTS);
         assert!(snaps.get(first).is_none(), "oldest snapshot was evicted");
+    }
+
+    fn snapshot_with(embedding: Vec<f32>) -> Snapshot {
+        Snapshot {
+            id: 1,
+            visit_id: 1,
+            url: "https://a/".into(),
+            title: "A".into(),
+            saved_ms: 1,
+            text: "t".into(),
+            embedding,
+            embedder: crate::embedding::Embedder::Hash,
+        }
+    }
+
+    #[test]
+    fn vectors_are_stored_compact_and_exact() {
+        // Unit-length like a real embedding, so the decimals are long.
+        let v: Vec<f32> = (0..256).map(|i| ((i as f32) * 0.37).sin() / 11.3).collect();
+        let json = serde_json::to_string(&snapshot_with(v.clone())).unwrap();
+        assert!(json.contains(r#""vec":""#), "{json}");
+        assert!(!json.contains("embedding"), "{json}");
+        let back: Snapshot = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.embedding, v, "bit-exact");
+        let decimal = serde_json::to_string(&v).unwrap().len();
+        let encoded = serde_json::to_string(&snapshot_with(v)).unwrap().len()
+            - serde_json::to_string(&snapshot_with(vec![])).unwrap().len();
+        assert!(encoded * 2 < decimal, "{encoded} bytes vs {decimal}");
+        // A failed embed is stored as nothing at all.
+        assert!(!serde_json::to_string(&snapshot_with(vec![]))
+            .unwrap()
+            .contains("vec"));
+    }
+
+    #[test]
+    fn decimal_vectors_from_older_files_still_load() {
+        let old = r#"{"id":1,"visit_id":1,"url":"https://a/","saved_ms":1,"text":"t",
+            "embedding":[0.5,-0.25,1e-7],"embedder":"hash"}"#;
+        let s: Snapshot = serde_json::from_str(old).unwrap();
+        assert_eq!(s.embedding, vec![0.5, -0.25, 1e-7]);
+        let none = r#"{"id":1,"visit_id":1,"url":"https://a/","saved_ms":1,"text":"t"}"#;
+        assert!(serde_json::from_str::<Snapshot>(none)
+            .unwrap()
+            .embedding
+            .is_empty());
+    }
+
+    #[test]
+    fn an_older_build_reads_the_new_format_without_vectors() {
+        // The shape those builds parse: `embedding` an array, unknown keys ignored.
+        #[derive(Deserialize)]
+        struct OlderSnapshot {
+            text: String,
+            #[serde(default)]
+            embedding: Vec<f32>,
+        }
+        let json = serde_json::to_string(&snapshot_with(vec![0.5, 0.25])).unwrap();
+        let s: OlderSnapshot = serde_json::from_str(&json).unwrap();
+        assert_eq!(s.text, "t");
+        assert!(s.embedding.is_empty());
     }
 
     #[test]
