@@ -45,6 +45,7 @@ import {
   type PdfBookmark,
   type PdfComment,
 } from "./pdfstate";
+import "./PdfViewer.css";
 
 // ─── Annotation model (all geometry in PDF points, origin top-left, y-down) ──
 type Tool = "pan" | "highlight" | "pen" | "text" | "rect" | "arrow" | "erase";

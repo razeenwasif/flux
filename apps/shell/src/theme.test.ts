@@ -19,7 +19,26 @@ import { describe, expect, it } from "vitest";
 // `?raw` rather than node:fs — the shell's tsconfig types are `vite/client`
 // only, and the stylesheet is a build input here, not a file on disk to hunt
 // for relative to the test.
-import css from "./theme.css?raw";
+import themeCss from "./theme.css?raw";
+
+// Screens that aren't on screen at startup keep their rules in a sheet next to
+// the component (PdfViewer.css, …) so it loads with their lazy chunk. Those
+// rules obey the same invariants, so every sheet under src/ is checked, with
+// theme.css first (the lookups below take the first match).
+const componentSheets = import.meta.glob<string>(["./**/*.css", "!./theme.css"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+const css = [themeCss, ...Object.values(componentSheets)].join("\n");
+
+describe("component stylesheets", () => {
+  it("are all read, not stubbed to an empty string", () => {
+    const paths = Object.keys(componentSheets);
+    expect(paths.length).toBeGreaterThan(0);
+    for (const p of paths) expect(componentSheets[p]!.length, p).toBeGreaterThan(0);
+  });
+});
 
 /** Selectors carrying a `::-webkit-scrollbar*` rule of any kind. */
 const webkitScrollbarSelectors = (): string[] => {

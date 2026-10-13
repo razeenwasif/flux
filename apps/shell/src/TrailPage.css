@@ -1,0 +1,507 @@
+/* Moved out of theme.css so it loads with TrailPage's lazy chunk instead of
+   blocking first paint. Tokens, themes and shared primitives stay in theme.css;
+   rules here keep their original relative order. */
+
+/* ── The Trail (flux://trail, ADR 0011) ── */
+.trail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 18px 20px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.trail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+.trail-brand {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--flux-text);
+  letter-spacing: 0.01em;
+}
+.trail-spark {
+  margin-right: 4px;
+}
+.trail-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--flux-text-mute);
+  margin-left: 8px;
+}
+.trail-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trail-window {
+  display: flex;
+  gap: 2px;
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 999px;
+  padding: 2px;
+}
+.trail-win-btn {
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  cursor: pointer;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+}
+.trail-win-btn.on {
+  background: rgba(var(--accent-ai-rgb), 0.28);
+  color: var(--flux-text);
+}
+.trail-win-btn:hover:not(.on) {
+  color: var(--flux-text);
+}
+.trail-forget {
+  font-size: 12px;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 5px 11px;
+  border-radius: 8px;
+  background: rgba(236, 75, 110, 0.12);
+  border: 1px solid rgba(236, 75, 110, 0.3);
+}
+.trail-forget:hover {
+  background: rgba(236, 75, 110, 0.24);
+}
+.trail-reload {
+  font-size: 13px;
+  color: var(--flux-text);
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(var(--accent-ai-rgb), 0.16);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.34);
+}
+.trail-reload:hover {
+  background: rgba(var(--accent-ai-rgb), 0.3);
+}
+.trail-scrub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  margin: -4px 0 12px;
+  padding: 8px 12px;
+  background: rgba(12, 10, 26, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 10px;
+}
+
+.trail-scrub-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+}
+.trail-scrub-hist {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+}
+.trail-scrub-slider {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: ew-resize;
+}
+.trail-scrub-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 5px;
+  height: 30px;
+  border-radius: 3px;
+  background: var(--flux-teal, var(--flux-teal));
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.7);
+}
+.trail-scrub-slider::-moz-range-thumb {
+  width: 5px;
+  height: 30px;
+  border: none;
+  border-radius: 3px;
+  background: var(--flux-teal, var(--flux-teal));
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.7);
+}
+.trail-scrub-label {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  font-variant-numeric: tabular-nums;
+  min-width: 150px;
+  text-align: center;
+}
+.trail-scrub-now {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--flux-teal, var(--flux-teal));
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+}
+.trail-scrub-now:hover {
+  background: rgba(var(--accent-rgb), 0.2);
+}
+.trail-scrub-reopen {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--flux-text);
+  cursor: pointer;
+  padding: 4px 11px;
+  border-radius: 8px;
+  background: rgba(var(--accent-ai-rgb), 0.16);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.34);
+}
+.trail-scrub-reopen:hover:not(:disabled) {
+  background: rgba(var(--accent-ai-rgb), 0.3);
+}
+.trail-scrub-reopen:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.trail-body {
+  display: flex;
+  gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.trail-graph {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  border-radius: var(--flux-radius-card, 14px);
+  overflow: hidden;
+  border: 1px solid var(--flux-border);
+  background: radial-gradient(120% 120% at 50% 40%, rgba(20, 16, 48, 0.6), rgba(7, 5, 15, 0.85));
+}
+.trail-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.trail-canvas:active {
+  cursor: grabbing;
+}
+.trail-hud {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  background: rgba(10, 8, 24, 0.6);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.trail-hud-sem {
+  color: var(--flux-teal, var(--flux-teal));
+}
+.trail-hud-cite {
+  color: var(--flux-magenta, var(--flux-magenta));
+}
+.trail-entities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.trail-entity {
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  background: rgba(var(--accent-hot-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-hot-rgb), 0.2);
+  border-radius: 999px;
+  padding: 2px 8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trail-entity.primary {
+  color: var(--flux-text);
+  background: rgba(var(--accent-hot-rgb), 0.16);
+  border-color: rgba(var(--accent-hot-rgb), 0.4);
+}
+.trail-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 15%;
+  font-size: 13px;
+  color: var(--flux-text-mute);
+  line-height: 1.5;
+}
+.trail-detail {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(12, 10, 26, 0.55);
+  border: 1px solid var(--flux-border);
+  border-radius: var(--flux-radius-card, 14px);
+  padding: 16px;
+  overflow-y: auto;
+}
+.trail-detail-hint {
+  color: var(--flux-text-mute);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: auto 0;
+  text-align: center;
+}
+.trail-detail-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--flux-text);
+  line-height: 1.35;
+}
+.trail-detail-url {
+  align-self: flex-start;
+  font-size: 12px;
+  color: var(--flux-teal);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trail-detail-url:hover {
+  text-decoration: underline;
+}
+.trail-detail-why {
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+.trail-detail-meta {
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  opacity: 0.8;
+}
+.trail-detail-snap {
+  flex: 1 1 auto;
+  min-height: 40px;
+  margin-top: 4px;
+  border-top: 1px solid var(--flux-border);
+  padding-top: 10px;
+}
+.trail-detail-text {
+  font-size: 12px;
+  color: var(--flux-text);
+  line-height: 1.5;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.trail-detail-nosnap {
+  font-size: 12px;
+  color: var(--flux-text-mute);
+  font-style: italic;
+}
+/* Captured drafts (opt-in typed-draft capture, ADR 0011 final phase) */
+.trail-drafts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--flux-border);
+  padding-top: 10px;
+}
+.trail-drafts-head {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--flux-text-mute);
+  letter-spacing: 0.02em;
+}
+.trail-draft {
+  background: rgba(255, 196, 107, 0.06);
+  border: 1px solid rgba(255, 196, 107, 0.18);
+  border-radius: 10px;
+  padding: 7px 10px;
+}
+.trail-draft-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.trail-draft-field {
+  font-size: 10.5px;
+  color: #ffc46b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trail-draft-copy {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 1px 4px;
+}
+.trail-draft-copy:hover {
+  color: var(--flux-text);
+}
+.trail-draft-text {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--flux-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trail-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--flux-border);
+  padding-top: 10px;
+}
+.trail-chat-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--flux-text-mute);
+  letter-spacing: 0.02em;
+}
+.trail-chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.trail-chat-msg {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--flux-text);
+  background: rgba(var(--accent-ai-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.18);
+  border-radius: 10px;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  align-self: flex-start;
+  max-width: 95%;
+}
+.trail-chat-msg.user {
+  background: rgba(var(--accent-rgb), 0.08);
+  border-color: rgba(var(--accent-rgb), 0.2);
+  align-self: flex-end;
+}
+.trail-chat-msg.streaming {
+  opacity: 0.85;
+}
+.trail-chat-empty {
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  font-style: italic;
+}
+.trail-chat-inputrow {
+  display: flex;
+  gap: 6px;
+}
+.trail-chat-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.55);
+  border: 1px solid var(--flux-border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  outline: none;
+}
+.trail-chat-input:focus {
+  border-color: rgba(var(--accent-ai-rgb), 0.5);
+}
+.trail-chat-input:disabled {
+  opacity: 0.6;
+}
+.trail-chat-send {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--flux-text);
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(var(--accent-ai-rgb), 0.2);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.4);
+}
+.trail-chat-send:hover:not(:disabled) {
+  background: rgba(var(--accent-ai-rgb), 0.34);
+}
+.trail-chat-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.trail-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding-top: 8px;
+}
+.trail-detail-open {
+  font-size: 12px;
+  color: var(--flux-text);
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(var(--accent-ai-rgb), 0.16);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.34);
+}
+.trail-detail-open:hover {
+  background: rgba(var(--accent-ai-rgb), 0.3);
+}
+.trail-detail-forget {
+  font-size: 12px;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(236, 75, 110, 0.12);
+  border: 1px solid rgba(236, 75, 110, 0.3);
+}
+.trail-detail-forget:hover {
+  background: rgba(236, 75, 110, 0.24);
+}
+@media (max-width: 720px) {
+  .trail-detail {
+    flex-basis: 240px;
+  }
+}
+
+@media (pointer: coarse) {
+  .trail-win-btn {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+}

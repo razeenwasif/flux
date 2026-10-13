@@ -24,6 +24,7 @@ import {
   type ServiceStatus,
 } from "./ipc";
 import { openTab } from "./store";
+import "./NotebookPage.css";
 
 const SOURCE_LABEL: Record<string, string> = {
   onyx: "Onyx vault",
