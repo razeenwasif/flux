@@ -27,6 +27,7 @@ import bejeweled from "./games/bejeweled";
 import centipede from "./games/centipede";
 import connect4 from "./games/connect4";
 import reversi from "./games/reversi";
+import "./Playground.css";
 
 interface Meta {
   id: string;
