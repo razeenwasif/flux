@@ -321,8 +321,15 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
             }
             openingWebviews.delete(id);
             openedWebviews.add(id);
+            // webview_open leaves the page at `r`, also when it already existed
+            // (the restored tab's page opened during setup, boot.rs).
             sentBounds.set(id, r);
-            if (overlayActive() || uiDragging()) {
+            // Also when it stopped being a pane while the open was in flight: a
+            // launch URL taking focus at boot is the usual case, and the open of
+            // a page Rust already made (boot.rs) resolves at once. The effect
+            // took that change while this id was neither opened nor shown, so
+            // nothing else would hide it.
+            if (overlayActive() || uiDragging() || !paneLayout().some((q) => q.tab.id === id)) {
               shown.delete(id);
               await webviewHide(id);
               return;

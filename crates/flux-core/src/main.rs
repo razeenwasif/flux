@@ -5,6 +5,8 @@
 // `flux extract-json`, `--help`, … (the workspace lint bans println elsewhere).
 #[allow(clippy::print_stdout)]
 fn main() {
+    // Every `flux::boot` mark in the log counts from here.
+    flux_core::boot::start_clock();
     // Context subcommands (`flux dom`, `flux extract-json`, …) read the active
     // page from $FLUX_RPC_DIR and print it — never touch the GUI (#65/#4).
     if let Some(name) = std::env::args().nth(1) {

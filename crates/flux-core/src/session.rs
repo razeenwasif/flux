@@ -11,7 +11,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::state::{Container, TabFolder, TabGroup, TabId, TabMeta, WebPanel, Workspace};
+use crate::state::{
+    Container, ContentRect, TabFolder, TabGroup, TabId, TabMeta, WebPanel, Workspace,
+};
 
 /// The persisted shape. Every field is `#[serde(default)]` so an older/partial
 /// file (or a hand-edit) still loads.
@@ -49,6 +51,10 @@ pub struct Session {
     pub next_workspace_id: u32,
     #[serde(default)]
     pub next_container_id: u32,
+    /// Where the active tab's page last sat, so setup can open it there
+    /// before the shell boots (boot.rs). `None` until a page has been placed.
+    #[serde(default)]
+    pub content_rect: Option<ContentRect>,
 }
 
 pub fn load(path: &Path) -> Session {
@@ -98,6 +104,7 @@ mod tests {
                 containers: vec![],
                 next_workspace_id: 0,
                 next_container_id: 0,
+                content_rect: None,
             },
         );
         let loaded = load(&path);
@@ -152,6 +159,7 @@ mod tests {
                 containers: vec![],
                 next_workspace_id: 0,
                 next_container_id: 0,
+                content_rect: None,
             },
         );
         let state = FluxState::restore(path.clone());
