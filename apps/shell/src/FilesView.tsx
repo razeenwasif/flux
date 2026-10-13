@@ -53,6 +53,7 @@ import {
 } from "./ipc";
 import { openTab } from "./store";
 import { crumbs, toFileUrl } from "./filepaths";
+import "./FilesView.css";
 
 const ROW_H = 30;
 /** One collator for every comparison. `a.localeCompare(b, undefined, opts)`
