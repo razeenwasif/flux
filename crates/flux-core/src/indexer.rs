@@ -1276,7 +1276,9 @@ fn store(dir: &Path, seg: &mut Segment) -> Result<(), String> {
     let path = dir.join(&name);
     let bytes = seg.to_bytes(text);
     let at = (bytes.len() - text.len()) as u64;
-    crate::persist::write_atomic(&path, &bytes)
+    // A barrier rather than a full flush: the index is rebuilt from the notes
+    // and books, and the manifest that names this file is written after it.
+    crate::persist::write_atomic_with(&path, &bytes, crate::persist::Durability::Barrier)
         .map_err(|e| format!("couldn't save the Indexer's index: {e}"))?;
     seg.file = Some(name);
     seg.text = Text::File { path, at };
@@ -1291,8 +1293,12 @@ fn save_manifest(dir: &Path, idx: &Index) -> Result<(), String> {
         segments: idx.segs.iter().filter_map(|s| s.file.clone()).collect(),
     };
     let json = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
-    crate::persist::write_atomic(&dir.join(MANIFEST), &json)
-        .map_err(|e| format!("couldn't save the Indexer's index: {e}"))
+    crate::persist::write_atomic_with(
+        &dir.join(MANIFEST),
+        &json,
+        crate::persist::Durability::Barrier,
+    )
+    .map_err(|e| format!("couldn't save the Indexer's index: {e}"))
 }
 
 /// Delete what the manifest doesn't name: segments it replaced, any a crash
