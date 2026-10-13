@@ -250,14 +250,15 @@ impl BookmarkStore {
             let _ = std::fs::create_dir_all(dir);
         }
         // The guards live to the end of this one statement, so no mutation can
-        // land between the snapshot and its rename: an older snapshot (the sync
-        // thread's merge) can't be renamed over a newer one (a UI-thread add).
-        crate::persist::save_json(
+        // land between the snapshot and queueing it: an older snapshot (the sync
+        // thread's merge) can't be queued after a newer one (a UI-thread add).
+        crate::persist::queue_json(
             path,
             &Persisted {
                 items: self.items.read().clone(),
                 tombstones: self.tombstones.read().clone(),
             },
+            crate::persist::Durability::Barrier,
         );
     }
 }

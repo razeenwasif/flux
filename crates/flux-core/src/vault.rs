@@ -203,7 +203,8 @@ impl VaultState {
         let blob = u.vault.encrypt(&u.dk).map_err(|e| e.to_string())?;
         // The vault blob is the one file whose loss is unrecoverable — atomic
         // replace means a crash mid-save can never truncate it.
-        crate::persist::write_atomic(&self.path, &blob).map_err(|e| e.to_string())
+        crate::persist::write_atomic_with(&self.path, &blob, crate::persist::Durability::Full)
+            .map_err(|e| e.to_string())
     }
 
     /// Run `f` against the decrypted vault, or error if locked. Touches activity.
@@ -327,7 +328,7 @@ fn store_key(dir: &Path, dk: &[u8; 32]) -> &'static str {
 fn store_key_file(dir: &Path, dk: &[u8; 32]) -> &'static str {
     let p = dir.join("key.bin");
     // fsync + rename: this may be about to become the key's only copy.
-    if crate::persist::write_atomic(&p, dk).is_ok() {
+    if crate::persist::write_atomic_with(&p, dk, crate::persist::Durability::Full).is_ok() {
         set_owner_only(&p);
         return "file";
     }
@@ -383,7 +384,13 @@ fn read_meta(dir: &Path) -> Meta {
 fn write_meta(dir: &Path, meta: &Meta) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let s = serde_json::to_string_pretty(meta).map_err(|e| e.to_string())?;
-    crate::persist::write_atomic(&dir.join("meta.json"), s.as_bytes()).map_err(|e| e.to_string())
+    // Full: it records where the data key lives (keychain, file or password wrap).
+    crate::persist::write_atomic_with(
+        &dir.join("meta.json"),
+        s.as_bytes(),
+        crate::persist::Durability::Full,
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn read_never_save(dir: &Path) -> HashSet<String> {
@@ -513,7 +520,12 @@ pub fn vault_set_master_password(
     // replace it atomically so a crash leaves the old wrap or the new one, never
     // a torn file, and record password mode before removing the other copies.
     let wrap_path = state.dir.join("keywrap.json");
-    crate::persist::write_atomic(&wrap_path, json.as_bytes()).map_err(|e| e.to_string())?;
+    crate::persist::write_atomic_with(
+        &wrap_path,
+        json.as_bytes(),
+        crate::persist::Durability::Full,
+    )
+    .map_err(|e| e.to_string())?;
     set_owner_only(&wrap_path);
     write_meta(
         &state.dir,

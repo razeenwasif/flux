@@ -91,8 +91,9 @@ fn file_key(dir: &Path) -> Option<[u8; 32]> {
     }
     let p = dir.join("trace.key");
     let k = flux_vault::new_key();
-    // Atomic: a torn key file would be re-minted next launch.
-    crate::persist::write_atomic(&p, &k).ok()?;
+    // Atomic: a torn key file would be re-minted next launch. Fully flushed:
+    // it may be the only copy of the key that opens every Trail store.
+    crate::persist::write_atomic_with(&p, &k, crate::persist::Durability::Full).ok()?;
     KEY_IS_NEW.store(true, Ordering::Relaxed);
     #[cfg(unix)]
     {
@@ -134,6 +135,9 @@ pub(crate) fn save_sealed_with(
     if HELD.lock().iter().any(|p| p == path) {
         return true; // couldn't be loaded this run; it may hold the only copy
     }
+    // Barrier, not a full flush: these are rewritten every minute, and a power
+    // cut costing the last one is the trade the 60 s flush already makes.
+    const BARRIER: crate::persist::Durability = crate::persist::Durability::Barrier;
     let dir = path.parent().unwrap_or(Path::new("."));
     let res = serialize()
         .map_err(std::io::Error::other)
@@ -144,9 +148,9 @@ pub(crate) fn save_sealed_with(
                     let mut blob = Vec::with_capacity(MAGIC.len() + ct.len());
                     blob.extend_from_slice(MAGIC);
                     blob.extend_from_slice(&ct);
-                    crate::persist::write_atomic(path, &blob)
+                    crate::persist::write_atomic_with(path, &blob, BARRIER)
                 }),
-            None => crate::persist::write_atomic(path, &json),
+            None => crate::persist::write_atomic_with(path, &json, BARRIER),
         });
     if let Err(e) = &res {
         tracing::warn!(

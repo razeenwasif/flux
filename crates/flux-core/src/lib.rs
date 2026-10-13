@@ -1628,6 +1628,9 @@ fn flush_on_exit(app: &tauri::AppHandle) {
         h.persist_if_hydrated();
     }
     flush_trail_stores(app);
+    // Last: saves queued for the shared store writer (bookmarks, settings,
+    // toggles) from just before the quit.
+    persist::flush_all();
 }
 
 /// Android entry point (ADR 0012, rung C). The generated Gradle project's JNI

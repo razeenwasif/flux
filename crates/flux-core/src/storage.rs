@@ -310,11 +310,13 @@ pub fn storage_clear(app: AppHandle, keys: Vec<String>) -> Result<String, String
     }
     let p = marker_path().ok_or("no app data directory")?;
     // Merge, don't replace: a second clear used to silently cancel the first.
-    // Atomic, so the boot pass never reads a torn marker as "nothing queued".
+    // Atomic, so the boot pass never reads a torn marker as "nothing queued";
+    // fully flushed, since a clear the user was told is queued must not
+    // quietly vanish in a power cut.
     let mut pending = read_pending_file();
     pending.merge(known, paths);
     let json = serde_json::to_string(&pending).map_err(|e| e.to_string())?;
-    crate::persist::write_atomic(&p, json.as_bytes())
+    crate::persist::write_atomic_with(&p, json.as_bytes(), crate::persist::Durability::Full)
         .map_err(|e| format!("couldn't queue the clear: {e}"))?;
     Ok(format!(
         "{} queued — deleted next time Flux starts.",

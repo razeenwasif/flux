@@ -278,7 +278,7 @@ pub async fn mail_connect(
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    crate::persist::save_json(&path, &cfg);
+    crate::persist::save_json(&path, &cfg, crate::persist::Durability::Barrier);
     Ok(())
 }
 

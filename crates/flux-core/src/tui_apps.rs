@@ -201,7 +201,7 @@ impl TuiAppsStore {
             seed_version: self.seed_version.load(Ordering::Acquire),
             apps: self.apps.lock().clone(),
         };
-        crate::persist::save_json_pretty(path, &file);
+        crate::persist::queue_json_pretty(path, &file, crate::persist::Durability::Barrier);
     }
 
     pub fn list(&self) -> Vec<TuiApp> {

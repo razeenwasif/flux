@@ -627,11 +627,19 @@ impl KbStore {
         // current sidecar (the last write failed) this fails, and the `.prev`
         // already there, still the JSON's pair, stays.
         let _ = std::fs::rename(&vec_path, &prev_path);
-        if let Err(e) = crate::persist::write_atomic(&vec_path, &vecs_bytes) {
+        if let Err(e) = crate::persist::write_atomic_with(
+            &vec_path,
+            &vecs_bytes,
+            crate::persist::Durability::Barrier,
+        ) {
             tracing::warn!(target: "flux::kb", "KB vector sidecar not written: {e}");
             return;
         }
-        if let Err(e) = crate::persist::write_atomic(path, json.as_bytes()) {
+        if let Err(e) = crate::persist::write_atomic_with(
+            path,
+            json.as_bytes(),
+            crate::persist::Durability::Barrier,
+        ) {
             tracing::warn!(target: "flux::kb", "KB index not written: {e}");
             // The old JSON is still in place: put its sidecar back beside it.
             let _ = std::fs::rename(&prev_path, &vec_path);

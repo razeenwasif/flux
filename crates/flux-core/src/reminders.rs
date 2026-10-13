@@ -66,7 +66,8 @@ fn read_store(p: &Path) -> Result<Vec<Reminder>, String> {
 fn save(app: &AppHandle, rs: &[Reminder]) -> Result<(), String> {
     let p = store_path(app)?;
     let json = serde_json::to_string_pretty(rs).map_err(|e| e.to_string())?;
-    crate::persist::write_atomic(&p, json.as_bytes()).map_err(|e| e.to_string())
+    crate::persist::write_atomic_with(&p, json.as_bytes(), crate::persist::Durability::Barrier)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

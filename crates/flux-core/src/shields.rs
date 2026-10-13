@@ -154,7 +154,11 @@ impl ShieldsState {
         let mut sites_off: Vec<String> = self.off_for.iter().map(|e| e.key().clone()).collect();
         sites_off.sort();
         let enabled = self.enabled.load(Ordering::Relaxed);
-        crate::persist::save_json_pretty(path, &ShieldsPrefs { enabled, sites_off });
+        crate::persist::queue_json_pretty(
+            path,
+            &ShieldsPrefs { enabled, sites_off },
+            crate::persist::Durability::Barrier,
+        );
     }
 
     /// Fetch any stale/missing upstream lists, then rebuild the filter from the
@@ -199,7 +203,11 @@ impl ShieldsState {
                 match fetch(url) {
                     Ok(body) if body.len() > 1024 => {
                         // Atomic: a torn list would be trusted as fresh for days.
-                        let _ = crate::persist::write_atomic(&path, body.as_bytes());
+                        let _ = crate::persist::write_atomic_with(
+                            &path,
+                            body.as_bytes(),
+                            crate::persist::Durability::Barrier,
+                        );
                     }
                     Ok(_) => {
                         tracing::warn!(target: "flux::shields", "{url}: suspiciously small, kept old")
@@ -242,10 +250,18 @@ impl ShieldsState {
         }
         match flux_filter::to_content_blocker_json(rules, CB_MAX_RULES) {
             Some(json) => {
-                let _ = crate::persist::write_atomic(&json_path, json.as_bytes());
+                let _ = crate::persist::write_atomic_with(
+                    &json_path,
+                    json.as_bytes(),
+                    crate::persist::Durability::Barrier,
+                );
                 // After the JSON: a crash between the two leaves an old stamp,
                 // so the next launch rebuilds rather than trusting a stale file.
-                let _ = crate::persist::write_atomic(&stamp_path, stamp.as_bytes());
+                let _ = crate::persist::write_atomic_with(
+                    &stamp_path,
+                    stamp.as_bytes(),
+                    crate::persist::Durability::Barrier,
+                );
                 tracing::info!(target: "flux::shields", bytes = json.len(), "content-blocker JSON written");
             }
             None => {

@@ -79,12 +79,12 @@ impl NoteStore {
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        // Serialized under the lock, written after it: the write is a full flush
-        // to disk, and holding the lock across it stalled every note read.
+        // Serialized under the lock, written after it: the write syncs to disk,
+        // and holding the lock across it stalled every note read.
         let Ok(json) = serde_json::to_vec(&*self.map.read()) else {
             return;
         };
-        let _ = crate::persist::write_atomic(path, &json);
+        let _ = crate::persist::write_atomic_with(path, &json, crate::persist::Durability::Barrier);
     }
 }
 

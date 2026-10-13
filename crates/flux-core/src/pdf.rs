@@ -442,7 +442,9 @@ impl PdfStore {
             serde_json::to_vec(&docs.values().collect::<Vec<_>>())
         };
         if let Ok(json) = json {
-            let _ = crate::persist::write_atomic(p, &json);
+            // A cache of text pulled from PDFs: losing the last write costs a re-read.
+            let _ =
+                crate::persist::write_atomic_with(p, &json, crate::persist::Durability::Barrier);
         }
     }
 }

@@ -200,12 +200,13 @@ impl CalStore {
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        crate::persist::save_json(
+        crate::persist::queue_json(
             path,
             &Persisted {
                 feeds: self.feeds.read().clone(),
                 tombstones: self.tombstones.read().clone(),
             },
+            crate::persist::Durability::Barrier,
         );
     }
 }
@@ -426,12 +427,13 @@ impl LocalEventStore {
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        crate::persist::save_json(
+        crate::persist::queue_json(
             path,
             &PersistedEvents {
                 items: self.items.read().clone(),
                 tombstones: self.tombstones.read().clone(),
             },
+            crate::persist::Durability::Barrier,
         );
     }
 }

@@ -137,6 +137,11 @@ block = "0.1"
 # Native macOS frosted translucency (NSVisualEffectView) for the acrylic setting
 window-vibrancy = "0.6"
 
+# Apple: `fcntl(F_BARRIERFSYNC)` for store writes that need ordering, not a full
+# drive-cache flush (persist.rs). Already in the tree through Tauri.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging", "Win32_UI_Controls"] }
 # Content-blocker request interceptor (#57/#91): WebView2's `WebResourceRequested`
