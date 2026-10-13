@@ -671,8 +671,19 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
     }
     // Download manager (#34) — WebView2 DownloadStarting + progress.
     app.manage(downloads::DownloadState::new());
-    // Native dark mode (#40) — WebView2 PreferredColorScheme.
-    app.manage(darkmode::DarkState::new());
+    // Force-dark (#40). Restored from the last run so a page opened during
+    // setup (boot.rs) starts in the mode the shell is about to apply.
+    app.manage(
+        match app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|d| d.join("darkmode.txt"))
+        {
+            Some(p) => darkmode::DarkState::restore(p),
+            None => darkmode::DarkState::new(),
+        },
+    );
     // Navigation toggles (#51/#52) — vim link-hints + mouse gestures.
     app.manage(nav::NavState::new());
     // Per-page notes (#53).
