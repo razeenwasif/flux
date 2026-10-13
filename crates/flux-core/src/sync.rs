@@ -229,7 +229,7 @@ impl SyncState {
             last_ms: *self.last_ms.read(),
             auto: self.auto(),
         };
-        crate::persist::save_json_pretty(path, &cfg);
+        crate::persist::save_json_pretty(path, &cfg, crate::persist::Durability::Barrier);
     }
 
     fn status(&self) -> SyncStatus {
@@ -420,7 +420,11 @@ fn run_sync(app: &AppHandle) -> Result<SyncReport, String> {
     out.extend_from_slice(&sealed);
     // Unique staging name + fsync + rename (creating the folder if needed): a
     // published blob is always whole, never another writer's half-written file.
-    crate::persist::write_atomic(&blob_path, &out).map_err(|e| format!("write: {e}"))?;
+    // Fully flushed: the first blob mints the salt every device derives its key
+    // from, so one that vanished in a power cut after another device read it
+    // would strand that device.
+    crate::persist::write_atomic_with(&blob_path, &out, crate::persist::Durability::Full)
+        .map_err(|e| format!("write: {e}"))?;
 
     *state.last_push.write() = Some(digest);
     *state.last_ms.write() = now_ms();

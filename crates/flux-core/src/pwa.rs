@@ -81,7 +81,11 @@ impl PwaStore {
 
     fn persist(&self) {
         if let Some(path) = &self.path {
-            crate::persist::save_json_pretty(path, &*self.apps.read());
+            crate::persist::queue_json_pretty(
+                path,
+                &*self.apps.read(),
+                crate::persist::Durability::Barrier,
+            );
         }
     }
 }

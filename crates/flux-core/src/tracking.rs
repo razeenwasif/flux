@@ -55,7 +55,7 @@ impl TrackingState {
     fn set(&self, level: i32) {
         self.level.store(level, Ordering::Relaxed);
         if let Some(p) = &self.path {
-            crate::persist::save_text(p, &level.to_string());
+            crate::persist::queue_text(p, &level.to_string(), crate::persist::Durability::Barrier);
         }
     }
 }

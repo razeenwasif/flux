@@ -14,6 +14,7 @@
  * `template` background) that Scribe publishes to Onyx as a PNG.
  */
 import { For, Show, createEffect, createSignal, on, onCleanup, onMount, type Component } from "solid-js";
+import "./InkCanvas.css";
 
 export type Pt = { x: number; y: number };
 export type PathStroke = { t: "pen" | "hi"; color: string; w: number; pts: Pt[] };

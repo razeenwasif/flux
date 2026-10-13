@@ -93,6 +93,44 @@ fn registered_commands(lib_rs: &str) -> BTreeSet<String> {
     out
 }
 
+/// Tauri's built-in plugins, whose commands (`plugin:window|minimize`) Tauri
+/// registers itself and gates on `core:<plugin>:…` capability permissions.
+const CORE_PLUGINS: &[&str] = &[
+    "app",
+    "event",
+    "image",
+    "menu",
+    "path",
+    "resources",
+    "tray",
+    "webview",
+    "window",
+];
+
+/// `(plugin, command)` when `raw` names a command of a Tauri core plugin.
+fn core_plugin_command(raw: &str) -> Option<(&str, &str)> {
+    let (plugin, cmd) = raw.strip_prefix("plugin:")?.split_once('|')?;
+    CORE_PLUGINS.contains(&plugin).then_some((plugin, cmd))
+}
+
+/// Every `"plugin:<core plugin>|<cmd>"` literal in `files`.
+fn core_plugin_invokes(files: &[PathBuf]) -> BTreeSet<(String, String)> {
+    let mut out = BTreeSet::new();
+    for f in files {
+        let Ok(src) = std::fs::read_to_string(f) else {
+            continue;
+        };
+        for (i, _) in src.match_indices("\"plugin:") {
+            let lit = &src[i + 1..];
+            let Some(end) = lit.find('"') else { continue };
+            if let Some((plugin, cmd)) = core_plugin_command(&lit[..end]) {
+                out.insert((plugin.to_string(), cmd.to_string()));
+            }
+        }
+    }
+    out
+}
+
 /// Command names the shell invokes: the first string arg of each `invoke(` /
 /// `invoke<T>(`, with any `plugin:…|` prefix stripped to the bare command.
 fn invoked_commands(files: &[PathBuf]) -> BTreeSet<String> {
@@ -118,6 +156,11 @@ fn invoked_commands(files: &[PathBuf]) -> BTreeSet<String> {
             let raw = &rest[..q2];
             // Reject if a closing paren precedes the quote (no string arg here).
             if after[..q1].contains(')') {
+                continue;
+            }
+            // Tauri's own core plugins are registered by Tauri, not by a handler
+            // here; `every_core_plugin_command_is_allowed` checks those instead.
+            if core_plugin_command(raw).is_some() {
                 continue;
             }
             let cmd = raw.rsplit('|').next().unwrap(); // strip plugin:… prefix
@@ -190,5 +233,29 @@ fn every_invoked_command_is_registered() {
         unregistered.is_empty(),
         "the shell invokes commands that are in no generate_handler! (→ runtime \"command not found\", \
          swallowed by the caller): {unregistered:?}",
+    );
+}
+
+/// The shell calls Tauri's window plugin directly (`plugin:window|minimize`, see
+/// `win` in ipc.ts). Those commands need an explicit `core:window:allow-…`
+/// permission in the chrome window's capability, or Tauri rejects the call and
+/// the window button silently does nothing.
+#[test]
+fn every_core_plugin_command_is_allowed() {
+    let root = workspace_root();
+    let caps = std::fs::read_to_string(root.join("crates/flux-core/capabilities/default.json"))
+        .expect("read capabilities/default.json");
+    let mut shell = Vec::new();
+    collect(&root.join("apps/shell/src"), &["ts", "tsx"], &mut shell);
+
+    let missing: Vec<String> = core_plugin_invokes(&shell)
+        .into_iter()
+        .map(|(plugin, cmd)| format!("core:{plugin}:allow-{}", cmd.replace('_', "-")))
+        .filter(|perm| !caps.contains(&format!("\"{perm}\"")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the shell calls core plugin commands its capability doesn't allow (→ rejected at runtime, \
+         swallowed by the caller); add to capabilities/default.json: {missing:?}",
     );
 }

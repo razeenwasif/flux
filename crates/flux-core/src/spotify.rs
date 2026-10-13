@@ -231,7 +231,7 @@ fn refresh(stale: &str) -> Result<(String, bool), String> {
 /// Merge a rotated token pair into AudioPulse's token.json, keeping its other
 /// fields. An atomic replace whose temp file gets the original's mode from the
 /// start (normally 0600): this is a long-lived credential, and
-/// `persist::write_atomic` would create it with the umask default.
+/// `persist::write_atomic_with` would create it with the umask default.
 fn store_rotated(path: &Path, access: &str, refresh: &str) -> std::io::Result<()> {
     use std::io::Write;
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;

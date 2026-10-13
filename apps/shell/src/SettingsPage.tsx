@@ -154,6 +154,7 @@ import {
   setWindowAcrylic,
   titleInternalTab,
 } from "./store";
+import "./SettingsPage.css";
 
 const TRACKING_LABELS = ["Off", "Basic", "Balanced", "Strict"];
 

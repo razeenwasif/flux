@@ -43,18 +43,27 @@ fi
 
 say "Building Flux.app + the flux binary (release, LTO — takes a few minutes)"
 # `npm run build` == `tauri build`: it runs the frontend build itself (embeds it)
-# and produces BOTH target/release/flux (the CLI, custom-protocol on) and the
-# macOS bundle under target/release/bundle/macos/Flux.app.
-npm run build
+# and produces BOTH <target>/release/flux (the CLI, custom-protocol on) and the
+# macOS bundle under <target>/release/bundle/macos/Flux.app. Only the .app: the
+# .dmg isn't installed, and making one drives Finder through AppleScript, which
+# can fail and leave its image mounted, stopping the install.
+npm run build -- --bundles app
+
+# Where cargo put them: target/ unless CARGO_TARGET_DIR or a cargo config's
+# build.target-dir points elsewhere (a shared cache, say). Copying from a fixed
+# target/ then installs whatever stale build was last left there.
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps 2>/dev/null |
+  sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+[ -n "$TARGET_DIR" ] || TARGET_DIR="target"
 
 # ── Install the CLI ──────────────────────────────────────────────────────────
 DEST="${CARGO_HOME:-$HOME/.cargo}/bin"
 mkdir -p "$DEST"
-install -m 755 target/release/flux "$DEST/flux"
+install -m 755 "$TARGET_DIR/release/flux" "$DEST/flux"
 say "Installed CLI: $DEST/flux"
 
 # ── Install the app bundle ───────────────────────────────────────────────────
-APP_SRC="target/release/bundle/macos/Flux.app"
+APP_SRC="$TARGET_DIR/release/bundle/macos/Flux.app"
 if [ -d "$APP_SRC" ]; then
   rm -rf "/Applications/Flux.app"
   cp -R "$APP_SRC" "/Applications/Flux.app"

@@ -40,7 +40,8 @@ impl SearchState {
 
     fn persist(&self) -> Result<(), String> {
         let json = serde_json::to_vec_pretty(&*self.config.read()).map_err(|e| e.to_string())?;
-        crate::persist::write_atomic(&self.path, &json).map_err(|e| e.to_string())
+        crate::persist::write_atomic_with(&self.path, &json, crate::persist::Durability::Barrier)
+            .map_err(|e| e.to_string())
     }
 
     /// Origin of the Omni engine (`scheme://host[:port]`) for the `flux://omni`

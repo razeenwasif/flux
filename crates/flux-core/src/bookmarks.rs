@@ -88,6 +88,17 @@ impl BookmarkStore {
         self.items.read().clone()
     }
 
+    /// The first bookmark for exactly `url`, in any folder — what the address
+    /// bar's star shows. The shell used to fetch the whole list for this on
+    /// every active-tab change.
+    pub fn find(&self, url: &str) -> Option<u64> {
+        self.items
+            .read()
+            .iter()
+            .find(|b| b.url == url)
+            .map(|b| b.id)
+    }
+
     /// The deletion tombstones, for the sync push payload (#62).
     pub fn tombstones(&self) -> crate::tombstone::Tombstones {
         self.tombstones.read().clone()
@@ -250,14 +261,15 @@ impl BookmarkStore {
             let _ = std::fs::create_dir_all(dir);
         }
         // The guards live to the end of this one statement, so no mutation can
-        // land between the snapshot and its rename: an older snapshot (the sync
-        // thread's merge) can't be renamed over a newer one (a UI-thread add).
-        crate::persist::save_json(
+        // land between the snapshot and queueing it: an older snapshot (the sync
+        // thread's merge) can't be queued after a newer one (a UI-thread add).
+        crate::persist::queue_json(
             path,
             &Persisted {
                 items: self.items.read().clone(),
                 tombstones: self.tombstones.read().clone(),
             },
+            crate::persist::Durability::Barrier,
         );
     }
 }
@@ -267,6 +279,11 @@ impl BookmarkStore {
 #[tauri::command]
 pub fn bookmarks_list(store: State<'_, BookmarkStore>) -> Vec<Bookmark> {
     store.list()
+}
+
+#[tauri::command]
+pub fn bookmark_find(store: State<'_, BookmarkStore>, url: String) -> Option<u64> {
+    store.find(&url)
 }
 
 #[tauri::command]
@@ -318,6 +335,19 @@ pub fn bookmarks_import_chrome(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_matches_the_exact_url_in_any_folder() {
+        let store = BookmarkStore::default();
+        assert_eq!(store.find("https://a.dev"), None);
+        let a = store.add("A".into(), "https://a.dev".into(), "Work".into());
+        store.add("B".into(), "https://b.dev".into(), "".into());
+        assert_eq!(store.find("https://a.dev"), Some(a.id));
+        // Exact match only: the star is for this page, not its site.
+        assert_eq!(store.find("https://a.dev/page"), None);
+        store.remove(a.id);
+        assert_eq!(store.find("https://a.dev"), None);
+    }
 
     #[test]
     fn add_dedupes_and_import_counts_new() {

@@ -30,6 +30,7 @@ import {
   type VaultStatus,
 } from "./ipc";
 import { titleInternalTab } from "./store";
+import "./VaultPage.css";
 
 type Pane = "detail" | "add" | "import" | "export" | "security";
 

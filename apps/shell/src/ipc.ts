@@ -6,7 +6,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { asRoute } from "./cloudroute";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export { Channel };
 
@@ -18,17 +17,29 @@ export type ResizeDir =
 /** True only inside the Tauri runtime — lets the mocked UI preview no-op. */
 const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+// The window controls call Tauri's window plugin directly: the same commands and
+// arguments `getCurrentWindow().minimize()` and friends send, allowed by the
+// `core:window:allow-*` entries in capabilities/default.json. Importing
+// @tauri-apps/api/window for five calls put its Window class, dpi, image and
+// tslib helpers (~3 KB gzip) in the boot bundle.
+const windowLabel = () =>
+  (window as unknown as { __TAURI_INTERNALS__: { metadata: { currentWindow: { label: string } } } })
+    .__TAURI_INTERNALS__.metadata.currentWindow.label;
+
 /** macOS-style window controls + custom drag/resize, safe outside Tauri. */
 export const win = {
-  minimize: () => inTauri() && void getCurrentWindow().minimize(),
-  toggleMaximize: () => inTauri() && void getCurrentWindow().toggleMaximize(),
+  minimize: () => inTauri() && void invoke("plugin:window|minimize", { label: windowLabel() }),
+  toggleMaximize: () => inTauri() && void invoke("plugin:window|toggle_maximize", { label: windowLabel() }),
   // Save the window geometry (window-state plugin) then force-close. A raw
   // destroy() force-closes but skips the plugin's save, so the window forgot its
   // size; close() emits closeRequested but doesn't actually close the borderless
   // multi-webview window. The backend command does both: save, then destroy.
-  close: () => inTauri() && void invoke("close_main_window").catch(() => getCurrentWindow().destroy()),
-  startDragging: () => inTauri() && void getCurrentWindow().startDragging(),
-  startResize: (dir: ResizeDir) => inTauri() && void getCurrentWindow().startResizeDragging(dir),
+  close: () =>
+    inTauri() &&
+    void invoke("close_main_window").catch(() => invoke("plugin:window|destroy", { label: windowLabel() })),
+  startDragging: () => inTauri() && void invoke("plugin:window|start_dragging", { label: windowLabel() }),
+  startResize: (dir: ResizeDir) =>
+    inTauri() && void invoke("plugin:window|start_resize_dragging", { label: windowLabel(), value: dir }),
   setAcrylic: (enabled: boolean) =>
     inTauri() ? invoke<void>("set_window_acrylic", { enabled }).catch(() => {}) : Promise.resolve(),
 };
@@ -1147,6 +1158,9 @@ export const webviewSetBounds = (tabId: number, r: Rect) =>
   invoke<void>("webview_set_bounds", { tabId, x: r.x, y: r.y, width: r.width, height: r.height });
 export const webviewShow = (tabId: number) => invoke<void>("webview_show", { tabId });
 export const webviewHide = (tabId: number) => invoke<void>("webview_hide", { tabId });
+/** Log a shell boot milestone in flux.log, on the same clock as Rust's marks.
+ *  `listening` also has Rust hand over the page it opened during setup (boot.rs). */
+export const bootMark = (name: string) => void invoke("boot_mark", { name }).catch(() => {});
 export const webviewNavigate = (tabId: number, url: string) =>
   invoke<void>("webview_navigate", { tabId, url });
 export const webviewZoom = (tabId: number, factor: number) => invoke<void>("webview_zoom", { tabId, factor });
@@ -1615,6 +1629,8 @@ export const traceChatSend = (
 /** Sentinel url for the full-page bookmarks view (DOM-rendered, no webview). */
 export const BOOKMARKS_URL = "flux://bookmarks";
 export const bookmarksList = () => invoke<Bookmark[]>("bookmarks_list");
+/** Id of a bookmark for exactly `url` (any folder), or null — the address-bar star. */
+export const bookmarkFind = (url: string) => invoke<number | null>("bookmark_find", { url });
 export const bookmarkFolders = () => invoke<string[]>("bookmark_folders");
 export const bookmarkAdd = (title: string, url: string, folder?: string) =>
   invoke<Bookmark>("bookmark_add", { title, url, folder: folder ?? null });
@@ -1730,12 +1746,13 @@ export const TERM_PERSIST_KEY = "flux.term.persist";
 export const termPersist = (): TermPersist =>
   (localStorage.getItem(TERM_PERSIST_KEY) as TermPersist | null) ?? "off";
 
-/** Spawn a PTY for `session`; `onData` streams raw output bytes (number[]). */
+/** Spawn a PTY for `session`; `onData` streams raw output bytes in batches,
+ *  each an ArrayBuffer, paced by `terminalAck` (termflow.ts). */
 export const terminalSpawn = (
   session: number,
   cols: number,
   rows: number,
-  onData: Channel<number[]>,
+  onData: Channel<ArrayBuffer>,
   persist: TermPersist = termPersist(),
 ) => invoke<void>("terminal_spawn", { session, cols, rows, onData, persist });
 

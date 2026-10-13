@@ -9,6 +9,7 @@ import { linkMenuOpen } from "./linkMenu";
 import { createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { setPendingCommand } from "./terminals";
+import { keepSame } from "./keepSame";
 import { isMobile } from "./platform";
 import { MAX_PANES, claimTabs, clampFrac, dropTabFromGroups, prunedGroups, type TileLayout } from "./tiles";
 import {
@@ -89,7 +90,7 @@ export const workspaceColor = (w: Workspace): string =>
   `#${(w.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
 async function refreshWorkspaces(): Promise<void> {
   const [ws, act] = await Promise.all([workspacesList().catch(() => []), workspaceActive().catch(() => 1)]);
-  setWorkspaces(ws);
+  setWorkspaces((prev) => keepSame(prev, ws));
   setActiveWorkspaceSig(act);
 }
 export function setActiveWorkspace(id: number): void {
@@ -306,7 +307,7 @@ export function setPanelSplitRatio(r: number): void {
   localStorage.setItem("flux.panel.split", String(v));
 }
 function applyPanels(list: WebPanel[]): void {
-  setPanels(list);
+  setPanels((prev) => keepSame(prev, list));
   // On boot, reopen the last-open panels (panel "on by default"); drop stale ones.
   const saved = Number(localStorage.getItem("flux.panel.active") || "0");
   if (activePanelId() == null && saved && list.some((p) => p.id === saved)) setActivePanelIdRaw(saved);
@@ -563,7 +564,8 @@ export const containerColor = (c: Container): string =>
   `#${(c.color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
 export const containerById = (id: number): Container | null => containers().find((c) => c.id === id) ?? null;
 async function refreshContainers(): Promise<void> {
-  setContainers(await containersList().catch(() => []));
+  const list = await containersList().catch(() => []);
+  setContainers((prev) => keepSame(prev, list));
 }
 const C_PALETTE = [0xff8a8a, 0x7cf5b0, 0xffcc66, 0x5bc0eb, 0xec4be0, 0x9d8df1];
 export async function createContainer(name?: string): Promise<number> {
@@ -600,7 +602,8 @@ const [groups, setGroups] = createSignal<TabGroup[]>([]);
 export { groups };
 
 async function refreshGroups(): Promise<void> {
-  setGroups(await groupsList().catch(() => []));
+  const list = await groupsList().catch(() => []);
+  setGroups((prev) => keepSame(prev, list));
 }
 /** Color of a group as a CSS hex string. */
 export const groupColor = (g: TabGroup): string =>
@@ -675,7 +678,8 @@ export async function groupByTopic(): Promise<number> {
 const [folders, setFolders] = createSignal<TabFolder[]>([]);
 export { folders };
 async function refreshFolders(): Promise<void> {
-  setFolders(await foldersList().catch(() => []));
+  const list = await foldersList().catch(() => []);
+  setFolders((prev) => keepSame(prev, list));
 }
 /** Move a tab into a folder (or out, with null). App hibernates folder members. */
 export async function setTabFolder(tabId: number, folder: number | null): Promise<void> {
@@ -1341,12 +1345,20 @@ export async function refreshTabs(): Promise<void> {
   // structural fields (kind/pinned/cluster) + additions/removals from the
   // backend. Without this merge, opening or closing a tab would reset every
   // other browser tab back to its start page.
+  //
+  // keepSame then hands back the previous object for every tab that didn't
+  // change (and the previous list when none did). The sidebar's rows are keyed
+  // by object, so fresh copies of unchanged tabs rebuilt every row, and a new
+  // active-tab object re-ran every effect that reads it.
   setTabs((prev) => {
     const live = new Map(prev.map((t) => [t.id, t]));
-    return list.map((bt) => {
-      const ft = live.get(bt.id);
-      return ft ? { ...bt, url: ft.url, title: ft.title } : bt;
-    });
+    return keepSame(
+      prev,
+      list.map((bt) => {
+        const ft = live.get(bt.id);
+        return ft ? { ...bt, url: ft.url, title: ft.title } : bt;
+      }),
+    );
   });
   // Seed selection on first load so a tab is always active. Prefer the backend's
   // restored active tab (session restore, #19); fall back to the last tab.
@@ -1354,12 +1366,12 @@ export async function refreshTabs(): Promise<void> {
     const restored = snapshot.active_tab;
     setActiveId(restored && list.some((t) => t.id === restored) ? restored : list.at(-1)!.id);
   }
-  setGroups(snapshot.groups);
-  setFolders(snapshot.folders);
-  setWorkspaces(snapshot.workspaces);
+  setGroups((prev) => keepSame(prev, snapshot.groups));
+  setFolders((prev) => keepSame(prev, snapshot.folders));
+  setWorkspaces((prev) => keepSame(prev, snapshot.workspaces));
   setActiveWorkspaceSig(snapshot.active_workspace);
   applyPanels(snapshot.panels);
-  setContainers(snapshot.containers);
+  setContainers((prev) => keepSame(prev, snapshot.containers));
 }
 
 export async function openTab(

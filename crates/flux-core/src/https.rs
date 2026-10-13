@@ -62,12 +62,13 @@ impl HttpsState {
         let mut allow_http: Vec<String> = self.allow_http.iter().map(|e| e.key().clone()).collect();
         allow_http.sort();
         let enabled = self.enabled.load(Ordering::Relaxed);
-        crate::persist::save_json_pretty(
+        crate::persist::queue_json_pretty(
             path,
             &Saved {
                 enabled,
                 allow_http,
             },
+            crate::persist::Durability::Barrier,
         );
     }
 

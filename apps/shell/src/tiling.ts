@@ -5,7 +5,7 @@
 // show/hide/bounds IPC. Extracted from App.tsx so layout algebra and IPC
 // reconciliation live in one place; App composes it with its local overlay
 // flags via createWebviewTiling(deps).
-import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import {
   activePanel,
   activePanelB,
@@ -63,8 +63,9 @@ export type WebviewTiling = {
   wv: (p: Promise<unknown>) => void;
   /** Drop all liveness bookkeeping for a tab (closed / hibernated). */
   forgetWebview: (id: number) => void;
-  /** Coalesced bounds re-apply (one IPC per animation frame). */
-  scheduleRelayout: () => void;
+  /** Coalesced bounds re-apply (one IPC per animation frame). Rects already
+   *  sent are skipped, except for `resend` (a tab whose page just loaded). */
+  scheduleRelayout: (resend?: number) => void;
   /** Force a full re-tile even when the card rect is unchanged (fullscreen exit). */
   forceRelayout: () => void;
   /** The current pane layout: which webviews should be visible, and where. */
@@ -80,19 +81,31 @@ export const PANEL_TOOLBAR = 34;
  *  no native webview covers (same idea as the split seam's SPLIT_GAP). */
 export const PANEL_GUTTER = 14;
 
+const sameRect = (a: Rect | null | undefined, b: Rect | null | undefined): boolean =>
+  a === b || (!!a && !!b && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height);
+
 /** Wire the tiling effects. Call once, inside App's setup (owns the effects). */
 export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
   const { overlayActive, uiDragging, focusMode } = deps;
 
   // Live rect of the content card, in CSS (logical) px relative to the window.
-  // Native tab webviews are positioned to match it (BACKLOG #2).
-  const [contentRect, setContentRect] = createSignal<Rect | null>(null);
+  // Native tab webviews are positioned to match it (BACKLOG #2). Compared by
+  // value: the observer and the resize listener both measure, and an unchanged
+  // rect re-ran the tiling effects for nothing.
+  const [contentRect, setContentRect] = createSignal<Rect | null>(null, { equals: sameRect });
+  // The rect last sent to each tab's webview, so a re-tile that lands on the
+  // same rect sends no IPC.
+  const sentBounds = new Map<number, Rect>();
   // Bumped to force the tiling effects to re-apply bounds even when the card
   // rect hasn't changed. Needed because exiting an HTML5 video fullscreen
   // leaves the native webview oversized (covering the bookmark bar / footer)
   // and fires no window resize, so nothing would otherwise re-tile it down.
+  // The webview moved without us, so what we last sent says nothing any more.
   const [relayoutTick, setRelayoutTick] = createSignal(0);
-  const forceRelayout = () => setRelayoutTick((n) => n + 1);
+  const forceRelayout = () => {
+    sentBounds.clear();
+    setRelayoutTick((n) => n + 1);
+  };
 
   const openedWebviews = new Set<number>();
   const openingWebviews = new Set<number>();
@@ -109,6 +122,18 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
     openedWebviews.delete(id);
     openingWebviews.delete(id);
     shown.delete(id);
+    sentBounds.delete(id);
+  };
+  /** Position a tab's webview, unless it already sits at `r`. */
+  const setBounds = (id: number, r: Rect) => {
+    if (sameRect(sentBounds.get(id), r)) return;
+    sentBounds.set(id, r);
+    wv(
+      webviewSetBounds(id, r).catch((e) => {
+        if (sentBounds.get(id) === r) sentBounds.delete(id); // unknown: send it again next time
+        throw e;
+      }),
+    );
   };
 
   // ── Rect math ──────────────────────────────────────────────────────────────
@@ -177,14 +202,28 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
   // resize fires dozens of layout changes/sec, and one IPC each was the lag.
   // Pane-aware: repositions every tiled pane, not just the active tab.
   let boundsRaf = 0;
-  const scheduleRelayout = () => {
+  const scheduleRelayout = (resend?: number) => {
+    if (resend != null) sentBounds.delete(resend);
     if (boundsRaf) return;
     boundsRaf = requestAnimationFrame(() => {
       boundsRaf = 0;
       if (uiDragging() || overlayActive()) return;
-      for (const p of paneLayout()) wv(webviewSetBounds(p.tab.id, p.rect));
+      for (const p of paneLayout()) setBounds(p.tab.id, p.rect);
     });
   };
+
+  // Which tabs' webviews belong on screen, and in how many panes. The effect
+  // below keys on this rather than on the active tab object, which every title
+  // tick and load event replaces: each of those re-ran it, forcing a layout read
+  // and re-sending the bounds the webview already had. A url change matters only
+  // when it moves a tab between a web page (a webview) and a flux:// page (none).
+  const paneKey = createMemo(() => {
+    if (readerOpen()) return "";
+    const panes = tilePanes();
+    const shown = panes && tileGroup() ? panes : [activeTab()];
+    const web = shown.filter((t) => t?.kind === "browser" && !isStartUrl(t.url)).map((t) => t!.id);
+    return `${shown.length}:${web.join(",")}`;
+  });
 
   // ── Measurement ────────────────────────────────────────────────────────────
   // Track the content-card rect: ResizeObserver catches every layout change
@@ -229,9 +268,10 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
     relayoutTick(); // subscribe: forced re-tile (e.g. after fullscreen-video exit)
     tileGroup(); // subscribe: re-tile when a seam moves or the layout changes
     panelWidth(); // subscribe: re-tile when the panel divider moves
+    paneKey(); // subscribe: which tabs are on screen (not every change to them)
     const dragging = uiDragging();
     const overlay = overlayActive();
-    const panes = overlay ? [] : paneLayout();
+    const panes = overlay ? [] : untrack(paneLayout);
     const liveIds = new Set(panes.map((p) => p.tab.id));
     // Hide only what's currently shown but shouldn't be (or everything mid-drag).
     // Crucially this issues NO hide IPC on a pure resize — `shown` already
@@ -281,7 +321,15 @@ export function createWebviewTiling(deps: TilingDeps): WebviewTiling {
             }
             openingWebviews.delete(id);
             openedWebviews.add(id);
-            if (overlayActive() || uiDragging()) {
+            // webview_open leaves the page at `r`, also when it already existed
+            // (the restored tab's page opened during setup, boot.rs).
+            sentBounds.set(id, r);
+            // Also when it stopped being a pane while the open was in flight: a
+            // launch URL taking focus at boot is the usual case, and the open of
+            // a page Rust already made (boot.rs) resolves at once. The effect
+            // took that change while this id was neither opened nor shown, so
+            // nothing else would hide it.
+            if (overlayActive() || uiDragging() || !paneLayout().some((q) => q.tab.id === id)) {
               shown.delete(id);
               await webviewHide(id);
               return;

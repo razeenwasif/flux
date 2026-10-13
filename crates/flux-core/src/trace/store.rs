@@ -26,6 +26,19 @@ const LAST_MS_REFRESH_MS: u64 = 5 * 60_000;
 /// Bound the store; evict the oldest visits (and their edges) beyond this. The
 /// lightweight metadata is cheap, but not unbounded.
 const MAX_VISITS: usize = 50_000;
+/// Eviction trims this far below the cap, so its pass over every visit and
+/// edge runs once per this many new visits, not on each one past the cap.
+const EVICT_BATCH: usize = 500;
+
+/// Where visit `id` sits in `visits`. Visits are pushed with rising ids and
+/// only ever removed, so the list is in id order and a binary search finds it;
+/// a scan backs that up should a file from elsewhere break the order.
+fn visit_pos(visits: &[Visit], id: VisitId) -> Option<usize> {
+    match visits.binary_search_by_key(&id, |v| v.id) {
+        Ok(i) => Some(i),
+        Err(_) => visits.iter().rposition(|v| v.id == id),
+    }
+}
 
 /// Where a visit came from and why — the provenance that turns flat history into
 /// a graph. All fields are best-effort; the slice fills `from_visit`/`referrer`
@@ -211,7 +224,10 @@ impl TraceStore {
             }
             let mut d = self.inner.write();
             if d.visits.is_empty() && d.edges.is_empty() {
-                d.next_id = d.next_id.max(loaded.next_id);
+                // Past every loaded id too, so new visits keep the list in id
+                // order even if the saved counter fell behind.
+                let past_loaded = loaded.visits.iter().map(|v| v.id + 1).max();
+                d.next_id = d.next_id.max(loaded.next_id).max(past_loaded.unwrap_or(0));
                 d.visits = loaded.visits;
                 d.edges = loaded.edges;
             }
@@ -259,7 +275,7 @@ impl TraceStore {
         // a page you're just sitting on.
         if let Some(pid) = prev {
             let d = self.inner.read();
-            if let Some(v) = d.visits.iter().find(|v| v.id == pid) {
+            if let Some(v) = visit_pos(&d.visits, pid).map(|i| &d.visits[i]) {
                 if v.url == url
                     && now.saturating_sub(v.last_ms) < window
                     && (title.trim().is_empty() || title == v.title)
@@ -274,7 +290,8 @@ impl TraceStore {
         // Same tab still on the same URL → same page (SPA republish / dwell):
         // refresh, don't fork a node.
         if let Some(pid) = prev {
-            if let Some(v) = d.visits.iter_mut().find(|v| v.id == pid) {
+            if let Some(i) = visit_pos(&d.visits, pid) {
+                let v = &mut d.visits[i];
                 if v.url == url {
                     if !continuing && now.saturating_sub(v.last_ms) >= VISIT_DEDUP_MS {
                         v.hits += 1; // returned to the same page after a gap
@@ -293,9 +310,9 @@ impl TraceStore {
         // New URL for this tab → a new Visit, plus a Nav edge from the prior one.
         // The prior visit may have been evicted/forgotten — treat that as no
         // provenance rather than leaving a pointer/edge to a node that's gone.
-        let prev_live = prev.filter(|p| d.visits.iter().any(|v| v.id == *p));
-        let referrer =
-            prev_live.and_then(|p| d.visits.iter().find(|v| v.id == p).map(|v| v.url.clone()));
+        let prev_at = prev.and_then(|p| visit_pos(&d.visits, p));
+        let prev_live = prev_at.map(|i| d.visits[i].id);
+        let referrer = prev_at.map(|i| d.visits[i].url.clone());
         let id = d.next_id;
         d.next_id += 1;
         d.visits.push(Visit {
@@ -317,27 +334,27 @@ impl TraceStore {
             // yet), so even a bounced paper/repo page can be cited *into* later.
             entities: extract_entities(url, ""),
         });
+        // `id` is new, so no edge can point at it yet: no duplicate to look for.
         if let Some(p) = prev_live {
-            let edge = Edge {
+            d.edges.push(Edge {
                 from: p,
                 to: id,
                 kind: EdgeKind::Nav,
-            };
-            if !d
-                .edges
-                .iter()
-                .any(|e| e.from == edge.from && e.to == edge.to && e.kind == edge.kind)
-            {
-                d.edges.push(edge);
-            }
+            });
         }
-        // Evict oldest beyond the cap (and any edges referencing them).
+        // Past the cap, evict the least recently seen (and any edges referencing
+        // them) down to a batch below it. Never the visit just recorded.
         if d.visits.len() > MAX_VISITS {
-            let over = d.visits.len() - MAX_VISITS;
-            let mut ids: Vec<(VisitId, u64)> = d.visits.iter().map(|v| (v.id, v.last_ms)).collect();
-            ids.sort_unstable_by_key(|(_, ms)| *ms);
+            let over = d.visits.len() - (MAX_VISITS - EVICT_BATCH);
+            let mut ages: Vec<(u64, VisitId)> = d
+                .visits
+                .iter()
+                .filter(|v| v.id != id)
+                .map(|v| (v.last_ms, v.id))
+                .collect();
+            ages.select_nth_unstable(over - 1);
             let doomed: std::collections::HashSet<VisitId> =
-                ids.into_iter().take(over).map(|(id, _)| id).collect();
+                ages[..over].iter().map(|&(_, old)| old).collect();
             d.visits.retain(|v| !doomed.contains(&v.id));
             d.edges
                 .retain(|e| !doomed.contains(&e.from) && !doomed.contains(&e.to));
@@ -367,7 +384,8 @@ impl TraceStore {
     pub fn attach_snapshot(&self, visit: VisitId, snapshot_id: u64) -> Option<u64> {
         self.hydrate();
         let mut d = self.inner.write();
-        let v = d.visits.iter_mut().find(|v| v.id == visit)?;
+        let i = visit_pos(&d.visits, visit)?;
+        let v = &mut d.visits[i];
         if let Some(existing) = v.snapshot_id {
             return Some(existing);
         }
@@ -392,7 +410,7 @@ impl TraceStore {
             if e.kind == EdgeKind::Nav || e.from == e.to {
                 continue;
             }
-            if !d.visits.iter().any(|v| v.id == e.from) || !d.visits.iter().any(|v| v.id == e.to) {
+            if visit_pos(&d.visits, e.from).is_none() || visit_pos(&d.visits, e.to).is_none() {
                 continue;
             }
             let dup = d.edges.iter().any(|x| {
@@ -428,7 +446,8 @@ impl TraceStore {
     pub fn set_entities(&self, visit: VisitId, entities: Vec<Entity>) {
         self.hydrate();
         let mut d = self.inner.write();
-        if let Some(v) = d.visits.iter_mut().find(|v| v.id == visit) {
+        if let Some(i) = visit_pos(&d.visits, visit) {
+            let v = &mut d.visits[i];
             if v.entities != entities {
                 v.entities = entities;
                 drop(d);
@@ -450,7 +469,7 @@ impl TraceStore {
         let mut new_edges: Vec<Edge> = Vec::new();
         {
             let d = self.inner.read();
-            let Some(me) = d.visits.iter().find(|v| v.id == id) else {
+            let Some(me) = visit_pos(&d.visits, id).map(|i| &d.visits[i]) else {
                 return;
             };
             if me.entities.is_empty() {
@@ -636,12 +655,8 @@ impl TraceStore {
 
     pub fn visit(&self, id: VisitId) -> Option<Visit> {
         self.hydrate();
-        self.inner
-            .read()
-            .visits
-            .iter()
-            .find(|v| v.id == id)
-            .cloned()
+        let d = self.inner.read();
+        visit_pos(&d.visits, id).map(|i| d.visits[i].clone())
     }
 
     /// Ids of every visit still in the Trail (the forget sweep keeps these).
@@ -1102,6 +1117,71 @@ mod tests {
         assert_eq!(vb.why.from_visit, None);
         assert_eq!(vb.why.referrer, None);
         assert!(s.graph(None, None).edges.is_empty());
+    }
+
+    fn bare_visit(id: VisitId, last_ms: u64) -> Visit {
+        Visit {
+            id,
+            url: format!("https://{id}.dev/"),
+            title: String::new(),
+            first_ms: last_ms,
+            last_ms,
+            hits: 1,
+            why: Provenance::default(),
+            snapshot_id: None,
+            entities: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn visit_lookup_finds_ids_in_or_out_of_order() {
+        let sorted = vec![bare_visit(1, 0), bare_visit(5, 0), bare_visit(9, 0)];
+        assert_eq!(visit_pos(&sorted, 5), Some(1));
+        assert_eq!(visit_pos(&sorted, 4), None);
+        let shuffled = vec![bare_visit(9, 0), bare_visit(1, 0), bare_visit(5, 0)];
+        for id in [1, 5, 9] {
+            assert_eq!(shuffled[visit_pos(&shuffled, id).unwrap()].id, id);
+        }
+        assert_eq!(visit_pos(&shuffled, 4), None);
+    }
+
+    #[test]
+    fn eviction_at_the_cap_trims_a_batch_of_the_least_recently_seen() {
+        let s = TraceStore::default();
+        {
+            let mut d = s.inner.write();
+            // Seen in id order, except visit 0, which was revisited lately.
+            d.visits = (0..MAX_VISITS as u64)
+                .map(|id| bare_visit(id, if id == 0 { u64::MAX / 2 } else { id }))
+                .collect();
+            d.edges = vec![
+                Edge {
+                    from: 1,
+                    to: 2,
+                    kind: EdgeKind::Nav,
+                },
+                Edge {
+                    from: 0,
+                    to: 9_000,
+                    kind: EdgeKind::Nav,
+                },
+            ];
+            d.next_id = MAX_VISITS as u64;
+        }
+        let new = s.record(1, "https://new.dev/", "N", None, None).unwrap();
+        let d = s.inner.read();
+        assert_eq!(d.visits.len(), MAX_VISITS - EVICT_BATCH);
+        let evicted = EVICT_BATCH as u64 + 1; // the batch, plus the one over the cap
+        assert!(visit_pos(&d.visits, 1).is_none());
+        assert!(visit_pos(&d.visits, evicted).is_none());
+        assert!(visit_pos(&d.visits, evicted + 1).is_some());
+        assert!(visit_pos(&d.visits, 0).is_some(), "recently seen, so kept");
+        assert!(visit_pos(&d.visits, new).is_some());
+        assert_eq!(d.edges.len(), 1, "edges to evicted visits go with them");
+        drop(d);
+        // Below the cap again, the next visit evicts nothing.
+        s.record(2, "https://next.dev/", "X", None, None).unwrap();
+        assert_eq!(s.inner.read().visits.len(), MAX_VISITS - EVICT_BATCH + 1);
     }
 
     #[test]

@@ -1975,6 +1975,7 @@ dependencies = [
  "imap",
  "jni 0.21.1",
  "keyring",
+ "libc",
  "libloading 0.8.9",
  "notify",
  "objc",

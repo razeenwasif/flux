@@ -123,7 +123,11 @@ impl PermState {
     fn set_block(&self, on: bool) {
         self.block.store(on, Ordering::Relaxed);
         if let Some(path) = &self.path {
-            crate::persist::save_text(&block_path(path), if on { "1" } else { "0" });
+            crate::persist::queue_text(
+                &block_path(path),
+                if on { "1" } else { "0" },
+                crate::persist::Durability::Barrier,
+            );
         }
     }
 
@@ -195,7 +199,7 @@ impl PermState {
 
     fn persist(&self) {
         let Some(path) = &self.path else { return };
-        crate::persist::save_json_pretty(path, &self.list());
+        crate::persist::queue_json_pretty(path, &self.list(), crate::persist::Durability::Barrier);
     }
 }
 

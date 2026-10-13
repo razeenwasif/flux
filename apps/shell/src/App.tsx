@@ -1,6 +1,5 @@
 import "./interfacePreferences";
-import { launcherOpen, setLauncherOpen } from "./launcherOpen";
-import { setIndexerPanelOpen } from "./indexerOpen";
+import { launcherOpen } from "./launcherOpen";
 /**
  * Flux shell — Arc-style vertical layout (ADR 0002).
  *
@@ -36,32 +35,15 @@ import {
 } from "solid-js";
 import {
   NOTEBOOK_URL,
-  TRAIL_URL,
-  WHITEBOARD_URL,
-  SCRIBE_URL,
-  OMNI_URL,
-  VAULT_URL,
-  HISTORY_URL,
-  BOOKMARKS_URL,
-  SESSIONS_URL,
-  RESOURCES_URL,
-  TASKS_URL,
-  SPEEDTEST_URL,
-  PERMISSIONS_URL,
-  SENTINEL_URL,
   isPdfUrl,
   pdfViewerUrl,
-  ARCHIVE_URL,
   archiveSave,
-  FEEDS_URL,
-  SYNC_URL,
-  APPS_URL,
   SETTINGS_URL,
   pwaInstall,
   agentTranslate,
   bookmarkAdd,
   bookmarkRemove,
-  bookmarksList,
+  bookmarkFind,
   webviewDevtools,
   chromeFocus,
   isStartUrl,
@@ -101,6 +83,7 @@ import {
   webviewReload,
   webviewZoom,
   webviewExtractReader,
+  bootMark,
   onReader,
   webviewCapture,
   onScreenshot,
@@ -112,7 +95,6 @@ import {
   workspaceDelete,
   workspaceSwitch,
   win,
-  type TabMeta,
 } from "./ipc";
 import { setTerminalOpener } from "./terminals";
 import { isMobile } from "./platform";
@@ -139,10 +121,9 @@ const WatchPanel = lazy(() => import("./WatchPanel"));
 const TrackerGraph = lazy(() => import("./TrackerGraph"));
 const AppPane = lazy(() => import("./AppPane"));
 const TuiPane = lazy(() => import("./TuiPane"));
-import { FLUX_APPS } from "./apps";
 import { fitLayout, LAYOUT_PRESETS, parseLayout, type LayoutPreset, type LayoutState } from "./layout";
 import { tileRects } from "./tiles";
-import type { PaletteAction } from "./CommandPalette";
+import type { PaletteContext } from "./paletteActions";
 import { LinkMenu } from "./linkMenu";
 // Lazy-loaded: not shown on a fresh window, so they stay out of the boot bundle
 // and load on first use (instant — assets are local/embedded). #startup
@@ -166,8 +147,6 @@ import {
   applyNav,
   applyAgentModel,
   applyAudiopulseDir,
-  bookmarkBarOpen,
-  setBookmarkBarOpen,
   editorColOpen,
   editorColRatio,
   setEditorColOpen,
@@ -187,28 +166,19 @@ import {
   shellHistOpen,
   calendarDocked,
   dockOpen,
-  toggleDock,
   setCalendarPopOpen,
-  openMessagingPanel,
   setShellHistOpen,
-  setSplitPickerOpen,
   semFindOpen,
-  setSemFindOpen,
   watchPanelOpen,
-  setWatchPanelOpen,
   trackerGraphOpen,
-  setTrackerGraphOpen,
   openAppIds,
   tuiPanes,
   setMapPanelOpen,
   mapQuery,
   setMapQuery,
   closeTab,
-  closeTabs,
-  browserTabsIn,
   reopenClosedTab,
   createWorkspace,
-  requestWorkspaceRename,
   activePanel,
   activePanelId,
   activePanelIdB,
@@ -228,7 +198,6 @@ import {
   wsPanelOpen,
 } from "./store";
 import { createWebviewTiling } from "./tiling";
-import { startClockDriver } from "./clocks";
 import { addPluginListener } from "@tauri-apps/api/core";
 import { ResizeHandles } from "./Chrome";
 import {
@@ -248,7 +217,6 @@ import {
   readerTab,
   openReader,
   closeReader,
-  clearTile,
   tileGroup,
   restoreTile,
   splitDragging,
@@ -257,7 +225,6 @@ import {
   setFindOpen,
   setHibernated,
   setPendingAsk,
-  setPendingLens,
   setTabLoading,
   sendTabToWorkspace,
   sendGroupToWorkspace,
@@ -431,10 +398,17 @@ const App: Component = () => {
   const [winW, setWinW] = createSignal(window.innerWidth);
   // #46: track per-URL last-access (keyed by URL so it survives restarts) and seed
   // restored tabs so they aren't treated as stale on the first auto-archive sweep.
-  createEffect(() => {
+  // Keyed on the active tab's id and url: every title tick and load event hands
+  // the active tab a new object, and each one rewrote the access map to storage.
+  const activeBrowserUrl = createMemo(() => {
     const t = activeTab();
-    if (t?.kind === "browser") touchTabUrl(t.url);
+    return t?.kind === "browser" ? t.url : null;
   });
+  createEffect(
+    on([activeId, activeBrowserUrl], ([, url]) => {
+      if (url) touchTabUrl(url);
+    }),
+  );
   createEffect(() => {
     seedTabAccess(
       tabs()
@@ -463,10 +437,25 @@ const App: Component = () => {
   // the predictive-prefetch Markov model (#103).
   const prevUrlByTab = new Map<number, string>();
 
+  // #134: timers and alarms fire regardless of the active tab, from a driver in
+  // clocks.ts. It loads once the window is idle rather than with the boot bundle:
+  // nothing can ring before the driver starts, and the start page's clock widget
+  // starts it itself if it shows first. `clocksReady` then mounts the ring banner.
+  const [clocksReady, setClocksReady] = createSignal(false);
+  const whenIdle = (fn: () => void) =>
+    "requestIdleCallback" in window ? requestIdleCallback(fn, { timeout: 2000 }) : setTimeout(fn, 1000);
+  onMount(() =>
+    whenIdle(
+      () =>
+        void import("./clocks").then((m) => {
+          m.startClockDriver();
+          setClocksReady(true);
+        }),
+    ),
+  );
+
   // Materialize CLI launch intent exactly once (`flux <url> -t`).
   onMount(async () => {
-    startClockDriver(); // #134: timers/alarms fire regardless of the active tab
-
     // Event listeners are registered but NOT awaited. Each `listen()` is an IPC
     // round trip, and these used to be awaited one after another — a dozen
     // serialized latencies during boot, for registrations that have no ordering
@@ -813,8 +802,9 @@ const App: Component = () => {
           void tabSetUrl(tabId, url).catch(() => {});
           // Re-apply the pane layout once loaded (defensive: ensures the page sits
           // in its pane even if the initial position didn't stick). Pane-aware so a
-          // split pane lands in its half, not the full card.
-          if (paneLayout().some((p) => p.tab.id === tabId)) scheduleRelayout();
+          // split pane lands in its half, not the full card. Resent even when the
+          // rect matches the last one sent, which is the case this is here for.
+          if (paneLayout().some((p) => p.tab.id === tabId)) scheduleRelayout(tabId);
           // Re-apply this host's saved zoom (#36).
           const z = zoomFor(hostOfUrl(url));
           if (z !== 1) void webviewZoom(tabId, z).catch(() => {});
@@ -861,6 +851,12 @@ const App: Component = () => {
         }
       }),
     );
+    // Rust may have opened the restored tab's page during setup (boot.rs), and
+    // it can load before the tab listeners above exist; its address, loading
+    // state, zoom and Sentinel checks all ride on those events. Once they are
+    // live, say so: Rust sends that page's latest ones again and hides it if
+    // this shell never took it as a pane.
+    void Promise.allSettled(listeners).then(() => bootMark("listening"));
     // Web panel unread badges (#48): a panel reports its title's (N) count.
     holdListener(onPanelBadge((id, count) => setPanelBadge(id, count)));
   });
@@ -949,18 +945,22 @@ const App: Component = () => {
 
   // Bookmark state for the active page — drives the address-bar star + Ctrl+D.
   const [bookmarkedId, setBookmarkedId] = createSignal<number | null>(null);
-  const bookmarkableUrl = () => {
+  // A memo, so the lookup below runs when the url changes — not on every title
+  // tick or load event that hands the active tab a new object.
+  const bookmarkableUrl = createMemo(() => {
     const t = activeTab();
     return t?.kind === "browser" && !isStartUrl(t.url) ? t.url : null;
-  };
+  });
   createEffect(() => {
     const url = bookmarkableUrl();
     if (!url) {
       setBookmarkedId(null);
       return;
     }
-    void bookmarksList()
-      .then((bms) => setBookmarkedId(bms.find((b) => b.url === url)?.id ?? null))
+    // One lookup in Rust rather than shipping the whole bookmark list over IPC.
+    // An answer for a page we have already left is dropped.
+    void bookmarkFind(url)
+      .then((id) => bookmarkableUrl() === url && setBookmarkedId(id ?? null))
       .catch(() => setBookmarkedId(null));
   });
   const toggleBookmark = () => {
@@ -1429,248 +1429,6 @@ const App: Component = () => {
     document.addEventListener("keydown", onKey);
     onCleanup(() => document.removeEventListener("keydown", onKey));
   });
-  // Actions offered by the palette (tab-switching + history are built in).
-  const paletteActions = (): PaletteAction[] => [
-    { id: "launcher", label: "Open launcher", icon: "⌕", run: () => setLauncherOpen(true) },
-    { id: "new-tab", label: "New browser tab", icon: "🌐", run: () => void openTab("browser") },
-    {
-      id: "new-private",
-      label: "New private tab",
-      icon: "🕶",
-      run: () => void openTab("browser", undefined, true),
-    },
-    {
-      id: "new-term",
-      label: "New terminal tab",
-      icon: "⌨",
-      run: () => void openTab("terminal").then(() => setTerminalOpen(true)),
-    },
-    { id: "new-files", label: "New files tab", icon: "📁", run: () => void openTab("files") },
-    { id: "history", label: "Open History", icon: "🕘", run: () => go(HISTORY_URL) },
-    { id: "bookmarks", label: "Open Bookmarks", icon: "🔖", run: () => go(BOOKMARKS_URL) },
-    // Bookmarking the current page was reachable only by Ctrl+D — no palette
-    // entry, so it was undiscoverable and unusable from the spotlight.
-    { id: "bookmark-page", label: "Bookmark this page", icon: "🔖", run: () => toggleBookmark() },
-    {
-      id: "bookmark-bar",
-      label: bookmarkBarOpen() ? "Hide bookmark bar" : "Show bookmark bar",
-      icon: "🔖",
-      run: () => setBookmarkBarOpen(!bookmarkBarOpen()),
-    },
-    {
-      id: "pages-bar",
-      label: pagesBarOpen() ? "Hide launcher column" : "Show launcher column",
-      icon: "🗂️",
-      run: () => setPagesBarOpen(!pagesBarOpen()),
-    },
-    {
-      id: "editor-col",
-      label: editorColOpen() ? "Hide editor column" : "Show editor column",
-      icon: "📝",
-      run: () => setEditorColOpen(!editorColOpen()),
-    },
-    {
-      id: "app-dock",
-      label: appDockOpen() ? "Collapse app dock" : "Expand app dock",
-      icon: "⌘",
-      run: () => setAppDockOpen(!appDockOpen()),
-    },
-    {
-      id: "connect-rail",
-      label: connectOpen() ? "Hide connections rail" : "Show connections rail",
-      icon: "✦",
-      run: () => setConnectOpen(!connectOpen()),
-    },
-    {
-      id: "indexer-orb",
-      label: orbOn() ? "Hide the Indexer orb" : "Show the Indexer orb",
-      icon: "🔮",
-      run: () => setOrbOn(!orbOn()),
-    },
-    {
-      id: "indexer-ask",
-      label: "Ask your notes (Indexer)",
-      icon: "🔮",
-      run: () => {
-        setOrbOn(true);
-        setIndexerPanelOpen(true);
-      },
-    },
-    { id: "sessions", label: "Open Sessions", icon: "🗃", run: () => go(SESSIONS_URL) },
-    { id: "passwords", label: "Open Passwords", icon: "🔑", run: () => go(VAULT_URL) },
-    { id: "omni", label: "Open Omni index", icon: "✦", run: () => go(OMNI_URL) },
-    { id: "notebook", label: "Open Notebook (ask your notes)", icon: "✦", run: () => go(NOTEBOOK_URL) },
-    { id: "trail", label: "Open the Trail (your browsing graph)", icon: "🧭", run: () => go(TRAIL_URL) },
-    { id: "whiteboard", label: "Open whiteboard", icon: "🎨", run: () => go(WHITEBOARD_URL) },
-    { id: "scribe", label: "Open Scribe (handwritten notebooks)", icon: "✍️", run: () => go(SCRIBE_URL) },
-    {
-      id: "calendar",
-      label: "Open calendar (today & upcoming)",
-      icon: "📅",
-      run: () => {
-        setSidebarOpen(true);
-        setCalendarPopOpen(true);
-      },
-    },
-    { id: "discord", label: "Open Discord panel", icon: "💬", run: () => void openMessagingPanel("discord") },
-    { id: "teams", label: "Open Teams panel", icon: "💬", run: () => void openMessagingPanel("teams") },
-    {
-      id: "spotlight",
-      label: "Search the web (spotlight)",
-      icon: "⌕",
-      run: () => openSpotlight(),
-    },
-    { id: "find", label: "Find in page", icon: "🔎", run: () => openFind() },
-    {
-      id: "semantic-find",
-      label: "Semantic find (by meaning · across tabs)",
-      icon: "✦",
-      run: () => setSemFindOpen(true),
-    },
-    {
-      id: "shell-history",
-      label: "Search shell history (by meaning)",
-      icon: "⌘",
-      run: () => setShellHistOpen(true),
-    },
-    { id: "watches", label: "Watched pages (change monitor)", icon: "👁", run: () => setWatchPanelOpen(true) },
-    {
-      id: "tracker-graph",
-      label: "Tracker graph (privacy viz)",
-      icon: "🕸",
-      run: () => setTrackerGraphOpen(true),
-    },
-    {
-      id: "dock-col",
-      label: dockOpen() ? "Hide calendar + mail column" : "Show calendar + mail column",
-      icon: "🗓",
-      run: () => toggleDock(),
-    },
-    {
-      id: "split",
-      label: tileGroup() != null ? "Exit split view" : "Split view (tile up to four tabs)",
-      icon: "◫",
-      run: () => (tileGroup() != null ? clearTile() : setSplitPickerOpen(true)),
-    },
-    { id: "reader", label: "Reader mode", icon: "📖", run: () => toggleReader() },
-    { id: "focus", label: "Focus mode (hide chrome)", icon: "⤢", run: () => dispatch("focus-mode") },
-    { id: "capture", label: "Capture page (screenshot)", icon: "📸", run: () => capturePage() },
-    { id: "resources", label: "Open Resource monitor", icon: "📊", run: () => go(RESOURCES_URL) },
-    { id: "tasks", label: "Open Task manager", icon: "🗂️", run: () => go(TASKS_URL) },
-    { id: "speedtest", label: "Network speed test", icon: "⚡", run: () => go(SPEEDTEST_URL) },
-    { id: "permissions", label: "Site permissions", icon: "🔐", run: () => go(PERMISSIONS_URL) },
-    { id: "sentinel", label: "Agent activity log", icon: "🛡", run: () => go(SENTINEL_URL) },
-    // Workspaces had no palette entry at all, and rename was a double-click on a
-    // hover popover — effectively undiscoverable.
-    {
-      id: "ws-rename",
-      label: "Rename workspace",
-      icon: "✎",
-      run: () => {
-        setFocusMode(false); // the rail is hidden in focus mode
-        setSidebarOpen(true); // …and when the sidebar is collapsed
-        requestWorkspaceRename(activeWorkspace());
-      },
-    },
-    { id: "ws-new", label: "New workspace", icon: "🗂", run: () => void newWorkspace() },
-    {
-      id: "archive-save",
-      label: "Save page for offline (read later)",
-      icon: "📚",
-      run: () => saveToArchive(),
-    },
-    { id: "archive", label: "Open Archive", icon: "📚", run: () => go(ARCHIVE_URL) },
-    { id: "feeds", label: "Open Feeds (RSS reader)", icon: "📰", run: () => go(FEEDS_URL) },
-    { id: "sync", label: "Sync (encrypted, across devices)", icon: "🔄", run: () => go(SYNC_URL) },
-    {
-      id: "translate",
-      label: `Translate page → ${myLang}`,
-      icon: "🌐",
-      run: () => void translatePage(myLang),
-    },
-    ...["English", "Spanish", "French", "German", "Japanese", "Chinese", "Arabic", "Hindi"]
-      .filter((l) => l !== myLang)
-      .map((l) => ({
-        id: `translate-${l}`,
-        label: `Translate page → ${l}`,
-        icon: "🌐",
-        run: () => void translatePage(l),
-      })),
-    { id: "install-app", label: "Install this site as app", icon: "🧩", run: () => installApp() },
-    { id: "apps", label: "Open installed apps", icon: "🧩", run: () => go(APPS_URL) },
-    ...Object.entries(LAYOUT_PRESETS).map(([id, preset]) => ({
-      id: `layout-${id}`,
-      label: `Use ${preset.label} layout`,
-      icon: "▦",
-      run: () => chooseLayout(id as LayoutPreset),
-    })),
-    ...(previousLayout()
-      ? [{ id: "layout-restore", label: "Restore previous layout", icon: "↶", run: restoreLayout }]
-      : []),
-    { id: "settings", label: "Open Settings", icon: "⚙", run: () => go(SETTINGS_URL) },
-    { id: "sleep-bg", label: "Sleep background tabs", icon: "💤", run: () => sleepBackgroundTabs() },
-    { id: "zoom-in", label: "Zoom in", icon: "➕", run: () => dispatch("zoom-in") },
-    { id: "zoom-out", label: "Zoom out", icon: "➖", run: () => dispatch("zoom-out") },
-    { id: "zoom-reset", label: "Reset zoom", icon: "🔍", run: () => dispatch("zoom-reset") },
-    { id: "reload", label: "Reload page", icon: "⟳", run: () => navActive(webviewReload) },
-    { id: "tog-term", label: "Toggle terminal", icon: "⌨", run: () => setTerminalOpen((v) => !v) },
-    { id: "tog-agent", label: "Toggle agent", icon: "✦", run: () => setAgentOpen((v) => !v) },
-    {
-      id: "lens",
-      label: "Identify page (Lens)",
-      icon: "🔍",
-      run: () => {
-        setAgentOpen(true);
-        setPendingLens(true);
-      },
-    },
-    { id: "tog-side", label: "Toggle sidebar", icon: "◧", run: () => setSidebarOpen((v) => !v) },
-    {
-      id: "close",
-      label: "Close current tab",
-      icon: "✕",
-      run: () => {
-        const id = activeId();
-        if (id != null) void closeTab(id);
-      },
-    },
-    // Bulk closes confirm, and say the count: restoring a session opens dozens
-    // of tabs across workspaces, and the reopen stack only holds 25 — so past
-    // that this isn't fully undoable and shouldn't happen on a mis-click.
-    {
-      id: "close-workspace-tabs",
-      label: "Close all tabs in this workspace",
-      icon: "✕",
-      run: () => void closeMany(browserTabsIn(activeWorkspace()), "in this workspace"),
-    },
-    {
-      id: "close-all-tabs",
-      label: "Close every tab (all workspaces)",
-      icon: "✕",
-      run: () => void closeMany(browserTabsIn(), "across all workspaces"),
-    },
-  ];
-
-  /** Confirm, close, and say what happened + how to undo. */
-  const closeMany = async (targets: TabMeta[], where: string) => {
-    const n = targets.length;
-    if (!n) {
-      toast(`No tabs open ${where}.`);
-      return;
-    }
-    const undoable = Math.min(n, 25);
-    if (
-      !window.confirm(
-        `Close ${n} tab${n === 1 ? "" : "s"} ${where}?\n\n` +
-          (n > undoable
-            ? `Ctrl+Shift+T can reopen the last ${undoable} of them, one at a time.`
-            : `Ctrl+Shift+T reopens them one at a time.`),
-      )
-    )
-      return;
-    const closed = await closeTabs(targets.map((t) => t.id));
-    toast(`Closed ${closed} tab${closed === 1 ? "" : "s"}`, "ok");
-  };
 
   // Run an app keyboard action — shared by the chrome's keydown listener and
   // the chords forwarded from a focused tab webview (#18).
@@ -1911,6 +1669,38 @@ const App: Component = () => {
     window.addEventListener("pointerup", up);
   };
 
+  // The palette and the spotlight build their action list (paletteActions.ts)
+  // inside their own lazy chunks from this, so the list stays out of the boot
+  // bundle.
+  const paletteCtx: PaletteContext = {
+    go,
+    toggleBookmark,
+    setTerminalOpen,
+    connectOpen,
+    setConnectOpen,
+    orbOn,
+    setOrbOn,
+    setSidebarOpen,
+    setAgentOpen,
+    setFocusMode,
+    openSpotlight,
+    openFind,
+    toggleReader,
+    dispatch,
+    capturePage,
+    saveToArchive,
+    installApp,
+    newWorkspace,
+    myLang,
+    translatePage,
+    chooseLayout,
+    previousLayout,
+    restoreLayout,
+    sleepBackgroundTabs,
+    navActive,
+    toast,
+  };
+
   return (
     <div
       class="shell"
@@ -1998,6 +1788,7 @@ const App: Component = () => {
       <ContentArea
         editorVisible={responsive().editor}
         pageMinimum={pageMinimum()}
+        clocksReady={clocksReady()}
         onNavigate={go}
         onNewTerminal={() => void openTab("terminal")}
         onToggleAgent={() => setAgentOpen(true)}
@@ -2127,7 +1918,7 @@ const App: Component = () => {
       {/* Command palette (#6) — overlay; renders above the (hidden) webview. */}
       <Show when={paletteOpen()}>
         <Suspense>
-          <CommandPalette actions={paletteActions()} onClose={closePalette} onNavigate={go} />
+          <CommandPalette ctx={paletteCtx} onClose={closePalette} onNavigate={go} />
         </Suspense>
       </Show>
       {/* Search spotlight (flux-plan1) — Ctrl+Shift+K. Outward-facing sibling of
@@ -2135,7 +1926,7 @@ const App: Component = () => {
       <Show when={spotOpen()}>
         <Suspense>
           <SearchSpotlight
-            actions={paletteActions()}
+            ctx={paletteCtx}
             onClose={closeSpotlight}
             onNavigate={go}
             onOpenFiles={openFilesPanel}
@@ -2175,12 +1966,7 @@ const App: Component = () => {
           <AppDock />
         </Suspense>
       </Show>
-      <For each={openAppIds()}>
-        {(id, i) => {
-          const app = FLUX_APPS.find((a) => a.id === id);
-          return app ? <AppPane app={app} index={i()} /> : null;
-        }}
-      </For>
+      <For each={openAppIds()}>{(id, i) => <AppPane id={id} index={i()} />}</For>
       {/* TUI apps (#117) floated the same way. Pane records are never mutated in
           place (open/close rebuild the array), so For's reference keying reuses
           each live node — a remount here would kill that pane's shell. */}

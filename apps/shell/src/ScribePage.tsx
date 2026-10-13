@@ -27,6 +27,7 @@ import {
   type NotebookMeta,
 } from "./ipc";
 import { titleInternalTab } from "./store";
+import "./ScribePage.css";
 
 // A4 portrait at ~150dpi — a familiar page shape with room for long derivations.
 const PAGE_W = 1240;

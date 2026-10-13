@@ -10,6 +10,7 @@ pub mod audioviz;
 pub mod bindings;
 pub mod bookmarks;
 pub mod boosts;
+pub mod boot;
 pub mod broker;
 pub mod cache;
 pub mod calendar;
@@ -671,8 +672,19 @@ fn init_sessions_history(app: &tauri::App, boot_started: std::time::Instant) {
     }
     // Download manager (#34) — WebView2 DownloadStarting + progress.
     app.manage(downloads::DownloadState::new());
-    // Native dark mode (#40) — WebView2 PreferredColorScheme.
-    app.manage(darkmode::DarkState::new());
+    // Force-dark (#40). Restored from the last run so a page opened during
+    // setup (boot.rs) starts in the mode the shell is about to apply.
+    app.manage(
+        match app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|d| d.join("darkmode.txt"))
+        {
+            Some(p) => darkmode::DarkState::restore(p),
+            None => darkmode::DarkState::new(),
+        },
+    );
     // Navigation toggles (#51/#52) — vim link-hints + mouse gestures.
     app.manage(nav::NavState::new());
     // Per-page notes (#53).
@@ -1020,6 +1032,7 @@ fn finish_boot(app: &tauri::App, boot_started: std::time::Instant) {
 
 /// Build the Tauri application. Split from `main` for testability.
 pub fn run(intent: cli::LaunchIntent) {
+    boot::start_clock();
     let context = tauri::generate_context!();
     #[cfg(feature = "native-smoke")]
     {
@@ -1052,6 +1065,8 @@ pub fn run(intent: cli::LaunchIntent) {
         built = env!("FLUX_BUILD_STAMP"),
         "flux starting"
     );
+    // The time `main` took to get here: CLI parsing, context, tracing.
+    boot::mark("run");
 
     // Before Tauri builds anything: a queued clear must run while the engine
     // still holds no profile files open (see storage.rs).
@@ -1103,10 +1118,13 @@ pub fn run(intent: cli::LaunchIntent) {
     // (ADR 0012, Milestone 2); driven by webview.rs's mobile arm.
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_flux_webview::init());
-    builder
+    let app = builder
         // OS notifications (used by the reminder scheduler).
         .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
+            // Tauri has started the event loop and made the window (and the
+            // shell's webview) from tauri.conf.json by now.
+            boot::mark("setup.start");
             let boot_started = std::time::Instant::now();
             // Boot is a fixed sequence of per-domain init phases (Phase 2
             // refactor: this closure was 330 lines). Order matters — e.g.
@@ -1120,7 +1138,14 @@ pub fn run(intent: cli::LaunchIntent) {
             init_user_content(app, boot_started);
             init_sessions_history(app, boot_started);
             init_vault(app, boot_started);
+            // Last, once every store a page webview reads at creation is
+            // managed: start the restored tab's page now rather than after the
+            // shell has booted (boot.rs).
+            boot_phase("webview.early", boot_started, || {
+                boot::open_early_webview(app.handle())
+            });
             finish_boot(app, boot_started);
+            boot::mark("setup.done");
             Ok(())
         })
         // `dom_publish` lives in the `fluxtab` inlined plugin (see build.rs):
@@ -1163,6 +1188,7 @@ pub fn run(intent: cli::LaunchIntent) {
         )
         .invoke_handler(tauri::generate_handler![
             commands::shell_snapshot,
+            boot::boot_mark,
             commands::close_main_window,
             webview::set_window_acrylic,
             commands::tab_create,
@@ -1236,6 +1262,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::tabs_recluster,
             terminal::terminal_spawn,
             terminal::terminal_write,
+            terminal::terminal_ack,
             terminal::terminal_resize,
             terminal::terminal_kill,
             webview::webview_open,
@@ -1342,6 +1369,7 @@ pub fn run(intent: cli::LaunchIntent) {
             trace::trace_chat,
             trace::trace_chat_send,
             bookmarks::bookmarks_list,
+            bookmarks::bookmark_find,
             bookmarks::bookmark_folders,
             bookmarks::bookmark_add,
             bookmarks::bookmark_remove,
@@ -1607,12 +1635,14 @@ pub fn run(intent: cli::LaunchIntent) {
             files::fs_unwatch,
         ])
         .build(context)
-        .expect("error while building Flux")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                flush_on_exit(app);
-            }
-        });
+        .expect("error while building Flux");
+    // Plugins initialized; next the event loop starts and makes the window.
+    boot::mark("tauri.built");
+    app.run(|app, event| {
+        if let tauri::RunEvent::Exit = event {
+            flush_on_exit(app);
+        }
+    });
 }
 
 /// Final write for the stores that otherwise persist only on 60 s timers, so a
@@ -1628,6 +1658,9 @@ fn flush_on_exit(app: &tauri::AppHandle) {
         h.persist_if_hydrated();
     }
     flush_trail_stores(app);
+    // Last: saves queued for the shared store writer (bookmarks, settings,
+    // toggles) from just before the quit.
+    persist::flush_all();
 }
 
 /// Android entry point (ADR 0012, rung C). The generated Gradle project's JNI

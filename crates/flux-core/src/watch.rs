@@ -134,7 +134,10 @@ impl WatchStore {
         // torn file that `restore` reads as "no watches".
         let saved = serde_json::to_vec(&self.inner.read().entries)
             .map_err(|e| e.to_string())
-            .and_then(|json| crate::persist::write_atomic(path, &json).map_err(|e| e.to_string()));
+            .and_then(|json| {
+                crate::persist::write_atomic_with(path, &json, crate::persist::Durability::Barrier)
+                    .map_err(|e| e.to_string())
+            });
         if let Err(e) = saved {
             tracing::warn!(target: "flux::watch", "saving watches failed: {e}");
         }

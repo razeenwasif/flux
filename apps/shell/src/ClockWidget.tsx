@@ -19,6 +19,7 @@ import {
   swRunning,
   swToggle,
   setTimerDuration,
+  startClockDriver,
   timerBump,
   timerRemaining,
   timerReset,
@@ -30,6 +31,10 @@ import {
 const PRESETS = [1, 3, 5, 10, 25];
 
 const ClockWidget: Component = () => {
+  // App starts the driver once the window is idle; a start page shown at boot
+  // can get here first, and needs the saved alarms loaded (and a timer started
+  // here armed) now. Starting it twice is a no-op.
+  startClockDriver();
   const [tab, setTab] = createSignal<"stopwatch" | "timer" | "alarm">("timer");
   const [tick, setTick] = createSignal(0);
   const [newTime, setNewTime] = createSignal("07:00");

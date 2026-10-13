@@ -55,6 +55,33 @@ describe("keepSame", () => {
     expect(keepSame(shown, grown)[0]).toBe(grown[0]);
   });
 
+  it("returns the shown list itself when nothing changed, so a signal set to it stays quiet", () => {
+    const shown: Row[] = [
+      { id: 1, name: "a", enabled: true },
+      { id: 2, name: "b", enabled: false },
+    ];
+    expect(keepSame(shown, refetch(shown))).toBe(shown);
+    // A reorder, an addition or a removal is a change even with every row kept.
+    expect(keepSame(shown, refetch([shown[1]!, shown[0]!]))).not.toBe(shown);
+    expect(keepSame(shown, refetch(shown.slice(0, 1)))).not.toBe(shown);
+    const grown = keepSame(shown, [...refetch(shown), { id: 3, name: "c", enabled: true }]);
+    expect(grown).not.toBe(shown);
+    expect(grown[0]).toBe(shown[0]);
+  });
+
+  it("keeps tabs whose live url and title the store merged back in", () => {
+    // refreshTabs copies the url and title the frontend tracks onto the
+    // backend's (creation-time) tab, so an unchanged tab is a fresh object with
+    // the same content in the same key order, and must still be kept.
+    type Tab = { id: number; kind: string; url: string; title: string; group: number | null };
+    const shown: Tab[] = [{ id: 4, kind: "browser", url: "https://a.test/x", title: "X", group: null }];
+    const backend: Tab[] = [{ id: 4, kind: "browser", url: "flux://start", title: "New Tab", group: null }];
+    const merged = backend.map((bt) => ({ ...bt, url: shown[0]!.url, title: shown[0]!.title }));
+    expect(keepSame(shown, merged)).toBe(shown);
+    const regrouped = backend.map((bt) => ({ ...bt, url: shown[0]!.url, title: shown[0]!.title, group: 2 }));
+    expect(keepSame(shown, regrouped)[0]).toBe(regrouped[0]);
+  });
+
   it("takes everything from the poll when nothing was shown yet", () => {
     const polled: Row[] = [{ id: 1, name: "a", enabled: false }];
     expect(keepSame([], polled)[0]).toBe(polled[0]);

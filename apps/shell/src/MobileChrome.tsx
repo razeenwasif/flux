@@ -29,6 +29,7 @@ import {
   tabs,
   tabThumb,
 } from "./store";
+import "./MobileChrome.css";
 
 const hostOf = (url: string): string => {
   try {

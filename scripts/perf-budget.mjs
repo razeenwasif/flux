@@ -5,15 +5,20 @@
  * Checks the budgets that can be measured from build artifacts (no display /
  * webview needed, so this runs on any CI runner):
  *
- *   • Entry JS, gzip   ≤ 56 KiB   — the eagerly-loaded shell bundle only. Lazy
+ *   • Entry JS, gzip   ≤ 46 KiB   — the eagerly-loaded shell bundle only. Lazy
  *                                  route chunks (PdfViewer, ArchivePage, …) are
  *                                  excluded from this entry metric; explicit
  *                                  desktop preloads are counted separately.
- *   • Desktop entry + explicit preloads ≤ 84 KiB (shared static dependencies included).
+ *   • Desktop entry + explicit preloads ≤ 72 KiB (shared static dependencies included).
+ *   • Default desktop boot JS — everything a fresh desktop window loads at
+ *                                  startup with the default layout: the above plus
+ *                                  the lazy columns and panes it shows.
+ *   • Entry stylesheet, gzip — the render-blocking CSS index.html links.
  *   • Installer / binary ≤ 25 MB — the release `flux` binary, when present.
  *
  * The eager set is computed from Vite's build manifest: start at the entry and
- * follow static `imports` transitively; `dynamicImports` (lazy) are not counted.
+ * follow static `imports` transitively; `dynamicImports` (lazy) are not counted,
+ * except the ones named as default-desktop-boot roots below.
  *
  * Budgets that need a running window (idle RAM, cold start, terminal/agent
  * latency) are NOT checked here — see docs/perf/memory-benchmark.md. They need a
@@ -23,12 +28,13 @@
  * Usage:  node scripts/perf-budget.mjs [--dist <dir>] [--binary <path>] [--json]
  * Exit code 1 if any checked budget is exceeded.
  */
+import { execFileSync } from "node:child_process";
 import { gzipSync } from "node:zlib";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { desktopPreloadRoots, startupFiles } from "./startup-graph.mjs";
+import { desktopPreloadRoots, manifestKey, startupCss, startupFiles } from "./startup-graph.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -62,10 +68,54 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // rather than left to load when their <Show> flips. The phone renders none of
 // them and now never fetches them at all. Budget set just above the new number
 // so the win can't quietly erode; the eager floor is ~52 KB.
-const CHROME_JS_GZIP_BUDGET = 56 * 1024; // bytes
+// Ratcheted 56 → 46 KB on 2026-10-13 (a tightening): the performance audit's
+// entry diet took the app registry and app guides, @tauri-apps/api/window, the
+// palette's action list, the three prompt bars and the clocks out of the boot
+// bundle (55.5 → 43.5 KB). The eager floor is ~43.5 KB.
+const CHROME_JS_GZIP_BUDGET = 46 * 1024; // bytes
 // New independent gate: entry + desktopChrome registry, baselined in batch 3.
 // This is a lower bound, excluding other conditionally rendered lazy features.
-const DESKTOP_PRELOAD_BUDGET = 84 * 1024;
+// Ratcheted 84 → 72 KB on 2026-10-13 with the entry diet above (81.5 → 70.1 KB).
+const DESKTOP_PRELOAD_BUDGET = 72 * 1024;
+// Default desktop boot, added 2026-10-13 (performance audit): the entry chunk is
+// only the start of what a desktop window parses before it settles. Baselined at
+// 240.0 KB after the entry diet that day; the bulk is xterm and its WebGL addon
+// (the terminal column is on by default) and the agent panel.
+const DEFAULT_BOOT_BUDGET = 242 * 1024;
+// The lazy chunks the default layout loads at startup on a window wide enough to
+// show all of it (sidebar, editor column, bookmark bar, agent + terminal stack,
+// launcher and connections columns, the Indexer orb), beyond the entry and the
+// preloads. Taken from the mocked preview (`npm run preview:ui`) at 2560×1440
+// with empty localStorage and a web page active, listing
+// performance.getEntriesByType("resource"); re-take it when the default layout
+// changes. The active tab's own page (start page, PDF viewer, …) isn't counted.
+// Each root is a manifest key, or the name of a dependency's dynamic chunk.
+const DEFAULT_BOOT_ROOTS = [
+  "src/EditorColumn.tsx",
+  "src/BookmarkBar.tsx",
+  "src/FindBar.tsx",
+  "src/AgentPanel.tsx",
+  "src/TerminalView.tsx",
+  "xterm",
+  "addon-fit",
+  "addon-web-links",
+  "addon-webgl",
+  "src/BarsColumn.tsx",
+  "src/PagesBar.tsx",
+  "src/ConnectionsRail.tsx",
+  "src/TrailMini.tsx",
+  "src/SysMonitor.tsx",
+  "src/IndexerBubble.tsx",
+  // Loaded once the window is idle (App), still within the first second or two.
+  "src/clocks.ts",
+  "src/ClockAlarm.tsx",
+];
+// Entry stylesheet, added 2026-10-13 (performance audit): theme.css is linked
+// from index.html, so all of it blocks first paint, including the rules for
+// screens that aren't on it. Baselined at 42.9 KB gzip. Ratcheted 43.5 → 31 KB
+// the same day, once twelve screens' rules moved into sheets of their own that
+// load with those screens (29.0 KB).
+const ENTRY_CSS_BUDGET = 31 * 1024;
 const BINARY_BUDGET = 25 * 1024 * 1024; // bytes
 
 // ── args ─────────────────────────────────────────────────────────────────────
@@ -79,10 +129,28 @@ const distDir = flag("--dist", join(ROOT, "apps/shell/dist"));
 const binaryArg = flag("--binary", findBinary());
 
 function findBinary() {
-  for (const p of [join(ROOT, "target/release/flux"), join(ROOT, "target/release/flux.exe")]) {
-    if (existsSync(p)) return p;
+  for (const dir of new Set([cargoTargetDir(), join(ROOT, "target")])) {
+    for (const p of [join(dir, "release/flux"), join(dir, "release/flux.exe")]) {
+      if (existsSync(p)) return p;
+    }
   }
   return null;
+}
+
+/** Where cargo builds to: target/ unless CARGO_TARGET_DIR or a cargo config's
+ *  build.target-dir points elsewhere. A fixed target/ then measured whatever
+ *  stale build was last left there. */
+function cargoTargetDir() {
+  try {
+    const out = execFileSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return JSON.parse(out).target_directory || join(ROOT, "target");
+  } catch {
+    return join(ROOT, "target");
+  }
 }
 
 function gzipLen(file) {
@@ -95,10 +163,17 @@ function mb(n) {
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
-// ── chrome JS: eager bundle from the manifest ────────────────────────────────
-function chromeJsCheck(desktop = false) {
-  const name = desktop ? "desktop-preloads-gzip" : "chrome-js-gzip";
-  const budget = desktop ? DESKTOP_PRELOAD_BUDGET : CHROME_JS_GZIP_BUDGET;
+// ── startup bundles from the manifest ────────────────────────────────────────
+// "entry": the eager JS; "desktop": plus the desktop preloads; "boot": plus the
+// default desktop layout's lazy chunks; "css": the entry's stylesheet.
+const CHECKS = {
+  entry: { name: "chrome-js-gzip", budget: CHROME_JS_GZIP_BUDGET },
+  desktop: { name: "desktop-preloads-gzip", budget: DESKTOP_PRELOAD_BUDGET },
+  boot: { name: "default-desktop-boot-gzip", budget: DEFAULT_BOOT_BUDGET },
+  css: { name: "entry-css-gzip", budget: ENTRY_CSS_BUDGET },
+};
+function bundleCheck(kind) {
+  const { name, budget } = CHECKS[kind];
   const manifestPath = [join(distDir, ".vite/manifest.json"), join(distDir, "manifest.json")].find(
     existsSync,
   );
@@ -113,10 +188,13 @@ function chromeJsCheck(desktop = false) {
 
   let files;
   try {
-    const preloadRoots = desktop
-      ? desktopPreloadRoots(readFileSync(join(ROOT, "apps/shell/src/desktopChrome.ts"), "utf8"))
-      : [];
-    files = startupFiles(manifest, [entryKey, ...preloadRoots]);
+    const preloadRoots =
+      kind === "desktop" || kind === "boot"
+        ? desktopPreloadRoots(readFileSync(join(ROOT, "apps/shell/src/desktopChrome.ts"), "utf8"))
+        : [];
+    const bootRoots = kind === "boot" ? DEFAULT_BOOT_ROOTS.map((r) => manifestKey(manifest, r)) : [];
+    const roots = [entryKey, ...preloadRoots, ...bootRoots];
+    files = kind === "css" ? startupCss(manifest, [entryKey]) : startupFiles(manifest, roots);
   } catch (error) {
     return { name, ok: false, error: String(error) };
   }
@@ -153,7 +231,13 @@ function binaryCheck() {
 }
 
 // ── run ──────────────────────────────────────────────────────────────────────
-const results = [chromeJsCheck(), chromeJsCheck(true), binaryCheck()];
+const results = [
+  bundleCheck("entry"),
+  bundleCheck("desktop"),
+  bundleCheck("boot"),
+  bundleCheck("css"),
+  binaryCheck(),
+];
 
 if (asJson) {
   console.log(JSON.stringify(results, null, 2));
@@ -175,7 +259,8 @@ if (asJson) {
       for (const p of r.detail) console.log(`       ${p.file}  ${kb(p.gzip)}`);
     }
   }
-  console.log("\n  Desktop preloads are a lower bound, not the complete first-paint cost.");
+  console.log("\n  Desktop preloads are a lower bound, not the complete first-paint cost;");
+  console.log("  default-desktop-boot adds what the default layout loads (not the active page).");
   console.log("  (idle RAM, cold start, terminal/agent latency need a display —");
   console.log("   see docs/perf/memory-benchmark.md for the measured wedge.)");
 }

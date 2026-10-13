@@ -554,7 +554,11 @@ impl ScribeStore {
 
     fn write(&self, nb: &Notebook) {
         let Some(dir) = &self.dir else { return };
-        crate::persist::save_json(&dir.join(format!("{}.json", nb.id)), nb);
+        crate::persist::save_json(
+            &dir.join(format!("{}.json", nb.id)),
+            nb,
+            crate::persist::Durability::Barrier,
+        );
     }
 }
 
@@ -1597,12 +1601,12 @@ impl TranscriptStore {
         items.insert(t.key.clone(), t);
         self.generation.fetch_add(1, Ordering::Relaxed);
         if let Some(p) = &self.path {
-            // Save under the lock (downgraded, so readers aren't blocked): two
+            // Queued under the lock (downgraded, so readers aren't blocked): two
             // transcriptions finishing together then commit in order, and the
-            // older snapshot can't be renamed over the newer one.
+            // older snapshot can't be written over the newer one.
             let items = parking_lot::RwLockWriteGuard::downgrade(items);
             let all: Vec<&Transcript> = items.values().collect();
-            crate::persist::save_json(p, &all);
+            crate::persist::queue_json(p, &all, crate::persist::Durability::Barrier);
         }
     }
 }

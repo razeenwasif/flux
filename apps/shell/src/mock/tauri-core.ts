@@ -300,6 +300,29 @@ let mockContainers: { id: number; name: string; color: number }[] = [
 // Explicit preview-only fixtures for exercising unsupported platforms and failed writes.
 const previewParams = new URLSearchParams(window.location.search);
 let failNextSave = previewParams.get("previewFailSave") === "once";
+// `?previewTabs=60` fills the strip with that many web tabs, the last one active,
+// to measure what a tab event costs the sidebar at a realistic tab count.
+for (let n = Number(previewParams.get("previewTabs")) || 0; n > 0; n--) {
+  const id = nextId++;
+  tabs.push({
+    id,
+    kind: "browser",
+    url: `https://example.com/page/${id}`,
+    title: `Example page ${id}`,
+    pinned: false,
+    cluster: null,
+    group: null,
+    folder: null,
+    custom_title: null,
+    workspace: 1,
+    private: false,
+    container: 0,
+  });
+}
+// Every command the shell sends, in order — read it from the page to count the
+// IPC a UI event causes.
+const ipcLog: string[] = [];
+(window as unknown as { __fluxPreviewIpc: string[] }).__fluxPreviewIpc = ipcLog;
 let mockDefaultEngine = "ddg";
 let mockShieldsOn = true;
 let mockHttpsOn = false;
@@ -312,6 +335,7 @@ let mockTuiApps = [
 ];
 
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  ipcLog.push(cmd);
   if (
     failNextSave &&
     [
@@ -629,17 +653,19 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "terminal_spawn": {
       // Echo a styled banner + prompt through the channel so the preview shows
       // a real-looking terminal (no PTY in preview).
-      const ch = args?.onData as Channel<number[]> | undefined;
+      const ch = args?.onData as Channel<ArrayBuffer> | undefined;
       if (ch) {
         const banner =
           "\x1b[38;2;47;243;255m flux\x1b[0m \x1b[38;2;157;141;241mterminal\x1b[0m — local dev shell\r\n" +
           "\x1b[38;2;106;111;150m $FLUX_TAB_URL, $FLUX_TAB_DIR injected · powered by a real PTY\x1b[0m\r\n\r\n" +
           "\x1b[38;2;124;245;176m➜\x1b[0m \x1b[38;2;47;243;255m~/Flux\x1b[0m $ ";
-        setTimeout(() => ch.onmessage(Array.from(new TextEncoder().encode(banner))), 60);
+        // Raw bytes, as the real core sends them (an ArrayBuffer per batch).
+        setTimeout(() => ch.onmessage(new TextEncoder().encode(banner).buffer as ArrayBuffer), 60);
       }
       return Promise.resolve(undefined as T);
     }
     case "terminal_write":
+    case "terminal_ack":
     case "terminal_resize":
     case "terminal_kill":
     case "webview_stop":
@@ -722,6 +748,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         folder: String(args?.folder ?? ""),
         added_ms: T0,
       } as T);
+    case "bookmark_find":
+      return Promise.resolve(null as T);
     case "bookmark_remove":
     case "bookmark_rename":
     case "bookmarks_clear":

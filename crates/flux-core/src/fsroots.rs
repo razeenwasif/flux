@@ -101,7 +101,11 @@ impl RootsStore {
         self.hydrate();
         *self.state.lock() = next;
         if let Some(p) = &self.path {
-            crate::persist::save_json_pretty(p, &*self.state.lock());
+            crate::persist::queue_json_pretty(
+                p,
+                &*self.state.lock(),
+                crate::persist::Durability::Barrier,
+            );
         }
     }
 

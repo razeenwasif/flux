@@ -18,7 +18,12 @@ cargo build --release -p flux-core --features custom-protocol
 
 DEST="${CARGO_HOME:-$HOME/.cargo}/bin"
 mkdir -p "$DEST"
-install -m755 target/release/flux "$DEST/flux"
+# Where cargo put it: target/ unless CARGO_TARGET_DIR or a cargo config's
+# build.target-dir points elsewhere.
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps 2>/dev/null |
+  sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+[ -n "$TARGET_DIR" ] || TARGET_DIR="target"
+install -m755 "$TARGET_DIR/release/flux" "$DEST/flux"
 echo "==> Installed: $DEST/flux"
 
 if command -v flux >/dev/null 2>&1; then
