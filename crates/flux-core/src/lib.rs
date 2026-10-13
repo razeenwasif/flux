@@ -1022,6 +1022,8 @@ fn finish_boot(app: &tauri::App, boot_started: std::time::Instant) {
     boot_phase("window.decorate", boot_started, || {
         if let Some(win) = app.get_webview_window("main") {
             webview::round_window_corners(&win);
+            // macOS: so the window isn't empty in Mission Control (webview.rs).
+            webview::keep_chrome_awake_when_covered(&win);
         }
     });
     // dev=false means the embedded frontend is served (custom-protocol);

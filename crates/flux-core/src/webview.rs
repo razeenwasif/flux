@@ -523,6 +523,9 @@ mod real {
             // drawn; the shell's webview_show reveals it.
             let _ = child.hide();
         }
+        // Drawn while the window is covered, so it shows in Mission Control.
+        #[cfg(target_os = "macos")]
+        let _ = child.with_webview(stay_awake_when_covered);
         round_webview(&child, width, height, scale); // rounded corners (#center-pane)
                                                      // Install the content-blocker request interceptor (#57/#91, ADR 0007) +
                                                      // native tracking prevention (#58).
@@ -1120,6 +1123,9 @@ mod real {
         let _ = child.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)));
         let _ = child.show();
         round_webview(&child, width, height, scale);
+        // Drawn while the window is covered, so it shows in Mission Control.
+        #[cfg(target_os = "macos")]
+        let _ = child.with_webview(stay_awake_when_covered);
         crate::netfilter::install(&app, &child);
         crate::tracking::install(&app, &child);
         crate::permissions::install(&app, &child);
@@ -1567,6 +1573,42 @@ mod real {
 
     #[cfg(not(any(windows, target_os = "macos")))]
     pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
+
+    /// macOS: keep a view drawing while the window is covered or on another
+    /// desktop. WebKit treats a covered window as hidden and, about four minutes
+    /// later, suspends its pages and marks what they drew as discardable, which
+    /// macOS drops under memory pressure. Mission Control doesn't count as
+    /// uncovering the window, so Flux showed there as an empty window until you
+    /// switched back to it. Only views in the window stay awake: a background
+    /// tab is a hidden view (`webview_hide`), which WebKit still lets sleep. The
+    /// cost is that the chrome and the page on screen keep running while Flux is
+    /// covered or on another desktop.
+    #[cfg(target_os = "macos")]
+    fn stay_awake_when_covered(platform: tauri::webview::PlatformWebview) {
+        use objc::runtime::{Object, NO};
+        use objc::{msg_send, sel, sel_impl};
+
+        let wk = platform.inner() as *mut Object;
+        if wk.is_null() {
+            return;
+        }
+        unsafe {
+            // WebKit SPI, so checked rather than assumed to exist.
+            let sel = sel!(_setWindowOcclusionDetectionEnabled:);
+            let known: bool = msg_send![wk, respondsToSelector: sel];
+            if known {
+                let _: () = msg_send![wk, _setWindowOcclusionDetectionEnabled: NO];
+            }
+        }
+    }
+
+    /// [`stay_awake_when_covered`] for the chrome window's own webview.
+    pub fn keep_chrome_awake_when_covered(window: &tauri::WebviewWindow) {
+        #[cfg(target_os = "macos")]
+        let _ = window.with_webview(stay_awake_when_covered);
+        #[cfg(not(target_os = "macos"))]
+        let _ = window;
+    }
     #[cfg(test)]
     mod script_join_tests {
         use super::{filter_scripts, join_page_scripts, live_flags_js};
@@ -1757,6 +1799,9 @@ mod stub {
 
     /// Window corner rounding is a desktop cosmetic; nothing to do on mobile.
     pub fn round_window_corners(_window: &tauri::WebviewWindow) {}
+
+    /// Mission Control is a desktop concern; nothing to do on mobile.
+    pub fn keep_chrome_awake_when_covered(_window: &tauri::WebviewWindow) {}
 
     /// Window acrylic backdrop stub on mobile.
     #[tauri::command]
