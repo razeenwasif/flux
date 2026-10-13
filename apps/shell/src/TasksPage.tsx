@@ -33,6 +33,7 @@ import {
 } from "./ipc";
 import { titleInternalTab } from "./store";
 import { groupByName, squarify } from "./treemap";
+import "./TasksPage.css";
 
 type SortKey = "mem" | "cpu" | "name";
 const HISTORY = 90; // samples kept (~3 min at 2s/poll)
