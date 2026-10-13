@@ -1,0 +1,794 @@
+/* Moved out of theme.css so it loads with CalendarPop's lazy chunk instead of
+   blocking first paint. Tokens, themes and shared primitives stay in theme.css;
+   rules here keep their original relative order. */
+
+/* ── Calendar popover (#114 follow-up) ── */
+.cal-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cal-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cal-pop-month {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--flux-text);
+}
+.cal-pop-nav,
+.cal-pop-full {
+  flex: none;
+  font-size: 13px;
+  color: var(--flux-text-mute);
+  cursor: pointer;
+  background: none;
+  border: 1px solid var(--flux-border);
+  border-radius: 7px;
+  padding: 1px 8px;
+}
+.cal-pop-nav:hover,
+.cal-pop-full:hover {
+  color: var(--flux-text);
+  background: rgba(var(--accent-ai-rgb), 0.14);
+}
+.cal-pop-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+.cal-pop-dow {
+  text-align: center;
+  font-size: 9.5px;
+  color: var(--flux-text-mute);
+  padding-bottom: 2px;
+}
+.cal-pop-day {
+  position: relative;
+  aspect-ratio: 1;
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: 7px;
+}
+.cal-pop-day:hover {
+  background: rgba(var(--accent-ai-rgb), 0.14);
+  color: var(--flux-text);
+}
+.cal-pop-day.today {
+  color: var(--flux-teal, var(--flux-teal));
+  font-weight: 700;
+}
+.cal-pop-day.sel {
+  background: rgba(var(--accent-ai-rgb), 0.28);
+  color: var(--flux-text);
+}
+.cal-pop-day.has::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--flux-magenta, var(--flux-magenta));
+}
+.cal-pop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 200px;
+  overflow-y: auto;
+  border-top: 1px solid var(--flux-border);
+  padding-top: 7px;
+}
+.cal-pop-ev {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 7px;
+  border-radius: 8px;
+  background: rgba(var(--accent-ai-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.14);
+}
+.cal-pop-ev-when {
+  font-size: 9.5px;
+  color: var(--flux-teal, var(--flux-teal));
+}
+.cal-pop-ev-sum {
+  font-size: 11.5px;
+  color: var(--flux-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-pop-empty {
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  font-style: italic;
+  padding: 2px 4px;
+}
+
+/* ── Calendar editing pane (bigger popover → centered overlay) ── */
+.cal-pane-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 88;
+  background: rgba(5, 4, 12, 0.45);
+}
+.cal-pane {
+  position: fixed;
+  z-index: 89;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* Roomy enough for a full week of hour-blocks without scrolling the grid to
+     read a normal teaching day; still inset from the window edges. */
+  width: min(1040px, calc(100vw - 48px));
+  height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--flux-radius-card, 14px);
+}
+.cal-pane-body {
+  display: flex;
+  gap: 14px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.cal-pane-body.hidden {
+  display: none;
+}
+/* ─── Week / timetable view in the calendar pane ─────────────────────────── */
+/* Teaching-week chip: which week of semester the view is showing. */
+.cal-weekno {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--flux-teal, var(--flux-teal));
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  border-radius: 999px;
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cal-weekno:hover {
+  background: rgba(var(--accent-rgb), 0.22);
+}
+.cal-viewtoggle {
+  display: flex;
+  gap: 2px;
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 9px;
+  padding: 2px;
+}
+.cal-viewtoggle button {
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.cal-viewtoggle button.on {
+  background: rgba(var(--accent-ai-rgb), 0.3);
+  color: var(--flux-text);
+}
+.tt-week {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* Day columns share one track definition so header/all-day/body stay aligned. */
+.tt-head,
+.tt-allday,
+.tt-body {
+  display: grid;
+  grid-template-columns: 52px repeat(7, 1fr);
+}
+.tt-head {
+  flex: none;
+  border-bottom: 1px solid var(--flux-border);
+}
+.tt-dow {
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--flux-text-mute);
+}
+.tt-dow.today {
+  color: var(--flux-teal, var(--flux-teal));
+  font-weight: 700;
+}
+.tt-gutter {
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  padding: 4px 6px;
+  text-align: right;
+}
+.tt-allday {
+  flex: none;
+  border-bottom: 1px solid var(--flux-border);
+  max-height: 74px;
+  overflow-y: auto;
+}
+.tt-allday-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  min-width: 0;
+}
+.tt-chip {
+  font-size: 10.5px;
+  color: var(--flux-text);
+  background: rgba(var(--accent-ai-rgb), 0.22);
+  border-radius: 5px;
+  padding: 2px 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tt-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.tt-hours {
+  display: flex;
+  flex-direction: column;
+}
+.tt-hour {
+  height: var(--hour-h);
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  text-align: right;
+  padding-right: 6px;
+  /* Nudge the label so it sits on the gridline, not below it. */
+  transform: translateY(-6px);
+}
+.tt-col {
+  position: relative;
+  border-left: 1px solid var(--flux-border);
+}
+.tt-col.today {
+  background: rgba(var(--accent-rgb), 0.05);
+}
+.tt-slot {
+  height: var(--hour-h);
+  border-top: 1px solid rgba(var(--neutral-rgb), 0.1);
+}
+.tt-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #ff6b6b;
+  z-index: 3;
+  pointer-events: none;
+}
+.tt-ev {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  text-align: left;
+  padding: 3px 5px;
+  border-radius: 6px;
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.45);
+  background: rgba(var(--accent-ai-rgb), 0.3);
+  color: var(--flux-text);
+  cursor: pointer;
+  z-index: 2;
+}
+.tt-ev:hover {
+  background: rgba(var(--accent-ai-rgb), 0.45);
+}
+/* Read-only (subscribed ICS) events read cooler than editable ones. */
+.tt-ev.ro {
+  border-color: rgba(var(--accent-rgb), 0.4);
+  background: rgba(var(--accent-rgb), 0.16);
+}
+.tt-ev.ro:hover {
+  background: rgba(var(--accent-rgb), 0.26);
+}
+.tt-ev-t {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tt-ev-m {
+  font-size: 10px;
+  color: var(--flux-text-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-pane-grid {
+  /* Share the pane's width instead of a fixed column, and let the week rows
+     stretch to fill its height — with square (aspect-ratio) cells the grid
+     stopped a third of the way down the enlarged pane. `grid-template-rows:
+     auto` keeps the weekday header its natural height; every implicit row
+     after it splits what's left. */
+  flex: 0 0 clamp(320px, 40%, 470px);
+  height: 100%;
+  grid-template-rows: auto;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 3px;
+  align-content: stretch;
+  align-items: stretch;
+}
+.cal-pane-grid .cal-pop-day {
+  font-size: 12.5px;
+}
+/* Cells fill their (now taller) row rather than staying square, and the type
+   steps up to suit the larger pane. Scoped to the pane so the base .cal-pop-*
+   popover styles are untouched. */
+.cal-pane-grid .cal-pop-day {
+  aspect-ratio: auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.cal-pane-grid .cal-pop-dow {
+  font-size: 11px;
+  padding-bottom: 4px;
+}
+/* The has-events dot sat flush to the bottom edge of the taller cells. */
+.cal-pane-grid .cal-pop-day.has::after {
+  bottom: 7px;
+}
+/* The agenda beside it gets a matching step up. */
+.cal-pane-day-title {
+  font-size: 14px;
+}
+.cal-pane-ev .cal-pop-ev-sum {
+  font-size: 13px;
+}
+.cal-pane-ev .cal-pop-ev-when {
+  font-size: 11px;
+}
+.cal-pane-ev-loc {
+  font-size: 11.5px;
+}
+
+.cal-pane-day {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 1px solid var(--flux-border);
+  padding-left: 14px;
+}
+.cal-pane-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cal-pane-day-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--flux-text);
+}
+.cal-pane-list {
+  border-top: none;
+  padding-top: 0;
+  max-height: none;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.cal-pane-ev {
+  position: relative;
+}
+.cal-pane-ev-loc {
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+}
+.cal-pane-ev-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.cal-pane-ev-btn {
+  font-size: 10.5px;
+  color: var(--flux-text-mute);
+  cursor: pointer;
+  background: none;
+  border: 1px solid var(--flux-border);
+  border-radius: 7px;
+  padding: 2px 9px;
+}
+.cal-pane-ev-btn:hover {
+  color: var(--flux-text);
+  background: rgba(var(--accent-ai-rgb), 0.14);
+}
+.cal-pane-ev-btn.danger:hover {
+  color: #ffffff;
+  background: rgba(236, 75, 110, 0.14);
+  border-color: rgba(236, 75, 110, 0.3);
+}
+.cal-pane-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(var(--accent-ai-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.22);
+}
+.cal-pane-form-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cal-pane-form-dash {
+  color: var(--flux-text-mute);
+}
+.cal-pane-in {
+  font-size: 12px;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.55);
+  border: 1px solid var(--flux-border);
+  border-radius: 8px;
+  padding: 6px 9px;
+  outline: none;
+  min-width: 0;
+}
+.cal-pane-in:focus {
+  border-color: rgba(var(--accent-ai-rgb), 0.5);
+}
+.cal-pane-in-time {
+  flex: 0 0 auto;
+}
+.cal-pane-in-rep {
+  flex: 1 1 auto;
+}
+.cal-pane-save {
+  font-size: 12px;
+  color: var(--flux-text);
+  cursor: pointer;
+  padding: 5px 14px;
+  border-radius: 8px;
+  background: rgba(var(--accent-ai-rgb), 0.22);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.45);
+}
+.cal-pane-save:hover {
+  background: rgba(var(--accent-ai-rgb), 0.36);
+}
+.cal-pane-err {
+  font-size: 11px;
+  color: #ffffff;
+}
+@media (max-width: 720px) {
+  .cal-pane-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .cal-pane-grid {
+    flex: none;
+  }
+  .cal-pane-day {
+    border-left: none;
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .cal-pane {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 40px);
+    padding: 12px;
+  }
+}
+
+@media (pointer: coarse) {
+  .cal-pop-nav {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+  .cal-pop-day {
+    min-height: 36px;
+  }
+}
+
+/* ─── Calendar pane: tasks column ────────────────────────────────────────── */
+/* The pane's main row: the month/timetable view, then the tasks column. */
+.cal-pane-cols {
+  display: flex;
+  gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cal-pane-cols > .cal-pane-body,
+.cal-pane-cols > .tt-week {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cal-tasks {
+  flex: 0 0 248px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  border-left: 1px solid var(--flux-border);
+  padding-left: 14px;
+}
+.cal-tasks-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: none;
+}
+.cal-tasks-tab {
+  font-size: 11px;
+  color: var(--flux-text-mute);
+  background: rgba(10, 8, 24, 0.5);
+  border: 1px solid var(--flux-border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cal-tasks-tab:hover {
+  color: var(--flux-text);
+}
+.cal-tasks-tab.on {
+  background: rgba(var(--accent-ai-rgb), 0.28);
+  border-color: rgba(var(--accent-ai-rgb), 0.45);
+  color: var(--flux-text);
+}
+.cal-tasks-tab.add {
+  padding: 3px 8px;
+}
+.cal-tasks-add {
+  flex: none;
+}
+.cal-tasks-add input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.6);
+  border: 1px solid var(--flux-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  outline: none;
+}
+.cal-tasks-add input:focus {
+  border-color: rgba(var(--accent-ai-rgb), 0.55);
+}
+.cal-tasks-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cal-task {
+  /* A column: the task line, plus the "move to…" row when expanded. */
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 4px 6px;
+  border-radius: 7px;
+  background: rgba(var(--accent-ai-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.14);
+}
+/* Drag to reorder. The card is the drag handle; the title keeps its own cursor
+   so "click to rename" still reads as clickable. */
+.cal-task[draggable="true"] {
+  cursor: grab;
+}
+.cal-task.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+/* Where it will land — an inset line rather than a border, so the row doesn't
+   shift by a pixel and nudge everything below it while you hover. */
+.cal-task.drop-above {
+  box-shadow: inset 0 2px 0 0 var(--flux-teal);
+}
+.cal-task.drop-below {
+  box-shadow: inset 0 -2px 0 0 var(--flux-teal);
+}
+.cal-task-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.cal-task-move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0 1px 20px;
+}
+.cal-task-move-lbl {
+  font-size: 10px;
+  color: var(--flux-text-mute);
+}
+.cal-task.done {
+  opacity: 0.55;
+}
+.cal-task.done .cal-task-title {
+  text-decoration: line-through;
+}
+.cal-task-box,
+.cal-task-del {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--flux-text-mute);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.cal-task-box:hover,
+.cal-task-del:hover {
+  color: var(--flux-text);
+}
+.cal-task-del {
+  opacity: 0;
+}
+.cal-task:hover .cal-task-del,
+.cal-task:focus-within .cal-task-del {
+  opacity: 1;
+}
+.cal-task-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--flux-text);
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.cal-task-title:hover {
+  text-decoration: underline dotted rgba(var(--neutral-rgb), 0.5);
+}
+/* Inline rename: the text field takes the row, the date sits beside it. */
+.cal-task-edit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+}
+.cal-task-edit input {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--flux-text);
+  background: rgba(10, 8, 24, 0.7);
+  border: 1px solid rgba(var(--accent-ai-rgb), 0.5);
+  border-radius: 5px;
+  padding: 2px 5px;
+  outline: none;
+}
+.cal-task-edit input[type="text"],
+.cal-task-edit input:not([type]) {
+  flex: 1;
+}
+.cal-task-edit input[type="date"] {
+  flex: none;
+  width: 108px;
+  color-scheme: dark;
+}
+.cal-task-due {
+  flex: none;
+  font-size: 10px;
+  color: var(--flux-teal, var(--flux-teal));
+}
+
+/* ─── Calendar pane, docked in the web-panel column ──────────────────────── */
+/* The column is 280–640px, so the three columns stack and the whole pane
+   scrolls. Not a Portal and not fixed: it's ordinary DOM in a layout column,
+   which is exactly why the page stays visible behind it. */
+.cal-pane.docked {
+  position: static;
+  transform: none;
+  width: auto;
+  /* flex-basis 0 (not auto): with `auto` the pane sizes to its content and
+     pushes a pinned panel out of the column instead of scrolling. */
+  height: auto;
+  flex: 1 1 0;
+  min-height: 0;
+  padding: 10px 4px 10px 12px;
+  border-radius: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* The head stays put; everything below it scrolls. */
+.cal-pane.docked > .cal-pop-head {
+  flex: none;
+}
+.cal-pane.docked > .cal-pane-cols {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.cal-pane.docked .cal-pane-cols {
+  flex-direction: column;
+  gap: 10px;
+}
+.cal-pane.docked .cal-pane-body {
+  flex-direction: column;
+  gap: 10px;
+}
+/* Stacked: each section sizes to content instead of splitting a row. */
+.cal-pane.docked .cal-pane-grid {
+  flex: none;
+  height: auto;
+  grid-auto-rows: minmax(0, 34px);
+}
+.cal-pane.docked .cal-pane-day {
+  border-left: none;
+  border-top: 1px solid var(--flux-border);
+  padding-left: 0;
+  padding-top: 10px;
+}
+.cal-pane.docked .cal-tasks {
+  flex: none;
+  border-left: none;
+  border-top: 1px solid var(--flux-border);
+  padding-left: 0;
+  padding-top: 10px;
+}
+/* Everything inside the docked scroller must size to its CONTENT. A flex child
+   that is allowed to shrink (flex: 1 1 auto + min-height: 0, which is how these
+   size in the wide overlay) collapses to fit the scroller instead of
+   overflowing it — so there is nothing to scroll and the content is clipped
+   rather than reachable. */
+.cal-pane.docked .cal-pane-body,
+.cal-pane.docked .tt-week,
+.cal-pane.docked .tt-scroll,
+.cal-pane.docked .cal-pane-day,
+.cal-pane.docked .cal-tasks,
+.cal-pane.docked .cal-pane-list,
+.cal-pane.docked .cal-tasks-list {
+  flex: none;
+  min-height: auto;
+}
+/* The timetable carries its own scroller for the wide overlay. Docked, that
+   makes it a NESTED scroller: the wheel over the grid is swallowed by it and
+   the tasks below never come into view. One scroller per column — the grid
+   grows to its full height and the pane's body scrolls past it. */
+.cal-pane.docked .tt-scroll {
+  overflow: visible;
+}
+.cal-pane.docked .cal-tasks-list,
+.cal-pane.docked .cal-pane-list {
+  overflow: visible;
+  max-height: none;
+}
+/* The timetable is cramped at panel width; keep it scrollable rather than
+   squeezing seven days into nothing. */
+.cal-pane.docked .tt-week {
+  min-height: 320px;
+}
+.cal-pane.docked .cal-pop-head {
+  flex-wrap: wrap;
+}

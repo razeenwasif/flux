@@ -39,6 +39,7 @@ import {
   setCalendarPopView,
   type CalendarDock,
 } from "./store";
+import "./CalendarPop.css";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const dateStrOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
