@@ -197,7 +197,6 @@ import {
   wsPanelOpen,
 } from "./store";
 import { createWebviewTiling } from "./tiling";
-import { startClockDriver } from "./clocks";
 import { addPluginListener } from "@tauri-apps/api/core";
 import { ResizeHandles } from "./Chrome";
 import {
@@ -437,10 +436,25 @@ const App: Component = () => {
   // the predictive-prefetch Markov model (#103).
   const prevUrlByTab = new Map<number, string>();
 
+  // #134: timers and alarms fire regardless of the active tab, from a driver in
+  // clocks.ts. It loads once the window is idle rather than with the boot bundle:
+  // nothing can ring before the driver starts, and the start page's clock widget
+  // starts it itself if it shows first. `clocksReady` then mounts the ring banner.
+  const [clocksReady, setClocksReady] = createSignal(false);
+  const whenIdle = (fn: () => void) =>
+    "requestIdleCallback" in window ? requestIdleCallback(fn, { timeout: 2000 }) : setTimeout(fn, 1000);
+  onMount(() =>
+    whenIdle(
+      () =>
+        void import("./clocks").then((m) => {
+          m.startClockDriver();
+          setClocksReady(true);
+        }),
+    ),
+  );
+
   // Materialize CLI launch intent exactly once (`flux <url> -t`).
   onMount(async () => {
-    startClockDriver(); // #134: timers/alarms fire regardless of the active tab
-
     // Event listeners are registered but NOT awaited. Each `listen()` is an IPC
     // round trip, and these used to be awaited one after another — a dozen
     // serialized latencies during boot, for registrations that have no ordering
@@ -1767,6 +1781,7 @@ const App: Component = () => {
       <ContentArea
         editorVisible={responsive().editor}
         pageMinimum={pageMinimum()}
+        clocksReady={clocksReady()}
         onNavigate={go}
         onNewTerminal={() => void openTab("terminal")}
         onToggleAgent={() => setAgentOpen(true)}
