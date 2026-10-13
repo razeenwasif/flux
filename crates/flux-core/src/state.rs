@@ -140,6 +140,54 @@ pub struct ClusterTag {
     pub color: u32,
 }
 
+/// A page webview's rect in logical px, relative to the chrome window's
+/// top-left: what `webview_open` and `webview_set_bounds` receive.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Bounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Where the active tab's page last sat, and the size of the window (inner,
+/// logical px) it was laid out in. Saved with the session so the next launch
+/// can open that page during setup, before the shell exists to measure it
+/// (boot.rs). The window size says whether the rect still holds: the shell
+/// lays the card out from the window's width.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ContentRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub window_width: f64,
+    pub window_height: f64,
+}
+
+impl ContentRect {
+    pub fn bounds(&self) -> Bounds {
+        Bounds {
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    /// The same to the whole pixel. The shell's rects are fractional and a
+    /// sub-pixel wobble isn't a layout change worth saving.
+    fn same_px(&self, other: &ContentRect) -> bool {
+        let px = |v: f64| v.round() as i64;
+        px(self.x) == px(other.x)
+            && px(self.y) == px(other.y)
+            && px(self.width) == px(other.width)
+            && px(self.height) == px(other.height)
+            && px(self.window_width) == px(other.window_width)
+            && px(self.window_height) == px(other.window_height)
+    }
+}
+
 /// One captured DOM state of a tab. Immutable after construction — that
 /// immutability is what makes the Arc-sharing safe and copy-free.
 #[derive(Debug)]
@@ -210,6 +258,11 @@ pub struct FluxState {
     /// Multi-account containers (BACKLOG #59).
     containers: RwLock<Vec<Container>>,
     next_container_id: AtomicU64,
+    /// The active tab's last page rect (see [`ContentRect`]), saved with the session.
+    content_rect: RwLock<Option<ContentRect>>,
+    /// A changed rect is waiting to be saved. A window resize moves the rect
+    /// every frame; this holds those to one session snapshot per pause.
+    content_rect_unsaved: std::sync::atomic::AtomicBool,
     /// Where the session is persisted (BACKLOG #19). `None` → no persistence
     /// (tests / the `Default` impl).
     session_path: Option<std::path::PathBuf>,
@@ -309,6 +362,8 @@ impl FluxState {
             next_panel_id: AtomicU64::new(1),
             containers: RwLock::new(Vec::new()),
             next_container_id: AtomicU64::new(1),
+            content_rect: RwLock::new(None),
+            content_rect_unsaved: std::sync::atomic::AtomicBool::new(false),
             session_path: None,
             session_tx: None,
             persist_seq: parking_lot::Mutex::new(0),
@@ -377,6 +432,8 @@ impl FluxState {
             next_panel_id: AtomicU64::new(next_panel),
             containers: RwLock::new(session.containers),
             next_container_id: AtomicU64::new(next_container),
+            content_rect: RwLock::new(session.content_rect),
+            content_rect_unsaved: std::sync::atomic::AtomicBool::new(false),
             session_path: Some(session_path),
             session_tx,
             persist_seq: parking_lot::Mutex::new(0),
@@ -807,7 +864,35 @@ impl FluxState {
             containers: self.containers.read().clone(),
             next_workspace_id: self.next_workspace_id.load(Ordering::Relaxed) as u32,
             next_container_id: self.next_container_id.load(Ordering::Relaxed) as u32,
+            content_rect: *self.content_rect.read(),
         }
+    }
+
+    /// The active tab's last page rect, if one was ever recorded.
+    pub fn content_rect(&self) -> Option<ContentRect> {
+        *self.content_rect.read()
+    }
+
+    /// Record where the active tab's page now sits. True when the caller
+    /// should schedule a save: the rect moved by a whole pixel and no save is
+    /// already pending (that one will snapshot the newest rect when it runs).
+    pub fn note_content_rect(&self, rect: ContentRect) -> bool {
+        {
+            let mut cur = self.content_rect.write();
+            if cur.is_some_and(|c| c.same_px(&rect)) {
+                return false;
+            }
+            *cur = Some(rect);
+        }
+        !self.content_rect_unsaved.swap(true, Ordering::AcqRel)
+    }
+
+    /// Save the session for a rect change `note_content_rect` asked for. The
+    /// flag is cleared first, so a change landing during the snapshot asks for
+    /// another save rather than being lost.
+    pub fn save_content_rect(&self) {
+        self.content_rect_unsaved.store(false, Ordering::Release);
+        self.persist();
     }
 
     /// Allocate a fresh tab id. `Relaxed` is sufficient: ids only need to be
@@ -879,6 +964,55 @@ mod tests {
         }
         let saved = crate::session::load(&path);
         assert!(saved.workspaces.iter().any(|w| w.name == "Trip"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    fn rect(width: f64) -> ContentRect {
+        ContentRect {
+            x: 252.0,
+            y: 40.0,
+            width,
+            height: 700.0,
+            window_width: width + 260.0,
+            window_height: 900.0,
+        }
+    }
+
+    #[test]
+    fn a_resize_saves_the_page_rect_once_per_pause_not_per_frame() {
+        let state = FluxState::new();
+        assert!(
+            state.note_content_rect(rect(900.0)),
+            "the first rect is news"
+        );
+        // Every frame of a drag moves it, but a save is already pending, and
+        // that save snapshots whatever the rect is by then.
+        assert!(!state.note_content_rect(rect(901.0)));
+        assert!(!state.note_content_rect(rect(902.0)));
+        state.save_content_rect();
+        assert_eq!(state.content_rect(), Some(rect(902.0)));
+        // Sub-pixel jitter is not a layout change.
+        assert!(!state.note_content_rect(rect(902.2)));
+        assert_eq!(state.content_rect(), Some(rect(902.0)));
+        assert!(
+            state.note_content_rect(rect(950.0)),
+            "a later change asks again"
+        );
+    }
+
+    #[test]
+    fn the_page_rect_survives_a_restart() {
+        let path = scratch("rect");
+        let state = FluxState::restore(path.clone());
+        state.note_content_rect(rect(900.5));
+        state.persist_blocking();
+        assert_eq!(
+            FluxState::restore(path.clone()).content_rect(),
+            Some(rect(900.5))
+        );
+        // A session saved before the rect existed loads, without one.
+        std::fs::write(&path, r#"{"tabs":[],"active":0,"next_id":1}"#).unwrap();
+        assert_eq!(FluxState::restore(path.clone()).content_rect(), None);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

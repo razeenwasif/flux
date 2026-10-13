@@ -35,7 +35,7 @@ mod real {
     use tauri::webview::{PageLoadEvent, Webview, WebviewBuilder};
     use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
-    use crate::state::TabId;
+    use crate::state::{Bounds, ContentRect, TabId};
 
     /// The chrome window's label (from tauri.conf.json).
     const CHROME_WINDOW: &str = "main";
@@ -440,13 +440,68 @@ mod real {
                 .map_err(|e| e.to_string())?;
             wv.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)))
                 .map_err(|e| e.to_string())?;
-            let scale = app
-                .get_window(CHROME_WINDOW)
+            let window = app.get_window(CHROME_WINDOW);
+            let scale = window
+                .as_ref()
                 .and_then(|w| w.scale_factor().ok())
                 .unwrap_or(1.0);
             round_webview(&wv, width, height, scale); // keep rounded corners on resize
+            if let Some(window) = window {
+                let at = Bounds {
+                    x,
+                    y,
+                    width: width.max(0.0),
+                    height: height.max(0.0),
+                };
+                note_active_rect(&app, &window, tab_id, at, scale);
+            }
         }
         Ok(())
+    }
+
+    /// How long a changed page rect waits before it is saved. A window resize
+    /// changes it every frame; this makes that one session snapshot per pause.
+    const CONTENT_RECT_SAVE_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+    /// Keep the active tab's rect for the next launch, which opens that page
+    /// there during setup (boot.rs). Saved through the session writer, which
+    /// already batches its disk writes.
+    fn note_active_rect(
+        app: &AppHandle,
+        window: &tauri::Window,
+        tab_id: TabId,
+        at: Bounds,
+        scale: f64,
+    ) {
+        let Some(state) = app.try_state::<crate::state::FluxState>() else {
+            return;
+        };
+        // Only the active tab: the other panes of a split have rects of their
+        // own, and setup opens only the active one.
+        if state.active_tab() != Some(tab_id) {
+            return;
+        }
+        let Ok(size) = window.inner_size() else {
+            return;
+        };
+        let size = size.to_logical::<f64>(scale);
+        let rect = ContentRect {
+            x: at.x,
+            y: at.y,
+            width: at.width,
+            height: at.height,
+            window_width: size.width,
+            window_height: size.height,
+        };
+        if state.note_content_rect(rect) {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(CONTENT_RECT_SAVE_DELAY).await;
+                if let Some(state) = app.try_state::<crate::state::FluxState>() {
+                    state.save_content_rect();
+                }
+            });
+        }
     }
 
     #[tauri::command]
