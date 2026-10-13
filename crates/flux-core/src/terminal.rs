@@ -50,7 +50,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -77,6 +77,8 @@ struct Session {
     /// Resolved when the session was spawned, so a close tears down exactly what
     /// that session created — re-reading the setting could disagree with it.
     mode: PersistMode,
+    /// Output sent to the view and not yet written by xterm (`terminal_ack`).
+    flow: Arc<Flow>,
 }
 
 /// Process-wide table of live terminals. Managed into Tauri state alongside
@@ -121,8 +123,9 @@ fn default_shell() -> String {
 ///
 /// Returns once the shell is running and the reader thread is live; output
 /// then flows asynchronously over the channel, as raw bytes (an `ArrayBuffer`
-/// in JS) batched by [`Coalescer`]. A re-spawn for an existing session id
-/// replaces the old one (the previous child is dropped/killed).
+/// in JS) batched by [`Coalescer`] and paced by `terminal_ack`. A re-spawn for
+/// an existing session id replaces the old one (the previous child is
+/// dropped/killed).
 #[tauri::command]
 // Three of the eight are Tauri's own injections (app/state/manager) and one is
 // the output Channel, so the callable surface is only four.
@@ -318,24 +321,34 @@ pub fn terminal_spawn(
         })
         .map_err(|e| format!("pty writer thread: {e}"))?;
 
-    manager.sessions.lock().insert(
+    let flow = Arc::new(Flow::new(UNACKED_MAX, ACK_STALL));
+    let replaced = manager.sessions.lock().insert(
         session,
         Arc::new(Session {
             master: Mutex::new(pair.master),
             input,
             child: Mutex::new(child),
             mode,
+            flow: flow.clone(),
         }),
     );
+    // A respawn under the same id (a reloaded shell remounting its terminals):
+    // the view that would have acked the old output is gone, so its pump must
+    // stop waiting for acks and stop sending.
+    if let Some(old) = replaced {
+        old.flow.close();
+    }
 
     // Replay what was on screen last time, before any live output arrives, so the
-    // ordering the user sees matches the order it happened in. One message.
+    // ordering the user sees matches the order it happened in. One message, and
+    // counted like any other: the view acks it once xterm has written it.
     let mut recorder = None;
     if mode.transcript {
         if let Some(mut prev) = read_transcript(&app, session) {
             prev.extend_from_slice(
                 b"\r\n\x1b[90m\xe2\x94\x80\xe2\x94\x80 restored transcript \xe2\x80\x94 processes above are not running \xe2\x94\x80\xe2\x94\x80\x1b[0m\r\n",
             );
+            flow.sent(prev.len());
             let _ = on_data.send(InvokeResponseBody::Raw(prev));
         }
         recorder = transcript_dir(&app).and_then(|d| Transcript::open(&d, session));
@@ -343,15 +356,23 @@ pub fn terminal_spawn(
 
     // Two threads, so a batch can go out on a deadline while the reader sits in
     // a blocking read: the reader takes bytes off the PTY, the pump batches and
-    // sends them.
+    // sends them. The queue between them is bounded, so a pump held back by
+    // the view stops the reader too, and then the kernel stops the program.
     let (to_pump, reads) = std::sync::mpsc::sync_channel::<Vec<u8>>(READ_QUEUE);
     std::thread::Builder::new()
         .name(format!("flux-pty-out-{session}"))
         .spawn(move || {
-            pump(reads, Coalescer::new(BATCH_MAX, BATCH_WINDOW), |batch| {
-                on_data.send(InvokeResponseBody::Raw(batch)).is_ok()
-            });
-            let _ = app.emit("flux://term-exit", session);
+            let end = pump(
+                reads,
+                &flow,
+                Coalescer::new(BATCH_MAX, BATCH_WINDOW),
+                |batch| on_data.send(InvokeResponseBody::Raw(batch)).is_ok(),
+            );
+            // A closed session's view is gone, and a new view under the same id
+            // must not be told that this one exited.
+            if end != PumpEnd::Closed {
+                let _ = app.emit("flux://term-exit", session);
+            }
         })
         .map_err(|e| format!("pty output thread: {e}"))?;
     std::thread::Builder::new()
@@ -370,7 +391,7 @@ pub fn terminal_spawn(
                             t.append(&buf[..n]);
                         }
                         if to_pump.send(buf[..n].to_vec()).is_err() {
-                            break; // the pump stopped: the webview is gone
+                            break; // the pump stopped: tab closed or webview gone
                         }
                     }
                     Err(_) => break,
@@ -411,6 +432,17 @@ pub fn terminal_write(
     s.input
         .send(data)
         .map_err(|_| "terminal session has exited".to_string())
+}
+
+/// xterm has written `bytes` more of the session's output (its write callback
+/// fired), so that much more may be sent. See [`Flow`].
+#[tauri::command]
+pub fn terminal_ack(manager: State<'_, TerminalManager>, session: u64, bytes: usize) {
+    // Late acks are normal (xterm finishing a write as its tab closes), and a
+    // closed session has nothing left to release, so a miss isn't an error.
+    if let Some(s) = manager.sessions.lock().get(&session) {
+        s.flow.ack(bytes);
+    }
 }
 
 /// Resize the PTY (fit-addon / window resize on the frontend).
@@ -455,6 +487,9 @@ pub fn terminal_kill(
         let mut sessions = manager.sessions.lock();
         match sessions.remove(&session) {
             Some(s) => {
+                // The view is going, and its acks with it: a pump waiting on
+                // them would otherwise hold the reader, and the PTY, open.
+                s.flow.close();
                 let mode = s.mode;
                 (Some(s), Some(mode))
             }
@@ -855,7 +890,7 @@ fn kill_live_session(session: u64, engine: LiveEngine) {
     }
 }
 
-// ─── output: batching ───────────────────────────────────────────────────────
+// ─── output: batching and flow control ──────────────────────────────────────
 
 /// The largest batch of output sent as one message. A PTY read is at most 8 KiB
 /// (often 1 KiB on macOS), and every message costs the main thread an eval and,
@@ -868,7 +903,18 @@ const BATCH_MAX: usize = 64 * 1024;
 /// as one message instead of dozens.
 const BATCH_WINDOW: Duration = Duration::from_millis(8);
 
-/// Reads queued between the reader and the pump (up to 8 KiB each).
+/// How much output may be sent and not yet written by xterm. At the cap the pump
+/// stops taking reads, the PTY fills, and the kernel pauses the program writing:
+/// the way a real terminal slows `yes` to what it can draw, instead of queueing
+/// evals and memory until the flood drains.
+const UNACKED_MAX: usize = 1024 * 1024;
+
+/// How long the pump waits at the cap without a single ack before it writes the
+/// debt off. See [`Flow::wait_for_room`].
+const ACK_STALL: Duration = Duration::from_secs(5);
+
+/// Reads queued between the reader and the pump (up to 8 KiB each). Bounded, so
+/// a pump held back by the view holds the reader back too.
 const READ_QUEUE: usize = 16;
 
 /// Gathers PTY reads into fewer, larger messages: a batch goes out once it holds
@@ -932,23 +978,114 @@ impl Coalescer {
     }
 }
 
+/// Output in flight to one view: sent over the channel and not yet written by
+/// xterm. The pump adds each batch before sending it, `terminal_ack` subtracts
+/// what xterm has written, and the pump waits while the total is at the cap.
+struct Flow {
+    state: Mutex<FlowState>,
+    room: Condvar,
+    cap: usize,
+    stall: Duration,
+}
+
+#[derive(Default)]
+struct FlowState {
+    unacked: usize,
+    /// The session was killed or replaced: nothing will ack again.
+    closed: bool,
+}
+
+impl Flow {
+    fn new(cap: usize, stall: Duration) -> Self {
+        Self {
+            state: Mutex::new(FlowState::default()),
+            room: Condvar::new(),
+            cap,
+            stall,
+        }
+    }
+
+    /// Count `n` bytes as in flight. Called *before* the send, so an ack that
+    /// races back ahead of the pump can't be applied to bytes not yet counted.
+    fn sent(&self, n: usize) {
+        self.state.lock().unacked += n;
+    }
+
+    fn ack(&self, n: usize) {
+        let mut s = self.state.lock();
+        // Saturating: an ack from a view that outlived a respawn of its session
+        // id must not wrap the new session's count.
+        s.unacked = s.unacked.saturating_sub(n);
+        self.room.notify_all();
+    }
+
+    fn close(&self) {
+        self.state.lock().closed = true;
+        self.room.notify_all();
+    }
+
+    fn is_closed(&self) -> bool {
+        self.state.lock().closed
+    }
+
+    /// Block until there's room to send more. `false` once the session is
+    /// closed, which is also what wakes a pump parked here when its tab closes.
+    ///
+    /// A view that stops acking without closing (a webview that reloaded and
+    /// never remounted this session, or one throttled into silence) would
+    /// otherwise park the pump, and behind it the program, for good. So after
+    /// `stall` with no ack at all the debt is written off and output resumes.
+    /// Dropping output instead would corrupt the screen of a view that was only
+    /// slow; the worst this costs is one cap's worth of output per stall.
+    fn wait_for_room(&self) -> bool {
+        let mut s = self.state.lock();
+        let mut seen = s.unacked;
+        let mut deadline = Instant::now() + self.stall;
+        while !s.closed && s.unacked >= self.cap {
+            let timed_out = self.room.wait_until(&mut s, deadline).timed_out();
+            if s.unacked < seen {
+                // Acks are arriving, just not enough yet: a view that is behind
+                // rather than gone. Give it a fresh stall.
+                seen = s.unacked;
+                deadline = Instant::now() + self.stall;
+            } else if timed_out {
+                tracing::warn!(
+                    target: "flux::term",
+                    unacked = s.unacked,
+                    "terminal view stopped acking output; resuming without it"
+                );
+                s.unacked = 0;
+            }
+        }
+        !s.closed
+    }
+}
+
 /// Why [`pump`] stopped.
 #[derive(Debug, PartialEq, Eq)]
 enum PumpEnd {
     /// The reader hung up (the shell exited) and everything it read was sent.
     Eof,
+    /// The session was killed or replaced; its view is gone.
+    Closed,
     /// The channel refused a message: the webview itself is gone.
     Gone,
 }
 
-/// Move PTY output from the reader thread to the view, batched by `batch`.
-/// Generic over `send` so the tests can stand in for the channel.
+/// Move PTY output from the reader thread to the view: batched by `batch`, and
+/// never more than the flow's cap ahead of what xterm has written. Generic over
+/// `send` so the tests can stand in for the channel.
 fn pump(
     reads: Receiver<Vec<u8>>,
+    flow: &Flow,
     mut batch: Coalescer,
     mut send: impl FnMut(Vec<u8>) -> bool,
 ) -> PumpEnd {
     let mut out = |bytes: Vec<u8>| {
+        if !flow.wait_for_room() {
+            return Err(PumpEnd::Closed);
+        }
+        flow.sent(bytes.len());
         if send(bytes) {
             Ok(())
         } else {
@@ -969,7 +1106,13 @@ fn pump(
                         return end;
                     }
                 }
-                return PumpEnd::Eof;
+                // A kill ends the shell too, so the reader hangs up either way;
+                // the flow says which of the two this was.
+                return if flow.is_closed() {
+                    PumpEnd::Closed
+                } else {
+                    PumpEnd::Eof
+                };
             }
         };
         if let Some(bytes) = ready {
@@ -1550,6 +1693,91 @@ mod tests {
         }
     }
 
+    /// Run `f` on a thread and report whether it finished within `wait`.
+    fn finishes_within<T: Send + 'static>(
+        wait: Duration,
+        f: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<T> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        rx.recv_timeout(wait).ok()
+    }
+
+    #[test]
+    fn flow_waits_at_the_cap_until_xterm_catches_up() {
+        let flow = Arc::new(Flow::new(100, Duration::from_secs(30)));
+        flow.sent(99);
+        assert!(flow.wait_for_room(), "under the cap: no wait");
+        flow.sent(1);
+        let waiter = {
+            let flow = flow.clone();
+            std::thread::spawn(move || flow.wait_for_room())
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!waiter.is_finished(), "at the cap the pump waits");
+        flow.ack(40);
+        assert!(waiter.join().unwrap(), "an ack makes room");
+        assert_eq!(flow.state.lock().unacked, 60);
+        // More acked than counted (a view that outlived a respawn of its id)
+        // floors at zero instead of wrapping into an endless wait.
+        flow.ack(1_000);
+        assert_eq!(flow.state.lock().unacked, 0);
+    }
+
+    #[test]
+    fn closing_the_session_releases_a_waiting_pump() {
+        // The tab closed with output in flight: no ack is coming. The close
+        // must wake the pump at once, not after the stall.
+        let flow = Arc::new(Flow::new(100, Duration::from_secs(30)));
+        flow.sent(500);
+        let waiting = {
+            let flow = flow.clone();
+            std::thread::spawn(move || flow.wait_for_room())
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        flow.close();
+        let woke = finishes_within(Duration::from_secs(2), move || waiting.join().unwrap());
+        assert_eq!(woke, Some(false), "a closed session stops the pump");
+        assert!(!flow.wait_for_room(), "and keeps it stopped");
+    }
+
+    #[test]
+    fn a_view_that_never_acks_is_written_off_after_the_stall() {
+        let stall = Duration::from_millis(150);
+        let flow = Flow::new(100, stall);
+        flow.sent(100);
+        let started = Instant::now();
+        assert!(flow.wait_for_room(), "output resumes rather than wedging");
+        assert!(started.elapsed() >= stall, "but only after the stall");
+        assert_eq!(flow.state.lock().unacked, 0, "the debt was written off");
+
+        // A view that is merely behind keeps getting fresh stalls while its
+        // acks trickle in, so it is never written off, though it takes longer
+        // than one stall to catch up.
+        let flow = Arc::new(Flow::new(100, Duration::from_millis(400)));
+        flow.sent(290);
+        let acker = {
+            let flow = flow.clone();
+            std::thread::spawn(move || {
+                for _ in 0..4 {
+                    std::thread::sleep(Duration::from_millis(100));
+                    flow.ack(50);
+                }
+            })
+        };
+        let started = Instant::now();
+        assert!(flow.wait_for_room());
+        acker.join().unwrap();
+        assert!(
+            started.elapsed() >= Duration::from_millis(400),
+            "released by the acks, not the stall: {:?}",
+            started.elapsed()
+        );
+        assert_eq!(flow.state.lock().unacked, 90, "nothing was written off");
+    }
+
     /// Feed `data` to a pump in reads of up to 8 KiB, the way the reader does.
     fn feed(data: Vec<u8>) -> Receiver<Vec<u8>> {
         let (tx, rx) = std::sync::mpsc::sync_channel(READ_QUEUE);
@@ -1570,13 +1798,18 @@ mod tests {
     #[test]
     fn the_pump_delivers_everything_in_order_and_then_reports_eof() {
         let data: Vec<u8> = (0..4 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
+        let flow = Arc::new(Flow::new(256 * 1024, Duration::from_secs(30)));
         let mut got = Vec::new();
         let mut messages = 0;
+        let acks = flow.clone();
         let end = pump(
             feed(data.clone()),
+            &flow,
             Coalescer::new(BATCH_MAX, BATCH_WINDOW),
             |b| {
+                // xterm writing as fast as it's fed: ack everything at once.
                 messages += 1;
+                acks.ack(b.len());
                 got.extend_from_slice(&b);
                 true
             },
@@ -1589,9 +1822,46 @@ mod tests {
     }
 
     #[test]
+    fn the_pump_stops_at_the_cap_and_a_closed_tab_releases_it() {
+        let cap = 128 * 1024;
+        let flow = Arc::new(Flow::new(cap, Duration::from_secs(30)));
+        let sent = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let reads = feed(vec![b'y'; 4 * 1024 * 1024]);
+        let pumping = {
+            let (flow, sent) = (flow.clone(), sent.clone());
+            std::thread::spawn(move || {
+                // A view that never acks: the pump must stop on its own.
+                pump(reads, &flow, Coalescer::new(BATCH_MAX, BATCH_WINDOW), |b| {
+                    sent.fetch_add(b.len(), std::sync::atomic::Ordering::SeqCst);
+                    true
+                })
+            })
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        let at_cap = sent.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(at_cap >= cap, "stopped early: {at_cap}");
+        assert!(
+            at_cap < cap + BATCH_MAX + 8192,
+            "kept sending past the cap: {at_cap}"
+        );
+        assert!(!pumping.is_finished(), "parked, waiting for acks");
+
+        flow.close();
+        let end = finishes_within(Duration::from_secs(2), move || pumping.join().unwrap());
+        assert_eq!(end, Some(PumpEnd::Closed), "the close let it go");
+        assert_eq!(
+            sent.load(std::sync::atomic::Ordering::SeqCst),
+            at_cap,
+            "and nothing more went to the closed view"
+        );
+    }
+
+    #[test]
     fn a_gone_webview_stops_the_pump() {
+        let flow = Flow::new(UNACKED_MAX, ACK_STALL);
         let end = pump(
             feed(vec![b'z'; 256 * 1024]),
+            &flow,
             Coalescer::new(BATCH_MAX, BATCH_WINDOW),
             |_| false,
         );
@@ -1620,7 +1890,7 @@ mod tests {
 pub use real::*;
 
 /// Mobile stub: same public surface (`TerminalManager`, `PANE_SESSION`, and the
-/// four `terminal_*` commands) so nothing upstream changes; the commands report
+/// five `terminal_*` commands) so nothing upstream changes; the commands report
 /// that the embedded terminal is desktop-only.
 #[cfg(mobile)]
 mod stub {
@@ -1663,6 +1933,8 @@ mod stub {
         Err(UNAVAILABLE.into())
     }
 
+    #[tauri::command]
+    pub fn terminal_ack(_manager: State<'_, TerminalManager>, _session: u64, _bytes: usize) {}
 
     #[tauri::command]
     pub fn terminal_resize(

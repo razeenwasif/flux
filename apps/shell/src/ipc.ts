@@ -1731,7 +1731,7 @@ export const termPersist = (): TermPersist =>
   (localStorage.getItem(TERM_PERSIST_KEY) as TermPersist | null) ?? "off";
 
 /** Spawn a PTY for `session`; `onData` streams raw output bytes in batches,
- *  each an ArrayBuffer. */
+ *  each an ArrayBuffer, paced by `terminalAck` (termflow.ts). */
 export const terminalSpawn = (
   session: number,
   cols: number,

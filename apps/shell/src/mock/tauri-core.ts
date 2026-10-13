@@ -641,6 +641,7 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
       return Promise.resolve(undefined as T);
     }
     case "terminal_write":
+    case "terminal_ack":
     case "terminal_resize":
     case "terminal_kill":
     case "webview_stop":
