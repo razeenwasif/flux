@@ -34,7 +34,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 /// EmbeddingGemma 2, text-only. `FLUX_INDEXER_EMBED_MODEL` overrides it; it has
@@ -1821,11 +1821,19 @@ pub struct IndexerPick {
     pub confidence: f32,
 }
 
+/// How long the index stays in memory unused. Held, it's tens of MB that a
+/// panel opened now and then has no use for between questions; reading it back
+/// is a fraction of a second.
+const IDLE: Duration = Duration::from_secs(10 * 60);
+
 #[derive(Clone)]
 pub struct IndexerState {
     dir: Option<PathBuf>,
-    /// `None` until first use.
+    /// `None` until first use, and again once it's gone unused for `IDLE`.
     index: Arc<RwLock<Option<Index>>>,
+    last_used: Arc<Mutex<Instant>>,
+    /// A thread is waiting to release the index once it's idle.
+    watching: Arc<AtomicBool>,
     building: Arc<AtomicBool>,
     files_done: Arc<AtomicUsize>,
     files_todo: Arc<AtomicUsize>,
@@ -1841,6 +1849,8 @@ impl IndexerState {
         IndexerState {
             dir,
             index: Arc::default(),
+            last_used: Arc::new(Mutex::new(Instant::now())),
+            watching: Arc::default(),
             building: Arc::default(),
             files_done: Arc::default(),
             files_todo: Arc::default(),
@@ -1850,8 +1860,11 @@ impl IndexerState {
         }
     }
 
-    /// The index, read from disk on first use.
+    /// The index, read from disk first if it isn't in memory: on first use,
+    /// and again after an idle release. Every call counts as use, and holding
+    /// the guard keeps the index from being released.
     fn index(&self) -> MappedRwLockReadGuard<'_, Index> {
+        *self.last_used.lock() = Instant::now();
         let read = self.index.read();
         let read = if read.is_some() {
             read
@@ -1860,10 +1873,52 @@ impl IndexerState {
             let mut write = self.index.write();
             if write.is_none() {
                 *write = Some(self.dir.as_deref().and_then(load).unwrap_or_default());
+                self.watch();
             }
             RwLockWriteGuard::downgrade(write)
         };
         RwLockReadGuard::map(read, |i| i.as_ref().unwrap_or(&EMPTY))
+    }
+
+    /// Release the index once it has gone unused for `IDLE`. One watcher at a
+    /// time; it's started with the index lock held, as `release` stops it, so
+    /// a load and a release can't cross.
+    fn watch(&self) {
+        if self.dir.is_none() || self.watching.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let this = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("flux-indexer-idle".into())
+            .spawn(move || loop {
+                let idle = this.last_used.lock().elapsed();
+                if idle < IDLE {
+                    std::thread::sleep(IDLE - idle);
+                } else if this.release(IDLE) {
+                    return;
+                }
+            });
+        if spawned.is_err() {
+            self.watching.store(false, Ordering::Release);
+        }
+    }
+
+    /// Drop the index if it has gone unused for `idle` and no build is running.
+    /// True once it's gone.
+    fn release(&self, idle: Duration) -> bool {
+        let mut index = self.index.write();
+        if self.building.load(Ordering::Acquire) {
+            // A build is use: it holds on to the segments it keeps and commits
+            // as it goes.
+            *self.last_used.lock() = Instant::now();
+            return false;
+        }
+        if self.last_used.lock().elapsed() < idle {
+            return false;
+        }
+        *index = None;
+        self.watching.store(false, Ordering::Release);
+        true
     }
 
     pub fn status(&self) -> IndexerStatus {
@@ -2146,6 +2201,7 @@ impl IndexerState {
             sweep(dir, &idx);
         }
         *index = Some(idx);
+        self.watch();
         Ok(())
     }
 
@@ -3027,5 +3083,41 @@ mod tests {
         let r = again.search("running average momentum", 3, Scope::Notes);
         assert_eq!(r.matches[0].question, "a: Momentum");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_idle_index_is_let_go_and_read_back() {
+        let dir = std::env::temp_dir().join(format!("flux-indexer-idle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut idx = Index::from_parts(
+            vec!["/v".into()],
+            None,
+            [("/v/a.md".to_string(), 1)].into(),
+            vec![card(
+                "/v/a.md",
+                "s",
+                "General",
+                "Momentum".into(),
+                "A running average of past gradients.",
+            )],
+            VecStore::default(),
+        );
+        save(&dir, &mut idx).unwrap();
+        let state = IndexerState::new(Some(dir.clone()));
+        assert_eq!(state.status().cards, 1);
+        // A build in flight holds on to it.
+        state.building.store(true, Ordering::Release);
+        assert!(!state.release(Duration::ZERO));
+        assert!(state.index.read().is_some());
+        state.building.store(false, Ordering::Release);
+        assert!(!state.release(Duration::from_secs(60)), "used just now");
+        assert!(state.release(Duration::ZERO));
+        assert!(state.index.read().is_none());
+        // The next question reads it back.
+        let r = state.search("momentum", 3, Scope::All);
+        assert_eq!(r.matches[0].question, "Momentum");
+        assert_eq!(r.matches[0].answer, "A running average of past gradients.");
+        assert!(state.index.read().is_some());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
