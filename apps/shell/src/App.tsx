@@ -820,8 +820,9 @@ const App: Component = () => {
           void tabSetUrl(tabId, url).catch(() => {});
           // Re-apply the pane layout once loaded (defensive: ensures the page sits
           // in its pane even if the initial position didn't stick). Pane-aware so a
-          // split pane lands in its half, not the full card.
-          if (paneLayout().some((p) => p.tab.id === tabId)) scheduleRelayout();
+          // split pane lands in its half, not the full card. Resent even when the
+          // rect matches the last one sent, which is the case this is here for.
+          if (paneLayout().some((p) => p.tab.id === tabId)) scheduleRelayout(tabId);
           // Re-apply this host's saved zoom (#36).
           const z = zoomFor(hostOfUrl(url));
           if (z !== 1) void webviewZoom(tabId, z).catch(() => {});
