@@ -37,6 +37,7 @@ import {
   type TraceHistogram,
 } from "./ipc";
 import { openTab } from "./store";
+import "./TrailPage.css";
 
 type GNode = {
   x: number;
