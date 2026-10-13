@@ -263,6 +263,33 @@ export const claimTabs = <T extends Tiled>(groups: T[], ids: number[], replacing
 /** One row of the tab strip: a lone tab, or a whole tiling shown as a unit. */
 export type StripRow<T> = { kind: "tab"; tab: T } | { kind: "split"; members: T[] };
 
+// Row objects are reused across calls. `<For>` keys rows by identity, so a fresh
+// `{ kind: "tab", tab }` per call rebuilt every row of the strip whenever any
+// tab's title or url changed. A tab's row lives as long as that tab object (the
+// store keeps unchanged tabs' objects), and a split's row while its members are
+// the same objects in the same order. Weak keys: a replaced tab takes its row with it.
+const tabRows = new WeakMap<object, StripRow<unknown>>();
+const splitRows = new WeakMap<object, StripRow<unknown>>();
+
+function tabRow<T extends object>(tab: T): StripRow<T> {
+  let row = tabRows.get(tab) as StripRow<T> | undefined;
+  if (!row) tabRows.set(tab, (row = { kind: "tab", tab }));
+  return row;
+}
+
+function splitRow<T extends object>(members: T[]): StripRow<T> {
+  const was = splitRows.get(members[0]!) as StripRow<T> | undefined;
+  if (
+    was?.kind === "split" &&
+    was.members.length === members.length &&
+    was.members.every((m, i) => m === members[i])
+  )
+    return was;
+  const row: StripRow<T> = { kind: "split", members };
+  splitRows.set(members[0]!, row);
+  return row;
+}
+
 /**
  * Collapse a tab strip so each tiling occupies a single row, at the position of
  * its first member.
@@ -285,12 +312,12 @@ export function stripRows<T extends { id: number }>(list: T[], groups: Tiled[]):
   for (const t of list) {
     const gi = rowOf.get(t.id);
     if (gi === undefined) {
-      out.push({ kind: "tab", tab: t });
+      out.push(tabRow(t));
       continue;
     }
     if (emitted.has(gi)) continue;
     emitted.add(gi);
-    out.push({ kind: "split", members: present[gi]!.map((id) => byId.get(id)!) });
+    out.push(splitRow(present[gi]!.map((id) => byId.get(id)!)));
   }
   return out;
 }

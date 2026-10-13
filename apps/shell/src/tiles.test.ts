@@ -238,4 +238,30 @@ describe("stripRows", () => {
   it("orders panes by the group, not by the strip", () => {
     expect(rowShape(stripRows(list, [G([5, 2])]))).toBe("1 [5 2] 3 4 6");
   });
+
+  it("hands back the same row objects for tabs that didn't change", () => {
+    // <For> keys rows by identity: a fresh wrapper per call rebuilt all 60 rows
+    // of a 60-tab strip on every title tick of any one tab.
+    const groups = [G([1, 3])];
+    const first = stripRows(list, groups);
+    const again = stripRows([...list], groups);
+    expect(again).toHaveLength(first.length);
+    again.forEach((row, i) => expect(row).toBe(first[i]));
+    // Retitling tab 2 (the store swaps in a new object) rebuilds only its row.
+    const retitled = list.map((t) => (t.id === 2 ? { ...t } : t));
+    const next = stripRows(retitled, groups);
+    expect(next.filter((row, i) => row !== first[i]).map((r) => (r.kind === "tab" ? r.tab.id : 0))).toEqual([
+      2,
+    ]);
+  });
+
+  it("rebuilds a split's row only when its members change", () => {
+    const first = stripRows(list, [G([1, 3])]);
+    expect(stripRows(list, [G([1, 3])])[0]).toBe(first[0]);
+    expect(stripRows(list, [G([3, 1])])[0]).not.toBe(first[0]);
+    const changed = list.map((t) => (t.id === 3 ? { ...t } : t));
+    const row = stripRows(changed, [G([1, 3])])[0]!;
+    expect(row).not.toBe(first[0]);
+    expect(row.kind === "split" && row.members[1]).toBe(changed[2]);
+  });
 });
