@@ -18,7 +18,7 @@
  */
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js";
 
-import type { PaletteAction } from "./CommandPalette";
+import { paletteActions, type PaletteAction, type PaletteContext } from "./paletteActions";
 import { START_URL, searchResolve, searchSuggest } from "./ipc";
 import { activeId, openTab, searchSuggestOn, setTile } from "./store";
 import { MAX_PANES, layoutsFor } from "./tiles";
@@ -45,7 +45,8 @@ const TOOLBAR_IDS = [
 ];
 
 const SearchSpotlight: Component<{
-  actions: PaletteAction[];
+  /** App's handlers, for the palette actions the toolbar offers. */
+  ctx: PaletteContext;
   onClose: () => void;
   onNavigate: (url: string) => void;
   onAiSearch: (q: string) => void;
@@ -64,10 +65,12 @@ const SearchSpotlight: Component<{
   );
   onCleanup(suggestions.cancel);
 
-  const toolbar = () =>
-    TOOLBAR_IDS.map((id) => props.actions.find((a) => a.id === id)).filter(
+  const toolbar = () => {
+    const actions = paletteActions(props.ctx);
+    return TOOLBAR_IDS.map((id) => actions.find((a) => a.id === id)).filter(
       (a): a is PaletteAction => a != null,
     );
+  };
 
   const onInput = (v: string) => {
     setQuery(v);

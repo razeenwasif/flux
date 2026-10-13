@@ -10,10 +10,15 @@
  *                                  excluded from this entry metric; explicit
  *                                  desktop preloads are counted separately.
  *   • Desktop entry + explicit preloads ≤ 84 KiB (shared static dependencies included).
+ *   • Default desktop boot JS — everything a fresh desktop window loads at
+ *                                  startup with the default layout: the above plus
+ *                                  the lazy columns and panes it shows.
+ *   • Entry stylesheet, gzip — the render-blocking CSS index.html links.
  *   • Installer / binary ≤ 25 MB — the release `flux` binary, when present.
  *
  * The eager set is computed from Vite's build manifest: start at the entry and
- * follow static `imports` transitively; `dynamicImports` (lazy) are not counted.
+ * follow static `imports` transitively; `dynamicImports` (lazy) are not counted,
+ * except the ones named as default-desktop-boot roots below.
  *
  * Budgets that need a running window (idle RAM, cold start, terminal/agent
  * latency) are NOT checked here — see docs/perf/memory-benchmark.md. They need a
@@ -28,7 +33,7 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { desktopPreloadRoots, startupFiles } from "./startup-graph.mjs";
+import { desktopPreloadRoots, manifestKey, startupCss, startupFiles } from "./startup-graph.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -66,6 +71,43 @@ const CHROME_JS_GZIP_BUDGET = 56 * 1024; // bytes
 // New independent gate: entry + desktopChrome registry, baselined in batch 3.
 // This is a lower bound, excluding other conditionally rendered lazy features.
 const DESKTOP_PRELOAD_BUDGET = 84 * 1024;
+// Default desktop boot, added 2026-10-13 (performance audit): the entry chunk is
+// only the start of what a desktop window parses before it settles. Baselined at
+// 240.0 KB after the entry diet that day; the bulk is xterm and its WebGL addon
+// (the terminal column is on by default) and the agent panel.
+const DEFAULT_BOOT_BUDGET = 242 * 1024;
+// The lazy chunks the default layout loads at startup on a window wide enough to
+// show all of it (sidebar, editor column, bookmark bar, agent + terminal stack,
+// launcher and connections columns, the Indexer orb), beyond the entry and the
+// preloads. Taken from the mocked preview (`npm run preview:ui`) at 2560×1440
+// with empty localStorage and a web page active, listing
+// performance.getEntriesByType("resource"); re-take it when the default layout
+// changes. The active tab's own page (start page, PDF viewer, …) isn't counted.
+// Each root is a manifest key, or the name of a dependency's dynamic chunk.
+const DEFAULT_BOOT_ROOTS = [
+  "src/EditorColumn.tsx",
+  "src/BookmarkBar.tsx",
+  "src/FindBar.tsx",
+  "src/AgentPanel.tsx",
+  "src/TerminalView.tsx",
+  "xterm",
+  "addon-fit",
+  "addon-web-links",
+  "addon-webgl",
+  "src/BarsColumn.tsx",
+  "src/PagesBar.tsx",
+  "src/ConnectionsRail.tsx",
+  "src/TrailMini.tsx",
+  "src/SysMonitor.tsx",
+  "src/IndexerBubble.tsx",
+  // Loaded once the window is idle (App), still within the first second or two.
+  "src/clocks.ts",
+  "src/ClockAlarm.tsx",
+];
+// Entry stylesheet, added 2026-10-13 (performance audit): theme.css is linked
+// from index.html, so all of it blocks first paint, including the rules for
+// screens that aren't on it. Baselined at 42.9 KB gzip.
+const ENTRY_CSS_BUDGET = 43.5 * 1024;
 const BINARY_BUDGET = 25 * 1024 * 1024; // bytes
 
 // ── args ─────────────────────────────────────────────────────────────────────
@@ -95,10 +137,17 @@ function mb(n) {
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
-// ── chrome JS: eager bundle from the manifest ────────────────────────────────
-function chromeJsCheck(desktop = false) {
-  const name = desktop ? "desktop-preloads-gzip" : "chrome-js-gzip";
-  const budget = desktop ? DESKTOP_PRELOAD_BUDGET : CHROME_JS_GZIP_BUDGET;
+// ── startup bundles from the manifest ────────────────────────────────────────
+// "entry": the eager JS; "desktop": plus the desktop preloads; "boot": plus the
+// default desktop layout's lazy chunks; "css": the entry's stylesheet.
+const CHECKS = {
+  entry: { name: "chrome-js-gzip", budget: CHROME_JS_GZIP_BUDGET },
+  desktop: { name: "desktop-preloads-gzip", budget: DESKTOP_PRELOAD_BUDGET },
+  boot: { name: "default-desktop-boot-gzip", budget: DEFAULT_BOOT_BUDGET },
+  css: { name: "entry-css-gzip", budget: ENTRY_CSS_BUDGET },
+};
+function bundleCheck(kind) {
+  const { name, budget } = CHECKS[kind];
   const manifestPath = [join(distDir, ".vite/manifest.json"), join(distDir, "manifest.json")].find(
     existsSync,
   );
@@ -113,10 +162,13 @@ function chromeJsCheck(desktop = false) {
 
   let files;
   try {
-    const preloadRoots = desktop
-      ? desktopPreloadRoots(readFileSync(join(ROOT, "apps/shell/src/desktopChrome.ts"), "utf8"))
-      : [];
-    files = startupFiles(manifest, [entryKey, ...preloadRoots]);
+    const preloadRoots =
+      kind === "desktop" || kind === "boot"
+        ? desktopPreloadRoots(readFileSync(join(ROOT, "apps/shell/src/desktopChrome.ts"), "utf8"))
+        : [];
+    const bootRoots = kind === "boot" ? DEFAULT_BOOT_ROOTS.map((r) => manifestKey(manifest, r)) : [];
+    const roots = [entryKey, ...preloadRoots, ...bootRoots];
+    files = kind === "css" ? startupCss(manifest, [entryKey]) : startupFiles(manifest, roots);
   } catch (error) {
     return { name, ok: false, error: String(error) };
   }
@@ -153,7 +205,13 @@ function binaryCheck() {
 }
 
 // ── run ──────────────────────────────────────────────────────────────────────
-const results = [chromeJsCheck(), chromeJsCheck(true), binaryCheck()];
+const results = [
+  bundleCheck("entry"),
+  bundleCheck("desktop"),
+  bundleCheck("boot"),
+  bundleCheck("css"),
+  binaryCheck(),
+];
 
 if (asJson) {
   console.log(JSON.stringify(results, null, 2));
@@ -175,7 +233,8 @@ if (asJson) {
       for (const p of r.detail) console.log(`       ${p.file}  ${kb(p.gzip)}`);
     }
   }
-  console.log("\n  Desktop preloads are a lower bound, not the complete first-paint cost.");
+  console.log("\n  Desktop preloads are a lower bound, not the complete first-paint cost;");
+  console.log("  default-desktop-boot adds what the default layout loads (not the active page).");
   console.log("  (idle RAM, cold start, terminal/agent latency need a display —");
   console.log("   see docs/perf/memory-benchmark.md for the measured wedge.)");
 }

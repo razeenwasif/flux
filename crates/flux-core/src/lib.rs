@@ -1343,6 +1343,7 @@ pub fn run(intent: cli::LaunchIntent) {
             trace::trace_chat,
             trace::trace_chat_send,
             bookmarks::bookmarks_list,
+            bookmarks::bookmark_find,
             bookmarks::bookmark_folders,
             bookmarks::bookmark_add,
             bookmarks::bookmark_remove,

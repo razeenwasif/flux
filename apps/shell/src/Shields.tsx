@@ -3,11 +3,11 @@
  * live blocked-count badge; clicking opens the popover (lazy — the toggle UI
  * loads on first open, keeping it out of the boot bundle per ADR 0001).
  */
-import { Show, createEffect, createSignal, lazy, type Component } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, lazy, on, type Component } from "solid-js";
 
 import { shieldsStatus, type ShieldsStatus } from "./ipc";
 import Icon from "./Icon";
-import { activeTab } from "./store";
+import { activeTab, isLoading } from "./store";
 
 const ShieldsPop = lazy(() => import("./ShieldsPop"));
 
@@ -20,10 +20,12 @@ const Shields: Component<{ onNavigate: (url: string) => void }> = (props) => {
     void shieldsStatus()
       .then(setStatus)
       .catch(() => {});
-  createEffect(() => {
-    activeTab()?.url;
-    pollBadge();
-  });
+  // Re-polled when the active page navigates and when it finishes loading, which
+  // is when most of its requests have been blocked. Keyed on a memo: reading
+  // activeTab() directly re-polled on every title tick too, since each one
+  // hands the active tab a new object.
+  const navState = createMemo(() => `${activeTab()?.url ?? ""} ${isLoading()}`);
+  createEffect(on(navState, pollBadge));
 
   return (
     // No positioning context here: the popover anchors to .sidebar-footer so it

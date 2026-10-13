@@ -273,12 +273,18 @@ const Sidebar: Component<SidebarProps> = (props) => {
   createEffect(() => {
     if (splitPicker()) setSplitQuery("");
   });
-  // Page-watch (#128) — is the active page being monitored? Re-checked on tab change.
+  // Page-watch (#128) — is the active page being monitored? Re-checked when the
+  // active page's url changes; a memo, so title ticks and load events (each a
+  // new active-tab object) don't each cost an IPC round trip.
   const [watched, setWatched] = createSignal(false);
-  createEffect(() => {
+  const watchableUrl = createMemo(() => {
     const t = activeTab();
-    if (t?.kind === "browser" && !isStartUrl(t.url))
-      void watchIsWatched(t.url)
+    return t?.kind === "browser" && !isStartUrl(t.url) ? t.url : null;
+  });
+  createEffect(() => {
+    const url = watchableUrl();
+    if (url)
+      void watchIsWatched(url)
         .then(setWatched)
         .catch(() => setWatched(false));
     else setWatched(false);

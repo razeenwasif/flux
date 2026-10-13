@@ -127,6 +127,7 @@ import {
   tabs,
 } from "./store";
 import { FLUX_APPS } from "./apps";
+import { APP_GUIDES } from "./appGuides";
 import AgentAurora from "./AgentAurora";
 import {
   heyGemmaEnabled,
@@ -1126,7 +1127,7 @@ const AgentPanel: Component = () => {
   const appContext = (): string => {
     const app = FLUX_APPS.find((a) => a.id === focusedAppId());
     if (!app) return "";
-    return `The user is currently using **${app.name}** (${app.url}), one of their pinned apps. Here's how it works — use it to assist them:\n${app.guide}\n\n`;
+    return `The user is currently using **${app.name}** (${app.url}), one of their pinned apps. Here's how it works — use it to assist them:\n${APP_GUIDES[app.id] ?? app.tagline}\n\n`;
   };
 
   /** Named folders the agent can be pointed at without a path (#166): the Onyx

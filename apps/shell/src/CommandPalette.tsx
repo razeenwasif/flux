@@ -9,12 +9,13 @@ import { omniSearch, type OmniHit } from "./ipc";
 import { activeId, focusTab, tabs } from "./store";
 import { latestQuery } from "./latestQuery";
 import Modal from "./Modal";
+import { paletteActions, type PaletteContext } from "./paletteActions";
 
-export type PaletteAction = { id: string; label: string; icon: string; run: () => void };
 type Item = { key: string; icon: string; label: string; sub: string; run: () => void };
 
 const CommandPalette: Component<{
-  actions: PaletteAction[];
+  /** App's handlers; the action list is built from them here, in this chunk. */
+  ctx: PaletteContext;
   onClose: () => void;
   onNavigate: (url: string) => void;
 }> = (props) => {
@@ -50,7 +51,7 @@ const CommandPalette: Component<{
     const q = query().trim().toLowerCase();
     const out: Item[] = [];
     // Actions (lexical, local) always come first — they're commands, not content.
-    for (const a of props.actions) {
+    for (const a of paletteActions(props.ctx)) {
       if (!q || a.label.toLowerCase().includes(q)) {
         out.push({ key: `act-${a.id}`, icon: a.icon, label: a.label, sub: "Action", run: a.run });
       }
