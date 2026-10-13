@@ -98,7 +98,7 @@ impl FeedStore {
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        crate::persist::save_json(
+        crate::persist::queue_json(
             path,
             &*self.feeds.read(),
             crate::persist::Durability::Barrier,

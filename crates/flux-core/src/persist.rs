@@ -12,10 +12,19 @@
 //! Each write says how durable it must be ([`Durability`]). On a Mac the full
 //! flush behind `sync_all` empties the drive's own cache and often takes 5–20 ms
 //! or more, which only the files that can't be rebuilt need.
+//!
+//! Stores that save from the UI thread, or in bursts, hand their bytes to one
+//! writer thread instead ([`queue_json`] and friends); see "The shared writer"
+//! below.
 
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
+
+use parking_lot::{Condvar, Mutex, MutexGuard};
 
 static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -106,14 +115,10 @@ fn barrier_sync(file: &std::fs::File) -> std::io::Result<()> {
     file.sync_data()
 }
 
-/// Atomically replace `path` with plain text. For settings that are a single
-/// scalar, where JSON would only add quotes to read back.
-pub(crate) fn save_text(path: &Path, text: &str, durability: Durability) {
-    let _ = write_atomic_with(path, text.as_bytes(), durability);
-}
-
-/// Serialize `value` and atomically replace `path`. Best-effort: serialization
-/// or IO failure is swallowed, matching the previous per-module writers.
+/// Serialize `value` and atomically replace `path`, on this thread. Best-effort:
+/// serialization or IO failure is swallowed, matching the previous per-module
+/// writers. For stores that read their file back, or must know it landed;
+/// the rest use [`queue_json`].
 pub(crate) fn save_json<T: serde::Serialize + ?Sized>(
     path: &Path,
     value: &T,
@@ -132,6 +137,191 @@ pub(crate) fn save_json_pretty<T: serde::Serialize + ?Sized>(
 ) {
     if let Ok(json) = serde_json::to_vec_pretty(value) {
         let _ = write_atomic_with(path, &json, durability);
+    }
+}
+
+// ─── The shared writer ───────────────────────────────────────────────────────
+// A toggle, a bookmark or an extension's `storage.set` used to serialize and
+// sync its whole store to disk right there, often on the UI thread. Queued
+// saves are serialized by the caller (so the bytes match the moment of the
+// save) and written by one thread. The newest bytes for a path replace any
+// still queued for it, so a burst costs one write, and one thread writing in
+// queue order means a path never goes back to older content. A queued save is
+// lost if the process dies within a moment of it; a normal quit calls
+// [`flush_all`].
+//
+// Only for stores that never read their file back after loading it: a read
+// right after a queued save can still see the old content.
+
+/// How long the writer lets a burst gather before writing it.
+const GATHER: Duration = Duration::from_millis(250);
+
+static WRITER: OnceLock<Option<Arc<Writer>>> = OnceLock::new();
+
+/// Queue `bytes` to replace `path` and return at once. Best-effort, like
+/// [`save_json`]: a failed write is logged and dropped.
+pub(crate) fn queue_write(path: &Path, bytes: Vec<u8>, durability: Durability) {
+    // Unit tests write in place: they read store files back right after saving.
+    let writer = if cfg!(test) {
+        None
+    } else {
+        WRITER.get_or_init(|| Writer::start(GATHER)).as_deref()
+    };
+    match writer {
+        Some(w) => w.push(path.to_path_buf(), bytes, durability),
+        // No writer thread (it couldn't be spawned): write here, as before.
+        None => write_logged(path, &bytes, durability),
+    }
+}
+
+/// [`save_json`] through the shared writer.
+pub(crate) fn queue_json<T: serde::Serialize + ?Sized>(
+    path: &Path,
+    value: &T,
+    durability: Durability,
+) {
+    if let Ok(json) = serde_json::to_vec(value) {
+        queue_write(path, json, durability);
+    }
+}
+
+/// [`save_json_pretty`] through the shared writer.
+pub(crate) fn queue_json_pretty<T: serde::Serialize + ?Sized>(
+    path: &Path,
+    value: &T,
+    durability: Durability,
+) {
+    if let Ok(json) = serde_json::to_vec_pretty(value) {
+        queue_write(path, json, durability);
+    }
+}
+
+/// Plain text through the shared writer. For settings that are a single
+/// scalar, where JSON would only add quotes to read back.
+pub(crate) fn queue_text(path: &Path, text: &str, durability: Durability) {
+    queue_write(path, text.as_bytes().to_vec(), durability);
+}
+
+/// Block until every save queued so far is on disk. For shutdown, where a
+/// save still queued would be cut off.
+pub(crate) fn flush_all() {
+    if let Some(Some(w)) = WRITER.get() {
+        w.flush();
+    }
+}
+
+fn write_logged(path: &Path, bytes: &[u8], durability: Durability) {
+    if let Err(e) = write_atomic_with(path, bytes, durability) {
+        tracing::warn!(target: "flux::persist", path = %path.display(), "queued save failed: {e}");
+    }
+}
+
+struct Queued {
+    bytes: Vec<u8>,
+    durability: Durability,
+    /// The oldest save these bytes stand for. A save that a newer one replaced
+    /// is done once the newer one is written.
+    since: u64,
+}
+
+#[derive(Default)]
+struct Queue {
+    queued: HashMap<PathBuf, Queued>,
+    /// Paths in the order they were first queued, so a store that saves
+    /// constantly can't hold the others back.
+    order: VecDeque<PathBuf>,
+    /// The number the next save gets.
+    next: u64,
+    /// The `since` of the save being written right now.
+    writing: Option<u64>,
+    /// Callers waiting in `flush`: the writer skips the gathering pause.
+    flushing: usize,
+}
+
+struct Writer {
+    queue: Mutex<Queue>,
+    changed: Condvar,
+    gather: Duration,
+    /// Writes done, for tests to see a burst collapse.
+    writes: AtomicU64,
+}
+
+impl Writer {
+    fn start(gather: Duration) -> Option<Arc<Writer>> {
+        let writer = Arc::new(Writer {
+            queue: Mutex::default(),
+            changed: Condvar::new(),
+            gather,
+            writes: AtomicU64::new(0),
+        });
+        let run = Arc::clone(&writer);
+        std::thread::Builder::new()
+            .name("flux-store-writer".into())
+            .spawn(move || run.run())
+            .ok()?;
+        Some(writer)
+    }
+
+    fn push(&self, path: PathBuf, bytes: Vec<u8>, durability: Durability) {
+        let mut q = self.queue.lock();
+        let n = q.next;
+        q.next += 1;
+        match q.queued.get_mut(&path) {
+            Some(older) => {
+                older.bytes = bytes;
+                // These bytes carry the older save too, so its level still applies.
+                if durability == Durability::Full {
+                    older.durability = Durability::Full;
+                }
+            }
+            None => {
+                q.order.push_back(path.clone());
+                q.queued.insert(
+                    path,
+                    Queued {
+                        bytes,
+                        durability,
+                        since: n,
+                    },
+                );
+            }
+        }
+        drop(q);
+        self.changed.notify_all();
+    }
+
+    fn flush(&self) {
+        let mut q = self.queue.lock();
+        let upto = q.next;
+        q.flushing += 1;
+        self.changed.notify_all();
+        while q.writing.is_some_and(|n| n < upto) || q.queued.values().any(|w| w.since < upto) {
+            self.changed.wait(&mut q);
+        }
+        q.flushing -= 1;
+    }
+
+    fn run(&self) {
+        let mut q = self.queue.lock();
+        loop {
+            while q.order.is_empty() {
+                self.changed.wait(&mut q);
+            }
+            let until = Instant::now() + self.gather;
+            while q.flushing == 0 && !self.changed.wait_until(&mut q, until).timed_out() {}
+            while let Some(path) = q.order.pop_front() {
+                let Some(w) = q.queued.remove(&path) else {
+                    continue;
+                };
+                q.writing = Some(w.since);
+                MutexGuard::unlocked(&mut q, || {
+                    write_logged(&path, &w.bytes, w.durability);
+                    self.writes.fetch_add(1, Ordering::Relaxed);
+                });
+                q.writing = None;
+                self.changed.notify_all();
+            }
+        }
     }
 }
 
@@ -273,6 +463,63 @@ mod tests {
         save_json(&p, &vec![1u32, 2], Durability::Barrier);
         assert_eq!(load_json_or_quarantine::<Vec<u32>>(&p), Some(vec![1, 2]));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_burst_collapses_to_its_newest_save_and_flush_skips_the_pause() {
+        let dir = scratch("burst");
+        let (a, b) = (dir.join("a.json"), dir.join("b.json"));
+        // A pause no test would wait out: only `flush` can end it early.
+        let w = Writer::start(Duration::from_secs(30)).unwrap();
+        let started = Instant::now();
+        for n in 0..50u32 {
+            w.push(a.clone(), n.to_string().into_bytes(), Durability::Barrier);
+        }
+        w.push(b.clone(), b"other".to_vec(), Durability::Full);
+        w.flush();
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "49");
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "other");
+        assert_eq!(w.writes.load(Ordering::Relaxed), 2, "one write per path");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_queued_path_never_goes_back_to_older_content() {
+        let dir = scratch("monotonic");
+        let p = dir.join("n.txt");
+        let w = Writer::start(Duration::ZERO).unwrap();
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // Polls while saves stream through: the number may only ever rise.
+        let reader = {
+            let (p, done) = (p.clone(), Arc::clone(&done));
+            std::thread::spawn(move || {
+                let mut last = 0u64;
+                while !done.load(Ordering::Relaxed) {
+                    let Ok(s) = std::fs::read_to_string(&p) else {
+                        continue;
+                    };
+                    let n: u64 = s.parse().unwrap();
+                    assert!(n >= last, "went back from {last} to {n}");
+                    last = n;
+                }
+            })
+        };
+        for n in 1..=200u64 {
+            w.push(p.clone(), n.to_string().into_bytes(), Durability::Barrier);
+        }
+        w.flush();
+        done.store(true, Ordering::Relaxed);
+        reader.join().unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "200");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn flush_with_nothing_queued_returns() {
+        let w = Writer::start(Duration::from_secs(30)).unwrap();
+        w.flush();
+        assert_eq!(w.writes.load(Ordering::Relaxed), 0);
     }
 
     #[test]

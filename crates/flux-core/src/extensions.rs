@@ -136,7 +136,7 @@ impl ExtRegistry {
 
     fn persist(&self) {
         let Some(path) = &self.path else { return };
-        crate::persist::save_json_pretty(
+        crate::persist::queue_json_pretty(
             path,
             &*self.entries.read(),
             crate::persist::Durability::Barrier,

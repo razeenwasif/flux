@@ -154,7 +154,7 @@ impl ShieldsState {
         let mut sites_off: Vec<String> = self.off_for.iter().map(|e| e.key().clone()).collect();
         sites_off.sort();
         let enabled = self.enabled.load(Ordering::Relaxed);
-        crate::persist::save_json_pretty(
+        crate::persist::queue_json_pretty(
             path,
             &ShieldsPrefs { enabled, sites_off },
             crate::persist::Durability::Barrier,

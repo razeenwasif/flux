@@ -53,7 +53,7 @@ impl CookieState {
         let Some(path) = &self.path else { return };
         let mut hosts = self.status().clear_on_close;
         hosts.sort();
-        crate::persist::save_json_pretty(path, &hosts, crate::persist::Durability::Barrier);
+        crate::persist::queue_json_pretty(path, &hosts, crate::persist::Durability::Barrier);
     }
     pub fn should_clear_on_close(&self, host: &str) -> bool {
         self.clear_on_close.contains_key(host)
