@@ -43,13 +43,6 @@ pub(crate) enum Durability {
     Barrier,
 }
 
-/// Atomically replace `path` with `bytes`, fully flushed ([`Durability::Full`]).
-/// The conservative default for callers that haven't chosen; prefer
-/// [`write_atomic_with`] and say which level the file needs.
-pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    write_atomic_with(path, bytes, Durability::Full)
-}
-
 /// Atomically replace `path` with `bytes`. Creates parent dirs. The temp name
 /// carries the pid and a sequence counter so concurrent writers never clobber staging.
 pub(crate) fn write_atomic_with(
@@ -388,9 +381,9 @@ mod tests {
     fn write_atomic_replaces_existing_content() {
         let dir = scratch("replace");
         let p = dir.join("nested").join("store.json");
-        write_atomic(&p, b"first").unwrap();
+        write_atomic_with(&p, b"first", Durability::Full).unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"first");
-        write_atomic(&p, b"second").unwrap();
+        write_atomic_with(&p, b"second", Durability::Full).unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"second");
         // No staging litter left behind.
         let entries: Vec<_> = std::fs::read_dir(p.parent().unwrap()).unwrap().collect();
@@ -531,7 +524,7 @@ mod tests {
             let p = p.clone();
             handles.push(std::thread::spawn(move || {
                 let bytes = format!("writer-{}", i).into_bytes();
-                write_atomic(&p, &bytes).unwrap();
+                write_atomic_with(&p, &bytes, Durability::Full).unwrap();
             }));
         }
         for h in handles {
