@@ -4,9 +4,6 @@
  * native child webview is positioned over (BACKLOG #2). Split out of App.tsx.
  */
 import ClockAlarm from "./ClockAlarm";
-import PermissionBar from "./PermissionBar";
-import SavePasswordBar from "./SavePasswordBar";
-import VaultFillBar from "./VaultFillBar";
 import {
   APPS_URL,
   ARCHIVE_URL,
@@ -42,6 +39,9 @@ import {
   activeTab,
   bookmarkBarOpen,
   editorColRatio,
+  fillRequest,
+  permAsks,
+  savePrompt,
   setEditorColRatio,
   setPhish,
   setOAuth,
@@ -82,6 +82,11 @@ const OAuthConsentBanner = lazy(() => import("./OAuthConsentBanner")); // shown 
 const SensitiveSiteBanner = lazy(() => import("./SensitiveSiteBanner")); // shown only on a bank/health/gov site
 const PolicyFlagsBanner = lazy(() => import("./PolicyFlagsBanner")); // shown only on a policy/ToS page
 const ConsentBanner = lazy(() => import("./ConsentBanner")); // shown only when a consent banner is detected
+// The prompt bars answer an engine permission ask or a vault save/fill, which
+// most sessions never see: each loads with its first prompt, not at boot.
+const PermissionBar = lazy(() => import("./PermissionBar"));
+const SavePasswordBar = lazy(() => import("./SavePasswordBar"));
+const VaultFillBar = lazy(() => import("./VaultFillBar"));
 // Lazy like the other heavy surfaces: a session with no terminal open shouldn't
 // pay for xterm's host component in the eager chrome bundle. Once loaded it stays
 // resident, so the keep-alive contract (#73) is unaffected.
@@ -229,9 +234,21 @@ const ContentArea: Component<{
         so the card keeps that height — see that file for why. */}
       {/* Permission bar (#38): answers a deferred engine permission Ask. Also a
         sibling — never an overlay over the native webview. */}
-      <PermissionBar />
-      <SavePasswordBar />
-      <VaultFillBar />
+      <Show when={permAsks().length > 0}>
+        <Suspense>
+          <PermissionBar />
+        </Suspense>
+      </Show>
+      <Show when={savePrompt()}>
+        <Suspense>
+          <SavePasswordBar />
+        </Suspense>
+      </Show>
+      <Show when={fillRequest()}>
+        <Suspense>
+          <VaultFillBar />
+        </Suspense>
+      </Show>
       <ClockAlarm />
       {/* Sentinel phishing warning (ADR 0013) — a sibling strip above the card,
           in the chrome layer the page can't spoof. */}
