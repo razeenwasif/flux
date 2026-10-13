@@ -6,7 +6,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { asRoute } from "./cloudroute";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export { Channel };
 
@@ -18,17 +17,29 @@ export type ResizeDir =
 /** True only inside the Tauri runtime — lets the mocked UI preview no-op. */
 const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+// The window controls call Tauri's window plugin directly: the same commands and
+// arguments `getCurrentWindow().minimize()` and friends send, allowed by the
+// `core:window:allow-*` entries in capabilities/default.json. Importing
+// @tauri-apps/api/window for five calls put its Window class, dpi, image and
+// tslib helpers (~3 KB gzip) in the boot bundle.
+const windowLabel = () =>
+  (window as unknown as { __TAURI_INTERNALS__: { metadata: { currentWindow: { label: string } } } })
+    .__TAURI_INTERNALS__.metadata.currentWindow.label;
+
 /** macOS-style window controls + custom drag/resize, safe outside Tauri. */
 export const win = {
-  minimize: () => inTauri() && void getCurrentWindow().minimize(),
-  toggleMaximize: () => inTauri() && void getCurrentWindow().toggleMaximize(),
+  minimize: () => inTauri() && void invoke("plugin:window|minimize", { label: windowLabel() }),
+  toggleMaximize: () => inTauri() && void invoke("plugin:window|toggle_maximize", { label: windowLabel() }),
   // Save the window geometry (window-state plugin) then force-close. A raw
   // destroy() force-closes but skips the plugin's save, so the window forgot its
   // size; close() emits closeRequested but doesn't actually close the borderless
   // multi-webview window. The backend command does both: save, then destroy.
-  close: () => inTauri() && void invoke("close_main_window").catch(() => getCurrentWindow().destroy()),
-  startDragging: () => inTauri() && void getCurrentWindow().startDragging(),
-  startResize: (dir: ResizeDir) => inTauri() && void getCurrentWindow().startResizeDragging(dir),
+  close: () =>
+    inTauri() &&
+    void invoke("close_main_window").catch(() => invoke("plugin:window|destroy", { label: windowLabel() })),
+  startDragging: () => inTauri() && void invoke("plugin:window|start_dragging", { label: windowLabel() }),
+  startResize: (dir: ResizeDir) =>
+    inTauri() && void invoke("plugin:window|start_resize_dragging", { label: windowLabel(), value: dir }),
   setAcrylic: (enabled: boolean) =>
     inTauri() ? invoke<void>("set_window_acrylic", { enabled }).catch(() => {}) : Promise.resolve(),
 };
