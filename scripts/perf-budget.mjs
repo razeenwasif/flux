@@ -5,11 +5,11 @@
  * Checks the budgets that can be measured from build artifacts (no display /
  * webview needed, so this runs on any CI runner):
  *
- *   • Entry JS, gzip   ≤ 56 KiB   — the eagerly-loaded shell bundle only. Lazy
+ *   • Entry JS, gzip   ≤ 46 KiB   — the eagerly-loaded shell bundle only. Lazy
  *                                  route chunks (PdfViewer, ArchivePage, …) are
  *                                  excluded from this entry metric; explicit
  *                                  desktop preloads are counted separately.
- *   • Desktop entry + explicit preloads ≤ 84 KiB (shared static dependencies included).
+ *   • Desktop entry + explicit preloads ≤ 72 KiB (shared static dependencies included).
  *   • Default desktop boot JS — everything a fresh desktop window loads at
  *                                  startup with the default layout: the above plus
  *                                  the lazy columns and panes it shows.
@@ -67,10 +67,15 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // rather than left to load when their <Show> flips. The phone renders none of
 // them and now never fetches them at all. Budget set just above the new number
 // so the win can't quietly erode; the eager floor is ~52 KB.
-const CHROME_JS_GZIP_BUDGET = 56 * 1024; // bytes
+// Ratcheted 56 → 46 KB on 2026-10-13 (a tightening): the performance audit's
+// entry diet took the app registry and app guides, @tauri-apps/api/window, the
+// palette's action list, the three prompt bars and the clocks out of the boot
+// bundle (55.5 → 43.5 KB). The eager floor is ~43.5 KB.
+const CHROME_JS_GZIP_BUDGET = 46 * 1024; // bytes
 // New independent gate: entry + desktopChrome registry, baselined in batch 3.
 // This is a lower bound, excluding other conditionally rendered lazy features.
-const DESKTOP_PRELOAD_BUDGET = 84 * 1024;
+// Ratcheted 84 → 72 KB on 2026-10-13 with the entry diet above (81.5 → 70.1 KB).
+const DESKTOP_PRELOAD_BUDGET = 72 * 1024;
 // Default desktop boot, added 2026-10-13 (performance audit): the entry chunk is
 // only the start of what a desktop window parses before it settles. Baselined at
 // 240.0 KB after the entry diet that day; the bulk is xterm and its WebGL addon
@@ -106,8 +111,10 @@ const DEFAULT_BOOT_ROOTS = [
 ];
 // Entry stylesheet, added 2026-10-13 (performance audit): theme.css is linked
 // from index.html, so all of it blocks first paint, including the rules for
-// screens that aren't on it. Baselined at 42.9 KB gzip.
-const ENTRY_CSS_BUDGET = 43.5 * 1024;
+// screens that aren't on it. Baselined at 42.9 KB gzip. Ratcheted 43.5 → 31 KB
+// the same day, once twelve screens' rules moved into sheets of their own that
+// load with those screens (29.0 KB).
+const ENTRY_CSS_BUDGET = 31 * 1024;
 const BINARY_BUDGET = 25 * 1024 * 1024; // bytes
 
 // ── args ─────────────────────────────────────────────────────────────────────
