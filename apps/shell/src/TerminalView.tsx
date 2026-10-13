@@ -500,8 +500,8 @@ const TerminalView: Component<{
       return;
     }
 
-    // Output: Rust PTY → channel (raw bytes) → xterm.
-    const channel = new Channel<number[]>();
+    // Output: Rust PTY → channel (raw bytes, batched) → xterm.
+    const channel = new Channel<ArrayBuffer>();
     channel.onmessage = (bytes) => term.write(new Uint8Array(bytes));
     try {
       await terminalSpawn(props.session, term.cols, term.rows, channel, props.persist ?? termPersist());

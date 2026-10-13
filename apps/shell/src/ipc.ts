@@ -1730,12 +1730,13 @@ export const TERM_PERSIST_KEY = "flux.term.persist";
 export const termPersist = (): TermPersist =>
   (localStorage.getItem(TERM_PERSIST_KEY) as TermPersist | null) ?? "off";
 
-/** Spawn a PTY for `session`; `onData` streams raw output bytes (number[]). */
+/** Spawn a PTY for `session`; `onData` streams raw output bytes in batches,
+ *  each an ArrayBuffer. */
 export const terminalSpawn = (
   session: number,
   cols: number,
   rows: number,
-  onData: Channel<number[]>,
+  onData: Channel<ArrayBuffer>,
   persist: TermPersist = termPersist(),
 ) => invoke<void>("terminal_spawn", { session, cols, rows, onData, persist });
 

@@ -46,11 +46,13 @@ mod real {
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use tauri::ipc::Channel;
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::FluxState;
@@ -118,8 +120,9 @@ fn default_shell() -> String {
 /// Spawn a PTY for `session`, streaming output through `on_data`.
 ///
 /// Returns once the shell is running and the reader thread is live; output
-/// then flows asynchronously over the channel. A re-spawn for an existing
-/// session id replaces the old one (the previous child is dropped/killed).
+/// then flows asynchronously over the channel, as raw bytes (an `ArrayBuffer`
+/// in JS) batched by [`Coalescer`]. A re-spawn for an existing session id
+/// replaces the old one (the previous child is dropped/killed).
 #[tauri::command]
 // Three of the eight are Tauri's own injections (app/state/manager) and one is
 // the output Channel, so the callable surface is only four.
@@ -131,7 +134,7 @@ pub fn terminal_spawn(
     session: u64,
     cols: u16,
     rows: u16,
-    on_data: Channel<Vec<u8>>,
+    on_data: Channel<InvokeResponseBody>,
     // What this terminal should survive: "off" | "live" | "transcript" | "both".
     // `None` falls back to `FLUX_TERM_PERSIST`.
     persist: Option<String>,
@@ -326,41 +329,55 @@ pub fn terminal_spawn(
     );
 
     // Replay what was on screen last time, before any live output arrives, so the
-    // ordering the user sees matches the order it happened in.
+    // ordering the user sees matches the order it happened in. One message.
     let mut recorder = None;
     if mode.transcript {
-        if let Some(prev) = read_transcript(&app, session) {
-            let _ = on_data.send(prev);
-            let _ = on_data.send(
-                b"\r\n\x1b[90m\xe2\x94\x80\xe2\x94\x80 restored transcript \xe2\x80\x94 processes above are not running \xe2\x94\x80\xe2\x94\x80\x1b[0m\r\n"
-                    .to_vec(),
+        if let Some(mut prev) = read_transcript(&app, session) {
+            prev.extend_from_slice(
+                b"\r\n\x1b[90m\xe2\x94\x80\xe2\x94\x80 restored transcript \xe2\x80\x94 processes above are not running \xe2\x94\x80\xe2\x94\x80\x1b[0m\r\n",
             );
+            let _ = on_data.send(InvokeResponseBody::Raw(prev));
         }
         recorder = transcript_dir(&app).and_then(|d| Transcript::open(&d, session));
     }
 
-    // Reader thread: blocking reads off the PTY, batched into the channel.
-    // Ends on EOF (shell exit) or error, then signals the frontend.
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 8192];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    // Record before sending: if the frontend has gone away, the
-                    // output still belongs in the transcript.
-                    if let Some(t) = recorder.as_mut() {
-                        t.append(&buf[..n]);
+    // Two threads, so a batch can go out on a deadline while the reader sits in
+    // a blocking read: the reader takes bytes off the PTY, the pump batches and
+    // sends them.
+    let (to_pump, reads) = std::sync::mpsc::sync_channel::<Vec<u8>>(READ_QUEUE);
+    std::thread::Builder::new()
+        .name(format!("flux-pty-out-{session}"))
+        .spawn(move || {
+            pump(reads, Coalescer::new(BATCH_MAX, BATCH_WINDOW), |batch| {
+                on_data.send(InvokeResponseBody::Raw(batch)).is_ok()
+            });
+            let _ = app.emit("flux://term-exit", session);
+        })
+        .map_err(|e| format!("pty output thread: {e}"))?;
+    std::thread::Builder::new()
+        .name(format!("flux-pty-reader-{session}"))
+        .spawn(move || {
+            // Blocking reads until EOF (shell exit) or an error. Dropping
+            // `to_pump` on the way out is what tells the pump the stream ended.
+            let mut buf = [0u8; 8192];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        // Record before sending: if the frontend has gone away, the
+                        // output still belongs in the transcript.
+                        if let Some(t) = recorder.as_mut() {
+                            t.append(&buf[..n]);
+                        }
+                        if to_pump.send(buf[..n].to_vec()).is_err() {
+                            break; // the pump stopped: the webview is gone
+                        }
                     }
-                    if on_data.send(buf[..n].to_vec()).is_err() {
-                        break; // frontend dropped the channel (tab closed)
-                    }
+                    Err(_) => break,
                 }
-                Err(_) => break,
             }
-        }
-        let _ = app.emit("flux://term-exit", session);
-    });
+        })
+        .map_err(|e| format!("pty reader thread: {e}"))?;
 
     tracing::info!(target: "flux::term", session, cols, rows, "spawned PTY");
     Ok(())
@@ -838,6 +855,131 @@ fn kill_live_session(session: u64, engine: LiveEngine) {
     }
 }
 
+// ─── output: batching ───────────────────────────────────────────────────────
+
+/// The largest batch of output sent as one message. A PTY read is at most 8 KiB
+/// (often 1 KiB on macOS), and every message costs the main thread an eval and,
+/// past 1 KiB, a fetch of its own: a `cat` of a big log used to queue thousands.
+const BATCH_MAX: usize = 64 * 1024;
+
+/// How long output may wait for more to join it, counted from its first byte.
+/// Under a frame, so a lone keystroke echo still reaches xterm before the next
+/// paint; long enough that a TUI redraw written in many small writes travels
+/// as one message instead of dozens.
+const BATCH_WINDOW: Duration = Duration::from_millis(8);
+
+/// Reads queued between the reader and the pump (up to 8 KiB each).
+const READ_QUEUE: usize = 16;
+
+/// Gathers PTY reads into fewer, larger messages: a batch goes out once it holds
+/// `max` bytes, or `window` after its first byte arrived, whichever is first.
+///
+/// Nothing here touches the PTY, the channel or the clock (callers pass `now`),
+/// so the policy is tested on its own below.
+struct Coalescer {
+    buf: Vec<u8>,
+    max: usize,
+    window: Duration,
+    /// When the oldest byte in `buf` arrived; `None` while it's empty.
+    since: Option<Instant>,
+}
+
+impl Coalescer {
+    fn new(max: usize, window: Duration) -> Self {
+        Self {
+            buf: Vec::new(),
+            max,
+            window,
+            since: None,
+        }
+    }
+
+    /// Add one read. Returns the batch when this read filled it, or arrived
+    /// after it was due: a steady stream always has the next read waiting, so
+    /// the deadline is checked here too, not only when the pump's wait times out.
+    fn push(&mut self, bytes: &[u8], now: Instant) -> Option<Vec<u8>> {
+        if bytes.is_empty() {
+            return None;
+        }
+        if self.buf.is_empty() {
+            self.since = Some(now);
+        }
+        self.buf.extend_from_slice(bytes);
+        if self.buf.len() >= self.max {
+            self.take()
+        } else {
+            self.due(now)
+        }
+    }
+
+    /// When the held batch is due, or `None` with nothing held.
+    fn deadline(&self) -> Option<Instant> {
+        self.since.map(|t| t + self.window)
+    }
+
+    /// The held batch, if it's due by `now`.
+    fn due(&mut self, now: Instant) -> Option<Vec<u8>> {
+        match self.deadline() {
+            Some(at) if now >= at => self.take(),
+            _ => None,
+        }
+    }
+
+    /// Whatever is held, due or not.
+    fn take(&mut self) -> Option<Vec<u8>> {
+        self.since = None;
+        (!self.buf.is_empty()).then(|| std::mem::take(&mut self.buf))
+    }
+}
+
+/// Why [`pump`] stopped.
+#[derive(Debug, PartialEq, Eq)]
+enum PumpEnd {
+    /// The reader hung up (the shell exited) and everything it read was sent.
+    Eof,
+    /// The channel refused a message: the webview itself is gone.
+    Gone,
+}
+
+/// Move PTY output from the reader thread to the view, batched by `batch`.
+/// Generic over `send` so the tests can stand in for the channel.
+fn pump(
+    reads: Receiver<Vec<u8>>,
+    mut batch: Coalescer,
+    mut send: impl FnMut(Vec<u8>) -> bool,
+) -> PumpEnd {
+    let mut out = |bytes: Vec<u8>| {
+        if send(bytes) {
+            Ok(())
+        } else {
+            Err(PumpEnd::Gone)
+        }
+    };
+    loop {
+        let next = match batch.deadline() {
+            Some(at) => reads.recv_timeout(at.saturating_duration_since(Instant::now())),
+            None => reads.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        };
+        let ready = match next {
+            Ok(bytes) => batch.push(&bytes, Instant::now()),
+            Err(RecvTimeoutError::Timeout) => batch.due(Instant::now()),
+            Err(RecvTimeoutError::Disconnected) => {
+                if let Some(last) = batch.take() {
+                    if let Err(end) = out(last) {
+                        return end;
+                    }
+                }
+                return PumpEnd::Eof;
+            }
+        };
+        if let Some(bytes) = ready {
+            if let Err(end) = out(bytes) {
+                return end;
+            }
+        }
+    }
+}
+
 // ─── transcript ─────────────────────────────────────────────────────────────
 
 /// How much output is kept per session. Enough to be the scrollback you wanted
@@ -1267,6 +1409,195 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// Deterministic noise for read sizes and timings (no `rand` in this crate).
+    fn lcg(seed: &mut u64) -> u64 {
+        *seed = seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        *seed >> 33
+    }
+
+    #[test]
+    fn a_batch_goes_out_once_it_is_full() {
+        let t0 = Instant::now();
+        let mut c = Coalescer::new(BATCH_MAX, BATCH_WINDOW);
+        let read = [b'x'; 8192];
+        // Seven full reads are held: under the size and inside the window.
+        for _ in 0..7 {
+            assert_eq!(c.push(&read, t0), None);
+        }
+        // The eighth fills it, and the whole batch goes at once.
+        let batch = c.push(&read, t0).expect("a full batch is sent");
+        assert_eq!(batch.len(), BATCH_MAX);
+        assert_eq!(c.take(), None, "nothing is left behind");
+        assert_eq!(c.deadline(), None, "an empty coalescer has no deadline");
+    }
+
+    #[test]
+    fn a_lone_echo_goes_out_within_the_window() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let mut c = Coalescer::new(BATCH_MAX, BATCH_WINDOW);
+        // One keystroke's echo: held for company, but never past the window.
+        assert_eq!(c.push(b"l", t0), None);
+        assert_eq!(c.deadline(), Some(t0 + BATCH_WINDOW));
+        assert_eq!(c.due(ms(7)), None);
+        assert_eq!(c.due(ms(8)).as_deref(), Some(&b"l"[..]));
+        // The window runs from the first held byte, so more output joining the
+        // batch doesn't push it back: a redraw can't hold the echo hostage.
+        assert_eq!(c.push(b"s", ms(20)), None);
+        assert_eq!(c.push(b"\r\n", ms(25)), None);
+        assert_eq!(c.deadline(), Some(ms(28)));
+        assert_eq!(c.due(ms(28)).as_deref(), Some(&b"s\r\n"[..]));
+    }
+
+    #[test]
+    fn a_steady_stream_still_goes_out_on_time() {
+        // A producer slower than a full batch per window, but with a read always
+        // waiting, never lets the pump's wait time out. The deadline has to be
+        // honoured on arrival too, or the batch would wait for the size limit.
+        let t0 = Instant::now();
+        let mut c = Coalescer::new(BATCH_MAX, BATCH_WINDOW);
+        let mut sent_at = Vec::new();
+        for i in 0..40u64 {
+            let now = t0 + Duration::from_millis(i);
+            if c.push(&[b'.'; 100], now).is_some() {
+                sent_at.push(i);
+            }
+        }
+        assert_eq!(sent_at, [8, 17, 26, 35], "one batch per window");
+    }
+
+    #[test]
+    fn coalescing_keeps_every_byte_in_order() {
+        let t0 = Instant::now();
+        let mut c = Coalescer::new(BATCH_MAX, BATCH_WINDOW);
+        let mut seed = 7;
+        let mut now = t0;
+        let mut input = Vec::new();
+        let mut output = Vec::new();
+        let mut batches = 0;
+        for i in 0..5_000u32 {
+            // Reads of 0..8 KiB, arriving anywhere from together to 5 ms apart,
+            // with the pump's timeout firing in between now and then.
+            let len = (lcg(&mut seed) % 8193) as usize;
+            let read: Vec<u8> = (0..len).map(|j| (i as usize + j) as u8).collect();
+            now += Duration::from_micros(lcg(&mut seed) % 5_000);
+            input.extend_from_slice(&read);
+            let mut out = |b: Vec<u8>| {
+                assert!(!b.is_empty(), "an empty message is never sent");
+                assert!(b.len() < BATCH_MAX + 8192, "a batch outgrew its cap");
+                batches += 1;
+                output.extend_from_slice(&b);
+            };
+            if let Some(b) = c.push(&read, now) {
+                out(b);
+            }
+            if lcg(&mut seed).is_multiple_of(4) {
+                if let Some(b) = c.due(now + Duration::from_millis(2)) {
+                    out(b);
+                }
+            }
+        }
+        if let Some(b) = c.take() {
+            output.extend_from_slice(&b);
+            batches += 1;
+        }
+        assert_eq!(output.len(), input.len(), "bytes were lost or invented");
+        assert!(output == input, "bytes were reordered");
+        assert!(batches < 5_000, "{batches} messages for 5000 reads");
+    }
+
+    #[test]
+    fn a_big_cat_is_hundreds_of_messages_not_thousands() {
+        // 50 MiB through the coalescer at flood speed. Before batching, each
+        // read was its own message: 6,400 at 8 KiB a read (51,200 at macOS's
+        // 1 KiB), each a JSON array of numbers 3–4× the size of the bytes.
+        let total = 50 * 1024 * 1024;
+        let line =
+            b"2026-10-13T09:41:07Z INFO cargo: Compiling flux-core v0.1.0 (crates/flux-core)\n";
+        for read_size in [8192, 1024] {
+            let read: Vec<u8> = line.iter().copied().cycle().take(read_size).collect();
+            let reads = total / read_size;
+            let json_before = serde_json::to_string(&read).unwrap().len() * reads;
+
+            let mut c = Coalescer::new(BATCH_MAX, BATCH_WINDOW);
+            let mut now = Instant::now();
+            let (mut messages, mut bytes) = (0usize, 0usize);
+            for _ in 0..reads {
+                now += Duration::from_micros(10);
+                if let Some(b) = c.push(&read, now) {
+                    messages += 1;
+                    bytes += b.len();
+                }
+            }
+            if let Some(b) = c.take() {
+                messages += 1;
+                bytes += b.len();
+            }
+            eprintln!(
+                "50 MiB in {read_size} B reads: {reads} messages / {:.1} MB of JSON before, \
+                 {messages} messages / {:.1} MB raw after",
+                json_before as f64 / 1e6,
+                bytes as f64 / 1e6,
+            );
+            assert_eq!(bytes, total, "every byte arrives");
+            assert_eq!(messages, total / BATCH_MAX, "800 messages of 64 KiB");
+            assert!(
+                json_before > 3 * total,
+                "the old JSON encoding cost {json_before} bytes for {total}"
+            );
+        }
+    }
+
+    /// Feed `data` to a pump in reads of up to 8 KiB, the way the reader does.
+    fn feed(data: Vec<u8>) -> Receiver<Vec<u8>> {
+        let (tx, rx) = std::sync::mpsc::sync_channel(READ_QUEUE);
+        std::thread::spawn(move || {
+            let mut seed = 11;
+            let mut rest = &data[..];
+            while !rest.is_empty() {
+                let n = (1 + lcg(&mut seed) as usize % 8192).min(rest.len());
+                if tx.send(rest[..n].to_vec()).is_err() {
+                    return;
+                }
+                rest = &rest[n..];
+            }
+        });
+        rx
+    }
+
+    #[test]
+    fn the_pump_delivers_everything_in_order_and_then_reports_eof() {
+        let data: Vec<u8> = (0..4 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
+        let mut got = Vec::new();
+        let mut messages = 0;
+        let end = pump(
+            feed(data.clone()),
+            Coalescer::new(BATCH_MAX, BATCH_WINDOW),
+            |b| {
+                messages += 1;
+                got.extend_from_slice(&b);
+                true
+            },
+        );
+        assert_eq!(end, PumpEnd::Eof);
+        assert!(got == data, "output arrived changed, reordered or short");
+        // About 1,000 reads. A batch only goes out short when the next read is
+        // slow to come, which a loaded test machine can cause now and then.
+        assert!(messages < 512, "{messages} messages for 4 MiB");
+    }
+
+    #[test]
+    fn a_gone_webview_stops_the_pump() {
+        let end = pump(
+            feed(vec![b'z'; 256 * 1024]),
+            Coalescer::new(BATCH_MAX, BATCH_WINDOW),
+            |_| false,
+        );
+        assert_eq!(end, PumpEnd::Gone);
+    }
+
     #[cfg(windows)]
     #[test]
     fn a_stored_shell_directory_becomes_a_windows_one() {
@@ -1294,7 +1625,7 @@ pub use real::*;
 #[cfg(mobile)]
 mod stub {
     use crate::state::FluxState;
-    use tauri::ipc::Channel;
+    use tauri::ipc::{Channel, InvokeResponseBody};
     use tauri::{AppHandle, State};
 
     pub const PANE_SESSION: u64 = 0;
@@ -1317,7 +1648,7 @@ mod stub {
         _session: u64,
         _cols: u16,
         _rows: u16,
-        _on_data: Channel<Vec<u8>>,
+        _on_data: Channel<InvokeResponseBody>,
         _persist: Option<String>,
     ) -> Result<(), String> {
         Err(UNAVAILABLE.into())
@@ -1331,6 +1662,7 @@ mod stub {
     ) -> Result<(), String> {
         Err(UNAVAILABLE.into())
     }
+
 
     #[tauri::command]
     pub fn terminal_resize(
