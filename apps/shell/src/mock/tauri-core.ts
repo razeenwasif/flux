@@ -300,6 +300,29 @@ let mockContainers: { id: number; name: string; color: number }[] = [
 // Explicit preview-only fixtures for exercising unsupported platforms and failed writes.
 const previewParams = new URLSearchParams(window.location.search);
 let failNextSave = previewParams.get("previewFailSave") === "once";
+// `?previewTabs=60` fills the strip with that many web tabs, the last one active,
+// to measure what a tab event costs the sidebar at a realistic tab count.
+for (let n = Number(previewParams.get("previewTabs")) || 0; n > 0; n--) {
+  const id = nextId++;
+  tabs.push({
+    id,
+    kind: "browser",
+    url: `https://example.com/page/${id}`,
+    title: `Example page ${id}`,
+    pinned: false,
+    cluster: null,
+    group: null,
+    folder: null,
+    custom_title: null,
+    workspace: 1,
+    private: false,
+    container: 0,
+  });
+}
+// Every command the shell sends, in order — read it from the page to count the
+// IPC a UI event causes.
+const ipcLog: string[] = [];
+(window as unknown as { __fluxPreviewIpc: string[] }).__fluxPreviewIpc = ipcLog;
 let mockDefaultEngine = "ddg";
 let mockShieldsOn = true;
 let mockHttpsOn = false;
@@ -312,6 +335,7 @@ let mockTuiApps = [
 ];
 
 export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  ipcLog.push(cmd);
   if (
     failNextSave &&
     [
