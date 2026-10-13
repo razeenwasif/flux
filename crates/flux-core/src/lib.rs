@@ -1236,6 +1236,7 @@ pub fn run(intent: cli::LaunchIntent) {
             commands::tabs_recluster,
             terminal::terminal_spawn,
             terminal::terminal_write,
+            terminal::terminal_ack,
             terminal::terminal_resize,
             terminal::terminal_kill,
             webview::webview_open,

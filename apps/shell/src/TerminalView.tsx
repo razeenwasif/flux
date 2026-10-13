@@ -32,6 +32,7 @@ import {
   unregisterTerminal,
 } from "./terminals";
 import { openTab } from "./store";
+import { createAcker, termBytes, terminalAck } from "./termflow";
 import { speak, stopSpeaking } from "./speak";
 import LiquidBackground from "./LiquidBackground";
 import { hex, palette as pal, rgba } from "./palette";
@@ -500,9 +501,15 @@ const TerminalView: Component<{
       return;
     }
 
-    // Output: Rust PTY → channel (raw bytes) → xterm.
-    const channel = new Channel<number[]>();
-    channel.onmessage = (bytes) => term.write(new Uint8Array(bytes));
+    // Output: Rust PTY → channel (raw bytes, batched) → xterm. Each message is
+    // acked once xterm has written it: the core stops reading the PTY while too
+    // much is unwritten, so a flood can't outrun the renderer (termflow.ts).
+    const ack = createAcker((n) => void terminalAck(props.session, n).catch(() => {}));
+    const channel = new Channel<ArrayBuffer>();
+    channel.onmessage = (msg) => {
+      const bytes = termBytes(msg);
+      term.write(bytes, () => ack(bytes.byteLength));
+    };
     try {
       await terminalSpawn(props.session, term.cols, term.rows, channel, props.persist ?? termPersist());
       // TUI app launcher (#117): run the queued command now the PTY is live.

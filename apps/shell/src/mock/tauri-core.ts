@@ -629,17 +629,19 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
     case "terminal_spawn": {
       // Echo a styled banner + prompt through the channel so the preview shows
       // a real-looking terminal (no PTY in preview).
-      const ch = args?.onData as Channel<number[]> | undefined;
+      const ch = args?.onData as Channel<ArrayBuffer> | undefined;
       if (ch) {
         const banner =
           "\x1b[38;2;47;243;255m flux\x1b[0m \x1b[38;2;157;141;241mterminal\x1b[0m — local dev shell\r\n" +
           "\x1b[38;2;106;111;150m $FLUX_TAB_URL, $FLUX_TAB_DIR injected · powered by a real PTY\x1b[0m\r\n\r\n" +
           "\x1b[38;2;124;245;176m➜\x1b[0m \x1b[38;2;47;243;255m~/Flux\x1b[0m $ ";
-        setTimeout(() => ch.onmessage(Array.from(new TextEncoder().encode(banner))), 60);
+        // Raw bytes, as the real core sends them (an ArrayBuffer per batch).
+        setTimeout(() => ch.onmessage(new TextEncoder().encode(banner).buffer as ArrayBuffer), 60);
       }
       return Promise.resolve(undefined as T);
     }
     case "terminal_write":
+    case "terminal_ack":
     case "terminal_resize":
     case "terminal_kill":
     case "webview_stop":
