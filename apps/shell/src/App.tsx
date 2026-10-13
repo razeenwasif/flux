@@ -139,7 +139,6 @@ const WatchPanel = lazy(() => import("./WatchPanel"));
 const TrackerGraph = lazy(() => import("./TrackerGraph"));
 const AppPane = lazy(() => import("./AppPane"));
 const TuiPane = lazy(() => import("./TuiPane"));
-import { FLUX_APPS } from "./apps";
 import { fitLayout, LAYOUT_PRESETS, parseLayout, type LayoutPreset, type LayoutState } from "./layout";
 import { tileRects } from "./tiles";
 import type { PaletteAction } from "./CommandPalette";
@@ -2187,12 +2186,7 @@ const App: Component = () => {
           <AppDock />
         </Suspense>
       </Show>
-      <For each={openAppIds()}>
-        {(id, i) => {
-          const app = FLUX_APPS.find((a) => a.id === id);
-          return app ? <AppPane app={app} index={i()} /> : null;
-        }}
-      </For>
+      <For each={openAppIds()}>{(id, i) => <AppPane id={id} index={i()} />}</For>
       {/* TUI apps (#117) floated the same way. Pane records are never mutated in
           place (open/close rebuild the array), so For's reference keying reuses
           each live node — a remount here would kill that pane's shell. */}

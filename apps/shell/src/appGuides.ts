@@ -1,0 +1,94 @@
+/**
+ * Usage guides for the pinned apps (apps.ts), keyed by app id. Gemma gets the
+ * focused app's guide in her chat context (#131), so AgentPanel is the only
+ * importer: kept apart from the registry so the dock and the app panes don't
+ * carry ~4 KB of Markdown they never show.
+ */
+export const APP_GUIDES: Record<string, string> = {
+  nexus: `# Nexus — Real-time ML training console for distributed clusters
+**What it is:** A web control plane + monitoring dashboard for personal ML training clusters. Register machines as "devices," spawn training pods on demand, submit runs, and watch metrics stream live — replacing manual SSH + tmux with one-click device management and visual analytics. Firebase + Python daemons.
+**Key features / workflows:**
+- Fleet tab: install \`device_agent\` on a machine → it appears → Connect spawns \`pod_agent\`; Disconnect stops it.
+- Mission tab: ⌘K → "Start a Training Run…" → set hyperparameters/dataset/pod target → live loss/accuracy curves; cancel/delete runs.
+- Sweeps: grid / random / Bayesian (scikit-optimize) over an HP space; coordinator auto-spawns child runs with live top-K ranking.
+- Datasets: fetch from URL, Hugging Face Hub, or drag-drop upload (Firebase Storage); passed as \`--dataset\`.
+- Console tab: full xterm.js shell on any device over a Firebase RTDB relay (<100 ms).
+- Compare: overlay 2–6 runs' curves + a spec-diff table (lr, seed, git hash, dataset…).
+- Auto-recovery: failed runs retry up to 3× from \`checkpoints/last.pt\`; OOM scales batch size ×0.75.
+**How Gemma can help:**
+- Explain the Fleet / Mission / Analytics / Console tabs and the Connect workflow.
+- Walk through device install (\`scripts/install-device-agent.sh --owner-uid <UID>\`).
+- Help draft a run request or sweep spec for a training goal; suggest HP ranges.
+- Diagnose failure reasons (OOM, error) and suggest fixes.
+- Explain how to compare runs or read a sweep's top-K.
+**Glossary:** Device (a registered machine) · Pod (a spawned \`pod_agent\`) · Run (one job + telemetry) · Sweep (a batch over an HP grid) · Spec (the submitted run config) · RTDB (Firebase Realtime DB, low-latency I/O).`,
+  prism: `# Prism — GPU-powered AutoML & entity resolution platform
+**What it is:** A GPU-aware AutoML suite for end-to-end data science — dataset upload → profiling → cleaning → feature engineering → model selection → hyperparameter search → evaluation — plus a record-linkage engine for matching/merging duplicate records via semantic similarity + supervised classification. React dashboard + REST API.
+**Key features / workflows:**
+- Upload CSV/Parquet/JSON; auto-detect task (regression / classification / clustering).
+- Auto data profiling: missing values, distributions, correlations, duplicates, outliers.
+- Cleaning: drop high-missing columns, dedupe, impute, clip outliers. Feature engineering: scaling, one-hot/frequency encoding, text features.
+- GPU Optuna HPO across a model zoo (XGBoost, LightGBM, neural nets, K-Means, GMM…).
+- Task-aware viz: confusion matrices, residuals, ROC, embeddings.
+- Record linkage: multi-pass blocking + semantic embeddings + active learning to confirm uncertain pairs.
+- AI data actions: LLM text cleaning, zero-shot classification, topic discovery (UMAP + HDBSCAN). Local Mode runs heavy compute on your own GPU.
+**How Gemma can help:**
+- Interpret metrics (accuracy, F1, ROC-AUC, RMSE), confusion matrices, residual plots.
+- Suggest next steps: retrain with different HP, drop leaky features, try ensembles, gather more data.
+- Explain pipeline stages (why dedupe/impute/scale matter; what Optuna does).
+- Flag data issues (class imbalance, outliers) and fixes.
+- Explain record-linkage blocking, similarity metrics, and match-confidence scores.
+**Glossary:** HPO (Optuna Bayesian HP search) · Blocking (pre-filter candidate pairs) · Semantic similarity (embedding match) · Task (regression/classification/clustering) · Active learning (human confirms uncertain pairs).`,
+  vector: `# Vector — Keyboard-first project & issue tracker
+**What it is:** A fast, server-backed issue tracker (SQLite + auth, multi-user) built for keyboard power-users. Issues live in projects, carry status/priority/assignee, and keep an activity log; status can auto-sync from git branches/commits.
+**Key features / workflows:**
+- Create/edit issues (title, description, status, priority); assign to people; filter by project/status/priority/assignee.
+- Search by title or ID (\`/\` focuses search); "Assigned to me" / "My Active" views.
+- Full keyboard nav: \`j\`/\`k\` move, \`Enter\`/\`o\` open, \`c\`/\`n\` new, \`Esc\` close, \`?\` shortcut help.
+- Activity log per issue; Git Sync auto-advances status from branch names (\`feature/VEC-1\`→IN_PROGRESS) and commits (\`fix VEC-1\`→DONE).
+- JSON backups + SQLite snapshots for recovery. Demo login: \`alice@vector.local\` / \`vector-demo\`.
+**How Gemma can help:**
+- Teach the keyboard shortcuts to create/navigate/edit issues faster.
+- Help filter/search by project, status, priority, assignee.
+- Explain the status workflow (BACKLOG → TODO → IN_PROGRESS → DONE/CANCELED) and help organise work.
+- Explain Git Sync (link branches/commits to auto-move status).
+- Walk through backup/restore.
+**Glossary:** Issue · Project (container, e.g. VEC) · Status (BACKLOG/TODO/IN_PROGRESS/DONE/CANCELED) · Priority (URGENT…NO_PRIORITY) · Assignee · Activity (logged change) · Git Sync.`,
+  oracle: `# Oracle — AI-powered plant identification platform
+**What it is:** A web app that identifies plant species from photos with a deep-learning backend, returning confidence-ranked species with Grad-CAM heatmaps and GBIF/Wikipedia citations, and saving discoveries to a personal herbarium. Free tier (5 IDs/day), pro subscription, developer API, and agentic ecological reports.
+**Key features / workflows:**
+- Identify: drag-drop a photo → top-5 species with confidence %, expandable Grad-CAM heatmaps, citations; save to library.
+- Library (Journal): saved IDs with streaks, rarity scoring, exportable PDF field reports.
+- Atlas: 3D globe + 2D map of real-time ID pins (color-coded by domain), density heatmaps, time filters.
+- Discover: live feed of recent IDs. Trust: benchmarks, data lineage, AC-3 neuro-symbolic reasoning viz.
+- Reports: ecological health summaries via a Gemma LLM backend. Devs: API keys + \`POST /identify\`.
+- Auth/tiers: free / pro (unlimited + rare-species alerts) / field (offline) / admin; Firebase Auth + Google OAuth.
+**How Gemma can help:**
+- Explain what a Grad-CAM heatmap shows and why it builds trust.
+- Compare tiers (free vs pro) and guide signup.
+- Clarify top-1 confidence vs top-5 candidates.
+- Walk through exporting a PDF field report.
+- Explain how the AC-3 neuro-symbolic layer prunes candidates by taxonomy/biogeography.
+- Help developers authenticate + call \`/identify\`.
+**Glossary:** Identify (upload→inference→results) · Journal/Library (saved IDs) · Heatmap (Grad-CAM attention) · AC-3 (constraint-pruning by habitat/geography/phenology) · Pro tier · API key.`,
+  codevisualizer: `# Code Visualizer — step-through execution with a live memory view
+**What it is:** Paste a program, press Visualize, and it compiles/runs the code server-side and returns a step-by-step trace you can scrub through. The left pane is the source plus its stdout; the right pane shows program state at the current step. The trace is a language-neutral JSON format, so it can be saved and reopened later. This instance is password-gated because it executes code.
+**Key features / workflows:**
+- Pick a **Language** and optionally an **Example** from the header, or paste your own source; **Visualize** (\`Ctrl+Enter\`) runs it.
+- **Memory tab:** Stack and Heap side by side, with arrows drawn from pointers to what they reference; freed blocks are marked, and the gutter marks which source lines have steps.
+- **Structure tab:** reads the *shape* of what the heap graph built (list, tree, cycle…) rather than just the raw boxes.
+- **Calls tab:** the call tree for the run. **Layout tab:** struct field layout with **real padding gaps**, computed from each field's address and the struct's total size — measured, not inferred from ABI rules.
+- **Narration:** a plain-language line describing what changed at this step.
+- **Inspector:** click a value to track it — prev/next change buttons plus a sparkline of its history.
+- **Transport:** first / prev / play / next / **step over** / **step out** / last, a scrubber with tick marks, and 0.5× – 8× speed.
+- **Leaks** and **diagnostics** panels surface what the backend reported (unfreed blocks, compiler messages).
+- **Save** downloads the trace as JSON; **Open** reloads one — no re-run needed.
+**Keyboard:** \`Ctrl+Enter\` visualize · \`Space\` play/pause · \`←\`/\`→\` step · \`↓\` step over · \`↑\` step out · \`Home\`/\`End\` first/last · drag the splitter (double-click resets, \`←\`/\`→\` when focused).
+**How Gemma can help:**
+- Read the current step's stack/heap and explain what the program just did.
+- Explain a pointer arrow, a freed block, or why a leak was reported.
+- Explain the padding gaps in the Layout tab and how field order changes struct size.
+- Suggest where to set up a step-over/step-out to skip noise and reach the interesting frame.
+- Help interpret a compiler diagnostic, or rewrite the source to test a hypothesis.
+**Glossary:** Step (one traced execution point) · Stack/Heap columns · Freed block · Leak (allocated, never freed) · Padding gap (unused bytes between fields, from real addresses) · Narration · Inspector (a tracked value's change history) · Trace (the saved JSON run).`,
+};

@@ -7,14 +7,14 @@
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import { Portal } from "solid-js/web";
 
-import type { FluxApp } from "./apps";
+import { FLUX_APPS, type FluxApp } from "./apps";
 import { AppIcon } from "./AppDock";
 import { RESIZE_HANDLES, startPaneDrag, startPaneResize } from "./paneGeometry";
 import { blockedMessage } from "./framecheck";
 import { framePolicy } from "./ipc";
 import { focusedAppId, setFocusedAppId, setOpenAppIds, openSitePanel, openTab } from "./store";
 
-const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
+const AppWindow: Component<{ app: FluxApp; index: number }> = (props) => {
   const [pos, setPos] = createSignal({ x: 120, y: 90 });
   const [size, setSize] = createSignal({ w: 920, h: 640 });
   const [dragging, setDragging] = createSignal(false); // disables iframe pointer-events mid-gesture
@@ -140,6 +140,13 @@ const AppPane: Component<{ app: FluxApp; index: number }> = (props) => {
       </div>
     </Portal>
   );
+};
+
+/** The pane for pinned app `id`. Looked up here rather than in App so the app
+ *  registry loads with this chunk instead of the boot bundle. */
+const AppPane: Component<{ id: string; index: number }> = (props) => {
+  const app = FLUX_APPS.find((a) => a.id === props.id);
+  return app ? <AppWindow app={app} index={props.index} /> : null;
 };
 
 export default AppPane;
