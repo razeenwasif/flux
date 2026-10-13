@@ -258,6 +258,7 @@ impl BookmarkStore {
                 items: self.items.read().clone(),
                 tombstones: self.tombstones.read().clone(),
             },
+            crate::persist::Durability::Barrier,
         );
     }
 }

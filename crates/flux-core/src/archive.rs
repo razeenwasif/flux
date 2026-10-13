@@ -127,7 +127,7 @@ fn meta(e: &ArchiveEntry, score: u32) -> ArchiveMeta {
 
 fn write_json(path: &Option<PathBuf>, entries: &[ArchiveEntry]) {
     if let Some(path) = path {
-        crate::persist::save_json(path, entries);
+        crate::persist::save_json(path, entries, crate::persist::Durability::Barrier);
     }
 }
 

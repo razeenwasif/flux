@@ -554,7 +554,11 @@ impl ScribeStore {
 
     fn write(&self, nb: &Notebook) {
         let Some(dir) = &self.dir else { return };
-        crate::persist::save_json(&dir.join(format!("{}.json", nb.id)), nb);
+        crate::persist::save_json(
+            &dir.join(format!("{}.json", nb.id)),
+            nb,
+            crate::persist::Durability::Barrier,
+        );
     }
 }
 
@@ -1602,7 +1606,7 @@ impl TranscriptStore {
             // older snapshot can't be renamed over the newer one.
             let items = parking_lot::RwLockWriteGuard::downgrade(items);
             let all: Vec<&Transcript> = items.values().collect();
-            crate::persist::save_json(p, &all);
+            crate::persist::save_json(p, &all, crate::persist::Durability::Barrier);
         }
     }
 }

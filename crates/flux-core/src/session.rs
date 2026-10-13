@@ -56,7 +56,7 @@ pub fn load(path: &Path) -> Session {
 }
 
 pub fn save(path: &Path, session: &Session) {
-    crate::persist::save_json_pretty(path, session);
+    crate::persist::save_json_pretty(path, session, crate::persist::Durability::Barrier);
 }
 
 #[cfg(test)]

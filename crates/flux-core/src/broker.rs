@@ -96,7 +96,11 @@ impl BrokerState {
         // torn file, which the next launch read as empty and the next `set`
         // then saved over every extension's data.
         let _writing = self.persist_lock.lock();
-        crate::persist::save_json_pretty(path, &*self.storage.read());
+        crate::persist::save_json_pretty(
+            path,
+            &*self.storage.read(),
+            crate::persist::Durability::Barrier,
+        );
     }
 
     // ── storage (flux.storage) ──────────────────────────────────────────────

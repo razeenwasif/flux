@@ -281,7 +281,7 @@ impl HistoryStore {
             let _ = std::fs::create_dir_all(dir);
         }
         let snapshot: Vec<HistoryEntry> = self.entries.read().values().cloned().collect();
-        crate::persist::save_json(path, &snapshot);
+        crate::persist::save_json(path, &snapshot, crate::persist::Durability::Barrier);
     }
 
     /// The exit flush: `persist_if_dirty`, but never before `hydrate` has run

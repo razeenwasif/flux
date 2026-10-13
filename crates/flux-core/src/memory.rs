@@ -80,7 +80,12 @@ pub fn memory_write(app: AppHandle, content: String) -> Result<(), String> {
     // Atomic (temp file + rename), so a failed write can't leave the file
     // truncated; through a symlinked FLUX_MEMORY_FILE to the file it names.
     let target = std::fs::canonicalize(&p).unwrap_or(p);
-    crate::persist::write_atomic(&target, content.as_bytes()).map_err(|e| e.to_string())
+    crate::persist::write_atomic_with(
+        &target,
+        content.as_bytes(),
+        crate::persist::Durability::Barrier,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Where the memory file lives (so the UI can show / open it).

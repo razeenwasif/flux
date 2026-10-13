@@ -211,7 +211,11 @@ impl BoostStore {
 
     fn persist(&self) {
         if let Some(path) = &self.path {
-            crate::persist::save_json_pretty(path, &*self.inner.read());
+            crate::persist::save_json_pretty(
+                path,
+                &*self.inner.read(),
+                crate::persist::Durability::Barrier,
+            );
         }
     }
 }

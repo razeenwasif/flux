@@ -206,6 +206,7 @@ impl CalStore {
                 feeds: self.feeds.read().clone(),
                 tombstones: self.tombstones.read().clone(),
             },
+            crate::persist::Durability::Barrier,
         );
     }
 }
@@ -432,6 +433,7 @@ impl LocalEventStore {
                 items: self.items.read().clone(),
                 tombstones: self.tombstones.read().clone(),
             },
+            crate::persist::Durability::Barrier,
         );
     }
 }

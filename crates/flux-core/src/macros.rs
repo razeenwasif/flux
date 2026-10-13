@@ -198,7 +198,11 @@ impl MacroState {
 
     fn persist(&self) {
         if let Some(path) = &self.path {
-            crate::persist::save_json_pretty(path, &*self.macros.read());
+            crate::persist::save_json_pretty(
+                path,
+                &*self.macros.read(),
+                crate::persist::Durability::Barrier,
+            );
         }
     }
 }

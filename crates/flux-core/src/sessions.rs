@@ -187,6 +187,7 @@ impl SessionStore {
                 items: self.items.read().clone(),
                 tombstones: self.tombstones.read().clone(),
             },
+            crate::persist::Durability::Barrier,
         );
     }
 }
@@ -277,7 +278,7 @@ impl SnapshotStore {
         let mut snaps = self.snaps.write();
         match snaps.iter_mut().find(|s| s.day == day) {
             // Taken every 5 minutes; most of the time nothing has changed, and
-            // rewriting the file (with a full flush) to say so was the only effect.
+            // rewriting the file (with a sync to disk) to say so was the only effect.
             Some(s) if s.tabs == tabs => return,
             Some(s) => {
                 s.tabs = tabs;
@@ -294,7 +295,11 @@ impl SnapshotStore {
         let json = serde_json::to_string(&*snaps).ok();
         drop(snaps);
         if let (Some(path), Some(json)) = (&self.path, json) {
-            let _ = crate::persist::write_atomic(path, json.as_bytes());
+            let _ = crate::persist::write_atomic_with(
+                path,
+                json.as_bytes(),
+                crate::persist::Durability::Barrier,
+            );
         }
     }
 }

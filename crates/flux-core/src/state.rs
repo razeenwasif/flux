@@ -214,9 +214,9 @@ pub struct FluxState {
     /// (tests / the `Default` impl).
     session_path: Option<std::path::PathBuf>,
     /// Session writes leave the UI thread: `persist` runs in sync commands, and
-    /// the write ends in an fsync (F_FULLFSYNC on macOS). Snapshots go to a
-    /// writer thread numbered by `persist_seq` as taken; `persist_written` is
-    /// the newest one on disk, so a stale snapshot never lands after a newer one.
+    /// the write ends in a sync to disk. Snapshots go to a writer thread
+    /// numbered by `persist_seq` as taken; `persist_written` is the newest one
+    /// on disk, so a stale snapshot never lands after a newer one.
     session_tx: Option<std::sync::mpsc::Sender<(u64, Vec<u8>)>>,
     persist_seq: parking_lot::Mutex<u64>,
     persist_written: Arc<parking_lot::Mutex<u64>>,
@@ -233,7 +233,10 @@ fn write_session_if_newer(
     let mut last = written.lock();
     if seq > *last {
         *last = seq;
-        if let Err(e) = crate::persist::write_atomic(path, json) {
+        // Barrier: a power cut may lose the last tab change, never the session.
+        if let Err(e) =
+            crate::persist::write_atomic_with(path, json, crate::persist::Durability::Barrier)
+        {
             tracing::warn!(target: "flux::session", "session save failed: {e}");
         }
     }

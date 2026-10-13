@@ -68,6 +68,7 @@ impl HttpsState {
                 enabled,
                 allow_http,
             },
+            crate::persist::Durability::Barrier,
         );
     }
 
