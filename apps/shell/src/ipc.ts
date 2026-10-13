@@ -1615,6 +1615,8 @@ export const traceChatSend = (
 /** Sentinel url for the full-page bookmarks view (DOM-rendered, no webview). */
 export const BOOKMARKS_URL = "flux://bookmarks";
 export const bookmarksList = () => invoke<Bookmark[]>("bookmarks_list");
+/** Id of a bookmark for exactly `url` (any folder), or null — the address-bar star. */
+export const bookmarkFind = (url: string) => invoke<number | null>("bookmark_find", { url });
 export const bookmarkFolders = () => invoke<string[]>("bookmark_folders");
 export const bookmarkAdd = (title: string, url: string, folder?: string) =>
   invoke<Bookmark>("bookmark_add", { title, url, folder: folder ?? null });

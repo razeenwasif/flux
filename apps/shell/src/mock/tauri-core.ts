@@ -746,6 +746,8 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<
         folder: String(args?.folder ?? ""),
         added_ms: T0,
       } as T);
+    case "bookmark_find":
+      return Promise.resolve(null as T);
     case "bookmark_remove":
     case "bookmark_rename":
     case "bookmarks_clear":

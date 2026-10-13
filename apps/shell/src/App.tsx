@@ -61,7 +61,7 @@ import {
   agentTranslate,
   bookmarkAdd,
   bookmarkRemove,
-  bookmarksList,
+  bookmarkFind,
   webviewDevtools,
   chromeFocus,
   isStartUrl,
@@ -431,10 +431,17 @@ const App: Component = () => {
   const [winW, setWinW] = createSignal(window.innerWidth);
   // #46: track per-URL last-access (keyed by URL so it survives restarts) and seed
   // restored tabs so they aren't treated as stale on the first auto-archive sweep.
-  createEffect(() => {
+  // Keyed on the active tab's id and url: every title tick and load event hands
+  // the active tab a new object, and each one rewrote the access map to storage.
+  const activeBrowserUrl = createMemo(() => {
     const t = activeTab();
-    if (t?.kind === "browser") touchTabUrl(t.url);
+    return t?.kind === "browser" ? t.url : null;
   });
+  createEffect(
+    on([activeId, activeBrowserUrl], ([, url]) => {
+      if (url) touchTabUrl(url);
+    }),
+  );
   createEffect(() => {
     seedTabAccess(
       tabs()
@@ -949,18 +956,22 @@ const App: Component = () => {
 
   // Bookmark state for the active page — drives the address-bar star + Ctrl+D.
   const [bookmarkedId, setBookmarkedId] = createSignal<number | null>(null);
-  const bookmarkableUrl = () => {
+  // A memo, so the lookup below runs when the url changes — not on every title
+  // tick or load event that hands the active tab a new object.
+  const bookmarkableUrl = createMemo(() => {
     const t = activeTab();
     return t?.kind === "browser" && !isStartUrl(t.url) ? t.url : null;
-  };
+  });
   createEffect(() => {
     const url = bookmarkableUrl();
     if (!url) {
       setBookmarkedId(null);
       return;
     }
-    void bookmarksList()
-      .then((bms) => setBookmarkedId(bms.find((b) => b.url === url)?.id ?? null))
+    // One lookup in Rust rather than shipping the whole bookmark list over IPC.
+    // An answer for a page we have already left is dropped.
+    void bookmarkFind(url)
+      .then((id) => bookmarkableUrl() === url && setBookmarkedId(id ?? null))
       .catch(() => setBookmarkedId(null));
   });
   const toggleBookmark = () => {
