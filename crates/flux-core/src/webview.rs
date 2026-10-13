@@ -145,6 +145,8 @@ mod real {
     /// Create the child webview for a Browser tab at the given rect (logical px,
     /// relative to the chrome window's top-left). Idempotent — a second call for
     /// an existing tab is a no-op (use `webview_navigate` to change the page).
+    /// That includes the restored tab's page setup already opened (boot.rs):
+    /// the call claims it for the shell, whose follow-up bounds and show place it.
     #[tauri::command]
     pub async fn webview_open(
         app: AppHandle,
@@ -155,13 +157,121 @@ mod real {
         width: f64,
         height: f64,
     ) -> Result<(), String> {
-        if app.get_webview(&label(tab_id)).is_some() {
-            return Ok(());
+        let at = Bounds {
+            x,
+            y,
+            width,
+            height,
+        };
+        if !open_tab_webview(&app, tab_id, &url, at, Opener::Shell)? {
+            claim_early(tab_id);
         }
+        // Boot timing: the shell's first page webview is in place, and its open
+        // resolves next. Marked here rather than by the shell (boot_mark) to keep
+        // the shell's eagerly loaded bundle from growing.
+        static FIRST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !FIRST.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            crate::boot::mark("shell.first_webview_open");
+        }
+        Ok(())
+    }
+
+    /// Who is opening a tab webview, which decides how it starts out.
+    #[derive(Clone, Copy)]
+    pub(crate) enum Opener {
+        /// The shell's `webview_open`: shown and focused at its rect.
+        Shell,
+        /// Setup, before the shell exists (boot.rs). Shown only when `visible`,
+        /// and kept track of until the shell takes it over ([`early_handoff`]).
+        Boot { visible: bool },
+    }
+
+    /// The page setup opened (boot.rs), from its creation until the shell is
+    /// listening for page events and takes it over.
+    struct EarlyPage {
+        tab: TabId,
+        /// Its latest page-load event, which the shell may not have heard.
+        last_load: Option<(String, &'static str)>,
+        /// The shell's own `webview_open` has reached it, so the shell is
+        /// placing it.
+        claimed: bool,
+    }
+    static EARLY: std::sync::Mutex<Option<EarlyPage>> = std::sync::Mutex::new(None);
+
+    fn early_page() -> std::sync::MutexGuard<'static, Option<EarlyPage>> {
+        EARLY.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn claim_early(tab_id: TabId) {
+        if let Some(page) = early_page().as_mut().filter(|p| p.tab == tab_id) {
+            page.claimed = true;
+            tracing::info!(target: "flux::boot", tab_id, "the shell's webview_open found the early webview");
+        }
+    }
+
+    /// The shell is listening for page events now (its `listening` boot mark):
+    /// hand it the page setup opened. That page's latest load and title events
+    /// go out again, since they can fire before the shell's listeners exist and
+    /// they carry the tab's address and loading state, its per-site zoom and
+    /// the Sentinel checks. A page the shell hasn't claimed with its own
+    /// `webview_open` (it wasn't a pane: an overlay was up, or another tab took
+    /// focus) is hidden, so nothing the shell doesn't know of stays on screen;
+    /// the shell shows it the usual way once it is a pane. One-shot.
+    pub(crate) fn early_handoff(app: &AppHandle) {
+        let Some(page) = early_page().take() else {
+            return;
+        };
+        if let Some((url, phase)) = &page.last_load {
+            let _ = app.emit("flux://tab-loaded", (page.tab, url, *phase));
+            if let Some(state) = app.try_state::<crate::state::FluxState>() {
+                if let Some(tab) = state.tabs.get(&page.tab) {
+                    if !tab.title.is_empty() {
+                        let _ = app.emit("flux://tab-title", (page.tab, url, &tab.title));
+                    }
+                }
+            }
+        }
+        if !page.claimed {
+            if let Some(wv) = app.get_webview(&label(page.tab)) {
+                let _ = wv.hide();
+            }
+        }
+        tracing::info!(
+            target: "flux::boot",
+            tab_id = page.tab,
+            claimed = page.claimed,
+            replayed = page.last_load.as_ref().map_or("nothing", |l| l.1),
+            "handed the early page to the shell"
+        );
+    }
+
+    /// Create a Browser tab's webview, unless it already exists (`Ok(false)`).
+    /// The one creation path for the shell and for setup, so both get the same
+    /// init scripts, content blocking, proxy, container jar and user agent.
+    pub(crate) fn open_tab_webview(
+        app: &AppHandle,
+        tab_id: TabId,
+        url: &str,
+        at: Bounds,
+        opener: Opener,
+    ) -> Result<bool, String> {
+        if app.get_webview(&label(tab_id)).is_some() {
+            return Ok(false);
+        }
+        let Bounds {
+            x,
+            y,
+            width,
+            height,
+        } = at;
         let window = app
             .get_window(CHROME_WINDOW)
             .ok_or("chrome window missing")?;
-        let target = parse_url(&url)?;
+        let target = parse_url(url)?;
+        let (visible, early) = match opener {
+            Opener::Shell => (true, false),
+            Opener::Boot { visible } => (visible, true),
+        };
 
         // Init script runs before page scripts: stamp the tab id, capture.js, the
         // app keyboard-shortcut forwarder (#18), the hibernation state helpers (#45),
@@ -242,7 +352,7 @@ mod real {
                 let _ = app_for_title.emit("flux://tab-title", (tab_id, url.as_str(), title));
             });
         if !private && container != 0 {
-            if let Some(dir) = container_data_dir(&app, container) {
+            if let Some(dir) = container_data_dir(app, container) {
                 builder = builder.data_directory(dir);
             }
             // Apple only; the data dir above is the jar everywhere else.
@@ -253,8 +363,18 @@ mod real {
         if let Some(user_agent) = crate::browser_identity::user_agent() {
             builder = builder.user_agent(user_agent);
         }
-        if let Some(proxy) = crate::proxy::for_webview(&app)? {
+        if let Some(proxy) = crate::proxy::for_webview(app)? {
             builder = builder.proxy_url(proxy);
+        }
+        // A page opened hidden must not take the keyboard from the shell.
+        builder = builder.focused(visible);
+        // Armed before the page exists, so its first event can't slip past.
+        if early {
+            *early_page() = Some(EarlyPage {
+                tab: tab_id,
+                last_load: None,
+                claimed: false,
+            });
         }
         let builder = builder
         .on_page_load(move |webview, payload| {
@@ -355,6 +475,11 @@ mod real {
                     let _ = webview.eval(format!("window.__fluxRestore&&window.__fluxRestore({json})"));
                 }
             }
+            if early {
+                if let Some(page) = early_page().as_mut().filter(|p| p.tab == tab_id) {
+                    page.last_load = Some((url.clone(), phase));
+                }
+            }
             let _ = app_for_load.emit("flux://tab-loaded", (tab_id, &url, phase));
             // A title callback can precede the URL event. Replay the latest title
             // after completion so the shell's URL guard doesn't lose that update.
@@ -374,27 +499,38 @@ mod real {
                 LogicalPosition::new(x, y),
                 LogicalSize::new(width.max(0.0), height.max(0.0)),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                if early {
+                    *early_page() = None; // no page to hand off
+                }
+                e.to_string()
+            })?;
         // Record its jar so cookie clears can reach it (#58). A private tab's
         // is in memory and goes with the webview.
-        crate::cookies::note_jar(&app, child.label(), if private { 0 } else { container });
+        crate::cookies::note_jar(app, child.label(), if private { 0 } else { container });
         // Belt-and-suspenders: re-apply geometry + visibility explicitly — some
         // platforms ignore the add_child args, leaving the page wrong/hidden.
         let _ = child.set_position(LogicalPosition::new(x, y));
         let _ = child.set_size(LogicalSize::new(width.max(0.0), height.max(0.0)));
-        let _ = child.show();
-        let _ = child.set_focus();
+        if visible {
+            let _ = child.show();
+            let _ = child.set_focus();
+        } else {
+            // Hidden in the main-thread turn it was made in, so it is never
+            // drawn; the shell's webview_show reveals it.
+            let _ = child.hide();
+        }
         round_webview(&child, width, height, scale); // rounded corners (#center-pane)
                                                      // Install the content-blocker request interceptor (#57/#91, ADR 0007) +
                                                      // native tracking prevention (#58).
-        crate::netfilter::install(&app, &child);
-        crate::tracking::install(&app, &child);
-        crate::permissions::install(&app, &child);
-        crate::downloads::install(&app, &child);
-        install_tab_accelerators(&app, &child); // Ctrl+Tab cycling (#18)
-        install_fullscreen_relayout(&app, &child); // re-tile after video fullscreen exit
-        tracing::info!(target: "flux::webview", tab_id, %url, x, y, width, height, scale, "opened tab webview");
-        Ok(())
+        crate::netfilter::install(app, &child);
+        crate::tracking::install(app, &child);
+        crate::permissions::install(app, &child);
+        crate::downloads::install(app, &child);
+        install_tab_accelerators(app, &child); // Ctrl+Tab cycling (#18)
+        install_fullscreen_relayout(app, &child); // re-tile after video fullscreen exit
+        tracing::info!(target: "flux::webview", tab_id, %url, x, y, width, height, scale, visible, early, "opened tab webview");
+        Ok(true)
     }
 
     /// Diagnostic: report the window scale + size and the tab webview's actual
