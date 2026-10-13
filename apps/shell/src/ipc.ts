@@ -1147,6 +1147,9 @@ export const webviewSetBounds = (tabId: number, r: Rect) =>
   invoke<void>("webview_set_bounds", { tabId, x: r.x, y: r.y, width: r.width, height: r.height });
 export const webviewShow = (tabId: number) => invoke<void>("webview_show", { tabId });
 export const webviewHide = (tabId: number) => invoke<void>("webview_hide", { tabId });
+/** Log a shell boot milestone in flux.log, on the same clock as Rust's marks.
+ *  `listening` also has Rust hand over the page it opened during setup (boot.rs). */
+export const bootMark = (name: string) => void invoke("boot_mark", { name }).catch(() => {});
 export const webviewNavigate = (tabId: number, url: string) =>
   invoke<void>("webview_navigate", { tabId, url });
 export const webviewZoom = (tabId: number, factor: number) => invoke<void>("webview_zoom", { tabId, factor });

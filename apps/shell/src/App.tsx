@@ -101,6 +101,7 @@ import {
   webviewReload,
   webviewZoom,
   webviewExtractReader,
+  bootMark,
   onReader,
   webviewCapture,
   onScreenshot,
@@ -861,6 +862,12 @@ const App: Component = () => {
         }
       }),
     );
+    // Rust may have opened the restored tab's page during setup (boot.rs), and
+    // it can load before the tab listeners above exist; its address, loading
+    // state, zoom and Sentinel checks all ride on those events. Once they are
+    // live, say so: Rust sends that page's latest ones again and hides it if
+    // this shell never took it as a pane.
+    void Promise.allSettled(listeners).then(() => bootMark("listening"));
     // Web panel unread badges (#48): a panel reports its title's (N) count.
     holdListener(onPanelBadge((id, count) => setPanelBadge(id, count)));
   });
