@@ -28,6 +28,7 @@
  * Usage:  node scripts/perf-budget.mjs [--dist <dir>] [--binary <path>] [--json]
  * Exit code 1 if any checked budget is exceeded.
  */
+import { execFileSync } from "node:child_process";
 import { gzipSync } from "node:zlib";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -128,10 +129,28 @@ const distDir = flag("--dist", join(ROOT, "apps/shell/dist"));
 const binaryArg = flag("--binary", findBinary());
 
 function findBinary() {
-  for (const p of [join(ROOT, "target/release/flux"), join(ROOT, "target/release/flux.exe")]) {
-    if (existsSync(p)) return p;
+  for (const dir of new Set([cargoTargetDir(), join(ROOT, "target")])) {
+    for (const p of [join(dir, "release/flux"), join(dir, "release/flux.exe")]) {
+      if (existsSync(p)) return p;
+    }
   }
   return null;
+}
+
+/** Where cargo builds to: target/ unless CARGO_TARGET_DIR or a cargo config's
+ *  build.target-dir points elsewhere. A fixed target/ then measured whatever
+ *  stale build was last left there. */
+function cargoTargetDir() {
+  try {
+    const out = execFileSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return JSON.parse(out).target_directory || join(ROOT, "target");
+  } catch {
+    return join(ROOT, "target");
+  }
 }
 
 function gzipLen(file) {
