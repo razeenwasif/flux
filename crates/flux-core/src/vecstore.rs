@@ -89,6 +89,30 @@ impl VecStore {
         true
     }
 
+    /// Append a row another store already quantized, as it is. Moving rows
+    /// between stores this way re-quantizes nothing, so a row comes out exactly
+    /// as it went in. `false` on a width mismatch, as with [`push`](Self::push).
+    pub fn push_quantized(&mut self, row: &[i8], scale: f32) -> bool {
+        if row.is_empty() {
+            return false;
+        }
+        if self.is_empty() {
+            self.dim = row.len();
+        } else if row.len() != self.dim {
+            return false;
+        }
+        self.data.extend_from_slice(row);
+        self.scales.push(scale);
+        true
+    }
+
+    /// Give back what pushing row by row over-allocated, for a store that's
+    /// done growing and will be held for a while.
+    pub fn shrink_to_fit(&mut self) {
+        self.scales.shrink_to_fit();
+        self.data.shrink_to_fit();
+    }
+
     /// Append another store's rows. Both must agree on width.
     pub fn append(&mut self, other: &VecStore) -> bool {
         if other.is_empty() {
@@ -382,6 +406,27 @@ mod tests {
         s.retain(|_| false);
         assert!(s.is_empty() && s.dim() == 0);
         assert!(s.push(&unit(9, 32)) && s.dim() == 32);
+    }
+
+    #[test]
+    fn quantized_rows_move_between_stores_unchanged() {
+        let mut a = VecStore::default();
+        for i in 0..3 {
+            a.push(&unit(i + 40, 24));
+        }
+        let mut b = VecStore::default();
+        for (row, scale) in a.rows().skip(1) {
+            assert!(b.push_quantized(row, scale));
+        }
+        let moved: Vec<(Vec<i8>, f32)> = b.rows().map(|(r, s)| (r.to_vec(), s)).collect();
+        let want: Vec<(Vec<i8>, f32)> = a.rows().skip(1).map(|(r, s)| (r.to_vec(), s)).collect();
+        assert_eq!(moved, want);
+        assert!(
+            !b.push_quantized(&[1, 2], 1.0),
+            "a different width is refused"
+        );
+        assert!(!b.push_quantized(&[], 1.0));
+        assert_eq!(b.len(), 2);
     }
 
     #[test]
