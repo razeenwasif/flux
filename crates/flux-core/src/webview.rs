@@ -731,7 +731,14 @@ mod real {
                     died_hidden().insert(tab);
                     tracing::info!(target: "flux::webview", tab_id = tab, "a background tab's page process died; it reloads when shown");
                 }
-                _ => reload_after_death(&target, &label, tab),
+                // Not from in here: while this callback runs, Tauri has taken the
+                // webview out of its list, so a reload sent now finds no webview
+                // and is dropped without a word. Queued, it runs once this returns.
+                _ => {
+                    tauri::async_runtime::spawn(async move {
+                        reload_after_death(&target, &label, tab);
+                    });
+                }
             }
         });
     }
