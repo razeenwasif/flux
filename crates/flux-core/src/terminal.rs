@@ -434,6 +434,15 @@ pub fn terminal_write(
         .map_err(|_| "terminal session has exited".to_string())
 }
 
+/// Settle which broker keeps terminals alive across restarts (dtach or tmux)
+/// before the first persistent terminal is spawned. Finding them asks the user's
+/// login shell, which can take a moment, and `terminal_spawn` runs on the main
+/// thread: the shell awaits this first, so the window doesn't freeze.
+#[tauri::command]
+pub async fn terminal_prepare_live() {
+    let _ = tauri::async_runtime::spawn_blocking(live_engine).await;
+}
+
 /// xterm has written `bytes` more of the session's output (its write callback
 /// fired), so that much more may be sent. See [`Flow`].
 #[tauri::command]
@@ -798,9 +807,11 @@ fn bash_startup_args(shell: &str) -> Vec<String> {
 /// dropping the feature. Windows lookups are cached in `msys`; the Unix probe
 /// below keeps its own cache.
 fn shell_program(cmd: &str) -> String {
+    // Where the user's shell finds it: a Dock-launched Flux has launchd's PATH,
+    // without Homebrew's dtach or tmux (`exec::login_shell_which`).
     #[cfg(not(windows))]
     {
-        cmd.to_string()
+        crate::exec::login_shell_which(cmd).unwrap_or_else(|| cmd.to_string())
     }
     #[cfg(windows)]
     {
@@ -822,11 +833,14 @@ fn command_available(cmd: &str) -> bool {
         if let Some(&hit) = cache.lock().get(cmd) {
             return hit;
         }
-        let found = std::process::Command::new("sh")
-            .args(["-c", &format!("command -v {cmd}")])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+        // The user's shell first, then Flux's own PATH (a shell that wouldn't
+        // answer, with Flux started from a terminal that has the tool).
+        let found = crate::exec::login_shell_which(cmd).is_some()
+            || std::process::Command::new("sh")
+                .args(["-c", &format!("command -v {cmd}")])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
         cache.lock().insert(cmd.to_string(), found);
         found
     }
@@ -1935,6 +1949,9 @@ mod stub {
 
     #[tauri::command]
     pub fn terminal_ack(_manager: State<'_, TerminalManager>, _session: u64, _bytes: usize) {}
+
+    #[tauri::command]
+    pub async fn terminal_prepare_live() {}
 
     #[tauri::command]
     pub fn terminal_resize(

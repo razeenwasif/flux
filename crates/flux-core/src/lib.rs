@@ -1268,6 +1268,7 @@ pub fn run(intent: cli::LaunchIntent) {
             terminal::terminal_spawn,
             terminal::terminal_write,
             terminal::terminal_ack,
+            terminal::terminal_prepare_live,
             terminal::terminal_resize,
             terminal::terminal_kill,
             webview::webview_open,

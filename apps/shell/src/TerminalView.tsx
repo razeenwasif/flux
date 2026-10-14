@@ -19,6 +19,7 @@ import {
   onTermExit,
   terminalKill,
   terminalResize,
+  terminalPrepareLive,
   terminalSpawn,
   terminalWrite,
   termPersist,
@@ -511,7 +512,10 @@ const TerminalView: Component<{
       term.write(bytes, () => ack(bytes.byteLength));
     };
     try {
-      await terminalSpawn(props.session, term.cols, term.rows, channel, props.persist ?? termPersist());
+      const persist = props.persist ?? termPersist();
+      // Settle dtach/tmux first, off the main thread (a login-shell lookup).
+      if (persist === "live" || persist === "both") await terminalPrepareLive().catch(() => {});
+      await terminalSpawn(props.session, term.cols, term.rows, channel, persist);
       // TUI app launcher (#117): run the queued command now the PTY is live.
       const initCmd = takePendingCommand(props.session);
       if (initCmd) void terminalWrite(props.session, new TextEncoder().encode(initCmd + "\r"));

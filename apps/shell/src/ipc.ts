@@ -1751,6 +1751,9 @@ export const TERM_PERSIST_KEY = "flux.term.persist";
 export const termPersist = (): TermPersist =>
   (localStorage.getItem(TERM_PERSIST_KEY) as TermPersist | null) ?? "off";
 
+/** Find dtach/tmux (through the login shell) off the main thread, before a
+ *  persistent terminal is spawned: `terminal_spawn` runs on the main thread. */
+export const terminalPrepareLive = () => invoke<void>("terminal_prepare_live");
 /** Spawn a PTY for `session`; `onData` streams raw output bytes in batches,
  *  each an ArrayBuffer, paced by `terminalAck` (termflow.ts). */
 export const terminalSpawn = (

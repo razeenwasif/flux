@@ -350,8 +350,74 @@ pub async fn run_shell(command: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Where the user's shell finds `cmd`, asked once per name.
+///
+/// A Dock-launched macOS app has launchd's PATH (`/usr/bin:/bin:/usr/sbin:/sbin`):
+/// no Homebrew, MacPorts or nix. The terminal's shells are login shells and see
+/// the user's PATH, but what Flux runs itself (dtach, tmux, the nvim client)
+/// searched Flux's own. So ask the shell: `-lic` reads both the login files
+/// (`~/.zprofile`, where Homebrew's installer puts `brew shellenv`) and the rc
+/// files (`~/.zshrc`, `~/.bashrc`). `None` when the shell doesn't know it either,
+/// or only as an alias or function. The first ask starts a shell, so keep it off
+/// the main thread.
+#[cfg(unix)]
+pub(crate) fn login_shell_which(cmd: &str) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+    // Fixed tool names only: this is spliced into a shell command.
+    debug_assert!(cmd
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+    static CACHE: OnceLock<parking_lot::Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(hit) = cache.lock().get(cmd) {
+        return hit.clone();
+    }
+    // The same choice as `terminal::default_shell`.
+    let shell = std::env::var("FLUX_SHELL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| std::env::var("SHELL").ok())
+        .unwrap_or_else(|| "/bin/sh".into());
+    let mut lookup = Command::new(shell);
+    lookup.args(["-lic", &format!("command -v {cmd}")]);
+    let found = run_bounded(lookup, std::time::Duration::from_secs(5), 64 * 1024)
+        .ok()
+        .filter(|o| o.status.success() && !o.timed_out)
+        .and_then(|o| last_absolute_path(&String::from_utf8_lossy(&o.stdout)));
+    cache.lock().insert(cmd.to_string(), found.clone());
+    found
+}
+
+/// The last line that is an absolute path: startup files are free to print
+/// banners, and `command -v` reports an alias as its definition.
+#[cfg(unix)]
+fn last_absolute_path(out: &str) -> Option<String> {
+    out.lines()
+        .map(str::trim)
+        .rfind(|l| l.starts_with('/'))
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn the_shells_answer_is_read_past_any_banner() {
+        // What `$SHELL -lic 'command -v nvim'` prints when an rc file greets you.
+        let out = "Welcome back!\n  /opt/homebrew/bin/nvim  \n";
+        assert_eq!(
+            super::last_absolute_path(out).as_deref(),
+            Some("/opt/homebrew/bin/nvim")
+        );
+        // Not found, or only an alias: no path.
+        assert_eq!(super::last_absolute_path(""), None);
+        assert_eq!(
+            super::last_absolute_path("alias nvim='nvim -u NONE'\n"),
+            None
+        );
+    }
+
     use super::*;
 
     #[test]
