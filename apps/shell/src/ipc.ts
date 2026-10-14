@@ -1680,6 +1680,11 @@ export const webviewDebug = (tabId: number) => invoke<string>("webview_debug", {
 export const onTabTitle = (cb: (tabId: number, url: string, title: string) => void): Promise<UnlistenFn> =>
   listen<[number, string, string]>("flux://tab-title", (e) => cb(...e.payload));
 
+/** A tab's page process died (macOS) and was reloaded: [tabId, again]. `again` means it
+ *  died again right after an automatic reload, so it was left for the user to reload. */
+export const onPageReloaded = (cb: (tabId: number, again: boolean) => void): Promise<UnlistenFn> =>
+  listen<[number, boolean]>("flux://page-reloaded", (e) => cb(e.payload[0], e.payload[1]));
+
 /** Page load progress for a tab: [tabId, url, "started" | "finished"]. */
 export const onTabLoaded = (
   cb: (tabId: number, url: string, phase: "started" | "finished") => void,

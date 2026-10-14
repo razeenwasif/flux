@@ -63,6 +63,7 @@ import {
   onTabLoaded,
   onTabTitle,
   onPanelBadge,
+  onPageReloaded,
   searchSetDefault,
   tabSetUrl,
   webviewBack,
@@ -859,6 +860,15 @@ const App: Component = () => {
     void Promise.allSettled(listeners).then(() => bootMark("listening"));
     // Web panel unread badges (#48): a panel reports its title's (N) count.
     holdListener(onPanelBadge((id, count) => setPanelBadge(id, count)));
+    // A page's process died and Rust reloaded it (macOS). Say so: anything typed
+    // into the page is gone, and a page that keeps dying is left to the user.
+    holdListener(
+      onPageReloaded((_id, again) =>
+        again
+          ? toast("This page stopped again. Reload it when you're ready.", "warn", 4000)
+          : toast("This page stopped and was reloaded.", "info"),
+      ),
+    );
   });
 
   // Capture a tab's scroll/form state the moment it leaves the screen (#45),

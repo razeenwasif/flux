@@ -372,6 +372,8 @@ mod real {
         // A page opened hidden must not take the keyboard from the shell.
         builder = builder.focused(visible);
         // Armed before the page exists, so its first event can't slip past.
+        #[cfg(target_os = "macos")]
+        died_hidden().remove(&tab_id);
         if early {
             *early_page() = Some(EarlyPage {
                 tab: tab_id,
@@ -656,8 +658,109 @@ mod real {
             set_memory_target(&wv, false);
             wv.show().map_err(|e| e.to_string())?;
             let _ = wv.set_focus();
+            // Its page process died while it was in the background.
+            #[cfg(target_os = "macos")]
+            if died_hidden().remove(&tab_id) {
+                reload_after_death(&wv, &label(tab_id), Some(tab_id));
+            }
         }
         Ok(())
+    }
+
+    /// How soon after an automatic reload a second death counts as a loop. A
+    /// page that keeps killing its process (out of memory as it loads, say) is
+    /// left for you to reload, rather than retried forever.
+    #[cfg(target_os = "macos")]
+    const RELOAD_LOOP_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
+
+    /// Background tabs whose page process died, reloaded when next shown.
+    #[cfg(target_os = "macos")]
+    fn died_hidden() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<TabId>> {
+        static DIED: std::sync::Mutex<std::collections::BTreeSet<TabId>> =
+            std::sync::Mutex::new(std::collections::BTreeSet::new());
+        DIED.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// When each webview (by label) was last reloaded after its process died.
+    #[cfg(target_os = "macos")]
+    type ReloadTimes = std::collections::BTreeMap<String, std::time::Instant>;
+
+    #[cfg(target_os = "macos")]
+    fn auto_reloaded() -> std::sync::MutexGuard<'static, ReloadTimes> {
+        static LAST: std::sync::Mutex<ReloadTimes> = std::sync::Mutex::new(ReloadTimes::new());
+        LAST.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Whether a webview whose process just died may be reloaded, given when it
+    /// was last reloaded for the same reason.
+    #[cfg(target_os = "macos")]
+    fn reload_allowed(last: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+        match last {
+            None => true,
+            Some(t) => now.saturating_duration_since(t) >= RELOAD_LOOP_WINDOW,
+        }
+    }
+
+    /// macOS: a webview's WebKit process died, killed to free memory or crashed.
+    /// WebKit reloads such a page itself only when the app doesn't handle this
+    /// callback, and wry always does, so the view stayed blank until something
+    /// navigated it. Registered for every webview Tauri makes (lib.rs): tabs,
+    /// web panels, peeks, installed web apps and the chrome itself.
+    ///
+    /// A background tab waits until it's shown again (`webview_show`): WebKit
+    /// kills hidden pages first to free memory, and reloading at once would take
+    /// that memory straight back. Anything on screen reloads now.
+    #[cfg(target_os = "macos")]
+    pub fn on_content_process_died(wv: &Webview) {
+        let label = wv.label().to_string();
+        let tab = label
+            .strip_prefix("tab-")
+            .and_then(|id| id.parse::<TabId>().ok());
+        let target = wv.clone();
+        // On the main thread, where the view's hidden flag can be read.
+        let _ = wv.with_webview(move |platform| {
+            use objc::runtime::Object;
+            use objc::{msg_send, sel, sel_impl};
+            let view = platform.inner() as *mut Object;
+            let hidden = !view.is_null() && {
+                let hidden: bool = unsafe { msg_send![view, isHidden] };
+                hidden
+            };
+            match tab {
+                Some(tab) if hidden => {
+                    died_hidden().insert(tab);
+                    tracing::info!(target: "flux::webview", tab_id = tab, "a background tab's page process died; it reloads when shown");
+                }
+                _ => reload_after_death(&target, &label, tab),
+            }
+        });
+    }
+
+    /// Reload a webview whose process died, unless it already did so moments ago,
+    /// and tell the chrome when it was a tab, since the page lost what was typed
+    /// into it.
+    #[cfg(target_os = "macos")]
+    fn reload_after_death(wv: &Webview, label: &str, tab: Option<TabId>) {
+        let now = std::time::Instant::now();
+        let allowed = {
+            let mut last = auto_reloaded();
+            let allowed = reload_allowed(last.get(label).copied(), now);
+            if allowed {
+                last.insert(label.to_string(), now);
+            }
+            allowed
+        };
+        if allowed {
+            tracing::warn!(target: "flux::webview", label, "a page's process died; reloading it");
+            let _ = wv.reload();
+        } else {
+            tracing::warn!(target: "flux::webview", label, "a page's process died again right after a reload; leaving it");
+        }
+        if let Some(tab) = tab {
+            let _ = wv
+                .app_handle()
+                .emit("flux://page-reloaded", (tab, !allowed));
+        }
     }
 
     /// Trim a backgrounded tab's memory without unloading it (idea 1 of the memory
@@ -1609,6 +1712,28 @@ mod real {
         #[cfg(not(target_os = "macos"))]
         let _ = window;
     }
+    #[cfg(all(test, target_os = "macos"))]
+    mod crash_reload_tests {
+        use super::{reload_allowed, RELOAD_LOOP_WINDOW};
+        use std::time::{Duration, Instant};
+
+        #[test]
+        fn a_page_whose_process_died_reloads_unless_it_just_did() {
+            let reloaded = Instant::now();
+            assert!(reload_allowed(None, reloaded), "the first death reloads");
+            let soon = reloaded + Duration::from_secs(5);
+            assert!(
+                !reload_allowed(Some(reloaded), soon),
+                "dying again 5 s later is a loop"
+            );
+            let later = reloaded + RELOAD_LOOP_WINDOW;
+            assert!(
+                reload_allowed(Some(reloaded), later),
+                "a death a while later reloads again"
+            );
+        }
+    }
+
     #[cfg(test)]
     mod script_join_tests {
         use super::{filter_scripts, join_page_scripts, live_flags_js};

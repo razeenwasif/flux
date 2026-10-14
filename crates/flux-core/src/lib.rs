@@ -1120,6 +1120,9 @@ pub fn run(intent: cli::LaunchIntent) {
     // (ADR 0012, Milestone 2); driven by webview.rs's mobile arm.
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_flux_webview::init());
+    // macOS: reload a page whose WebKit process died, rather than leave it blank.
+    #[cfg(target_os = "macos")]
+    let builder = builder.on_web_content_process_terminate(webview::on_content_process_died);
     let app = builder
         // OS notifications (used by the reminder scheduler).
         .plugin(tauri_plugin_notification::init())
