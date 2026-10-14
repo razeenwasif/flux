@@ -37,6 +37,7 @@ import {
   type TraceHistogram,
 } from "./ipc";
 import { openTab } from "./store";
+import { askConfirm } from "./ask";
 import "./TrailPage.css";
 
 type GNode = {
@@ -503,7 +504,12 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
   const forgetWindow = async () => {
     const win = WINDOWS[windowIdx()]!;
     if (win.ms == null) {
-      if (!window.confirm("Forget your ENTIRE Trail? This can't be undone.")) return;
+      const ok = await askConfirm({
+        title: "Forget your entire Trail?",
+        hint: "This can't be undone.",
+        confirm: "Forget everything",
+      });
+      if (!ok) return;
       await traceForget({ kind: "all" }).catch(() => {});
     } else {
       // Forget the window being viewed. Scrubbed back, that's [end − span, end],
@@ -511,7 +517,12 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       const end = endMs();
       const after = (end ?? Date.now()) - win.ms;
       const what = end == null ? `the last ${win.label}` : `${fmtT(after)} → ${fmtT(end)}`;
-      if (!window.confirm(`Forget everything in the Trail from ${what}? This can't be undone.`)) return;
+      const ok = await askConfirm({
+        title: `Forget everything in the Trail from ${what}?`,
+        hint: "This can't be undone.",
+        confirm: "Forget",
+      });
+      if (!ok) return;
       await traceForget({ kind: "range", after_ms: after, before_ms: end }).catch(() => {});
     }
     setSelected(null);
@@ -612,10 +623,11 @@ const TrailPage: Component<{ onNavigate: (url: string) => void }> = (props) => {
       if (urls.length >= 6) break;
     }
     if (urls.length === 0) return;
-    if (
-      !window.confirm(`Reopen ${urls.length} page${urls.length === 1 ? "" : "s"} from this window as tabs?`)
-    )
-      return;
+    const ok = await askConfirm({
+      title: `Reopen ${urls.length} page${urls.length === 1 ? "" : "s"} from this window as tabs?`,
+      confirm: "Reopen",
+    });
+    if (!ok) return;
     for (const u of urls) await openTab("browser", u).catch(() => {});
   };
 

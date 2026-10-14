@@ -14,6 +14,8 @@
 import { createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 
+import { holdDialog } from "./dialogs";
+
 export type AskOptions = {
   title: string;
   /** Prefilled value — the current name, for a rename. */
@@ -38,12 +40,14 @@ export const askText = (opts: AskOptions): Promise<string | null> =>
     const host = document.createElement("div");
     document.body.appendChild(host);
     let done = false;
+    const release = holdDialog(); // web pages would otherwise cover the dialog
 
     const finish = (value: string | null) => {
       if (done) return; // Esc during the closing frame would resolve twice
       done = true;
       dispose();
       host.remove();
+      release();
       resolve(value);
     };
 
@@ -115,12 +119,14 @@ export const askConfirm = (opts: ConfirmOptions): Promise<boolean> =>
     const host = document.createElement("div");
     document.body.appendChild(host);
     let done = false;
+    const release = holdDialog();
 
     const finish = (ok: boolean) => {
       if (done) return;
       done = true;
       dispose();
       host.remove();
+      release();
       resolve(ok);
     };
 

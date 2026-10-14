@@ -1,5 +1,6 @@
 import { launcherOpen } from "./launcherOpen";
 import { indexerPanelOpen } from "./indexerOpen";
+import { dialogsOpen } from "./dialogs";
 import { linkMenuOpen } from "./linkMenu";
 /**
  * Shared tab store. Module-level Solid signals: the tab strip, pinned rail,
@@ -1200,6 +1201,7 @@ export { fillRequest, setFillRequest };
 // only this. Forgetting a flag here is the bug class that hid split view and
 // buried expanded home widgets — don't re-grow per-effect boolean chains.
 export const pageOverlayActive = (): boolean =>
+  dialogsOpen() > 0 ||
   launcherOpen() ||
   indexerPanelOpen() ||
   readerOpen() ||

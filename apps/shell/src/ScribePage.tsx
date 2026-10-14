@@ -9,7 +9,7 @@
  * durable course-notes surface. Same engine, different shell.
  */
 import { For, Show, createSignal, on, onCleanup, onMount, createEffect, type Component } from "solid-js";
-import { askText } from "./ask";
+import { askConfirm, askText } from "./ask";
 
 import { renderStrokesScaled, type InkTemplate, type Stroke } from "./InkCanvas";
 import ScribeDoc, { DOC_H, DOC_W, parseDoc } from "./ScribeDoc";
@@ -232,7 +232,12 @@ const ScribePage: Component = () => {
   };
 
   const removeNotebook = async (id: string, name: string) => {
-    if (!window.confirm(`Delete notebook “${name}” and all its pages?`)) return;
+    const ok = await askConfirm({
+      title: `Delete notebook “${name}”?`,
+      hint: "All its pages go with it.",
+      confirm: "Delete",
+    });
+    if (!ok) return;
     try {
       await scribeDelete(id);
       await refreshShelf();
@@ -291,7 +296,7 @@ const ScribePage: Component = () => {
     setPageIndex(i + 1);
   };
 
-  const deletePage = () => {
+  const deletePage = async () => {
     const cur = notebook();
     if (!cur) return;
     if (cur.pages.length <= 1) {
@@ -307,7 +312,7 @@ const ScribePage: Component = () => {
       });
       return;
     }
-    if (!window.confirm("Delete this page?")) return;
+    if (!(await askConfirm({ title: "Delete this page?", confirm: "Delete" }))) return;
     const idx = pageIndex();
     const pages2 = cur.pages.filter((_, i) => i !== idx);
     setPageIndex(Math.min(idx, pages2.length - 1));

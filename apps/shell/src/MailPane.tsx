@@ -15,6 +15,7 @@ import { For, Show, createEffect, createSignal, onMount, type Component } from "
 
 import { mailConfig, mailConnect, mailDisconnect, mailFetch, mailMarkAllRead, type MailMsg } from "./ipc";
 import { openTab } from "./store";
+import { askConfirm } from "./ask";
 import { visibleInterval } from "./poll";
 
 /** Gmail's own app-password host, which is what this is overwhelmingly for. */
@@ -96,7 +97,7 @@ const MailPane: Component = () => {
 
   /** The only thing this pane changes on the server, so it asks first and says
    *  what happened after. */
-  const markAllRead = () => {
+  const markAllRead = async () => {
     const n = unread();
     if (!n) return;
     // `n` only counts unread mail among the newest FETCH_LIMIT messages, but the
@@ -106,7 +107,12 @@ const MailPane: Component = () => {
       msgs().length >= FETCH_LIMIT
         ? `every unread message in your inbox (${n} among the newest ${FETCH_LIMIT}, possibly many more)`
         : `${n} message${n === 1 ? "" : "s"}`;
-    if (!window.confirm(`Mark ${what} as read? This applies in Gmail too.`)) return;
+    const ok = await askConfirm({
+      title: `Mark ${what} as read?`,
+      hint: "This applies in Gmail too.",
+      confirm: "Mark as read",
+    });
+    if (!ok) return;
     setBusy(true);
     setErr("");
     void mailMarkAllRead()

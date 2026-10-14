@@ -6,6 +6,7 @@
  */
 import type { Accessor, Setter } from "solid-js";
 
+import { askConfirm } from "./ask";
 import { setIndexerPanelOpen } from "./indexerOpen";
 import {
   APPS_URL,
@@ -134,15 +135,15 @@ export function paletteActions(ctx: PaletteContext): PaletteAction[] {
       return;
     }
     const undoable = Math.min(n, 25);
-    if (
-      !window.confirm(
-        `Close ${n} tab${n === 1 ? "" : "s"} ${where}?\n\n` +
-          (n > undoable
-            ? `Ctrl+Shift+T can reopen the last ${undoable} of them, one at a time.`
-            : `Ctrl+Shift+T reopens them one at a time.`),
-      )
-    )
-      return;
+    const ok = await askConfirm({
+      title: `Close ${n} tab${n === 1 ? "" : "s"} ${where}?`,
+      hint:
+        n > undoable
+          ? `Ctrl+Shift+T can reopen the last ${undoable} of them, one at a time.`
+          : "Ctrl+Shift+T reopens them one at a time.",
+      confirm: "Close",
+    });
+    if (!ok) return;
     const closed = await closeTabs(targets.map((t) => t.id));
     toast(`Closed ${closed} tab${closed === 1 ? "" : "s"}`, "ok");
   };

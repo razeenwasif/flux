@@ -14,6 +14,7 @@ import {
   type HistoryEntry,
 } from "./ipc";
 import { ensureFavicon, faviconFor, titleInternalTab } from "./store";
+import { askConfirm } from "./ask";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string | null {
@@ -71,8 +72,10 @@ const HistoryPage: Component<{ onNavigate: (url: string) => void }> = (props) =>
 
   const open = (e: HistoryEntry) => props.onNavigate(e.url);
   const forget = (e: HistoryEntry) => void historyDelete(e.url).then(load);
-  const clearAll = () => {
-    if (confirm("Clear all browsing history?")) void historyClear().then(load);
+  const clearAll = async () => {
+    if (await askConfirm({ title: "Clear all browsing history?", confirm: "Clear" })) {
+      void historyClear().then(load);
+    }
   };
 
   // Empty query → group recents by day; query → a single ranked "Results" group.

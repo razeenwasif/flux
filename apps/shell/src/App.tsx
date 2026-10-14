@@ -1223,7 +1223,13 @@ const App: Component = () => {
   };
   const removeWorkspace = async (id: number) => {
     if (workspaces().length <= 1) return;
-    if (!confirm("Delete this workspace and all its tabs?")) return;
+    const { askConfirm } = await import("./ask"); // kept out of the boot bundle
+    const ok = await askConfirm({
+      title: "Delete this workspace?",
+      hint: "Its tabs close with it.",
+      confirm: "Delete",
+    });
+    if (!ok) return;
     const closed = await workspaceDelete(id).catch(() => [] as number[]);
     for (const tid of closed) {
       forgetWebview(tid);

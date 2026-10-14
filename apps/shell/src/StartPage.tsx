@@ -559,8 +559,13 @@ const StartPage: Component<{
     }
     setCalBusy(0);
   };
-  const dropFeed = (f: CalFeed) => {
-    if (!window.confirm(`Unsubscribe from “${f.name}”? Events you've imported stay.`)) return;
+  const dropFeed = async (f: CalFeed) => {
+    const ok = await askConfirm({
+      title: `Unsubscribe from “${f.name}”?`,
+      hint: "Events you've imported stay.",
+      confirm: "Unsubscribe",
+    });
+    if (!ok) return;
     void calRemove(f.id)
       .then(() => {
         loadFeeds();

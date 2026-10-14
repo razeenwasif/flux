@@ -18,6 +18,7 @@ import {
   type ChromeProfilePreview,
 } from "./ipc";
 import { ensureFavicon, faviconFor, openUrlsAsGroup, titleInternalTab } from "./store";
+import { askConfirm } from "./ask";
 import { openLinkMenu } from "./linkMenu";
 
 function hostOf(url: string): string | null {
@@ -100,8 +101,10 @@ const BookmarksPage: Component<{ onNavigate: (url: string) => void }> = (props) 
       window.dispatchEvent(new Event("flux:bookmarks-changed"));
     });
   };
-  const clearAll = () => {
-    if (confirm("Remove all bookmarks?")) void bookmarksClear().then(load);
+  const clearAll = async () => {
+    if (await askConfirm({ title: "Remove all bookmarks?", confirm: "Remove all" })) {
+      void bookmarksClear().then(load);
+    }
   };
   const openFolderAsGroup = async (folder: string, rows: Bookmark[]) => {
     const name = folder.split("/").pop() || folder;

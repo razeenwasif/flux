@@ -10,7 +10,7 @@
  * OS layer above all chrome HTML — the only way an overlay can cover a page).
  */
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js";
-import { askText } from "./ask";
+import { askConfirm, askText } from "./ask";
 import { Portal } from "solid-js/web";
 
 import {
@@ -364,10 +364,15 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     saveProfiles([...profiles(), name]);
     setProfile(name);
   };
-  const removeProfile = () => {
+  const removeProfile = async () => {
     const p = profile();
     if (profiles().length <= 1) return;
-    if (!window.confirm(`Remove the “${p}” list? Its tasks move to “${profiles()[0]}”.`)) return;
+    const ok = await askConfirm({
+      title: `Remove the “${p}” list?`,
+      hint: `Its tasks move to “${profiles()[0]}”.`,
+      confirm: "Remove",
+    });
+    if (!ok) return;
     const rest = profiles().filter((x) => x !== p);
     // Never orphan tasks into a list with no tab — move them to the first one.
     void Promise.all(
@@ -497,7 +502,11 @@ const CalendarPop: Component<{ docked?: boolean }> = (props) => {
     }
   };
   const remove = async (e: CalEvent) => {
-    if (!window.confirm(`Delete “${e.summary}”${e.rrule ? " (the whole repeating series)" : ""}?`)) return;
+    const ok = await askConfirm({
+      title: `Delete “${e.summary}”${e.rrule ? " (the whole repeating series)" : ""}?`,
+      confirm: "Delete",
+    });
+    if (!ok) return;
     await calEventDelete(e.id).catch(() => {});
     await refresh();
   };

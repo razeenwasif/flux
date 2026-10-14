@@ -246,7 +246,6 @@ Shipped this cycle; the open half is listed per item.
 | 146 | ◐ | **Chrome-JS budget creep.** 63.8 → 66.1 KB gzip across this cycle (budget 70). `ask.tsx` and `palette.ts` are the obvious lazy-import candidates — neither is needed at boot. Worth doing before the next feature rather than at 69 KB. |
 | 147 | ◐ | **Hand-mirrored lists across the FFI boundary** keep drifting: `OWN_SOURCES` (Rust vs TS) and `shortcuts.js` vs `shortcuts.ts` both broke silently this cycle. The shortcuts pair now has a parity test; **`OWN_SOURCES` still has none**. Specta (#12) covers types, not constant lists — a small test per pair is the cheap fix. |
 | 148 | ◐ | **Session tab provenance.** Closing "a session's tabs" matches by URL, because nothing records that a tab came from a session. Real provenance would have to survive every move, pin and workspace change — probably not worth it, but the current behaviour closes a copy you opened yourself. |
-| 193 | P1 | **Native `confirm()` is dead on macOS.** wry's WKWebView delegate has no JavaScript confirm panel, so `window.confirm` returns false without showing anything and the action behind it never runs there: Trail "Forget…", mail "Mark all read", clear history, remove all bookmarks, delete a workspace, notebook, page, task list or calendar event, and more (~16 sites; grep `confirm(` in `apps/shell/src`). `askConfirm` in `ask.tsx` is the drop-in (`await` it); load it dynamically from `App.tsx`, which is in the entry chunk. |
 
 ## Epic: Chrome layout & the PDF viewer (2026-08)
 

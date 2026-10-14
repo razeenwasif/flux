@@ -15,6 +15,7 @@
  */
 import { For, Show, createEffect, createSignal, on, onCleanup, onMount, type Component } from "solid-js";
 import "./InkCanvas.css";
+import { askConfirm } from "./ask";
 
 export type Pt = { x: number; y: number };
 export type PathStroke = { t: "pen" | "hi"; color: string; w: number; pts: Pt[] };
@@ -1041,8 +1042,12 @@ const InkCanvas: Component<Props> = (props) => {
     undoStack.push(props.strokes);
     props.onChange(next);
   };
-  const clearAll = () => {
-    if (strokes().length && !window.confirm("Clear this page? (Undo can bring it back.)")) return;
+  const clearAll = async () => {
+    if (
+      strokes().length &&
+      !(await askConfirm({ title: "Clear this page?", hint: "Undo can bring it back.", confirm: "Clear" }))
+    )
+      return;
     commit([]);
   };
 
