@@ -341,6 +341,14 @@ mod real {
             // parse_url check has to gate every later navigation too.
             .on_navigation(|u| !super::is_app_origin(u))
             .on_document_title_changed(move |webview, title| {
+                // When a page's process dies, WebKit resets its state, clearing the
+                // title and the URL, and reports the title change. wry's `url()`
+                // unwraps that missing URL, and a panic in this callback aborted
+                // Flux. An empty title carries nothing to record anyway (a page
+                // that blanks its own title keeps showing the last one).
+                if title.is_empty() {
+                    return;
+                }
                 let Ok(url) = webview.url() else {
                     return;
                 };
